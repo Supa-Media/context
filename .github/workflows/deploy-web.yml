@@ -114,6 +114,53 @@ jobs:
         working-directory: apps/mobile
         run: eas deploy --prod --environment=production --non-interactive
 
+      # `eas deploy --prod` reporting success is NOT proof that context.lc moved.
+      # It has published a deployment and left the production alias pointing at
+      # the previous one — three deploys in a row "succeeded" while the live site
+      # kept serving stale JS, and nothing in the log said so. The only honest
+      # check is to ask the public URL what it is serving.
+      #
+      # The web export names its entry bundle with a content hash, so the
+      # filename in `dist/index.html` is unique to this build. If the live HTML
+      # references it, the alias moved. If it does not, the deploy silently did
+      # not go live, and this job has to fail rather than report green.
+      - name: Verify the live site serves this build
+        working-directory: apps/mobile
+        run: |
+          set -euo pipefail
+          bundle=$(node -e '
+            const fs = require("fs");
+            const html = fs.readFileSync("dist/index.html", "utf8");
+            const match = html.match(/\/_expo\/static\/js\/web\/[A-Za-z0-9._-]+\.js/);
+            if (!match) {
+              console.error("Could not find the entry bundle in dist/index.html.");
+              process.exit(1);
+            }
+            process.stdout.write(match[0]);
+          ')
+          echo "Built bundle: $bundle"
+
+          # EAS Hosting and the Cloudflare router in front of it need a moment to
+          # serve the new alias, so this polls rather than sleeping a fixed time.
+          for attempt in $(seq 1 20); do
+            live=$(curl -fsSL --max-time 20 https://context.lc/ || true)
+            case "$live" in
+              *"$bundle"*)
+                echo "OK — https://context.lc is serving this build (attempt $attempt)."
+                exit 0
+                ;;
+            esac
+            echo "Attempt $attempt: not live yet."
+            sleep 15
+          done
+
+          echo "ERROR: https://context.lc never served the bundle this run built."
+          echo "The deploy step reported success, so the likeliest cause is that the"
+          echo "production alias did not move. Recover with:"
+          echo "  eas deploy:list      # find this run's deployment id"
+          echo "  eas deploy:alias --prod --id <id>"
+          exit 1
+
       - name: Summary
         if: always()
         run: |
