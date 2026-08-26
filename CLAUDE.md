@@ -87,23 +87,77 @@ The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,
 folder defaults with exact-note overrides) is proven and load-bearing. Refactor
 its *plumbing* freely; changing its *semantics* needs an explicit decision.
 
-## Building for cross-brain sharing (do this now, it's cheap)
+## Vocabulary
 
-Sharing between users — "does LK's brain know anything about this?" — is coming.
-Three things must be true from the start, because retrofitting them is painful:
+The user-facing noun is **context**, never "brain". People structure their
+context however they like, so a name implying one shape is wrong. Use it in
+tool descriptions, UI copy, docs, and new code.
 
-1. **Usernames are globally unique and stable.** One namespace, unique index,
-   reserved-word list.
-2. **An authenticated session resolves to a *set* of accessible brains, not
-   one.** Even while that set always has exactly one member today. Do not
-   hardcode one-session-one-bucket.
-3. **Audit records the acting identity, not just the scope.** `actorScope:
-   "team"` is useless once "team" is several people.
+Legacy single-tenant names (`BRAIN` binding, `PRIVATE_TOKEN`) survive only
+where they're load-bearing for the original deployment, and should disappear as
+code is generalized.
 
-Cross-brain paths are addressed as `@username/1-projects/foo.md`. Bare paths
-mean the caller's own brain.
+## The workspace model (build this now, it's cheap)
 
-Do **not** build federation UI, cross-brain ranking, or discovery yet.
+**A workspace is the unit that owns a context.** One workspace, one storage
+binding, one privacy manifest, one audit trail.
+
+Everything the product will eventually need is the same object with different
+membership:
+
+| Shape                       | What it is                                   |
+| --------------------------- | -------------------------------------------- |
+| Personal context            | workspace with one member (`owner`)          |
+| Someone granting you access | you added as a member of *their* workspace   |
+| Shared project context      | workspace with several members, no single personal owner |
+
+Do not model these separately, and in particular:
+
+- **A storage binding belongs to a `workspaceId`, never a `userId`.** Getting
+  this backwards makes shared contexts a migration instead of a row.
+- **A user belongs to many workspaces**, and an authenticated session resolves
+  to a *set* of accessible contexts — even while that set has exactly one
+  member today. Do not hardcode one-session-one-bucket anywhere.
+- **Membership carries an explicit role.** Read access and write access to
+  someone else's context are different grants; write is never implied. Start
+  with `owner` | `editor` | `member`, mapping onto the existing
+  private/team visibility tiers.
+- **Usernames and workspace slugs share one global namespace**, unique and
+  stable, with a reserved-word list. Sharing is addressed by name.
+- **Audit records the acting identity, not just the scope.** `actorScope:
+  "team"` is useless once "team" is four people.
+
+Cross-context paths are addressed `@name/1-projects/foo.md`, where `name` is a
+username or workspace slug. A bare path means the caller's own context.
+
+### Deliberately not yet
+
+Do **not** build these; just don't foreclose them:
+
+- **Mounts** — a folder that is really a link to another workspace's bucket
+  (`1-projects/thing/` → `@shared-thing`). Falls out of `@name/path` addressing
+  plus a stored alias when we want it.
+- Federation UI, cross-context search ranking, discovery, org/enterprise
+  administration.
+
+## This repository is public and MIT licensed
+
+Open source from the first commit. That raises the bar in three concrete ways:
+
+- **Assume every line is read by an attacker.** No secrets, no internal
+  hostnames, no account identifiers, no customer data — not in code, tests,
+  fixtures, comments, commit messages, or docs. Fixtures use obviously fake
+  values.
+- **Security-sensitive code gets adversarial review, not a skim.** Anything
+  touching auth, token handling, tenant isolation, path resolution, signature
+  verification, or credential storage must be reviewed for what an attacker
+  could do with it — and needs a test proving the attack fails.
+- **Self-hosting is a supported path, not a courtesy.** Someone must be able to
+  clone this, deploy the gateway, point it at their own bucket, and have a
+  working context without us. Keep `apps/mcp` dependency-free and its setup
+  documented.
+
+Work goes through pull requests with review. Do not push to `main`.
 
 ## Engineering standards
 
