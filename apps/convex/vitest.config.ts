@@ -26,6 +26,12 @@ export default defineConfig({
       // suite proves it never reaches a response or an audit row — which is
       // only checkable because the tests know what it is.
       GATEWAY_SECRET: "test-gateway-secret-not-a-real-one",
+      // The Email Worker's own secret — a *different* value held by a different
+      // pair of parties, for the reasons in `lib/gatewayAuth.ts`. Deliberately
+      // not a prefix, suffix, or substring of the gateway's, so a test proving
+      // "the gateway secret does not open an ingest route" cannot pass by
+      // coincidence.
+      EMAIL_WORKER_SECRET: "test-email-worker-secret-not-a-real-one",
       // Where the consent screen lives. `.invalid` is reserved by RFC 2606 and
       // resolves nowhere, so a test that accidentally made a request to it
       // would fail rather than reach something.

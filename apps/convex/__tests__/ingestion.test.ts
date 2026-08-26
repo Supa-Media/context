@@ -171,12 +171,23 @@ describe("the seeded default", () => {
 /* -------------------------------------------------------------------------- */
 
 describe("who may read", () => {
-  test("any member can read the policy", async () => {
+  test("the sole owner can read the policy", async () => {
+    const { t, ownerId, workspaceId } = await scenario();
+
+    expect((await get(t, ownerId, workspaceId))?.targetFolder).toBe("0-inbox/");
+  });
+
+  test("a member cannot — there is nobody but the owner in a personal context", async () => {
+    // The read used to be `member`, reasoning that people already inside a
+    // shared context should see what is being captured into it. Mail no longer
+    // reaches a shared context at all, so that reasoning has no subject: a
+    // personal context has one member and it is the owner.
     const { t, ownerId, workspaceId } = await scenario();
     const memberId = await createUser(t, "member@example.test");
     await addMember(t, workspaceId, memberId, "member", ownerId);
 
-    expect((await get(t, memberId, workspaceId))?.targetFolder).toBe("0-inbox/");
+    const error = await captureError(() => get(t, memberId, workspaceId));
+    expect(errorCode(error)).toBe("INSUFFICIENT_ROLE");
   });
 
   test("a non-member gets WORKSPACE_NOT_FOUND, not a forbidden", async () => {

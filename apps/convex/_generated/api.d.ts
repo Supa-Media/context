@@ -16,6 +16,7 @@ import type * as functions_controlPlane from "../functions/controlPlane.js";
 import type * as functions_files from "../functions/files.js";
 import type * as functions_grants from "../functions/grants.js";
 import type * as functions_ingestion from "../functions/ingestion.js";
+import type * as functions_ingestionGateway from "../functions/ingestionGateway.js";
 import type * as functions_invitations from "../functions/invitations.js";
 import type * as functions_lib_audit from "../functions/lib/audit.js";
 import type * as functions_lib_crypto from "../functions/lib/crypto.js";
@@ -52,6 +53,7 @@ declare const fullApi: ApiFromModules<{
   "functions/files": typeof functions_files;
   "functions/grants": typeof functions_grants;
   "functions/ingestion": typeof functions_ingestion;
+  "functions/ingestionGateway": typeof functions_ingestionGateway;
   "functions/invitations": typeof functions_invitations;
   "functions/lib/audit": typeof functions_lib_audit;
   "functions/lib/crypto": typeof functions_lib_crypto;
