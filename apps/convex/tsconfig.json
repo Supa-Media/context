@@ -6,12 +6,12 @@
     "strict": true,
     "skipLibCheck": true,
     "allowJs": true,
-    "types": ["node"],
+    "types": ["node", "vite/client"],
     "noEmit": true,
     "paths": {
       "@shared/*": ["../../packages/shared/src/*"]
     }
   },
   "include": ["./**/*.ts"],
-  "exclude": ["node_modules", "_generated"]
+  "exclude": ["node_modules"]
 }

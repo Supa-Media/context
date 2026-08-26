@@ -4,16 +4,21 @@
   "private": true,
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "dev": "convex dev"
   },
   "dependencies": {
-    "@supa-media/convex": "^0.2.0",
     "@context/shared": "workspace:*",
     "@convex-dev/auth": "^0.0.90",
+    "@supa-media/convex": "^0.2.0",
     "convex": "^1.31.3"
   },
   "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
     "@types/node": "^22.0.0",
-    "typescript": "~5.9.2"
+    "convex-test": "^0.0.56",
+    "typescript": "~5.9.2",
+    "vitest": "^2"
   }
 }
