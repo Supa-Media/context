@@ -29,6 +29,7 @@ import {
   bindFakeStorage,
   createUser,
   createWorkspace,
+  drainScheduled,
   setupTest,
 } from "./fixtures.helpers";
 import { type MemoryS3Options, memoryS3 } from "./storeStub.helpers";
@@ -97,32 +98,6 @@ async function connecting(options: ConnectOptions = {}) {
   );
 
   return { t, owner, workspaceId, backend };
-}
-
-/**
- * Run every queued scheduled function to completion.
- *
- * `finishInProgressScheduledFunctions()` only awaits jobs that have already
- * *started*, and a `runAfter(0)` job sits `pending` behind a real 0ms timer
- * until the event loop gets a turn. Awaiting it straight after the mutation
- * therefore returns immediately, having waited for nothing — a test written
- * that way asserts on the state before verification and passes or fails for
- * reasons unrelated to the code. So: yield, drain, repeat until the queue is
- * empty, and fail loudly rather than silently proceeding if it never is.
- */
-async function drainScheduled(t: TestConvex): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    const jobs = await t.run((ctx) =>
-      ctx.db.system.query("_scheduled_functions").collect(),
-    );
-    const outstanding = jobs.filter(
-      (job) => job.state.kind === "pending" || job.state.kind === "inProgress",
-    );
-    if (outstanding.length === 0) return;
-    await new Promise((resolve) => setTimeout(resolve, 1));
-    await t.finishInProgressScheduledFunctions();
-  }
-  throw new Error("scheduled functions never drained");
 }
 
 /** The same thing through the real public flow, which *does* schedule. */

@@ -1,19 +1,13 @@
 import { useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  TextInput,
-  View,
-  useWindowDimensions,
-} from "react-native";
-import { useRouter } from "expo-router";
+import { ActivityIndicator, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { Button } from "../design/components/Button";
+import { TextField } from "../design/components/Input";
 import { Text } from "../design/components/Text";
 import { clamp, colors, fonts, layout, leading, radii, tracking } from "../design/tokens";
 import { StageBackdrop } from "../design/components/StageBackdrop";
-import { CONSOLE_ROUTE, LANDING_ROUTE } from "./redirect";
+import { LANDING_ROUTE, safeNextRoute } from "./redirect";
 
 /**
  * Email OTP sign-in, styled to the console's palette.
@@ -21,11 +15,18 @@ import { CONSOLE_ROUTE, LANDING_ROUTE } from "./redirect";
  * Two steps — request a code, then verify it — against `@convex-dev/auth`'s
  * email provider, which is configured by `createSupaAuth` in
  * `apps/convex/auth.ts`. There is no password anywhere in the product.
+ *
+ * A `?next=` parameter survives the round trip, narrowed by `safeNextRoute` on
+ * the way through. It exists for the consent screen: an AI client sends someone
+ * to `/authorize?request_id=…`, and dropping them on the console afterwards
+ * would strand the OAuth attempt with nothing to retry.
  */
 export function LoginScreen() {
   const { signIn } = useAuthActions();
   const router = useRouter();
   const { width } = useWindowDimensions();
+  const params = useLocalSearchParams<{ next?: string | string[] }>();
+  const next = safeNextRoute(Array.isArray(params.next) ? params.next[0] : params.next);
 
   const [step, setStep] = useState<"request" | "verify">("request");
   const [email, setEmail] = useState("");
@@ -53,7 +54,7 @@ export function LoginScreen() {
     setSubmitting(true);
     try {
       await signIn("email", { email: email.trim(), code: code.trim() });
-      router.replace(CONSOLE_ROUTE);
+      router.replace(next);
     } catch {
       setError("That code didn't work. Codes expire — ask for a new one if it's been a while.");
     } finally {
@@ -104,7 +105,7 @@ export function LoginScreen() {
 
         <View style={styles.card}>
           {step === "request" ? (
-            <LabelledInput
+            <TextField
               label="Email"
               value={email}
               onChangeText={setEmail}
@@ -120,7 +121,7 @@ export function LoginScreen() {
               testID="login-email"
             />
           ) : (
-            <LabelledInput
+            <TextField
               label="One-time code"
               value={code}
               onChangeText={setCode}
@@ -177,38 +178,6 @@ export function LoginScreen() {
   );
 }
 
-function LabelledInput({
-  label,
-  testID,
-  ...props
-}: React.ComponentProps<typeof TextInput> & { label: string; testID?: string }) {
-  const [focused, setFocused] = useState(false);
-
-  return (
-    <View>
-      <Text variant="eyebrow" style={styles.inputLabel} nativeID={`${testID}-label`}>
-        {label}
-      </Text>
-      <TextInput
-        {...props}
-        testID={testID}
-        aria-labelledby={testID ? `${testID}-label` : undefined}
-        accessibilityLabel={label}
-        placeholderTextColor={colors.muted}
-        onFocus={(event) => {
-          setFocused(true);
-          props.onFocus?.(event);
-        }}
-        onBlur={(event) => {
-          setFocused(false);
-          props.onBlur?.(event);
-        }}
-        style={[styles.input, focused && styles.inputFocused]}
-      />
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   ground: {
     flex: 1,
@@ -246,19 +215,6 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     paddingHorizontal: 20,
   },
-  inputLabel: { marginBottom: 6 },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.lineStrong,
-    borderRadius: radii.xl,
-    backgroundColor: colors.well,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    fontSize: 15,
-    fontFamily: fonts.body,
-    color: colors.text,
-  },
-  inputFocused: { borderColor: colors.accent },
   error: { marginTop: -4 },
   actions: { gap: 14, alignItems: "flex-start" },
   foot: { marginTop: 26, lineHeight: leading(12.5, 1.6) },

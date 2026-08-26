@@ -9,6 +9,32 @@
 export const LANDING_ROUTE = "/";
 export const LOGIN_ROUTE = "/login";
 export const CONSOLE_ROUTE = "/console";
+export const AUTHORIZE_ROUTE = "/authorize";
+
+/**
+ * Send someone to sign in and bring them back to where they were.
+ *
+ * `resolveProtectedRoute` deliberately does *not* do this — the console's own
+ * panes are all reachable from its rail once you land, so a redirect parameter
+ * there would be an open-redirect surface bought for nothing. The consent
+ * screen is the one place that genuinely needs it: an AI client sent the
+ * browser to `/authorize?request_id=…`, and dropping that id on the floor
+ * because the person was signed out means the client's OAuth attempt fails
+ * with nothing to retry.
+ *
+ * The target is narrowed by `safeNextRoute` on the way in as well as on the way
+ * out, so a link that would leave the app never even survives being built.
+ */
+export function loginHref(next?: string | null): string {
+  const target = safeNextRoute(next);
+  if (target === CONSOLE_ROUTE) return LOGIN_ROUTE;
+  return `${LOGIN_ROUTE}?next=${encodeURIComponent(target)}`;
+}
+
+/** `/authorize?request_id=…` for a given parked request. */
+export function authorizeHref(requestId: string): string {
+  return `${AUTHORIZE_ROUTE}?request_id=${encodeURIComponent(requestId)}`;
+}
 
 export interface AuthState {
   /** True until @convex-dev/auth has finished restoring the stored token. */

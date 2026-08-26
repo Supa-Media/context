@@ -4,13 +4,24 @@ import { colors, radii } from "../tokens";
 import { FocusRing } from "./FocusRing";
 import { Text, type TextVariant } from "./Text";
 
-export type ButtonVariant = "white" | "ghost" | "mini" | "danger";
+/**
+ * `decision` is the only shape not in the mockup, and it exists for one screen.
+ *
+ * The consent screen's Approve and Deny must carry **identical** visual weight —
+ * a screen where refusing is a quieter, smaller, greyer control than accepting
+ * is a dark pattern, whatever the copy says. Neither `.btn-white` (the hero
+ * CTA, which shouts) nor `.mini` (a chip, which mumbles) can be used for both
+ * halves of that pair without one of them winning. So: one shape, used twice,
+ * with the words carrying the whole difference.
+ */
+export type ButtonVariant = "white" | "ghost" | "mini" | "danger" | "decision";
 
 const radiusFor: Record<ButtonVariant, number> = {
   white: radii.cta,
   ghost: radii.xs,
   mini: radii.md,
   danger: radii.md,
+  decision: radii.cta,
 };
 
 const labelVariant: Record<ButtonVariant, TextVariant> = {
@@ -18,6 +29,7 @@ const labelVariant: Record<ButtonVariant, TextVariant> = {
   ghost: "ghost",
   mini: "mini",
   danger: "mini",
+  decision: "cta",
 };
 
 export interface ButtonProps {
@@ -84,6 +96,7 @@ export function Button({
         variant={labelVariant[variant]}
         style={[
           variant === "danger" && styles.dangerLabel,
+          variant === "decision" && styles.decisionLabel,
           variant === "ghost" && hovered && styles.ghostLabelHover,
         ]}
       >
@@ -140,7 +153,24 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface3,
   },
 
+  /**
+   * `decision` — `.mini`'s materials at the hero CTA's scale. Same border,
+   * same fill, same radius for both halves of the pair; nothing here is
+   * conditional on which of the two it is.
+   */
+  decision: {
+    gap: 9,
+    justifyContent: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: radii.cta,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    backgroundColor: colors.surface3,
+  },
+
   dangerLabel: { color: colors.critText },
+  decisionLabel: { color: colors.text },
   ghostLabelHover: { color: colors.text },
 
   pressed: { opacity: 0.82 },
@@ -157,6 +187,9 @@ const hoverStyles = StyleSheet.create({
   ghost: {},
   mini: { borderColor: "rgba(255,255,255,.26)" },
   danger: { backgroundColor: colors.critWash },
+  // Identical hover for both halves of the consent pair, for the same reason
+  // their resting state is identical.
+  decision: { borderColor: "rgba(255,255,255,.26)" },
 });
 
 /**

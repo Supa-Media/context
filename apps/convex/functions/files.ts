@@ -377,6 +377,11 @@ export const runFileOperation = internalAction({
         accessKeyId: credential.accessKeyId,
         secretAccessKey: credential.secretAccessKey,
         fetchImpl: timeoutFetch,
+        // The stored addressing style, so the console reads and writes the same
+        // bucket the gateway does. Omitting it would leave the file editor
+        // unable to open a virtual-hosted bucket the gateway serves fine — and
+        // on the ambiguous endpoints, addressing a *different* bucket.
+        forcePathStyle: credential.forcePathStyle,
       }) as unknown as FileStore;
       // `S3Store` *declares* conditional writes because it sends `If-Match`.
       // Whether the backend honours it is a different question, and it was

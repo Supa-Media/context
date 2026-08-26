@@ -61,15 +61,23 @@ export function useDemoConsoleData(): ConsoleData {
     clients: DEMO_CLIENTS,
     storage: {
       connected: true,
+      status: "connected",
       provider: "Cloudflare R2",
       bucket: "brain",
       endpoint: "…r2.cloudflarestorage.com",
+      region: "auto",
       accessKey: "a1b2…8f3c",
       conditionalWrite: true,
       objectCount: PLACEHOLDER_OBJECT_COUNT,
       paraPresent: PLACEHOLDER_PARA_PRESENT,
       versioningOn: PLACEHOLDER_VERSIONING_ON,
+      // Frozen: nothing in the demo ever moves, so nothing can be waiting on it.
+      updatedAt: 0,
     },
+    // Absent on purpose, like `revoke` on the demo clients: Re-verify, Rotate
+    // and Disconnect all act on a real credential, and a demo console must
+    // never offer a control that pretends to act.
+    storageActions: undefined,
     endpoint: MCP_ENDPOINT,
     ingestionAddress: "seyi@context.lc",
     files,

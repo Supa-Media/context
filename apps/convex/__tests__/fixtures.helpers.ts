@@ -15,6 +15,7 @@ import schema from "../schema";
 import { modules } from "../test.setup";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
+import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 
 /**
  * Bound to our schema on purpose. `ReturnType<typeof convexTest>` would
@@ -107,13 +108,148 @@ export async function bindFakeStorage(
   t: TestConvex,
   userId: Id<"users">,
   workspaceId: Id<"workspaces">,
-  overrides: Partial<typeof FAKE_STORAGE> & { rootPrefix?: string } = {},
+  overrides: Partial<typeof FAKE_STORAGE> & {
+    rootPrefix?: string;
+    forcePathStyle?: boolean;
+  } = {},
 ) {
   return await asUser(t, userId).action(api.functions.storage.bindStorage, {
     workspaceId,
     ...FAKE_STORAGE,
     ...overrides,
   });
+}
+
+/**
+ * Run every queued scheduled function to completion.
+ *
+ * `finishInProgressScheduledFunctions()` only awaits jobs that have already
+ * *started*, and a `runAfter(0)` job sits `pending` behind a real 0ms timer
+ * until the event loop gets a turn. Awaiting it straight after the mutation
+ * therefore returns immediately, having waited for nothing — a test written
+ * that way asserts on the state before verification and passes or fails for
+ * reasons unrelated to the code. So: yield, drain, repeat until the queue is
+ * empty, and fail loudly rather than silently proceeding if it never is.
+ */
+export async function drainScheduled(t: TestConvex): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const jobs = await t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect(),
+    );
+    const outstanding = jobs.filter(
+      (job) => job.state.kind === "pending" || job.state.kind === "inProgress",
+    );
+    if (outstanding.length === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    await t.finishInProgressScheduledFunctions();
+  }
+  throw new Error("scheduled functions never drained");
+}
+
+/**
+ * A storage binding in a chosen state, with **no verification queued**.
+ *
+ * Inserted directly rather than through `bindStorage`, for the reason
+ * `provisioning.test.ts` gives at length: `bindStorage` schedules a
+ * `runAfter(0)` probe, `convex-test` starts those eagerly on a real timer, and
+ * a probe that cannot reach the network flips the row to `error` partway
+ * through whatever the test was actually about. A test whose fixture races
+ * itself is worse than no test.
+ *
+ * The envelope is produced by the real `encryptSecret`, bound to this
+ * workspace, so the decrypt path exercised downstream is the real one.
+ */
+export async function seedStorageBinding(
+  t: TestConvex,
+  options: {
+    workspaceId: Id<"workspaces">;
+    boundBy: Id<"users">;
+    status?: "unverified" | "connected" | "error";
+    endpoint?: string;
+    bucket?: string;
+    rootPrefix?: string;
+    forcePathStyle?: boolean;
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    capabilities?: { conditionalWrite: boolean };
+    lastError?: string;
+    errorCode?: string;
+  },
+): Promise<void> {
+  const secretAccessKey = options.secretAccessKey ?? FAKE_STORAGE.secretAccessKey;
+  const encryptedSecretAccessKey = await encryptSecret(
+    secretAccessKey,
+    requireKeyset(),
+    { workspaceId: options.workspaceId },
+  );
+  const now = Date.now();
+  await t.run((ctx) =>
+    ctx.db.insert("storageBindings", {
+      workspaceId: options.workspaceId,
+      provider: FAKE_STORAGE.provider,
+      endpoint: options.endpoint ?? FAKE_STORAGE.endpoint,
+      region: FAKE_STORAGE.region,
+      bucket: options.bucket ?? FAKE_STORAGE.bucket,
+      rootPrefix: options.rootPrefix,
+      forcePathStyle: options.forcePathStyle,
+      accessKeyId: options.accessKeyId ?? FAKE_STORAGE.accessKeyId,
+      encryptedSecretAccessKey,
+      capabilities: options.capabilities ?? { conditionalWrite: true },
+      status: options.status ?? "connected",
+      lastVerifiedAt: options.status === "connected" ? now : undefined,
+      lastError: options.lastError,
+      errorCode: options.errorCode,
+      boundBy: options.boundBy,
+      createdAt: now,
+      updatedAt: now,
+    }),
+  );
+}
+
+/**
+ * The gateway secret the test deployment expects. Obviously fake, and mirrored
+ * in `vitest.config.ts` — the tests need to know it in order to prove it never
+ * escapes into a response or an audit row.
+ */
+export const TEST_GATEWAY_SECRET = "test-gateway-secret-not-a-real-one";
+
+/** One control-plane call, exactly as the gateway makes it. */
+export async function gatewayPost(
+  t: TestConvex,
+  path: string,
+  body: unknown,
+  options: { secret?: string | null } = {},
+): Promise<Response> {
+  const secret = options.secret === undefined ? TEST_GATEWAY_SECRET : options.secret;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  // `null` means "send no Authorization header at all", which is a different
+  // request from "send the wrong secret" and must get the identical answer.
+  if (secret !== null) headers.Authorization = `Bearer ${secret}`;
+
+  return await t.fetch(path, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Everything about a response that a caller can observe.
+ *
+ * Two refusals being "both null" is not the property that matters —
+ * `isolation.test.ts` makes the same point about error payloads. What matters
+ * is that a caller cannot tell them apart at all, so the comparison is over
+ * the status, the headers, and the bytes.
+ */
+export async function responseFingerprint(response: Response): Promise<string> {
+  const headers = [...response.headers.entries()]
+    .map(([key, value]) => `${key.toLowerCase()}: ${value}`)
+    .sort()
+    .join("\n");
+  return `${response.status}\n${headers}\n${await response.text()}`;
 }
 
 /** Seed a grant directly — the OAuth flow lives in the gateway, not here. */

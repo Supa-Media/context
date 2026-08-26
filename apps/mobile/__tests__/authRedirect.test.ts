@@ -2,8 +2,10 @@ import { describe, expect, test } from "@jest/globals";
 import {
   CONSOLE_ROUTE,
   LOGIN_ROUTE,
+  authorizeHref,
   landingCtaHref,
   landingCtaLabel,
+  loginHref,
   resolveAuthRoute,
   resolveProtectedRoute,
   safeNextRoute,
@@ -97,5 +99,54 @@ describe("landing call to action", () => {
   test("offers a signed-in visitor their console instead", () => {
     expect(landingCtaHref(signedIn)).toBe(CONSOLE_ROUTE);
     expect(landingCtaLabel(signedIn)).toBe("Open your console");
+  });
+});
+
+/**
+ * `?next=` exists for exactly one screen. The OAuth consent screen is reached
+ * by an AI client redirecting a browser to `/authorize?request_id=…`; sending a
+ * signed-out visitor to a bare `/login` drops the request id, and the client's
+ * OAuth attempt then fails with nothing to retry.
+ */
+describe("coming back after signing in", () => {
+  test("a plain login link when there is nowhere in particular to return to", () => {
+    expect(loginHref(null)).toBe(LOGIN_ROUTE);
+    expect(loginHref(undefined)).toBe(LOGIN_ROUTE);
+    expect(loginHref(CONSOLE_ROUTE)).toBe(LOGIN_ROUTE);
+  });
+
+  test("carries a safe target, url-encoded", () => {
+    expect(loginHref("/authorize?request_id=abc")).toBe(
+      "/login?next=%2Fauthorize%3Frequest_id%3Dabc",
+    );
+  });
+
+  // The target is narrowed on the way *in* as well as on the way out, so a link
+  // that would leave the app never even gets built.
+  test("an off-site target never survives being built into a link", () => {
+    for (const evil of [
+      "https://evil.example",
+      "//evil.example",
+      "/\\evil.example",
+      "javascript:alert(1)",
+    ]) {
+      expect(loginHref(evil)).toBe(LOGIN_ROUTE);
+    }
+  });
+
+  test("resolveAuthRoute follows a safe next and ignores an unsafe one", () => {
+    expect(resolveAuthRoute(signedIn, "/authorize?request_id=abc")).toEqual({
+      action: "redirect",
+      href: "/authorize?request_id=abc",
+    });
+    expect(resolveAuthRoute(signedIn, "https://evil.example")).toEqual({
+      action: "redirect",
+      href: CONSOLE_ROUTE,
+    });
+  });
+
+  test("authorizeHref encodes the request id rather than concatenating it", () => {
+    expect(authorizeHref("abc")).toBe("/authorize?request_id=abc");
+    expect(authorizeHref("a&b=c")).toBe("/authorize?request_id=a%26b%3Dc");
   });
 });

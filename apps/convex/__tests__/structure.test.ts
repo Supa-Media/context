@@ -71,7 +71,7 @@ const LIVE_MODULES = import.meta.glob(
 interface Classification {
   isPublic: boolean;
   isInternal: boolean;
-  kind: "query" | "mutation" | "action";
+  kind: "query" | "mutation" | "action" | "http";
 }
 
 interface AnalyzedModule {
@@ -102,6 +102,7 @@ function classify(value: unknown): Classification | null {
     isQuery?: boolean;
     isMutation?: boolean;
     isAction?: boolean;
+    isHttp?: boolean;
     isPublic?: boolean;
     isInternal?: boolean;
   } | null;
@@ -111,6 +112,28 @@ function classify(value: unknown): Classification | null {
   if (fn === null || (typeof fn !== "object" && typeof fn !== "function")) {
     return null;
   }
+
+  /**
+   * An `httpAction` carries neither `isPublic` nor `isInternal`, because
+   * Convex does not route it through the `api`/`internal` object at all — it
+   * routes it by **path**, from the public internet, with no argument
+   * validator and no function-name gate in front of it.
+   *
+   * Classified `isPublic: true` here for exactly that reason. It was the hole
+   * this whole file exists to close, hiding in plain sight: until this branch
+   * existed, `classify` returned `null` for every route in `http.ts`, so the
+   * nine control-plane routes were not nodes in the graph, and one of them
+   * reaching a decrypted storage credential produced no violation and no
+   * failure. An `httpAction` that can open a customer's bucket key is a
+   * *more* exposed thing than a public `action`, not a less exposed one.
+   *
+   * The `kind` is kept distinct so the rules that follow can say something
+   * sharper than "public": see `CREDENTIAL_HTTP_ROUTES`.
+   */
+  if (fn.isHttp === true) {
+    return { kind: "http", isPublic: true, isInternal: false };
+  }
+
   const kind = fn.isQuery
     ? "query"
     : fn.isMutation
@@ -209,6 +232,41 @@ const SCHEDULE_CALL = /\.scheduler\.run(?:After|At)\(\s*[^,]*,\s*([^,)\s]*)/g;
  * credential at all. **Do not add one without that property.**
  */
 const CREDENTIAL_BARRIERS = new Set(["functions.files.runFileOperation"]);
+
+/**
+ * THE HTTP ROUTES THAT MAY REACH A CREDENTIAL.
+ *
+ * There is exactly one, and there is a reason it cannot be zero: the whole
+ * product is a gateway in another datacentre signing S3 requests with the
+ * customer's own key, and the only way it gets that key is over HTTPS from
+ * here. `/gateway/binding`'s *purpose* is to return a decrypted secret.
+ *
+ * So this is not a barrier and must not be read as one. A barrier stops taint
+ * propagating — everything that calls through it comes out clean, which is why
+ * `CREDENTIAL_BARRIERS` has one member and a long warning attached. This is a
+ * **pin**: the route is still decrypt-capable, it still appears in the
+ * enumerated `decryptCapable` set below, and every *other* http route in the
+ * codebase still fails if it can reach a credential. Adding a second entry
+ * here is a diff a reviewer sees, and it means a second internet-facing path
+ * to other people's bucket keys.
+ *
+ * What keeps the exemption honest, all enforced below:
+ *
+ *  - the route must actually be an `httpAction` and must actually be
+ *    decrypt-capable, or the pin is stale;
+ *  - **every** route in `http.ts` — this one included — must be built by the
+ *    `gatewayRoute` factory, and that factory must require the gateway secret,
+ *    so no route can be added that skips proof #1;
+ *  - `expectedWorkspaceId` must never be used as a lookup key anywhere, which
+ *    is what keeps proof #2 meaningful: the workspace comes from the grant the
+ *    user's token resolved to, and the caller cannot name the workspace it
+ *    gets.
+ *
+ * None of that proves the route does not leak. Nothing static can. It bounds
+ * the blast radius to one reviewed, two-factor-authenticated path, and
+ * `__tests__/controlPlane.test.ts` carries the behavioural half.
+ */
+const CREDENTIAL_HTTP_ROUTES = new Set(["http.gatewayBinding"]);
 
 /**
  * Build the graph and return every way a public function can reach a decrypt.
@@ -367,6 +425,19 @@ function analyze(modules: AnalyzedModule[]): {
 
   for (const node of decryptCapable) {
     const classification = classifications.get(node);
+    if (classification?.kind === "http") {
+      // An HTTP route is reachable from the internet by path. One of them has
+      // to hand the gateway a decrypted credential; the rest must not be able
+      // to, and which one is which is pinned by name.
+      if (!CREDENTIAL_HTTP_ROUTES.has(node)) {
+        violations.push({
+          node,
+          reason:
+            "is an HTTP route that can transitively reach the storage-secret decrypt path, and is not one of the enumerated CREDENTIAL_HTTP_ROUTES",
+        });
+      }
+      continue;
+    }
     if (classification?.isPublic) {
       violations.push({
         node,
@@ -433,10 +504,21 @@ describe("no public function can reach a storage secret", () => {
       // credential. internalAction, and the only member of
       // CREDENTIAL_BARRIERS — read that comment before adding a second.
       "functions.files.runFileOperation",
+      // Resolves the end user's access token to a live grant, derives the
+      // workspace from THAT grant, and opens that workspace's credential for
+      // the gateway. internalAction; the only thing that reaches it is the
+      // route below.
+      "functions.controlPlane.openStorageBinding",
+      // THE ONE INTERNET-FACING PATH TO A CREDENTIAL. `/gateway/binding`.
+      // Requires the gateway secret AND the user's access token, and the
+      // workspace comes from the grant, never from the caller. The only
+      // member of CREDENTIAL_HTTP_ROUTES — read that comment before adding a
+      // second.
+      "http.gatewayBinding",
     ].sort());
   });
 
-  test("every decrypt-capable function is internal", () => {
+  test("every decrypt-capable Convex function is internal", () => {
     const modules = realModules();
     const { decryptCapable } = analyze(modules);
     const classifications = new Map<string, Classification>();
@@ -449,9 +531,31 @@ describe("no public function can reach a storage secret", () => {
     // Belt to the violations check's braces: that test reports public
     // reachers, this one asserts the positive property directly, so a bug in
     // the reporting loop cannot make both pass.
+    //
+    // HTTP routes are excluded here and covered by their own rule below —
+    // excluded because they carry no `isPublic`/`isInternal` at all, not
+    // because they are trusted.
     for (const node of decryptCapable) {
-      expect(classifications.get(node)?.isPublic, `${node} must not be public`).toBe(false);
+      const classification = classifications.get(node);
+      if (classification?.kind === "http") continue;
+      expect(classification?.isPublic, `${node} must not be public`).toBe(false);
     }
+  });
+
+  test("every decrypt-capable HTTP route is one of the enumerated ones", () => {
+    const modules = realModules();
+    const { decryptCapable } = analyze(modules);
+    const classifications = new Map<string, Classification>();
+    for (const module of modules) {
+      for (const [name, classification] of Object.entries(module.exports)) {
+        classifications.set(`${module.reference}.${name}`, classification);
+      }
+    }
+
+    const reachers = [...decryptCapable].filter(
+      (node) => classifications.get(node)?.kind === "http",
+    );
+    expect(reachers.sort()).toEqual([...CREDENTIAL_HTTP_ROUTES].sort());
   });
 
   test("the analyzer actually sees the whole control plane", () => {
@@ -477,6 +581,11 @@ describe("no public function can reach a storage secret", () => {
   test("every Convex function is either public or internal, never neither", () => {
     for (const module of realModules()) {
       for (const [name, classification] of Object.entries(module.exports)) {
+        // An `httpAction` is genuinely neither: Convex routes it by path, not
+        // through the `api`/`internal` object. It is not exempt from scrutiny
+        // — it is held to the stricter HTTP rules above and below — but the
+        // public/internal dichotomy does not apply to it.
+        if (classification.kind === "http") continue;
         expect(
           classification.isPublic !== classification.isInternal,
           `${module.path}#${name} is classified as neither public nor internal (or as both)`,
@@ -1003,3 +1112,286 @@ export const peek = action({
     ).toContain("functions.helper.peek");
   });
 });
+
+/**
+ * THE HTTP SURFACE.
+ *
+ * `http.ts` carries the nine routes the MCP gateway resolves every request
+ * through, and one of them exists specifically to hand out a decrypted storage
+ * credential. Until these tests existed the analyzer could not see any of
+ * them: `classify` returned `null` for an `httpAction`, so no route was a node,
+ * no route had edges, and a route reaching `getBindingForGateway` produced
+ * silence — the exact failure the reviewer's `functions/gateway.ts` attack
+ * demonstrated for public actions, reachable through a different door.
+ *
+ * The rules here are stricter than the ones for `api`/`internal` functions,
+ * because an HTTP route has no argument validator and no function-name gate in
+ * front of it — only whatever its own handler checks first.
+ */
+describe("the gateway's HTTP routes", () => {
+  /** The nine routes the contract documents, by the path each is served at. */
+  const CONTRACT_ROUTES: Record<string, string> = {
+    "/gateway/session": "gatewaySession",
+    "/gateway/binding": "gatewayBinding",
+    "/gateway/clients/register": "gatewayClientsRegister",
+    "/gateway/clients/get": "gatewayClientsGet",
+    "/gateway/authorize/start": "gatewayAuthorizeStart",
+    "/gateway/codes/consume": "gatewayCodesConsume",
+    "/gateway/grants/create": "gatewayGrantsCreate",
+    "/gateway/grants/rotate": "gatewayGrantsRotate",
+    "/gateway/grants/revoke": "gatewayGrantsRevoke",
+  };
+
+  function httpModule(): AnalyzedModule {
+    const module = realModules().find((m) => m.path === "http.ts");
+    expect(module, "http.ts is not being analyzed at all").toBeDefined();
+    return module!;
+  }
+
+  /**
+   * Non-vacuity, and the thing that was actually broken. If `classify` stops
+   * recognising `isHttp`, every other test in this block passes over an empty
+   * set and proves nothing.
+   */
+  test("the analyzer classifies every control-plane route as an HTTP node", () => {
+    const module = httpModule();
+    for (const name of Object.values(CONTRACT_ROUTES)) {
+      expect(module.exports[name], `http.ts#${name} is not classified`).toEqual({
+        kind: "http",
+        isPublic: true,
+        isInternal: false,
+      });
+    }
+  });
+
+  /** …and that each is actually wired to the path the contract names. */
+  test("each route is registered at its documented path, POST only", () => {
+    const source = httpModule().source;
+    for (const [path, name] of Object.entries(CONTRACT_ROUTES)) {
+      const registration = new RegExp(
+        `path:\\s*"${path.replace(/\//g, "\\/")}",\\s*method:\\s*"POST",\\s*handler:\\s*${name}`,
+      );
+      expect(
+        registration.test(source.replace(/\s+/g, " ")),
+        `${path} is not routed to ${name} as a POST`,
+      ).toBe(true);
+    }
+  });
+
+  /**
+   * PROOF #1 CANNOT BE FORGOTTEN.
+   *
+   * Nine handlers each remembering to check the gateway secret is nine chances
+   * to forget, and the tenth route somebody adds in a hurry is the one that
+   * does. So the check is not something a route *does*, it is something a
+   * route *is*: every export is built by one factory, and the factory refuses
+   * anything without the secret.
+   */
+  test("every route in http.ts is built by the gateway-secret factory", () => {
+    const source = httpModule().source;
+    const declarations = [...source.matchAll(/^export const (\w+)\s*=\s*(\w+)\(/gm)];
+    expect(declarations.length, "no routes found in http.ts").toBeGreaterThan(0);
+    for (const [, name, factory] of declarations) {
+      expect(
+        factory,
+        `http.ts#${name} is not built by gatewayRoute, so nothing forces it to require the gateway secret`,
+      ).toBe("gatewayRoute");
+    }
+  });
+
+  /** And the factory really does check it — otherwise the rule above is decor. */
+  test("the factory refuses a request that does not carry the gateway secret", () => {
+    const source = httpModule().source;
+    const factory = source.slice(source.indexOf("function gatewayRoute("));
+    const body = factory.slice(0, factory.indexOf("\n}\n"));
+    expect(body).toMatch(/requestIsFromGateway\(/);
+    expect(body).toMatch(/unauthorized\(\)/);
+
+    // …and the comparison is constant-time and length-blind, so the secret's
+    // length is not readable from a timing difference.
+    const gatewayAuth = realModules().find(
+      (m) => m.path === "functions/lib/gatewayAuth.ts",
+    );
+    expect(gatewayAuth).toBeDefined();
+    expect(gatewayAuth!.source).toMatch(/constantTimeEqualsHex/);
+    expect(gatewayAuth!.source).toMatch(/hashToken\(presented\)/);
+  });
+
+  /**
+   * PROOF #2 CANNOT DEGRADE INTO A LOOKUP.
+   *
+   * `expectedWorkspaceId` is the gateway's own conclusion, sent so we can
+   * refuse a mismatch. The moment it selects a row — a `db.get`, a
+   * `normalizeId`, an index `eq`, an assignment into a `workspaceId:` field —
+   * the gateway can name the workspace it gets, and a compromised gateway
+   * walks the customer list one id at a time with one valid token.
+   *
+   * A comment saying "veto only" cannot fail. This can.
+   */
+  test("expectedWorkspaceId is never used as a lookup key", () => {
+    for (const module of realModules()) {
+      const offenders = lookupUsesOf(module.source, "expectedWorkspaceId");
+      expect(
+        offenders,
+        `${module.path} uses expectedWorkspaceId to select something; it may only ever be compared`,
+      ).toEqual([]);
+    }
+  });
+
+  /** Non-vacuity for the check above: it must catch the thing it forbids. */
+  test("the lookup-key check catches the refactor it exists to prevent", () => {
+    expect(
+      lookupUsesOf(
+        `const binding = await ctx.db.get(args.expectedWorkspaceId);`,
+        "expectedWorkspaceId",
+      ),
+    ).toHaveLength(1);
+    expect(
+      lookupUsesOf(
+        `await ctx.runAction(ref, { workspaceId: args.expectedWorkspaceId });`,
+        "expectedWorkspaceId",
+      ),
+    ).toHaveLength(1);
+    expect(
+      lookupUsesOf(
+        `.withIndex("by_workspace", (q) => q.eq("workspaceId", args.expectedWorkspaceId))`,
+        "expectedWorkspaceId",
+      ),
+    ).toHaveLength(1);
+    // The real usage — a comparison — must not be flagged, or the check is
+    // just noise somebody will delete.
+    expect(
+      lookupUsesOf(
+        `if (args.expectedWorkspaceId !== session.workspaceId) return null;`,
+        "expectedWorkspaceId",
+      ),
+    ).toEqual([]);
+  });
+
+  /**
+   * The enumerated exception has to be real. A pin naming a route that cannot
+   * reach a credential is a stale pin, and a stale pin is how the next one
+   * gets added without anyone noticing.
+   */
+  test("every enumerated credential route is an HTTP route that really reaches the decrypt path", () => {
+    const modules = realModules();
+    const { decryptCapable } = analyze(modules);
+    const classifications = new Map<string, Classification>();
+    for (const module of modules) {
+      for (const [name, classification] of Object.entries(module.exports)) {
+        classifications.set(`${module.reference}.${name}`, classification);
+      }
+    }
+
+    expect(CREDENTIAL_HTTP_ROUTES.size).toBeGreaterThan(0);
+    for (const route of CREDENTIAL_HTTP_ROUTES) {
+      expect(
+        decryptCapable.has(route),
+        `${route} is pinned as a credential route but cannot reach a credential — either it is misnamed or the pin is stale`,
+      ).toBe(true);
+      expect(classifications.get(route)?.kind).toBe("http");
+    }
+  });
+
+  /**
+   * The attack this extension exists to catch, run through the same analyzer:
+   * a *new* route that quietly reaches the decrypt path. Before `classify`
+   * understood `isHttp`, this produced no violation at all.
+   */
+  test("catches a new HTTP route that reaches the decrypt path", () => {
+    const attack: AnalyzedModule = {
+      reference: "http",
+      path: "http.ts",
+      source: `
+export const gatewayDebugBinding = gatewayRoute(async (ctx, body) => {
+  const credential = await ctx.runAction(
+    internal.functions.storage.getBindingForGateway,
+    { workspaceId: body.workspaceId },
+  );
+  return json({ binding: credential });
+});
+`,
+      exports: {
+        gatewayDebugBinding: { kind: "http", isPublic: true, isInternal: false },
+      },
+    };
+
+    const violations = findViolations([...realModules(), attack]);
+    expect(violations.map((v) => v.node)).toContain("http.gatewayDebugBinding");
+    expect(violations.map((v) => v.reason).join(" ")).toMatch(
+      /enumerated CREDENTIAL_HTTP_ROUTES/,
+    );
+  });
+
+  /** The indirect form: a new route reaching it through the internal resolver. */
+  test("catches a new HTTP route that launders the credential through an internal action", () => {
+    const attack: AnalyzedModule = {
+      reference: "http",
+      path: "http.ts",
+      source: `
+export const gatewayPeek = gatewayRoute(async (ctx, body) => {
+  const binding = await ctx.runAction(
+    internal.functions.controlPlane.openStorageBinding,
+    { hashedAccessToken: body.hashedAccessToken, expectedWorkspaceId: null },
+  );
+  return json({ bucket: binding.bucket });
+});
+`,
+      exports: {
+        gatewayPeek: { kind: "http", isPublic: true, isInternal: false },
+      },
+    };
+
+    expect(
+      findViolations([...realModules(), attack]).map((v) => v.node),
+    ).toContain("http.gatewayPeek");
+  });
+
+  /** A route that touches no credential is fine, and must stay fine. */
+  test("an ordinary HTTP route is not a violation", () => {
+    const benign: AnalyzedModule = {
+      reference: "http",
+      path: "http.ts",
+      source: `
+export const gatewayHealth = gatewayRoute(async () => json({ ok: true }));
+`,
+      exports: {
+        gatewayHealth: { kind: "http", isPublic: true, isInternal: false },
+      },
+    };
+
+    expect(findViolations([...realModules(), benign])).toEqual([]);
+  });
+});
+
+/**
+ * Lines that use `name` to *select* something rather than to compare it.
+ *
+ * Deliberately line-oriented and deliberately crude: it over-reports rather
+ * than under-reports, and an over-report costs a restructure while an
+ * under-report costs a customer's bucket.
+ */
+function lookupUsesOf(source: string, name: string): string[] {
+  // Comments are allowed to describe the forbidden refactor — the docstring on
+  // `openStorageBinding` names `ctx.db.get(expectedWorkspaceId)` precisely so a
+  // reader knows what must never appear. What must not exist is a *use*.
+  const code = source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+
+  const offenders: string[] = [];
+  for (const line of code.split("\n")) {
+    if (!line.includes(name)) continue;
+    if (/(?:db\.get|normalizeId|withIndex|\.eq)\s*\(/.test(line)) {
+      offenders.push(line.trim());
+      continue;
+    }
+    // An assignment into a workspace-id-shaped field. The lookbehind is what
+    // keeps `expectedWorkspaceId:` itself — the argument declaration — from
+    // matching its own name.
+    if (/(?<![A-Za-z])workspaceId\s*:\s*[^,\n]*\b\w*expectedWorkspaceId/.test(line)) {
+      offenders.push(line.trim());
+    }
+  }
+  return offenders;
+}

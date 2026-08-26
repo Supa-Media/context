@@ -150,6 +150,16 @@ function listPage(
 /* -------------------------------------------------------------------------- */
 
 export interface MemoryS3Options {
+  /**
+   * Address the bucket the way AWS's virtual-hosted endpoints do: the bucket
+   * is the first label of the **host**, and the whole path is the key.
+   *
+   * A path-style request against this backend therefore looks like a request
+   * for the key `<bucket>/<key>`, which is precisely the silent wrong-bucket
+   * failure `forcePathStyle` exists to prevent — so a test that gets the
+   * addressing style wrong fails here rather than quietly passing.
+   */
+  virtualHosted?: boolean;
   /** Accepts `If-Match` and overwrites anyway — B2, Wasabi. */
   ignoreIfMatch?: boolean;
   /** Lists, refuses every write. */
@@ -204,10 +214,21 @@ export function memoryS3(
     const url = new URL(typeof input === "string" ? input : String(input));
     const method = (init.method ?? "GET").toUpperCase();
     const segments = url.pathname.replace(/^\/+/, "").split("/");
-    if (decodeURIComponent(segments[0]) !== bucket) {
-      return errorResponse(404, "NoSuchBucket", "The specified bucket does not exist");
+
+    let key: string;
+    if (options.virtualHosted) {
+      // The bucket is in the host. A request that also put it in the path is
+      // asking for a *different* object, and gets treated as one.
+      if (!url.hostname.startsWith(`${bucket}.`)) {
+        return errorResponse(404, "NoSuchBucket", "The specified bucket does not exist");
+      }
+      key = segments.map(decodeURIComponent).join("/");
+    } else {
+      if (decodeURIComponent(segments[0]) !== bucket) {
+        return errorResponse(404, "NoSuchBucket", "The specified bucket does not exist");
+      }
+      key = segments.slice(1).map(decodeURIComponent).join("/");
     }
-    const key = segments.slice(1).map(decodeURIComponent).join("/");
     requests.push({ method, key });
 
     if (key === "") {

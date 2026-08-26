@@ -132,6 +132,32 @@ const schema = defineSchema({
     accessKeyId: v.string(),
     encryptedSecretAccessKey: v.string(),
     /**
+     * How the bucket is addressed in a request URL: as a path segment
+     * (`https://endpoint/my-context/note.md`) or as the first host label
+     * (`https://my-context.s3.example/note.md`).
+     *
+     * **Absent means "let the adapter decide", and that is the right default
+     * for almost everybody.** R2 and the classic AWS regional endpoints are
+     * path-style, which is what `S3Store` assumes when nothing says otherwise,
+     * so the overwhelming majority of bindings never carry this field.
+     *
+     * It exists because there is exactly one case the adapter refuses to guess:
+     * an endpoint whose first host label *is* the bucket name. That shape is
+     * produced both by a genuine virtual-hosted endpoint
+     * (`https://my-context.s3.amazonaws.com`) and by a path-style one that
+     * collides by coincidence (`s3.wasabisys.com` with a bucket called `s3`).
+     * Guessing wrong means signing requests against a different bucket than the
+     * customer named — a silent wrong-bucket write — so `S3Store` throws
+     * instead, and `bindStorage` refuses the binding up front with an error
+     * that names the two answers. Storing the answer is what makes the refusal
+     * fixable rather than a dead end.
+     *
+     * Emitted to the gateway verbatim (`binding.forcePathStyle` in the
+     * control-plane contract) so the adapter that signs the request and the
+     * adapter that probed the bucket address it identically.
+     */
+    forcePathStyle: v.optional(v.boolean()),
+    /**
      * Probed at connect time, not assumed. R2 and AWS S3 support conditional
      * writes; B2 and Wasabi do not reliably. We degrade honestly rather than
      * silently dropping conflict detection.
@@ -150,6 +176,22 @@ const schema = defineSchema({
      * read this field, so treat it as published.
      */
     lastError: v.optional(v.string()),
+    /**
+     * The machine-readable half of `lastError`.
+     *
+     * `lastError` is provider prose: it is written for a human, it is scrubbed
+     * and truncated, and it changes whenever a provider rewords a message. A UI
+     * that wants to offer "fix the addressing style" for one failure and "paste
+     * the key again" for another cannot key off that string without matching on
+     * text, so a code is recorded alongside it. The set is enumerated in
+     * `functions/provisioning.ts` (`VerificationErrorCode`); anything not in it
+     * should be treated by a client as "unknown, show `lastError`".
+     *
+     * Cleared on success, exactly like `lastError` — a stale code next to a
+     * green status misdiagnoses support tickets just as effectively as stale
+     * prose.
+     */
+    errorCode: v.optional(v.string()),
     boundBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -182,8 +224,116 @@ const schema = defineSchema({
     redirectUris: v.array(v.string()),
     /** `null` for public clients (PKCE, no secret to store). */
     hashedClientSecret: v.union(v.string(), v.null()),
+    /**
+     * How the client proves who it is at the token endpoint.
+     *
+     * Stored rather than inferred from `hashedClientSecret === null`, because
+     * the two can disagree and the disagreement is the interesting case: a
+     * client that registered `none` but somehow acquired a stored secret must
+     * still be treated as public, and a client that registered
+     * `client_secret_post` and has no stored secret is broken rather than
+     * silently public. RFC 7591's `client_secret_basic` is normalized to
+     * `client_secret_post` by the gateway before it reaches here — one
+     * credential-presentation path is one path to get wrong.
+     *
+     * Optional only because rows written before this field existed predate the
+     * gateway flow entirely; readers fall back to the `hashedClientSecret`
+     * shape.
+     */
+    tokenEndpointAuthMethod: v.optional(
+      v.union(v.literal("none"), v.literal("client_secret_post")),
+    ),
+    /**
+     * The rest of the RFC 7591 registration, kept because a re-registration
+     * after a redeploy must be able to reproduce what the client asked for.
+     * None of it is authority: the gateway enforces grant types and response
+     * types itself, and `scope` here is a request, not a grant.
+     */
+    grantTypes: v.optional(v.array(v.string())),
+    responseTypes: v.optional(v.array(v.string())),
+    scope: v.optional(v.string()),
+    applicationType: v.optional(
+      v.union(v.literal("native"), v.literal("web")),
+    ),
     createdAt: v.number(),
   }).index("by_clientId", ["clientId"]),
+
+  /**
+   * An authorization request parked by the gateway, and — once a human has
+   * approved it — the single-use code that closes the flow.
+   *
+   * **One row, two phases, on purpose.** The alternative is a `requests` table
+   * and a `codes` table, and then "the code carries the challenge forward
+   * unchanged" is a join that a future refactor can get wrong. Here the code
+   * cannot exist apart from the request that produced it, and the PKCE
+   * challenge the gateway will verify against is the same field the gateway
+   * wrote when it parked the request.
+   *
+   * `hashedCode` is a hash, not the code. The plaintext exists in the redirect
+   * that carried it to the client and nowhere else — the same rule the grants
+   * table follows, for the same reason: a dump of this table must not be a set
+   * of spendable codes.
+   *
+   * `status` is what makes redemption single-use. `consume` moves `approved` →
+   * `consumed` in the same transaction that reads the row, so two concurrent
+   * redemptions cannot both see `approved`.
+   */
+  oauthAuthorizations: defineTable({
+    /** Opaque, high-entropy, and the only handle on this row. */
+    requestId: v.string(),
+    clientId: v.string(),
+    /** Exactly the URI the flow started with. Re-checked at the token call. */
+    redirectUri: v.string(),
+    state: v.union(v.string(), v.null()),
+    codeChallenge: v.string(),
+    /** S256 only. `plain` makes the challenge the verifier, which is no PKCE at all. */
+    codeChallengeMethod: v.literal("S256"),
+    scope: v.string(),
+    resource: v.union(v.string(), v.null()),
+    /** A preselection hint for the consent screen. The person still chooses. */
+    requestedWorkspaceSlug: v.union(v.string(), v.null()),
+    /**
+     * `pending` → `approved` → `consumed` is the happy path; `pending` →
+     * `denied` is the person saying no.
+     *
+     * `denied` is a distinct terminal state rather than a reuse of `consumed`
+     * because the two mean opposite things — one produced a code that was
+     * spent, the other produced no code at all — and an audit trail that cannot
+     * tell "the user refused" from "the client redeemed" is not worth keeping.
+     * Everything downstream already fails closed on it: the consent screen
+     * shows only `pending`, and `consumeAuthorizationCode` requires `approved`.
+     */
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("consumed"),
+      v.literal("denied"),
+    ),
+    /** SHA-256 of the authorization code. Set when a person approves. */
+    hashedCode: v.optional(v.string()),
+    /** The workspace the person picked. Never something the gateway named. */
+    workspaceId: v.optional(v.id("workspaces")),
+    /** The person who approved. Never something the gateway named. */
+    userId: v.optional(v.id("users")),
+    approvedAt: v.optional(v.number()),
+    consumedAt: v.optional(v.number()),
+    /** When the person refused. Set with `status: "denied"`, and only then. */
+    deniedAt: v.optional(v.number()),
+    /** Both phases expire. RFC 6749 §4.1.2 wants a code dead within 10 minutes. */
+    expiresAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_requestId", ["requestId"])
+    .index("by_hashedCode", ["hashedCode"])
+    /**
+     * For the sweep, and for nothing else.
+     *
+     * An expired row is inert — every reader checks `expiresAt` — but inert is
+     * not the same as gone, and this table grows by one row per authorization
+     * attempt forever. The cron in `crons.ts` walks this index; without it the
+     * sweep would be a full table scan of the thing it is trying to keep small.
+     */
+    .index("by_expiresAt", ["expiresAt"]),
 
   /**
    * One row per connected AI client, per user, per workspace — individually
@@ -197,6 +347,34 @@ const schema = defineSchema({
     scopes: v.array(v.string()),
     /** Hash only. A raw refresh token never touches this database. */
     hashedRefreshToken: v.string(),
+    /**
+     * Hash only, same rule. This is what an inbound MCP request is resolved
+     * by: the gateway forwards the bearer token the client presented, verbatim
+     * over TLS, and it is hashed here on arrival.
+     *
+     * The direction is deliberate and it is the reason a dump of this table is
+     * inert. If the gateway sent the *hash* instead, the stored value would be
+     * a working credential and one database leak plus the gateway secret would
+     * impersonate every connected client.
+     *
+     * Optional because grants written before the access-token flow existed
+     * have none — and a grant with no access-token hash simply never resolves
+     * an inbound request, which is the correct fail-closed behaviour.
+     */
+    hashedAccessToken: v.optional(v.string()),
+    /** Epoch ms. A grant whose access token has expired resolves to nothing. */
+    accessTokenExpiresAt: v.optional(v.number()),
+    /**
+     * The refresh-token hash this grant most recently rotated away from.
+     *
+     * OAuth 2.1 §4.3.1 makes rotation mandatory for public clients, which
+     * makes reuse detection mandatory too: a refresh token presented twice is
+     * a refresh token that leaked. Keeping one generation of history is what
+     * lets `rotateGrant` tell "an unknown token" (refuse) from "a token this
+     * grant already retired" (refuse **and** revoke the grant, because
+     * somebody else is holding it).
+     */
+    previousHashedRefreshToken: v.optional(v.string()),
     status: v.union(v.literal("active"), v.literal("revoked")),
     lastUsedAt: v.optional(v.number()),
     createdAt: v.number(),
@@ -205,7 +383,9 @@ const schema = defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_user", ["userId"])
     .index("by_workspace_user", ["workspaceId", "userId"])
-    .index("by_refresh_token", ["hashedRefreshToken"]),
+    .index("by_refresh_token", ["hashedRefreshToken"])
+    .index("by_access_token", ["hashedAccessToken"])
+    .index("by_previous_refresh_token", ["previousHashedRefreshToken"]),
 
   /**
    * Who did what, in which context.

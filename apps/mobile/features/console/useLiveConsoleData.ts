@@ -1,5 +1,11 @@
 import { useCallback, useMemo, useState } from "react";
-import { useMutation, useQueries, useQuery, type RequestForQueries } from "convex/react";
+import {
+  useAction,
+  useMutation,
+  useQueries,
+  useQuery,
+  type RequestForQueries,
+} from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import {
@@ -12,6 +18,7 @@ import {
   placeholderIngestionAddress,
 } from "./placeholderData";
 import { useFileBrowser } from "./files/useFileBrowser";
+import { toBindStorageArgs, type Provider } from "./storage/connect";
 import { atName, contextTone, describeScopes, formatCount, grantTone, lastUsedLabel } from "./format";
 import {
   buildConstellation,
@@ -19,7 +26,13 @@ import {
   type ClientInput,
   type ContextInput,
 } from "./map/graph";
-import type { ConsoleClient, ConsoleContext, ConsoleData, ConsoleStorage } from "./types";
+import type {
+  ConsoleClient,
+  ConsoleContext,
+  ConsoleData,
+  ConsoleStorage,
+  StorageActions,
+} from "./types";
 
 /**
  * The live console.
@@ -50,10 +63,18 @@ interface StorageBinding {
   bucket: string;
   rootPrefix?: string;
   maskedAccessKeyId: string;
+  forcePathStyle?: boolean;
   capabilities: { conditionalWrite: boolean };
   status: string;
   lastVerifiedAt?: number;
   lastError?: string;
+  /** From the closed set in `functions/provisioning.ts`. See `storage/errors.ts`. */
+  errorCode?: string;
+  /**
+   * Load-bearing for Re-verify: the probe is queued, not awaited, so the pane
+   * watches this field to know its outcome landed. See `storage/reverify.ts`.
+   */
+  updatedAt: number;
 }
 
 interface GrantSummary {
@@ -104,6 +125,9 @@ export function useLiveConsoleData(): ConsoleData {
 
   const results = useQueries(queries);
   const revoke = useMutation(api.functions.grants.revokeGrant);
+  const bindStorage = useAction(api.functions.storage.bindStorage);
+  const reverifyStorage = useMutation(api.functions.storage.reverifyStorage);
+  const disconnectStorage = useMutation(api.functions.storage.disconnectStorage);
 
   // An authenticated session resolves to a *set* of contexts. Default to the
   // first rather than assuming there is exactly one — and drop an explicit
@@ -184,15 +208,22 @@ export function useLiveConsoleData(): ConsoleData {
       ? null
       : {
           connected: binding.status === "connected",
+          status: binding.status,
           provider: binding.provider,
           bucket: binding.bucket,
           endpoint: binding.endpoint,
+          region: binding.region,
+          rootPrefix: binding.rootPrefix,
           accessKey: binding.maskedAccessKeyId,
           conditionalWrite: binding.capabilities.conditionalWrite,
+          forcePathStyle: binding.forcePathStyle,
           objectCount: PLACEHOLDER_OBJECT_COUNT,
           paraPresent: PLACEHOLDER_PARA_PRESENT,
           versioningOn: PLACEHOLDER_VERSIONING_ON,
           lastError: binding.lastError,
+          errorCode: binding.errorCode,
+          updatedAt: binding.updatedAt,
+          lastVerifiedAt: binding.lastVerifiedAt,
         };
 
   const selected = contexts.find((c) => c.id === selectedContextId) ?? null;
@@ -201,6 +232,28 @@ export function useLiveConsoleData(): ConsoleData {
   // workspace model"), so a `member` gets a console with no Save button rather
   // than one whose every save is refused.
   const canEdit = selected !== null && (selected.role === "owner" || selected.role === "editor");
+
+  // `bindStorage`, `reverifyStorage` and `disconnectStorage` are all owner-only
+  // on the backend, so the whole object is absent for anyone else rather than
+  // present-and-disabled. A control that is never offered cannot mislead; a
+  // disabled one that an editor could reasonably expect to work does.
+  const storageActions: StorageActions | undefined =
+    selectedContextId === null || selected?.role !== "owner"
+      ? undefined
+      : {
+          workspaceId: selectedContextId,
+          reverify: () => reverifyStorage({ workspaceId: selectedContextId }),
+          connect: async (values) => {
+            const args = toBindStorageArgs(values, selectedContextId);
+            return await bindStorage({
+              ...args,
+              workspaceId: selectedContextId,
+              provider: args.provider as Provider,
+            });
+          },
+          disconnect: () => disconnectStorage({ workspaceId: selectedContextId }),
+        };
+
   const files = useFileBrowser({
     workspaceId: selectedContextId,
     canEdit,
@@ -226,6 +279,7 @@ export function useLiveConsoleData(): ConsoleData {
     ],
     clients,
     storage,
+    storageActions,
     endpoint: MCP_ENDPOINT,
     ingestionAddress: placeholderIngestionAddress(selected?.slug ?? "you"),
     files,

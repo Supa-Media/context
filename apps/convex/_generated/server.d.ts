@@ -8,9 +8,8 @@
  * @module
  */
 
-import type {
+import {
   ActionBuilder,
-  AnyComponents,
   HttpActionBuilder,
   MutationBuilder,
   QueryBuilder,
@@ -21,6 +20,17 @@ import type {
   GenericDatabaseWriter,
 } from "convex/server";
 import type { DataModel } from "./dataModel.js";
+
+/**
+ * Typesafe environment variables.
+ *
+ * This includes platform-provided env vars and any variables declared in
+ * `convex.config.ts`.
+ */
+type Env = {
+  readonly CONVEX_CLOUD_URL: string;
+  readonly CONVEX_SITE_URL: string;
+};
 
 /**
  * Define a query in this Convex app's public API.
@@ -96,13 +106,22 @@ export declare const internalAction: ActionBuilder<DataModel, "internal">;
  */
 export declare const httpAction: HttpActionBuilder;
 
-export declare const env: Record<string, string | undefined>;
+/**
+ * Typesafe environment variables.
+ *
+ * This includes platform-provided env vars and any variables declared in
+ * `convex.config.ts`.
+ */
+export declare const env: Env;
 
 /**
  * A set of services for use within Convex query functions.
  *
  * The query context is passed as the first argument to any Convex query
  * function run on the server.
+ *
+ * This differs from the {@link MutationCtx} because all of the services are
+ * read-only.
  */
 export type QueryCtx = GenericQueryCtx<DataModel>;
 
@@ -141,8 +160,3 @@ export type DatabaseReader = GenericDatabaseReader<DataModel>;
  * for the guarantees Convex provides your functions.
  */
 export type DatabaseWriter = GenericDatabaseWriter<DataModel>;
-
-/**
- * Load the API for calling functions from this Convex deployment's components.
- */
-export declare const components: AnyComponents;

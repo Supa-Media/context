@@ -43,13 +43,13 @@ module.exports = ({ config }) => ({
   ],
   extra: {
     eas: {
-      projectId: "YOUR_EAS_PROJECT_ID",
+      projectId: "cf13cf3d-0868-4463-b045-d7c805ea0bf7",
     },
     router: {
       origin: false,
     },
   },
-  owner: "supamedia",
+  owner: "lilseyi",
   runtimeVersion: {
     policy: "appVersion",
   },

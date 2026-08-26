@@ -54,6 +54,7 @@ import {
   requireKeyset,
 } from "./lib/crypto";
 import { recordAudit } from "./lib/audit";
+import { consumeRateLimit } from "./lib/rateLimit";
 import { redactSigningArtifacts } from "./lib/verification";
 import { requireWorkspaceAccess, requireWorkspaceRole } from "./lib/workspaceAuth";
 
@@ -97,6 +98,8 @@ export interface SealedBinding {
   rootPrefix?: string;
   accessKeyId: string;
   encryptedSecretAccessKey: string;
+  /** Absent means "let the adapter decide". See the schema for why. */
+  forcePathStyle?: boolean;
   capabilities: StorageCapabilities;
   status: string;
 }
@@ -227,6 +230,70 @@ function normalizeRootPrefix(rootPrefix: string | undefined): string | undefined
 }
 
 /**
+ * Is this endpoint/bucket pair one where nothing can tell path-style from
+ * virtual-hosted addressing?
+ *
+ * **This must mean exactly what `S3Store`'s constructor means by it.** The
+ * adapter refuses to guess when the endpoint's first host label is the bucket
+ * name, because `https://my-context.s3.example` with bucket `my-context` is
+ * either a virtual-hosted endpoint (the bucket is already in the host, so the
+ * path must not repeat it) or a path-style endpoint that collides by
+ * coincidence (`s3.wasabisys.com` with a bucket called `s3`,
+ * `<account>.r2.cloudflarestorage.com` with a bucket named after the account).
+ * Guessing wrong drops or adds a path segment, so the provider reads the first
+ * *key* segment as the bucket and a write lands in a different bucket entirely,
+ * silently.
+ *
+ * The point of duplicating the rule here is *when* it fires, not *whether*.
+ * Left to the adapter alone it fires inside the connect probe, which cannot
+ * throw usefully: the probe's job is to record a status, so the owner gets a
+ * permanently-`error` binding and no way to say which addressing style they
+ * meant. Checked at bind time it is a `ConvexError` naming both answers, on the
+ * screen where the value would be typed.
+ *
+ * Two copies of a rule drift, so `__tests__/addressing.test.ts` pins this one
+ * against the real `S3Store` constructor: for a matrix of endpoints and buckets
+ * it asserts that this returns `true` exactly when constructing the adapter
+ * without `forcePathStyle` throws.
+ *
+ * `URL` lowercases the hostname; the bucket is compared as given, which is the
+ * same comparison `S3Store` makes.
+ */
+export function addressingIsAmbiguous(endpoint: string, bucket: string): boolean {
+  let hostname: string;
+  try {
+    hostname = new URL(endpoint).hostname;
+  } catch {
+    // Not a URL at all. `assertUsableEndpoint` is what reports that; there is
+    // no addressing question to answer about a string that is not an endpoint.
+    return false;
+  }
+  return hostname.startsWith(`${bucket}.`);
+}
+
+/**
+ * The refusal, worded so the person can act on it without reading this file.
+ *
+ * It names the bucket (which they just typed, so it is not a disclosure) and
+ * both possible answers. It carries **no** access key id and no secret — an
+ * error string is the easiest place in a system for a credential to escape, and
+ * this one is shown to a user and likely pasted into a support thread.
+ */
+function ambiguousAddressingError(
+  bucket: string,
+): ConvexError<{ code: string; message: string }> {
+  return new ConvexError({
+    code: "AMBIGUOUS_ADDRESSING",
+    message:
+      `The endpoint's first host label is the bucket name ("${bucket}"), so nothing ` +
+      "can tell whether this bucket is addressed by host or by path. Set " +
+      "forcePathStyle to false if the endpoint already contains the bucket " +
+      `(virtual-hosted, e.g. https://${bucket}.s3.amazonaws.com), or to true if the ` +
+      "bucket belongs in the path and the host merely starts with the same word.",
+  });
+}
+
+/**
  * Bind (or rebind) a workspace's storage.
  *
  * An **action**, not a mutation, for two reasons: encryption is Web Crypto,
@@ -253,6 +320,16 @@ export const bindStorage = action({
     rootPrefix: v.optional(v.string()),
     accessKeyId: v.string(),
     secretAccessKey: v.string(),
+    /**
+     * Optional, and meant to stay unset.
+     *
+     * Absent is "let the adapter decide", which is correct for R2 and for the
+     * classic AWS regional endpoints. It only has to be supplied for an
+     * endpoint whose first host label is the bucket name, and in that case the
+     * refusal below tells the owner so in as many words rather than letting the
+     * probe fail with a status they cannot act on.
+     */
+    forcePathStyle: v.optional(v.boolean()),
   },
   returns: v.object({ bindingId: v.id("storageBindings"), status: v.string() }),
   // The explicit return type breaks the inference cycle created by calling
@@ -279,6 +356,14 @@ export const bindStorage = action({
         message: "Both an access key id and a secret access key are required.",
       });
     }
+    const bucket = args.bucket.trim();
+    // Refuse the one configuration nothing downstream can resolve, here, while
+    // there is still a person and a form to answer the question. Left to the
+    // probe it becomes a permanently-`error` binding whose only documented cure
+    // is re-pasting a credential that was never the problem.
+    if (args.forcePathStyle === undefined && addressingIsAmbiguous(args.endpoint, bucket)) {
+      throw ambiguousAddressingError(bucket);
+    }
     const rootPrefix = normalizeRootPrefix(args.rootPrefix);
 
     // Bound to this workspace id. `applyBinding` authorizes the same id and
@@ -296,10 +381,11 @@ export const bindStorage = action({
       provider: args.provider,
       endpoint: args.endpoint,
       region: args.region,
-      bucket: args.bucket.trim(),
+      bucket,
       rootPrefix,
       accessKeyId: args.accessKeyId.trim(),
       encryptedSecretAccessKey,
+      forcePathStyle: args.forcePathStyle,
     });
   },
 });
@@ -323,6 +409,7 @@ export const applyBinding = internalMutation({
     rootPrefix: v.optional(v.string()),
     accessKeyId: v.string(),
     encryptedSecretAccessKey: v.string(),
+    forcePathStyle: v.optional(v.boolean()),
   },
   returns: v.object({ bindingId: v.id("storageBindings"), status: v.string() }),
   handler: async (ctx, args) => {
@@ -348,6 +435,7 @@ export const applyBinding = internalMutation({
       rootPrefix: args.rootPrefix,
       accessKeyId: args.accessKeyId,
       encryptedSecretAccessKey: args.encryptedSecretAccessKey,
+      forcePathStyle: args.forcePathStyle,
       capabilities: initialCapabilities(),
       status: "unverified" as const,
       // A rebind invalidates whatever we knew about the old bucket. Carrying
@@ -355,6 +443,7 @@ export const applyBinding = internalMutation({
       // has ever contacted.
       lastVerifiedAt: undefined,
       lastError: undefined,
+      errorCode: undefined,
       boundBy: args.actorUserId,
       updatedAt: now,
     };
@@ -473,6 +562,15 @@ export const recordVerification = internalMutation({
     ok: v.boolean(),
     capabilities: v.optional(v.object({ conditionalWrite: v.boolean() })),
     error: v.optional(v.string()),
+    /**
+     * The machine-readable companion to `error`. See the schema's `errorCode`
+     * and `VerificationErrorCode` in `functions/provisioning.ts`.
+     *
+     * Not scrubbed, because it is not provider text: the caller picks it from a
+     * closed set. A caller that puts a provider string in here is putting
+     * unscrubbed text on a published surface — do not.
+     */
+    errorCode: v.optional(v.string()),
     actorUserId: v.optional(v.id("users")),
   },
   returns: v.null(),
@@ -498,6 +596,7 @@ export const recordVerification = internalMutation({
       lastError: args.ok
         ? undefined
         : scrubProviderError(args.error ?? "Verification failed", binding),
+      errorCode: args.ok ? undefined : args.errorCode,
       updatedAt: now,
     });
 
@@ -533,6 +632,7 @@ export const getBindingRow = internalQuery({
       rootPrefix: v.optional(v.string()),
       accessKeyId: v.string(),
       encryptedSecretAccessKey: v.string(),
+      forcePathStyle: v.optional(v.boolean()),
       capabilities: v.object({ conditionalWrite: v.boolean() }),
       status: v.string(),
     }),
@@ -551,6 +651,7 @@ export const getBindingRow = internalQuery({
       rootPrefix: binding.rootPrefix,
       accessKeyId: binding.accessKeyId,
       encryptedSecretAccessKey: binding.encryptedSecretAccessKey,
+      forcePathStyle: binding.forcePathStyle,
       capabilities: binding.capabilities,
       status: binding.status,
     };
@@ -583,6 +684,7 @@ export const getBindingForGateway = internalAction({
       rootPrefix: v.optional(v.string()),
       accessKeyId: v.string(),
       secretAccessKey: v.string(),
+      forcePathStyle: v.optional(v.boolean()),
       capabilities: v.object({ conditionalWrite: v.boolean() }),
       status: v.string(),
     }),
@@ -630,6 +732,7 @@ export const getBindingForGateway = internalAction({
       rootPrefix: binding.rootPrefix,
       accessKeyId: binding.accessKeyId,
       secretAccessKey,
+      forcePathStyle: binding.forcePathStyle,
       capabilities: binding.capabilities,
       status: binding.status,
     };
@@ -803,10 +906,16 @@ export const getStorageBinding = query({
       bucket: v.string(),
       rootPrefix: v.optional(v.string()),
       maskedAccessKeyId: v.string(),
+      forcePathStyle: v.optional(v.boolean()),
       capabilities: v.object({ conditionalWrite: v.boolean() }),
       status: v.string(),
       lastVerifiedAt: v.optional(v.number()),
       lastError: v.optional(v.string()),
+      /**
+       * A code from a closed set, so a client can branch on the failure
+       * without matching on provider prose. See the schema's `errorCode`.
+       */
+      errorCode: v.optional(v.string()),
       updatedAt: v.number(),
     }),
   ),
@@ -827,12 +936,134 @@ export const getStorageBinding = query({
       bucket: binding.bucket,
       rootPrefix: binding.rootPrefix,
       maskedAccessKeyId: maskAccessKeyId(binding.accessKeyId),
+      forcePathStyle: binding.forcePathStyle,
       capabilities: binding.capabilities,
       status: binding.status,
       lastVerifiedAt: binding.lastVerifiedAt,
       lastError: binding.lastError,
+      errorCode: binding.errorCode,
       updatedAt: binding.updatedAt,
     };
+  },
+});
+
+/**
+ * How often one workspace may ask us to talk to its bucket again.
+ *
+ * The endpoint is a URL a customer typed, and re-verifying makes us issue an
+ * outbound HTTPS request to it. Unlimited, that is a request amplifier pointed
+ * at somebody else's infrastructure with our egress IP on it, and a way to keep
+ * an action runtime busy for `REQUEST_TIMEOUT_MS` at a time.
+ *
+ * Keyed by **workspace**, not by user, because the workspace is what has an
+ * endpoint. Keying it to the person would let two owners of a shared context
+ * double the rate against one bucket, and would throttle an owner of five
+ * contexts for checking each of them once.
+ *
+ * A handful an hour is far more than a person clicking "check again" needs, and
+ * far less than a useful probe rate. `lib/rateLimit.ts` counts successful
+ * mutations in a fixed window, so the true worst case is `limit * 2` across a
+ * window boundary; at this size that does not matter.
+ */
+const REVERIFY_LIMIT = 6;
+const REVERIFY_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * Check an existing binding again, without re-supplying the credential.
+ *
+ * ## Why this has to exist
+ *
+ * Verification used to be scheduled from exactly one place — `applyBinding` —
+ * so a single transient failure (a DNS blip, a provider having a minute, a
+ * bucket policy fixed thirty seconds later) left the row `error` forever, and
+ * the only documented cure was to paste the secret access key again. That is
+ * both terrible and *dangerous*: it trains people to re-enter a credential to
+ * fix problems that have nothing to do with the credential, which is exactly
+ * the habit a phishing page wants them to have.
+ *
+ * ## Why it is a mutation that schedules rather than an action that probes
+ *
+ * `verifyStorageBinding` decrypts. Anything that **calls** it has a decrypted
+ * credential in its own scope, which `__tests__/structure.test.ts` forbids for a
+ * public function — correctly, because the return value of a call flows back to
+ * the caller. Scheduling is a different edge: the scheduler discards the job's
+ * result and there is no channel back to whoever queued it, so this function
+ * can *cause* a probe without ever being able to see a credential. Nothing here
+ * returns anything the probe learns; the outcome shows up where it belongs, on
+ * the row, via `getStorageBinding`.
+ *
+ * Being a mutation also makes the rate limit real: `consumeRateLimit` writes,
+ * and it commits in the same transaction as the scheduled job, so a refused
+ * request queues nothing and a queued probe is always counted.
+ *
+ * ## Why every status is allowed
+ *
+ * `error` is the obvious one. `unverified` matters because the original probe
+ * can be lost (a deploy mid-flight, a scheduler failure) and there would
+ * otherwise be nothing to re-run it. `connected` matters because a re-check of
+ * a binding we *believe* is healthy is exactly what someone does when the
+ * gateway starts failing — and because a credential revoked at the provider
+ * still reads `connected` here until something asks.
+ *
+ * The status is deliberately **not** reset to `unverified` while the probe
+ * runs. Doing that would make a currently-working binding unusable to the
+ * gateway (`isUsable` accepts only `connected`) for the duration of a check the
+ * owner ran precisely because things were working.
+ *
+ * Owner-only, for the same reason `bindStorage` is: it is an action on the
+ * workspace's credential and it spends the workspace's budget.
+ */
+export const reverifyStorage = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({
+    queued: v.boolean(),
+    /**
+     * The status *before* the probe. The probe has not run yet — it cannot
+     * have, it is scheduled — so anything else here would be a guess. Watch
+     * `getStorageBinding` for the outcome.
+     */
+    status: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+    await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
+
+    const binding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (binding === null) {
+      throw new ConvexError({
+        code: "NO_STORAGE_BINDING",
+        message: "This workspace has no storage binding to check.",
+      });
+    }
+
+    // Counted before the schedule, in the same transaction: a refusal throws
+    // and rolls the whole thing back, so a probe is never queued uncounted and
+    // a count never survives a probe that was not queued.
+    await consumeRateLimit(ctx, {
+      key: `storage.reverify:${args.workspaceId}`,
+      limit: REVERIFY_LIMIT,
+      windowMs: REVERIFY_WINDOW_MS,
+    });
+
+    await ctx.scheduler.runAfter(
+      0,
+      internal.functions.provisioning.verifyStorageBinding,
+      { workspaceId: args.workspaceId, actorUserId: userId },
+    );
+
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: userId,
+      action: "storage.reverify_requested",
+      // The status we are checking from, which is the interesting part of the
+      // event. No endpoint, no key id, no secret.
+      details: { fromStatus: binding.status },
+    });
+
+    return { queued: true, status: binding.status };
   },
 });
 

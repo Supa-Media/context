@@ -53,7 +53,7 @@ import {
   redactSecrets,
   summarizeProbe,
 } from "./lib/verification";
-import type { GatewayCredential } from "./storage";
+import { addressingIsAmbiguous, type GatewayCredential } from "./storage";
 
 /**
  * How long a single request to the customer's endpoint may take.
@@ -89,6 +89,40 @@ function timeoutFetch(
   return globalThis.fetch(input, timeout ? { ...init, signal: timeout } : init);
 }
 
+/**
+ * THE CLOSED SET OF FAILURE CODES.
+ *
+ * `lastError` is provider prose written for a human; this is the same failure
+ * expressed as something a client can branch on. A console that wants to offer
+ * "choose an addressing style" for one failure and "paste the key again" for
+ * another must not be matching on English.
+ *
+ * Deliberately coarse — each value maps to a different thing the owner does:
+ *
+ *  - `CREDENTIAL_UNAVAILABLE` — the envelope would not open. Rebind.
+ *  - `AMBIGUOUS_ADDRESSING`   — endpoint and bucket cannot be told apart.
+ *                               Rebind with an explicit `forcePathStyle`.
+ *  - `INVALID_CONFIGURATION`  — the adapter refused the configuration for some
+ *                               other reason (bucket name with a slash in it,
+ *                               unusable root prefix). Rebind with it fixed.
+ *  - `UNREACHABLE`            — the bucket could not be listed. Endpoint,
+ *                               region, bucket name, or list permission.
+ *  - `NOT_WRITABLE`           — it lists but will not accept a write. The key
+ *                               needs put/delete.
+ *  - `PROBE_FAILED`           — the probe itself blew up. Nothing to advise
+ *                               beyond retrying, which is what `reverifyStorage`
+ *                               is for.
+ *
+ * Anything a client does not recognise should fall back to showing `lastError`.
+ */
+export type VerificationErrorCode =
+  | "CREDENTIAL_UNAVAILABLE"
+  | "AMBIGUOUS_ADDRESSING"
+  | "INVALID_CONFIGURATION"
+  | "UNREACHABLE"
+  | "NOT_WRITABLE"
+  | "PROBE_FAILED";
+
 /** What `verifyStorageBinding` reports. Deliberately free of any credential. */
 export interface VerificationOutcome {
   verified: boolean;
@@ -99,6 +133,8 @@ export interface VerificationOutcome {
   scaffolded: boolean;
   scaffoldReason: string;
   error?: string;
+  /** Absent when `verified`, and absent when the failure has no useful code. */
+  errorCode?: VerificationErrorCode;
 }
 
 /**
@@ -143,6 +179,7 @@ export const verifyStorageBinding = internalAction({
     scaffolded: v.boolean(),
     scaffoldReason: v.string(),
     error: v.optional(v.string()),
+    errorCode: v.optional(v.string()),
   }),
   // Annotated rather than inferred: this action calls other functions in the
   // same deployment, which is the same inference cycle `bindStorage` has.
@@ -170,6 +207,7 @@ export const verifyStorageBinding = internalAction({
           // reads one instruction rather than two that sound different.
           "This workspace's storage credential could not be opened. Rebind storage to replace it.",
         ),
+        errorCode: "CREDENTIAL_UNAVAILABLE",
       });
     }
 
@@ -200,11 +238,22 @@ export const verifyStorageBinding = internalAction({
         rootPrefix: credential.rootPrefix,
         accessKeyId: credential.accessKeyId,
         secretAccessKey: credential.secretAccessKey,
-        fetchImpl: timeoutFetch,
+        // The stored answer to "is the bucket in the host or in the path".
+        // Passing it is what makes a virtual-hosted endpoint connectable at
+        // all, and passing the *stored* one is what makes the store this probe
+        // exercises identical to the store the gateway will build from the same
+        // row — a probe that addressed the bucket differently from the gateway
+        // would certify a configuration that does not work.
+        forcePathStyle: credential.forcePathStyle,
       }) as unknown as ScaffoldStore;
     } catch (error) {
       // Bad configuration rather than a bad bucket: an endpoint whose
       // addressing style is ambiguous, a bucket name with a slash in it.
+      //
+      // `bindStorage` refuses the ambiguous case up front, so reaching it here
+      // means a row written before that check existed. Coding it separately is
+      // what lets the console offer the fix instead of "reconnect storage",
+      // which would not have helped.
       return await record(ctx, args, {
         verified: false,
         reachable: false,
@@ -213,6 +262,11 @@ export const verifyStorageBinding = internalAction({
         scaffolded: false,
         scaffoldReason: "not-attempted",
         error: redactSecrets(errorMessage(error), secrets),
+        errorCode:
+          credential.forcePathStyle === undefined &&
+          addressingIsAmbiguous(credential.endpoint, credential.bucket)
+            ? "AMBIGUOUS_ADDRESSING"
+            : "INVALID_CONFIGURATION",
       });
     }
 
@@ -230,6 +284,7 @@ export const verifyStorageBinding = internalAction({
         scaffolded: false,
         scaffoldReason: "not-attempted",
         error: redactSecrets(errorMessage(error), secrets),
+        errorCode: "PROBE_FAILED",
       });
     }
 
@@ -244,6 +299,8 @@ export const verifyStorageBinding = internalAction({
         scaffolded: false,
         scaffoldReason: "not-attempted",
         error: redactSecrets(summary.error ?? "Verification failed.", secrets),
+        // `summarizeProbe` fails for exactly two reasons and reports which.
+        errorCode: summary.reachable ? "NOT_WRITABLE" : "UNREACHABLE",
       });
     }
 
@@ -299,6 +356,7 @@ async function record(
       ok: outcome.verified,
       capabilities: { conditionalWrite: outcome.conditionalWrite },
       error,
+      errorCode: outcome.errorCode,
       actorUserId: args.actorUserId,
     });
   } catch {
