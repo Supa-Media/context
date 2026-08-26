@@ -1,12 +1,14 @@
 import worker from "../src/index.js";
+import { R2Store } from "../src/store/r2.js";
+import { runStoreChecks } from "./store.test.mjs";
 
-// --- in-memory R2 stub ---
-const store = new Map();
+// --- in-memory R2 stub, wrapped in the same adapter the worker builds ---
+const objects = new Map();
 let etagCounter = 0;
 const bucket = {
   async get(key) {
-    if (!store.has(key)) return null;
-    const { body, etag } = store.get(key);
+    if (!objects.has(key)) return null;
+    const { body, etag } = objects.get(key);
     return {
       etag,
       text: async () => body,
@@ -15,24 +17,28 @@ const bucket = {
   },
   async put(key, value, options = {}) {
     const expected = options?.onlyIf?.etagMatches;
-    if (expected && store.get(key)?.etag !== expected) return null;
+    if (expected && objects.get(key)?.etag !== expected) return null;
     const body =
       typeof value === "string" ? value : new TextDecoder().decode(value);
     const etag = `e${++etagCounter}`;
-    store.set(key, { body, etag });
+    objects.set(key, { body, etag });
     return { etag };
   },
   async delete(key) {
-    store.delete(key);
+    objects.delete(key);
   },
   async list({ prefix, cursor, limit } = {}) {
-    const objects = [...store.keys()]
+    const listed = [...objects.keys()]
       .filter((k) => !prefix || k.startsWith(prefix))
       .sort()
-      .map((key) => ({ key, size: store.get(key).body.length, uploaded: new Date() }));
-    return { objects, truncated: false };
+      .map((key) => ({ key, size: objects.get(key).body.length, uploaded: new Date() }));
+    return { objects: listed, truncated: false };
   },
 };
+
+// Seeds and assertions go through the ContextStore, so the suite exercises the
+// same adapter the worker uses rather than the raw binding.
+const contextStore = new R2Store(bucket);
 
 const env = {
   BRAIN: bucket,
@@ -45,23 +51,23 @@ const env = {
 };
 
 // seed
-await bucket.put(
+await contextStore.put(
   "privacy.md",
   `---\nrole: privacy-manifest\nversion: 1\n---\n\n# Brain Privacy Map\n\n<!-- BEGIN BRAIN PRIVACY RULES -->\n\n\`\`\`yaml\ndefault_visibility: private\n\nfolder_defaults:\n  index.md: team\n  team-native: team\n  1-projects: team\n  1-projects/private: private\n  1-projects/secret-thing: private\n  1-projects/private-folder: private\n  1-projects/mixed/private: private\n  2-areas: team\n  2-areas/private: private\n  2-areas/calendar: private\n  2-areas/health: private\n  2-areas/engineering/one-on-ones: private\n  3-resources: team\n  3-resources/private: private\n  4-archive: team\n  4-archive/private: private\n\nnote_overrides:\n  # none\n\`\`\`\n\n<!-- END BRAIN PRIVACY RULES -->\n`
 );
-await bucket.put("index.md", "# public manifest");
-await bucket.put("index-private.md", "# PRIVATE manifest");
-await bucket.put("team-native/info.md", "native team scope marker");
-await bucket.put("1-projects/togather/status.md", "togather status SECRETWORD-no wait, public");
-await bucket.put("1-projects/secret-thing/status.md", "hidden project PRIVATEWORD");
-await bucket.put("2-areas/engineering/practices.md", "eng practices");
-await bucket.put("2-areas/engineering/one-on-ones/alex.md", "sensitive 1:1");
-await bucket.put("1-projects/portable/a.md", "portable a");
-await bucket.put("1-projects/portable/existing.md", "portable existing");
-await bucket.put("1-projects/mixed/public.md", "public half");
-await bucket.put("1-projects/mixed/private/secret.md", "private half");
-await bucket.put("1-projects/private-folder/a.md", "private folder a");
-await bucket.put(".obsidian/app.json", "{}");
+await contextStore.put("index.md", "# public manifest");
+await contextStore.put("index-private.md", "# PRIVATE manifest");
+await contextStore.put("team-native/info.md", "native team scope marker");
+await contextStore.put("1-projects/togather/status.md", "togather status SECRETWORD-no wait, public");
+await contextStore.put("1-projects/secret-thing/status.md", "hidden project PRIVATEWORD");
+await contextStore.put("2-areas/engineering/practices.md", "eng practices");
+await contextStore.put("2-areas/engineering/one-on-ones/alex.md", "sensitive 1:1");
+await contextStore.put("1-projects/portable/a.md", "portable a");
+await contextStore.put("1-projects/portable/existing.md", "portable existing");
+await contextStore.put("1-projects/mixed/public.md", "public half");
+await contextStore.put("1-projects/mixed/private/secret.md", "private half");
+await contextStore.put("1-projects/private-folder/a.md", "private folder a");
+await contextStore.put(".obsidian/app.json", "{}");
 
 let rpcId = 0;
 async function rpc(token, method, params) {
@@ -219,7 +225,7 @@ const wPubNewFolder = await call("pub-token", "write_note", {
 });
 check(
   "team connection creates a new folder under a broad team PARA root",
-  !wPubNewFolder.isError && store.has("2-areas/apps/new-folder-created-by-note.md")
+  !wPubNewFolder.isError && objects.has("2-areas/apps/new-folder-created-by-note.md")
 );
 const wPubDeepFolder = await call("team-token", "write_note", {
   path: "2-areas/apps/created-entirely-through-mcp/deep/nested/status.md",
@@ -228,7 +234,7 @@ const wPubDeepFolder = await call("team-token", "write_note", {
 check(
   "team connection creates arbitrarily nested implicit folders under a team default",
   !wPubDeepFolder.isError &&
-    store.has("2-areas/apps/created-entirely-through-mcp/deep/nested/status.md")
+    objects.has("2-areas/apps/created-entirely-through-mcp/deep/nested/status.md")
 );
 
 // -- folder defaults can be managed entirely through the personal MCP
@@ -275,7 +281,7 @@ const makeFolderPrivate = await call("priv-token", "set_folder_visibility", {
 });
 const makeFolderPrivateText = makeFolderPrivate.content[0].text;
 const privateFolderPrivacyEtag = makeFolderPrivateText.match(/new_privacy_etag: (\S+)/)?.[1];
-const privacyAfterFolderPrivate = await store.get("privacy.md").body;
+const privacyAfterFolderPrivate = await objects.get("privacy.md").body;
 check(
   "personal MCP atomically makes a folder private and hides every inherited note from team",
   !makeFolderPrivate.isError &&
@@ -293,7 +299,7 @@ const teamBlockedUnderManagedPrivate = await call("team-token", "write_note", {
 });
 check(
   "team nested creation is blocked only when the inherited folder default is private",
-  teamBlockedUnderManagedPrivate.isError && !store.has(`${managedFolder}/team-must-not-create.md`)
+  teamBlockedUnderManagedPrivate.isError && !objects.has(`${managedFolder}/team-must-not-create.md`)
 );
 const publishFolderWithoutConfirmation = await call("priv-token", "set_folder_visibility", {
   path: managedFolder,
@@ -315,7 +321,7 @@ check(
   "confirmed inheritance change republishes the folder and removes its direct rule",
   !publishFolderWithConfirmation.isError &&
     !(await call("team-token", "read_note", { path: managedTeamPath })).isError &&
-    !store.get("privacy.md").body.includes(`  ${managedFolder}: private`)
+    !objects.get("privacy.md").body.includes(`  ${managedFolder}: private`)
 );
 const teamCannotChangeFolderVisibility = await call("team-token", "set_folder_visibility", {
   path: managedFolder,
@@ -342,8 +348,8 @@ check(
   "personal connection creates private and team notes side-by-side in one team folder",
   !teamMeeting.isError &&
     !privateMeeting.isError &&
-    store.has(teamMeetingPath) &&
-    store.has(privateMeetingPath)
+    objects.has(teamMeetingPath) &&
+    objects.has(privateMeetingPath)
 );
 check(
   "write_note reports the effective visibility explicitly",
@@ -418,7 +424,7 @@ const teamPrivateWrite = await call("team-token", "write_note", {
 });
 check(
   "team connection cannot directly create a private note",
-  teamPrivateWrite.isError && !store.has(teamCannotCreatePrivatePath)
+  teamPrivateWrite.isError && !objects.has(teamCannotCreatePrivatePath)
 );
 const internetPublicWrite = await call("priv-token", "write_note", {
   path: "2-areas/engineering/meetings/internet-public.md",
@@ -427,7 +433,7 @@ const internetPublicWrite = await call("priv-token", "write_note", {
 });
 check(
   "write_note exposes no internet-public visibility tier",
-  internetPublicWrite.isError && !store.has("2-areas/engineering/meetings/internet-public.md")
+  internetPublicWrite.isError && !objects.has("2-areas/engineering/meetings/internet-public.md")
 );
 const misleadingFrontmatterPath = "2-areas/engineering/meetings/frontmatter-mismatch.md";
 const misleadingFrontmatter = await call("priv-token", "write_note", {
@@ -438,7 +444,7 @@ const misleadingFrontmatter = await call("priv-token", "write_note", {
 });
 check(
   "server rejects private frontmatter paired with team visibility",
-  misleadingFrontmatter.isError && !store.has(misleadingFrontmatterPath)
+  misleadingFrontmatter.isError && !objects.has(misleadingFrontmatterPath)
 );
 
 const teamMeetingRead = (await call("priv-token", "read_note", { path: teamMeetingPath })).content[0].text;
@@ -451,7 +457,7 @@ const makeMeetingPrivate = await call("priv-token", "set_visibility", {
 check(
   "personal connection can narrow a team note to private in place",
   !makeMeetingPrivate.isError &&
-    store.has(teamMeetingPath) &&
+    objects.has(teamMeetingPath) &&
     (await call("team-token", "read_note", { path: teamMeetingPath })).isError
 );
 const nowPrivateMeetingRead = (await call("priv-token", "read_note", {
@@ -477,7 +483,7 @@ const publishWithConfirmation = await call("priv-token", "set_visibility", {
 check(
   "confirmed private to team transition publishes the same logical note",
   !publishWithConfirmation.isError &&
-    store.has(teamMeetingPath) &&
+    objects.has(teamMeetingPath) &&
     !(await call("team-token", "read_note", { path: teamMeetingPath })).isError
 );
 const teamCannotChangeVisibility = await call("team-token", "set_visibility", {
@@ -511,7 +517,7 @@ check(
   "explicitly confirmed exact team override works inside an inherited-private folder",
   !publishInsidePrivateFolder.isError &&
     createTeamInsidePrivateFolder.isError &&
-    !store.has("2-areas/private/meetings/invalid-team-child.md") &&
+    !objects.has("2-areas/private/meetings/invalid-team-child.md") &&
     !(await call("team-token", "read_note", { path: inheritedPrivatePath })).isError
 );
 const teamUpdatesPublishedPrivateFolderNote = await call("team-token", "write_note", {
@@ -551,8 +557,8 @@ const movedPrivateMeetingPath = "2-areas/engineering/meetings/personnel-check-in
 check(
   "moving a private note within a team folder preserves its ACL",
   !movePrivateMeeting.isError &&
-    store.has(movedPrivateMeetingPath) &&
-    !store.has(privateMeetingPath) &&
+    objects.has(movedPrivateMeetingPath) &&
+    !objects.has(privateMeetingPath) &&
     (await call("team-token", "read_note", { path: movedPrivateMeetingPath })).isError
 );
 const archivePrivateMeeting = await call("priv-token", "archive_note", {
@@ -563,8 +569,8 @@ check(
   "archiving a private note preserves private visibility and logical history",
   !archivePrivateMeeting.isError &&
     archivedPrivateMeetingPath &&
-    store.has(archivedPrivateMeetingPath) &&
-    !store.has(movedPrivateMeetingPath) &&
+    objects.has(archivedPrivateMeetingPath) &&
+    !objects.has(movedPrivateMeetingPath) &&
     (await call("team-token", "read_note", { path: archivedPrivateMeetingPath })).isError
 );
 
@@ -575,7 +581,7 @@ const wOk = await call("priv-token", "write_note", { path: "index.md", content: 
 check("CAS write with fresh etag ok", !wOk.isError);
 const wStale = await call("priv-token", "write_note", { path: "index.md", content: "v3", expected_etag: etag });
 check("CAS write with stale etag conflicts", wStale.isError && wStale.content[0].text.includes("conflict"));
-check("history snapshot exists", [...store.keys()].some((k) => k.startsWith(".history/index.md.")));
+check("history snapshot exists", [...objects.keys()].some((k) => k.startsWith(".history/index.md.")));
 
 // -- search scoping
 const sPub = (await call("pub-token", "search_notes", { query: "status" })).content[0].text;
@@ -593,14 +599,14 @@ check(
 
 // -- archive
 const arch = await call("priv-token", "archive_note", { path: "1-projects/togather/notes.md" });
-const privateArchiveKey = [...store.keys()].find((key) => key.endsWith("/1-projects/togather/notes.md"));
+const privateArchiveKey = [...objects.keys()].find((key) => key.endsWith("/1-projects/togather/notes.md"));
 check(
   "archive preserves private ACL without a privacy-named folder",
   !arch.isError &&
     privateArchiveKey?.startsWith("4-archive/") &&
     !privateArchiveKey.startsWith("4-archive/private/") &&
     (await call("team-token", "read_note", { path: privateArchiveKey })).isError &&
-    !store.has("1-projects/togather/notes.md")
+    !objects.has("1-projects/togather/notes.md")
 );
 await call("pub-token", "write_note", { path: "1-projects/togather/probe.md", content: "temporary probe" });
 const probeRead = (await call("pub-token", "read_note", { path: "1-projects/togather/probe.md" })).content[0].text;
@@ -608,18 +614,18 @@ const probeEtag = probeRead.match(/etag: (\S+)/)[1];
 const publicArchiveWithoutEtag = await call("pub-token", "archive_note", {
   path: "1-projects/togather/probe.md",
 });
-check("team archive requires etag", publicArchiveWithoutEtag.isError && store.has("1-projects/togather/probe.md"));
+check("team archive requires etag", publicArchiveWithoutEtag.isError && objects.has("1-projects/togather/probe.md"));
 const publicArchive = await call("pub-token", "archive_note", {
   path: "1-projects/togather/probe.md",
   expected_etag: probeEtag,
 });
-const publicArchiveKey = [...store.keys()].find((key) => key.endsWith("/1-projects/togather/probe.md"));
+const publicArchiveKey = [...objects.keys()].find((key) => key.endsWith("/1-projects/togather/probe.md"));
 check(
   "team archive retracts into team-visible recoverable archive",
   !publicArchive.isError &&
     publicArchiveKey?.startsWith("4-archive/") &&
     !publicArchiveKey.startsWith("4-archive/team/") &&
-    !store.has("1-projects/togather/probe.md")
+    !objects.has("1-projects/togather/probe.md")
 );
 
 // -- private-approval proposal queue
@@ -633,7 +639,7 @@ const proposalText = proposal.content[0].text;
 const proposalId = proposalText.match(/proposal queued: ([0-9a-f-]+)/i)?.[1];
 check(
   "team connection can queue a private-destination proposal without filing it",
-  !proposal.isError && proposalId && !store.has("2-areas/private/apps/example.md")
+  !proposal.isError && proposalId && !objects.has("2-areas/private/apps/example.md")
 );
 const publicProposalList = await call("pub-token", "list_proposals");
 check("team connection cannot inspect proposal queue", publicProposalList.isError);
@@ -652,7 +658,7 @@ const approveProposal = await call("priv-token", "review_proposal", {
 });
 check(
   "private approval files proposal and clears pending queue",
-  !approveProposal.isError && store.has("2-areas/private/apps/example.md") &&
+  !approveProposal.isError && objects.has("2-areas/private/apps/example.md") &&
     (await call("priv-token", "list_proposals")).content[0].text.includes("no pending")
 );
 const rejectedProposal = await call("pub-token", "propose_note", {
@@ -663,7 +669,7 @@ const rejectedProposal = await call("pub-token", "propose_note", {
 });
 const rejectedId = rejectedProposal.content[0].text.match(/proposal queued: ([0-9a-f-]+)/i)?.[1];
 const rejectReview = await call("priv-token", "review_proposal", { id: rejectedId, action: "reject" });
-check("private rejection preserves no destination note", !rejectReview.isError && !store.has("2-areas/private/apps/rejected.md"));
+check("private rejection preserves no destination note", !rejectReview.isError && !objects.has("2-areas/private/apps/rejected.md"));
 
 // -- privacy-aware chat history archives
 const privateChatArchive = await call("priv-token", "archive_chat", {
@@ -678,8 +684,8 @@ check(
   "private connection defaults chat history to private",
   !privateChatArchive.isError &&
     privateChatPath?.startsWith("4-archive/chat-history/codex/") &&
-    store.get(privateChatPath)?.body.includes('visibility: "private"') &&
-    store.get(privateChatPath)?.body.includes('completeness: "full-visible-transcript"')
+    objects.get(privateChatPath)?.body.includes('visibility: "private"') &&
+    objects.get(privateChatPath)?.body.includes('completeness: "full-visible-transcript"')
 );
 const publicReadPrivateChat = await call("pub-token", "read_note", { path: privateChatPath });
 check("team connection cannot discover private chat history", publicReadPrivateChat.isError && publicReadPrivateChat.content[0].text === "not found");
@@ -708,8 +714,8 @@ check(
   "team connection defaults chat history to team and labels partial context",
   !publicChatArchive.isError &&
     publicChatPath?.startsWith("4-archive/chat-history/claude/") &&
-    store.get(publicChatPath)?.body.includes('visibility: "team"') &&
-    store.get(publicChatPath)?.body.includes('completeness: "available-context"')
+    objects.get(publicChatPath)?.body.includes('visibility: "team"') &&
+    objects.get(publicChatPath)?.body.includes('completeness: "available-context"')
 );
 
 const publicPrivateChat = await call("pub-token", "archive_chat", {
@@ -725,7 +731,7 @@ check(
   !publicPrivateChat.isError &&
     privateChatProposalId &&
     privateChatIntendedPath?.startsWith("4-archive/chat-history/claude/") &&
-    !store.has(privateChatIntendedPath)
+    !objects.has(privateChatIntendedPath)
 );
 const approvePrivateChat = await call("priv-token", "review_proposal", {
   id: privateChatProposalId,
@@ -734,7 +740,7 @@ const approvePrivateChat = await call("priv-token", "review_proposal", {
 check(
   "personal reviewer can approve a team client's private chat archive",
   !approvePrivateChat.isError &&
-    store.has(privateChatIntendedPath) &&
+    objects.has(privateChatIntendedPath) &&
     (await call("pub-token", "read_note", { path: privateChatIntendedPath })).isError
 );
 
@@ -748,20 +754,20 @@ const moveNote = await call("pub-token", "move_note", {
 });
 check(
   "team move_note moves within team scope",
-  !moveNote.isError && store.has("1-projects/portable/renamed.md") && !store.has("1-projects/portable/a.md")
+  !moveNote.isError && objects.has("1-projects/portable/renamed.md") && !objects.has("1-projects/portable/a.md")
 );
 const moveConflict = await call("pub-token", "move_note", {
   source: "1-projects/portable/renamed.md",
   destination: "1-projects/portable/existing.md",
 });
-check("move_note refuses destination overwrite", moveConflict.isError && store.has("1-projects/portable/renamed.md"));
+check("move_note refuses destination overwrite", moveConflict.isError && objects.has("1-projects/portable/renamed.md"));
 const mixedMove = await call("pub-token", "move_folder", {
   source: "1-projects/mixed",
   destination: "1-projects/mixed-dest",
 });
 check(
   "team move_folder refuses a tree with a private island",
-  mixedMove.isError && store.has("1-projects/mixed/public.md") && !store.has("1-projects/mixed-dest/public.md")
+  mixedMove.isError && objects.has("1-projects/mixed/public.md") && !objects.has("1-projects/mixed-dest/public.md")
 );
 const privateFolderMove = await call("priv-token", "move_folder", {
   source: "1-projects/private-folder",
@@ -770,14 +776,14 @@ const privateFolderMove = await call("priv-token", "move_folder", {
 check(
   "personal move_folder moves a private tree without reducing privacy",
   !privateFolderMove.isError &&
-    store.has("1-projects/private-folder-renamed/a.md") &&
-    !store.has("1-projects/private-folder/a.md") &&
+    objects.has("1-projects/private-folder-renamed/a.md") &&
+    !objects.has("1-projects/private-folder/a.md") &&
     (await call("team-token", "read_note", { path: "1-projects/private-folder-renamed/a.md" })).isError
 );
 check(
   "moves snapshot sources to history",
-  [...store.keys()].some((key) => key.startsWith(".history/1-projects/portable/a.md.")) &&
-    [...store.keys()].some((key) => key.startsWith(".history/1-projects/private-folder/a.md."))
+  [...objects.keys()].some((key) => key.startsWith(".history/1-projects/portable/a.md.")) &&
+    [...objects.keys()].some((key) => key.startsWith(".history/1-projects/private-folder/a.md."))
 );
 
 // -- batch move plan and apply
@@ -795,19 +801,19 @@ const batchEtags = [...batchPlanText.matchAll(/etag (\S+)\)/g)].map((match) => m
 check(
   "batch dry-run validates without changing data",
   !batchPlan.isError && batchEtags.length === 2 &&
-    store.has("1-projects/portable/batch-a.md") && !store.has("1-projects/portable-moved/batch-a.md")
+    objects.has("1-projects/portable/batch-a.md") && !objects.has("1-projects/portable-moved/batch-a.md")
 );
 // Simulate a Worker invocation that copied one identical destination before
 // hitting its request limit. A retry must resume without treating it as a
 // conflicting overwrite.
-await bucket.put("1-projects/portable-moved/batch-a.md", "batch a");
+await contextStore.put("1-projects/portable-moved/batch-a.md", "batch a");
 const batchWithoutEtags = await call("pub-token", "move_notes", {
   moves: [
     { source: "1-projects/portable/batch-a.md", destination: "1-projects/portable-moved/batch-a.md" },
     { source: "1-projects/portable/batch-b.md", destination: "1-projects/portable-moved/batch-b.md" },
   ],
 });
-check("batch apply requires etags", batchWithoutEtags.isError && store.has("1-projects/portable/batch-a.md"));
+check("batch apply requires etags", batchWithoutEtags.isError && objects.has("1-projects/portable/batch-a.md"));
 const batchApply = await call("pub-token", "move_notes", {
   moves: [
     {
@@ -825,10 +831,10 @@ const batchApply = await call("pub-token", "move_notes", {
 check(
   "batch apply resumes identical partial copies and moves every note",
   !batchApply.isError &&
-    !store.has("1-projects/portable/batch-a.md") &&
-    !store.has("1-projects/portable/batch-b.md") &&
-    store.has("1-projects/portable-moved/batch-a.md") &&
-    store.has("1-projects/portable-moved/batch-b.md")
+    !objects.has("1-projects/portable/batch-a.md") &&
+    !objects.has("1-projects/portable/batch-b.md") &&
+    objects.has("1-projects/portable-moved/batch-a.md") &&
+    objects.has("1-projects/portable-moved/batch-b.md")
 );
 const folderDryRun = await call("pub-token", "move_folder", {
   source: "1-projects/portable-moved",
@@ -839,12 +845,12 @@ check(
   "folder move dry-run makes no changes",
   !folderDryRun.isError &&
     folderDryRun.content[0].text.includes("preflight ok") &&
-    store.has("1-projects/portable-moved/batch-a.md")
+    objects.has("1-projects/portable-moved/batch-a.md")
 );
 
 // Archive-to-archive relocations already retain a recoverable destination, so
 // they avoid creating a redundant history copy when visibility is unchanged.
-await bucket.put("4-archive/old-layout/a.md", "archived a");
+await contextStore.put("4-archive/old-layout/a.md", "archived a");
 const archiveRelocationPlan = await call("priv-token", "move_notes", {
   dry_run: true,
   moves: [{ source: "4-archive/old-layout/a.md", destination: "4-archive/new-layout/a.md" }],
@@ -860,9 +866,9 @@ const archiveRelocation = await call("priv-token", "move_notes", {
 check(
   "archive relocation moves without a redundant history snapshot",
   !archiveRelocation.isError &&
-    !store.has("4-archive/old-layout/a.md") &&
-    store.has("4-archive/new-layout/a.md") &&
-    ![...store.keys()].some((key) => key.startsWith(".history/4-archive/old-layout/a.md."))
+    !objects.has("4-archive/old-layout/a.md") &&
+    objects.has("4-archive/new-layout/a.md") &&
+    ![...objects.keys()].some((key) => key.startsWith(".history/4-archive/old-layout/a.md."))
 );
 
 // -- immutable, scope-filtered audit log
@@ -911,7 +917,7 @@ const inbox = await worker.fetch(
   { waitUntil() {} }
 );
 const inboxBody = await inbox.json();
-check("inbox capture lands in 0-inbox", inboxBody.ok && inboxBody.path.startsWith("0-inbox/") && store.has(inboxBody.path));
+check("inbox capture lands in 0-inbox", inboxBody.ok && inboxBody.path.startsWith("0-inbox/") && objects.has(inboxBody.path));
 const granolaPayload = {
   title: "Weekly Leadership Sync",
   text: "## Summary\nWe made a decision.",
@@ -930,7 +936,7 @@ const granolaRequest = () =>
   });
 const granolaInbox = await worker.fetch(granolaRequest(), env, { waitUntil() {} });
 const granolaBody = await granolaInbox.json();
-const granolaNote = store.get(granolaBody.path)?.body || "";
+const granolaNote = objects.get(granolaBody.path)?.body || "";
 check(
   "structured Granola capture preserves context",
   granolaBody.ok &&
@@ -1015,8 +1021,10 @@ const granolaEvent = {
   note_id: "not_1d3tmYTlCICgjy",
   occurred_at: "2026-08-21T15:30:00Z",
 };
+let granolaAuthorization = null;
 globalThis.fetch = async (url, options) => {
   if (String(url).includes("public-api.granola.ai/v1/notes/not_1d3tmYTlCICgjy")) {
+    granolaAuthorization = options?.headers?.Authorization ?? null;
     return Response.json({
       id: "not_1d3tmYTlCICgjy",
       title: "Quarterly yoghurt budget review",
@@ -1037,7 +1045,7 @@ const granolaWebhook = await worker.fetch(await signedGranolaRequest(granolaEven
   waitUntil: (promise) => granolaWork.push(promise),
 });
 await Promise.all(granolaWork);
-const nativeGranolaNotes = [...store.entries()].filter(([key]) => key.startsWith("0-inbox/granola/"));
+const nativeGranolaNotes = [...objects.entries()].filter(([key]) => key.startsWith("0-inbox/granola/"));
 const nativeGranolaText = nativeGranolaNotes.map(([, value]) => value.body).join("\n");
 check(
   "signed Granola webhook fetches and files the full note",
@@ -1047,9 +1055,13 @@ check(
     nativeGranolaText.includes("AI Brain Inbox")
 );
 check(
+  "Granola note fetch still carries its API credential",
+  granolaAuthorization === "Bearer granola-api-key"
+);
+check(
   "completed Granola webhook leaves no pending event",
-  ![...store.keys()].some((key) => key.startsWith(".granola-events/pending/")) &&
-    [...store.keys()].some((key) => key.startsWith(".granola-events/completed/"))
+  ![...objects.keys()].some((key) => key.startsWith(".granola-events/pending/")) &&
+    [...objects.keys()].some((key) => key.startsWith(".granola-events/completed/"))
 );
 const granolaDuplicate = await worker.fetch(await signedGranolaRequest(granolaEvent), env, {
   waitUntil() {},
@@ -1081,7 +1093,7 @@ globalThis.fetch = async () =>
   );
 await worker.scheduled({}, env, { waitUntil: (p) => p });
 await new Promise((r) => setTimeout(r, 50));
-const cal = store.get("2-areas/calendar/next-14-days.md")?.body || "";
+const cal = objects.get("2-areas/calendar/next-14-days.md")?.body || "";
 check("cron writes calendar note", cal.includes("Team sync") && cal.includes("@ HQ") && cal.includes("14:00"));
 
 function icsStamp(date) {
@@ -1155,7 +1167,7 @@ globalThis.fetch = async () =>
   );
 await worker.scheduled({}, env, { waitUntil: (p) => p });
 await new Promise((r) => setTimeout(r, 50));
-const recurringCal = store.get("2-areas/calendar/next-14-days.md")?.body || "";
+const recurringCal = objects.get("2-areas/calendar/next-14-days.md")?.body || "";
 const targetSection = recurringCal
   .split(`## ${weeklyTarget.toISOString().slice(0, 10)}\n`)[1]
   ?.split("\n## ")[0] || "";
@@ -1169,6 +1181,9 @@ check("cron honors recurrence BYSETPOS", recurringCal.includes("13:00 — Positi
 check("cron honors recurrence UNTIL", !recurringCal.includes("Expired recurrence"));
 check("cron expands yearly recurrence", recurringCal.includes("12:00 — Yearly reminder"));
 check("calendar note reports recurring support", recurringCal.includes("Common recurring-event rules are expanded"));
+
+// -- storage adapters: signing, listing, rootPrefix, capability probe
+await runStoreChecks(check);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");
 process.exit(failures ? 1 : 0);

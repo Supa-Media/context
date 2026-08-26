@@ -209,6 +209,37 @@ labels are descriptive, not access control.
 
 ---
 
+## Storage adapter
+
+All storage goes through a `ContextStore` (`src/store/`), never through a
+binding directly:
+
+| Adapter   | File              | Use                                                                   |
+| --------- | ----------------- | --------------------------------------------------------------------- |
+| `R2Store` | `src/store/r2.js` | a Cloudflare R2 binding (what this deployment uses)                    |
+| `S3Store` | `src/store/s3.js` | any S3-compatible endpoint — R2's S3 API, AWS S3, Backblaze B2, Wasabi |
+
+`src/index.js` builds the store in exactly one place (`storeForRequest`), so
+pointing a deployment at a different bucket is a change there and nowhere else.
+`S3Store` signs its own requests with AWS Signature V4 using `fetch` and Web
+Crypto — no SDK, no dependencies.
+
+Two rules the adapters exist to protect:
+
+- **Keys are never rewritten.** A note lives at `1-projects/foo.md` in the
+  customer's bucket, full stop. If a customer configures a `rootPrefix`, the
+  adapter applies it and strips it back off; nothing above the adapter ever sees
+  it. A bucket that already looks like a context connects with zero migration,
+  and Obsidian/Remotely Save keeps working.
+- **Conditional writes are verified, not assumed.** `put(key, value, { onlyIf:
+  { etagMatches } })` is what makes every etag check in the tools real. R2 and
+  AWS S3 honour `If-Match`; **B2 and Wasabi accept the header and ignore it.**
+  Call `probeStore(store)` at connect time: it writes a temp object under
+  `.context-probe/`, tries to overwrite it with a deliberately wrong `If-Match`,
+  cleans up, and returns a structured result. `conditionalWrite.mismatch: true`
+  means the backend claims a capability it does not have — degrade honestly
+  rather than losing conflict detection silently.
+
 ## Operations
 
 - **Audit privacy** = read `privacy.md` in Obsidian or through personal MCP

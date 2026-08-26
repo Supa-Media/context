@@ -1,7 +1,10 @@
 /**
- * Brain — a personal, scoped MCP server over an R2 bucket of markdown notes.
+ * Context — a scoped MCP server over a customer-owned bucket of markdown notes.
  *
- * Deploy on a PERSONAL Cloudflare account. Zero npm dependencies.
+ * Zero npm dependencies. Every storage call goes through a ContextStore
+ * adapter (`src/store/`), so the same worker serves an R2 binding or any
+ * S3-compatible endpoint. Keys are the customer's own keys: nothing here
+ * namespaces or rewrites a path.
  *
  * Access model:
  *   - PRIVATE_TOKEN  → personal access; sees everything and may create private notes
@@ -20,13 +23,17 @@
  *   POST /granola-webhook     receive signed Granola note events
  *   cron                     rewrites 2-areas/calendar/next-14-days.md from CALENDAR_ICS_URL
  *
- * R2 has no native object versioning, so before any overwrite the previous
- * version is snapshotted to .history/<path>.<timestamp>.md (never listed or
- * team-visible; readable by personal access if you ever need a rollback).
+ * Object storage has no dependable versioning, so before any overwrite the
+ * previous version is snapshotted to .history/<path>.<timestamp>.md (never
+ * listed or team-visible; readable by personal access for a rollback).
  */
+
+import { R2Store } from "./store/r2.js";
 
 const PRIVACY_KEY = "privacy.md";
 const LEGACY_SCOPES_KEY = "scopes.yml";
+// These two markers are on-bucket format, not vocabulary. They already sit
+// inside every live privacy.md, so renaming them would break existing buckets.
 const PRIVACY_RULES_BEGIN = "<!-- BEGIN BRAIN PRIVACY RULES -->";
 const PRIVACY_RULES_END = "<!-- END BRAIN PRIVACY RULES -->";
 const HISTORY_PREFIX = ".history/";
@@ -47,7 +54,7 @@ const GRANOLA_WEBHOOK_BYTE_CAP = 100_000;
 const GRANOLA_WEBHOOK_MAX_AGE_SECONDS = 5 * 60;
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
-const SERVER_INSTRUCTIONS = `This is the user's personal knowledge base ("the brain"): markdown notes
+const SERVER_INSTRUCTIONS = `This is the user's context: markdown notes
 organized by the PARA method (1-projects = active work, 2-areas = ongoing
 responsibilities, 3-resources = reference material, 4-archive = inactive,
 0-inbox = raw unfiled captures).
@@ -137,6 +144,16 @@ const ORIENT_OPERATING_CONTRACT = `## Connected agent operating contract
   scope. Override visibility only on the user's explicit instruction, and label
   partial or summarized captures honestly.`;
 
+/**
+ * Build the storage adapter for this request. This is the only place a
+ * Cloudflare binding name is allowed to appear — everything below works
+ * against the ContextStore interface, so pointing a deployment at an
+ * S3-compatible bucket is a change here and nowhere else.
+ */
+function storeForRequest(env) {
+  return new R2Store(env.BRAIN);
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -153,11 +170,11 @@ export default {
     }
 
     if (path === "/inbox" && request.method === "POST") {
-      return handleInbox(request, env, pathToken);
+      return handleInbox(request, env, storeForRequest(env), pathToken);
     }
 
     if (path === "/granola-webhook" && request.method === "POST") {
-      return handleGranolaWebhook(request, env, ctx);
+      return handleGranolaWebhook(request, env, storeForRequest(env), ctx);
     }
 
     if (path === "/mcp") {
@@ -165,14 +182,17 @@ export default {
       if (request.method !== "POST") return new Response(null, { status: 405 });
       const scope = resolveScope(request, env, pathToken);
       if (!scope) return json({ error: "unauthorized" }, 401);
-      return handleMcp(request, env, scope);
+      return handleMcp(request, storeForRequest(env), scope);
     }
 
-    return new Response("brain", { status: 200 });
+    return new Response("context", { status: 200 });
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(Promise.all([syncCalendar(env), processPendingGranolaEvents(env)]));
+    const store = storeForRequest(env);
+    ctx.waitUntil(
+      Promise.all([syncCalendar(env, store), processPendingGranolaEvents(env, store)])
+    );
   },
 };
 
@@ -298,11 +318,11 @@ function replacePrivacyRulesBlock(text, rules, overrides) {
   );
 }
 
-async function loadLegacyPrivacyState(env) {
-  const scopeObject = await env.BRAIN.get(LEGACY_SCOPES_KEY);
+async function loadLegacyPrivacyState(store) {
+  const scopeObject = await store.get(LEGACY_SCOPES_KEY);
   const rules = scopeObject ? parseLegacyScopeRules(await scopeObject.text()) : [];
   const overrides = new Map();
-  const keys = await listAllKeys(env, NOTE_ACL_PREFIX);
+  const keys = await listAllKeys(store, NOTE_ACL_PREFIX);
   for (const { key } of keys) {
     const path = key.slice(NOTE_ACL_PREFIX.length).replace(/\.json$/, "");
     if (path && key.endsWith(".json")) overrides.set(path, "private");
@@ -310,9 +330,9 @@ async function loadLegacyPrivacyState(env) {
   return { rules, overrides, legacy: true, object: scopeObject };
 }
 
-async function loadPrivacyState(env) {
-  const object = await env.BRAIN.get(PRIVACY_KEY);
-  if (!object) return loadLegacyPrivacyState(env);
+async function loadPrivacyState(store) {
+  const object = await store.get(PRIVACY_KEY);
+  if (!object) return loadLegacyPrivacyState(store);
   try {
     const text = await object.text();
     return { ...parsePrivacyManifest(text), text, object, legacy: false };
@@ -321,8 +341,8 @@ async function loadPrivacyState(env) {
   }
 }
 
-async function loadScopeRules(env) {
-  return (await loadPrivacyState(env)).rules;
+async function loadScopeRules(store) {
+  return (await loadPrivacyState(store)).rules;
 }
 
 /** Longest matching prefix rule wins; no rule → private. Segment-aware. */
@@ -340,27 +360,27 @@ function noteAclKey(path) {
   return `${NOTE_ACL_PREFIX}${path}.json`;
 }
 
-async function loadNoteVisibilityOverrides(env) {
-  return (await loadPrivacyState(env)).overrides;
+async function loadNoteVisibilityOverrides(store) {
+  return (await loadPrivacyState(store)).overrides;
 }
 
 function effectiveVisibility(key, rules, overrides) {
   return overrides?.get(key) || visibilityOf(key, rules);
 }
 
-async function persistExactVisibility(env, path, visibility, rules) {
+async function persistExactVisibility(store, path, visibility, rules) {
   for (let attempt = 0; attempt < 5; attempt++) {
-    const state = await loadPrivacyState(env);
+    const state = await loadPrivacyState(store);
     if (state.error) throw new Error(`privacy manifest invalid: ${state.error}`);
     if (state.legacy) {
       const inherited = visibilityOf(path, rules);
       if (visibility === "private" && inherited === "team") {
-        await env.BRAIN.put(
+        await store.put(
           noteAclKey(path),
           JSON.stringify({ path, visibility: "private", updated_at: new Date().toISOString() })
         );
       } else {
-        await env.BRAIN.delete(noteAclKey(path));
+        await store.delete(noteAclKey(path));
       }
       return;
     }
@@ -368,24 +388,24 @@ async function persistExactVisibility(env, path, visibility, rules) {
     if (visibility === inherited) state.overrides.delete(path);
     else state.overrides.set(path, visibility);
     const next = replacePrivacyRulesBlock(state.text, state.rules, state.overrides);
-    const put = await env.BRAIN.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
+    const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
     if (put) return;
   }
   throw new Error("privacy manifest changed concurrently; retry the operation");
 }
 
-async function clearExactVisibility(env, path) {
+async function clearExactVisibility(store, path) {
   for (let attempt = 0; attempt < 5; attempt++) {
-    const state = await loadPrivacyState(env);
+    const state = await loadPrivacyState(store);
     if (state.error) throw new Error(`privacy manifest invalid: ${state.error}`);
     if (state.legacy) {
-      await env.BRAIN.delete(noteAclKey(path));
+      await store.delete(noteAclKey(path));
       return;
     }
     if (!state.overrides.has(path)) return;
     state.overrides.delete(path);
     const next = replacePrivacyRulesBlock(state.text, state.rules, state.overrides);
-    const put = await env.BRAIN.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
+    const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
     if (put) return;
   }
   throw new Error("privacy manifest changed concurrently; retry the operation");
@@ -427,7 +447,7 @@ function visiblePrivateOverrides(rules) {
 
 /* --------------------------------- MCP ---------------------------------- */
 
-async function handleMcp(request, env, scope) {
+async function handleMcp(request, store, scope) {
   let body;
   try {
     body = await request.json();
@@ -437,16 +457,16 @@ async function handleMcp(request, env, scope) {
   if (Array.isArray(body)) {
     const results = [];
     for (const msg of body) {
-      const r = await handleRpc(msg, env, scope);
+      const r = await handleRpc(msg, store, scope);
       if (r) results.push(r);
     }
     return results.length ? json(results) : new Response(null, { status: 202 });
   }
-  const result = await handleRpc(body, env, scope);
+  const result = await handleRpc(body, store, scope);
   return result ? json(result) : new Response(null, { status: 202 });
 }
 
-async function handleRpc(msg, env, scope) {
+async function handleRpc(msg, store, scope) {
   const { id, method, params } = msg || {};
   const isNotification = id === undefined || id === null;
 
@@ -460,7 +480,7 @@ async function handleRpc(msg, env, scope) {
         return rpcResult(id, {
           protocolVersion,
           capabilities: { tools: {} },
-          serverInfo: { name: "brain", version: "1.0.0" },
+          serverInfo: { name: "context", version: "1.0.0" },
           instructions: SERVER_INSTRUCTIONS,
         });
       }
@@ -473,7 +493,7 @@ async function handleRpc(msg, env, scope) {
         return rpcResult(id, { tools: toolDefinitions() });
       case "tools/call": {
         if (isNotification) return null;
-        const out = await callTool(params?.name, params?.arguments || {}, env, scope);
+        const out = await callTool(params?.name, params?.arguments || {}, store, scope);
         return rpcResult(id, out);
       }
       default:
@@ -490,7 +510,7 @@ function toolDefinitions() {
     {
       name: "orient",
       description:
-        "Read this first, once per session. Returns the brain's manifest (active projects, priorities, conventions) plus the folder map — everything filtered to what this connection is allowed to see.",
+        "Read this first, once per session. Returns the context manifest (active projects, priorities, conventions) plus the folder map — everything filtered to what this connection is allowed to see.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
@@ -659,7 +679,7 @@ function toolDefinitions() {
           query: { type: "string" },
           prefix: {
             type: "string",
-            description: "Optional folder prefix that makes large-Brain searches substantially faster",
+            description: "Optional folder prefix that makes large-context searches substantially faster",
           },
         },
         required: ["query"],
@@ -789,7 +809,7 @@ function toolDefinitions() {
     {
       name: "list_changes",
       description:
-        "List recent immutable Brain change records, filtered to paths visible to this connection. Records contain actions and paths, never note content.",
+        "List recent immutable context change records, filtered to paths visible to this connection. Records contain actions and paths, never note content.",
       inputSchema: {
         type: "object",
         properties: {
@@ -802,8 +822,8 @@ function toolDefinitions() {
   ];
 }
 
-async function callTool(name, args, env, scope) {
-  const privacy = await loadPrivacyState(env);
+async function callTool(name, args, store, scope) {
+  const privacy = await loadPrivacyState(store);
   if (privacy.error) {
     return toolError(
       `privacy manifest invalid; access failed closed without exposing content: ${privacy.error}`
@@ -812,28 +832,28 @@ async function callTool(name, args, env, scope) {
   const { rules, overrides } = privacy;
   switch (name) {
     case "orient":
-      return toolOrient(env, scope, rules, overrides);
+      return toolOrient(store, scope, rules, overrides);
     case "scope_info":
-      return toolScopeInfo(env, scope, rules, overrides, args.path);
+      return toolScopeInfo(store, scope, rules, overrides, args.path);
     case "list_notes":
-      return toolListNotes(env, scope, rules, overrides, args.prefix);
+      return toolListNotes(store, scope, rules, overrides, args.prefix);
     case "read_note":
-      return toolReadNote(env, scope, rules, overrides, args.path);
+      return toolReadNote(store, scope, rules, overrides, args.path);
     case "write_note":
-      return toolWriteNote(env, scope, rules, overrides, args);
+      return toolWriteNote(store, scope, rules, overrides, args);
     case "set_visibility":
-      return toolSetVisibility(env, scope, rules, overrides, args);
+      return toolSetVisibility(store, scope, rules, overrides, args);
     case "set_folder_visibility":
-      return toolSetFolderVisibility(env, scope, args);
+      return toolSetFolderVisibility(store, scope, args);
     case "propose_note":
-      return toolProposeNote(env, scope, args.path, args.content, args.reason, args.agent);
+      return toolProposeNote(store, scope, args.path, args.content, args.reason, args.agent);
     case "list_proposals":
-      return toolListProposals(env, scope);
+      return toolListProposals(store, scope);
     case "read_proposal":
-      return toolReadProposal(env, scope, args.id);
+      return toolReadProposal(store, scope, args.id);
     case "review_proposal":
       return toolReviewProposal(
-        env,
+        store,
         scope,
         args.id,
         args.action,
@@ -841,12 +861,12 @@ async function callTool(name, args, env, scope) {
         args.review_note
       );
     case "search_notes":
-      return toolSearchNotes(env, scope, rules, overrides, args.query, args.prefix);
+      return toolSearchNotes(store, scope, rules, overrides, args.query, args.prefix);
     case "archive_note":
-      return toolArchiveNote(env, scope, rules, overrides, args.path, args.expected_etag);
+      return toolArchiveNote(store, scope, rules, overrides, args.path, args.expected_etag);
     case "move_note":
       return toolMoveNote(
-        env,
+        store,
         scope,
         rules,
         overrides,
@@ -855,13 +875,13 @@ async function callTool(name, args, env, scope) {
         args.expected_source_etag
       );
     case "move_notes":
-      return toolMoveNotes(env, scope, rules, overrides, args.moves, args.dry_run === true);
+      return toolMoveNotes(store, scope, rules, overrides, args.moves, args.dry_run === true);
     case "move_folder":
-      return toolMoveFolder(env, scope, rules, overrides, args.source, args.destination, args.dry_run === true);
+      return toolMoveFolder(store, scope, rules, overrides, args.source, args.destination, args.dry_run === true);
     case "archive_chat":
-      return toolArchiveChat(env, scope, rules, args);
+      return toolArchiveChat(store, scope, rules, args);
     case "list_changes":
-      return toolListChanges(env, scope, rules, overrides, args.limit);
+      return toolListChanges(store, scope, rules, overrides, args.limit);
     default:
       return toolError(`unknown tool: ${name}`);
   }
@@ -889,23 +909,23 @@ function normalizePath(p) {
   return clean;
 }
 
-async function listAllKeys(env, prefix) {
+async function listAllKeys(store, prefix) {
   const keys = [];
   let cursor;
   do {
-    const page = await env.BRAIN.list({ prefix: prefix || undefined, cursor, limit: 1000 });
+    const page = await store.list({ prefix: prefix || undefined, cursor, limit: 1000 });
     for (const o of page.objects) keys.push({ key: o.key, size: o.size, uploaded: o.uploaded });
     cursor = page.truncated ? page.cursor : undefined;
   } while (cursor);
   return keys;
 }
 
-async function listImmediateLayout(env, prefix = "") {
+async function listImmediateLayout(store, prefix = "") {
   const objects = [];
   const prefixes = new Set();
   let cursor;
   do {
-    const page = await env.BRAIN.list({
+    const page = await store.list({
       prefix: prefix || undefined,
       delimiter: "/",
       cursor,
@@ -930,17 +950,17 @@ async function listImmediateLayout(env, prefix = "") {
 }
 
 /** List note objects without traversing dot-prefixed history/audit/ACL plumbing. */
-async function listAllNoteKeys(env) {
-  const root = await listImmediateLayout(env);
-  const nested = await Promise.all(root.prefixes.map((prefix) => listAllKeys(env, prefix)));
+async function listAllNoteKeys(store) {
+  const root = await listImmediateLayout(store);
+  const nested = await Promise.all(root.prefixes.map((prefix) => listAllKeys(store, prefix)));
   return [...root.objects, ...nested.flat()].filter(
     ({ key }) => key.endsWith(".md") && !isPlumbing(key)
   );
 }
 
 /** Build orient's two-level map without enumerating every note in each tree. */
-async function listOrientEntries(env, scope, rules, overrides) {
-  const root = await listImmediateLayout(env);
+async function listOrientEntries(store, scope, rules, overrides) {
+  const root = await listImmediateLayout(store);
   const entries = new Set(
     root.objects
       .filter(({ key }) => key.endsWith(".md") && canSee(key, scope, rules, overrides))
@@ -951,7 +971,7 @@ async function listOrientEntries(env, scope, rules, overrides) {
     return canSee(path, scope, rules, overrides);
   });
   const layouts = await Promise.all(
-    visibleRoots.map(async (prefix) => ({ prefix, layout: await listImmediateLayout(env, prefix) }))
+    visibleRoots.map(async (prefix) => ({ prefix, layout: await listImmediateLayout(store, prefix) }))
   );
   for (const { layout } of layouts) {
     for (const childPrefix of layout.prefixes) {
@@ -983,17 +1003,17 @@ function timestampSlug(date = new Date()) {
   return date.toISOString().replace(/[:.]/g, "-");
 }
 
-async function recordChange(env, action, actorScope, paths, details = {}) {
+async function recordChange(store, action, actorScope, paths, details = {}) {
   const at = new Date().toISOString();
   const id = crypto.randomUUID();
   const entry = { at, action, actor_scope: actorScope, paths, details };
-  await env.BRAIN.put(`${AUDIT_PREFIX}${timestampSlug(new Date(at))}-${id}.json`, JSON.stringify(entry));
+  await store.put(`${AUDIT_PREFIX}${timestampSlug(new Date(at))}-${id}.json`, JSON.stringify(entry));
 }
 
-async function toolListChanges(env, scope, rules, overrides, limitArg) {
+async function toolListChanges(store, scope, rules, overrides, limitArg) {
   const parsedLimit = Number.isInteger(limitArg) ? limitArg : 20;
   if (parsedLimit < 1 || parsedLimit > 100) return toolError("limit must be between 1 and 100");
-  const keys = (await listAllKeys(env, AUDIT_PREFIX)).sort((a, b) => b.key.localeCompare(a.key));
+  const keys = (await listAllKeys(store, AUDIT_PREFIX)).sort((a, b) => b.key.localeCompare(a.key));
   const visible = [];
   // Recent privacy migrations can create long runs of team-hidden records.
   // Read small audit batches concurrently while preserving newest-first order.
@@ -1001,7 +1021,7 @@ async function toolListChanges(env, scope, rules, overrides, limitArg) {
     const batch = keys.slice(start, start + 50);
     const entries = await Promise.all(
       batch.map(async ({ key }) => {
-        const obj = await env.BRAIN.get(key);
+        const obj = await store.get(key);
         if (!obj) return null;
         try {
           return JSON.parse(await obj.text());
@@ -1033,13 +1053,13 @@ async function toolListChanges(env, scope, rules, overrides, limitArg) {
   );
 }
 
-async function toolOrient(env, scope, rules, overrides) {
+async function toolOrient(store, scope, rules, overrides) {
   const parts = [ORIENT_OPERATING_CONTRACT];
   const [index, privateIndex, pendingProposals, entries] = await Promise.all([
-    env.BRAIN.get("index.md"),
-    scope === "private" ? env.BRAIN.get("index-private.md") : Promise.resolve(null),
-    scope === "private" ? listAllKeys(env, PROPOSAL_PENDING_PREFIX) : Promise.resolve([]),
-    listOrientEntries(env, scope, rules, overrides),
+    store.get("index.md"),
+    scope === "private" ? store.get("index-private.md") : Promise.resolve(null),
+    scope === "private" ? listAllKeys(store, PROPOSAL_PENDING_PREFIX) : Promise.resolve([]),
+    listOrientEntries(store, scope, rules, overrides),
   ]);
   if (index && canSee("index.md", scope, rules, overrides)) parts.push(await index.text());
   if (scope === "private") {
@@ -1099,14 +1119,14 @@ function scopeInfoText(scope, rules) {
   );
 }
 
-async function toolScopeInfo(env, scope, rules, overrides, pathArg) {
+async function toolScopeInfo(store, scope, rules, overrides, pathArg) {
   let text = scopeInfoText(scope, rules);
   if (pathArg !== undefined) {
     const path = normalizePath(pathArg);
     if (!path) return toolError("invalid path");
     const folderDefault = visibilityOf(path, rules);
     if (scope === "private") {
-      const exists = Boolean(await env.BRAIN.get(path));
+      const exists = Boolean(await store.get(path));
       const effective = effectiveVisibility(path, rules, overrides);
       text +=
         `\n\n## Path inspection\npath: ${path}\nfolder default: ${folderDefault}\n` +
@@ -1126,10 +1146,10 @@ async function toolScopeInfo(env, scope, rules, overrides, pathArg) {
   return toolText(text);
 }
 
-async function toolListNotes(env, scope, rules, overrides, prefixArg) {
+async function toolListNotes(store, scope, rules, overrides, prefixArg) {
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
   if (prefixArg && prefix === null) return toolError("invalid prefix");
-  const keys = prefix ? await listAllKeys(env, prefix) : await listAllNoteKeys(env);
+  const keys = prefix ? await listAllKeys(store, prefix) : await listAllNoteKeys(store);
   const visible = keys.filter(
     ({ key }) => key.endsWith(".md") && canSee(key, scope, rules, overrides)
   );
@@ -1140,11 +1160,11 @@ async function toolListNotes(env, scope, rules, overrides, prefixArg) {
   return toolText(lines.join("\n"));
 }
 
-async function toolReadNote(env, scope, rules, overrides, pathArg) {
+async function toolReadNote(store, scope, rules, overrides, pathArg) {
   const path = normalizePath(pathArg);
   if (!path) return toolError("invalid path");
   if (!canSee(path, scope, rules, overrides)) return toolError("not found");
-  const obj = await env.BRAIN.get(path);
+  const obj = await store.get(path);
   if (!obj) return toolError("not found");
   const text = await obj.text();
   return toolText(
@@ -1165,7 +1185,7 @@ function frontmatterVisibility(content) {
   return match ? match[1].toLowerCase() : null;
 }
 
-async function toolWriteNote(env, scope, rules, overrides, args) {
+async function toolWriteNote(store, scope, rules, overrides, args) {
   const path = normalizePath(args.path);
   const content = args.content;
   const expectedEtag = args.expected_etag;
@@ -1176,7 +1196,7 @@ async function toolWriteNote(env, scope, rules, overrides, args) {
     return writePermissionError("write destination");
   }
 
-  const existing = await env.BRAIN.get(path);
+  const existing = await store.get(path);
   const inheritedVisibility = visibilityOf(path, rules);
   const existingVisibility = existing
     ? effectiveVisibility(path, rules, overrides)
@@ -1221,9 +1241,10 @@ async function toolWriteNote(env, scope, rules, overrides, args) {
           `Re-read, merge your change into the current content below, and write again.\n\n${current}`
       );
     }
-    // Snapshot the previous version before overwriting (R2 has no versioning).
+    // Snapshot the previous version before overwriting (object storage has no
+    // dependable versioning).
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    await env.BRAIN.put(`${HISTORY_PREFIX}${path}.${stamp}.md`, await existing.arrayBuffer());
+    await store.put(`${HISTORY_PREFIX}${path}.${stamp}.md`, await existing.arrayBuffer());
   } else if (expectedEtag) {
     return toolError("conflict: note no longer exists; write again without expected_etag to recreate it");
   }
@@ -1232,13 +1253,13 @@ async function toolWriteNote(env, scope, rules, overrides, args) {
   // Tighten the ACL before content becomes visible. For team publishing, keep
   // the private ACL in place until the content write has completed.
   if (desiredVisibility === "private") {
-    await persistExactVisibility(env, path, "private", rules);
+    await persistExactVisibility(store, path, "private", rules);
   }
-  const put = await env.BRAIN.put(path, content);
+  const put = await store.put(path, content);
   if (desiredVisibility === "team") {
-    await persistExactVisibility(env, path, "team", rules);
+    await persistExactVisibility(store, path, "team", rules);
   }
-  await recordChange(env, action, scope, [path], {
+  await recordChange(store, action, scope, [path], {
     etag: put.etag,
     visibility: desiredVisibility,
     team_visible: desiredVisibility === "team",
@@ -1246,7 +1267,7 @@ async function toolWriteNote(env, scope, rules, overrides, args) {
   return toolText(`written: ${path} (etag ${put.etag})\nvisibility: ${desiredVisibility}`);
 }
 
-async function toolSetVisibility(env, scope, rules, overrides, args) {
+async function toolSetVisibility(store, scope, rules, overrides, args) {
   if (scope !== "private") {
     return toolError("permission denied: only a personal connection can change enforced visibility");
   }
@@ -1258,7 +1279,7 @@ async function toolSetVisibility(env, scope, rules, overrides, args) {
   if (!["private", "team"].includes(visibility)) {
     return toolError("visibility must be private or team");
   }
-  const obj = await env.BRAIN.get(path);
+  const obj = await store.get(path);
   if (!obj) return toolError("not found");
   if (args.expected_etag && obj.etag !== args.expected_etag) {
     return toolError(
@@ -1276,8 +1297,8 @@ async function toolSetVisibility(env, scope, rules, overrides, args) {
       );
     }
   }
-  await persistExactVisibility(env, path, visibility, rules);
-  await recordChange(env, "set_visibility", scope, [path], {
+  await persistExactVisibility(store, path, visibility, rules);
+  await recordChange(store, "set_visibility", scope, [path], {
     from: current,
     to: visibility,
     etag: obj.etag,
@@ -1288,7 +1309,7 @@ async function toolSetVisibility(env, scope, rules, overrides, args) {
   return toolText(`visibility changed: ${path}\nfrom: ${current}\nto: ${visibility}\netag: ${obj.etag}`);
 }
 
-async function toolSetFolderVisibility(env, scope, args) {
+async function toolSetFolderVisibility(store, scope, args) {
   if (scope !== "private") {
     return toolError("permission denied: only a personal connection can change folder visibility");
   }
@@ -1307,7 +1328,7 @@ async function toolSetFolderVisibility(env, scope, args) {
     return toolError("visibility must be private, team, or inherit");
   }
 
-  const state = await loadPrivacyState(env);
+  const state = await loadPrivacyState(store);
   if (state.error) return toolError(`privacy manifest invalid: ${state.error}`);
   if (state.legacy || !state.object || typeof state.text !== "string") {
     return toolError("privacy.md is required before folder visibility can be changed");
@@ -1320,7 +1341,7 @@ async function toolSetFolderVisibility(env, scope, args) {
 
   const beforeDefault = visibilityOf(path, state.rules);
   const afterDefault = visibilityOf(path, nextRules);
-  const noteObjects = (await listAllKeys(env, `${path}/`)).filter(
+  const noteObjects = (await listAllKeys(store, `${path}/`)).filter(
     ({ key }) => key.endsWith(".md") && !isPlumbing(key)
   );
   const nextOverrides = new Map(state.overrides);
@@ -1376,13 +1397,13 @@ async function toolSetFolderVisibility(env, scope, args) {
   if (unchanged) return toolText(["unchanged", ...impact].join("\n"));
 
   const next = replacePrivacyRulesBlock(state.text, nextRules, nextOverrides);
-  const put = await env.BRAIN.put(PRIVACY_KEY, next, {
+  const put = await store.put(PRIVACY_KEY, next, {
     onlyIf: { etagMatches: state.object.etag },
   });
   if (!put) {
     return toolError("conflict: privacy.md changed while applying; run dry_run again");
   }
-  await recordChange(env, "set_folder_visibility", scope, [path], {
+  await recordChange(store, "set_folder_visibility", scope, [path], {
     from: beforeDefault,
     to: afterDefault,
     requested,
@@ -1399,11 +1420,11 @@ function yamlString(value) {
   return JSON.stringify(String(value));
 }
 
-async function uniqueChatArchivePath(env, platform, at) {
+async function uniqueChatArchivePath(store, platform, at) {
   const prefix = `4-archive/chat-history/${platform}/`;
   const timestamp = timestampSlug(new Date(at));
   const first = `${prefix}${timestamp}.md`;
-  if (!(await env.BRAIN.get(first))) return first;
+  if (!(await store.get(first))) return first;
   return `${prefix}${timestamp}-${crypto.randomUUID().slice(0, 8)}.md`;
 }
 
@@ -1431,7 +1452,7 @@ function formatChatArchive({ platform, history, completeness, visibility, title,
   );
 }
 
-async function toolArchiveChat(env, scope, rules, args) {
+async function toolArchiveChat(store, scope, rules, args) {
   const platforms = new Set(["chatgpt", "codex", "claude", "notion"]);
   const platform = typeof args.platform === "string" ? args.platform.toLowerCase() : "";
   if (!platforms.has(platform)) {
@@ -1460,7 +1481,7 @@ async function toolArchiveChat(env, scope, rules, args) {
   }
 
   const at = new Date().toISOString();
-  const path = await uniqueChatArchivePath(env, platform, at);
+  const path = await uniqueChatArchivePath(store, platform, at);
   const content = formatChatArchive({
     platform,
     history: args.history,
@@ -1473,7 +1494,7 @@ async function toolArchiveChat(env, scope, rules, args) {
 
   if (scope === "team" && visibility === "private") {
     const proposal = await toolProposeNote(
-      env,
+      store,
       scope,
       path,
       content,
@@ -1487,15 +1508,15 @@ async function toolArchiveChat(env, scope, rules, args) {
     );
   }
 
-  await persistExactVisibility(env, path, visibility, rules);
+  await persistExactVisibility(store, path, visibility, rules);
   let put;
   try {
-    put = await env.BRAIN.put(path, content);
+    put = await store.put(path, content);
   } catch (error) {
-    await clearExactVisibility(env, path).catch(() => {});
+    await clearExactVisibility(store, path).catch(() => {});
     throw error;
   }
-  await recordChange(env, "archive_chat", scope, [path], {
+  await recordChange(store, "archive_chat", scope, [path], {
     platform,
     visibility,
     completeness,
@@ -1512,12 +1533,12 @@ function proposalIdIsValid(id) {
   return typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
 }
 
-async function pendingProposalById(env, id) {
+async function pendingProposalById(store, id) {
   if (!proposalIdIsValid(id)) return null;
-  const candidates = await listAllKeys(env, PROPOSAL_PENDING_PREFIX);
+  const candidates = await listAllKeys(store, PROPOSAL_PENDING_PREFIX);
   const match = candidates.find(({ key }) => key.endsWith(`-${id}.json`));
   if (!match) return null;
-  const obj = await env.BRAIN.get(match.key);
+  const obj = await store.get(match.key);
   if (!obj) return null;
   try {
     return { key: match.key, proposal: JSON.parse(await obj.text()) };
@@ -1526,7 +1547,7 @@ async function pendingProposalById(env, id) {
   }
 }
 
-async function toolProposeNote(env, scope, pathArg, content, reason, agent) {
+async function toolProposeNote(store, scope, pathArg, content, reason, agent) {
   const path = normalizePath(pathArg);
   if (!path || !path.endsWith(".md")) return toolError("invalid path (must end in .md)");
   if (isPlumbing(path)) return toolError("that path is reserved");
@@ -1536,7 +1557,7 @@ async function toolProposeNote(env, scope, pathArg, content, reason, agent) {
   if (byteLength > PROPOSAL_CONTENT_BYTE_CAP) {
     return toolError(`proposal content exceeds ${PROPOSAL_CONTENT_BYTE_CAP} bytes`);
   }
-  const pending = await listAllKeys(env, PROPOSAL_PENDING_PREFIX);
+  const pending = await listAllKeys(store, PROPOSAL_PENDING_PREFIX);
   if (pending.length >= PROPOSAL_PENDING_CAP) {
     return toolError(`proposal queue is full (${PROPOSAL_PENDING_CAP}); ask a private connection to review it`);
   }
@@ -1554,8 +1575,8 @@ async function toolProposeNote(env, scope, pathArg, content, reason, agent) {
     content_bytes: byteLength,
   };
   const key = `${PROPOSAL_PENDING_PREFIX}${timestampSlug(new Date(createdAt))}-${id}.json`;
-  await env.BRAIN.put(key, JSON.stringify(proposal));
-  await recordChange(env, "propose_note", scope, [path], {
+  await store.put(key, JSON.stringify(proposal));
+  await recordChange(store, "propose_note", scope, [path], {
     proposal_id: id,
     content_bytes: byteLength,
     team_visible: false,
@@ -1566,15 +1587,15 @@ async function toolProposeNote(env, scope, pathArg, content, reason, agent) {
   );
 }
 
-async function toolListProposals(env, scope) {
+async function toolListProposals(store, scope) {
   if (scope !== "private") {
     return toolError("permission denied: pending proposals are available only to a private connection");
   }
-  const keys = (await listAllKeys(env, PROPOSAL_PENDING_PREFIX)).sort((a, b) => a.key.localeCompare(b.key));
+  const keys = (await listAllKeys(store, PROPOSAL_PENDING_PREFIX)).sort((a, b) => a.key.localeCompare(b.key));
   if (!keys.length) return toolText("(no pending proposals)");
   const lines = [];
   for (const { key } of keys) {
-    const obj = await env.BRAIN.get(key);
+    const obj = await store.get(key);
     if (!obj) continue;
     try {
       const proposal = JSON.parse(await obj.text());
@@ -1589,11 +1610,11 @@ async function toolListProposals(env, scope) {
   return toolText(lines.length ? lines.join("\n") : "(no readable pending proposals)");
 }
 
-async function toolReadProposal(env, scope, id) {
+async function toolReadProposal(store, scope, id) {
   if (scope !== "private") {
     return toolError("permission denied: pending proposals are available only to a private connection");
   }
-  const found = await pendingProposalById(env, id);
+  const found = await pendingProposalById(store, id);
   if (!found) return toolError("proposal not found");
   const { proposal } = found;
   return toolText(
@@ -1603,12 +1624,12 @@ async function toolReadProposal(env, scope, id) {
   );
 }
 
-async function toolReviewProposal(env, scope, id, action, destinationArg, reviewNote) {
+async function toolReviewProposal(store, scope, id, action, destinationArg, reviewNote) {
   if (scope !== "private") {
     return toolError("permission denied: only a private connection can review proposals");
   }
   if (!["approve", "reject"].includes(action)) return toolError("action must be approve or reject");
-  const found = await pendingProposalById(env, id);
+  const found = await pendingProposalById(store, id);
   if (!found) return toolError("proposal not found");
   const { key, proposal } = found;
   const reviewedAt = new Date().toISOString();
@@ -1620,13 +1641,13 @@ async function toolReviewProposal(env, scope, id, action, destinationArg, review
       return toolError("invalid approval destination (must end in .md)");
     }
     if (isPlumbing(destination)) return toolError("that path is reserved");
-    if (await env.BRAIN.get(destination)) {
+    if (await store.get(destination)) {
       return toolError("conflict: approval destination already exists; choose a new destination or reject the proposal");
     }
     // Proposal approval is a personal review action and defaults private even
     // when the logical destination sits in a team-default folder.
-    await persistExactVisibility(env, destination, "private", await loadScopeRules(env));
-    await env.BRAIN.put(destination, proposal.content);
+    await persistExactVisibility(store, destination, "private", await loadScopeRules(store));
+    await store.put(destination, proposal.content);
   }
 
   const reviewed = {
@@ -1639,10 +1660,10 @@ async function toolReviewProposal(env, scope, id, action, destinationArg, review
   const reviewedKey =
     `${PROPOSAL_REVIEWED_PREFIX}${action === "approve" ? "approved" : "rejected"}/` +
     `${timestampSlug(new Date(reviewedAt))}-${proposal.id}.json`;
-  await env.BRAIN.put(reviewedKey, JSON.stringify(reviewed));
-  await env.BRAIN.delete(key);
+  await store.put(reviewedKey, JSON.stringify(reviewed));
+  await store.delete(key);
   await recordChange(
-    env,
+    store,
     action === "approve" ? "approve_proposal" : "reject_proposal",
     scope,
     [destination || proposal.intended_path],
@@ -1655,12 +1676,12 @@ async function toolReviewProposal(env, scope, id, action, destinationArg, review
   );
 }
 
-async function toolSearchNotes(env, scope, rules, overrides, query, prefixArg) {
+async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg) {
   if (!query || typeof query !== "string") return toolError("query required");
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
   if (prefixArg && prefix === null) return toolError("invalid prefix");
   const needle = query.toLowerCase();
-  const listed = prefix ? await listAllKeys(env, prefix) : await listAllNoteKeys(env);
+  const listed = prefix ? await listAllKeys(store, prefix) : await listAllNoteKeys(store);
   const keys = listed.filter(
     ({ key }) => key.endsWith(".md") && canSee(key, scope, rules, overrides)
   );
@@ -1669,7 +1690,7 @@ async function toolSearchNotes(env, scope, rules, overrides, query, prefixArg) {
   for (let start = 0; start < scanned.length && hits.length < 25; start += 32) {
     const batch = scanned.slice(start, start + 32);
     const matches = await mapInBatches(batch, 32, async ({ key }) => {
-      const obj = await env.BRAIN.get(key);
+      const obj = await store.get(key);
       if (!obj) return null;
       const text = await obj.text();
       if (!text.toLowerCase().includes(needle)) return null;
@@ -1692,12 +1713,12 @@ async function toolSearchNotes(env, scope, rules, overrides, query, prefixArg) {
   return toolText(out);
 }
 
-async function toolArchiveNote(env, scope, rules, overrides, pathArg, expectedEtag) {
+async function toolArchiveNote(store, scope, rules, overrides, pathArg, expectedEtag) {
   const path = normalizePath(pathArg);
   if (!path) return toolError("invalid path");
   if (!canSee(path, scope, rules, overrides)) return toolError("not found");
   if (path.startsWith("4-archive/")) return toolText("already archived");
-  const obj = await env.BRAIN.get(path);
+  const obj = await store.get(path);
   if (!obj) return toolError("not found");
   if (scope !== "private" && !expectedEtag) {
     return toolError("expected_etag is required when a team connection archives a note; read the note and retry");
@@ -1713,26 +1734,26 @@ async function toolArchiveNote(env, scope, rules, overrides, pathArg, expectedEt
   if (scope !== "private" && visibilityOf(dest, rules) !== "team") {
     return writePermissionError("archive destination");
   }
-  if (await env.BRAIN.get(dest)) return toolError("conflict: archive destination already exists");
+  if (await store.get(dest)) return toolError("conflict: archive destination already exists");
   const body = await obj.arrayBuffer();
-  await env.BRAIN.put(`${HISTORY_PREFIX}${path}.${stamp}.archive.md`, body);
+  await store.put(`${HISTORY_PREFIX}${path}.${stamp}.archive.md`, body);
   if (destinationVisibility === "private") {
-    await persistExactVisibility(env, dest, "private", rules);
+    await persistExactVisibility(store, dest, "private", rules);
   }
-  await env.BRAIN.put(dest, body);
+  await store.put(dest, body);
   if (destinationVisibility === "team") {
-    await persistExactVisibility(env, dest, "team", rules);
+    await persistExactVisibility(store, dest, "team", rules);
   }
-  await env.BRAIN.delete(path);
-  await clearExactVisibility(env, path);
-  await recordChange(env, "archive_note", scope, [path, dest], {
+  await store.delete(path);
+  await clearExactVisibility(store, path);
+  await recordChange(store, "archive_note", scope, [path, dest], {
     visibility: destinationVisibility,
     team_visible: destinationVisibility === "team",
   });
   return toolText(`archived: ${path} → ${dest}\nvisibility: ${destinationVisibility}`);
 }
 
-async function toolMoveNote(env, scope, rules, overrides, sourceArg, destinationArg, expectedSourceEtag) {
+async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinationArg, expectedSourceEtag) {
   const source = normalizePath(sourceArg);
   const destination = normalizePath(destinationArg);
   if (!source || !destination || !source.endsWith(".md") || !destination.endsWith(".md")) {
@@ -1748,14 +1769,14 @@ async function toolMoveNote(env, scope, rules, overrides, sourceArg, destination
     return writePermissionError("move destination");
   }
 
-  const sourceObject = await env.BRAIN.get(source);
+  const sourceObject = await store.get(source);
   if (!sourceObject) return toolError("not found");
   if (expectedSourceEtag && sourceObject.etag !== expectedSourceEtag) {
     return toolError(
       `conflict: source changed since you read it (current etag ${sourceObject.etag}); re-read and retry`
     );
   }
-  if (await env.BRAIN.get(destination)) return toolError("conflict: destination already exists");
+  if (await store.get(destination)) return toolError("conflict: destination already exists");
 
   const body = await sourceObject.arrayBuffer();
   const sourceVisibility = effectiveVisibility(source, rules, overrides);
@@ -1764,17 +1785,17 @@ async function toolMoveNote(env, scope, rules, overrides, sourceArg, destination
       ? "private"
       : "team";
   const stamp = timestampSlug();
-  await env.BRAIN.put(`${HISTORY_PREFIX}${source}.${stamp}.move.md`, body);
+  await store.put(`${HISTORY_PREFIX}${source}.${stamp}.move.md`, body);
   if (destinationVisibility === "private") {
-    await persistExactVisibility(env, destination, "private", rules);
+    await persistExactVisibility(store, destination, "private", rules);
   }
-  const put = await env.BRAIN.put(destination, body);
+  const put = await store.put(destination, body);
   if (destinationVisibility === "team") {
-    await persistExactVisibility(env, destination, "team", rules);
+    await persistExactVisibility(store, destination, "team", rules);
   }
-  await env.BRAIN.delete(source);
-  await clearExactVisibility(env, source);
-  await recordChange(env, "move_note", scope, [source, destination], {
+  await store.delete(source);
+  await clearExactVisibility(store, source);
+  await recordChange(store, "move_note", scope, [source, destination], {
     etag: put.etag,
     visibility: destinationVisibility,
     team_visible: sourceVisibility === "team" && destinationVisibility === "team",
@@ -1784,7 +1805,7 @@ async function toolMoveNote(env, scope, rules, overrides, sourceArg, destination
   );
 }
 
-async function toolMoveNotes(env, scope, rules, overrides, movesArg, dryRun) {
+async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
   if (!Array.isArray(movesArg) || movesArg.length < 1) return toolError("moves must be a non-empty array");
   if (movesArg.length > BATCH_MOVE_CAP) {
     return toolError(`batch has more than ${BATCH_MOVE_CAP} moves; split it into smaller batches`);
@@ -1824,7 +1845,7 @@ async function toolMoveNotes(env, scope, rules, overrides, movesArg, dryRun) {
     if (scope === "team" && overrides.has(move.destination)) {
       return writePermissionError("move destination");
     }
-    const sourceObject = await env.BRAIN.get(move.source);
+    const sourceObject = await store.get(move.source);
     if (!sourceObject) return toolError(`not found: ${move.source}`);
     if (move.expectedSourceEtag && sourceObject.etag !== move.expectedSourceEtag) {
       return toolError(
@@ -1842,7 +1863,7 @@ async function toolMoveNotes(env, scope, rules, overrides, movesArg, dryRun) {
       move.destination.startsWith("4-archive/") &&
       !overrides.has(move.source) &&
       sourceVisibility === destinationFolderVisibility;
-    const destinationObject = await env.BRAIN.get(move.destination);
+    const destinationObject = await store.get(move.destination);
     let preloadedBody = null;
     if (destinationObject) {
       const [sourceText, destinationText] = await Promise.all([
@@ -1877,7 +1898,7 @@ async function toolMoveNotes(env, scope, rules, overrides, movesArg, dryRun) {
   const fastArchiveRelocation = preflight.every((move) => move.fastArchiveCandidate);
   if (!fastArchiveRelocation) {
     for (const move of preflight) {
-      const sourceObject = await env.BRAIN.get(move.source);
+      const sourceObject = await store.get(move.source);
       if (!sourceObject || sourceObject.etag !== move.etag) {
         return toolError(`conflict: source changed during batch preflight: ${move.source}`);
       }
@@ -1889,7 +1910,7 @@ async function toolMoveNotes(env, scope, rules, overrides, movesArg, dryRun) {
   if (!fastArchiveRelocation) {
     try {
       for (const move of preflight) {
-        await env.BRAIN.put(`${HISTORY_PREFIX}${move.source}.${stamp}.batch-move.md`, move.body);
+        await store.put(`${HISTORY_PREFIX}${move.source}.${stamp}.batch-move.md`, move.body);
       }
     } catch (error) {
       return toolError(`batch move aborted before copying destinations: history snapshot failed: ${error.message}`);
@@ -1901,41 +1922,41 @@ async function toolMoveNotes(env, scope, rules, overrides, movesArg, dryRun) {
   try {
     for (const move of preflight) {
       if (!fastArchiveRelocation && move.visibility === "private") {
-        await persistExactVisibility(env, move.destination, "private", rules);
+        await persistExactVisibility(store, move.destination, "private", rules);
         preparedAcls.push(move.destination);
       }
-      if (!move.destinationExists) await env.BRAIN.put(move.destination, move.body);
+      if (!move.destinationExists) await store.put(move.destination, move.body);
       if (!fastArchiveRelocation && move.visibility === "team") {
-        await persistExactVisibility(env, move.destination, "team", rules);
+        await persistExactVisibility(store, move.destination, "team", rules);
       }
       if (!move.destinationExists) copied.push(move.destination);
     }
   } catch (error) {
     for (const key of copied) {
-      await env.BRAIN.delete(key).catch(() => {});
-      await clearExactVisibility(env, key).catch(() => {});
+      await store.delete(key).catch(() => {});
+      await clearExactVisibility(store, key).catch(() => {});
     }
-    for (const key of preparedAcls) await clearExactVisibility(env, key).catch(() => {});
+    for (const key of preparedAcls) await clearExactVisibility(store, key).catch(() => {});
     return toolError(`batch move aborted before deleting sources: ${error.message}`);
   }
 
   try {
-    for (const move of preflight) await env.BRAIN.delete(move.source);
+    for (const move of preflight) await store.delete(move.source);
   } catch (error) {
-    for (const move of preflight) await env.BRAIN.put(move.source, move.body).catch(() => {});
+    for (const move of preflight) await store.put(move.source, move.body).catch(() => {});
     for (const key of copied) {
-      await env.BRAIN.delete(key).catch(() => {});
-      await clearExactVisibility(env, key).catch(() => {});
+      await store.delete(key).catch(() => {});
+      await clearExactVisibility(store, key).catch(() => {});
     }
     return toolError(`batch move rolled back after a source-delete failure: ${error.message}`);
   }
 
   if (!fastArchiveRelocation) {
-    for (const move of preflight) await clearExactVisibility(env, move.source).catch(() => {});
+    for (const move of preflight) await clearExactVisibility(store, move.source).catch(() => {});
   }
 
   await recordChange(
-    env,
+    store,
     "move_notes",
     scope,
     preflight.flatMap((move) => [move.source, move.destination]),
@@ -1949,7 +1970,7 @@ async function toolMoveNotes(env, scope, rules, overrides, movesArg, dryRun) {
   return toolText(`moved notes: ${preflight.length}\n${planText}`);
 }
 
-async function toolMoveFolder(env, scope, rules, overrides, sourceArg, destinationArg, dryRun) {
+async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destinationArg, dryRun) {
   const source = normalizePath(sourceArg)?.replace(/\/+$/, "");
   const destination = normalizePath(destinationArg)?.replace(/\/+$/, "");
   if (!source || !destination) return toolError("invalid folder path");
@@ -1965,7 +1986,7 @@ async function toolMoveFolder(env, scope, rules, overrides, sourceArg, destinati
 
   const sourcePrefix = `${source}/`;
   const destinationPrefix = `${destination}/`;
-  const allObjects = (await listAllKeys(env, sourcePrefix)).filter(({ key }) => !isPlumbing(key));
+  const allObjects = (await listAllKeys(store, sourcePrefix)).filter(({ key }) => !isPlumbing(key));
   if (!allObjects.length) return toolError("not found");
   if (allObjects.length > FOLDER_MOVE_CAP) {
     return toolError(`folder has more than ${FOLDER_MOVE_CAP} objects; split it into smaller moves`);
@@ -1995,7 +2016,7 @@ async function toolMoveFolder(env, scope, rules, overrides, sourceArg, destinati
     return writePermissionError("folder move destination");
   }
   for (const move of moves) {
-    if (await env.BRAIN.get(move.destination)) {
+    if (await store.get(move.destination)) {
       return toolError(`conflict: destination already exists: ${move.destination}`);
     }
   }
@@ -2014,36 +2035,36 @@ async function toolMoveFolder(env, scope, rules, overrides, sourceArg, destinati
   const sourceBodies = [];
   try {
     for (const move of moves) {
-      const obj = await env.BRAIN.get(move.source);
+      const obj = await store.get(move.source);
       if (!obj) throw new Error(`source changed during move: ${move.source}`);
       const body = await obj.arrayBuffer();
       sourceBodies.push({ ...move, body });
       if (move.visibility === "private") {
-        await persistExactVisibility(env, move.destination, "private", rules);
+        await persistExactVisibility(store, move.destination, "private", rules);
         preparedAcls.push(move.destination);
       }
-      await env.BRAIN.put(move.destination, body);
+      await store.put(move.destination, body);
       if (move.visibility === "team") {
-        await persistExactVisibility(env, move.destination, "team", rules);
+        await persistExactVisibility(store, move.destination, "team", rules);
       }
       copied.push(move.destination);
     }
   } catch (error) {
     for (const key of copied) {
-      await env.BRAIN.delete(key).catch(() => {});
-      await clearExactVisibility(env, key).catch(() => {});
+      await store.delete(key).catch(() => {});
+      await clearExactVisibility(store, key).catch(() => {});
     }
-    for (const key of preparedAcls) await clearExactVisibility(env, key).catch(() => {});
+    for (const key of preparedAcls) await clearExactVisibility(store, key).catch(() => {});
     return toolError(`move aborted before deleting sources: ${error.message}`);
   }
 
   const stamp = timestampSlug();
   for (const item of sourceBodies) {
-    await env.BRAIN.put(`${HISTORY_PREFIX}${item.source}.${stamp}.move.md`, item.body);
+    await store.put(`${HISTORY_PREFIX}${item.source}.${stamp}.move.md`, item.body);
   }
-  for (const { source: path } of moves) await env.BRAIN.delete(path);
-  for (const { source: path } of moves) await clearExactVisibility(env, path).catch(() => {});
-  await recordChange(env, "move_folder", scope, [source, destination], {
+  for (const { source: path } of moves) await store.delete(path);
+  for (const { source: path } of moves) await clearExactVisibility(store, path).catch(() => {});
+  await recordChange(store, "move_folder", scope, [source, destination], {
     count: moves.length,
     visibilities: moves.map((move) => ({ path: move.destination, visibility: move.visibility })),
     team_visible: moves.every((move) => move.visibility === "team"),
@@ -2053,7 +2074,7 @@ async function toolMoveFolder(env, scope, rules, overrides, sourceArg, destinati
 
 /* -------------------------------- inbox ---------------------------------- */
 
-async function handleInbox(request, env, pathToken) {
+async function handleInbox(request, env, store, pathToken) {
   const token = pathToken || bearerToken(request);
   const ok =
     timingSafeEqual(token, env.INBOX_TOKEN) ||
@@ -2099,11 +2120,11 @@ async function handleInbox(request, env, pathToken) {
   if (!String(capture.text).trim()) return json({ error: "empty" }, 400);
 
   const actorScope = timingSafeEqual(token, env.PRIVATE_TOKEN) ? "private" : "inbox";
-  const result = await writeInboxCapture(env, capture, { actorScope });
+  const result = await writeInboxCapture(store, capture, { actorScope });
   return json({ ok: true, ...result });
 }
 
-async function writeInboxCapture(env, capture, { actorScope = "inbox", replaceExisting = false } = {}) {
+async function writeInboxCapture(store, capture, { actorScope = "inbox", replaceExisting = false } = {}) {
   const now = new Date();
   const title = singleLine(capture.title || "capture");
   const text = String(capture.text ?? "");
@@ -2123,7 +2144,7 @@ async function writeInboxCapture(env, capture, { actorScope = "inbox", replaceEx
     key = `0-inbox/${now.toISOString().slice(0, 19).replace(/[:]/g, "-")}-${titleSlug}.md`;
   }
 
-  const existing = await env.BRAIN.get(key);
+  const existing = await store.get(key);
   if (existing && !replaceExisting) return { path: key, duplicate: true };
 
   const frontmatter = [
@@ -2153,10 +2174,10 @@ async function writeInboxCapture(env, capture, { actorScope = "inbox", replaceEx
   if (existing) {
     const previous = await existing.text();
     if (previous === note) return { path: key, duplicate: true };
-    await env.BRAIN.put(`${HISTORY_PREFIX}${key}.${timestampSlug()}.inbox.md`, previous);
+    await store.put(`${HISTORY_PREFIX}${key}.${timestampSlug()}.inbox.md`, previous);
   }
-  await env.BRAIN.put(key, note);
-  await recordChange(env, existing ? "inbox_update" : "inbox_capture", actorScope, [key], { source });
+  await store.put(key, note);
+  await recordChange(store, existing ? "inbox_update" : "inbox_capture", actorScope, [key], { source });
   return { path: key, duplicate: false, updated: Boolean(existing) };
 }
 
@@ -2199,7 +2220,7 @@ async function sha256Hex(value) {
 
 /* --------------------------- Granola webhooks ---------------------------- */
 
-async function handleGranolaWebhook(request, env, ctx) {
+async function handleGranolaWebhook(request, env, store, ctx) {
   if (!env.GRANOLA_WEBHOOK_SECRET) return json({ error: "not_configured" }, 503);
   const contentLength = Number(request.headers.get("Content-Length") || 0);
   if (contentLength > GRANOLA_WEBHOOK_BYTE_CAP) return json({ error: "too_large" }, 413);
@@ -2228,11 +2249,11 @@ async function handleGranolaWebhook(request, env, ctx) {
   }
 
   const completedKey = `${GRANOLA_COMPLETED_PREFIX}${safeSlug(eventId, 80)}.json`;
-  if (await env.BRAIN.get(completedKey)) return json({ ok: true, duplicate: true });
+  if (await store.get(completedKey)) return json({ ok: true, duplicate: true });
 
   const pendingKey = `${GRANOLA_PENDING_PREFIX}${safeSlug(eventId, 80)}.json`;
-  await env.BRAIN.put(pendingKey, JSON.stringify({ ...event, received_at: new Date().toISOString() }));
-  const work = processGranolaEventSafely(env, pendingKey);
+  await store.put(pendingKey, JSON.stringify({ ...event, received_at: new Date().toISOString() }));
+  const work = processGranolaEventSafely(env, store, pendingKey);
   if (ctx?.waitUntil) ctx.waitUntil(work);
   else await work;
   return json({ ok: true, accepted: true }, 202);
@@ -2284,17 +2305,17 @@ function encodeBase64(bytes) {
   return btoa(binary);
 }
 
-async function processGranolaEventSafely(env, pendingKey) {
+async function processGranolaEventSafely(env, store, pendingKey) {
   try {
-    await processGranolaEvent(env, pendingKey);
+    await processGranolaEvent(env, store, pendingKey);
   } catch (error) {
-    const pending = await env.BRAIN.get(pendingKey);
+    const pending = await store.get(pendingKey);
     if (!pending) return;
     let event = {};
     try {
       event = JSON.parse(await pending.text());
     } catch {}
-    await env.BRAIN.put(
+    await store.put(
       pendingKey,
       JSON.stringify({
         ...event,
@@ -2306,9 +2327,9 @@ async function processGranolaEventSafely(env, pendingKey) {
   }
 }
 
-async function processGranolaEvent(env, pendingKey) {
+async function processGranolaEvent(env, store, pendingKey) {
   if (!env.GRANOLA_API_KEY) throw new Error("GRANOLA_API_KEY is not configured");
-  const pending = await env.BRAIN.get(pendingKey);
+  const pending = await store.get(pendingKey);
   if (!pending) return;
   const event = JSON.parse(await pending.text());
   const response = await fetch(`https://public-api.granola.ai/v1/notes/${encodeURIComponent(event.note_id)}`, {
@@ -2320,7 +2341,7 @@ async function processGranolaEvent(env, pendingKey) {
   if (!String(text).trim()) throw new Error("Granola note has no generated summary yet");
 
   await writeInboxCapture(
-    env,
+    store,
     {
       title: note.title || "Granola meeting",
       text,
@@ -2342,22 +2363,22 @@ async function processGranolaEvent(env, pendingKey) {
   );
 
   const eventSlug = safeSlug(event.event_id, 80);
-  await env.BRAIN.put(
+  await store.put(
     `${GRANOLA_COMPLETED_PREFIX}${eventSlug}.json`,
     JSON.stringify({ event_id: event.event_id, note_id: event.note_id, completed_at: new Date().toISOString() })
   );
-  await env.BRAIN.delete(pendingKey);
+  await store.delete(pendingKey);
 }
 
-async function processPendingGranolaEvents(env) {
+async function processPendingGranolaEvents(env, store) {
   if (!env.GRANOLA_API_KEY) return;
-  const pending = (await listAllKeys(env, GRANOLA_PENDING_PREFIX)).slice(0, 100);
-  await Promise.all(pending.map(({ key }) => processGranolaEventSafely(env, key)));
+  const pending = (await listAllKeys(store, GRANOLA_PENDING_PREFIX)).slice(0, 100);
+  await Promise.all(pending.map(({ key }) => processGranolaEventSafely(env, store, key)));
 }
 
 /* ------------------------------- calendar --------------------------------- */
 
-async function syncCalendar(env) {
+async function syncCalendar(env, store) {
   if (!env.CALENDAR_ICS_URL) return;
   const res = await fetch(env.CALENDAR_ICS_URL);
   if (!res.ok) return;
@@ -2391,8 +2412,8 @@ async function syncCalendar(env) {
     }
     md += "\n";
   }
-  await env.BRAIN.put("2-areas/calendar/next-14-days.md", md);
-  await recordChange(env, "calendar_sync", "system", ["2-areas/calendar/next-14-days.md"], {
+  await store.put("2-areas/calendar/next-14-days.md", md);
+  await recordChange(store, "calendar_sync", "system", ["2-areas/calendar/next-14-days.md"], {
     count: upcoming.length,
   });
 }
