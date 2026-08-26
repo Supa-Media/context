@@ -144,6 +144,17 @@ export const DEMO_STATS = {
  * plausible address from the workspace slug purely for display, and the card
  * says the rules are not configurable yet rather than pretending — see
  * `ingestion/useIngestionSettings.ts`.
+ *
+ * **The address is real; the delivery is not.** `slug@context.lc` is the
+ * address the receiver will use, and it is derived the same way the backend
+ * derives it (`ingestionAddressFor` in `apps/convex/functions/lib/ingestion.ts`),
+ * so showing it is not a lie. What was a lie was the copy around it: there is
+ * no email receiver deployed, mail sent here bounces with `550 5.1.1 Address
+ * does not exist`, and every surface that renders this string must gate its
+ * delivery claims — and its Copy button — on `receivesMail` in
+ * `ingestion/settings.ts`. This function deliberately does not return that
+ * fact: it is a property of the deployment, only the control plane can see it,
+ * and a placeholder module is the last place that should be guessing at it.
  */
 export function placeholderIngestionAddress(slug: string): string {
   return `${slug}@context.lc`;

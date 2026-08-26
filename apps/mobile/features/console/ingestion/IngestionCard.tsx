@@ -19,6 +19,7 @@ import {
   isDirty,
   isSenderProblem,
   normaliseFolder,
+  receivesMail,
   removeSender,
   senderEntries,
   senderLabel,
@@ -41,6 +42,23 @@ import {
  * is being built in parallel; until a deployment has it, this shows the
  * derived address and says plainly that the rules are not configurable yet,
  * which is better than a form whose Save does nothing.
+ *
+ * ## Nothing here claims mail lands unless the control plane says it does
+ *
+ * There is no email receiver deployed, and this card used to describe one in
+ * the present tense — "Forward any email here and it lands in 0-inbox/", next
+ * to a Copy button. It was believed. The address bounced.
+ *
+ * So every sentence about delivery, and the Copy button that invites somebody
+ * to go and use the address right now, are gated on `receivesMail(state)` —
+ * read its doc comment. The address itself is still shown and still
+ * selectable, because it is the real address and will work unchanged the day
+ * the receiver ships; what is withheld is the claim and the invitation.
+ *
+ * The allow-list and target-folder controls are deliberately **not** gated.
+ * They save real rows, they are the posture the receiver will enforce on its
+ * very first message, and an owner who sets them up in advance has done
+ * something useful. Only the claims about what happens to mail are held back.
  */
 export function IngestionCard({
   state,
@@ -75,6 +93,8 @@ export function IngestionCard({
 
   const saved = state.settings === null ? null : draftOf(state.settings);
   const canEdit = state.save !== undefined;
+  // The one question this card must ask before saying anything about mail.
+  const receiving = receivesMail(state);
   const shown = draft ?? saved;
   const policy = shown === null ? null : describeSenderPolicy(shown);
   const folderProblem = shown === null ? null : describeDraftProblem(shown);
@@ -85,18 +105,40 @@ export function IngestionCard({
       <Row>
         <Grow>
           <Text variant="rowTitle">Ingestion address</Text>
-          <Text variant="rowSub" style={styles.rowSub}>
-            Forward any email here and it lands in{" "}
-            <Text variant="mono" style={styles.inlineMono}>
-              {shown?.targetFolder ?? "0-inbox/"}
+          {receiving ? (
+            <Text variant="rowSub" style={styles.rowSub}>
+              Forward any email here and it lands in{" "}
+              <Text variant="mono" style={styles.inlineMono}>
+                {shown?.targetFolder ?? "0-inbox/"}
+              </Text>
             </Text>
-          </Text>
+          ) : (
+            /*
+              One sentence, not a hedge. "Not yet" plus what it means for the
+              reader — mail sent today bounces — and nothing about folders,
+              senders or acceptance, none of which happen to a message that is
+              never delivered.
+            */
+            <Text variant="rowSub" style={styles.rowSub} testID="ingestion-not-receiving">
+              This address is reserved for you, but nothing is receiving mail at it yet —
+              anything sent to it today bounces.
+            </Text>
+          )}
         </Grow>
-        <Button
-          label={copy.label}
-          accessibilityLabel="Copy your ingestion address"
-          onPress={copy.copy}
-        />
+        {/*
+          No Copy button until there is somewhere for the copied address to be
+          pasted usefully. The address stays visible and selectable below, so
+          nothing is hidden; what is withheld is the affordance that says "take
+          this and go use it". Same rule as `StorageActions` and `save`: a
+          control that is never offered cannot mislead.
+        */}
+        {receiving ? (
+          <Button
+            label={copy.label}
+            accessibilityLabel="Copy your ingestion address"
+            onPress={copy.copy}
+          />
+        ) : null}
       </Row>
       <CopyField value={address} copyable={false} style={styles.spaced} />
 
@@ -107,15 +149,17 @@ export function IngestionCard({
         </View>
       ) : null}
 
+      {/*
+        This used to go on to promise that everything forwarded lands in
+        `0-inbox/` and that any sender is accepted — two sentences describing a
+        pipeline that has never run, on the one deployment that does not even
+        have the settings module. Both are gone; what remains is the only thing
+        this branch actually knows.
+      */}
       {!state.available ? (
         <Notice style={styles.spaced}>
           <Text variant="check">
-            This address is not configurable yet on this deployment. Everything forwarded
-            to it lands in{" "}
-            <Text variant="mono" style={styles.inlineMono}>
-              0-inbox/
-            </Text>
-            , and any sender is accepted.
+            This address is not configurable yet on this deployment.
           </Text>
         </Notice>
       ) : null}
@@ -123,14 +167,15 @@ export function IngestionCard({
       {/*
         `null` from `getIngestionSettings` is not "loading" and not "nearly
         configured" — the backend documents it as the fail-closed floor: no
-        policy row, so nothing is accepted. Saying anything vaguer would leave
-        somebody forwarding mail into a black hole and waiting.
+        policy row at all. Said as what an owner has to *do*, not as what
+        happens to mail in the meantime, because nothing happens to mail in the
+        meantime either way.
       */}
       {state.available && !state.loading && shown === null ? (
         <Notice tone="warn" style={styles.spaced}>
           <Text variant="check" style={styles.warnText}>
-            Ingestion is off for this context. Nothing sent to this address is accepted
-            until an owner sets a target folder and says who may send.
+            Ingestion is off for this context — an owner has to set a target folder and
+            say who may send.
           </Text>
         </Notice>
       ) : null}
@@ -154,7 +199,7 @@ export function IngestionCard({
               autoCapitalize="none"
               autoCorrect={false}
               placeholder="0-inbox/"
-              hint="Any folder in this context. It is created if it does not exist."
+              hint="Any folder in this context. It does not have to exist yet."
               error={folderProblem ?? undefined}
               testID="ingestion-folder"
             />
@@ -187,7 +232,7 @@ export function IngestionCard({
           {canEdit ? (
             <ChoiceGroup
               label="Who may send to it"
-              hint="Anyone who learns this address can try. Only the senders below get through."
+              hint="Anyone who learns this address can try it. Only the senders below are allowed."
               value={shown.allowAnySender ? "anyone" : "list"}
               onChange={(value) =>
                 setDraft((current) =>
@@ -198,7 +243,7 @@ export function IngestionCard({
                 {
                   value: "list",
                   label: "Only the senders I list",
-                  detail: "Specific addresses, or whole domains. Everything else is dropped.",
+                  detail: "Specific addresses, or whole domains. Nobody else.",
                 },
                 {
                   value: "anyone",
@@ -221,8 +266,9 @@ export function IngestionCard({
           {shown.allowAnySender ? (
             <Notice tone="warn">
               <Text variant="check" style={styles.warnText}>
-                Nothing is checked. Anyone who learns this address can add notes to this
-                context, and they will be read by every AI client you have connected to it.
+                Nothing is checked. Anyone who learns this address is allowed to add notes
+                to this context, and notes in this context are read by every AI client you
+                have connected to it.
               </Text>
             </Notice>
           ) : (

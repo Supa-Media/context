@@ -22,6 +22,13 @@ import type { OnboardingController } from "../useOnboarding";
  * say so here or not at all — and the person who most needs telling is the one
  * whose bucket check *failed*, which this used to be silent about.
  * `storageWarning` owns that sentence; see `flow.ts`.
+ *
+ * The capture address is the other thing it has to be careful about, for the
+ * same reason and with the opposite failure: this screen told people to
+ * forward mail to an address with no receiver behind it, and they did. Whether
+ * it may say that is `controller.captureReceivesMail`, which comes from the
+ * control plane rather than from this file — see `receivesMail` in
+ * `console/ingestion/settings.ts`.
  */
 export function DoneStep({
   controller,
@@ -55,15 +62,32 @@ export function DoneStep({
       <Text variant="eyebrow" style={styles.head}>
         Your capture address
       </Text>
+      {/*
+        Copyable only once something is receiving. A copy button thirty seconds
+        into a product is an instruction to go and use the address, and until
+        the Email Worker ships the only thing that comes back is
+        `550 5.1.1 Address does not exist` — which is how this was found. The
+        address stays on screen and stays selectable: it is theirs, it is
+        reserved, and it is the one that will work. What is withheld is the
+        invitation to act on it today.
+      */}
       <CopyField
         value={placeholderIngestionAddress(slug)}
+        copyable={controller.captureReceivesMail}
         label="Copy your capture address"
         testID="welcome-capture"
       />
-      <Text variant="foot" style={styles.under}>
-        Forward anything here and it lands in your context. Only senders you allow can post to
-        it — it starts closed, with just your own account email.
-      </Text>
+      {controller.captureReceivesMail ? (
+        <Text variant="foot" style={styles.under}>
+          Forward anything here and it lands in your context. Only senders you allow can post
+          to it — it starts closed, with just your own account email.
+        </Text>
+      ) : (
+        <Text variant="foot" style={styles.under} testID="welcome-capture-not-receiving">
+          This address is reserved for you, but nothing is receiving mail at it yet — anything
+          sent to it today bounces.
+        </Text>
+      )}
 
       {warning !== null ? (
         <Notice tone="warn" style={styles.warning}>

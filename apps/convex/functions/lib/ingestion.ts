@@ -492,3 +492,54 @@ export function describeFolderRejection(reason: FolderRejection): string {
 export function ingestionAddressFor(slug: string): string {
   return `${slug}@${INGESTION_DOMAIN}`;
 }
+
+/**
+ * The environment variable a deployed receiver sets to announce itself.
+ *
+ * Named here rather than inlined so the one grep that matters — "what do I flip
+ * when the Email Worker ships" — lands on this file and its header, which is
+ * where the rest of the story is.
+ */
+export const INGESTION_RECEIVER_ENV = "INGESTION_RECEIVER";
+
+/**
+ * Is anything actually accepting mail at a capture address?
+ *
+ * **`false` in every environment today, and that is not a placeholder — it is
+ * the truth.** There is no Email Worker deployed (see this file's header):
+ * `context.lc` has no MX route to one, so a message sent to a capture address
+ * is bounced by the receiving edge with `550 5.1.1 Address does not exist`.
+ * The owner of this product found that out by mailing the address the console
+ * told him to use.
+ *
+ * ## Why this is a function of the environment and not a constant
+ *
+ * A constant `false` would have to be *found and edited* by whoever ships the
+ * receiver, and a constant `true` written a release too early is exactly the
+ * bug this exists to prevent. Reading one environment variable makes the
+ * answer a property of the deployment, which is what it actually is: staging
+ * can have a receiver while production does not, and neither needs a code
+ * change to say so.
+ *
+ * It is also **false by absence**. A deployment that has never heard of this
+ * variable answers "not receiving", and the console draws that as "no delivery
+ * claims". Getting it wrong in that direction costs a sentence that
+ * understates a working feature; getting it wrong in the other direction is
+ * the bug being fixed here.
+ *
+ * ## Flipping it
+ *
+ * When the Email Worker is live and routed, set `INGESTION_RECEIVER=live` on
+ * the Convex deployment. Nothing else in this repository needs to change: the
+ * console gates every sentence about mail landing on the value this returns,
+ * so the delivery copy and the Copy button appear on their own.
+ *
+ * The receiver PR should replace the literal with whatever it genuinely knows
+ * — a configured worker hostname, a gateway secret it authenticates with — so
+ * that "deployed" cannot be asserted by a variable somebody set by hand. Until
+ * there is such a fact to read, a variable somebody sets deliberately is
+ * strictly better than a claim nobody has to set at all.
+ */
+export function ingestionIsReceiving(): boolean {
+  return process.env[INGESTION_RECEIVER_ENV] === "live";
+}

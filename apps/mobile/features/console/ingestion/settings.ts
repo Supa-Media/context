@@ -25,6 +25,19 @@
 export interface IngestionSettings {
   /** The alias mail is forwarded to. Issued by the control plane, not editable. */
   address: string;
+  /**
+   * Whether anything is actually accepting mail at `address`.
+   *
+   * **Optional, and its absence is not a `true`.** A control plane that
+   * predates this field says nothing, and a console that read "nothing" as
+   * "yes" is precisely the bug this field exists to make impossible. Same
+   * treatment as the storage facts the capability probe has not persisted: an
+   * absent fact is not drawn.
+   *
+   * Nothing in the UI may read this directly — go through `receivesMail`,
+   * which is the single place allowed to conclude that mail lands anywhere.
+   */
+  receiving?: boolean;
   /** Bucket-relative, with a trailing slash. `0-inbox/` by default. */
   targetFolder: string;
   /** Exact addresses that may send. */
@@ -35,8 +48,14 @@ export interface IngestionSettings {
   allowAnySender: boolean;
 }
 
-/** The editable half. `address` is issued, not chosen. */
-export type IngestionDraft = Omit<IngestionSettings, "address">;
+/**
+ * The editable half.
+ *
+ * `address` is issued, not chosen, and `receiving` is a fact about the
+ * deployment rather than a setting — neither belongs in something a Save
+ * button sends.
+ */
+export type IngestionDraft = Omit<IngestionSettings, "address" | "receiving">;
 
 /** The patch `updateIngestionSettings` takes — only what actually changed. */
 export interface IngestionPatch {
@@ -65,6 +84,38 @@ export interface IngestionState {
   /** False when this deployment has no ingestion functions at all. */
   available: boolean;
   save?: (patch: IngestionPatch) => Promise<void>;
+}
+
+/**
+ * Does mail sent to this context's capture address land anywhere?
+ *
+ * **The single gate on every sentence in this product that says mail lands, is
+ * accepted, or is dropped.** Written as one function, exported from the pure
+ * module, so that "may I claim delivery here?" has exactly one answer and one
+ * place to change it.
+ *
+ * It is `true` only when the control plane positively said so. Every other
+ * state — a query in flight, a query that threw, a deployment with no
+ * ingestion module, a control plane too old to carry the field, a workspace
+ * with no policy row — is `false`, because none of them are a yes.
+ *
+ * ### Why this exists at all
+ *
+ * There is no email receiver deployed. `context.lc` has no MX route to one, so
+ * mail sent to a capture address bounces with `550 5.1.1 Address does not
+ * exist`. The console nevertheless rendered the address with a Copy button
+ * beside the sentence "Forward any email here and it lands in 0-inbox/", and
+ * the owner of this product believed it and mailed the address. Every claim
+ * was in the *safe* direction — an allow-list that drops strangers, a
+ * fail-closed default — which is exactly what made the whole section read as
+ * live and trustworthy.
+ *
+ * The address is still shown: it is the address, and it will be correct the
+ * moment the receiver ships. What is gated is the claim about what happens to
+ * anything sent to it.
+ */
+export function receivesMail(state: IngestionState): boolean {
+  return state.settings?.receiving === true;
 }
 
 /** What a console with no ingestion backend behind it shows. */
@@ -296,6 +347,17 @@ export function senderLabel(entry: SenderEntry): string {
  * The empty list is the case worth being loud about: no rule and no "anyone"
  * is a closed door, not an open one, and somebody who forwarded mail and saw
  * nothing arrive deserves to be told which of the two it was.
+ *
+ * ### Every sentence here describes the *list*, never the pipeline
+ *
+ * These used to say "Mail is accepted from 1 address. Everything else is
+ * dropped." — a statement about running software, made while no receiver
+ * exists, so both halves were false. They now say who is *allowed*, which is a
+ * fact about the rows an owner has saved and is true whether or not anything
+ * is delivering yet. That keeps this function outside the `receivesMail` gate
+ * on purpose: an owner configuring the list before the receiver ships should
+ * still be told what they have configured, and the receiver landing must not
+ * require these strings to be revisited.
  */
 export function describeSenderPolicy(draft: IngestionDraft): {
   tone: "ok" | "warn" | "crit";
@@ -304,14 +366,14 @@ export function describeSenderPolicy(draft: IngestionDraft): {
   if (draft.allowAnySender) {
     return {
       tone: "crit",
-      text: "Anyone who learns this address can put a note in this context. Nothing is checked.",
+      text: "Anyone who learns this address is allowed to post into this context. Nothing is checked.",
     };
   }
   const entries = senderEntries(draft);
   if (entries.length === 0) {
     return {
       tone: "warn",
-      text: "Nobody is allowed to send yet, so mail to this address is dropped. Add an address or a domain.",
+      text: "Nobody is allowed to send yet. Add an address or a domain.",
     };
   }
   const domains = draft.allowedDomains.length;
@@ -319,7 +381,7 @@ export function describeSenderPolicy(draft: IngestionDraft): {
   const parts: string[] = [];
   if (addresses > 0) parts.push(`${addresses} address${addresses === 1 ? "" : "es"}`);
   if (domains > 0) parts.push(`${domains} domain${domains === 1 ? "" : "s"}`);
-  return { tone: "ok", text: `Mail is accepted from ${parts.join(" and ")}. Everything else is dropped.` };
+  return { tone: "ok", text: `Only ${parts.join(" and ")} may send. Nobody else.` };
 }
 
 // ─── saving ──────────────────────────────────────────────────────────────────

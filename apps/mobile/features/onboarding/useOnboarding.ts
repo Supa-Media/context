@@ -36,6 +36,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQueries, useQuery, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
+import { useIngestionSettings } from "../console/ingestion/useIngestionSettings";
+import { receivesMail } from "../console/ingestion/settings";
 import { EMPTY_QUERY_SPEC } from "../console/querySpec";
 import { toBindStorageArgs, type ConnectFormValues, type Provider } from "../console/storage/connect";
 import { describeCreateFailure, describeStructureFailure, type CreateFailure } from "./errors";
@@ -88,6 +90,21 @@ export interface OnboardingController {
   /** `undefined` until `listMyWorkspaces` resolves. Never read as zero. */
   contextCount: number | undefined;
   claimed: ClaimedContext | null;
+  /**
+   * Whether anything is receiving mail at the claimed context's capture
+   * address, straight from the control plane.
+   *
+   * On the controller rather than looked up inside the last step, so that the
+   * *same* backend fact drives the last screen of the first run and the
+   * ingestion card in the console. There is exactly one thing to flip when the
+   * receiver ships (`ingestionIsReceiving` in the Convex lib), and both
+   * surfaces follow it without further edits.
+   *
+   * `false` while there is no claimed context, while the query is in flight,
+   * and on any deployment whose control plane does not answer — none of which
+   * are a yes.
+   */
+  captureReceivesMail: boolean;
 
   // ── Step 1 ────────────────────────────────────────────────────────────────
   name: string;
@@ -330,11 +347,19 @@ export function useOnboarding(): OnboardingController {
     }
   }, [applyStructureMutation, applying, claimed, folderErrors, folders, template]);
 
+  // Read-only: the first run never edits the ingestion policy, it only needs to
+  // know whether it may promise that mail sent to the capture address arrives.
+  const ingestion = useIngestionSettings({
+    workspaceId: claimed?.workspaceId ?? null,
+    canEdit: false,
+  });
+
   return {
     step,
     shape: { storage },
     contextCount: workspaces === undefined ? undefined : workspaces.length,
     claimed,
+    captureReceivesMail: receivesMail(ingestion),
 
     name,
     setName,
