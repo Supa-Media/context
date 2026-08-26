@@ -3,7 +3,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react
 import { Button, PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { colors, fonts, radii } from "../../design/tokens";
-import { describeNameProblem } from "./paths";
+import { describeDeleteForever, describeNameProblem } from "./paths";
 
 /**
  * The console's dialogs.
@@ -195,6 +195,11 @@ export function Confirm({
  * below a lie, in the one product whose entire claim is that you know where
  * your data is. So the sentence is plain, the button is not the default, and
  * you have to spell the name out.
+ *
+ * The sentence itself lives in `paths.ts` as `describeDeleteForever`, next to
+ * the note explaining what it may and may not claim. It sat twelve lines below
+ * this comment for a while, saying "there is no copy kept anywhere" while the
+ * `.history/` behaviour described *in this very comment* meant there was.
  */
 export function DeleteForever({
   path,
@@ -213,13 +218,7 @@ export function DeleteForever({
 
   return (
     <Shell title="Delete permanently" onClose={onCancel}>
-      <Text variant="paneSub">
-        {isFolder
-          ? `Every file in ${path} will be removed from your bucket.`
-          : `${path} will be removed from your bucket.`}{" "}
-        This cannot be undone — there is no copy kept anywhere, and nothing to restore
-        from.
-      </Text>
+      <Text variant="paneSub">{describeDeleteForever(path, isFolder)}</Text>
       <View style={styles.hint}>
         <Text variant="hint">
           If you might want it back, archive it instead. Archiving moves it to{" "}
