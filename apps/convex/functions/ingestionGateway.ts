@@ -177,21 +177,6 @@ export const resolveForIngestion = internalMutation({
     // silent.
     if (RESERVED_NAMES.has(validation.normalized)) return null;
 
-    // Before any lookup, so a rate-limited caller cannot tell a real name from
-    // an invented one by how long the answer took or whether it was counted.
-    try {
-      await consumeRateLimit(ctx, {
-        key: `ingest.resolve:${validation.normalized}`,
-        limit: RESOLVE_LIMIT,
-        windowMs: RESOLVE_WINDOW_MS,
-      });
-    } catch {
-      // `RATE_LIMITED` folds into the same `null` as everything else. A
-      // distinguishable answer here would tell a prober that it had found
-      // something worth probing.
-      return null;
-    }
-
     const personal = await resolvePersonalContextForIngestion(
       ctx,
       validation.normalized,
@@ -212,6 +197,32 @@ export const resolveForIngestion = internalMutation({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", personal.workspace._id))
       .unique();
     if (binding === null || binding.status !== "connected") return null;
+
+    // ── The limit, counted only for names that actually resolved. ────────────
+    //
+    // Deliberately *after* the lookups, and the ordering is a resource
+    // decision rather than a security one. `rateLimits` rows are keyed by the
+    // thing being limited, and the thing here is a name a stranger typed. Count
+    // first and anyone able to send mail can mint an unbounded number of rows
+    // by addressing a million invented names — a write amplification on a table
+    // nothing sweeps. Counting last bounds the keyspace to names that belong to
+    // a real personal context, which is bounded by the customer list.
+    //
+    // Nothing leaks by moving it. The refusal is the same `null` either way, and
+    // the enumeration this limit exists to bound is a *secret-holder's* — who
+    // learns nothing from probing invented names, because they never resolve.
+    // A stranger with only a mail client sees the worker's one frozen SMTP
+    // rejection whatever happens in here.
+    try {
+      await consumeRateLimit(ctx, {
+        key: `ingest.resolve:${validation.normalized}`,
+        limit: RESOLVE_LIMIT,
+        windowMs: RESOLVE_WINDOW_MS,
+      });
+    } catch {
+      // `RATE_LIMITED` folds into the same `null` as everything else.
+      return null;
+    }
 
     const now = Date.now();
     await ctx.db.insert("ingestionTickets", {

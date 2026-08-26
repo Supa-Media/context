@@ -720,6 +720,37 @@ describe("resolve is rate limited", () => {
     );
   });
 
+  test("a name that resolves to nothing leaves no counter row behind", async () => {
+    // The keyspace is a name a stranger typed. If the limit were counted before
+    // the lookup, anyone able to send mail could mint an unbounded number of
+    // `rateLimits` rows by addressing invented names — a write amplification on
+    // a table nothing sweeps. Counting after resolution bounds the keyspace to
+    // real personal contexts.
+    //
+    // Sabotage: move the `consumeRateLimit` call above
+    // `resolvePersonalContextForIngestion` and this goes red.
+    const { t } = await ready();
+
+    for (const invented of ["nobody-a", "nobody-b", "nobody-c"]) {
+      await resolve(t, invented);
+    }
+
+    const keys = (await t.run((ctx) => ctx.db.query("rateLimits").collect())).map(
+      (row) => row.key,
+    );
+    expect(keys.filter((key) => key.startsWith("ingest.resolve:"))).toEqual([]);
+  });
+
+  test("a name that does resolve is counted", async () => {
+    // Non-vacuity for the test above: if the limit stopped being consumed at
+    // all, that one would pass and this one would not.
+    const { t } = await ready();
+    await resolve(t, "seyi");
+
+    const rows = await t.run((ctx) => ctx.db.query("rateLimits").collect());
+    expect(rows.map((row) => row.key)).toContain("ingest.resolve:seyi");
+  });
+
   test("the counter is keyed on the recipient, so one name cannot exhaust another", async () => {
     const t = setupTest();
     const seyiId = await createUser(t, OWNER_EMAIL);
