@@ -34,7 +34,7 @@
 /// <reference types="vite/client" />
 
 import { describe, expect, test } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import {
   TEST_EMAIL_WORKER_SECRET,
@@ -651,6 +651,51 @@ describe("recording a capture", () => {
         .collect(),
     );
     expect(events.filter((e) => e.action === "ingestion.captured")).toHaveLength(1);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+describe("the ticket table does not grow forever", () => {
+  test("the sweep deletes rows dead for over an hour and leaves live ones", async () => {
+    // Every inbound message that resolves writes a row here, and the arrival
+    // rate is set by whoever is sending mail rather than by our own customers.
+    // Without the cron this table is unbounded and a stranger sets the pace.
+    const { t } = await ready();
+    await resolvedTicket(t, "seyi");
+    await resolvedTicket(t, "seyi");
+
+    await t.run(async (ctx) => {
+      const rows = await ctx.db.query("ingestionTickets").collect();
+      await ctx.db.patch(rows[0]._id, { expiresAt: Date.now() - 2 * 60 * 60 * 1000 });
+    });
+
+    const result = await t.mutation(
+      internal.functions.ingestionGateway.purgeExpiredIngestionTickets,
+      {},
+    );
+    expect(result).toEqual({ deleted: 1, moreRemaining: false });
+    expect(await t.run((ctx) => ctx.db.query("ingestionTickets").collect())).toHaveLength(
+      1,
+    );
+  });
+
+  test("a row that expired a moment ago is left alone", async () => {
+    // Not zero retention: deleting a row the instant it expires would race a
+    // worker that is mid-transaction, and the hour costs nothing because every
+    // reader checks `expiresAt` anyway.
+    const { t } = await ready();
+    await resolvedTicket(t, "seyi");
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("ingestionTickets").first();
+      await ctx.db.patch(row!._id, { expiresAt: Date.now() - 1000 });
+    });
+
+    const result = await t.mutation(
+      internal.functions.ingestionGateway.purgeExpiredIngestionTickets,
+      {},
+    );
+    expect(result.deleted).toBe(0);
   });
 });
 

@@ -106,6 +106,18 @@ const RESOLVE_WINDOW_MS = 60 * 60 * 1000;
 const MAX_MESSAGE_BYTES = 5_000_000;
 
 /**
+ * How long a spent ticket row sticks around before the sweep takes it.
+ *
+ * An hour past expiry, matching `purgeExpiredAuthorizations`. Not zero: a row
+ * deleted the instant it expires would race a worker that is mid-transaction,
+ * and the hour costs nothing because every reader checks `expiresAt` anyway.
+ */
+const TICKET_RETENTION_MS = 60 * 60 * 1000;
+
+/** Same bounded batch the other sweeps use. */
+const SWEEP_BATCH_SIZE = 200;
+
+/**
  * What resolve answers with, minus the ticket.
  *
  * The ticket is minted in the HTTP route, because hashing needs the action
@@ -403,5 +415,41 @@ export const recordIngestion = internalMutation({
       },
     });
     return true;
+  },
+});
+
+/**
+ * Sweep spent and abandoned tickets.
+ *
+ * `ingestionTickets` gains a row for **every inbound message that resolved** —
+ * every capture, every duplicate, and every message that resolved and was then
+ * refused for authentication or sender policy. Unlike the other sweeps in this
+ * codebase, the arrival rate here is set by strangers rather than by customers,
+ * so "it will not grow much" is not an argument anyone gets to make.
+ *
+ * They are inert once expired — `spendIngestionTicket` and `recordIngestion`
+ * both check `expiresAt`, and the sweep only touches rows dead for an hour —
+ * but they are permanent without this.
+ *
+ * Hourly, with a bounded batch, so a backlog drains over several runs rather
+ * than in one transaction big enough to hit a limit.
+ */
+export const purgeExpiredIngestionTickets = internalMutation({
+  args: { limit: v.optional(v.number()) },
+  returns: v.object({ deleted: v.number(), moreRemaining: v.boolean() }),
+  handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(args.limit ?? SWEEP_BATCH_SIZE, 1), 1000);
+    const cutoff = Date.now() - TICKET_RETENTION_MS;
+
+    const expired = await ctx.db
+      .query("ingestionTickets")
+      .withIndex("by_expiresAt", (q) => q.lt("expiresAt", cutoff))
+      .take(limit);
+
+    for (const row of expired) {
+      await ctx.db.delete(row._id);
+    }
+
+    return { deleted: expired.length, moreRemaining: expired.length === limit };
   },
 });

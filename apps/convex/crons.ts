@@ -52,4 +52,24 @@ crons.interval(
   {},
 );
 
+/**
+ * Sweep spent and abandoned ingestion tickets.
+ *
+ * `ingestionTickets` gains a row for every inbound message that resolved to a
+ * real personal context. The arrival rate is set by whoever is sending mail
+ * rather than by our own customers, which is what makes this sweep different in
+ * kind from the two above: "it will not grow much" is not something anybody
+ * gets to assert about a table a stranger can add rows to.
+ *
+ * Hourly, matching the authorization sweep, and for the same reason — the rows
+ * expire in five minutes, so a daily cadence would leave a day of dead ones
+ * lying around for no benefit.
+ */
+crons.interval(
+  "sweep expired ingestion tickets",
+  { hours: 1 },
+  internal.functions.ingestionGateway.purgeExpiredIngestionTickets,
+  {},
+);
+
 export default crons;
