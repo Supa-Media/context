@@ -1,0 +1,276 @@
+import type { ReactNode } from "react";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { PressRow, WindowDots } from "../design/components/Button";
+import { Dot } from "../design/components/Dot";
+import { Text } from "../design/components/Text";
+import { gradient } from "../design/css";
+import { colors, layout, radii } from "../design/tokens";
+import { atName } from "./format";
+import { PANES, type PaneKey } from "./panes";
+import { selectedContext, type ConsoleData } from "./types";
+
+/**
+ * The console chrome: title bar, left rail, and the pane body.
+ *
+ * It takes a `ConsoleData` and nothing else, which is what lets the same
+ * component serve both the authenticated console and the read-only demo on the
+ * landing page.
+ */
+export function ConsoleShell({
+  data,
+  activePane,
+  onSelectPane,
+  children,
+}: {
+  data: ConsoleData;
+  activePane: PaneKey;
+  onSelectPane: (pane: PaneKey) => void;
+  children: ReactNode;
+}) {
+  const { width } = useWindowDimensions();
+  const narrow = width < layout.narrowBreakpoint;
+  const current = selectedContext(data);
+
+  return (
+    <View style={styles.console}>
+      <View style={styles.bar}>
+        <WindowDots />
+        <View style={styles.switcher}>
+          <Dot tone={current?.status ?? "warn"} />
+          <Text variant="wsSwitch">{atName(current?.slug ?? "no context")}</Text>
+          <Text variant="wsSwitch" style={styles.switcherKind}>
+            {current?.kind ?? ""}
+          </Text>
+        </View>
+        <View
+          style={[styles.avatar, gradient("linear-gradient(140deg,#3B82F6,#8B5CF6)")]}
+          accessibilityLabel="Your account"
+        >
+          <Text style={styles.avatarInitial}>{data.avatarInitial}</Text>
+        </View>
+      </View>
+
+      <View style={[styles.body, narrow && styles.bodyNarrow]}>
+        <View
+          style={[styles.rail, narrow && styles.railNarrow]}
+          role="navigation"
+          aria-label="Console"
+        >
+          <View style={[styles.railGroup, narrow && styles.railGroupNarrow]}>
+            <Text variant="railHead" style={styles.railHead}>
+              Workspace
+            </Text>
+            {PANES.map((pane) => (
+              <RailButton
+                key={pane.key}
+                label={pane.label}
+                selected={pane.key === activePane}
+                onPress={() => onSelectPane(pane.key)}
+                role="tab"
+              />
+            ))}
+          </View>
+
+          <View style={[styles.railGroup, narrow && styles.railGroupNarrow, styles.railGroupLast]}>
+            <Text variant="railHead" style={styles.railHead}>
+              Contexts
+            </Text>
+            {data.contexts.length === 0 && !data.loading ? (
+              <Text variant="rowSub" style={styles.railEmpty}>
+                No contexts yet
+              </Text>
+            ) : null}
+            {data.contexts.map((context) => (
+              <RailButton
+                key={context.id}
+                label={atName(context.slug)}
+                accessibilityLabel={`Switch to ${atName(context.slug)}`}
+                selected={context.id === data.selectedContextId}
+                onPress={() => data.selectContext(context.id)}
+                leading={<Dot tone={context.status} />}
+              />
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.pane}>{children}</View>
+      </View>
+    </View>
+  );
+}
+
+function RailButton({
+  label,
+  selected,
+  onPress,
+  leading,
+  role = "button",
+  accessibilityLabel,
+}: {
+  label: string;
+  selected?: boolean;
+  onPress: () => void;
+  leading?: ReactNode;
+  role?: "button" | "tab";
+  accessibilityLabel?: string;
+}) {
+  return (
+    <PressRow
+      accessibilityLabel={accessibilityLabel ?? label}
+      role={role}
+      selected={selected}
+      onPress={onPress}
+      radius={radii.md}
+      style={styles.railBtn}
+      hoverStyle={styles.railBtnHover}
+      selectedStyle={styles.railBtnOn}
+    >
+      {leading}
+      <Text variant="rail" style={selected ? styles.railBtnOnLabel : undefined}>
+        {label}
+      </Text>
+    </PressRow>
+  );
+}
+
+/** `.panehead` — title, explanatory line, and an optional status pill. */
+export function PaneHead({
+  title,
+  description,
+  trailing,
+}: {
+  title: string;
+  description?: string;
+  trailing?: ReactNode;
+}) {
+  return (
+    <View style={styles.paneHead}>
+      <View style={styles.paneHeadText}>
+        <Text variant="paneTitle" role="heading" aria-level={2}>
+          {title}
+        </Text>
+        {description ? (
+          <Text variant="paneSub" style={styles.paneHeadSub}>
+            {description}
+          </Text>
+        ) : null}
+      </View>
+      {trailing}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  /** `.console` */
+  console: {
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.console,
+    overflow: "hidden",
+    backgroundColor: colors.surface,
+    boxShadow: "0 50px 120px -40px rgba(0,0,0,1), 0 0 0 1px rgba(255,255,255,.03)",
+  },
+  /** `.cbar` */
+  bar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+    backgroundColor: colors.surface2,
+  },
+  /** `.wsswitch` */
+  switcher: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface,
+  },
+  switcherKind: { color: colors.muted },
+  /** `.avatar` */
+  avatar: {
+    marginLeft: "auto",
+    width: 27,
+    height: 27,
+    borderRadius: 13.5,
+    alignItems: "center",
+    justifyContent: "center",
+    // Flat fallback for platforms that drop the gradient.
+    backgroundColor: "#5F6EF6",
+  },
+  avatarInitial: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#fff",
+  },
+  /** `.cbody` */
+  body: {
+    flexDirection: "row",
+    minHeight: layout.consoleBodyMinHeight,
+  },
+  bodyNarrow: {
+    flexDirection: "column",
+    minHeight: 0,
+  },
+  /** `.rail` */
+  rail: {
+    width: layout.railWidth,
+    borderRightWidth: 1,
+    borderRightColor: colors.line,
+    paddingVertical: 15,
+    paddingHorizontal: 11,
+    backgroundColor: colors.surface,
+  },
+  railNarrow: {
+    width: "100%",
+    flexDirection: "row",
+    gap: 14,
+    borderRightWidth: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+  },
+  railGroup: { marginBottom: 22 },
+  railGroupNarrow: { marginBottom: 0, flexGrow: 0, flexShrink: 0 },
+  railGroupLast: {},
+  railHead: { marginBottom: 8, paddingHorizontal: 8 },
+  railEmpty: { paddingHorizontal: 9, paddingVertical: 7 },
+  /** `.railbtn` */
+  railBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    width: "100%",
+    paddingVertical: 7,
+    paddingHorizontal: 9,
+    borderRadius: radii.md,
+  },
+  railBtnHover: { backgroundColor: colors.surface2 },
+  railBtnOn: { backgroundColor: colors.accentDim },
+  railBtnOnLabel: { color: colors.accentText },
+  /** `.pane` */
+  pane: {
+    flex: 1,
+    minWidth: 0,
+    paddingTop: 25,
+    paddingHorizontal: 27,
+    paddingBottom: 32,
+  },
+  /** `.panehead` */
+  paneHead: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 20,
+    marginBottom: 21,
+  },
+  paneHeadText: { flex: 1, minWidth: 0 },
+  // `max-width:62ch` at 13.5px Instrument Sans measures ~546px.
+  paneHeadSub: { marginTop: 6, maxWidth: 546 },
+});

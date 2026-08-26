@@ -54,6 +54,7 @@ import {
   requireKeyset,
 } from "./lib/crypto";
 import { recordAudit } from "./lib/audit";
+import { redactSigningArtifacts } from "./lib/verification";
 import { requireWorkspaceAccess, requireWorkspaceRole } from "./lib/workspaceAuth";
 
 const providerValidator = v.union(
@@ -382,6 +383,32 @@ export const applyBinding = internalMutation({
       },
     });
 
+    // Close the loop: something has to actually talk to the bucket before we
+    // will call it connected. Scheduled rather than awaited, for three
+    // reasons.
+    //
+    //  1. **It is transactional here and nowhere else.** Scheduling from
+    //     inside the mutation queues the probe if and only if the row commits.
+    //     Kicking it off from `bindStorage` after the mutation returned would
+    //     leave a window where the row exists and nothing is coming for it.
+    //  2. **The endpoint is a URL the customer typed.** Awaiting a round trip
+    //     to it inside the call that saves their credential makes "paste and
+    //     save" as slow as the slowest thing they can point us at.
+    //  3. **Nothing flows back.** `verifyStorageBinding` decrypts, so a public
+    //     function able to *call* it would have the credential decrypt path in
+    //     its call graph. A scheduled function's result is discarded by the
+    //     scheduler and can never reach whoever queued it — the distinction
+    //     `__tests__/structure.test.ts` draws between a call edge and a
+    //     schedule edge.
+    //
+    // The row stays `unverified` until the probe reports back, which is the
+    // truthful state: nothing has contacted this bucket yet.
+    await ctx.scheduler.runAfter(
+      0,
+      internal.functions.provisioning.verifyStorageBinding,
+      { workspaceId: args.workspaceId, actorUserId: args.actorUserId },
+    );
+
     return { bindingId, status: "unverified" };
   },
 });
@@ -423,10 +450,10 @@ function scrubProviderError(
   for (const known of [binding.encryptedSecretAccessKey, binding.accessKeyId]) {
     if (known.length > 0) scrubbed = scrubbed.split(known).join("[redacted]");
   }
-  scrubbed = scrubbed.replace(
-    /\b(Signature|Credential|X-Amz-Security-Token|X-Amz-Signature)=[^\s&,"']+/gi,
-    "$1=[redacted]",
-  );
+  // Shared with the verifying action, which applies the same rule to the value
+  // it returns. Two redactors that drifted apart would mean one published
+  // surface quietly became the weak one.
+  scrubbed = redactSigningArtifacts(scrubbed);
   return scrubbed.length > MAX_LAST_ERROR_LENGTH
     ? `${scrubbed.slice(0, MAX_LAST_ERROR_LENGTH - 1)}…`
     : scrubbed;

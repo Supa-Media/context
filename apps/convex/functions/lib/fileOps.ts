@@ -1,0 +1,1103 @@
+/**
+ * File operations against a customer's bucket.
+ *
+ * Everything the console's editor can do — list, read, write, create, move,
+ * duplicate, copy, archive, delete, change visibility — expressed against a
+ * `ContextStore` and nothing else. No Convex, no credential, no database.
+ *
+ * ## Why that separation is the point
+ *
+ * The credential is opened in exactly one place (`functions/files.ts`'s
+ * `runFileOperation`), and this module is what it hands the resulting store to.
+ * So every rule below — who may see what, what a stale etag does, whether a
+ * delete is recoverable — is testable against an in-memory bucket with no
+ * decryption, no auth, and no fixtures, and the security-critical module above
+ * stays small enough to read in one sitting.
+ *
+ * ## The three rules that are not negotiable
+ *
+ *  1. **Note content passes through; it is never persisted here or above.**
+ *     Nothing in this file writes to a database, and no error it throws
+ *     interpolates a note body. Paths are metadata and may appear; content may
+ *     not. `__tests__/fileContent.test.ts` asserts this behaviourally over
+ *     every operation.
+ *
+ *  2. **A caller who may not see a note gets the same answer as for a note
+ *     that does not exist.** `FILE_NOT_FOUND`, identical payload, identical
+ *     wording. Anything else is an existence oracle: a team-scoped colleague
+ *     could enumerate the names of your private notes by watching which paths
+ *     answer "forbidden" instead of "missing".
+ *
+ *  3. **`privacy.md` is generated, never typed into.** It is the access map,
+ *     and hand-editing it through a UI that also *writes* it is how a person
+ *     loses every rule they had. `setVisibility` / `setFolderVisibility` are
+ *     the only way in, and a write to that key is refused.
+ */
+
+import {
+  PRIVACY_KEY,
+  type PrivacyRule,
+  type Scope,
+  type Visibility,
+  canSee,
+  clearedOverrides,
+  effectiveVisibility,
+  isPlumbing,
+  movedOverrides,
+  nextOverrides,
+  parsePrivacyManifest,
+  replacePrivacyRulesBlock,
+  visibilityOf,
+} from "./privacy";
+import type { ScaffoldStore } from "./scaffold";
+
+/* -------------------------------------------------------------------------- */
+/*                                   limits                                   */
+/* -------------------------------------------------------------------------- */
+
+/** S3 caps keys at 1024; the gateway's `normalizePath` caps paths at 512. */
+const MAX_PATH_LENGTH = 512;
+/** One note. Generous for markdown, small enough that a paste cannot DoS an action. */
+export const MAX_NOTE_BYTES = 2_000_000;
+/** Pages of a listing we will walk. 1000 keys each. */
+const LIST_PAGE_CAP = 20;
+/** Keys a single folder move/copy/delete may touch. Same cap the gateway uses. */
+export const FOLDER_OPERATION_CAP = 500;
+/** Attempts at the compare-and-swap that rewrites `privacy.md`. */
+const MANIFEST_CAS_ATTEMPTS = 5;
+
+const HISTORY_PREFIX = ".history/";
+const ARCHIVE_ROOT = "4-archive";
+
+/* -------------------------------------------------------------------------- */
+/*                                   store                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The slice of `ContextStore` these operations use.
+ *
+ * `ScaffoldStore` already declares `get`/`put`/`list` structurally (the adapter
+ * is JSDoc-typed JavaScript whose typedefs are not importable bindings); this
+ * adds the `delete` and the capability descriptor. The real `S3Store` satisfies
+ * it by construction, and the tests run the real adapter against a wire-level
+ * stub.
+ */
+export interface FileStore extends ScaffoldStore {
+  delete(key: string): Promise<void>;
+  capabilities?: { conditionalWrite: boolean };
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                   errors                                   */
+/* -------------------------------------------------------------------------- */
+
+export type FileErrorCode =
+  /** Missing, or invisible at the caller's scope. Deliberately the same code. */
+  | "FILE_NOT_FOUND"
+  | "PATH_INVALID"
+  | "DESTINATION_EXISTS"
+  | "CONFLICT"
+  | "PRIVACY_MANIFEST_READ_ONLY"
+  | "PRIVACY_MANIFEST_MISSING"
+  | "PRIVACY_MANIFEST_INVALID"
+  | "PRIVACY_MANIFEST_BUSY"
+  | "CONTENT_TOO_LARGE"
+  | "FOLDER_TOO_LARGE"
+  | "CONFIRMATION_REQUIRED"
+  | "NOT_A_FOLDER";
+
+/**
+ * A failure with a code the console can branch on and a message a person can
+ * act on.
+ *
+ * `message` may name a **path**; it may never carry note content, a
+ * credential, or a provider's raw response. Rule 1 at the top of this file.
+ */
+export class FileOpError extends Error {
+  constructor(
+    readonly code: FileErrorCode,
+    message: string,
+    /** Only ever an etag or a path — never content. */
+    readonly currentEtag?: string,
+  ) {
+    super(message);
+    this.name = "FileOpError";
+  }
+}
+
+/**
+ * The one error used for "you cannot have this".
+ *
+ * Built in a single place so no future operation can leak the difference
+ * between "not yours to see" and "never existed" by phrasing its own message
+ * slightly differently — the same discipline `lib/workspaceAuth.ts` applies to
+ * `WORKSPACE_NOT_FOUND`, for the same reason.
+ */
+function notFound(): FileOpError {
+  return new FileOpError("FILE_NOT_FOUND", "That file does not exist.");
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                    paths                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Clean a caller-supplied path, or `null` if it is not addressable.
+ *
+ * Mirrors the gateway's `normalizePath`: a trailing slash is stripped rather
+ * than rejected (naming a folder `1-projects/` is natural), and `..` is
+ * refused outright rather than resolved. The storage adapter refuses these
+ * again at its own boundary; two independent checks is deliberate.
+ */
+export function normalizePath(input: string): string | null {
+  if (typeof input !== "string") return null;
+  const clean = input
+    .replace(/^\/+/, "")
+    .replace(/\/{2,}/g, "/")
+    .replace(/\/+$/, "")
+    .trim();
+  if (!clean || clean.length > MAX_PATH_LENGTH) return null;
+  if (clean.split("/").some((segment) => segment === "." || segment === "..")) {
+    return null;
+  }
+  return clean;
+}
+
+function requirePath(input: string): string {
+  const path = normalizePath(input);
+  if (path === null) throw new FileOpError("PATH_INVALID", "That path is not valid.");
+  return path;
+}
+
+/** The empty string is the bucket root, which normalizePath cannot express. */
+function requireFolderPath(input: string): string {
+  const trimmed = input.replace(/^\/+/, "").replace(/\/+$/, "").trim();
+  if (trimmed === "") return "";
+  return requirePath(trimmed);
+}
+
+export function parentOf(path: string): string {
+  const index = path.lastIndexOf("/");
+  return index < 0 ? "" : path.slice(0, index);
+}
+
+export function baseName(path: string): string {
+  const index = path.lastIndexOf("/");
+  return index < 0 ? path : path.slice(index + 1);
+}
+
+export function joinPath(folder: string, name: string): string {
+  return folder === "" ? name : `${folder}/${name}`;
+}
+
+/** `2026-08-26T09-14-02-113Z`. Same shape the gateway stamps history with. */
+export function timestampSlug(now: number): string {
+  return new Date(now).toISOString().replace(/[:.]/g, "-");
+}
+
+/* -------------------------------------------------------------------------- */
+/*                              the privacy state                             */
+/* -------------------------------------------------------------------------- */
+
+interface PrivacyState {
+  rules: PrivacyRule[];
+  overrides: Map<string, Visibility>;
+  /** The manifest's full text, when there is a parseable one to rewrite. */
+  text: string | null;
+  etag: string | null;
+  /** Set when a manifest exists but does not parse. */
+  invalid: boolean;
+}
+
+/**
+ * Read `privacy.md`.
+ *
+ * Three outcomes, and the fallbacks are chosen to fail *closed*:
+ *  - parsed → its rules apply.
+ *  - absent (a legacy `scopes.yml` bucket, or one we never scaffolded) → no
+ *    rules, which means everything is private.
+ *  - present but unparseable → no rules, same as absent. The gateway degrades
+ *    the same way, and the alternative — guessing at half a file — is how a
+ *    note the owner marked private becomes team-readable.
+ */
+export async function loadPrivacyState(store: FileStore): Promise<PrivacyState> {
+  const object = await store.get(PRIVACY_KEY);
+  if (object === null) {
+    return { rules: [], overrides: new Map(), text: null, etag: null, invalid: false };
+  }
+  const text = await object.text();
+  try {
+    const parsed = parsePrivacyManifest(text);
+    return {
+      rules: parsed.rules,
+      overrides: parsed.overrides,
+      text,
+      etag: object.etag,
+      invalid: false,
+    };
+  } catch {
+    // The message is deliberately dropped: it echoes the offending line of the
+    // customer's file, and a manifest line can name a private folder.
+    return { rules: [], overrides: new Map(), text, etag: object.etag, invalid: true };
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                  listing                                   */
+/* -------------------------------------------------------------------------- */
+
+export interface FileEntry {
+  kind: "file" | "folder";
+  path: string;
+  name: string;
+  /** What a client at `team` scope would be allowed to see. */
+  visibility: Visibility;
+  /** The folder default this path inherits, ignoring any exact-note exception. */
+  inherited: Visibility;
+  /**
+   * `visibility !== inherited`. The console marks **only these** — labelling
+   * every note in a private folder "private" is noise, and hides the one that
+   * is not.
+   */
+  exception: boolean;
+  /** `privacy.md`: shown, explained, never typed into. */
+  readOnly: boolean;
+  size?: number;
+  updatedAt?: number;
+}
+
+export interface FolderListing {
+  path: string;
+  /** The folder's own default. This is what the folder row displays. */
+  folderDefault: Visibility;
+  entries: FileEntry[];
+  /** True when the listing stopped at the page cap rather than the end. */
+  truncated: boolean;
+  /** `privacy.md` is missing or unparseable, so nothing can be shared yet. */
+  manifestUsable: boolean;
+}
+
+/**
+ * Is a *folder* worth showing to a caller at this scope?
+ *
+ * A folder is not a note and has no visibility of its own beyond its default,
+ * but a private folder can still contain a note with a `team` exception — and
+ * hiding the folder would make that note unreachable in the tree. The
+ * exception map is the complete list of ways that can happen, and it comes
+ * from the manifest we already parsed, so this is exact and costs no listing.
+ */
+function folderVisibleAtScope(
+  folderPath: string,
+  scope: Scope,
+  rules: readonly PrivacyRule[],
+  overrides: ReadonlyMap<string, Visibility>,
+): boolean {
+  if (isPlumbing(folderPath)) return false;
+  if (scope === "private") return true;
+  if (visibilityOf(folderPath, rules) === "team") return true;
+  for (const [path, visibility] of overrides) {
+    if (visibility === "team" && path.startsWith(`${folderPath}/`)) return true;
+  }
+  return false;
+}
+
+function describeFile(
+  key: string,
+  rules: readonly PrivacyRule[],
+  overrides: ReadonlyMap<string, Visibility>,
+  extra: { size?: number; updatedAt?: number } = {},
+): FileEntry {
+  const inherited = visibilityOf(key, rules);
+  const visibility = effectiveVisibility(key, rules, overrides);
+  return {
+    kind: "file",
+    path: key,
+    name: baseName(key),
+    visibility,
+    inherited,
+    exception: visibility !== inherited,
+    readOnly: key === PRIVACY_KEY,
+    ...extra,
+  };
+}
+
+/** One folder's immediate children, as the tree renders them. */
+export async function listFolder(
+  store: FileStore,
+  options: { path: string; scope: Scope },
+): Promise<FolderListing> {
+  const folder = requireFolderPath(options.path);
+  const state = await loadPrivacyState(store);
+
+  if (folder !== "" && !folderVisibleAtScope(folder, options.scope, state.rules, state.overrides)) {
+    throw notFound();
+  }
+
+  const prefix = folder === "" ? "" : `${folder}/`;
+  const entries: FileEntry[] = [];
+  const seenFolders = new Set<string>();
+  let cursor: string | undefined;
+  let truncated = false;
+
+  for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+    const listing = await store.list({ prefix, delimiter: "/", cursor, limit: 1000 });
+
+    for (const object of listing.objects ?? []) {
+      const key = object.key;
+      if (key === prefix) continue; // a zero-byte folder marker, if a tool made one
+      if (!canSee(key, options.scope, state.rules, state.overrides)) continue;
+      const meta = object as { size?: number; uploaded?: Date | string | number };
+      entries.push(
+        describeFile(key, state.rules, state.overrides, {
+          size: typeof meta.size === "number" ? meta.size : undefined,
+          updatedAt:
+            meta.uploaded === undefined ? undefined : new Date(meta.uploaded).getTime(),
+        }),
+      );
+    }
+
+    for (const raw of listing.delimitedPrefixes ?? []) {
+      const child = raw.replace(/\/+$/, "");
+      if (!child || seenFolders.has(child)) continue;
+      if (!folderVisibleAtScope(child, options.scope, state.rules, state.overrides)) continue;
+      seenFolders.add(child);
+      const inherited = visibilityOf(child, state.rules);
+      entries.push({
+        kind: "folder",
+        path: child,
+        name: baseName(child),
+        visibility: inherited,
+        inherited,
+        exception: false,
+        readOnly: false,
+      });
+    }
+
+    if (!listing.truncated || !listing.cursor) break;
+    cursor = listing.cursor;
+    if (page === LIST_PAGE_CAP - 1) truncated = true;
+  }
+
+  entries.sort(compareEntries);
+
+  return {
+    path: folder,
+    folderDefault: folder === "" ? visibilityOf("", state.rules) : visibilityOf(folder, state.rules),
+    entries,
+    truncated,
+    manifestUsable: state.text !== null && !state.invalid,
+  };
+}
+
+/** Folders first, then files, each alphabetically — the order Obsidian uses. */
+function compareEntries(a: FileEntry, b: FileEntry): number {
+  if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
+  return a.name.localeCompare(b.name);
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                   reading                                  */
+/* -------------------------------------------------------------------------- */
+
+export interface FileContents {
+  path: string;
+  text: string;
+  etag: string;
+  visibility: Visibility;
+  inherited: Visibility;
+  exception: boolean;
+  /** `privacy.md`. The console shows it with an explanation instead of a textarea. */
+  readOnly: boolean;
+}
+
+export async function readFile(
+  store: FileStore,
+  options: { path: string; scope: Scope },
+): Promise<FileContents> {
+  const path = requirePath(options.path);
+  const state = await loadPrivacyState(store);
+  if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+
+  const object = await store.get(path);
+  if (object === null) throw notFound();
+
+  const described = describeFile(path, state.rules, state.overrides);
+  return {
+    path,
+    text: await object.text(),
+    etag: object.etag,
+    visibility: described.visibility,
+    inherited: described.inherited,
+    exception: described.exception,
+    readOnly: described.readOnly,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                   writing                                  */
+/* -------------------------------------------------------------------------- */
+
+export interface WriteResult {
+  path: string;
+  etag: string;
+  /**
+   * How the conflict check was performed.
+   *
+   * `conditional` — the backend enforced `If-Match`, so a concurrent write
+   * could not have landed between the check and ours.
+   * `read-compare` — the backend does not enforce it (B2, Wasabi), so we read
+   * the etag and compared it ourselves. That is a real check with a real race
+   * window, and the console says so rather than implying a guarantee we do not
+   * have. Never silently downgraded to no check at all.
+   */
+  conflictCheck: "conditional" | "read-compare";
+}
+
+/**
+ * Save a note.
+ *
+ * `expectedEtag` is the etag the editor read. A mismatch is a **conflict**,
+ * surfaced with the current etag so the console can say "this changed
+ * elsewhere" and offer to reload — never a silent overwrite.
+ *
+ * Omitting `expectedEtag` means "this is new": if the key already exists that
+ * is also a conflict, not an overwrite. There is no way to say "clobber
+ * whatever is there", by design.
+ */
+export async function writeFile(
+  store: FileStore,
+  options: {
+    path: string;
+    text: string;
+    expectedEtag?: string;
+    scope: Scope;
+    now: number;
+  },
+): Promise<WriteResult> {
+  const path = requirePath(options.path);
+  assertWritablePath(path);
+  if (byteLength(options.text) > MAX_NOTE_BYTES) {
+    throw new FileOpError(
+      "CONTENT_TOO_LARGE",
+      `A note must be at most ${MAX_NOTE_BYTES} bytes.`,
+    );
+  }
+
+  const state = await loadPrivacyState(store);
+  // Creating a note somewhere a team caller cannot see means creating a note
+  // they immediately could not read. Refuse with the same not-found as a note
+  // that is not theirs, so the folder's default is not an oracle either.
+  if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+
+  const existing = await store.get(path);
+
+  if (options.expectedEtag === undefined) {
+    if (existing !== null) {
+      throw new FileOpError(
+        "CONFLICT",
+        "A file already exists at that path. Reload to see it.",
+        existing.etag,
+      );
+    }
+  } else if (existing === null) {
+    throw new FileOpError(
+      "CONFLICT",
+      "That file was deleted somewhere else while you were editing it.",
+    );
+  } else if (existing.etag !== options.expectedEtag) {
+    throw new FileOpError(
+      "CONFLICT",
+      "That file changed somewhere else while you were editing it.",
+      existing.etag,
+    );
+  }
+
+  // Keep the version we are about to replace. Same `.history/` convention the
+  // gateway writes, so a rollback looks the same whoever made the edit.
+  if (existing !== null) {
+    await store.put(
+      `${HISTORY_PREFIX}${path}.${timestampSlug(options.now)}.md`,
+      await existing.text(),
+    );
+  }
+
+  const conditional = store.capabilities?.conditionalWrite === true && existing !== null;
+  const put = conditional
+    ? await store.put(path, options.text, { onlyIf: { etagMatches: existing!.etag } })
+    : await store.put(path, options.text);
+
+  if (put === null) {
+    // The backend rejected the precondition: somebody wrote between our read
+    // and our put. Exactly the case conditional writes exist for.
+    const current = await store.get(path);
+    throw new FileOpError(
+      "CONFLICT",
+      "That file changed somewhere else while you were editing it.",
+      current?.etag,
+    );
+  }
+
+  return {
+    path,
+    etag: put.etag,
+    conflictCheck: conditional ? "conditional" : "read-compare",
+  };
+}
+
+/** Refuse the paths that are not notes, before anything else happens. */
+function assertWritablePath(path: string): void {
+  if (path === PRIVACY_KEY) {
+    throw new FileOpError(
+      "PRIVACY_MANIFEST_READ_ONLY",
+      "privacy.md is generated from your visibility settings. Change a file or folder's visibility instead of editing it.",
+    );
+  }
+  if (isPlumbing(path)) {
+    throw new FileOpError(
+      "PATH_INVALID",
+      "Paths beginning with a dot are reserved for history and audit.",
+    );
+  }
+}
+
+function byteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                             creating and copying                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Create a folder.
+ *
+ * S3 has no folders — a folder is a shared key prefix — so an "empty folder"
+ * can only exist in a UI's memory unless something is written. Rather than
+ * invent a hidden marker object (a dot-prefixed key is plumbing and would be
+ * invisible to the very tools this is for), a new folder gets a `README.md`,
+ * exactly as the PARA scaffold does. The folder is then real for Obsidian,
+ * rclone, the gateway and everything else that reads the bucket.
+ */
+export async function createFolder(
+  store: FileStore,
+  options: { path: string; scope: Scope; now: number },
+): Promise<{ path: string; readme: string }> {
+  const folder = requirePath(options.path);
+  if (isPlumbing(folder)) {
+    throw new FileOpError(
+      "PATH_INVALID",
+      "Paths beginning with a dot are reserved for history and audit.",
+    );
+  }
+  const readme = joinPath(folder, "README.md");
+  const existing = await store.get(readme);
+  if (existing !== null) {
+    throw new FileOpError("DESTINATION_EXISTS", "That folder already exists.");
+  }
+  await writeFile(store, {
+    path: readme,
+    text: `# ${baseName(folder)}\n`,
+    scope: options.scope,
+    now: options.now,
+  });
+  return { path: folder, readme };
+}
+
+/**
+ * "foo.md" → "foo copy.md" → "foo copy 2.md".
+ *
+ * Obsidian's convention, and the reason it is a pure function is that picking
+ * a free name is the fiddly half of duplicating and deserves its own tests.
+ */
+export function duplicateName(name: string, taken: ReadonlySet<string>): string {
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const extension = dot > 0 ? name.slice(dot) : "";
+  let candidate = `${stem} copy${extension}`;
+  let counter = 2;
+  while (taken.has(candidate)) {
+    candidate = `${stem} copy ${counter}${extension}`;
+    counter += 1;
+  }
+  return candidate;
+}
+
+/** Every key under a folder, capped. Used by move, copy and delete. */
+async function keysUnder(store: FileStore, folder: string): Promise<string[]> {
+  const prefix = `${folder}/`;
+  const keys: string[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+    const listing = await store.list({ prefix, cursor, limit: 1000 });
+    for (const object of listing.objects ?? []) {
+      if (isPlumbing(object.key)) continue;
+      keys.push(object.key);
+      if (keys.length > FOLDER_OPERATION_CAP) {
+        throw new FileOpError(
+          "FOLDER_TOO_LARGE",
+          `That folder holds more than ${FOLDER_OPERATION_CAP} files. Move or delete it in smaller pieces.`,
+        );
+      }
+    }
+    if (!listing.truncated || !listing.cursor) break;
+    cursor = listing.cursor;
+  }
+  return keys;
+}
+
+/** Does this path name a folder (something has keys under it)? */
+async function isFolder(store: FileStore, path: string): Promise<boolean> {
+  const listing = await store.list({ prefix: `${path}/`, limit: 1 });
+  return (listing.objects ?? []).length > 0 || (listing.delimitedPrefixes ?? []).length > 0;
+}
+
+export interface MoveResult {
+  from: string;
+  to: string;
+  /** Every key that moved. Paths, which are metadata — never content. */
+  paths: string[];
+}
+
+/**
+ * Move or rename. A rename is a move whose parent does not change, so there is
+ * one implementation rather than two that can disagree.
+ *
+ * Works on a file or a whole folder. The destination must not exist: this
+ * never merges and never overwrites.
+ *
+ * The privacy manifest moves with it. That is the part it would be easy to
+ * skip and expensive to get wrong — without it, dragging a private note into a
+ * `team` folder silently shares it, because the exception that kept it private
+ * still names a path that no longer exists.
+ */
+export async function movePath(
+  store: FileStore,
+  options: { from: string; to: string; scope: Scope; now: number },
+): Promise<MoveResult> {
+  const from = requirePath(options.from);
+  const to = requirePath(options.to);
+  assertWritablePath(from);
+  assertWritablePath(to);
+  if (from === to) return { from, to, paths: [] };
+  if (to.startsWith(`${from}/`)) {
+    throw new FileOpError("PATH_INVALID", "A folder cannot be moved inside itself.");
+  }
+
+  const state = await loadPrivacyState(store);
+  if (!canSee(from, options.scope, state.rules, state.overrides)) throw notFound();
+
+  const sourceIsFolder = await isFolder(store, from);
+  const sources = sourceIsFolder ? await keysUnder(store, from) : [from];
+  if (!sourceIsFolder && (await store.get(from)) === null) throw notFound();
+  if (sources.length === 0) throw notFound();
+
+  const pairs = sources.map((key) => ({
+    source: key,
+    destination: sourceIsFolder ? `${to}${key.slice(from.length)}` : to,
+  }));
+
+  for (const pair of pairs) {
+    if ((await store.get(pair.destination)) !== null) {
+      throw new FileOpError(
+        "DESTINATION_EXISTS",
+        `Something already exists at ${pair.destination}.`,
+      );
+    }
+  }
+
+  const stamp = timestampSlug(options.now);
+  for (const pair of pairs) {
+    const object = await store.get(pair.source);
+    if (object === null) continue; // vanished mid-move; nothing to carry
+    const body = await object.text();
+    await store.put(`${HISTORY_PREFIX}${pair.source}.${stamp}.move.md`, body);
+    await store.put(pair.destination, body);
+    await store.delete(pair.source);
+  }
+
+  await remapPrivacy(store, {
+    moves: pairs.map((pair) => ({ from: pair.source, to: pair.destination })),
+    folderMove: sourceIsFolder ? { from, to } : null,
+  });
+
+  return { from, to, paths: pairs.map((pair) => pair.destination) };
+}
+
+/**
+ * Copy a file or folder to an explicit destination — the "paste" half of
+ * copy/paste.
+ *
+ * The exception travels with the copy: two files with identical content should
+ * not have different visibility because one of them was pasted.
+ */
+export async function copyPath(
+  store: FileStore,
+  options: { from: string; to: string; scope: Scope },
+): Promise<MoveResult> {
+  const from = requirePath(options.from);
+  const to = requirePath(options.to);
+  assertWritablePath(to);
+  if (to === from || to.startsWith(`${from}/`)) {
+    throw new FileOpError("PATH_INVALID", "A folder cannot be copied inside itself.");
+  }
+
+  const state = await loadPrivacyState(store);
+  if (!canSee(from, options.scope, state.rules, state.overrides)) throw notFound();
+
+  const sourceIsFolder = await isFolder(store, from);
+  const sources = sourceIsFolder ? await keysUnder(store, from) : [from];
+  if (sources.length === 0) throw notFound();
+
+  const pairs = sources.map((key) => ({
+    source: key,
+    destination: sourceIsFolder ? `${to}${key.slice(from.length)}` : to,
+  }));
+
+  for (const pair of pairs) {
+    if ((await store.get(pair.destination)) !== null) {
+      throw new FileOpError(
+        "DESTINATION_EXISTS",
+        `Something already exists at ${pair.destination}.`,
+      );
+    }
+  }
+
+  for (const pair of pairs) {
+    const object = await store.get(pair.source);
+    if (object === null) throw notFound();
+    await store.put(pair.destination, await object.text());
+  }
+
+  await copyPrivacy(
+    store,
+    pairs.map((pair) => ({ from: pair.source, to: pair.destination })),
+  );
+
+  return { from, to, paths: pairs.map((pair) => pair.destination) };
+}
+
+/** Copy beside itself under a free "… copy" name. */
+export async function duplicatePath(
+  store: FileStore,
+  options: { path: string; scope: Scope },
+): Promise<MoveResult> {
+  const path = requirePath(options.path);
+  const parent = parentOf(path);
+  const siblings = await listFolder(store, { path: parent, scope: options.scope });
+  const taken = new Set(siblings.entries.map((entry) => entry.name));
+  const destination = joinPath(parent, duplicateName(baseName(path), taken));
+  return await copyPath(store, { from: path, to: destination, scope: options.scope });
+}
+
+/* -------------------------------------------------------------------------- */
+/*                            archiving and deleting                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Archive: move into `4-archive/<timestamp>/<original path>`.
+ *
+ * This is the destructive-looking action people should reach for, and it is
+ * **not destructive** — the file is intact, its original path is preserved
+ * inside the archive path, and moving it back restores it exactly. The
+ * timestamp segment means archiving the same note twice never collides.
+ *
+ * Same destination shape the gateway's `archive_note` uses, so a note archived
+ * by Claude and a note archived from the console land in the same place.
+ */
+export async function archivePath(
+  store: FileStore,
+  options: { path: string; scope: Scope; now: number },
+): Promise<MoveResult> {
+  const path = requirePath(options.path);
+  if (path === ARCHIVE_ROOT || path.startsWith(`${ARCHIVE_ROOT}/`)) {
+    throw new FileOpError("PATH_INVALID", "That is already in the archive.");
+  }
+  const destination = `${ARCHIVE_ROOT}/${timestampSlug(options.now)}/${path}`;
+  return await movePath(store, {
+    from: path,
+    to: destination,
+    scope: options.scope,
+    now: options.now,
+  });
+}
+
+/** The word a caller must send to delete something permanently. */
+export const DELETE_CONFIRMATION = "permanently delete";
+
+export interface DeleteResult {
+  paths: string[];
+}
+
+/**
+ * Delete permanently.
+ *
+ * No `.history/` copy is written, and that is the point: if this left a
+ * recoverable copy behind, the console would be telling people their file is
+ * gone forever while quietly keeping it, and "permanently delete" would be a
+ * lie in a UI whose whole job is to be trustworthy about where their data is.
+ * Archive is the recoverable one.
+ *
+ * `confirmation` must be the literal `DELETE_CONFIRMATION`. A boolean flag
+ * would be satisfied by any truthy value a buggy caller passed; a specific
+ * string cannot be arrived at by accident.
+ */
+export async function deletePath(
+  store: FileStore,
+  options: { path: string; confirmation: string; scope: Scope },
+): Promise<DeleteResult> {
+  if (options.confirmation !== DELETE_CONFIRMATION) {
+    throw new FileOpError(
+      "CONFIRMATION_REQUIRED",
+      "Permanent deletion has to be confirmed explicitly. This cannot be undone — archive it instead if you might want it back.",
+    );
+  }
+  const path = requirePath(options.path);
+  assertWritablePath(path);
+
+  const state = await loadPrivacyState(store);
+  if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+
+  const targetIsFolder = await isFolder(store, path);
+  const keys = targetIsFolder ? await keysUnder(store, path) : [path];
+  if (!targetIsFolder && (await store.get(path)) === null) throw notFound();
+
+  for (const key of keys) await store.delete(key);
+  await forgetPrivacy(store, keys, targetIsFolder ? path : null);
+
+  return { paths: keys };
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                 visibility                                 */
+/* -------------------------------------------------------------------------- */
+
+export interface VisibilityResult {
+  path: string;
+  visibility: Visibility;
+  inherited: Visibility;
+  /** False when the change removed a now-redundant exception. */
+  exception: boolean;
+}
+
+/**
+ * Set one note's visibility, through the manifest.
+ *
+ * This is the only way visibility changes. Editing `visibility:` in a note's
+ * frontmatter does nothing at all — frontmatter is description, the manifest
+ * is access control — and that is deliberate: a note's own body must never be
+ * able to widen its own audience.
+ *
+ * Setting a note to its folder's default **removes** the exception rather than
+ * writing a redundant line, so the exception list stays a statement of what is
+ * unusual. See `nextOverrides`.
+ */
+export async function setVisibility(
+  store: FileStore,
+  options: { path: string; visibility: Visibility; scope: Scope },
+): Promise<VisibilityResult> {
+  const path = requirePath(options.path);
+  assertWritablePath(path);
+  if (!path.endsWith(".md")) {
+    throw new FileOpError(
+      "PATH_INVALID",
+      "Only markdown notes can have their own visibility. Set the folder's default instead.",
+    );
+  }
+
+  const state = await mutateManifest(store, (current) => {
+    if (!canSee(path, options.scope, current.rules, current.overrides)) throw notFound();
+    return {
+      rules: current.rules,
+      overrides: nextOverrides(path, options.visibility, current.rules, current.overrides),
+    };
+  });
+
+  const inherited = visibilityOf(path, state.rules);
+  return {
+    path,
+    visibility: options.visibility,
+    inherited,
+    exception: options.visibility !== inherited,
+  };
+}
+
+/**
+ * Set a folder's default.
+ *
+ * Every note under it that has no exception of its own follows. Notes that
+ * *do* have one keep it — which is exactly why the console shows the default on
+ * the folder row and a marker only on the exceptions: the picture on screen is
+ * the file on disk.
+ */
+export async function setFolderVisibility(
+  store: FileStore,
+  options: { path: string; visibility: Visibility; scope: Scope },
+): Promise<VisibilityResult> {
+  const folder = requirePath(options.path);
+  if (isPlumbing(folder)) throw new FileOpError("PATH_INVALID", "That path is reserved.");
+
+  await mutateManifest(store, (current) => {
+    if (
+      options.scope !== "private" &&
+      !folderVisibleAtScope(folder, options.scope, current.rules, current.overrides)
+    ) {
+      throw notFound();
+    }
+    const rules = current.rules.filter((rule) => rule.prefix !== folder);
+    rules.push({ prefix: folder, vis: options.visibility });
+    // A rule that merely restates the inherited default is still worth
+    // keeping: `folder_defaults` is the layer people read and edit by hand,
+    // and silently dropping the line they just set would look like a bug.
+    return { rules, overrides: current.overrides };
+  });
+
+  return {
+    path: folder,
+    visibility: options.visibility,
+    inherited: options.visibility,
+    exception: false,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/*                          rewriting privacy.md safely                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Read-modify-write the manifest under compare-and-swap.
+ *
+ * The manifest is the one file several actors edit concurrently — the console,
+ * the gateway on behalf of an AI client, and the customer in Obsidian — and a
+ * lost update here is not a lost paragraph, it is a note that was supposed to
+ * be private and is not. So the write is conditional on the etag we read, and
+ * a failed precondition re-reads and re-applies rather than retrying blind.
+ *
+ * The same five-attempt loop the gateway's `persistExactVisibility` uses.
+ */
+async function mutateManifest(
+  store: FileStore,
+  change: (current: { rules: PrivacyRule[]; overrides: Map<string, Visibility> }) => {
+    rules: PrivacyRule[];
+    overrides: Map<string, Visibility>;
+  },
+): Promise<{ rules: PrivacyRule[]; overrides: Map<string, Visibility> }> {
+  for (let attempt = 0; attempt < MANIFEST_CAS_ATTEMPTS; attempt += 1) {
+    const state = await loadPrivacyState(store);
+    if (state.text === null) {
+      throw new FileOpError(
+        "PRIVACY_MANIFEST_MISSING",
+        "This bucket has no privacy.md, so there is nothing to record visibility in. Reconnect the bucket to create one.",
+      );
+    }
+    if (state.invalid) {
+      throw new FileOpError(
+        "PRIVACY_MANIFEST_INVALID",
+        "privacy.md could not be read. Fix or remove its managed rules block, then try again.",
+      );
+    }
+
+    const next = change({ rules: state.rules, overrides: state.overrides });
+    const text = replacePrivacyRulesBlock(state.text, next.rules, next.overrides);
+    if (text === state.text) return next; // nothing changed; do not churn the file
+
+    const put =
+      store.capabilities?.conditionalWrite === true && state.etag !== null
+        ? await store.put(PRIVACY_KEY, text, { onlyIf: { etagMatches: state.etag } })
+        : await store.put(PRIVACY_KEY, text);
+    if (put !== null) return next;
+  }
+  throw new FileOpError(
+    "PRIVACY_MANIFEST_BUSY",
+    "Your visibility settings are being changed somewhere else. Try again.",
+  );
+}
+
+/** Carry exceptions across a move, including the folder's own default rule. */
+async function remapPrivacy(
+  store: FileStore,
+  change: {
+    moves: { from: string; to: string }[];
+    folderMove: { from: string; to: string } | null;
+  },
+): Promise<void> {
+  const state = await loadPrivacyState(store);
+  if (state.text === null || state.invalid) return; // nothing to keep in sync
+
+  const touchesOverride = change.moves.some(({ from }) => state.overrides.has(from));
+  const touchesRule =
+    change.folderMove !== null &&
+    state.rules.some(
+      (rule) =>
+        rule.prefix === change.folderMove!.from ||
+        rule.prefix.startsWith(`${change.folderMove!.from}/`),
+    );
+  if (!touchesOverride && !touchesRule) return;
+
+  await mutateManifest(store, (current) => {
+    let rules = current.rules;
+    if (change.folderMove !== null) {
+      const { from, to } = change.folderMove;
+      rules = current.rules.map((rule) =>
+        rule.prefix === from || rule.prefix.startsWith(`${from}/`)
+          ? { prefix: `${to}${rule.prefix.slice(from.length)}`, vis: rule.vis }
+          : rule,
+      );
+    }
+    let overrides = current.overrides;
+    for (const move of change.moves) {
+      overrides = movedOverrides(move.from, move.to, rules, overrides);
+    }
+    return { rules, overrides };
+  });
+}
+
+/** Give a copy the same exception as its original, where it is still one. */
+async function copyPrivacy(
+  store: FileStore,
+  pairs: { from: string; to: string }[],
+): Promise<void> {
+  const state = await loadPrivacyState(store);
+  if (state.text === null || state.invalid) return;
+  if (!pairs.some(({ from }) => state.overrides.has(from))) return;
+
+  await mutateManifest(store, (current) => {
+    let overrides = current.overrides;
+    for (const pair of pairs) {
+      const existing = current.overrides.get(pair.from);
+      if (existing === undefined) continue;
+      overrides = nextOverrides(pair.to, existing, current.rules, overrides);
+    }
+    return { rules: current.rules, overrides };
+  });
+}
+
+/** Drop rules for things that no longer exist. */
+async function forgetPrivacy(
+  store: FileStore,
+  keys: string[],
+  deletedFolder: string | null,
+): Promise<void> {
+  const state = await loadPrivacyState(store);
+  if (state.text === null || state.invalid) return;
+
+  const hasOverride = keys.some((key) => state.overrides.has(key));
+  const hasRule =
+    deletedFolder !== null &&
+    state.rules.some(
+      (rule) => rule.prefix === deletedFolder || rule.prefix.startsWith(`${deletedFolder}/`),
+    );
+  if (!hasOverride && !hasRule) return;
+
+  await mutateManifest(store, (current) => {
+    let overrides = current.overrides;
+    for (const key of keys) overrides = clearedOverrides(key, overrides);
+    const rules =
+      deletedFolder === null
+        ? current.rules
+        : current.rules.filter(
+            (rule) =>
+              rule.prefix !== deletedFolder && !rule.prefix.startsWith(`${deletedFolder}/`),
+          );
+    return { rules, overrides };
+  });
+}
