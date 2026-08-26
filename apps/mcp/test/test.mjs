@@ -1607,6 +1607,64 @@ check(
     (await call("pub-token", "read_note", { path: privateChatIntendedPath })).isError
 );
 
+// archive_chat must respect the folder default the way write_note does. Make
+// one platform's archive folder private and check that a team connection can no
+// longer plant a team-visible note in it — while the sanctioned route into a
+// private destination, a proposal for the owner to review, still works.
+const notionFolderDry = await call("priv-token", "set_folder_visibility", {
+  path: "4-archive/chat-history/notion",
+  visibility: "private",
+  dry_run: true,
+});
+const notionPrivacyEtag = notionFolderDry.content[0].text.match(/privacy_etag: (\S+)/)?.[1];
+const notionFolderApply = await call("priv-token", "set_folder_visibility", {
+  path: "4-archive/chat-history/notion",
+  visibility: "private",
+  expected_privacy_etag: notionPrivacyEtag,
+});
+check(
+  "a folder default can be tightened to private for the archive_chat check",
+  !notionFolderApply.isError
+);
+const teamArchiveIntoPrivateFolder = await call("pub-token", "archive_chat", {
+  platform: "notion",
+  history: "## User\nLand this in a private-default folder.\n\n## Assistant\nShould not.",
+});
+check(
+  "archive_chat refuses a team connection writing into a private-default folder",
+  teamArchiveIntoPrivateFolder.isError &&
+    ![...objects.keys()].some(
+      (key) => key.startsWith("4-archive/chat-history/notion/") && !key.startsWith(".")
+    )
+);
+check(
+  "and refuses it with the same permission error write_note uses, naming no path",
+  teamArchiveIntoPrivateFolder.content[0].text.startsWith("permission denied:") &&
+    !teamArchiveIntoPrivateFolder.content[0].text.includes("4-archive/chat-history") &&
+    !teamArchiveIntoPrivateFolder.content[0].text.includes("notion")
+);
+const teamProposalIntoPrivateFolder = await call("pub-token", "archive_chat", {
+  platform: "notion",
+  history: "## User\nQueue it instead.\n\n## Assistant\nQueued.",
+  visibility: "private",
+});
+check(
+  "a team connection can still queue a private archive there for owner review",
+  !teamProposalIntoPrivateFolder.isError &&
+    /proposal queued: [0-9a-f-]+/i.test(teamProposalIntoPrivateFolder.content[0].text)
+);
+const personalArchiveIntoPrivateFolder = await call("priv-token", "archive_chat", {
+  platform: "notion",
+  history: "## User\nOwner archives here.\n\n## Assistant\nFine.",
+});
+check(
+  "a personal connection still archives into its own private folder",
+  !personalArchiveIntoPrivateFolder.isError &&
+    /chat archived: 4-archive\/chat-history\/notion\//.test(
+      personalArchiveIntoPrivateFolder.content[0].text
+    )
+);
+
 // -- move note / folder
 const portableRead = (await call("pub-token", "read_note", { path: "1-projects/portable/a.md" })).content[0].text;
 const portableEtag = portableRead.match(/etag: (\S+)/)[1];
@@ -1624,13 +1682,67 @@ const moveConflict = await call("pub-token", "move_note", {
   destination: "1-projects/portable/existing.md",
 });
 check("move_note refuses destination overwrite", moveConflict.isError && objects.has("1-projects/portable/renamed.md"));
+// A team move_folder over a tree with a private island moves what the caller
+// can see and leaves the island alone. It must NOT refuse: refusing reports
+// that unreadable content is in there, which is a private-note existence
+// oracle a team connection can walk the whole tree with (see the dry-run
+// indistinguishability check below).
 const mixedMove = await call("pub-token", "move_folder", {
   source: "1-projects/mixed",
   destination: "1-projects/mixed-dest",
 });
 check(
-  "team move_folder refuses a tree with a private island",
-  mixedMove.isError && objects.has("1-projects/mixed/public.md") && !objects.has("1-projects/mixed-dest/public.md")
+  "team move_folder moves the visible half of a tree with a private island",
+  !mixedMove.isError &&
+    objects.has("1-projects/mixed-dest/public.md") &&
+    !objects.has("1-projects/mixed/public.md")
+);
+check(
+  "team move_folder leaves the private island where it was",
+  objects.has("1-projects/mixed/private/secret.md") &&
+    !objects.has("1-projects/mixed-dest/private/secret.md")
+);
+check(
+  "the moved half stays team-readable and the island stays unreadable",
+  !(await call("pub-token", "read_note", { path: "1-projects/mixed-dest/public.md" })).isError &&
+    (await call("pub-token", "read_note", { path: "1-projects/mixed/private/secret.md" })).isError
+);
+
+// The oracle itself. `1-projects/mixed/private` is private by folder default
+// and, after the move above, is all that is left under `1-projects/mixed`. A
+// team caller must not be able to tell that folder apart from one that was
+// never created: both are "not found", byte for byte. dry_run makes the
+// question free to ask, so any difference is walkable across the whole tree.
+const onlyPrivateProbe = await call("pub-token", "move_folder", {
+  source: "1-projects/mixed/private",
+  destination: "1-projects/probe-dest",
+  dry_run: true,
+});
+const neverExistedProbe = await call("pub-token", "move_folder", {
+  source: "1-projects/no-such-folder-at-all",
+  destination: "1-projects/probe-dest",
+  dry_run: true,
+});
+check(
+  "team move_folder dry_run cannot distinguish an all-private folder from a missing one",
+  onlyPrivateProbe.isError &&
+    neverExistedProbe.isError &&
+    onlyPrivateProbe.content[0].text === neverExistedProbe.content[0].text
+);
+check(
+  "the private-only probe changed nothing",
+  objects.has("1-projects/mixed/private/secret.md")
+);
+// A personal connection still sees and moves the whole tree, islands included.
+const personalIslandMove = await call("priv-token", "move_folder", {
+  source: "1-projects/mixed",
+  destination: "1-projects/mixed-personal",
+});
+check(
+  "personal move_folder still moves a tree a team connection could only half-see",
+  !personalIslandMove.isError &&
+    objects.has("1-projects/mixed-personal/private/secret.md") &&
+    !objects.has("1-projects/mixed/private/secret.md")
 );
 const privateFolderMove = await call("priv-token", "move_folder", {
   source: "1-projects/private-folder",
