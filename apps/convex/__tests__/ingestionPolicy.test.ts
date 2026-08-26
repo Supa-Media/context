@@ -18,13 +18,15 @@
  * as an allowlist entry rather than as a real correspondent.
  */
 
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 import {
   DEFAULT_TARGET_FOLDER,
+  INGESTION_RECEIVER_ENV,
   type IngestionPolicy,
   MAX_ALLOWED_DOMAINS,
   MAX_ALLOWED_SENDERS,
   ingestionAddressFor,
+  ingestionIsReceiving,
   normalizeDomainEntry,
   normalizeSenderEntry,
   normalizeTargetFolder,
@@ -531,5 +533,43 @@ describe("the capture address", () => {
   test("is derived from the slug on the apex", () => {
     expect(ingestionAddressFor("seyi")).toBe("seyi@context.lc");
     expect(ingestionAddressFor("ignite-2026")).toBe("ignite-2026@context.lc");
+  });
+});
+
+/**
+ * Whether anything is on the other end of that address.
+ *
+ * The address being derivable says nothing about it being deliverable, and the
+ * console spent a release conflating the two: it rendered the address with a
+ * Copy button under "Forward any email here and it lands in 0-inbox/", and the
+ * owner of this product mailed it and got `550 5.1.1 Address does not exist`
+ * back. The point of this function is that "is a receiver deployed" is a
+ * property of the *deployment*, which only the control plane can see, so the
+ * answer travels to clients over the wire instead of being assumed by them.
+ */
+describe("whether a receiver is deployed", () => {
+  const original = process.env[INGESTION_RECEIVER_ENV];
+  afterEach(() => {
+    if (original === undefined) delete process.env[INGESTION_RECEIVER_ENV];
+    else process.env[INGESTION_RECEIVER_ENV] = original;
+  });
+
+  test("says no when nobody has said yes", () => {
+    // The state of every environment today, and of any deployment that has
+    // never heard of this variable. Absence is not a yes.
+    delete process.env[INGESTION_RECEIVER_ENV];
+    expect(ingestionIsReceiving()).toBe(false);
+  });
+
+  test("says yes only for the exact opt-in", () => {
+    // Not "truthy", not "set". A half-configured deployment left holding
+    // `INGESTION_RECEIVER=` or `=false` must not read as live, and neither
+    // should a near miss somebody typed from memory.
+    for (const value of ["", "false", "0", "true", "yes", "LIVE", "live "]) {
+      process.env[INGESTION_RECEIVER_ENV] = value;
+      expect(ingestionIsReceiving()).toBe(false);
+    }
+    process.env[INGESTION_RECEIVER_ENV] = "live";
+    expect(ingestionIsReceiving()).toBe(true);
   });
 });

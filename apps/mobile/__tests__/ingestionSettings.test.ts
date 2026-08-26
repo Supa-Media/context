@@ -223,11 +223,21 @@ describe("the backend's caps, hit before the round trip", () => {
   });
 });
 
+/**
+ * These sentences describe the *list*, never the pipeline.
+ *
+ * They used to say "Mail is accepted from 1 address. Everything else is
+ * dropped." — a statement about running software, written while no email
+ * receiver existed, so both halves were false. `captureHonesty.test.ts` is the
+ * test that bans the whole vocabulary; these assertions pin the replacements,
+ * which are true before and after the receiver ships and therefore need no
+ * revisiting when it does.
+ */
 describe("what the rules actually mean, said in one sentence", () => {
   test("an empty list is a closed door, and says so", () => {
     const policy = describeSenderPolicy(emptyDraft());
     expect(policy.tone).toBe("warn");
-    expect(policy.text).toMatch(/dropped/);
+    expect(policy.text).toMatch(/Nobody is allowed to send yet/);
   });
 
   test("'anyone' is described as what it is", () => {
@@ -246,15 +256,13 @@ describe("what the rules actually mean, said in one sentence", () => {
   });
 
   test("a real list counts both kinds, in the singular where it should", () => {
-    expect(describeSenderPolicy(base).text).toBe(
-      "Mail is accepted from 1 address. Everything else is dropped.",
-    );
+    expect(describeSenderPolicy(base).text).toBe("Only 1 address may send. Nobody else.");
     expect(
       describeSenderPolicy({
         ...base,
         allowedDomains: ["publicworship.life", "globalecho.org"],
       }).text,
-    ).toBe("Mail is accepted from 1 address and 2 domains. Everything else is dropped.");
+    ).toBe("Only 1 address and 2 domains may send. Nobody else.");
   });
 });
 

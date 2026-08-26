@@ -57,6 +57,8 @@ describe("the seeded default", () => {
 
     expect(settings).toEqual({
       address: "seyi@context.lc",
+      // No email receiver is deployed. See `ingestionIsReceiving`.
+      receiving: false,
       targetFolder: "0-inbox/",
       allowedSenders: [OWNER_EMAIL],
       allowedDomains: [],
@@ -109,6 +111,27 @@ describe("the seeded default", () => {
     const ownerId = await createUser(t, OWNER_EMAIL);
     const workspaceId = await createWorkspace(t, ownerId, "ignite-2026");
     expect((await get(t, ownerId, workspaceId))?.address).toBe("ignite-2026@context.lc");
+  });
+
+  /**
+   * ...and it arrives carrying the fact that nothing is behind it.
+   *
+   * A client cannot work this out: it is a property of the deployment, not of
+   * the workspace. Before this field existed the console assumed, and drew
+   * "Forward any email here and it lands in 0-inbox/" beside a Copy button —
+   * so the owner mailed the address and got `550 5.1.1 Address does not exist`.
+   *
+   * **This assertion is meant to change when the Email Worker ships**, and
+   * that is the design: set `INGESTION_RECEIVER=live` on the deployment, flip
+   * the `false` here, and stop. Nothing in the mobile app needs editing —
+   * `apps/mobile/__tests__/captureHonesty.test.ts` proves the delivery copy and
+   * the Copy button come back on their own.
+   */
+  test("and it says, on the wire, that nothing is receiving mail at it yet", async () => {
+    const t = setupTest();
+    const ownerId = await createUser(t, OWNER_EMAIL);
+    const workspaceId = await createWorkspace(t, ownerId, "ignite-2026");
+    expect((await get(t, ownerId, workspaceId))?.receiving).toBe(false);
   });
 
   test("seeding is part of the creation transaction, not a follow-up", async () => {
@@ -260,6 +283,8 @@ describe("updating", () => {
 
     expect(await get(t, ownerId, workspaceId)).toEqual({
       address: "seyi@context.lc",
+      // No email receiver is deployed. See `ingestionIsReceiving`.
+      receiving: false,
       targetFolder: "2-areas/mail/",
       allowedSenders: [OWNER_EMAIL],
       allowedDomains: ["publicworship.life"],
@@ -439,6 +464,8 @@ describe("isolation", () => {
 
     expect(await get(t, bobId, bob)).toEqual({
       address: "bob-ws@context.lc",
+      // No email receiver is deployed. See `ingestionIsReceiving`.
+      receiving: false,
       targetFolder: "0-inbox/",
       allowedSenders: ["bob@example.test"],
       allowedDomains: [],

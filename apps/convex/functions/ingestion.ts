@@ -40,6 +40,7 @@ import {
   MAX_ALLOWED_SENDERS,
   describeFolderRejection,
   ingestionAddressFor,
+  ingestionIsReceiving,
   normalizeDomainEntry,
   normalizeSenderEntry,
   normalizeTargetFolder,
@@ -58,6 +59,21 @@ import { requireWorkspaceAccess, requireWorkspaceRole } from "./lib/workspaceAut
  */
 const settingsValidator = v.object({
   address: v.string(),
+  /**
+   * Whether anything is on the other end of `address`.
+   *
+   * Part of the contract rather than something the console assumes, because
+   * the console cannot know: "is a receiver deployed" is a property of *this
+   * deployment*, and only the control plane can see it. `false` today — there
+   * is no Email Worker — and a client is required to draw a `false` here by
+   * making no claim at all about mail landing, being accepted, or being
+   * dropped. `ingestionIsReceiving` in `lib/ingestion.ts` is what flips it.
+   *
+   * Deliberately *not* stored on the row: it is not a per-workspace setting,
+   * and a copy on every row would be one more thing to backfill on the day the
+   * receiver ships.
+   */
+  receiving: v.boolean(),
   targetFolder: v.string(),
   allowedSenders: v.array(v.string()),
   allowedDomains: v.array(v.string()),
@@ -67,6 +83,7 @@ const settingsValidator = v.object({
 function present(workspace: Doc<"workspaces">, row: Doc<"ingestionSettings">) {
   return {
     address: ingestionAddressFor(workspace.slug),
+    receiving: ingestionIsReceiving(),
     targetFolder: row.targetFolder,
     allowedSenders: row.allowedSenders,
     allowedDomains: row.allowedDomains,
@@ -213,6 +230,7 @@ export const updateIngestionSettings = mutation({
 
     return {
       address: ingestionAddressFor(workspace.slug),
+      receiving: ingestionIsReceiving(),
       targetFolder,
       allowedSenders,
       allowedDomains,

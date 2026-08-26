@@ -64,6 +64,10 @@ function controller(overrides: Partial<OnboardingController>): OnboardingControl
     shape: { storage: "connected" },
     contextCount: 0,
     claimed: null,
+    // What the control plane answers today: no email receiver is deployed.
+    // `captureHonesty.test.ts` owns the assertions about what that does to the
+    // capture address on the last screen.
+    captureReceivesMail: false,
     name: "",
     setName: () => {},
     nameStatus: { kind: "empty" },
