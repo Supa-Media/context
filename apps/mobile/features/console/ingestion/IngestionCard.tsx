@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { ConvexError } from "convex/values";
 import { Button } from "../../design/components/Button";
 import { Card, Grow, Row } from "../../design/components/Card";
 import { CopyField } from "../../design/components/CopyField";
@@ -13,6 +12,7 @@ import { useCopy } from "../../design/useCopy";
 import {
   addSender,
   describeDraftProblem,
+  describeIngestionAbsence,
   describeSenderPolicy,
   diff,
   draftOf,
@@ -20,6 +20,7 @@ import {
   isSenderProblem,
   normaliseFolder,
   receivesMail,
+  refusalMessage,
   removeSender,
   senderEntries,
   senderLabel,
@@ -38,27 +39,38 @@ import {
  * and "anyone" is something you turn on deliberately, with the consequence
  * written out, rather than the state you end up in by not deciding.
  *
- * The card is resilient to the backend not being there. `getIngestionSettings`
- * is being built in parallel; until a deployment has it, this shows the
- * derived address and says plainly that the rules are not configurable yet,
- * which is better than a form whose Save does nothing.
+ * ## Two questions, asked in this order
  *
- * ## Nothing here claims mail lands unless the control plane says it does
+ * They were found by two different bugs and they gate two different things, so
+ * the card asks both.
  *
- * There is no email receiver deployed, and this card used to describe one in
- * the present tense — "Forward any email here and it lands in 0-inbox/", next
- * to a Copy button. It was believed. The address bounced.
+ * **1. Does this context have an address at all?** Only a personal one does, so
+ * a shared context is shown neither an address nor a form — an address that
+ * will never receive mail, under a heading that says it will, is the one thing
+ * here worse than no card at all. `describeIngestionAbsence` decides which of
+ * the three empty states applies, and it keeps "this context has no address"
+ * apart from "ingestion is off", which are different sentences about different
+ * situations: the second is a setting an owner can change this afternoon. Two
+ * of the three replace the card outright, before any address is drawn.
+ *
+ * **2. Is anything receiving at the other end?** There is no email receiver
+ * deployed, and this card used to describe one in the present tense — "Forward
+ * any email here and it lands in 0-inbox/", next to a Copy button. It was
+ * believed. The address bounced.
  *
  * So every sentence about delivery, and the Copy button that invites somebody
  * to go and use the address right now, are gated on `receivesMail(state)` —
- * read its doc comment. The address itself is still shown and still
- * selectable, because it is the real address and will work unchanged the day
- * the receiver ships; what is withheld is the claim and the invitation.
+ * read its doc comment, which is where the two questions are `&&`-ed together.
+ * The address itself is still shown and still selectable *for a context that
+ * has one*, because it is the real address and will work unchanged the day the
+ * receiver ships; what is withheld is the claim and the invitation.
  *
- * The allow-list and target-folder controls are deliberately **not** gated.
- * They save real rows, they are the posture the receiver will enforce on its
- * very first message, and an owner who sets them up in advance has done
- * something useful. Only the claims about what happens to mail are held back.
+ * The allow-list and target-folder controls are deliberately **not** gated on
+ * question 2. They save real rows, they are the posture the receiver will
+ * enforce on its very first message, and an owner who sets them up in advance
+ * has done something useful. Only the claims about what happens to mail are
+ * held back. They *are* gated on question 1: there is no row to save for a
+ * context the backend would refuse with `INGESTION_NOT_AVAILABLE`.
  */
 export function IngestionCard({
   state,
@@ -99,6 +111,23 @@ export function IngestionCard({
   const policy = shown === null ? null : describeSenderPolicy(shown);
   const folderProblem = shown === null ? null : describeDraftProblem(shown);
   const dirty = draft !== null && saved !== null && isDirty(draft, saved);
+  const absence = describeIngestionAbsence(state);
+
+  // Two of the three absences have nothing at all to put in the card — no
+  // address to copy, no rules to read — so they replace it rather than sit
+  // inside it. Showing the address anyway is what made this a lie: a shared
+  // context was handed `slug@context.lc` and a Save button for an inbox it
+  // does not have. Note this returns *after* every hook above, not before.
+  if (absence !== null && absence.reason !== "off") {
+    return (
+      <Card>
+        <Text variant="rowTitle">{absence.title}</Text>
+        <Text variant="rowSub" style={styles.rowSub}>
+          {absence.text}
+        </Text>
+      </Card>
+    );
+  }
 
   return (
     <Card>
@@ -150,20 +179,14 @@ export function IngestionCard({
       ) : null}
 
       {/*
-        This used to go on to promise that everything forwarded lands in
-        `0-inbox/` and that any sender is accepted — two sentences describing a
-        pipeline that has never run, on the one deployment that does not even
-        have the settings module. Both are gone; what remains is the only thing
-        this branch actually knows.
+        The "this address is not configurable yet on this deployment" notice
+        stood here, drawn from `state.available`. It is gone with the flag: the
+        generated `api` is `anyApi`, a proxy that mints a reference for any
+        name, so the module-absence probe behind `available` could never answer
+        false and the notice could never appear (issue #16). Its two delivery
+        promises were rewritten by #36 first; removing the dead branch entirely
+        is the rest of that fix, not a reversal of it.
       */}
-      {!state.available ? (
-        <Notice style={styles.spaced}>
-          <Text variant="check">
-            This address is not configurable yet on this deployment.
-          </Text>
-        </Notice>
-      ) : null}
-
       {/*
         `null` from `getIngestionSettings` is not "loading" and not "nearly
         configured" — the backend documents it as the fail-closed floor: no
@@ -171,11 +194,10 @@ export function IngestionCard({
         happens to mail in the meantime, because nothing happens to mail in the
         meantime either way.
       */}
-      {state.available && !state.loading && shown === null ? (
+      {absence?.reason === "off" ? (
         <Notice tone="warn" style={styles.spaced}>
           <Text variant="check" style={styles.warnText}>
-            Ingestion is off for this context — an owner has to set a target folder and
-            say who may send.
+            {absence.text}
           </Text>
         </Notice>
       ) : null}
@@ -393,22 +415,6 @@ export function IngestionCard({
       ) : null}
     </Card>
   );
-}
-
-/**
- * What the control plane said, or a fixed sentence.
- *
- * Never the raw error text of an unknown failure — the same rule the file
- * editor's `toFileError` follows. A `ConvexError` payload is written for a
- * person; anything else is whatever the runtime produced, and putting that in
- * front of somebody is how a stack trace ends up in a screenshot.
- */
-function refusalMessage(error: unknown): string {
-  if (error instanceof ConvexError) {
-    const data = error.data as { message?: unknown } | undefined;
-    if (typeof data?.message === "string") return data.message;
-  }
-  return "The control plane refused the change. Try again.";
 }
 
 /** Top-level folders from the loaded tree, root excluded. */

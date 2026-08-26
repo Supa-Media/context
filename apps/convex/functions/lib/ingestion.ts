@@ -1,27 +1,31 @@
 /**
- * Email ingestion policy — who may post into a context, and where it lands.
+ * Email ingestion policy — who may post into a **personal** context, and where
+ * it lands.
  *
  * ## What this module is, and why it is shaped like this
  *
- * There is no email receiver yet. Cloudflare Email Routing → Email Worker →
- * `0-inbox/` is the plan (CLAUDE.md, "Stack"), and none of it is written. What
- * exists is the *decision*: the settings a workspace owner configures, and the
- * function that turns an inbound `From:` header into an accept/reject.
+ * Cloudflare Email Routing → Email Worker → `0-inbox/` (CLAUDE.md, "Stack").
+ * The receiver is `infra/email-worker/`; the settings an owner configures are
+ * in `functions/ingestion.ts`; and the function that turns an inbound sender
+ * into an accept/reject is here.
  *
- * That function is here, pure, with no Convex import — exactly like
+ * A capture address belongs to a personal context and to nothing else. A shared
+ * context has no address, so no policy governs one — see the header of
+ * `lib/ingestionStore.ts` for the reasoning and
+ * `resolvePersonalContextForIngestion` for the single place that decides it.
+ *
+ * This function is here, pure, with no Convex import — exactly like
  * `lib/names.ts` — for three reasons:
  *
- *  1. **The Worker must be able to call it.** The receiver runs on the Workers
- *     runtime with no database of its own. If the rules lived inside a Convex
- *     mutation, the Worker would have to reimplement them, and two
- *     implementations of an allowlist drift into a bypass. Two ways to consume
- *     it keep that single-sourced: a gateway-secret HTTP route on the control
- *     plane that resolves the workspace from the recipient address and answers
- *     accept/reject by calling `senderIsAllowed` here (the `http.ts` factory
- *     pattern exists for exactly this shape), or the mirror-plus-parity-test
- *     treatment `lib/privacy.ts` documents, if the receiver ever has to decide
- *     without a round trip. What is not acceptable is a second hand-written
- *     matcher with no test tying it to this one.
+ *  1. **The Worker calls it directly.** The receiver runs on the Workers
+ *     runtime with no database of its own, and if these rules lived inside a
+ *     Convex mutation it would have to reimplement them — two implementations
+ *     of an allowlist drift into a bypass.
+ *     `infra/email-worker/src/policy.ts` is a bare re-export of this module,
+ *     and `policy.test.ts` there asserts the seam by *function identity* plus
+ *     the attack strings a hand-rolled matcher gets wrong. So there is one
+ *     matcher, and "replace the re-export with a small local helper, just for
+ *     the Worker" fails a test rather than production.
  *  2. **It is handed attacker-controlled input.** Anybody who learns a capture
  *     address can put arbitrary bytes in a `From:` header. A pure function
  *     over a string is the only shape that can be exhaustively tested against
@@ -48,9 +52,19 @@
  * proven; SPF/DKIM/DMARC is what makes it worth anything, and that check
  * belongs in the receiver, before it ever calls this. An allowlist over an
  * unauthenticated header stops casual and accidental posting, not a determined
- * forger. When the Email Worker lands, it must reject on DMARC failure *first*
- * and consult this second. Written down here because the ordering is the whole
- * security value and there is currently no code to enforce it.
+ * forger.
+ *
+ * **The receiver must reject on DMARC failure first and consult this second**,
+ * and it does: `decideCapture` in `infra/email-worker/src/ingest.ts` calls
+ * `verifySender` and only then the matcher, and hands it `verdict.address`
+ * rather than the raw header. The ordering is the whole security value, so it
+ * is not left to a comment — "never consults the matcher for a message that
+ * failed authentication" in that package's `ingest.test.ts` fails if the two
+ * are swapped, even though a swapped version still refuses the message.
+ *
+ * Note what that means for `allowAnySender`: it never bypasses authentication.
+ * An address that failed alignment is refused under that flag exactly as under
+ * a list, because it never reaches this function at all.
  */
 
 /**
@@ -484,10 +498,17 @@ export function describeFolderRejection(reason: FolderRejection): string {
 /* -------------------------------------------------------------------------- */
 
 /**
- * A workspace's capture address, derived from its slug.
+ * A **personal** context's capture address, derived from its slug.
  *
  * Derived, never stored: the slug is already globally unique and immutable, so
  * a stored copy could only ever be a second source of truth that drifts.
+ *
+ * Takes a slug rather than a context, and therefore cannot check what it was
+ * handed. Callers must only ask this about a context that
+ * `resolvePersonalContextForIngestion` has admitted — a shared context has no
+ * capture address, and rendering one for it tells a team they have an inbox
+ * they do not have. `functions/ingestion.ts` is the only caller and it resolves
+ * first.
  */
 export function ingestionAddressFor(slug: string): string {
   return `${slug}@${INGESTION_DOMAIN}`;

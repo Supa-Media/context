@@ -199,27 +199,29 @@ describe("the tree the Browse pane will actually draw", () => {
 });
 
 describe("the demo's ingestion rules", () => {
-  test("there is one set per context", () => {
-    expect(Object.keys(DEMO_INGESTION).sort()).toEqual(["lk", "pw", "seyi"]);
+  test("only the personal contexts have any", () => {
+    // `@public-worship` is the shared one, and a shared context has no capture
+    // address at all. Mocking one up would teach a visitor a model the product
+    // does not implement — which is the bug this is here to keep out.
+    expect(Object.keys(DEMO_INGESTION).sort()).toEqual(["lk", "seyi"]);
+    expect(DEMO_INGESTION.pw).toBeUndefined();
   });
 
-  test("each context has its own address", () => {
-    const addresses = ids.map((id) => DEMO_INGESTION[id]!.address);
-    expect(new Set(addresses).size).toBe(3);
+  test("each context that has one has its own address", () => {
+    const addresses = Object.values(DEMO_INGESTION).map((settings) => settings.address);
+    expect(new Set(addresses).size).toBe(addresses.length);
   });
 
   test("none of them is an open drop-box", () => {
-    for (const id of ids) {
-      expect(DEMO_INGESTION[id]!.allowAnySender).toBe(false);
+    for (const settings of Object.values(DEMO_INGESTION)) {
+      expect(settings.allowAnySender).toBe(false);
     }
   });
 
-  test("between them they show an address rule, a domain rule, and both", () => {
+  test("between them they show an address rule and a domain rule", () => {
     expect(DEMO_INGESTION.seyi!.allowedSenders.length).toBeGreaterThan(0);
     expect(DEMO_INGESTION.seyi!.allowedDomains).toEqual([]);
     expect(DEMO_INGESTION.lk!.allowedDomains.length).toBeGreaterThan(0);
     expect(DEMO_INGESTION.lk!.allowedSenders).toEqual([]);
-    expect(DEMO_INGESTION.pw!.allowedSenders.length).toBeGreaterThan(0);
-    expect(DEMO_INGESTION.pw!.allowedDomains.length).toBeGreaterThan(0);
   });
 });

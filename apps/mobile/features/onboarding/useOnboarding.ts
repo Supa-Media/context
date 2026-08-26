@@ -347,11 +347,24 @@ export function useOnboarding(): OnboardingController {
     }
   }, [applyStructureMutation, applying, claimed, folderErrors, folders, template]);
 
-  // Read-only: the first run never edits the ingestion policy, it only needs to
-  // know whether it may promise that mail sent to the capture address arrives.
+  // The first run never edits the ingestion policy. It reads it for one bit:
+  // whether `DoneStep` may promise that mail sent to the capture address
+  // arrives.
+  //
+  // Both of these are literals because both are true by construction here, not
+  // by assumption. `claim` above calls `createWorkspace` with
+  // `kind: "personal"`, so the context this screen is about is the one kind
+  // that has a capture address at all; and whoever just created it is its
+  // owner, which is what `canEdit` means. Passing `false` there would suppress
+  // the query outright — `getIngestionSettings` is owner-only for the read as
+  // well as the write, so `shouldReadIngestionSettings` declines for a
+  // non-owner — and pin `captureReceivesMail` to a permanent `false` that
+  // would still be `false` the day the receiver ships. The `save` that comes
+  // back with it is simply not used.
   const ingestion = useIngestionSettings({
     workspaceId: claimed?.workspaceId ?? null,
-    canEdit: false,
+    availability: "available",
+    canEdit: true,
   });
 
   return {

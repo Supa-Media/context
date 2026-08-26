@@ -46,7 +46,8 @@ boundary and invisible above it).
 ### 4. One person or workspace is one security boundary
 
 - Every workspace has its own identity, storage binding, privacy manifest,
-  audit trail, ingestion alias, and connector grants.
+  audit trail, and connector grants. **Not an ingestion alias** — only a
+  personal context has one. See "Ingestion is on the apex" below.
 - **Never** extend the legacy shared-token model (`PRIVATE_TOKEN` /
   `TEAM_TOKEN` / `PUBLIC_TOKEN`) to multiple customers. It is single-tenant by
   construction and exists only to keep the original brain running.
@@ -224,6 +225,27 @@ would receive mail sent to support@context.lc. The reserved list in
 `functions/lib/names.ts` is therefore a mail-interception control, not
 cosmetic. RFC 2142 requires `postmaster` and `abuse` stay deliverable to us;
 both are asserted separately so a tidy-up cannot drop them.
+
+### Mail lands in a personal context and nowhere else
+
+A shared context has no ingestion address. Not a disabled one, not one awaiting
+configuration — mail cannot reach it. A note gets into a shared context only
+when a person moves one there, so everything from outside passes through one
+accountable owner's hands.
+
+Inbound email is unauthenticated by nature: anyone who learns an address can
+send to it, and the only thing between a stranger and a stored note is an
+allow-list over a header the sender wrote. Writing into a space several people
+read is a different risk from writing into your own. A shared address also
+survives its members leaving and produces notes attributable to nobody, and the
+sensible default allow-list — the address you signed up with — has no answer at
+all for a shared context ("whose email?").
+
+`resolvePersonalContextForIngestion` in `functions/lib/ingestionStore.ts` is the
+single place that decides this, and it establishes "personal" structurally
+(exactly one member, who is the owner) rather than by trusting the `kind` label.
+Every refusal is byte-identical to the one an unclaimed name gets — a rejection
+that singled out the shared case would publish which names here are teams.
 
 ### Link previews reveal nothing about a context
 

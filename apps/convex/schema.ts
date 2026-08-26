@@ -365,7 +365,7 @@ const schema = defineSchema({
   }).index("by_workspace", ["workspaceId"]),
 
   /**
-   * Who may post into a context by email, and where it lands.
+   * Who may post into a **personal** context by email, and where it lands.
    *
    * ## Why this is a security table, not a preferences table
    *
@@ -382,15 +382,29 @@ const schema = defineSchema({
    * suffix rule — every one of those is a way to write a policy that admits
    * more than its author meant.
    *
-   * ## One row per workspace, seeded at creation
+   * ## Only a personal context has one of these
+   *
+   * A shared context has no capture address, so it has no row here — not a row
+   * with an empty list, no row. Mail lands in a personal context and nowhere
+   * else, and a shared context receives a note only when a person moves one
+   * there. `functions/lib/ingestionStore.ts` carries the reasoning and
+   * `resolvePersonalContextForIngestion` is the single place that decides it.
+   *
+   * The row is still keyed by `workspaceId` rather than `userId`, because the
+   * bucket the capture is written to is keyed that way (`storageBindings`) and
+   * a second key would be a second thing to keep in step. The constraint lives
+   * on the writers: `seedIngestionSettings` throws for a shared context, and
+   * `createWorkspace` only calls it for a personal one.
+   *
+   * ## One row per personal context, seeded at creation
    *
    * `createWorkspace` writes this row with the owner's account email in
    * `allowedSenders`. Seeded rather than inferred on read: "empty list, accepts
    * nothing" and "the owner's address" are different behaviours the moment mail
-   * arrives, and which one a workspace has should be a stored fact rather than
-   * something a later code path derives. A workspace with **no row** is the
-   * fail-closed floor — it accepts nothing — and only workspaces created before
-   * this table existed can be in that state.
+   * arrives, and which one a context has should be a stored fact rather than
+   * something a later code path derives. A personal context with **no row** is
+   * the fail-closed floor — it accepts nothing — and only contexts created
+   * before this table existed can be in that state.
    *
    * The seeded entry does not follow a later account-email change. That is
    * deliberate: changing the address you log in with must not silently repoint
@@ -423,11 +437,79 @@ const schema = defineSchema({
   }).index("by_workspace", ["workspaceId"]),
 
   /**
+   * A short-lived capability the email worker presents to fetch a credential.
+   *
+   * ## What it is for
+   *
+   * `/gateway/binding` — the MCP gateway's credential route — requires two
+   * proofs: the gateway secret, *and* an end user's OAuth access token, with the
+   * workspace derived from the grant that token resolves to. That is what makes
+   * a leaked gateway secret worth nothing on its own.
+   *
+   * **An inbound email has no user token.** Nobody is present and nothing was
+   * authorized just now, so the two-proof shape cannot be reproduced. This table
+   * is the narrowest replacement found for the second proof: instead of the
+   * caller proving *who* it is acting for, the control plane hands it something
+   * it minted, bound to one context, and refuses to be told which context to
+   * open.
+   *
+   * The property that survives, and it is the important half: **nothing the
+   * caller sends can select a row.** `/gateway/ingest/resolve` takes a name and
+   * mints a ticket for whatever that name resolved to; `/gateway/ingest/binding`
+   * takes only the ticket. There is no request field anywhere in the ingest
+   * contract that names a context.
+   *
+   * The property that does not survive is stated plainly in
+   * `infra/email-worker/src/controlPlane.ts`: a leaked `EMAIL_WORKER_SECRET`
+   * yields one person's personal-context credential with no human in the loop.
+   * It is bounded by personal contexts only, ingestion-enabled owners only, a
+   * rate limit on resolve, and this table's TTL and single use.
+   *
+   * ## Why the ticket is stored hashed
+   *
+   * Same rule as `oauthGrants`: the plaintext exists in the worker's memory for
+   * the seconds it takes to spend it, and nowhere else. A dump of this table is
+   * inert — it names workspaces that were sent mail, which is already visible in
+   * the audit trail, and cannot be replayed.
+   *
+   * ## Single use, twice over
+   *
+   * `bindingIssuedAt` and `recordedAt` are stamped on first use of their
+   * respective routes and checked before the second. A ticket therefore buys at
+   * most one credential and at most one accounting write. Rows past `expiresAt`
+   * are refused on read whether or not anything has swept them.
+   */
+  ingestionTickets: defineTable({
+    /** SHA-256 of the opaque ticket, lowercase hex. Never the plaintext. */
+    hashedTicket: v.string(),
+    /**
+     * The personal context this ticket opens, fixed at mint time.
+     *
+     * The only way a row gets here is `resolvePersonalContextForIngestion`
+     * answering a name lookup, so this is never a shared context and never
+     * something a caller chose.
+     */
+    workspaceId: v.id("workspaces"),
+    /** The SMTP-reported size resolve was told about. Accounting only. */
+    sizeBytes: v.number(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    /** Set the first time this ticket is exchanged for a credential. */
+    bindingIssuedAt: v.optional(v.number()),
+    /** Set the first time this ticket is used for accounting. */
+    recordedAt: v.optional(v.number()),
+  })
+    .index("by_hashed_ticket", ["hashedTicket"])
+    .index("by_expiresAt", ["expiresAt"]),
+
+  /**
    * Fixed-window counters for the operations that must not be unbounded.
    *
    * Today that is workspace creation, because a workspace claims a name out of
-   * a global namespace that has no release path — see `lib/rateLimit.ts` for
-   * what this scheme does and does not protect against.
+   * a global namespace that has no release path, and email ingestion resolve,
+   * because it is the one route a total stranger can drive by sending mail —
+   * see `lib/rateLimit.ts` for what this scheme does and does not protect
+   * against.
    *
    * Holds no identity of its own: the key is a caller-built string, and the
    * row carries a count and a timestamp and nothing else.

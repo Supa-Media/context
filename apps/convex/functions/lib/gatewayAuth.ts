@@ -38,6 +38,24 @@ import { hashToken, TOKEN_HASH_PATTERN } from "./crypto";
 export const GATEWAY_SECRET_ENV_VAR = "GATEWAY_SECRET";
 
 /**
+ * The shared secret the **email worker** presents. A different secret, held by
+ * a different pair of parties.
+ *
+ * Not `GATEWAY_SECRET`, deliberately, and this is the whole reason there are two
+ * of these constants. The two callers have different powers: the gateway's
+ * secret opens nothing without an end user's access token, while the email
+ * worker's — for the reasons `infra/email-worker/src/controlPlane.ts` sets out
+ * at length — can reach one person's storage credential with no human in the
+ * loop. Sharing one secret would mean a compromised email worker is a
+ * compromised MCP gateway and vice versa; keeping them separate makes each
+ * blast radius nameable.
+ *
+ * A deployment that sets only one of them serves only that caller. Neither
+ * falls back to the other, and an unset secret authenticates nobody.
+ */
+export const EMAIL_WORKER_SECRET_ENV_VAR = "EMAIL_WORKER_SECRET";
+
+/**
  * Origin of the app that hosts the consent screen — where a *human* signs in
  * and approves an authorization request.
  *
@@ -101,21 +119,27 @@ function constantTimeEqualsHex(a: string, b: string): boolean {
 }
 
 /**
- * Is this request carrying the gateway secret?
+ * Is this request carrying the secret named by `envVarName`?
  *
  * Returns a boolean and nothing else. No reason, no partial credit, no
  * distinction between "no header", "wrong scheme", and "wrong secret" — the
  * caller could not act on the difference and an attacker could.
  *
- * A deployment with no `GATEWAY_SECRET` configured authenticates nobody. It
- * does not fall back to "allow", and it does not treat an empty presented
- * secret as matching an empty configured one.
+ * A deployment with that variable unset authenticates nobody. It does not fall
+ * back to "allow", it does not fall back to the *other* secret, and it does not
+ * treat an empty presented secret as matching an empty configured one.
+ *
+ * The env-var name is a parameter so that two callers with different powers can
+ * share one comparison rather than growing a second, subtly different one. It is
+ * private on purpose: the exported wrappers below are the only two doors, and a
+ * route cannot invent a third by passing a string.
  */
-export async function requestIsFromGateway(
+async function requestCarriesSecret(
   request: Request,
-  env: Record<string, string | undefined> = process.env,
+  envVarName: string,
+  env: Record<string, string | undefined>,
 ): Promise<boolean> {
-  const configured = env[GATEWAY_SECRET_ENV_VAR];
+  const configured = env[envVarName];
   if (typeof configured !== "string" || configured.length === 0) return false;
 
   const header = request.headers.get("Authorization") ?? "";
@@ -128,6 +152,27 @@ export async function requestIsFromGateway(
     hashToken(configured),
   ]);
   return constantTimeEqualsHex(presentedDigest, configuredDigest);
+}
+
+/** Is this request carrying the MCP gateway's secret? */
+export async function requestIsFromGateway(
+  request: Request,
+  env: Record<string, string | undefined> = process.env,
+): Promise<boolean> {
+  return await requestCarriesSecret(request, GATEWAY_SECRET_ENV_VAR, env);
+}
+
+/**
+ * Is this request carrying the email worker's secret?
+ *
+ * The gateway's secret does **not** satisfy this, and this one does not satisfy
+ * the gateway's. Two doors, two keys — see `EMAIL_WORKER_SECRET_ENV_VAR`.
+ */
+export async function requestIsFromEmailWorker(
+  request: Request,
+  env: Record<string, string | undefined> = process.env,
+): Promise<boolean> {
+  return await requestCarriesSecret(request, EMAIL_WORKER_SECRET_ENV_VAR, env);
 }
 
 /**

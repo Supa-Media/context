@@ -1,0 +1,18 @@
+{
+  "name": "@context/email-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "context-email: the Cloudflare Email Worker that turns mail sent to <username>@context.lc into an untriaged, unverified capture in that person's personal context. Shared contexts have no ingestion address.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260719.1",
+    "typescript": "~5.9.2",
+    "vitest": "^2",
+    "wrangler": "^4.124.0"
+  }
+}

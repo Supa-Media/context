@@ -236,10 +236,30 @@ const CREDENTIAL_BARRIERS = new Set(["functions.files.runFileOperation"]);
 /**
  * THE HTTP ROUTES THAT MAY REACH A CREDENTIAL.
  *
- * There is exactly one, and there is a reason it cannot be zero: the whole
- * product is a gateway in another datacentre signing S3 requests with the
- * customer's own key, and the only way it gets that key is over HTTPS from
- * here. `/gateway/binding`'s *purpose* is to return a decrypted secret.
+ * There are two, and there is a reason it cannot be zero: the whole product is
+ * a worker in another datacentre signing S3 requests with the customer's own
+ * key, and the only way it gets that key is over HTTPS from here.
+ * `/gateway/binding`'s *purpose* is to return a decrypted secret, and so is
+ * `/gateway/ingest/binding`'s.
+ *
+ * ── The second entry, and what it costs ─────────────────────────────────────
+ *
+ * `/gateway/ingest/binding` was added with the Email Worker, and it is exactly
+ * what the paragraph below warns about: a second internet-facing path to other
+ * people's bucket keys. It is here rather than folded into the first because it
+ * cannot present the same proofs. `/gateway/binding` requires an end user's
+ * access token and derives the workspace from that grant; an inbound email has
+ * no user token, because nobody is present and nothing was authorized just now.
+ *
+ * What it keeps, and what is checked below: the caller still cannot name a
+ * context. It presents a ticket the control plane minted, bound at mint time to
+ * whatever `resolvePersonalContextForIngestion` answered for a name a *sender*
+ * typed. What it gives up is "a real person authorized this just now", and the
+ * bound is that a stolen `EMAIL_WORKER_SECRET` reaches one ingestion-enabled
+ * personal context's credential per single-use, five-minute ticket, rate-limited
+ * per name, and no shared context ever.
+ *
+ * A third entry would need the same argument made again, in this comment.
  *
  * So this is not a barrier and must not be read as one. A barrier stops taint
  * propagating — everything that calls through it comes out clean, which is why
@@ -266,7 +286,30 @@ const CREDENTIAL_BARRIERS = new Set(["functions.files.runFileOperation"]);
  * the blast radius to one reviewed, two-factor-authenticated path, and
  * `__tests__/controlPlane.test.ts` carries the behavioural half.
  */
-const CREDENTIAL_HTTP_ROUTES = new Set(["http.gatewayBinding"]);
+const CREDENTIAL_HTTP_ROUTES = new Set([
+  "http.gatewayBinding",
+  "http.gatewayIngestBinding",
+]);
+
+/**
+ * THE FACTORIES A ROUTE IN `http.ts` MAY BE BUILT BY.
+ *
+ * Every one of them must require a shared secret before the handler runs, and
+ * the test below reads each factory's body to check that it does. The set is
+ * enumerated for the same reason `CREDENTIAL_HTTP_ROUTES` is: adding a third
+ * door is a diff to this file that a reviewer sees, rather than a route that
+ * quietly checks nothing.
+ *
+ * They are separate factories because the two callers have different powers and
+ * hold different secrets — see `EMAIL_WORKER_SECRET_ENV_VAR` in
+ * `functions/lib/gatewayAuth.ts`. A test below asserts they really do read
+ * different environment variables, so collapsing them into one shared secret
+ * fails here.
+ */
+const ROUTE_FACTORIES: Record<string, string> = {
+  gatewayRoute: "requestIsFromGateway",
+  emailWorkerRoute: "requestIsFromEmailWorker",
+};
 
 /**
  * Build the graph and return every way a public function can reach a decrypt.
@@ -509,12 +552,20 @@ describe("no public function can reach a storage secret", () => {
       // the gateway. internalAction; the only thing that reaches it is the
       // route below.
       "functions.controlPlane.openStorageBinding",
-      // THE ONE INTERNET-FACING PATH TO A CREDENTIAL. `/gateway/binding`.
+      // The ingest analogue. Spends a single-use ticket the control plane
+      // minted, reads the workspace off THAT ticket's row, and opens its
+      // credential for the Email Worker. internalAction; the only thing that
+      // reaches it is `/gateway/ingest/binding`.
+      "functions.ingestionGateway.openIngestionBinding",
+      // AN INTERNET-FACING PATH TO A CREDENTIAL. `/gateway/binding`.
       // Requires the gateway secret AND the user's access token, and the
-      // workspace comes from the grant, never from the caller. The only
-      // member of CREDENTIAL_HTTP_ROUTES — read that comment before adding a
-      // second.
+      // workspace comes from the grant, never from the caller.
       "http.gatewayBinding",
+      // THE SECOND ONE. `/gateway/ingest/binding`. Requires the email worker's
+      // own secret and a ticket we minted; there is no user token, because an
+      // inbound email has nobody behind it. Read the CREDENTIAL_HTTP_ROUTES
+      // comment before adding a third.
+      "http.gatewayIngestBinding",
     ].sort());
   });
 
@@ -1129,7 +1180,15 @@ export const peek = action({
  * front of it — only whatever its own handler checks first.
  */
 describe("the gateway's HTTP routes", () => {
-  /** The nine routes the contract documents, by the path each is served at. */
+  /**
+   * The twelve routes the contracts document, by the path each is served at.
+   *
+   * Nine from `apps/mcp/src/controlPlane.js` (the MCP gateway) and three from
+   * `infra/email-worker/src/controlPlane.ts` (the Email Worker). A worker that
+   * POSTs to a path this deployment does not serve gets a 404 and fails closed,
+   * which is exactly what happened before the ingest three existed — so pinning
+   * the paths here is what keeps "the contract" and "the routes" the same list.
+   */
   const CONTRACT_ROUTES: Record<string, string> = {
     "/gateway/session": "gatewaySession",
     "/gateway/binding": "gatewayBinding",
@@ -1140,6 +1199,9 @@ describe("the gateway's HTTP routes", () => {
     "/gateway/grants/create": "gatewayGrantsCreate",
     "/gateway/grants/rotate": "gatewayGrantsRotate",
     "/gateway/grants/revoke": "gatewayGrantsRevoke",
+    "/gateway/ingest/resolve": "gatewayIngestResolve",
+    "/gateway/ingest/binding": "gatewayIngestBinding",
+    "/gateway/ingest/record": "gatewayIngestRecord",
   };
 
   function httpModule(): AnalyzedModule {
@@ -1181,31 +1243,35 @@ describe("the gateway's HTTP routes", () => {
   /**
    * PROOF #1 CANNOT BE FORGOTTEN.
    *
-   * Nine handlers each remembering to check the gateway secret is nine chances
-   * to forget, and the tenth route somebody adds in a hurry is the one that
-   * does. So the check is not something a route *does*, it is something a
-   * route *is*: every export is built by one factory, and the factory refuses
-   * anything without the secret.
+   * Twelve handlers each remembering to check a shared secret is twelve chances
+   * to forget, and the thirteenth route somebody adds in a hurry is the one
+   * that does. So the check is not something a route *does*, it is something a
+   * route *is*: every export is built by one of the enumerated factories, and
+   * every factory refuses anything without its secret.
    */
-  test("every route in http.ts is built by the gateway-secret factory", () => {
+  test("every route in http.ts is built by an enumerated secret-checking factory", () => {
     const source = httpModule().source;
     const declarations = [...source.matchAll(/^export const (\w+)\s*=\s*(\w+)\(/gm)];
     expect(declarations.length, "no routes found in http.ts").toBeGreaterThan(0);
     for (const [, name, factory] of declarations) {
       expect(
-        factory,
-        `http.ts#${name} is not built by gatewayRoute, so nothing forces it to require the gateway secret`,
-      ).toBe("gatewayRoute");
+        Object.keys(ROUTE_FACTORIES),
+        `http.ts#${name} is built by ${factory}, which is not one of the enumerated route factories — so nothing forces it to require a secret`,
+      ).toContain(factory);
     }
   });
 
-  /** And the factory really does check it — otherwise the rule above is decor. */
-  test("the factory refuses a request that does not carry the gateway secret", () => {
+  /** And every factory really does check it — otherwise the rule above is decor. */
+  test("every factory refuses a request that does not carry its secret", () => {
     const source = httpModule().source;
-    const factory = source.slice(source.indexOf("function gatewayRoute("));
-    const body = factory.slice(0, factory.indexOf("\n}\n"));
-    expect(body).toMatch(/requestIsFromGateway\(/);
-    expect(body).toMatch(/unauthorized\(\)/);
+    for (const [factoryName, guard] of Object.entries(ROUTE_FACTORIES)) {
+      const start = source.indexOf(`function ${factoryName}(`);
+      expect(start, `${factoryName} is enumerated but not defined in http.ts`).toBeGreaterThan(-1);
+      const factory = source.slice(start);
+      const body = factory.slice(0, factory.indexOf("\n}\n"));
+      expect(body, `${factoryName} does not call ${guard}`).toContain(`${guard}(`);
+      expect(body, `${factoryName} does not refuse`).toMatch(/unauthorized\(\)/);
+    }
 
     // …and the comparison is constant-time and length-blind, so the secret's
     // length is not readable from a timing difference.
@@ -1215,6 +1281,48 @@ describe("the gateway's HTTP routes", () => {
     expect(gatewayAuth).toBeDefined();
     expect(gatewayAuth!.source).toMatch(/constantTimeEqualsHex/);
     expect(gatewayAuth!.source).toMatch(/hashToken\(presented\)/);
+  });
+
+  /**
+   * THE TWO DOORS HAVE TWO KEYS.
+   *
+   * The email worker's secret buys a storage credential with no human in the
+   * loop; the gateway's buys nothing without one. Collapsing them into a single
+   * shared value — the obvious "simplification", since both are just bearer
+   * secrets — would mean a stolen email-worker secret is a working MCP gateway
+   * and a stolen gateway secret is a way into people's buckets. A comment saying
+   * "these are deliberately different" cannot fail. This can.
+   */
+  test("each route factory's guard reads a different secret", () => {
+    const gatewayAuth = realModules().find(
+      (m) => m.path === "functions/lib/gatewayAuth.ts",
+    )!;
+
+    const envVarOf = (guard: string): string => {
+      const start = gatewayAuth.source.indexOf(`export async function ${guard}(`);
+      expect(start, `${guard} is not defined in gatewayAuth.ts`).toBeGreaterThan(-1);
+      const body = gatewayAuth.source.slice(start);
+      const match = /requestCarriesSecret\(\s*request,\s*(\w+)/.exec(
+        body.slice(0, body.indexOf("\n}\n")),
+      );
+      expect(match, `${guard} does not delegate to requestCarriesSecret`).not.toBeNull();
+      return match![1];
+    };
+
+    const guards = Object.values(ROUTE_FACTORIES);
+    const envVars = guards.map(envVarOf);
+    expect(new Set(envVars).size, `two route factories share one secret: ${envVars.join(", ")}`).toBe(
+      guards.length,
+    );
+
+    // Non-vacuity: those constant names have to be real, and hold the values
+    // the deployment actually configures.
+    expect(gatewayAuth.source).toMatch(
+      /export const GATEWAY_SECRET_ENV_VAR = "GATEWAY_SECRET"/,
+    );
+    expect(gatewayAuth.source).toMatch(
+      /export const EMAIL_WORKER_SECRET_ENV_VAR = "EMAIL_WORKER_SECRET"/,
+    );
   });
 
   /**

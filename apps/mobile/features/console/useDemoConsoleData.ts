@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { DEMO_GRAPH, DEMO_INGESTION, DEMO_STATS, MCP_ENDPOINT } from "./placeholderData";
 import { useDemoFileBrowser } from "./files/useDemoFileBrowser";
+import { ingestionAvailabilityFor } from "./ingestion/settings";
 import type { ConsoleInvitation, ConsoleMember } from "./members/members";
 import type {
   ConsoleClient,
@@ -179,7 +180,14 @@ export function useDemoConsoleData(): ConsoleData {
   const selectContext = useCallback((id: string) => setSelectedContextId(id), []);
   const files = useDemoFileBrowser(selectedContextId);
   const selected = DEMO_CONTEXTS.find((context) => context.id === selectedContextId) ?? null;
-  const ingestionSettings = DEMO_INGESTION[selectedContextId] ?? null;
+
+  // The demo has to obey the same rule the product does: only a personal
+  // context receives email, so `@public-worship` shows the explanation rather
+  // than an address it would never receive mail at. A marketing console that
+  // teaches the wrong model is worse than one that shows less.
+  const availability = ingestionAvailabilityFor(selected?.kind);
+  const ingestionSettings =
+    availability === "available" ? (DEMO_INGESTION[selectedContextId] ?? null) : null;
 
   return {
     demo: true,
@@ -205,7 +213,7 @@ export function useDemoConsoleData(): ConsoleData {
     ingestion: {
       settings: ingestionSettings,
       loading: false,
-      available: true,
+      availability,
       // Same reason as `storageActions`. The rules are shown in full and
       // cannot be changed from a page nobody has signed in to.
       save: undefined,

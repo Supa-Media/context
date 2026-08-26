@@ -53,6 +53,7 @@ export function SettingsPane({ data, onClose }: { data: ConsoleData; onClose: ()
   const storage = data.storage;
   const actions = data.storageActions;
   const current = selectedContext(data);
+  const hasIngestion = data.ingestion.availability === "available";
   const [rebinding, setRebinding] = useState(false);
 
   return (
@@ -129,13 +130,25 @@ export function SettingsPane({ data, onClose }: { data: ConsoleData; onClose: ()
         />
       )}
 
-      <Text variant="eyebrow" style={styles.sectionHeadLater}>
+      {/*
+        The blurb describes a setting, so it is shown only where there is one.
+        A shared context has no capture address at all, and telling a team to
+        forward mail into this context — above a card explaining that they
+        cannot — would be the same lie one line higher up. The heading then
+        carries the sub's bottom margin, so the card does not ride up against it.
+      */}
+      <Text
+        variant="eyebrow"
+        style={[styles.sectionHeadLater, hasIngestion ? null : styles.sectionHeadAlone]}
+      >
         Email ingestion
       </Text>
-      <Text variant="paneSub" style={styles.sectionSub}>
-        Forward mail into this context. The address is semi-public once it is in a
-        forwarding rule, so who may send to it is the setting that matters.
-      </Text>
+      {hasIngestion ? (
+        <Text variant="paneSub" style={styles.sectionSub}>
+          Forward mail into this context. The address is semi-public once it is in a
+          forwarding rule, so who may send to it is the setting that matters.
+        </Text>
+      ) : null}
 
       <IngestionCard
         state={data.ingestion}
@@ -389,6 +402,7 @@ const styles = StyleSheet.create({
   headActions: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
   sectionHead: { marginBottom: 4 },
   sectionHeadLater: { marginTop: 30, marginBottom: 4 },
+  sectionHeadAlone: { marginBottom: 12 },
   sectionSub: { marginBottom: 12, maxWidth: 546 },
   rowSub: { marginTop: 2 },
   checks: {

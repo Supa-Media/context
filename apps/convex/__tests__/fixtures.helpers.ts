@@ -269,6 +269,41 @@ export async function seedStorageBinding(
  */
 export const TEST_GATEWAY_SECRET = "test-gateway-secret-not-a-real-one";
 
+/**
+ * The Email Worker's secret. A different value, on purpose — see
+ * `EMAIL_WORKER_SECRET_ENV_VAR` in `functions/lib/gatewayAuth.ts`.
+ */
+export const TEST_EMAIL_WORKER_SECRET = "test-email-worker-secret-not-a-real-one";
+
+/**
+ * One ingest call, exactly as the Email Worker makes it.
+ *
+ * A separate helper from `gatewayPost` rather than a `secret` option on it,
+ * because the point of these routes is that they are behind a *different* door.
+ * A test that reached them by passing the gateway secret to `gatewayPost` would
+ * be testing a deployment we do not want to have.
+ */
+export async function ingestPost(
+  t: TestConvex,
+  path: string,
+  body: unknown,
+  options: { secret?: string | null } = {},
+): Promise<Response> {
+  const secret =
+    options.secret === undefined ? TEST_EMAIL_WORKER_SECRET : options.secret;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (secret !== null) headers.Authorization = `Bearer ${secret}`;
+
+  return await t.fetch(path, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+}
+
 /** One control-plane call, exactly as the gateway makes it. */
 export async function gatewayPost(
   t: TestConvex,

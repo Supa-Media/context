@@ -11,6 +11,7 @@ import { MCP_ENDPOINT, placeholderIngestionAddress } from "./placeholderData";
 import { describeQueryFailure } from "./failure";
 import { EMPTY_QUERY_SPEC } from "./querySpec";
 import { useFileBrowser } from "./files/useFileBrowser";
+import { ingestionAvailabilityFor } from "./ingestion/settings";
 import { useIngestionSettings } from "./ingestion/useIngestionSettings";
 import { useMembers } from "./members/useMembers";
 import { toBindStorageArgs, type Provider } from "./storage/connect";
@@ -294,10 +295,12 @@ export function useLiveConsoleData(): ConsoleData {
           disconnect: () => disconnectStorage({ workspaceId: selectedContextId }),
         };
 
-  // Same owner-only rule as the storage binding — and the same graceful
-  // absence when the deployment has no ingestion module yet.
+  // Same owner-only rule as the storage binding, and one rule beyond it: only a
+  // personal context has a capture address at all, so a shared one is handed a
+  // state that says so rather than a form for an inbox it does not have.
   const ingestion = useIngestionSettings({
     workspaceId: selectedContextId,
+    availability: ingestionAvailabilityFor(selected?.kind),
     canEdit: selected?.role === "owner",
   });
 

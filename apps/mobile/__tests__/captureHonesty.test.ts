@@ -8,7 +8,7 @@ import { createRoot } from "react-dom/client";
 import { IngestionCard } from "../features/console/ingestion/IngestionCard";
 import { DoneStep } from "../features/onboarding/steps/DoneStep";
 import {
-  UNAVAILABLE_INGESTION,
+  NO_INGESTION_ADDRESS,
   describeSenderPolicy,
   emptyDraft,
   receivesMail,
@@ -167,32 +167,45 @@ function controller(overrides: Partial<OnboardingController>): OnboardingControl
 
 describe("no surface claims mail currently lands anywhere", () => {
   /**
-   * The five states the ingestion card can be in, all of them reachable today,
-   * and none of them entitled to a delivery claim while no receiver exists.
+   * Every state the ingestion card can be in, all of them reachable today, and
+   * none of them entitled to a delivery claim while no receiver exists.
+   *
+   * `available: true` used to spell what is now `availability: "available"`,
+   * and the list used to open with "a deployment with no ingestion module at
+   * all". That state is gone rather than renamed: the flag behind it was
+   * `anyApi`, a proxy that mints a reference for any property name, so the
+   * probe could never answer false and the state was never reachable (issue
+   * #16). What took its slot is a state that genuinely is reachable and is a
+   * far worse place to make a delivery claim — a **shared** context, which has
+   * no capture address at all.
    */
   const states: ReadonlyArray<{ name: string; state: IngestionState }> = [
     {
-      name: "a deployment with no ingestion module at all",
-      state: UNAVAILABLE_INGESTION,
+      name: "a shared context, which has no capture address at all",
+      state: NO_INGESTION_ADDRESS,
     },
     {
       name: "the settings query still in flight",
-      state: { settings: null, loading: true, available: true },
+      state: { settings: null, loading: true, availability: "available" },
     },
     {
       name: "a context with no policy row — the fail-closed floor",
-      state: { settings: null, loading: false, available: true },
+      state: { settings: null, loading: false, availability: "available", save: async () => {} },
+    },
+    {
+      name: "a personal context whose rules are somebody else's to read",
+      state: { settings: null, loading: false, availability: "available" },
     },
     {
       name: "a configured policy, read-only",
-      state: { settings: settings(), loading: false, available: true },
+      state: { settings: settings(), loading: false, availability: "available" },
     },
     {
       name: "a configured policy an owner can edit",
       state: {
         settings: settings(),
         loading: false,
-        available: true,
+        availability: "available",
         save: async () => {},
       },
     },
@@ -201,7 +214,7 @@ describe("no surface claims mail currently lands anywhere", () => {
       state: {
         settings: settings({ allowAnySender: true, allowedSenders: [] }),
         loading: false,
-        available: true,
+        availability: "available",
         save: async () => {},
       },
     },
@@ -209,7 +222,18 @@ describe("no surface claims mail currently lands anywhere", () => {
       name: "a control plane too old to carry the field",
       // `receiving` absent. Absence is not a yes — the same rule the storage
       // pane applies to facts the capability probe never persisted.
-      state: { settings: settings(), loading: false, available: true },
+      state: { settings: settings(), loading: false, availability: "available" },
+    },
+    {
+      name: "a live receiver, but a context that is not allowed to use it",
+      // The composition, rendered: `receiving: true` from a deployment whose
+      // worker really is up, on a context that has no address. A card that
+      // asked only the deployment's question would announce delivery here.
+      state: {
+        settings: settings({ receiving: true }),
+        loading: false,
+        availability: "no-address",
+      },
     },
   ];
 
@@ -248,9 +272,25 @@ describe("no surface claims mail currently lands anywhere", () => {
   });
 });
 
+/**
+ * A personal context with a policy, and nothing receiving at the other end.
+ *
+ * This is the state the "the address is still shown" assertions below are
+ * about, and it used to be spelled `UNAVAILABLE_INGESTION`. That constant now
+ * means something else — a *shared* context, which has no capture address and
+ * so has no address to show — so pointing these tests at it would have quietly
+ * inverted what they check. The property they pin is unchanged: a context that
+ * has an address still sees it, with no receiver behind it.
+ */
+const DARK: IngestionState = {
+  settings: settings(),
+  loading: false,
+  availability: "available",
+};
+
 describe("the address is still shown, and still says what it is", () => {
   test("the console shows the address even with nothing receiving", () => {
-    expect(card(UNAVAILABLE_INGESTION).text).toContain("seyi@context.lc");
+    expect(card(DARK).text).toContain("seyi@context.lc");
   });
 
   test("the first run shows the address even with nothing receiving", () => {
@@ -264,13 +304,26 @@ describe("the address is still shown, and still says what it is", () => {
     // One sentence, not a stack of hedges. Somebody who reads only this must
     // come away knowing not to try it yet, and why.
     for (const text of [
-      card(UNAVAILABLE_INGESTION).text,
+      card(DARK).text,
       render(createElement(DoneStep, { controller: controller({}), onOpenConsole: () => {} }))
         .text,
     ]) {
       expect(text).toMatch(/nothing is receiving mail at it yet/i);
       expect(text).toMatch(/bounces/i);
     }
+  });
+
+  /**
+   * And the other half: a context with no address is shown no address, rather
+   * than the honest-but-useless "reserved for you" sentence about a mailbox it
+   * will never have. This is the assertion that keeps the two absences from
+   * being collapsed into one screen.
+   */
+  test("a shared context is shown no address at all, not a dark one", () => {
+    const shared = card(NO_INGESTION_ADDRESS);
+    expect(shared.text).not.toContain("seyi@context.lc");
+    expect(shared.text).not.toMatch(/nothing is receiving mail at it yet/i);
+    expect(shared.text).toMatch(/does not receive email/i);
   });
 });
 
@@ -282,7 +335,11 @@ describe("the Copy affordance does not invite someone to use a dead address", ()
    * `StorageActions`: a control that is never offered cannot mislead.
    */
   test("the console offers no copy button while nothing is receiving", () => {
-    expect(card(UNAVAILABLE_INGESTION).html).not.toMatch(/Copy your ingestion address/i);
+    expect(card(DARK).html).not.toMatch(/Copy your ingestion address/i);
+  });
+
+  test("the console offers no copy button to a context with no address", () => {
+    expect(card(NO_INGESTION_ADDRESS).html).not.toMatch(/Copy your ingestion address/i);
   });
 
   test("the first run offers no copy button while nothing is receiving", () => {
@@ -306,17 +363,60 @@ describe("the gate is the control plane's answer, not a client-side guess", () =
     const live: IngestionState = {
       settings: settings({ receiving: true }),
       loading: false,
-      available: true,
+      availability: "available",
     };
     expect(receivesMail(live)).toBe(true);
 
-    expect(receivesMail({ settings: settings({ receiving: false }), loading: false, available: true })).toBe(false);
+    expect(
+      receivesMail({
+        settings: settings({ receiving: false }),
+        loading: false,
+        availability: "available",
+      }),
+    ).toBe(false);
     // Field absent — an older control plane. Silence is not consent.
-    expect(receivesMail({ settings: settings(), loading: false, available: true })).toBe(false);
-    // No row, still loading, no module.
-    expect(receivesMail({ settings: null, loading: true, available: true })).toBe(false);
-    expect(receivesMail({ settings: null, loading: false, available: true })).toBe(false);
-    expect(receivesMail(UNAVAILABLE_INGESTION)).toBe(false);
+    expect(receivesMail({ settings: settings(), loading: false, availability: "available" })).toBe(
+      false,
+    );
+    // No row, and still loading.
+    expect(receivesMail({ settings: null, loading: true, availability: "available" })).toBe(false);
+    expect(receivesMail({ settings: null, loading: false, availability: "available" })).toBe(false);
+    expect(receivesMail(NO_INGESTION_ADDRESS)).toBe(false);
+  });
+
+  /**
+   * **Two questions, and delivery needs a yes to both.**
+   *
+   * They were found by two different bugs and they are about different things:
+   * `receiving` is a fact about the *deployment* — is a receiver up at all —
+   * and `availability` is a fact about the *context* — may this one receive
+   * mail, which only a personal context may. A live receiver does not give a
+   * shared context an inbox.
+   *
+   * So the interesting case is the one neither original change had to think
+   * about: the day the Email Worker ships, `receiving` becomes `true` for every
+   * context on the deployment at once, shared ones included. If `receivesMail`
+   * asked only the deployment's question, that is the day every team in the
+   * product starts being told mail lands in a context that would refuse it.
+   */
+  test("a live receiver does not give a shared context an inbox", () => {
+    expect(
+      receivesMail({
+        settings: settings({ receiving: true }),
+        loading: false,
+        availability: "no-address",
+      }),
+    ).toBe(false);
+  });
+
+  test("a context that may receive still needs something on the other end", () => {
+    expect(
+      receivesMail({
+        settings: settings({ receiving: false }),
+        loading: false,
+        availability: "available",
+      }),
+    ).toBe(false);
   });
 
   /**
@@ -328,7 +428,7 @@ describe("the gate is the control plane's answer, not a client-side guess", () =
     const rendered = card({
       settings: settings({ receiving: true }),
       loading: false,
-      available: true,
+      availability: "available",
     });
     expect(rendered.text).toMatch(/Forward any email here and it lands in/);
     expect(rendered.html).toMatch(/Copy your ingestion address/i);

@@ -1,8 +1,9 @@
 /**
  * HTTP routes.
  *
- * Two families live here: the auth framework's own callbacks, and the nine
- * control-plane routes the MCP gateway resolves every request through.
+ * Three families live here: the auth framework's own callbacks, the nine
+ * control-plane routes the MCP gateway resolves every request through, and the
+ * three ingest routes the Cloudflare Email Worker calls.
  *
  * ============================================================================
  * THE GATEWAY ROUTES
@@ -48,6 +49,38 @@
  * `__tests__/structure.test.ts` reads this file and enforces (1) structurally,
  * along with the rule that only an enumerated route may reach a decrypted
  * storage credential.
+ *
+ * ============================================================================
+ * THE INGEST ROUTES
+ * ============================================================================
+ *
+ * `infra/email-worker/src/controlPlane.ts` is the normative contract, and
+ * `functions/ingestionGateway.ts` holds the reasoning for what they may do.
+ * Three things about them are worth stating here, where the routes are:
+ *
+ * 1. **A different secret.** They are built by `emailWorkerRoute`, not
+ *    `gatewayRoute`, and the two secrets do not substitute for one another. A
+ *    stolen email-worker secret must not become a working MCP gateway.
+ *
+ * 2. **They relax the two-proof rule, and that is a decision, not an
+ *    oversight.** An inbound email carries no user access token — nobody is
+ *    present and nothing was authorized just now — so proof #2 cannot exist in
+ *    the form `/gateway/binding` uses. What is kept is its important half:
+ *    `/gateway/ingest/resolve` takes a *name a sender typed* and mints a ticket
+ *    for whatever that name resolved to; `/gateway/ingest/binding` takes only
+ *    that ticket. No field in either request can name a context, so a holder of
+ *    the worker secret has no vocabulary for "give me the shared context
+ *    `acme-board`" — and no such context could answer anyway, because mail
+ *    lands in a personal context and nowhere else.
+ *
+ * 3. **`/gateway/ingest/binding` is the second internet-facing path to a
+ *    decrypted credential**, and it is enumerated as such in
+ *    `__tests__/structure.test.ts`. That file's `CREDENTIAL_HTTP_ROUTES`
+ *    comment says a second entry "means a second internet-facing path to other
+ *    people's bucket keys". It does. The residual risk is written out in full
+ *    in the worker's contract and is bounded by: personal contexts only,
+ *    ingestion-enabled owners only, a per-name rate limit on resolve, and a
+ *    ticket that expires in five minutes and buys exactly one credential.
  */
 
 import { httpRouter } from "convex/server";
@@ -61,8 +94,10 @@ import {
   consentUrlFor,
   json,
   nullableStringField,
+  randomOpaqueToken,
   readJsonBody,
   redirectUriIsAcceptable,
+  requestIsFromEmailWorker,
   requestIsFromGateway,
   stringArrayField,
   stringField,
@@ -99,6 +134,30 @@ function gatewayRoute(
 ) {
   return httpAction(async (ctx, request) => {
     if (!(await requestIsFromGateway(request))) return unauthorized();
+    const body = await readJsonBody(request);
+    if (body === null) return badRequest();
+    return await handler(ctx, body);
+  });
+}
+
+/**
+ * The same wrapper, for the email worker's own secret.
+ *
+ * A sibling factory rather than a parameter on `gatewayRoute`, so that which
+ * secret opens which route is visible at the route's own declaration and not
+ * buried in an argument. `__tests__/structure.test.ts` enumerates both factories
+ * and asserts that every route in this file is built by one of them, and that
+ * each one really does check a secret — so adding a third door is a diff to that
+ * file, exactly like adding a credential route is.
+ */
+function emailWorkerRoute(
+  handler: (
+    ctx: ActionCtx,
+    body: Record<string, unknown>,
+  ) => Promise<Response>,
+) {
+  return httpAction(async (ctx, request) => {
+    if (!(await requestIsFromEmailWorker(request))) return unauthorized();
     const body = await readJsonBody(request);
     if (body === null) return badRequest();
     return await handler(ctx, body);
@@ -503,6 +562,113 @@ export const gatewayGrantsRevoke = gatewayRoute(async (ctx, body) => {
 });
 
 /* -------------------------------------------------------------------------- */
+/* 10. POST /gateway/ingest/resolve — a recipient name to a personal context  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The one route a total stranger can drive, by sending mail.
+ *
+ * `{ "ingestion": null }` is the answer to every kind of no: no such name, a
+ * reserved or malformed name, **the name is a shared context**, a personal
+ * context that has since gained members, no policy row, unbound or unusable
+ * storage, and over the rate limit. They are built here in one place so they
+ * are byte-identical, because the difference between any two of them is a
+ * username-enumeration oracle probeable from any mail client on earth.
+ *
+ * The ticket is minted here rather than in the mutation because hashing needs
+ * the action runtime — the same reason `approveAuthorization` is an action. The
+ * plaintext goes back to the worker and is never stored; only its digest is.
+ */
+export const gatewayIngestResolve = emailWorkerRoute(async (ctx, body) => {
+  // `username` is the worker's word for the local part of the address a sender
+  // wrote. It is a name in the one global namespace usernames and context slugs
+  // share, and it resolves only if it belongs to a personal context — see
+  // `resolvePersonalContextForIngestion`.
+  const username = stringField(body, "username");
+  const sizeBytes = body.sizeBytes;
+  // A malformed request is answered exactly like an unknown name. A 400 would
+  // tell a caller holding the worker secret which part of its request was the
+  // bad one, and there is nothing here a legitimate caller could act on.
+  if (username === null || typeof sizeBytes !== "number" || !Number.isFinite(sizeBytes)) {
+    return json({ ingestion: null });
+  }
+
+  // `envelopeFrom` is sent and deliberately not read. The contract offers it
+  // "for rate limiting only; NOT authority", and it is attacker-chosen, so
+  // limiting on it protects nothing — the limit below is keyed on the
+  // recipient, which is the thing being probed. Reading it here would also put
+  // a stranger's address one refactor away from a log line.
+  //
+  // Minted before the lookup, so the work done is the same whether or not the
+  // name resolves. Nothing is written unless the mutation decides to write it.
+  const ticket = randomOpaqueToken(32);
+  const resolution = await ctx.runMutation(
+    internal.functions.ingestionGateway.resolveForIngestion,
+    { name: username, hashedTicket: await hashToken(ticket), sizeBytes },
+  );
+  if (resolution === null) return json({ ingestion: null });
+
+  return json({ ingestion: { ticket, ...resolution } });
+});
+
+/* -------------------------------------------------------------------------- */
+/* 11. POST /gateway/ingest/binding — spend a ticket for a credential         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE SECOND CREDENTIAL ROUTE. Read `functions/ingestionGateway.ts` and the
+ * "THE INGEST ROUTES" note at the top of this file before changing it.
+ *
+ * The ticket is the only input and it is not a lookup key for a workspace — it
+ * is matched against `ingestionTickets.by_hashed_ticket`, and the workspace is
+ * read off the row the control plane wrote at mint time. There is no path in
+ * which anything the caller sends selects a context.
+ *
+ * Presented, so it arrives verbatim and is hashed here, like every other
+ * presented token in this file. Single-use: `spendIngestionTicket` stamps and
+ * checks in one transaction, so two concurrent presentations cannot both win.
+ */
+export const gatewayIngestBinding = emailWorkerRoute(async (ctx, body) => {
+  const ticket = stringField(body, "ticket");
+  if (ticket === null) return json({ binding: null });
+
+  const binding = await ctx.runAction(
+    internal.functions.ingestionGateway.openIngestionBinding,
+    { hashedTicket: await hashToken(ticket) },
+  );
+  return json({ binding });
+});
+
+/* -------------------------------------------------------------------------- */
+/* 12. POST /gateway/ingest/record — accounting, after the note is written    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Always `{ "ok": true }`.
+ *
+ * The note is already written by the time the worker calls this, so there is
+ * nothing it could usefully do with a failure — and the worker swallows the
+ * result anyway, because turning a bookkeeping error into an SMTP refusal would
+ * tell the sender their message failed when it did not. Saying `true`
+ * unconditionally also means a spent, expired, or invented ticket looks like a
+ * good one from outside, which keeps this route from becoming a way to test
+ * whether a ticket was real.
+ */
+export const gatewayIngestRecord = emailWorkerRoute(async (ctx, body) => {
+  const ticket = stringField(body, "ticket");
+  const outcome = body.outcome === "duplicate" ? "duplicate" : "captured";
+  const bytes = typeof body.bytes === "number" && Number.isFinite(body.bytes) ? body.bytes : 0;
+  if (ticket === null) return json({ ok: true });
+
+  await ctx.runMutation(internal.functions.ingestionGateway.recordIngestion, {
+    hashedTicket: await hashToken(ticket),
+    outcome,
+    bytes,
+  });
+  return json({ ok: true });
+});
+
+/* -------------------------------------------------------------------------- */
 
 // POST only, every one of them. The contract has no GET shape, and a GET would
 // put a token in a URL — in a log, in a referrer, in browser history.
@@ -542,6 +708,21 @@ http.route({
   path: "/gateway/grants/revoke",
   method: "POST",
   handler: gatewayGrantsRevoke,
+});
+http.route({
+  path: "/gateway/ingest/resolve",
+  method: "POST",
+  handler: gatewayIngestResolve,
+});
+http.route({
+  path: "/gateway/ingest/binding",
+  method: "POST",
+  handler: gatewayIngestBinding,
+});
+http.route({
+  path: "/gateway/ingest/record",
+  method: "POST",
+  handler: gatewayIngestRecord,
 });
 
 export default http;

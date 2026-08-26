@@ -191,12 +191,20 @@ export const createWorkspace = mutation({
       joinedAt: now,
     });
 
-    // The capture address `<slug>@context.lc` becomes live the moment the slug
-    // is claimed, so the policy governing it has to exist by the time this
-    // transaction commits — a workspace that is addressable but has no stored
-    // policy is a window, however brief. Seeded closed: the owner's own account
-    // email and nobody else. See `lib/ingestionStore.ts`.
-    await seedIngestionSettings(ctx, { workspaceId, ownerUserId: userId, now });
+    // A **personal** context's capture address `<slug>@context.lc` becomes live
+    // the moment the slug is claimed, so the policy governing it has to exist by
+    // the time this transaction commits — a context that is addressable but has
+    // no stored policy is a window, however brief. Seeded closed: the owner's
+    // own account email and nobody else.
+    //
+    // A shared context gets no row, because it has no capture address to govern.
+    // Mail lands in a personal context and nowhere else; a shared context
+    // receives a note only when a person moves one there. Read the header of
+    // `lib/ingestionStore.ts` before changing this line — the absence of the row
+    // is the feature, and `seedIngestionSettings` throws if called anyway.
+    if (args.kind === "personal") {
+      await seedIngestionSettings(ctx, { workspaceId, ownerUserId: userId, now });
+    }
 
     return { workspaceId, slug: availability.normalized };
   },

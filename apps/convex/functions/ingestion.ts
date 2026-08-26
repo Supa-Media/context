@@ -1,32 +1,45 @@
 /**
- * Email ingestion settings — the console's view of who may post into a context.
+ * Email ingestion settings — the console's view of who may post into **your own
+ * personal context**.
  *
- * Two functions: any member can read the policy, only an owner can change it.
- * Everything that decides *whether a message is accepted* lives in
- * `lib/ingestion.ts` as a pure function, because the Cloudflare Email Worker
- * that will eventually enforce it does not exist yet and must not have to
- * reimplement these rules when it does. Read that file's header first.
+ * Two functions, and both of them are addressed to one person: the sole owner
+ * of a personal context reads and writes the policy governing their own capture
+ * address. Everything that decides *whether a message is accepted* lives in
+ * `lib/ingestion.ts` as a pure function, and the Cloudflare Email Worker in
+ * `infra/email-worker/` imports that function rather than reimplementing it.
+ * Read that file's header first.
  *
- * ## Why the read is `member` and the write is `owner`
+ * ## There is one kind of context here, and it is personal
  *
- * The policy is not a secret from the people already inside the context — a
- * member who cannot see that mail from `finance@acme.test` is being captured
- * cannot reason about where a note came from. But widening it lets a new party
- * write into everyone's shared context, which is exactly the kind of grant
- * CLAUDE.md says is never implied: "Read access and write access to someone
- * else's context are different grants". An `editor` can write notes; only an
- * `owner` can hand *somebody else* a way to write notes.
+ * This module used to be neutral about which workspace it was configuring, and
+ * reasoned at length about who may write into "everyone's shared context". A
+ * shared context no longer has an ingestion address at all — see the header of
+ * `lib/ingestionStore.ts` for why — so that distinction has been removed rather
+ * than left behind a check.
+ *
+ * What follows from that, and why the code is shorter than it was:
+ *
+ *  - **No member/owner split.** A personal context has exactly one member and
+ *    that member is its owner, so "any member may read, only an owner may
+ *    write" described two roles that are the same person. Both functions now
+ *    require the sole owner, and `resolvePersonalContextForIngestion` is what
+ *    establishes that — the same function the email worker's resolve route
+ *    goes through, so the console cannot show a policy for a context that could
+ *    not receive mail.
+ *  - **A shared context reads as `null`.** Not an error: there is genuinely no
+ *    policy, because there is nothing for a policy to govern. The console knows
+ *    the context's `kind` already and says so in its own words.
  *
  * ## Every change is audited, and none of the contents are
  *
  * The audit row records what moved — counts before and after, how many entries
  * were added or removed, whether the change **widened** the policy — and never
  * the addresses themselves. An allowlist is a list of people the owner
- * corresponds with; copying it into an append-only trail that every member of a
- * shared context can read would leak their correspondents to colleagues who
- * were never told them. Counts and a `widened` flag are enough to answer the
- * question an audit trail exists for ("did somebody open this up, and when?")
- * without publishing the list.
+ * corresponds with, and an append-only trail outlives the setting it describes:
+ * a context whose notes are later moved, exported, or read by an AI client
+ * would carry that correspondent list with it. Counts and a `widened` flag are
+ * enough to answer the question an audit trail exists for ("did somebody open
+ * this up, and when?") without publishing the list.
  */
 
 import { ConvexError, v } from "convex/values";
@@ -45,8 +58,11 @@ import {
   normalizeSenderEntry,
   normalizeTargetFolder,
 } from "./lib/ingestion";
-import { getIngestionSettingsRow } from "./lib/ingestionStore";
-import { requireWorkspaceAccess, requireWorkspaceRole } from "./lib/workspaceAuth";
+import {
+  getIngestionSettingsRow,
+  resolvePersonalContextForIngestion,
+} from "./lib/ingestionStore";
+import { requireWorkspaceRole } from "./lib/workspaceAuth";
 
 /**
  * What both functions return.
@@ -92,17 +108,38 @@ function present(workspace: Doc<"workspaces">, row: Doc<"ingestionSettings">) {
 }
 
 /**
- * The current policy, for any member of the workspace.
+ * The current policy for a personal context, read by its owner.
  *
  * A non-member gets `WORKSPACE_NOT_FOUND` — byte-identical to the error for a
  * workspace id that never existed. See `lib/workspaceAuth.ts`.
+ *
+ * `null` means "this context has no ingestion policy", which is true of a
+ * shared context (it has no capture address) and of a personal context created
+ * before the settings table existed. Both are the fail-closed state — accepts
+ * nothing — and clients must read `null` as "ingestion is off", never as
+ * "loading".
  */
 export const getIngestionSettings = query({
   args: { workspaceId: v.id("workspaces") },
   returns: v.union(settingsValidator, v.null()),
   handler: async (ctx, args) => {
     const userId = (await requireAuthId(ctx)) as Id<"users">;
-    const { workspace } = await requireWorkspaceAccess(ctx, args.workspaceId, userId);
+    // Owner, not member: a personal context has exactly one member and it is
+    // its owner, so this is the same person either way — and asking for the
+    // owner means a *shared* context cannot reach the resolve check below by
+    // way of one of its readers.
+    const { workspace } = await requireWorkspaceRole(
+      ctx,
+      args.workspaceId,
+      userId,
+      "owner",
+    );
+
+    // The same gate the email worker's resolve route goes through, so the
+    // console can never display a capture address for a context that would
+    // refuse the mail sent to it.
+    const personal = await resolvePersonalContextForIngestion(ctx, workspace.slug);
+    if (personal === null || personal.workspace._id !== workspace._id) return null;
 
     const row = await getIngestionSettingsRow(ctx, args.workspaceId);
     if (row === null) return null;
@@ -122,6 +159,13 @@ export const getIngestionSettings = query({
  * green checkmark would believe an address was allowed that never was, and a
  * silently-shorter allowlist is a silently-different security posture. Each
  * rejection names the offending entry, which is safe — the caller just sent it.
+ *
+ * A shared context is refused outright with `INGESTION_NOT_AVAILABLE`. It gets
+ * an error rather than the read's quiet `null` because the two questions are
+ * different: "what is the policy here?" has the honest answer "there isn't
+ * one", but "set this policy" is a request that cannot be satisfied, and
+ * returning success for a write that governs nothing is how a person ends up
+ * believing an address is live.
  */
 export const updateIngestionSettings = mutation({
   args: {
@@ -140,6 +184,17 @@ export const updateIngestionSettings = mutation({
       userId,
       "owner",
     );
+
+    // Personal contexts only, decided by the one function that decides it. A
+    // shared context has no capture address, so there is no policy to set.
+    const personal = await resolvePersonalContextForIngestion(ctx, workspace.slug);
+    if (personal === null || personal.workspace._id !== workspace._id) {
+      throw new ConvexError({
+        code: "INGESTION_NOT_AVAILABLE",
+        message:
+          "Only a personal context receives email. Notes reach a shared context when someone moves them there.",
+      });
+    }
 
     const existing = await getIngestionSettingsRow(ctx, args.workspaceId);
 
