@@ -1,0 +1,76 @@
+# The gateway's own CI.
+#
+# apps/mcp is deliberately outside the Supa framework's reusable pipeline: that
+# workflow filters on apps/mobile, apps/convex, and packages/shared, so gateway
+# changes matched nothing and its suite never ran. The most security-sensitive
+# code in the repo — SigV4 signing, path handling, the privacy engine — was the
+# least covered in CI, which is how two HIGH-severity bugs reached a pull
+# request with a green check.
+#
+# It runs on bare node with no install step, because apps/mcp has no
+# dependencies and we intend to keep it that way (see CONTRIBUTING.md).
+name: MCP Gateway
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/mcp/**"
+      - ".github/workflows/mcp.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/mcp/**"
+      - ".github/workflows/mcp.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test Gateway
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      # No `pnpm install`. If this ever needs one, a dependency crept into the
+      # gateway and that is the thing to fix.
+      - name: Run test suite
+        working-directory: apps/mcp
+        run: node test/test.mjs
+
+  no-dependencies:
+    name: Gateway stays dependency-free
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Assert apps/mcp declares no runtime dependencies
+        run: |
+          deps=$(node -p "JSON.stringify(require('./apps/mcp/package.json').dependencies || {})")
+          if [ "$deps" != "{}" ]; then
+            echo "apps/mcp declared runtime dependencies: $deps"
+            echo ""
+            echo "The gateway is the piece users self-host, and a dependency is"
+            echo "something that can break under them or quietly change what"
+            echo "happens to their notes. Propose it in an issue first."
+            exit 1
+          fi
+          echo "OK — no runtime dependencies."
+
+      # The worker runs on the Cloudflare Workers runtime, where Node built-ins
+      # do not exist. A `node:` import typechecks and tests fine against the
+      # in-memory stub, then fails at the edge on real traffic.
+      - name: Assert no Node built-in imports
+        run: |
+          if grep -rnE "(from|require\()\s*['\"]node:" apps/mcp/src/; then
+            echo ""
+            echo "apps/mcp/src must not import Node built-ins — it runs on the"
+            echo "Workers runtime. Use Web Crypto and fetch instead."
+            exit 1
+          fi
+          echo "OK — no Node built-in imports in src/."
