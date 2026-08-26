@@ -89,6 +89,7 @@ import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
 import { hashToken, TOKEN_HASH_PATTERN } from "./functions/lib/crypto";
+import { logIngest } from "./functions/lib/ingestLog";
 import {
   badRequest,
   consentUrlFor,
@@ -149,6 +150,21 @@ function gatewayRoute(
  * and asserts that every route in this file is built by one of them, and that
  * each one really does check a secret — so adding a third door is a diff to that
  * file, exactly like adding a credential route is.
+ *
+ * ## Why this one logs and `gatewayRoute` does not
+ *
+ * A Worker whose `EMAIL_WORKER_SECRET` does not match this deployment's is
+ * answered 401, throws `ControlPlaneError("status 401")` in
+ * `infra/email-worker/src/controlPlane.ts`, is rethrown by `index.ts`, and
+ * surfaces to the operator as Cloudflare's "worker script threw an exception" —
+ * with nothing on either side naming the cause. That has happened, and it is
+ * what cost hours: the two halves of this secret are set from two different
+ * places (a GitHub secret for the Worker, `convex env set` for this
+ * deployment), and no check anywhere compares them.
+ *
+ * The response is untouched — same status, same headers, same bytes, no detail
+ * for the caller. The line goes to the deployment's own log, which only an
+ * operator can read. See `functions/lib/ingestLog.ts`.
  */
 function emailWorkerRoute(
   handler: (
@@ -157,9 +173,15 @@ function emailWorkerRoute(
   ) => Promise<Response>,
 ) {
   return httpAction(async (ctx, request) => {
-    if (!(await requestIsFromEmailWorker(request))) return unauthorized();
+    if (!(await requestIsFromEmailWorker(request))) {
+      logIngest({ event: "unauthorized" });
+      return unauthorized();
+    }
     const body = await readJsonBody(request);
-    if (body === null) return badRequest();
+    if (body === null) {
+      logIngest({ event: "bad_request", reason: "body_not_a_json_object" });
+      return badRequest();
+    }
     return await handler(ctx, body);
   });
 }
@@ -589,7 +611,19 @@ export const gatewayIngestResolve = emailWorkerRoute(async (ctx, body) => {
   // A malformed request is answered exactly like an unknown name. A 400 would
   // tell a caller holding the worker secret which part of its request was the
   // bad one, and there is nothing here a legitimate caller could act on.
+  //
+  // It is, however, recorded — because "the caller sent the wrong field name"
+  // and "that name does not resolve" being one answer is exactly what makes
+  // this route impossible to debug from outside. An operator probing with
+  // `{"name": …}` instead of `{"username": …}` gets a perfectly ordinary
+  // `{"ingestion":null}` that never touches the database, and reads it as
+  // evidence about their data. That happened. The reason is operator-only; the
+  // response is unchanged. See `functions/lib/ingestLog.ts`.
   if (username === null || typeof sizeBytes !== "number" || !Number.isFinite(sizeBytes)) {
+    logIngest({
+      event: "resolve_refused",
+      reason: username === null ? "missing_username" : "missing_size_bytes",
+    });
     return json({ ingestion: null });
   }
 

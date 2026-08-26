@@ -68,6 +68,7 @@ import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import { TOKEN_HASH_PATTERN } from "./lib/crypto";
 import { DEFAULT_TARGET_FOLDER, INGESTION_DOMAIN } from "./lib/ingestion";
+import { logIngest } from "./lib/ingestLog";
 import {
   getIngestionSettingsRow,
   resolvePersonalContextForIngestion,
@@ -166,27 +167,70 @@ export const resolveForIngestion = internalMutation({
   },
   returns: v.union(resolutionValidator, v.null()),
   handler: async (ctx, args) => {
-    if (!TOKEN_HASH_PATTERN.test(args.hashedTicket)) return null;
+    // ── Every `return null` below also records WHY, for an operator only. ────
+    //
+    // The answer on the wire is unchanged and must stay unchanged — see
+    // `lib/ingestLog.ts` for why a deployment log is not the oracle a response
+    // would be. `__tests__/ingestionGateway.test.ts` pins the refusals as
+    // byte-identical over status, headers and body while these lines differ.
+    if (!TOKEN_HASH_PATTERN.test(args.hashedTicket)) {
+      logIngest({ event: "resolve_refused", reason: "malformed_ticket_hash" });
+      return null;
+    }
 
     const normalized = normalizeName(args.name);
     const validation = validateName(normalized);
-    if (!validation.ok) return null;
+    if (!validation.ok) {
+      // The name itself is deliberately NOT logged here. It failed validation,
+      // so it is an arbitrary string a stranger typed — possibly with a newline
+      // or a quote in it — and the rejection code says everything an operator
+      // needs. Only names `validateName` accepted are ever written to a log.
+      logIngest({ event: "resolve_refused", reason: `invalid_name:${validation.reason}` });
+      return null;
+    }
     // Deliberate redundancy. See the docstring: `validateName` already refuses
     // these, and this line changes no behaviour today — it is here because the
     // check it duplicates is a mail-interception control whose failure mode is
     // silent.
-    if (RESERVED_NAMES.has(validation.normalized)) return null;
+    if (RESERVED_NAMES.has(validation.normalized)) {
+      logIngest({
+        event: "resolve_refused",
+        reason: "reserved_name",
+        name: validation.normalized,
+      });
+      return null;
+    }
 
     const personal = await resolvePersonalContextForIngestion(
       ctx,
       validation.normalized,
     );
-    if (personal === null) return null;
+    if (personal === null) {
+      // One code, because this is one refusal: `resolvePersonalContextForIngestion`
+      // is the single definition of "a context that may receive mail" and it
+      // folds "no such name", "that name is a shared context" and "a personal
+      // context that has since gained members" together on purpose. Splitting
+      // them here would rebuild, in a log, the distinction the function exists
+      // to erase — and an operator who needs the difference can read the row.
+      logIngest({
+        event: "resolve_refused",
+        reason: "no_personal_context",
+        name: validation.normalized,
+      });
+      return null;
+    }
 
     const settings = await getIngestionSettingsRow(ctx, personal.workspace._id);
     // No row is the fail-closed floor: it accepts nothing, so there is no point
     // minting a ticket or opening a credential for it.
-    if (settings === null) return null;
+    if (settings === null) {
+      logIngest({
+        event: "resolve_refused",
+        reason: "no_ingestion_policy",
+        name: validation.normalized,
+      });
+      return null;
+    }
 
     // Storage has to be usable before a ticket exists, so a message that could
     // never have been written causes no ticket row and no later decrypt. Only
@@ -196,7 +240,14 @@ export const resolveForIngestion = internalMutation({
       .query("storageBindings")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", personal.workspace._id))
       .unique();
-    if (binding === null || binding.status !== "connected") return null;
+    if (binding === null || binding.status !== "connected") {
+      logIngest({
+        event: "resolve_refused",
+        reason: binding === null ? "storage_unbound" : `storage_${binding.status}`,
+        name: validation.normalized,
+      });
+      return null;
+    }
 
     // ── The limit, counted only for names that actually resolved. ────────────
     //
@@ -221,6 +272,11 @@ export const resolveForIngestion = internalMutation({
       });
     } catch {
       // `RATE_LIMITED` folds into the same `null` as everything else.
+      logIngest({
+        event: "resolve_refused",
+        reason: "rate_limited",
+        name: validation.normalized,
+      });
       return null;
     }
 
@@ -232,6 +288,11 @@ export const resolveForIngestion = internalMutation({
       createdAt: now,
       expiresAt: now + TICKET_TTL_MS,
     });
+
+    // The success line matters as much as the refusals: "the Worker has never
+    // once completed a resolve" is a diagnosis, and without this the only way to
+    // establish it is to go and count `ingestionTickets` rows by hand.
+    logIngest({ event: "resolve_ok", name: validation.normalized });
 
     return {
       // The redundant half of the argument. The worker re-checks that `kind` is

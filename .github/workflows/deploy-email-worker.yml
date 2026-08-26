@@ -353,6 +353,20 @@ jobs:
           node -e '
             const d = JSON.parse(process.argv[1] || "{}");
             const r = d.result || {};
+            // A token permission and a disabled feature have the same shape
+            // here, and conflating them cost a deploy: this step reported
+            // "Email Routing is not enabled" on a zone where it was enabled and
+            // routing correctly, because the token was not allowed to look. Say
+            // which — and never claim a fact about the zone from a 10000.
+            if ((d.errors || []).some((e) => e && e.code === 10000)) {
+              console.error("[FAIL] the CLOUDFLARE_API_TOKEN cannot READ Email Routing on " +
+                process.argv[2] + ".");
+              console.error("       This says NOTHING about whether Email Routing is enabled —");
+              console.error("       the token is not permitted to look. Grant it, on this zone:");
+              console.error("         Zone -> Email Routing Rules -> Read");
+              console.error("       API said: " + JSON.stringify(d.errors));
+              process.exit(1);
+            }
             if (!d.success || r.enabled !== true) {
               console.error("[FAIL] Email Routing is not enabled on " + process.argv[2] + ".");
               console.error("       Enable it: Cloudflare dashboard -> " + process.argv[2] +
@@ -450,6 +464,105 @@ jobs:
             echo "Attempt $attempt: got $code, waiting for the Convex deploy."
             sleep 15
           done
+
+      # ── Verification 5: the Worker's key opens the control plane's door. ───
+      #
+      # THE STEP THIS PIPELINE WAS MISSING, AND THE GAP THAT COST THE HOURS.
+      #
+      # Everything above proves the Worker exists, that a secret is *bound* to
+      # it, and that the route refuses an unauthenticated caller. None of that
+      # says the secret the Worker holds is the secret this deployment accepts —
+      # and the two halves come from two different places: this workflow pushes
+      # GitHub's `EMAIL_WORKER_SECRET` to Cloudflare, while the Convex side is
+      # set by hand with `convex env set`. Nothing has ever compared them.
+      #
+      # When they disagree, every ingest call is answered 401, the Worker raises
+      # `ControlPlaneError("status 401")`, `src/index.ts` rethrows it because a
+      # control-plane outage is the one recipient-independent branch, and the
+      # operator sees Cloudflare's "temporary error: worker script threw an
+      # exception" with no cause anywhere. Every deploy stays green.
+      #
+      # ── Why this is not an oracle ──
+      #
+      # `postmaster` is in RESERVED_NAMES, so `validateName` refuses it before
+      # any lookup: the answer is `{"ingestion":null}` for all time, whatever is
+      # in the database, and no ticket is minted and no rate limit is consumed.
+      # The only bit this reads is 200-vs-401 — "was my secret accepted" — which
+      # is a fact about this workflow's own credential and about no user at all.
+      - name: Verify the Worker's secret is the one the control plane accepts
+        env:
+          EMAIL_WORKER_SECRET: ${{ secrets.EMAIL_WORKER_SECRET }}
+        run: |
+          set -euo pipefail
+          url="https://clean-ptarmigan-116.convex.site/gateway/ingest/resolve"
+
+          # A reserved name. Refused before any lookup, so this probe reads no
+          # row, writes no row, and consumes no limit.
+          body='{"username":"postmaster","sizeBytes":1,"envelopeFrom":"ci@invalid"}'
+
+          out="$(curl -s -o /tmp/ingest-auth.json -w '%{http_code}' --max-time 20 \
+            -X POST \
+            -H "Authorization: Bearer $EMAIL_WORKER_SECRET" \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json' \
+            -d "$body" "$url" || true)"
+
+          if [ "$out" = "401" ]; then
+            echo "[FAIL] the control plane REFUSED this repository's EMAIL_WORKER_SECRET."
+            echo ""
+            echo "  The Worker was just given this exact value, so every inbound message"
+            echo "  will be answered 401, the Worker will throw, and Cloudflare will report"
+            echo "  \"temporary error: worker script threw an exception\" — with no cause"
+            echo "  visible anywhere. Mail to <name>@$INGEST_DOMAIN is lost."
+            echo ""
+            echo "  Fix: set the SAME value on the Convex deployment."
+            echo "    npx convex env set EMAIL_WORKER_SECRET '<the GitHub secret>' --prod"
+            echo ""
+            echo "  It is NOT GATEWAY_SECRET. See the contract block in"
+            echo "  infra/email-worker/src/controlPlane.ts."
+            echo ""
+            echo "  If the two values LOOK identical, check the invisible half: a GitHub"
+            echo "  secret set from a file keeps its trailing newline, the Bearer header"
+            echo "  carries it, and the comparison is over the raw string."
+            # Whether it is padded, never how long it is — the control plane's
+            # comparison is deliberately length-blind and a CI log should not
+            # undo that.
+            if [ "$EMAIL_WORKER_SECRET" != "$(printf '%s' "$EMAIL_WORKER_SECRET" | tr -d '[:space:]')" ]; then
+              echo "  -> THIS REPOSITORY'S SECRET CONTAINS WHITESPACE. That is almost"
+              echo "     certainly it. Re-set it with no trailing newline."
+            else
+              echo "  (this repository's secret has no whitespace in it, so the two values"
+              echo "   genuinely differ.)"
+            fi
+            exit 1
+          fi
+
+          if [ "$out" != "200" ]; then
+            echo "[FAIL] $url answered $out to an authenticated call; expected 200."
+            if [ "$EMAIL_WORKER_SECRET" != "$(printf '%s' "$EMAIL_WORKER_SECRET" | tr -d '[:space:]')" ]; then
+              echo "       This repository's EMAIL_WORKER_SECRET contains whitespace, which"
+              echo "       cannot go in an Authorization header. The Worker builds that header"
+              echo "       by interpolation, so in production this is not a 401 — fetch throws,"
+              echo "       the Worker rethrows, and Cloudflare reports \"worker script threw an"
+              echo "       exception\". Re-set the secret with no trailing newline."
+            fi
+            exit 1
+          fi
+
+          # 200 alone is not enough: a route that stopped reading the body would
+          # also answer 200. The documented refusal for a reserved name is an
+          # explicit null, and a *missing* key is a control plane that no longer
+          # implements this contract — which is exactly what the Worker's
+          # `required()` treats as an outage.
+          if ! grep -q '"ingestion":null' /tmp/ingest-auth.json; then
+            echo "[FAIL] the secret was accepted, but the answer for a reserved name was not"
+            echo "       '{\"ingestion\":null}':"
+            cat /tmp/ingest-auth.json
+            exit 1
+          fi
+
+          rm -f /tmp/ingest-auth.json
+          echo "[ok] the control plane accepts this Worker's secret."
 
       # Not a gate. postmaster@ and abuse@ are forwarded to OPERATIONS_MAILBOX
       # and never ingested; RFC 2142 requires them to stay deliverable and
