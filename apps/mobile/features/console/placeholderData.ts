@@ -1,10 +1,29 @@
 /**
- * Placeholder data for the console.
+ * Data for the signed-out console on the landing page.
  *
- * Everything in this file stands in for something the app cannot get yet.
- * Each block says what will replace it. Nothing here is a fixture of real
- * customer data — the values are the ones in `docs/design/console-mockup.html`,
- * which are themselves invented, plus the demo contexts below.
+ * **The rule this file exists to enforce: an invented value may never reach a
+ * signed-in person as a fact about their own data.** Everything invented here
+ * is named `DEMO_*` and belongs to the marketing demo alone. Where the control
+ * plane has no answer, the live console renders *nothing* — an absent row, not
+ * a plausible one.
+ *
+ * That is not a style preference. The whole claim of this product is that the
+ * notes are yours and the bucket is yours, and these values sat beside claims
+ * that are genuinely derived — `Conditional writes verified` comes from
+ * `binding.capabilities.conditionalWrite`. One fake check mark next to a true
+ * one makes the true one unbelievable, so an invented number costs more here
+ * than the blank it replaces. It shipped twice: #20 (the console stats) and
+ * #25 (object count, PARA detection, versioning state), and both times a real
+ * person read it as the truth about their own bucket.
+ *
+ * Enforcement, so it cannot come back by accident:
+ *   - every invented export is prefixed `DEMO_`;
+ *   - only the demo path may import one, and `__tests__/liveConsoleFacts.test.ts`
+ *     fails if any other module does.
+ *
+ * The one non-`DEMO_` placeholder left is `placeholderIngestionAddress`, and it
+ * is deliberately not a claim: the card that shows it says in words that the
+ * rules are not configurable yet.
  *
  * What is **not** here, because it is already live from Convex:
  *   - the list of contexts and your role in each  → `functions/workspaces.listMyWorkspaces`
@@ -48,25 +67,6 @@ export const MCP_ENDPOINT =
 // ─── Map ─────────────────────────────────────────────────────────────────────
 
 /**
- * PLACEHOLDER — note counts and bytes stored.
- *
- * Replaced by: a stats call to the MCP gateway, which is the side that can see
- * the bucket. The control plane deliberately cannot count a customer's notes.
- * Contexts-reachable and clients-connected are computed from live Convex data
- * and are not placeholders; see `MapPane`.
- */
-export const PLACEHOLDER_NOTE_TOTAL = "1,284";
-export const PLACEHOLDER_BYTES_TOTAL = "2.4 GB";
-
-/**
- * PLACEHOLDER — the per-context "1,102 notes" sub-label.
- *
- * Same replacement as above. The "· owner" half of that line is real, and is
- * appended from the Convex membership role.
- */
-export const PLACEHOLDER_CONTEXT_NOTE_COUNTS: Record<string, string> = {};
-
-/**
  * The signed-off demo constellation, with the mockup's exact hand-placed
  * coordinates.
  *
@@ -105,28 +105,35 @@ const DEMO_EDGES: MapEdge[] = [
 
 export const DEMO_GRAPH: MapGraph = { nodes: DEMO_NODES, edges: DEMO_EDGES };
 
+/**
+ * The demo account's four tiles.
+ *
+ * All four are invented, and only two of them have a live counterpart: the
+ * signed-in console computes contexts-reachable and clients-connected from
+ * Convex, and shows **no tile at all** for notes and bytes, because nothing
+ * counts a whole bucket yet. See `useLiveConsoleData`.
+ */
 export const DEMO_STATS = {
   contexts: "3",
   clients: "4",
-  notes: PLACEHOLDER_NOTE_TOTAL,
-  bytes: PLACEHOLDER_BYTES_TOTAL,
+  notes: "1,284",
+  bytes: "2.4 GB",
 };
 
 // ─── Context settings ────────────────────────────────────────────────────────
 
-/**
- * PLACEHOLDER — object count, PARA-structure detection, and versioning state.
- *
- * Replaced by: the connect-time capability probe that already exists on the
- * backend path (`functions/storage.bindStorage` verifies the binding and
- * records `capabilities`). Today `getStorageBinding` returns only
- * `conditionalWrite` and a status, both of which the pane reads live. The other
- * three lines need the probe to persist what it saw — an object count, whether
- * the PARA folders exist, and whether bucket versioning is on.
- */
-export const PLACEHOLDER_OBJECT_COUNT = "1,284";
-export const PLACEHOLDER_PARA_PRESENT = true;
-export const PLACEHOLDER_VERSIONING_ON = false;
+// The demo's object count, PARA flag and versioning state are literals on the
+// three bindings in `useDemoConsoleData`, and used to be shared constants that
+// the live console imported too — which is exactly how #25 happened. They are
+// not exported from here any more, so there is nothing for the live path to
+// reach for.
+//
+// Making them real is a backend job, not a frontend one: `getStorageBinding`
+// returns `capabilities.conditionalWrite` and a status, and nothing else. An
+// object count, PARA detection and versioning state each need the connect-time
+// probe in `functions/storage.bindStorage` to persist what it saw. Until it
+// does, `ConsoleStorage` leaves all three `undefined` and the rows do not
+// render.
 
 /**
  * PLACEHOLDER — the email ingestion alias.

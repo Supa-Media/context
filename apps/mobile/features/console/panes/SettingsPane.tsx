@@ -33,10 +33,15 @@ import type { ReverifyState } from "../storage/reverify";
  * the same binding card, the same connect form, the same re-verify state
  * machine.
  *
- * Only two of the four capability lines are live today —
- * `getStorageBinding` returns `capabilities.conditionalWrite` and a status.
- * The object count, PARA detection, and versioning state are placeholder and
- * are marked as such in `placeholderData.ts`.
+ * Only two capability lines are live, and only those two are drawn.
+ * `getStorageBinding` returns `capabilities.conditionalWrite` and a status;
+ * nobody counts the objects in a bucket, looks for its PARA folders, or reads
+ * its versioning setting. Those three used to be rendered anyway, from
+ * constants, with a green check mark beside them — a bucket holding six
+ * objects was told it held 1,284, a bucket with no PARA scaffold was told it
+ * had one, and a bucket with versioning already on was told to go and turn it
+ * on (#25). They are absent now, and stay absent until the connect-time probe
+ * persists what it actually saw.
  *
  * Every control here comes from `data.storageActions`, which is **absent** in
  * the demo console and for anyone who is not the owner of this context. That is
@@ -207,15 +212,35 @@ function BindingCard({
 
       <View style={styles.checks}>
         {/*
-          The object count is placeholder (see `placeholderData.ts`), but
-          reachability is not something to claim in green next to a failure
-          panel explaining that the bucket could not be listed. A binding in
-          `error` says what it knows, which is nothing.
+          Every line in this block is a claim about somebody's own bucket, so
+          each one has to come from something that looked.
+
+          Reachability comes from the binding's status, which the verify probe
+          sets by listing the bucket and writing to it. It says "at the last
+          check" because that is the only tense it can honestly use: a key
+          revoked at the provider a minute ago still reads `connected` here
+          until something asks again. An `unverified` binding has never been
+          checked at all, so it gets an amber row pointing at Re-verify rather
+          than a green one — the status pill above already says "Not verified",
+          and a green check disagreeing with it is how a pane loses its
+          credibility.
+
+          The object count is rendered only when something counted. Nothing
+          does today, so on the live console `storage.objectCount` is undefined
+          and the sentence simply ends. See `ConsoleStorage`.
         */}
-        {failure === null ? (
-          <Check tone="ok">{`Reachable — ${storage.objectCount} objects`}</Check>
-        ) : (
+        {failure !== null ? (
           <Check tone="warn">Last check couldn&apos;t confirm the bucket was usable</Check>
+        ) : storage.connected ? (
+          <Check tone="ok">
+            {storage.objectCount === undefined
+              ? "Reachable at the last check"
+              : `Reachable at the last check — ${storage.objectCount} objects`}
+          </Check>
+        ) : (
+          <Check tone="warn">
+            Not checked since it was connected — Re-verify to confirm it is reachable
+          </Check>
         )}
         {storage.conditionalWrite ? (
           <Check tone="ok">Conditional writes verified — concurrent edits are safe</Check>
@@ -224,12 +249,20 @@ function BindingCard({
             Conditional writes unavailable — this provider cannot detect a concurrent edit
           </Check>
         )}
-        {storage.paraPresent ? (
+        {/*
+          PARA detection and versioning state: absent, not "unknown". Nothing
+          walks the bucket for PARA folders or reads a versioning setting, and a
+          row saying "we don't know whether versioning is on" is noise on a card
+          somebody opened to check their credentials. An absent row is quiet;
+          the invented ones told a user with versioning already on to go and
+          turn it on.
+        */}
+        {storage.paraPresent === undefined ? null : storage.paraPresent ? (
           <Check tone="ok">PARA structure present</Check>
         ) : (
           <Check tone="warn">No PARA folders found — Context works either way</Check>
         )}
-        {storage.versioningOn ? (
+        {storage.versioningOn === undefined ? null : storage.versioningOn ? (
           <Check tone="ok">Versioning is on — point-in-time recovery available</Check>
         ) : (
           <Check tone="warn">
