@@ -1,0 +1,454 @@
+# Deploy `context-email` — the Cloudflare Email Worker behind <username>@context.lc
+# — on every merge to `main`.
+#
+# Modelled on deploy-mcp.yml and deploy-router.yml: the suite is a hard gate, a
+# preflight names a missing secret instead of letting wrangler fail opaquely,
+# the Worker's secrets are pushed from GitHub on every deploy, and — the part
+# that matters most here — the job does not report success until it has proved
+# the pipeline actually works.
+#
+# ── WHY THE POST-DEPLOY VERIFICATION IS SO LARGE ───────────────────────────
+#
+# `wrangler deploy` succeeding tells you a script was uploaded. It tells you
+# nothing about whether mail reaches it, and for this Worker that gap is the
+# whole failure mode: the owner emailed seyi@context.lc and got back
+# `550 5.1.1 Address does not exist` — a rejection issued by Cloudflare's MX
+# *before any Worker ran*, because no Email Routing rule matched the address.
+# A deploy pipeline that goes green in that state is worse than no pipeline.
+#
+# So this workflow asserts, after deploying, that all four links in the chain
+# are real:
+#
+#   1. the script exists in the account and was modified by THIS run,
+#   2. `EMAIL_WORKER_SECRET` is actually bound to it,
+#   3. Email Routing is enabled on the zone and its catch-all points at this
+#      Worker — the specific thing whose absence produced the 550,
+#   4. the control plane's `/gateway/ingest/*` routes are deployed and
+#      authenticating, so the Worker has something to call.
+#
+# Any of those failing fails the job. Several of them can only be fixed by a
+# human in the Cloudflare dashboard, and that is deliberate: a red build with a
+# runbook in its error message is the correct representation of "configured
+# wrong", and is what this project got wrong four separate times today.
+name: Deploy Email Worker (production)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/email-worker/**"
+      - ".github/workflows/deploy-email-worker.yml"
+  workflow_dispatch:
+
+# Never on `pull_request`: a deploy triggered by a fork's pull request would run
+# untrusted code with the account's Cloudflare credentials, against the Worker
+# that reads customers' mail and holds the secret that mints ingestion tickets.
+concurrency:
+  group: deploy-email-worker-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  # Must match `name` in infra/email-worker/wrangler.jsonc. Cross-checked below
+  # rather than parsed out of it: wrangler.jsonc is JSONC and its comments are
+  # load-bearing documentation, so a JSON.parse here would either fail or
+  # invite someone to strip them.
+  WORKER_NAME: context-email
+  # Must match `vars.INGEST_DOMAIN` in the same file. This is the zone whose
+  # Email Routing configuration is verified below.
+  INGEST_DOMAIN: context.lc
+
+jobs:
+  test:
+    name: Test email worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # GITHUB_TOKEN authenticates the @supa-media/* GitHub Packages registry;
+      # pnpm errors if the variable .npmrc interpolates is undefined, even when
+      # nothing in the filtered set comes from that registry.
+      - name: Install
+        run: pnpm install --filter "./infra/email-worker..." --frozen-lockfile
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Typecheck
+        working-directory: infra/email-worker
+        run: pnpm typecheck
+
+      # The suite holds this Worker's security properties: authentication
+      # before the allow-list, personal contexts only, one indistinguishable
+      # refusal for every kind of no. It gates the deploy for that reason.
+      - name: Test
+        working-directory: infra/email-worker
+        run: pnpm test
+
+  deploy:
+    name: Deploy + verify context-email
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      # A rename in wrangler.jsonc that this workflow did not follow would make
+      # every verification below check a Worker nobody deployed — passing, or
+      # failing, for reasons unrelated to the deploy.
+      - name: Verify this workflow and wrangler.jsonc agree
+        run: |
+          set -euo pipefail
+          config=infra/email-worker/wrangler.jsonc
+          if ! grep -qE "^\s*\"name\"\s*:\s*\"$WORKER_NAME\"" "$config"; then
+            echo "ERROR: $config does not declare name \"$WORKER_NAME\"."
+            echo "Update WORKER_NAME in this workflow to match, or vice versa —"
+            echo "every verification step below keys off it."
+            exit 1
+          fi
+          if ! grep -qE "\"INGEST_DOMAIN\"\s*:\s*\"$INGEST_DOMAIN\"" "$config"; then
+            echo "ERROR: $config does not declare INGEST_DOMAIN \"$INGEST_DOMAIN\"."
+            echo "The Email Routing checks below verify the wrong zone if these drift."
+            exit 1
+          fi
+          echo "OK — workflow and wrangler.jsonc agree on $WORKER_NAME / $INGEST_DOMAIN."
+
+      - name: Verify required secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          EMAIL_WORKER_SECRET: ${{ secrets.EMAIL_WORKER_SECRET }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for var in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID EMAIL_WORKER_SECRET; do
+            if [ -z "${!var:-}" ]; then
+              echo "ERROR: missing required secret '$var' in the 'production' environment."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo ""
+            echo "EMAIL_WORKER_SECRET is this Worker's own credential — NOT GATEWAY_SECRET."
+            echo "See the contract block in infra/email-worker/src/controlPlane.ts."
+            echo "The same value must also be set on the Convex deployment as"
+            echo "EMAIL_WORKER_SECRET, or every ingest call is answered 401."
+            exit 1
+          fi
+          echo "OK — every required secret is present."
+
+      # Prove the token can write to the account wrangler will deploy into,
+      # BEFORE the opaque wrangler failure ("Could not route ... [code: 7003]",
+      # which says nothing about the cause). Prints the account NAME it resolves
+      # to — never the secret — so a token pointed at the wrong Cloudflare
+      # account is immediately obvious.
+      - name: Verify Cloudflare credentials (preflight)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          resp="$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID")"
+          node -e '
+            const d = JSON.parse(process.argv[1] || "{}");
+            if (d.success) {
+              console.log("[ok] token can access account: " + ((d.result && d.result.name) || "(unknown)"));
+            } else {
+              console.error("[FAIL] CLOUDFLARE_API_TOKEN cannot access CLOUDFLARE_ACCOUNT_ID.");
+              console.error("       Cloudflare errors: " + JSON.stringify(d.errors));
+              process.exit(1);
+            }
+          ' "$resp"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --filter "./infra/email-worker..." --frozen-lockfile
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Push the Worker's secret from GitHub on every deploy, so the live Worker
+      # is reproducible from this repository rather than from whatever somebody
+      # once typed at a terminal. `wrangler secret put` is idempotent and reads
+      # the value from STDIN, so it is never placed on a command line, in the
+      # process table, or in a log.
+      #
+      # It must be the same value the control plane holds — it is what proves
+      # "this caller is the email worker" — so it lives in one place, GitHub,
+      # and is pushed from there.
+      - name: Sync the Worker's secrets
+        working-directory: infra/email-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          EMAIL_WORKER_SECRET: ${{ secrets.EMAIL_WORKER_SECRET }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$EMAIL_WORKER_SECRET" | pnpm exec wrangler secret put EMAIL_WORKER_SECRET
+          echo "OK — the Worker's secret matches this repository's."
+
+      - name: Deploy context-email
+        working-directory: infra/email-worker
+        run: pnpm exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # ── Verification 1: something was actually deployed, by this run. ──────
+      #
+      # A `wrangler deploy` that no-ops, or that deployed into a different
+      # account, leaves the script either absent or untouched. Asking the API
+      # for its modification time catches both, and is the assertion that would
+      # have caught this project's "four pipelines reported success while
+      # deploying nothing".
+      - name: Verify the Worker exists and was just modified
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          resp="$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts")"
+          node -e '
+            const d = JSON.parse(process.argv[1] || "{}");
+            const name = process.argv[2];
+            if (!d.success) {
+              console.error("[FAIL] could not list Workers: " + JSON.stringify(d.errors));
+              process.exit(1);
+            }
+            const script = (d.result || []).find((s) => s.id === name);
+            if (!script) {
+              console.error("[FAIL] no Worker named " + name + " exists in this account.");
+              console.error("       wrangler deploy reported success, so it deployed somewhere else.");
+              process.exit(1);
+            }
+            const age = (Date.now() - Date.parse(script.modified_on)) / 60000;
+            if (!Number.isFinite(age) || age > 30) {
+              console.error("[FAIL] " + name + " was last modified " + Math.round(age) +
+                " minutes ago — this run did not deploy it.");
+              process.exit(1);
+            }
+            console.log("[ok] " + name + " was modified " + Math.round(age) + " minute(s) ago.");
+          ' "$resp" "$WORKER_NAME"
+
+      # ── Verification 2: the secret is bound, not merely uploaded. ──────────
+      #
+      # Only the NAME and type are read. The value is never fetched, printed, or
+      # compared — the API does not return it, and this step must never become
+      # the reason someone wishes it did.
+      - name: Verify EMAIL_WORKER_SECRET is bound to the Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          resp="$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER_NAME/secrets")"
+          node -e '
+            const d = JSON.parse(process.argv[1] || "{}");
+            if (!d.success) {
+              console.error("[FAIL] could not list the Worker secrets: " + JSON.stringify(d.errors));
+              process.exit(1);
+            }
+            const names = (d.result || []).map((s) => s.name);
+            if (!names.includes("EMAIL_WORKER_SECRET")) {
+              console.error("[FAIL] EMAIL_WORKER_SECRET is not bound to this Worker.");
+              console.error("       Bound secrets: " + (names.join(", ") || "(none)"));
+              console.error("       Without it every control-plane call is answered 401 and");
+              console.error("       every message is refused.");
+              process.exit(1);
+            }
+            console.log("[ok] EMAIL_WORKER_SECRET is bound.");
+          ' "$resp"
+
+      # ── Verification 3: mail can actually REACH the Worker. ────────────────
+      #
+      # This is the step that represents the bug this workflow exists to stop
+      # recurring. Email Routing rejects mail for an address with no matching
+      # rule before the Worker ever runs, with exactly the
+      # `550 5.1.1 Address does not exist` the owner received — so a deployed
+      # Worker with no catch-all is a Worker that receives nothing, forever,
+      # while every deploy stays green.
+      #
+      # The catch-all specifically, not per-address rules: see note 1 in the
+      # header of infra/email-worker/wrangler.jsonc. Per-address rules would put
+      # a username-enumeration oracle one layer above the Worker, defeating the
+      # uniform refusals in src/index.ts.
+      - name: Verify Email Routing delivers to this Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          zresp="$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/zones?name=$INGEST_DOMAIN")"
+          zone="$(node -e '
+            const d = JSON.parse(process.argv[1] || "{}");
+            if (!d.success) {
+              console.error("[FAIL] could not look up the zone. The CLOUDFLARE_API_TOKEN needs");
+              console.error("       Zone:Read and Zone:Email Routing Rules:Read on " + process.argv[2] + ".");
+              console.error("       Cloudflare errors: " + JSON.stringify(d.errors));
+              process.exit(1);
+            }
+            const z = (d.result || [])[0];
+            if (!z) {
+              console.error("[FAIL] no zone named " + process.argv[2] + " is visible to this token.");
+              process.exit(1);
+            }
+            console.log(z.id);
+          ' "$zresp" "$INGEST_DOMAIN")"
+          echo "[ok] zone $INGEST_DOMAIN resolved."
+
+          rresp="$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/zones/$zone/email/routing")"
+          node -e '
+            const d = JSON.parse(process.argv[1] || "{}");
+            const r = d.result || {};
+            if (!d.success || r.enabled !== true) {
+              console.error("[FAIL] Email Routing is not enabled on " + process.argv[2] + ".");
+              console.error("       Enable it: Cloudflare dashboard -> " + process.argv[2] +
+                " -> Email -> Email Routing -> Get started.");
+              console.error("       API said: " + JSON.stringify(d.errors || r));
+              process.exit(1);
+            }
+            if (r.status && r.status !== "ready") {
+              console.error("[FAIL] Email Routing status is \"" + r.status + "\", not \"ready\".");
+              console.error("       Usually a missing or unverified MX record.");
+              process.exit(1);
+            }
+            console.log("[ok] Email Routing is enabled and ready.");
+          ' "$rresp" "$INGEST_DOMAIN"
+
+          cresp="$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/zones/$zone/email/routing/rules/catch_all")"
+          node -e '
+            const d = JSON.parse(process.argv[1] || "{}");
+            const worker = process.argv[2];
+            const domain = process.argv[3];
+            const r = d.result || {};
+            const fail = (msg) => {
+              console.error("[FAIL] " + msg);
+              console.error("");
+              console.error("  Mail to <name>@" + domain + " is rejected by Cloudflare with");
+              console.error("  \"550 5.1.1 Address does not exist\" before this Worker ever runs.");
+              console.error("");
+              console.error("  Fix, in the Cloudflare dashboard:");
+              console.error("    " + domain + " -> Email -> Email Routing -> Routing rules");
+              console.error("    -> Catch-all address -> Edit");
+              console.error("    -> Action: \"Send to a Worker\", Destination: \"" + worker + "\"");
+              console.error("    -> Enable the catch-all, and Save.");
+              console.error("");
+              console.error("  It must be the CATCH-ALL, not per-address rules — per-address rules");
+              console.error("  make Cloudflare answer differently for a claimed name than for an");
+              console.error("  unclaimed one, which is a username-enumeration oracle sitting above");
+              console.error("  this Worker's deliberately uniform refusals.");
+              process.exit(1);
+            };
+            if (!d.success) fail("could not read the catch-all rule: " + JSON.stringify(d.errors));
+            if (r.enabled !== true) fail("the catch-all rule is disabled.");
+            const actions = r.actions || [];
+            const toWorker = actions.find((a) => a.type === "worker");
+            if (!toWorker) {
+              fail("the catch-all action is \"" +
+                (actions.map((a) => a.type).join(", ") || "(none)") +
+                "\", not \"worker\".");
+            }
+            const values = toWorker.value || [];
+            if (!values.includes(worker)) {
+              fail("the catch-all sends to Worker \"" + values.join(", ") +
+                "\", not \"" + worker + "\".");
+            }
+            console.log("[ok] the catch-all on " + domain + " delivers to Worker " + worker + ".");
+          ' "$cresp" "$WORKER_NAME" "$INGEST_DOMAIN"
+
+      # ── Verification 4: the Worker has a control plane to call. ────────────
+      #
+      # The Worker resolves every recipient against `/gateway/ingest/resolve`
+      # before it does anything else, so those routes being live is part of
+      # "deployed and working". They ship from apps/convex, whose deploy is a
+      # separate workflow triggered by the same push — hence the retry: this job
+      # can legitimately win the race.
+      #
+      # 401 is the assertion, and it is a real one. A 404 means the routes are
+      # not deployed at all (which is exactly what this endpoint returns today,
+      # before this branch merges); a 200 would mean the route stopped
+      # authenticating. Only 401 means "deployed, and refusing an
+      # unauthenticated caller".
+      - name: Verify the control plane's ingest routes are live
+        run: |
+          set -euo pipefail
+          # Public information — it is in every web client's network tab — and
+          # is the same value as vars.CONTROL_PLANE_URL in wrangler.jsonc.
+          origin="https://curious-bloodhound-797.convex.site"
+          url="$origin/gateway/ingest/resolve"
+
+          for attempt in $(seq 1 20); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+              -X POST -H 'Content-Type: application/json' -d '{}' "$url" || true)"
+            if [ "$code" = "401" ]; then
+              echo "[ok] $url refuses an unauthenticated call with 401 (attempt $attempt)."
+              exit 0
+            fi
+            if [ "$attempt" -eq 20 ]; then
+              echo "[FAIL] $url returned $code; expected 401."
+              if [ "$code" = "404" ]; then
+                echo "       404 means the ingest routes are not deployed. Check the"
+                echo "       'Deploy Convex' workflow for this commit — apps/convex/http.ts"
+                echo "       must be live before this Worker can resolve a single recipient."
+              fi
+              exit 1
+            fi
+            echo "Attempt $attempt: got $code, waiting for the Convex deploy."
+            sleep 15
+          done
+
+      # Not a gate. postmaster@ and abuse@ are forwarded to OPERATIONS_MAILBOX
+      # and never ingested; RFC 2142 requires them to stay deliverable and
+      # CLAUDE.md records that as load-bearing. But a Worker that ingests mail
+      # correctly while bouncing postmaster@ is strictly better than one that is
+      # not deployed, so this reports rather than blocks.
+      - name: Check OPERATIONS_MAILBOX is set
+        run: |
+          set -euo pipefail
+          config=infra/email-worker/wrangler.jsonc
+          if grep -qE '"OPERATIONS_MAILBOX"\s*:\s*""' "$config"; then
+            echo "::warning::OPERATIONS_MAILBOX is empty in $config, so postmaster@$INGEST_DOMAIN and abuse@$INGEST_DOMAIN are refused and the Worker logs 'operations_mailbox_unset'. Set it to a VERIFIED Email Routing destination address."
+            echo "OPERATIONS_MAILBOX is unset — see the warning above."
+          else
+            echo "OK — OPERATIONS_MAILBOX is set."
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Email worker deploy (production)"
+            echo ""
+            echo "- **Worker:** \`$WORKER_NAME\`"
+            echo "- **Receives:** mail to \`<username>@$INGEST_DOMAIN\`, via the zone's"
+            echo "  Email Routing **catch-all** — verified live by the steps above."
+            echo "- **Verified:** the script was modified by this run;"
+            echo "  \`EMAIL_WORKER_SECRET\` is bound; Email Routing is enabled and its"
+            echo "  catch-all targets this Worker; \`/gateway/ingest/resolve\` answers 401."
+            echo "- **Not verified by CI:** that \`AUTH_SERVICE_ID\` matches what Cloudflare"
+            echo "  actually stamps on a delivered message. Only a real delivery can"
+            echo "  settle that — see note 2 in \`infra/email-worker/wrangler.jsonc\`."
+            echo "- **Commit:** \`${GITHUB_SHA::7}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
