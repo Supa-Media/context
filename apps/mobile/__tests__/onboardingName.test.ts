@@ -2,11 +2,14 @@ import { describe, expect, test } from "@jest/globals";
 import {
   NAME_MAX_LENGTH,
   canClaim,
+  isPreviewable,
   nameConsequences,
   nameFeedback,
   nameStatus,
   normalizedName,
+  rejectionFeedback,
   shouldCheckAvailability,
+  statusFromRejection,
 } from "../features/onboarding/name";
 
 /**
@@ -189,5 +192,74 @@ describe("what the name becomes", () => {
     const shown = nameConsequences("");
     expect(shown.context).toBe("@yourname");
     expect(shown.mailbox).toBe("yourname@context.lc");
+  });
+});
+
+describe("showing the name back as the thing it will become", () => {
+  test("a well-formed name is previewed, including while the check is in flight", () => {
+    // The panel filling in as you type is the point of the panel.
+    expect(isPreviewable(nameStatus("seyi", undefined))).toBe(true);
+    expect(isPreviewable(nameStatus("seyi", free))).toBe(true);
+  });
+
+  test("a malformed name is not, because the address it implies cannot exist", () => {
+    // "Seyi Olujide" normalized rendered `seyi olujide@context.lc` as a live
+    // capture address, directly beside the error saying that is not a name.
+    const status = nameStatus("Seyi Olujide", undefined);
+    expect(status.kind).toBe("malformed");
+    expect(isPreviewable(status)).toBe(false);
+  });
+
+  test("a taken or reserved name is not previewed either — that address is not theirs", () => {
+    expect(
+      isPreviewable(nameStatus("seyi", { available: false, normalized: "seyi", reason: "taken" })),
+    ).toBe(false);
+    expect(
+      isPreviewable(
+        nameStatus("support", { available: false, normalized: "support", reason: "reserved" }),
+      ),
+    ).toBe(false);
+  });
+
+  test("an empty field is not previewed, so the placeholder shows", () => {
+    expect(isPreviewable(nameStatus("", undefined))).toBe(false);
+  });
+});
+
+describe("a claim the server refused", () => {
+  test("a reserved name is told it is reserved, not that it just went", () => {
+    // `createWorkspace` throws NAME_UNAVAILABLE for every refusal. Reading only
+    // the code told somebody typing @postmaster that it had been claimed while
+    // they were typing — a name nobody has ever held and nobody ever can.
+    const feedback = rejectionFeedback("reserved", "postmaster");
+    expect(feedback.tone).toBe("crit");
+    expect(feedback.message).toMatch(/reserved/i);
+    expect(feedback.message).not.toMatch(/while you were typing/i);
+  });
+
+  test("a malformed name gets the shape rule it broke", () => {
+    expect(rejectionFeedback("too_long", "x".repeat(40)).message).toMatch(/at most/i);
+    expect(rejectionFeedback("invalid_characters", "no spaces").message).toMatch(
+      /lowercase letters/i,
+    );
+  });
+
+  test("a genuinely taken name is the one refusal that is about a race", () => {
+    expect(rejectionFeedback("taken", "seyi").message).toMatch(/first come, first served/i);
+  });
+
+  test("the refusal lands in the same states the live check produces", () => {
+    // So there is one set of sentences, not two that can drift.
+    expect(statusFromRejection("taken", "seyi")).toEqual({ kind: "taken", normalized: "seyi" });
+    expect(statusFromRejection("reserved", "support")).toEqual({
+      kind: "reserved",
+      normalized: "support",
+      reason: "reserved",
+    });
+    expect(statusFromRejection("invalid_characters", "no spaces")).toEqual({
+      kind: "malformed",
+      normalized: "no spaces",
+      reason: "invalid_characters",
+    });
   });
 });

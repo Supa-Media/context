@@ -217,10 +217,18 @@ export function toFolderSpecs(rows: readonly CustomFolderRow[]): StructureFolder
     }));
 }
 
-/** The arguments for the callable that lays the structure down. */
+/**
+ * The arguments `functions/workspaces:applyStructure` actually takes.
+ *
+ * The field is `template`, not `structureTemplate`. `structureTemplate` is the
+ * column on the `workspaces` row, which the mutation *overwrites* with what it
+ * is told here; sending that key instead would be rejected by the argument
+ * validator. Normally the generated types would catch that — they cannot, while
+ * the mutation lives on a branch that has not landed, so it is written down.
+ */
 export interface ApplyStructureArgs {
   workspaceId: string;
-  structureTemplate: StructureTemplate;
+  template: StructureTemplate;
   /** Only sent for `custom`; omitted entirely for `para`. */
   folders?: StructureFolderSpec[];
 }
@@ -229,22 +237,43 @@ export interface ApplyStructureArgs {
  * Build the call.
  *
  * `folders` is **omitted** for PARA rather than sent empty, for the same reason
- * `toBindStorageArgs` omits `forcePathStyle`: an empty array is an answer
- * ("create no folders"), and PARA is not that answer. It is also omitted for a
- * custom choice with nothing filled in, which *is* that answer — so the two
- * cases are told apart by the template, not by the array.
+ * `toBindStorageArgs` omits `forcePathStyle`: PARA brings its own folders, and
+ * the mutation refuses `para` *with* a list rather than quietly dropping it.
+ * A custom choice always sends its list — this is the only path anything typed
+ * into the folder editor takes to a server, so an omission here is the whole
+ * editor doing nothing.
  */
 export function toApplyStructureArgs(
   workspaceId: string,
   template: StructureTemplate,
   rows: readonly CustomFolderRow[],
 ): ApplyStructureArgs {
-  if (template === "para") return { workspaceId, structureTemplate: "para" };
+  if (template === "para") return { workspaceId, template: "para" };
   return {
     workspaceId,
-    structureTemplate: "custom",
+    template: "custom",
     folders: toFolderSpecs(rows),
   };
+}
+
+/**
+ * Is there actually a layout to apply?
+ *
+ * "Custom with nothing typed in" is not a request the control plane accepts:
+ * `applyStructure` refuses an empty folder list with *"Name at least one
+ * folder, or choose the standard layout."* This screen used to promise the
+ * opposite — *"leave them all blank and you get just the two files"* — so
+ * following the instruction on screen earned a refusal. The button waits
+ * instead, and the copy asks for a name.
+ */
+export function canApplyStructure(
+  template: StructureTemplate,
+  rows: readonly CustomFolderRow[],
+  errors: FolderErrors,
+): boolean {
+  if (hasFolderErrors(errors)) return false;
+  if (template === "para") return true;
+  return toFolderSpecs(rows).length > 0;
 }
 
 /** A plain summary of what pressing the button will write. Not a confirmation. */
@@ -257,9 +286,9 @@ export function describeOutcome(
   }
   const count = toFolderSpecs(rows).length;
   if (count === 0) {
-    return "Just index.md and privacy.md. The shape is yours to make.";
+    return "Name at least one folder, or pick the standard layout — those are the two things this step can do.";
   }
-  return `${count} folder${count === 1 ? "" : "s"}, plus index.md and privacy.md.`;
+  return `${count} folder${count === 1 ? "" : "s"}, each with a README, plus index.md and privacy.md.`;
 }
 
 /**

@@ -4,7 +4,13 @@ import { Field } from "../../design/components/Field";
 import { FormError, TextField } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
 import { colors, leading } from "../../design/tokens";
-import { nameConsequences, nameFeedback, NAME_MAX_LENGTH } from "../name";
+import {
+  isPreviewable,
+  nameConsequences,
+  nameFeedback,
+  rejectionFeedback,
+  NAME_MAX_LENGTH,
+} from "../name";
 import type { OnboardingController } from "../useOnboarding";
 
 /**
@@ -20,11 +26,28 @@ import type { OnboardingController } from "../useOnboarding";
  * reclaim path in the control plane (issue #10), so this says so plainly and up
  * front. Finding that out later, from a support reply, is the outcome this
  * sentence exists to prevent.
+ *
+ * ## Two rules about what is shown back
+ *
+ * **A refused claim is a state of the field, not a panel below it.** The server
+ * re-checks the name inside `createWorkspace`'s transaction and can refuse for
+ * any of the reasons the live check can — reserved, malformed, genuinely taken.
+ * So the failure goes back under the field with that reason's own sentence, and
+ * the `FormError` panel is kept for the failures that are not about the name.
+ *
+ * **The consequences panel only renders a name that could be theirs.** It shows
+ * a live note path and a live capture address, and rendering those for a name
+ * the field is currently rejecting put `seyi olujide@context.lc` on screen
+ * beside an error saying that is not a valid name.
  */
 export function NameStep({ controller }: { controller: OnboardingController }) {
   const { name, setName, nameStatus: status, claiming, claimFailure } = controller;
-  const feedback = nameFeedback(status);
-  const shown = nameConsequences(status.kind === "empty" ? "" : status.normalized);
+  const rejection = claimFailure?.nameRejection;
+  const feedback =
+    rejection === undefined
+      ? nameFeedback(status)
+      : rejectionFeedback(rejection, status.kind === "empty" ? name : status.normalized);
+  const shown = nameConsequences(isPreviewable(status) ? status.normalized : "");
 
   return (
     <View>
@@ -86,7 +109,11 @@ export function NameStep({ controller }: { controller: OnboardingController }) {
         so pick one you will still want in a year.
       </Text>
 
-      {claimFailure ? (
+      {/*
+        Only the failures that are not about the name itself. A refused name is
+        already back under the field, in the feedback line, where the fix is.
+      */}
+      {claimFailure !== null && rejection === undefined ? (
         <FormError
           headline={claimFailure.headline}
           next={claimFailure.next}

@@ -5,7 +5,7 @@ import { Text } from "../design/components/Text";
 import { StageBackdrop } from "../design/components/StageBackdrop";
 import { clamp, colors, fonts, layout, leading, radii, tracking } from "../design/tokens";
 import { browseHref } from "../console/nav";
-import { STEP_LABELS, stepTitle, stepsFor, type StepKey } from "./flow";
+import { STEP_LABELS, stepTitle, stepsFor, type FlowShape, type StepKey } from "./flow";
 import { resolveWelcomeRoute } from "./route";
 import { useOnboarding } from "./useOnboarding";
 import { NameStep } from "./steps/NameStep";
@@ -69,7 +69,7 @@ export function WelcomeChrome({
   children,
 }: {
   step: StepKey;
-  shape: { storageSkipped: boolean };
+  shape: FlowShape;
   children: ReactNode;
 }) {
   const { width } = useWindowDimensions();
@@ -148,7 +148,7 @@ function StepBody({
  * skips storage. Naming the steps is both more honest and more useful — it
  * says what is coming.
  */
-function StepRail({ step, shape }: { step: StepKey; shape: { storageSkipped: boolean } }) {
+function StepRail({ step, shape }: { step: StepKey; shape: FlowShape }) {
   const steps = stepsFor(shape);
   const current = steps.indexOf(step);
 

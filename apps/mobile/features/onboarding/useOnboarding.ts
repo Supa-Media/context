@@ -6,41 +6,55 @@
  * subscriptions, the mutations, and the `useState` calls, and as little
  * judgement as possible.
  *
- * ## The one part that talks to a backend that is still landing
+ * ## The one call pinned by hand
  *
- * Laying a starting layout into a freshly-connected bucket needs a callable
- * that is being built in parallel. It is looked up **by name at runtime**,
- * exactly as `useIngestionSettings` does for `functions/ingestion`: a
- * deployment without it reports `available: false` and the step says the
- * folders can be made in the console, instead of throwing on a missing
- * function reference. The same goes for `scaffoldReason` on the storage
- * binding — an older backend simply does not send it, and `structureStepFor`
- * treats that as "ask".
+ * `applyStructure` is named as a string rather than reached through the
+ * generated `api`, because the mutation lands in a parallel branch (#21) and
+ * this branch's `_generated/api.d.ts` does not know about it yet.
+ *
+ * It is a **pinned name**, not a search. There was a `findApplyStructure()`
+ * here that walked `Object.values(api.functions)` looking for a callable with
+ * one of several plausible names, so that a deployment without it could report
+ * `structureAvailable: false`. It could never report anything else. `api` is
+ * `anyApi` — a `Proxy` with a `get` trap and nothing else, no `ownKeys`, no
+ * `getOwnPropertyDescriptor` — so enumeration falls through to the empty target
+ * and `Object.values(api.functions)` is `[]` on every deployment that has ever
+ * existed. The lookup returned `undefined` every single time, and the "Create
+ * these" button silently advanced to the last screen without writing anything.
+ * A probe whose negative answer is the only answer it can give is not a probe;
+ * this is the same shape of bug as issue #16.
+ *
+ * So there is no probe now. The name is pinned, the call is made, and a
+ * deployment that does not have it fails the way any other missing function
+ * fails — loudly, into `describeStructureFailure`, which is already written to
+ * say that the context and the bucket are fine and folders can be made in the
+ * console. When #21 lands, this becomes `api.functions.workspaces.applyStructure`
+ * and the type declaration below goes away.
+ *
+ * `scaffoldReason` on the storage binding is the other half-landed field, and
+ * that one genuinely is optional: an older backend does not send it, and
+ * `structureStepFor` treats absence as "ask".
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  useAction,
-  useConvex,
-  useMutation,
-  useQueries,
-  useQuery,
-  type RequestForQueries,
-} from "convex/react";
-import type { FunctionReference } from "convex/server";
+import { useAction, useMutation, useQueries, useQuery, type RequestForQueries } from "convex/react";
+import { makeFunctionReference } from "convex/server";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
+import { EMPTY_QUERY_SPEC } from "../console/querySpec";
 import { toBindStorageArgs, type ConnectFormValues, type Provider } from "../console/storage/connect";
 import { describeCreateFailure, describeStructureFailure, type CreateFailure } from "./errors";
-import { afterStorage, type FlowShape, type StepKey } from "./flow";
+import { afterStorage, type FlowShape, type StepKey, type StorageOutcome } from "./flow";
 import { canClaim, nameStatus, normalizedName, shouldCheckAvailability, type NameAvailability, type NameStatus } from "./name";
 import {
+  canApplyStructure,
   emptyCustomFolders,
   structureStepFor,
   toApplyStructureArgs,
   validateCustomFolders,
   type CustomFolderRow,
   type FolderErrors,
+  type StructureFolderSpec,
   type StructureStep,
   type StructureTemplate,
 } from "./structure";
@@ -51,37 +65,26 @@ import {
   type WatchedBinding,
 } from "./verify";
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-type AnyRef = FunctionReference<any, any, any, any>;
-
 /**
- * The callable that lays a layout into an empty bucket.
+ * `functions/workspaces:applyStructure`, by name.
  *
- * Searched for by name across the deployment's modules rather than pinned to
- * one, because it is being added in parallel and its home is not settled. A
- * miss is a supported state, not an error.
+ * Hand-declared only because the generated types for it live on an unmerged
+ * branch. The argument shape is copied from that mutation's validator: the
+ * template field is `template` (`structureTemplate` is the column it writes,
+ * not the argument it takes), and `folders` is required for `custom` and
+ * refused for `para`.
  */
-const APPLY_STRUCTURE_NAMES = [
-  "applyStructure",
-  "applyStructureTemplate",
-  "applyLayout",
-  "scaffoldStructure",
-];
+export const APPLY_STRUCTURE = "functions/workspaces:applyStructure";
 
-function findApplyStructure(): AnyRef | undefined {
-  const modules = api.functions as unknown as Record<
-    string,
-    Record<string, AnyRef | undefined> | undefined
-  >;
-  for (const module of Object.values(modules)) {
-    if (module === undefined || module === null) continue;
-    for (const name of APPLY_STRUCTURE_NAMES) {
-      const ref = module[name];
-      if (ref !== undefined) return ref;
-    }
-  }
-  return undefined;
-}
+const applyStructureRef = makeFunctionReference<
+  "mutation",
+  {
+    workspaceId: Id<"workspaces">;
+    template: StructureTemplate;
+    folders?: StructureFolderSpec[];
+  },
+  { queued: boolean; template: string; folders: string[] }
+>(APPLY_STRUCTURE);
 
 /** Convex hands back `undefined` while loading and an `Error` when a query throws. */
 function usable<T>(value: unknown): T | undefined {
@@ -114,7 +117,12 @@ export interface OnboardingController {
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   connectState: ConnectState;
   skipStorage: () => void;
-  /** Move on with a binding that failed or timed out. */
+  /**
+   * Move on with a binding that failed or timed out.
+   *
+   * Not the same as connecting one. See `StorageOutcome`: this ends the run in
+   * `unverified`, which skips the layout step and warns on the way out.
+   */
   continuePastStorage: () => void;
 
   // ── Step 3 ────────────────────────────────────────────────────────────────
@@ -126,22 +134,24 @@ export interface OnboardingController {
   folderErrors: FolderErrors;
   applying: boolean;
   structureFailure: CreateFailure | null;
-  /** False when this deployment has no callable for it yet. */
-  structureAvailable: boolean;
+  /** False while there is nothing this button could legally send. */
+  canApply: boolean;
   applyStructure: () => Promise<void>;
   skipStructure: () => void;
 }
 
 export function useOnboarding(): OnboardingController {
-  const convex = useConvex();
-
   const workspaces = useQuery(api.functions.workspaces.listMyWorkspaces) as
     | Array<{ workspaceId: Id<"workspaces">; slug: string }>
     | undefined;
 
   const [step, setStep] = useState<StepKey>("name");
   const [claimed, setClaimed] = useState<ClaimedContext | null>(null);
-  const [storageSkipped, setStorageSkipped] = useState(false);
+  // Starts at `connected` because that is the run the step rail should draw
+  // before anything has gone wrong: the full four steps. It is only ever
+  // narrowed, by an explicit choice on the storage step, and every path off
+  // that step sets it.
+  const [storage, setStorage] = useState<StorageOutcome>("connected");
 
   // ── Step 1 ──────────────────────────────────────────────────────────────────
   const [name, setNameRaw] = useState("");
@@ -154,8 +164,10 @@ export function useOnboarding(): OnboardingController {
   // Keyed on the normalized name, so an answer for a name that is no longer in
   // the field can never be applied to the one that is.
   const availabilitySpec = useMemo<RequestForQueries>(() => {
-    const empty: RequestForQueries = {};
-    if (!shouldCheckAvailability(name)) return empty;
+    // The shared frozen object, not a fresh `{}`. See `console/querySpec.ts`:
+    // a new identity makes `useSubscription` set state during render and tear
+    // the observer down and back up — once per keystroke, here.
+    if (!shouldCheckAvailability(name)) return EMPTY_QUERY_SPEC;
     return {
       availability: {
         query: api.functions.names.checkNameAvailable,
@@ -189,9 +201,15 @@ export function useOnboarding(): OnboardingController {
         // renames it without touching the claim.
         displayName: status.normalized,
         kind: "personal",
-        // The layout is chosen after the bucket is scanned, so nothing is
-        // decided here. See the note in `WelcomeScreen`.
-        structureTemplate: "custom",
+        // `structureTemplate` is deliberately **not** sent.
+        //
+        // It used to be sent as `"custom"`, under a comment saying nothing was
+        // decided here. Passing a value *is* the decision — it is the field the
+        // scaffolder reads — and it was made two screens before the person was
+        // shown the choice, then told they would get five PARA folders. They
+        // would have got none. The argument is optional; the layout travels
+        // with `applyStructure`, which overwrites this column with what was
+        // actually picked.
       });
       setClaimed({ workspaceId: result.workspaceId, slug: result.slug });
       setStep("storage");
@@ -208,8 +226,8 @@ export function useOnboarding(): OnboardingController {
   const [timedOut, setTimedOut] = useState(false);
 
   const bindingSpec = useMemo<RequestForQueries>(() => {
-    const empty: RequestForQueries = {};
-    if (claimed === null) return empty;
+    // Shared and frozen, for `console/querySpec.ts`'s reason.
+    if (claimed === null) return EMPTY_QUERY_SPEC;
     return {
       binding: {
         query: api.functions.storage.getStorageBinding,
@@ -278,12 +296,23 @@ export function useOnboarding(): OnboardingController {
   }, [clearTimer, connectState.kind, step]);
 
   const skipStorage = useCallback(() => {
-    setStorageSkipped(true);
+    setStorage("skipped");
     setStep(afterStorage("skipped"));
   }, []);
 
+  /**
+   * "Carry on anyway", after a probe that failed or never answered.
+   *
+   * This is emphatically **not** `connected`. The button only exists in those
+   * two states, and in both of them nobody has looked inside the bucket: it
+   * could be empty, or it could be a vault somebody has been writing to for
+   * years. Recording it as connected — which is what this used to do — handed
+   * the person the layout step, which opens with "Your bucket is empty, so here
+   * is a starting shape", and left the last screen with no warning on it at all.
+   */
   const continuePastStorage = useCallback(() => {
-    setStep(afterStorage("connected"));
+    setStorage("unverified");
+    setStep(afterStorage("unverified"));
   }, []);
 
   // ── Step 3 ──────────────────────────────────────────────────────────────────
@@ -292,7 +321,7 @@ export function useOnboarding(): OnboardingController {
   const [folders, setFolders] = useState<CustomFolderRow[]>(emptyCustomFolders());
   const [applying, setApplying] = useState(false);
   const [structureFailure, setStructureFailure] = useState<CreateFailure | null>(null);
-  const applyRef = useMemo(() => findApplyStructure(), []);
+  const applyStructureMutation = useMutation(applyStructureRef);
 
   const folderErrors = validateCustomFolders(folders);
 
@@ -300,28 +329,25 @@ export function useOnboarding(): OnboardingController {
 
   const applyStructure = useCallback(async () => {
     if (claimed === null || applying) return;
-    if (applyRef === undefined) {
-      setStep("done");
-      return;
-    }
+    if (!canApplyStructure(template, folders, folderErrors)) return;
     setApplying(true);
     setStructureFailure(null);
     try {
-      await convex.action(
-        applyRef,
-        toApplyStructureArgs(claimed.workspaceId, template, folders) as never,
-      );
+      // The chosen template and the folders typed on this screen, sent as they
+      // were chosen and typed. There is no other path out of the editor.
+      const args = toApplyStructureArgs(claimed.workspaceId, template, folders);
+      await applyStructureMutation({ ...args, workspaceId: claimed.workspaceId });
       setStep("done");
     } catch (error) {
       setStructureFailure(describeStructureFailure(error));
     } finally {
       setApplying(false);
     }
-  }, [applyRef, applying, claimed, convex, folders, template]);
+  }, [applyStructureMutation, applying, claimed, folderErrors, folders, template]);
 
   return {
     step,
-    shape: { storageSkipped },
+    shape: { storage },
     contextCount: workspaces === undefined ? undefined : workspaces.length,
     claimed,
 
@@ -346,7 +372,7 @@ export function useOnboarding(): OnboardingController {
     folderErrors,
     applying,
     structureFailure,
-    structureAvailable: applyRef !== undefined,
+    canApply: canApplyStructure(template, folders, folderErrors) && !applying,
     applyStructure,
     skipStructure,
   };

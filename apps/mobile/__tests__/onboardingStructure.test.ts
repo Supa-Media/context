@@ -4,6 +4,7 @@ import {
   MAX_CUSTOM_FOLDERS,
   addFolderRow,
   canAddFolderRow,
+  canApplyStructure,
   describeOutcome,
   emptyCustomFolders,
   hasFolderErrors,
@@ -134,13 +135,25 @@ describe("editing the rows", () => {
 
 describe("the call", () => {
   test("PARA omits the folder list rather than sending an empty one", () => {
-    // An empty array is an answer — "create no folders" — and PARA is not it.
+    // PARA brings its own folders, and the mutation refuses `para` *with* a
+    // list rather than quietly dropping it.
     const args = toApplyStructureArgs("w1", "para", rows("ignored"));
-    expect(args).toEqual({ workspaceId: "w1", structureTemplate: "para" });
+    expect(args).toEqual({ workspaceId: "w1", template: "para" });
     expect("folders" in args).toBe(false);
   });
 
+  test("the template travels as `template`, which is the argument the mutation takes", () => {
+    // `structureTemplate` is the column `applyStructure` *writes*, not the
+    // argument it accepts — that key is rejected by the argument validator.
+    expect("structureTemplate" in toApplyStructureArgs("w1", "para", [])).toBe(false);
+    expect("structureTemplate" in toApplyStructureArgs("w1", "custom", rows("notes"))).toBe(
+      false,
+    );
+  });
+
   test("custom sends what was filled in", () => {
+    // This is the only path anything typed into the folder editor takes to a
+    // server. If it does not appear here, the editor does nothing at all.
     expect(
       toApplyStructureArgs("w1", "custom", [
         { name: "notes", description: "everything I write" },
@@ -148,17 +161,31 @@ describe("the call", () => {
       ]),
     ).toEqual({
       workspaceId: "w1",
-      structureTemplate: "custom",
+      template: "custom",
       folders: [{ folder: "notes", description: "everything I write" }],
     });
   });
+});
 
-  test("custom with nothing filled in sends an empty list, which is the answer", () => {
-    expect(toApplyStructureArgs("w1", "custom", emptyCustomFolders())).toEqual({
-      workspaceId: "w1",
-      structureTemplate: "custom",
-      folders: [],
-    });
+describe("whether there is anything to send", () => {
+  test("PARA is always ready", () => {
+    expect(canApplyStructure("para", emptyCustomFolders(), {})).toBe(true);
+  });
+
+  test("custom with a folder is ready", () => {
+    expect(canApplyStructure("custom", rows("notes"), {})).toBe(true);
+  });
+
+  test("custom with nothing typed is not — the control plane refuses that", () => {
+    // `applyStructure`: "Name at least one folder, or choose the standard
+    // layout." The screen used to promise the opposite, so following the
+    // instruction on it earned a refusal.
+    expect(canApplyStructure("custom", emptyCustomFolders(), {})).toBe(false);
+  });
+
+  test("a row with an error holds the button", () => {
+    const bad = rows("work/clients");
+    expect(canApplyStructure("custom", bad, validateCustomFolders(bad))).toBe(false);
   });
 });
 
@@ -172,7 +199,9 @@ describe("what it says it will do", () => {
     expect(describeOutcome("custom", rows("a", "b"))).toMatch(/\b2 folders\b/);
   });
 
-  test("custom with no folders is honest about writing almost nothing", () => {
-    expect(describeOutcome("custom", emptyCustomFolders())).toMatch(/index\.md and privacy\.md/);
+  test("custom with no folders asks for one rather than promising two files", () => {
+    // The old sentence — "just index.md and privacy.md" — described a request
+    // the control plane refuses outright.
+    expect(describeOutcome("custom", emptyCustomFolders())).toMatch(/at least one folder/i);
   });
 });

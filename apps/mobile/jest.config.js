@@ -7,10 +7,15 @@
  *    (routing conflicts, web bundle safety, React resolution, native imports).
  *  - `*.test.ts` — unit tests for the parts of the app that are real logic:
  *    map layout maths, the copy-to-clipboard state machine, auth redirect
- *    rules, and console formatting. Every module under test is deliberately
- *    free of React and React Native imports, so it needs neither a renderer nor
- *    native mocks — which is why there is no `jest-expo` preset here and no new
- *    dependency to add one.
+ *    rules, and console formatting. Most modules under test are deliberately
+ *    free of React and React Native imports, so they need neither a renderer
+ *    nor native mocks — which is why there is no `jest-expo` preset here and no
+ *    new dependency to add one.
+ *  - a few `@jest-environment jsdom` files that mount real components and
+ *    hooks, because some bugs are only visible to a reconciler: a render-phase
+ *    `setState` loop, a query that throws during render, a button whose handler
+ *    never reaches the client. See `consoleRenderLoop.test.ts` for why a
+ *    string renderer cannot catch those.
  */
 module.exports = {
   testEnvironment: "node",
@@ -24,4 +29,11 @@ module.exports = {
   // `expo` package itself through the transform is the same fix `jest-expo`
   // applies; everything else in node_modules stays untouched.
   transformIgnorePatterns: ["/node_modules/(?!(\\.pnpm/)?expo(@|/))"],
+  // Render React Native components as `react-native-web` does, which is how
+  // this app already ships to the browser. It costs no new dependency and no
+  // native mocks: `react-native-web`'s `main` is a CommonJS build, so it needs
+  // no transform, and it renders real DOM with the real text in it — which is
+  // what lets a test assert that a screen does *not* show somebody a capture
+  // address for a name the field is rejecting.
+  moduleNameMapper: { "^react-native$": "react-native-web" },
 };

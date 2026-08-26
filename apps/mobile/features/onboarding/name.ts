@@ -182,6 +182,50 @@ export function nameFeedback(status: NameStatus): NameFeedback | null {
 }
 
 /**
+ * The status a server-side rejection puts the field back into.
+ *
+ * `createWorkspace` re-checks inside its own transaction and throws
+ * `nameRejectionError(normalized, reason)` — drawn from the *same* closed
+ * vocabulary `checkNameAvailable` returns. So a refused claim is not a separate
+ * kind of failure needing its own copy: it is one of the field's own states,
+ * arriving a moment later, and it deserves the sentence that state already has.
+ * Before this, every refusal said "somebody claimed it while you were typing",
+ * including `@postmaster` — which nobody has ever claimed and nobody ever can.
+ */
+export function statusFromRejection(reason: NameRejection, normalized: string): NameStatus {
+  if (reason === "taken") return { kind: "taken", normalized };
+  return isReservedReason(reason)
+    ? { kind: "reserved", normalized, reason }
+    : { kind: "malformed", normalized, reason };
+}
+
+/** The sentence to put back under the field when a claim is refused. */
+export function rejectionFeedback(reason: NameRejection, normalized: string): NameFeedback {
+  // Only `empty` has no feedback, and `statusFromRejection` cannot return it.
+  return nameFeedback(statusFromRejection(reason, normalized)) as NameFeedback;
+}
+
+/**
+ * Whether to show the name back to somebody as the thing it is about to become.
+ *
+ * Only for a name that could actually be theirs. The panel under the field
+ * renders a live note path and a live capture address, and doing that for a
+ * malformed name produced `seyi olujide@context.lc` sitting directly beside an
+ * error saying that is not a valid name — an address that cannot exist,
+ * displayed as though it were one keystroke away. A taken or reserved name is
+ * the same problem in a suit: that address is somebody else's, or ours.
+ *
+ * `checking` counts as previewable. It is well formed and, as far as anyone
+ * here knows, free — and the panel filling in as you type is the whole point of
+ * the panel.
+ */
+export function isPreviewable(
+  status: NameStatus,
+): status is Extract<NameStatus, { kind: "available" | "checking" }> {
+  return status.kind === "available" || status.kind === "checking";
+}
+
+/**
  * The three things the name becomes, ready to render.
  *
  * Kept here rather than inline in the component so the examples cannot drift

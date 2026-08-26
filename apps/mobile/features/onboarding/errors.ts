@@ -8,15 +8,23 @@
  * threw it.
  *
  * The one case that is not just copy is `NAME_UNAVAILABLE`. It carries a
- * `reason` from the same vocabulary `checkNameAvailable` returns, and it means
- * the name went between the availability check and the claim — so the flow has
- * to put somebody back on the name field with the right sentence rather than
- * showing a dead end. `createWorkspace` re-checks inside its transaction, which
- * is what makes that race real and narrow.
+ * `reason` from the same vocabulary `checkNameAvailable` returns, and
+ * `NameStep` uses it to put somebody back on the field with the sentence for
+ * *that* reason — see `nameRejection` below.
+ *
+ * ## Why the reason has to be read
+ *
+ * `createWorkspace` throws `NAME_UNAVAILABLE` for **every** refusal, not just a
+ * lost race: reserved, too long, bad characters, the punycode-shaped forms.
+ * Treating the code alone as "somebody beat you to it" told a person typing
+ * `@postmaster` that it had just been claimed while they were typing — a name
+ * nobody has ever held and nobody ever can. The reason is the difference
+ * between an accurate sentence and a fabricated one, so it is not optional
+ * decoration on this type.
  */
 
 import { convexErrorParts } from "../console/storage/errors";
-import type { NameRejection } from "@context/convex/functions/lib/names";
+import { describeRejection, type NameRejection } from "@context/convex/functions/lib/names";
 
 export interface CreateFailure {
   headline: string;
@@ -65,16 +73,40 @@ function rejectionFrom(error: unknown): NameRejection | undefined {
   }
 }
 
+/**
+ * The headline for a refused name, by reason.
+ *
+ * Only `taken` is a race. The rest are properties of the name itself and were
+ * true before the person pressed anything, so the copy says what is wrong
+ * rather than inventing a rival claimant. The detail sentence comes from
+ * `describeRejection`, which is the control plane's own wording — one copy of
+ * these rules, in the module that enforces them.
+ */
+function nameFailureCopy(reason: NameRejection): { headline: string; next: string } {
+  switch (reason) {
+    case "taken":
+      return {
+        headline: "That name just went",
+        next: "Somebody claimed it while you were typing. Pick another one.",
+      };
+    case "reserved":
+    case "reserved_label_form":
+      return { headline: "That name is reserved", next: describeRejection(reason) };
+    default:
+      return { headline: "That name won't work", next: describeRejection(reason) };
+  }
+}
+
 /** Describe a failed `createWorkspace`. */
 export function describeCreateFailure(error: unknown): CreateFailure {
   const { code, message } = convexErrorParts(error);
 
   if (code === "NAME_UNAVAILABLE") {
-    return {
-      headline: "That name just went",
-      next: "Somebody claimed it while you were typing. Pick another one.",
-      nameRejection: rejectionFrom(error) ?? "taken",
-    };
+    // Absent only from a backend older than the reason field. "Taken" is the
+    // right guess there: it is the one refusal the local checks cannot predict,
+    // so it is overwhelmingly the one that reaches here.
+    const reason = rejectionFrom(error) ?? "taken";
+    return { ...nameFailureCopy(reason), nameRejection: reason };
   }
 
   const known = code === undefined ? undefined : BY_CODE[code];

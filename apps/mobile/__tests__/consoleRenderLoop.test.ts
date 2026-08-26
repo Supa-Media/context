@@ -9,6 +9,11 @@ import { ConvexProvider } from "convex/react";
 import { useIngestionSettings } from "../features/console/ingestion/useIngestionSettings";
 import { useReverify } from "../features/console/storage/useReverify";
 
+// React only treats `act` as authoritative when this is set, and warns loudly on
+// every call when it is not. Setting it keeps the suite's output readable and
+// makes an update outside `act` a signal rather than background noise.
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
 /**
  * The blank-white-page guard.
  *

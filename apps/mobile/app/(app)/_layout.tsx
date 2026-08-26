@@ -23,14 +23,30 @@ import { needsOnboarding } from "../../features/onboarding/route";
  * thrown into onboarding on a cold load. It also never redirects away from
  * `/welcome` — the flow's own gate owns that, because only it knows whether a
  * name was claimed in this session. See `features/onboarding/route.ts`.
+ *
+ * ## Why the query is skipped rather than merely ignored
+ *
+ * This asked for `listMyWorkspaces` unconditionally, above both gates, on the
+ * reasoning that a subscription nobody reads is harmless. It is not.
+ * `listMyWorkspaces` calls `requireAuth`, so it **throws** `NOT_AUTHENTICATED`
+ * for a client that has no identity yet — and `useQuery` re-throws a failed
+ * query *during render*. On a cold start the socket connects before the token
+ * comes back out of SecureStore, so the subscription goes out unauthenticated
+ * and the error lands in the render phase of the layout that was about to
+ * redirect to `/login`. There is no ErrorBoundary above this; the app shows
+ * expo-router's crash screen instead of the sign-in page.
+ *
+ * `"skip"` is the fix, and it is still an unconditional hook call: `useQuery`
+ * takes the skip sentinel as an argument and reduces to an empty `useQueries`
+ * spec, so hook order does not move.
  */
 export default function AppLayout() {
   const decision = resolveProtectedRoute(useConvexAuth());
   const pathname = usePathname();
-  // Hook order is fixed, so this runs even on the renders where the auth gate
-  // is about to redirect. Convex tolerates a subscription nobody reads; a
-  // conditional hook would be a crash.
-  const workspaces = useQuery(api.functions.workspaces.listMyWorkspaces);
+  const workspaces = useQuery(
+    api.functions.workspaces.listMyWorkspaces,
+    decision.action === "render" ? {} : "skip",
+  );
 
   if (decision.action === "wait") return null;
   if (decision.action === "redirect") return <Redirect href={decision.href} />;

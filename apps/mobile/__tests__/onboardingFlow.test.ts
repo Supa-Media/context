@@ -6,6 +6,7 @@ import {
   stepProgress,
   stepTitle,
   stepsFor,
+  storageWarning,
   type StepKey,
 } from "../features/onboarding/flow";
 import {
@@ -15,7 +16,7 @@ import {
 
 describe("the shape of the run", () => {
   test("connecting a bucket gets you the layout step", () => {
-    expect(stepsFor({ storageSkipped: false })).toEqual([
+    expect(stepsFor({ storage: "connected" })).toEqual([
       "name",
       "storage",
       "structure",
@@ -24,12 +25,41 @@ describe("the shape of the run", () => {
   });
 
   test("skipping storage drops the layout step, because there is nowhere to put it", () => {
-    expect(stepsFor({ storageSkipped: true })).toEqual(["name", "storage", "done"]);
+    expect(stepsFor({ storage: "skipped" })).toEqual(["name", "storage", "done"]);
   });
 
   test("the storage step hands off differently depending on what happened", () => {
     expect(afterStorage("connected")).toBe("structure");
     expect(afterStorage("skipped")).toBe("done");
+  });
+
+  test("carrying on past a probe we never got an answer from drops the layout step", () => {
+    // The layout step opens with "Your bucket is empty, so here is a starting
+    // shape". Nobody has looked in this bucket. It might be a live vault.
+    expect(stepsFor({ storage: "unverified" })).toEqual(["name", "storage", "done"]);
+    expect(afterStorage("unverified")).toBe("done");
+  });
+});
+
+describe("what the last screen says about the bucket", () => {
+  test("a verified bucket gets no warning", () => {
+    expect(storageWarning({ storage: "connected" })).toBeNull();
+  });
+
+  test("skipping is warned about, because there is nowhere to keep notes", () => {
+    const warning = storageWarning({ storage: "skipped" });
+    expect(warning).toMatch(/no bucket is connected/i);
+  });
+
+  test("a bucket we could not check is warned about too, and does not claim we looked", () => {
+    // The regression this exists for: "Carry on anyway" was recorded as
+    // "connected", so the one person who most needed this warning was the one
+    // person who never saw it.
+    const warning = storageWarning({ storage: "unverified" });
+    expect(warning).not.toBeNull();
+    expect(warning).toMatch(/could not confirm/i);
+    expect(warning).toMatch(/never looked inside it/i);
+    expect(warning).toMatch(/nothing has been written to it/i);
   });
 
   test("every step has a label and a title", () => {
@@ -43,17 +73,17 @@ describe("the shape of the run", () => {
 
 describe("the progress indicator", () => {
   test("counts the run you are actually in", () => {
-    expect(stepProgress("name", { storageSkipped: false })).toEqual({ index: 1, total: 4 });
-    expect(stepProgress("done", { storageSkipped: false })).toEqual({ index: 4, total: 4 });
+    expect(stepProgress("name", { storage: "connected" })).toEqual({ index: 1, total: 4 });
+    expect(stepProgress("done", { storage: "connected" })).toEqual({ index: 4, total: 4 });
   });
 
   test("shrinks when the layout step is not going to happen", () => {
     // Better than showing "3 of 4" for a step that is the last one.
-    expect(stepProgress("done", { storageSkipped: true })).toEqual({ index: 3, total: 3 });
+    expect(stepProgress("done", { storage: "skipped" })).toEqual({ index: 3, total: 3 });
   });
 
   test("a step this run does not contain has no number", () => {
-    expect(stepProgress("structure", { storageSkipped: true })).toBeNull();
+    expect(stepProgress("structure", { storage: "skipped" })).toBeNull();
   });
 });
 
@@ -73,6 +103,27 @@ describe("a claim that fails", () => {
       new ConvexError({ code: "NAME_UNAVAILABLE", reason: "reserved", message: "reserved" }),
     );
     expect(failure.nameRejection).toBe("reserved");
+  });
+
+  test("a reserved name is not described as a race it never lost", () => {
+    // `createWorkspace` throws NAME_UNAVAILABLE for every refusal — reserved,
+    // too long, bad characters. Branching on the code alone told somebody
+    // typing @postmaster that it had gone while they were typing.
+    const failure = describeCreateFailure(
+      new ConvexError({ code: "NAME_UNAVAILABLE", reason: "reserved", message: "reserved" }),
+    );
+    expect(failure.headline).toMatch(/reserved/i);
+    expect(failure.headline).not.toMatch(/just went/i);
+    expect(failure.next).not.toMatch(/while you were typing/i);
+  });
+
+  test("a malformed name is told what is wrong with it", () => {
+    const failure = describeCreateFailure(
+      new ConvexError({ code: "NAME_UNAVAILABLE", reason: "too_long", message: "too long" }),
+    );
+    expect(failure.nameRejection).toBe("too_long");
+    expect(failure.next).toMatch(/at most/i);
+    expect(failure.headline).not.toMatch(/just went/i);
   });
 
   test("an unavailable name with no reason at all still returns to the field", () => {

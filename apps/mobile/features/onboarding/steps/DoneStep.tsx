@@ -6,6 +6,7 @@ import { Notice } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
 import { colors, leading } from "../../design/tokens";
 import { MCP_ENDPOINT, placeholderIngestionAddress } from "../../console/placeholderData";
+import { storageWarning } from "../flow";
 import type { OnboardingController } from "../useOnboarding";
 
 /**
@@ -15,6 +16,12 @@ import type { OnboardingController } from "../useOnboarding";
  * tour, and everything here is discoverable in the console anyway. What they
  * cannot discover is the endpoint — it is the whole point of the product and it
  * is not written down anywhere else — so that goes first, with a copy button.
+ *
+ * The one thing this screen has to be careful about is the bucket. It is the
+ * last screen of the run, so a context that has nowhere to keep notes has to
+ * say so here or not at all — and the person who most needs telling is the one
+ * whose bucket check *failed*, which this used to be silent about.
+ * `storageWarning` owns that sentence; see `flow.ts`.
  */
 export function DoneStep({
   controller,
@@ -24,7 +31,7 @@ export function DoneStep({
   onOpenConsole: () => void;
 }) {
   const slug = controller.claimed?.slug ?? "you";
-  const skipped = controller.shape.storageSkipped;
+  const warning = storageWarning(controller.shape);
 
   return (
     <View>
@@ -58,11 +65,10 @@ export function DoneStep({
         it — it starts closed, with just your own account email.
       </Text>
 
-      {skipped ? (
+      {warning !== null ? (
         <Notice tone="warn" style={styles.warning}>
-          <Text variant="check" role="status" style={styles.warnText}>
-            No bucket is connected yet, so there is nowhere to keep notes. The console shows
-            this at the top of your context, with the connect form behind it.
+          <Text variant="check" role="status" style={styles.warnText} testID="welcome-storage-warning">
+            {warning}
           </Text>
         </Notice>
       ) : null}

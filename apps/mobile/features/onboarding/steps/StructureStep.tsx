@@ -82,7 +82,7 @@ function ExistingContext({ controller }: { controller: OnboardingController }) {
 
 /** The bucket is empty. Offer a shape. */
 function ChooseLayout({ controller }: { controller: OnboardingController }) {
-  const { template, folders, folderErrors, applying, structureFailure } = controller;
+  const { template, folders, applying, structureFailure } = controller;
 
   return (
     <View>
@@ -132,7 +132,7 @@ function ChooseLayout({ controller }: { controller: OnboardingController }) {
         <Button
           label={applying ? "Creating…" : "Create these"}
           variant="white"
-          disabled={applying || Object.keys(folderErrors).length > 0}
+          disabled={!controller.canApply}
           onPress={() => void controller.applyStructure()}
           trailing={applying ? <ActivityIndicator color={colors.ink} size="small" /> : null}
           testID="welcome-structure-submit"
@@ -149,13 +149,6 @@ function ChooseLayout({ controller }: { controller: OnboardingController }) {
       <Text variant="foot" style={styles.outcome}>
         {describeOutcome(template, folders)}
       </Text>
-
-      {controller.structureAvailable ? null : (
-        <Text variant="foot" style={styles.note}>
-          This deployment cannot lay folders down from here yet — continuing will take you to
-          the console, where you can make them in a click.
-        </Text>
-      )}
     </View>
   );
 }
@@ -252,7 +245,7 @@ function CustomFolders({ controller }: { controller: OnboardingController }) {
           testID="welcome-folder-add"
         />
         <Text variant="foot" style={styles.addNote}>
-          Leave them all blank and you get just the two files — the shape is yours to make.
+          Name at least one — three is plenty to start with, and the console adds the rest.
         </Text>
       </View>
     </View>
