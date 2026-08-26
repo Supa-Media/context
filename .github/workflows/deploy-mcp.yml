@@ -133,10 +133,12 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GATEWAY_SECRET: ${{ secrets.GATEWAY_SECRET }}
+          CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
         run: |
           set -euo pipefail
           missing=0
-          for var in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+          for var in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID GATEWAY_SECRET CONTROL_PLANE_URL; do
             if [ -z "${!var:-}" ]; then
               echo "ERROR: missing required secret '$var' in the 'production' environment."
               missing=1
@@ -189,6 +191,29 @@ jobs:
         run: pnpm install --filter "./apps/mcp..." --frozen-lockfile
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Push the Worker's secrets from GitHub on every deploy, so the live
+      # gateway is reproducible from this repository rather than from whatever
+      # somebody once typed at a terminal. `wrangler secret put` is idempotent
+      # and reads the value from stdin, so nothing is ever placed on a command
+      # line or in a log.
+      #
+      # GATEWAY_SECRET must be the same value the control plane holds — it is
+      # what proves "this caller is the gateway" — so it lives in one place,
+      # GitHub, and is pushed to both sides from there.
+      - name: Sync the gateway's secrets
+        if: steps.config.outputs.found == 'true'
+        working-directory: apps/mcp
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GATEWAY_SECRET: ${{ secrets.GATEWAY_SECRET }}
+          CONTROL_PLANE_URL: ${{ secrets.CONTROL_PLANE_URL }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GATEWAY_SECRET" | pnpm exec wrangler secret put GATEWAY_SECRET --config "$MCP_WRANGLER_CONFIG"
+          printf '%s' "$CONTROL_PLANE_URL" | pnpm exec wrangler secret put CONTROL_PLANE_URL --config "$MCP_WRANGLER_CONFIG"
+          echo "OK — the Worker's secrets match this repository's."
 
       - name: Deploy gateway
         if: steps.config.outputs.found == 'true'
