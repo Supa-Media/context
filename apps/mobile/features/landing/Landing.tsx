@@ -148,10 +148,12 @@ export function Landing() {
                 variant="white"
                 onPress={() => router.push(landingCtaHref(auth))}
                 testID="landing-cta"
+                style={styles.actionItem}
               />
               <Button
                 label="Read the architecture"
                 variant="ghost"
+                style={styles.actionItem}
                 onPress={() => {
                   void Linking.openURL(ARCHITECTURE_URL);
                 }}
@@ -285,6 +287,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 18,
   },
+  /**
+   * Each action is centred explicitly, because `alignItems: "center"` above is
+   * not enough on its own.
+   *
+   * `Button`'s base style sets `alignSelf: "flex-start"` so a button never
+   * stretches to fill its container. That is a fine default, and invisible in a
+   * *row*, where `alignSelf` governs the vertical axis. This column is where it
+   * bites: the same property now means "hug the left edge", and a child's
+   * `alignSelf` beats the parent's `alignItems`. The column is only as wide as
+   * its widest child, so the CTA looked correct and the narrower ghost link sat
+   * 44px left of centre — at every screen size, not just on a phone.
+   *
+   * Centring here rather than deleting the default from every Button in the
+   * app: a child should not decide how its parent aligns it, but the blast
+   * radius of changing that default is the whole design system.
+   */
+  actionItem: { alignSelf: "center" },
   arrow: { fontSize: 12, opacity: 0.65 },
   alsoTarget: {
     color: colors.text2,
