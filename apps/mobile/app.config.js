@@ -1,4 +1,7 @@
 /** @type {import('expo/config').ExpoConfig} */
+/** The EAS project. `updates.url` is derived from it so they cannot drift. */
+const PROJECT_ID = "cf13cf3d-0868-4463-b045-d7c805ea0bf7";
+
 module.exports = ({ config }) => ({
   ...config,
   name: "Context",
@@ -43,7 +46,7 @@ module.exports = ({ config }) => ({
   ],
   extra: {
     eas: {
-      projectId: "cf13cf3d-0868-4463-b045-d7c805ea0bf7",
+      projectId: PROJECT_ID,
     },
     router: {
       origin: false,
@@ -54,6 +57,11 @@ module.exports = ({ config }) => ({
     policy: "appVersion",
   },
   updates: {
-    url: `https://u.expo.dev/YOUR_EAS_PROJECT_ID`,
+    // Built from the real projectId above rather than repeated, so the two can
+    // never drift. The placeholder that used to sit here made every `eas
+    // update` fail ("Add the following EAS Update key-values to the project
+    // app.config.js"), so OTA updates have never shipped — and the string was
+    // public in an open-source repo.
+    url: `https://u.expo.dev/${PROJECT_ID}`,
   },
 });
