@@ -6,7 +6,12 @@ import { Hint } from "../../design/components/Field";
 import { ChoiceGroup, FormError, TextField } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
 import { colors, leading } from "../../design/tokens";
-import { describeThrownStorageError, type StorageFailure } from "./errors";
+import {
+  STORAGE_TIMEOUT_FAILURE,
+  describeThrownStorageError,
+  type StorageFailure,
+} from "./errors";
+import { CONNECT_TIMEOUT_MS, raceTimeout } from "./timeout";
 import {
   ADDRESSING_OPTIONS,
   PROVIDERS,
@@ -72,18 +77,32 @@ export function ConnectForm({
   const set = <K extends keyof ConnectFormValues>(key: K, value: ConnectFormValues[K]) =>
     setValues((current) => ({ ...current, [key]: value }));
 
+  /**
+   * Connect the bucket — and give up waiting rather than locking the form.
+   *
+   * `submitting` is what makes every field `editable={false}` and what disables
+   * Connect **and Cancel**. `bindStorage` is a Convex action doing real network
+   * I/O against an endpoint we have never spoken to, and
+   * `ConvexReactClient.action()` has no client-side timeout, so a hang left a
+   * form nobody could type in, submit, or leave — with a freshly-pasted secret
+   * sitting in it. Same trap as the note editor, same fix, same pattern as
+   * `reverify.ts`. See `./timeout.ts`.
+   */
   async function submit() {
     setTouched(true);
     if (hasErrors(errors) || addressingMissing) return;
     setFailure(null);
     setSubmitting(true);
-    try {
-      await connect(values);
-    } catch (error) {
-      setFailure(describeThrownStorageError(error));
-    } finally {
-      setSubmitting(false);
-    }
+
+    const settled = await raceTimeout(connect(values), {
+      ms: CONNECT_TIMEOUT_MS,
+      schedule: (fn, ms) => setTimeout(fn, ms),
+      cancel: (handle) => clearTimeout(handle),
+    });
+
+    setSubmitting(false);
+    if (settled.kind === "failed") setFailure(describeThrownStorageError(settled.error));
+    else if (settled.kind === "timeout") setFailure(STORAGE_TIMEOUT_FAILURE);
   }
 
   return (
@@ -237,7 +256,13 @@ export function ConnectForm({
           testID="connect-submit"
         />
         {onCancel ? (
-          <Button label="Cancel" variant="ghost" disabled={submitting} onPress={onCancel} />
+          <Button
+            label="Cancel"
+            variant="ghost"
+            disabled={submitting}
+            onPress={onCancel}
+            testID="connect-cancel"
+          />
         ) : null}
       </View>
 
