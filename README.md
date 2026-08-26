@@ -95,7 +95,7 @@ pnpm install
 npx convex dev          # creates your Convex deployment
 pnpm dev                # Convex + Expo together
 
-cd apps/mcp && pnpm test   # 168 checks, no dependencies, no network
+cd apps/mcp && pnpm test   # 194 checks, no dependencies, no network
 ```
 
 Built on [supa-framework](https://github.com/Supa-Media/supa-framework).

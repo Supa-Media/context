@@ -68,11 +68,98 @@ export function normalizeEtag(value) {
     .replace(/^"(.*)"$/, "$1");
 }
 
-/** "" or a prefix guaranteed to end in exactly one "/". */
+/**
+ * An etag is about to be interpolated into an `If-Match` header. RFC 7232
+ * allows `%x21 / %x23-7E` inside an entity-tag, which excludes the quote we add
+ * ourselves and every control character — so a CR/LF can never split the header
+ * and a quote can never terminate it early.
+ */
+export function assertSafeEtag(value) {
+  if (typeof value !== "string" || !value || value.length > MAX_ETAG_LENGTH) {
+    throw new Error("unsafe etag: an etag must be a non-empty string of at most 256 characters");
+  }
+  if (!/^[\x21\x23-\x7e]+$/.test(value)) {
+    throw new Error("unsafe etag: an etag must not contain quotes, control characters, or non-ASCII");
+  }
+  return value;
+}
+
+const MAX_ETAG_LENGTH = 256;
+/** S3 caps object keys at 1024 characters; anything longer is a bug or an attack. */
+const MAX_KEY_LENGTH = 1024;
+/** NUL and other control characters, plus the backslash some backends fold to "/". */
+const FORBIDDEN_KEY_CHARS = /[\u0000-\u001f\u007f\\]/;
+
+function decodeSegment(segment) {
+  if (!segment.includes("%")) return segment;
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    // A malformed escape stays literal; it is encoded again on the way out.
+    return segment;
+  }
+}
+
+/**
+ * Why the adapter validates at all: `encodeRfc3986` does not encode "." (it is
+ * RFC 3986 unreserved), so a literal ".." survives encoding and the WHATWG URL
+ * parser removes dot segments when `url.pathname` is assigned — silently
+ * rewriting the key, escaping the rootPrefix, and even dropping the bucket
+ * segment. The signature is computed after that rewrite, so the request is
+ * valid, correctly signed, and pointed somewhere the caller never asked for.
+ * Reject instead of normalizing: a caller that meant "a/../b.md" has a bug.
+ */
+function describeKeyProblem(key, { allowTrailingSlash }) {
+  if (typeof key !== "string") return "must be a string";
+  if (!key) return "must not be empty";
+  if (key.length > MAX_KEY_LENGTH) return `must be at most ${MAX_KEY_LENGTH} characters`;
+  if (FORBIDDEN_KEY_CHARS.test(key)) return "must not contain control characters or backslashes";
+  const segments = key.split("/");
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    const isLast = index === segments.length - 1;
+    if (segment === "") {
+      if (isLast && allowTrailingSlash && segments.length > 1) continue;
+      return "must not contain an empty path segment";
+    }
+    const decoded = decodeSegment(segment);
+    if (segment === "." || decoded === ".") return 'must not contain a "." path segment';
+    if (segment === ".." || decoded === "..") return 'must not contain a ".." path segment';
+  }
+  return null;
+}
+
+/**
+ * Guard an object key at the adapter boundary, so `S3Store` and `R2Store` agree
+ * on exactly which keys are addressable. The message never echoes the key:
+ * keys are the customer's own note paths and gateway logs do not carry them.
+ */
+export function assertSafeKey(key) {
+  const problem = describeKeyProblem(key, { allowTrailingSlash: false });
+  if (problem) throw new Error(`unsafe storage key: a key ${problem}`);
+  return key;
+}
+
+/** Same rules as a key, but "" means the whole bucket and a trailing "/" is normal. */
+export function assertSafePrefix(prefix) {
+  if (prefix === undefined || prefix === null || prefix === "") return "";
+  const problem = describeKeyProblem(prefix, { allowTrailingSlash: true });
+  if (problem) throw new Error(`unsafe storage prefix: a prefix ${problem}`);
+  return prefix;
+}
+
+/**
+ * "" or a prefix guaranteed to end in exactly one "/".
+ *
+ * Validated like any other prefix: a rootPrefix is configuration, but it is
+ * still a path, and `".."` in it would escape the bucket on every request.
+ */
 export function normalizeRootPrefix(value) {
   if (!value) return "";
   const trimmed = String(value).replace(/^\/+/, "").replace(/\/+$/, "");
-  return trimmed ? `${trimmed}/` : "";
+  if (!trimmed) return "";
+  assertSafePrefix(trimmed);
+  return `${trimmed}/`;
 }
 
 /** Caller key → backend key. */
@@ -86,7 +173,18 @@ export function stripRootPrefix(rootPrefix, key) {
   return key.startsWith(rootPrefix) ? key.slice(rootPrefix.length) : null;
 }
 
-/** Re-key a backend list page into caller-visible keys. */
+/**
+ * Re-key a backend list page into caller-visible keys.
+ *
+ * One honest exception to "nothing above the adapter sees the rootPrefix":
+ * `page.cursor` is passed through verbatim, and an S3 continuation token is
+ * base64 of the last backend key — prefix included. It is not rewritten
+ * because it is an opaque token the same adapter must hand back to the same
+ * backend unchanged; re-encoding it would only obfuscate. It is safe because
+ * the cursor never escapes the pagination loops in `src/index.js`: it is never
+ * returned by a tool, never logged, and never stored. If a cursor ever becomes
+ * caller-visible, that claim has to be re-examined.
+ */
 export function stripListResult(rootPrefix, page) {
   if (!rootPrefix) return page;
   const objects = [];
@@ -118,9 +216,22 @@ function errorMessage(error) {
 
 /**
  * Verify a store is reachable, writable, and whether conditional writes are
- * *actually* enforced — by writing a temp object and then trying to overwrite
- * it with a deliberately wrong If-Match. A backend that accepts that write has
- * no conflict detection, whatever it advertises.
+ * *actually* enforced. Both halves of the contract are tested, because either
+ * one alone passes backends that corrupt notes in production:
+ *
+ * 1. **A wrong `If-Match` must be rejected.** A backend that accepts it has no
+ *    conflict detection at all — every conflict-safe write silently becomes
+ *    last-writer-wins.
+ * 2. **A correct `If-Match` must be accepted.** A backend that 412s *every*
+ *    `If-Match` passes step 1, and then makes every visibility change fail
+ *    with "changed concurrently" after five useless retries.
+ * 3. **A now-stale but well-formed `If-Match` must be rejected.** A backend
+ *    that only validates the *shape* of an etag passes steps 1 and 2, then
+ *    does last-writer-wins on a real conflict: two concurrent
+ *    `set_visibility` calls lose one, and a note meant to be private stays
+ *    team-readable.
+ *
+ * `conditionalWrite.verified` is true only when all three hold.
  *
  * Never throws, and never reports a capability it did not observe. The temp
  * object is cleaned up; `cleanedUp: false` says it was left behind.
@@ -130,7 +241,15 @@ function errorMessage(error) {
  *   reachable: boolean,
  *   writable: boolean,
  *   capabilities: { conditionalWrite: boolean },
- *   conditionalWrite: { declared: boolean, verified: boolean, mismatch: boolean, detail: string },
+ *   conditionalWrite: {
+ *     declared: boolean,
+ *     verified: boolean,
+ *     rejectsWrong: boolean,
+ *     acceptsCorrect: boolean,
+ *     rejectsStale: boolean,
+ *     mismatch: boolean,
+ *     detail: string,
+ *   },
  *   cleanedUp: boolean,
  *   errors: string[],
  * }>}
@@ -142,7 +261,15 @@ export async function probeStore(store, { keyPrefix = PROBE_PREFIX } = {}) {
     reachable: false,
     writable: false,
     capabilities: { conditionalWrite: false },
-    conditionalWrite: { declared, verified: false, mismatch: declared, detail: "not tested" },
+    conditionalWrite: {
+      declared,
+      verified: false,
+      rejectsWrong: false,
+      acceptsCorrect: false,
+      rejectsStale: false,
+      mismatch: declared,
+      detail: "not tested",
+    },
     cleanedUp: true,
     errors: [],
   };
@@ -165,9 +292,13 @@ export async function probeStore(store, { keyPrefix = PROBE_PREFIX } = {}) {
   const key = `${keyPrefix}${crypto.randomUUID()}.probe`;
   const original = "context store capability probe";
   const overwrite = "context store capability probe — must not land";
+  const conditionalOverwrite = "context store capability probe — a correct If-Match must land";
+  const staleOverwrite = "context store capability probe — a stale If-Match must not land";
+  let realEtag = null;
   try {
     const written = await store.put(key, original);
     result.writable = Boolean(written && written.etag);
+    realEtag = written?.etag || null;
     if (!result.writable) result.errors.push("put returned no etag; the store may be read-only");
   } catch (error) {
     result.errors.push(`put failed: ${errorMessage(error)}`);
@@ -185,7 +316,7 @@ export async function probeStore(store, { keyPrefix = PROBE_PREFIX } = {}) {
       onlyIf: { etagMatches: IMPOSSIBLE_ETAG },
     });
     if (conditional === null || conditional === undefined) {
-      result.conditionalWrite.verified = true;
+      result.conditionalWrite.rejectsWrong = true;
       result.conditionalWrite.detail = "a deliberately wrong If-Match was rejected";
     } else if ((await readProbe(store, key)) === original) {
       // Refused the write but signalled success. Callers branch on a null
@@ -206,6 +337,71 @@ export async function probeStore(store, { keyPrefix = PROBE_PREFIX } = {}) {
       : `conditional write raised and the object changed: ${errorMessage(error)}`;
     result.errors.push("conditional write did not return null on a failed precondition");
   }
+
+  // Rejecting a wrong etag proves nothing on its own: a backend can 412 the
+  // malformed probe etag — or every etag — without ever comparing a real one.
+  // The correct etag must therefore be accepted...
+  if (result.conditionalWrite.rejectsWrong) {
+    try {
+      const accepted = await store.put(key, conditionalOverwrite, {
+        onlyIf: { etagMatches: realEtag },
+      });
+      if (accepted && accepted.etag) {
+        if ((await readProbe(store, key)) === conditionalOverwrite) {
+          result.conditionalWrite.acceptsCorrect = true;
+          result.conditionalWrite.detail =
+            "a wrong If-Match was rejected and a correct one was accepted";
+        } else {
+          result.conditionalWrite.detail =
+            "the store reported success for a correct If-Match whose write did not land";
+          result.errors.push("conditional write reports success without writing");
+        }
+      } else {
+        // Passes the rejection half and fails every real conflict-safe write:
+        // in production every retry loop exhausts and throws.
+        result.conditionalWrite.detail =
+          "the store rejected a correct If-Match; every conflict-safe write would fail";
+        result.errors.push("conditional write rejects a correct precondition");
+      }
+    } catch (error) {
+      result.conditionalWrite.detail = `a correct If-Match raised instead of writing: ${errorMessage(error)}`;
+      result.errors.push("conditional write raised on a correct precondition");
+    }
+  }
+
+  // ...and the etag that was correct a moment ago must now be refused. This is
+  // the mode the first two steps cannot see: a backend that only validates the
+  // *shape* of an etag passes both, then silently does last-writer-wins on a
+  // real stale precondition — exactly the concurrent `set_visibility` loss the
+  // probe exists to prevent.
+  if (result.conditionalWrite.acceptsCorrect) {
+    try {
+      const stale = await store.put(key, staleOverwrite, {
+        onlyIf: { etagMatches: realEtag },
+      });
+      if (stale === null || stale === undefined) {
+        result.conditionalWrite.rejectsStale = true;
+        result.conditionalWrite.detail =
+          "wrong, correct, and stale If-Match preconditions all behaved correctly";
+      } else if ((await readProbe(store, key)) === staleOverwrite) {
+        result.conditionalWrite.detail =
+          "the store accepted a stale If-Match; it checks etag shape, not the object";
+        result.errors.push("conditional write does not detect a real conflict");
+      } else {
+        result.conditionalWrite.detail =
+          "the store reported success for a stale If-Match whose write did not land; conflicts are not reportable";
+        result.errors.push("conditional write does not report a real conflict");
+      }
+    } catch (error) {
+      result.conditionalWrite.detail = `a stale If-Match raised instead of returning null: ${errorMessage(error)}`;
+      result.errors.push("conditional write did not return null on a stale precondition");
+    }
+  }
+
+  result.conditionalWrite.verified =
+    result.conditionalWrite.rejectsWrong &&
+    result.conditionalWrite.acceptsCorrect &&
+    result.conditionalWrite.rejectsStale;
 
   await cleanUpProbe(store, key, result);
 

@@ -15,6 +15,9 @@
 
 import {
   applyRootPrefix,
+  assertSafeEtag,
+  assertSafeKey,
+  assertSafePrefix,
   normalizeEtag,
   normalizeRootPrefix,
   stripListResult,
@@ -24,6 +27,14 @@ const ALGORITHM = "AWS4-HMAC-SHA256";
 const SERVICE = "s3";
 /** Bodies are small markdown notes; hashing them keeps signatures strict. */
 const UNSIGNED_HEADERS = new Set(["authorization", "content-length", "user-agent"]);
+/**
+ * A ListObjectsV2 page of 1000 keys is tens of KB. This is orders of magnitude
+ * of headroom and still far under the Worker memory limit a hostile or broken
+ * endpoint would otherwise blow by streaming forever.
+ */
+const LIST_RESPONSE_BYTE_CAP = 8_000_000;
+/** Error bodies are only read for a short <Message>. */
+const ERROR_RESPONSE_BYTE_CAP = 64_000;
 
 export class S3Store {
   /**
@@ -43,6 +54,10 @@ export class S3Store {
     const { endpoint, region, bucket, accessKeyId, secretAccessKey } = config || {};
     if (!endpoint) throw new Error("S3Store requires an endpoint");
     if (!bucket) throw new Error("S3Store requires a bucket");
+    // The bucket is a path segment too, so it gets the same dot-segment rule.
+    if (/[/\\]/.test(bucket) || bucket === "." || bucket === "..") {
+      throw new Error("S3Store bucket must be a single path segment");
+    }
     if (!accessKeyId || !secretAccessKey) throw new Error("S3Store requires credentials");
 
     this.endpoint = new URL(endpoint);
@@ -53,8 +68,24 @@ export class S3Store {
     // written to the bucket, never placed in a URL.
     this.secretAccessKey = secretAccessKey;
     this.rootPrefix = normalizeRootPrefix(config.rootPrefix);
-    this.forcePathStyle =
-      config.forcePathStyle ?? !this.endpoint.hostname.startsWith(`${bucket}.`);
+    // Path style is the default, and virtual-hosted addressing is opt-in.
+    // The old heuristic — "the host does not start with the bucket name" — is
+    // satisfiable by coincidence: `s3.wasabisys.com` with bucket `s3`, or
+    // `<account>.r2.cloudflarestorage.com` with bucket `<account>`, are all
+    // path-style endpoints whose first label happens to equal the bucket. It
+    // dropped the bucket segment, so the provider read the first *key* segment
+    // as the bucket ("1-projects") — a silent wrong-bucket write whenever the
+    // same credential owns a bucket by that name. Guessing wrong must not be
+    // possible, so an ambiguous endpoint is a hard error instead.
+    const looksVirtualHosted = this.endpoint.hostname.startsWith(`${bucket}.`);
+    if (config.forcePathStyle === undefined && looksVirtualHosted) {
+      throw new Error(
+        "S3Store cannot tell whether this endpoint is path-style or virtual-hosted: " +
+          "its first host label is the bucket name. Set forcePathStyle explicitly " +
+          "(false for a virtual-hosted endpoint, true for a path-style one)."
+      );
+    }
+    this.forcePathStyle = config.forcePathStyle ?? true;
     this.fetchImpl = config.fetchImpl || ((...args) => globalThis.fetch(...args));
     this.now = config.now || (() => new Date());
     this.capabilities = { conditionalWrite: true };
@@ -62,11 +93,27 @@ export class S3Store {
 
   /** Backend URL for a caller key, honouring rootPrefix and addressing style. */
   urlFor(key, query = {}) {
+    // Validated before the rootPrefix is applied, so "../" can neither escape
+    // the prefix nor be normalized away by the URL parser after signing.
+    return this.buildUrl(applyRootPrefix(this.rootPrefix, assertSafeKey(key)), query);
+  }
+
+  /**
+   * Bucket-root URL. A ListObjectsV2 addresses the *bucket*, never an object:
+   * appending the rootPrefix to the path turns it into a GetObject on the
+   * directory-marker key, which returns an empty 200 (every listing silently
+   * reports an empty context) or a 404. The rootPrefix belongs in the `prefix`
+   * query parameter and nowhere else.
+   */
+  bucketUrl(query = {}) {
+    return this.buildUrl("", query);
+  }
+
+  buildUrl(objectKey, query = {}) {
     const url = new URL(this.endpoint.toString());
     const basePath = url.pathname.replace(/\/+$/, "");
     const segments = [];
     if (this.forcePathStyle) segments.push(this.bucket);
-    const objectKey = applyRootPrefix(this.rootPrefix, key);
     if (objectKey) segments.push(...objectKey.split("/"));
     url.pathname = `${basePath}/${segments.map(encodeRfc3986).join("/")}`;
     // Built by hand, not with URLSearchParams: that would encode a space as
@@ -114,8 +161,18 @@ export class S3Store {
 
   async put(key, value, options = {}) {
     const headers = { "content-type": "text/markdown; charset=utf-8" };
-    const expected = options?.onlyIf?.etagMatches;
-    if (expected) headers["if-match"] = `"${normalizeEtag(expected)}"`;
+    // Validated, not just normalized: this value is interpolated into a header,
+    // and a CR/LF or a quote in it would rewrite the request. Etags reaching
+    // here come from response headers today, which cannot carry CRLF — that
+    // separation is undocumented and one refactor from mattering.
+    //
+    // An `onlyIf` with a missing or empty etag is rejected rather than sent as
+    // an unconditional write: a caller that asked for a conditional write and
+    // silently got last-writer-wins is the exact failure this adapter exists to
+    // make impossible.
+    const conditional = options?.onlyIf;
+    const expected = conditional ? assertSafeEtag(normalizeEtag(conditional.etagMatches)) : null;
+    if (expected) headers["if-match"] = `"${expected}"`;
     const response = await this.send("PUT", this.urlFor(key), { headers, body: value });
     // 412 is the documented precondition failure. 404 happens when a
     // conditional write targets an object that no longer exists — also a
@@ -132,23 +189,67 @@ export class S3Store {
   }
 
   async list({ prefix, delimiter, cursor, limit } = {}) {
-    const url = this.urlFor("", {
+    const url = this.bucketUrl({
       "list-type": "2",
-      prefix: applyRootPrefix(this.rootPrefix, prefix || ""),
+      prefix: applyRootPrefix(this.rootPrefix, assertSafePrefix(prefix)),
       delimiter,
       "continuation-token": cursor,
       "max-keys": limit,
     });
     const response = await this.send("GET", url);
     if (!response.ok) throw await s3Error("LIST", prefix || "", response);
-    return stripListResult(this.rootPrefix, parseListObjectsV2(await response.text()));
+    const xml = await readCappedText(response, LIST_RESPONSE_BYTE_CAP, "LIST");
+    return stripListResult(this.rootPrefix, parseListObjectsV2(xml));
   }
+}
+
+/**
+ * Read a response body with a hard byte cap.
+ *
+ * `response.text()` buffers whatever the endpoint sends. The gateway talks to a
+ * customer-configured HTTP endpoint, so a hostile or broken one could stream
+ * hundreds of MB into a 128MB Worker. Streaming lets us stop at the cap instead
+ * of after the damage.
+ */
+async function readCappedText(response, cap, operation) {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > cap) {
+    throw new Error(`S3 ${operation} response exceeds ${cap} bytes`);
+  }
+  const body = response.body;
+  if (!body || typeof body.getReader !== "function") {
+    const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > cap) {
+      throw new Error(`S3 ${operation} response exceeds ${cap} bytes`);
+    }
+    return text;
+  }
+  const reader = body.getReader();
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > cap) {
+      await reader.cancel().catch(() => {});
+      throw new Error(`S3 ${operation} response exceeds ${cap} bytes`);
+    }
+    chunks.push(value);
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(merged);
 }
 
 async function s3Error(operation, key, response) {
   let detail = "";
   try {
-    const body = await response.text();
+    const body = await readCappedText(response, ERROR_RESPONSE_BYTE_CAP, operation);
     detail = readTag(body, "Message") || readTag(body, "Code") || "";
   } catch {
     detail = "";
@@ -193,6 +294,17 @@ function readTag(xml, name) {
   return match ? match[1] : null;
 }
 
+/**
+ * A numeric entity is attacker-influenced text from a customer-configured
+ * endpoint. `String.fromCodePoint` throws a RangeError above U+10FFFF — and a
+ * long enough digit run parses to Infinity — which would turn one hostile
+ * `<Key>` into a 500 for the whole listing. Out-of-range becomes U+FFFD.
+ */
+function codePointToText(value) {
+  if (!Number.isInteger(value) || value < 0 || value > 0x10ffff) return "�";
+  return String.fromCodePoint(value);
+}
+
 function decodeXmlText(value) {
   if (value === null || value === undefined) return null;
   return value
@@ -200,8 +312,8 @@ function decodeXmlText(value) {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(Number.parseInt(code, 16)))
+    .replace(/&#(\d+);/g, (_, code) => codePointToText(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => codePointToText(Number.parseInt(code, 16)))
     .replace(/&amp;/g, "&");
 }
 

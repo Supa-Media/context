@@ -11,6 +11,8 @@
 
 import {
   applyRootPrefix,
+  assertSafeKey,
+  assertSafePrefix,
   normalizeRootPrefix,
   stripListResult,
 } from "./index.js";
@@ -28,21 +30,28 @@ export class R2Store {
     this.capabilities = { conditionalWrite: true };
   }
 
-  get(key) {
-    return this.bucket.get(applyRootPrefix(this.rootPrefix, key));
+  // Keys are validated here for the same reasons as in S3Store, and with the
+  // same shared helper: the two adapters must accept and reject exactly the
+  // same keys, or the same input lands in two different places depending on
+  // which backend a workspace is bound to.
+
+  // async so a rejected key always rejects the promise, never throws
+  // synchronously — rollback paths use `store.delete(key).catch(...)`.
+  async get(key) {
+    return this.bucket.get(applyRootPrefix(this.rootPrefix, assertSafeKey(key)));
   }
 
-  put(key, value, options) {
-    return this.bucket.put(applyRootPrefix(this.rootPrefix, key), value, options);
+  async put(key, value, options) {
+    return this.bucket.put(applyRootPrefix(this.rootPrefix, assertSafeKey(key)), value, options);
   }
 
-  delete(key) {
-    return this.bucket.delete(applyRootPrefix(this.rootPrefix, key));
+  async delete(key) {
+    return this.bucket.delete(applyRootPrefix(this.rootPrefix, assertSafeKey(key)));
   }
 
   async list(options = {}) {
     const { prefix, delimiter, cursor, limit } = options;
-    const scoped = applyRootPrefix(this.rootPrefix, prefix || "");
+    const scoped = applyRootPrefix(this.rootPrefix, assertSafePrefix(prefix));
     const page = await this.bucket.list({
       prefix: scoped || undefined,
       delimiter,

@@ -7,6 +7,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
 import { S3Store, parseListObjectsV2, deriveSigningKey } from "../src/store/s3.js";
 import { probeStore, normalizeEtag, PROBE_PREFIX } from "../src/store/index.js";
@@ -60,8 +61,21 @@ function listXml({ contents = [], prefixes = [], truncated = false, next = null 
   );
 }
 
-/** In-memory bucket with the same semantics as the R2 binding. */
-function memoryBucket({ ignoreIfMatch = false } = {}) {
+/**
+ * In-memory bucket with the same semantics as the R2 binding.
+ *
+ * The flags model the three ways a backend can look conflict-safe and not be:
+ * - `ignoreIfMatch` — accepts the header and writes anyway (B2, Wasabi).
+ * - `rejectAllIfMatch` — 412s every precondition, correct or not.
+ * - `shapeOnlyIfMatch` — 412s an etag that does not *look* like one of its own,
+ *   then ignores a well-formed but stale one. Last-writer-wins on real
+ *   conflicts, while passing a probe that only tries an impossible etag.
+ */
+function memoryBucket({
+  ignoreIfMatch = false,
+  rejectAllIfMatch = false,
+  shapeOnlyIfMatch = false,
+} = {}) {
   const objects = new Map();
   let counter = 0;
   return {
@@ -77,8 +91,13 @@ function memoryBucket({ ignoreIfMatch = false } = {}) {
     },
     async put(key, value, options = {}) {
       const expected = options?.onlyIf?.etagMatches;
+      if (expected && rejectAllIfMatch) return null;
+      // Etags this bucket issues look like "m3"; anything else is malformed.
+      if (expected && shapeOnlyIfMatch && !/^m\d+$/.test(expected)) return null;
       // A backend that "supports" If-Match by ignoring it — B2 and Wasabi.
-      if (expected && !ignoreIfMatch && objects.get(key)?.etag !== expected) return null;
+      if (expected && !ignoreIfMatch && !shapeOnlyIfMatch && objects.get(key)?.etag !== expected) {
+        return null;
+      }
       const body = typeof value === "string" ? value : new TextDecoder().decode(value);
       const etag = `m${++counter}`;
       objects.set(key, { body, etag });
@@ -312,6 +331,33 @@ export async function runStoreChecks(check) {
       "/example-bucket/team-notes/1-projects/a.md" &&
       prefixedStore.fetchImpl.calls[1].url.searchParams.get("prefix") === "team-notes/1-projects/"
   );
+  // The rootPrefix belongs in the query, never in the path. Appending it made
+  // the request a GetObject on the directory-marker key "team-notes/": S3
+  // answers 200 with an empty body if that marker exists (Remotely Save and
+  // most S3 GUIs create them), so every listing silently reported an empty
+  // context — and 404 if it does not.
+  check(
+    "a ListObjectsV2 addresses the bucket root even when a rootPrefix is set",
+    prefixedStore.fetchImpl.calls[1].url.pathname === "/example-bucket" &&
+      prefixedStore.fetchImpl.calls[1].url.searchParams.get("list-type") === "2" &&
+      prefixedList.objects.length === 1
+  );
+  check(
+    "an unprefixed list also addresses the bucket root",
+    delimitedStore.fetchImpl.calls[0].url.pathname === "/example-bucket" &&
+      pagedStore.fetchImpl.calls[0].url.pathname === "/example-bucket"
+  );
+  const hostedListStore = s3(() => new Response(listXml({})), {
+    endpoint: "https://example-bucket.s3.example-object-storage.test",
+    forcePathStyle: false,
+    rootPrefix: "team-notes",
+  });
+  await hostedListStore.list({ prefix: "1-projects/" });
+  check(
+    "a virtual-hosted list targets the host root, not a rootPrefix path",
+    hostedListStore.fetchImpl.calls[0].url.pathname === "/" &&
+      hostedListStore.fetchImpl.calls[0].url.searchParams.get("prefix") === "team-notes/1-projects/"
+  );
   check(
     "keys above the adapter never see the rootPrefix",
     prefixedList.objects[0].key === "1-projects/a.md" &&
@@ -339,6 +385,285 @@ export async function runStoreChecks(check) {
     plainBucket.objects.has("1-projects/foo.md")
   );
 
+  // The cursor is the one documented exception to "nothing above the adapter
+  // sees the rootPrefix" — an S3 continuation token is base64 of the last
+  // backend key. It is passed through verbatim and must stay inside the
+  // adapter's pagination loop; this pins the behavior the comment describes.
+  const cursorStore = s3(
+    () => new Response(listXml({ truncated: true, next: "dGVhbS1ub3Rlcy8x" })),
+    { rootPrefix: "team-notes" }
+  );
+  const cursorPage = await cursorStore.list({ prefix: "1-projects/" });
+  check(
+    "a continuation cursor is passed through verbatim, prefix and all",
+    cursorPage.cursor === "dGVhbS1ub3Rlcy8x"
+  );
+
+  /* -------------------------- path traversal ------------------------------ */
+
+  // ".." and "." are RFC 3986 unreserved, so they survive encodeRfc3986 — and
+  // then the WHATWG URL parser removes dot segments when url.pathname is
+  // assigned. The signature is computed after that rewrite, so an escaped
+  // request is valid and correctly signed. Reject at the boundary instead.
+  const TRAVERSAL_KEYS = [
+    "../escape.md",
+    "a/../../b.md",
+    "x/../../../y.md",
+    "1-projects/./a.md",
+    ".././escape.md",
+    "%2e%2e/escape.md",
+    "a/%2E%2E/b.md",
+    "%2e/a.md",
+    "1-projects//a.md",
+    "/1-projects/a.md",
+    "1-projects/a\\..\\b.md",
+    "1-projects/a .md",
+    "1-projects/a\r\nb.md",
+    "",
+  ];
+
+  const traversalStore = s3(() => new Response("nope"), { rootPrefix: "team-notes" });
+  const traversalBucket = memoryBucket();
+  const traversalR2 = new R2Store(traversalBucket, { rootPrefix: "team-notes" });
+  const rejections = [];
+  for (const key of TRAVERSAL_KEYS) {
+    for (const [name, run] of [
+      ["S3Store.get", () => traversalStore.get(key)],
+      ["S3Store.put", () => traversalStore.put(key, "x")],
+      ["S3Store.delete", () => traversalStore.delete(key)],
+      ["R2Store.get", () => traversalR2.get(key)],
+      ["R2Store.put", () => traversalR2.put(key, "x")],
+      ["R2Store.delete", () => traversalR2.delete(key)],
+    ]) {
+      let threw = null;
+      try {
+        await run();
+      } catch (error) {
+        threw = error;
+      }
+      if (!threw) rejections.push(`${name} accepted ${JSON.stringify(key)}`);
+      else if (!/unsafe storage key/.test(threw.message)) {
+        rejections.push(`${name} threw the wrong error for ${JSON.stringify(key)}`);
+      }
+    }
+  }
+  check(
+    "dot, dot-dot, empty, encoded, control-character and backslash keys are rejected by both adapters",
+    rejections.length === 0
+  );
+  check(
+    "a rejected key never reaches the backend",
+    traversalStore.fetchImpl.calls.length === 0 && traversalBucket.objects.size === 0
+  );
+
+  let traversalError = null;
+  try {
+    await traversalStore.get("../escape.md");
+  } catch (error) {
+    traversalError = error;
+  }
+  check(
+    "the rejection is explicit and does not echo the key into logs",
+    traversalError instanceof Error &&
+      traversalError.message.includes('".." path segment') &&
+      !traversalError.message.includes("escape.md")
+  );
+
+  const traversalPrefixStore = s3(() => new Response(listXml({})), { rootPrefix: "team-notes" });
+  let prefixError = null;
+  try {
+    await traversalPrefixStore.list({ prefix: "../" });
+  } catch (error) {
+    prefixError = error;
+  }
+  check(
+    "a list prefix gets the same treatment as a key",
+    prefixError instanceof Error &&
+      /unsafe storage prefix/.test(prefixError.message) &&
+      traversalPrefixStore.fetchImpl.calls.length === 0
+  );
+
+  const badRootPrefixes = ["..", "../other-tenant", "team/../../elsewhere", "team/./notes"];
+  const rootPrefixAccepted = badRootPrefixes.filter((rootPrefix) => {
+    const attempts = [
+      () => new S3Store({ ...FAKE_CONFIG, rootPrefix }),
+      () => new R2Store(memoryBucket(), { rootPrefix }),
+    ];
+    return attempts.some((attempt) => {
+      try {
+        attempt();
+        return true;
+      } catch (error) {
+        return !/unsafe storage prefix/.test(error.message);
+      }
+    });
+  });
+  check(
+    "a rootPrefix that would escape the bucket is refused at construction",
+    rootPrefixAccepted.length === 0
+  );
+
+  const legitimateStore = s3(() => new Response("ok", { headers: { etag: '"v1"' } }));
+  await legitimateStore.get(".history/1-projects/a.2026-08-25.md");
+  await legitimateStore.list({ prefix: ".proposals/pending/" });
+  await legitimateStore.list({});
+  check(
+    "dot-prefixed plumbing keys and trailing-slash prefixes still work",
+    legitimateStore.fetchImpl.calls[0].url.pathname ===
+      "/example-bucket/.history/1-projects/a.2026-08-25.md" &&
+      legitimateStore.fetchImpl.calls[1].url.searchParams.get("prefix") === ".proposals/pending/" &&
+      legitimateStore.fetchImpl.calls[2].url.searchParams.has("prefix") === false
+  );
+
+  /* ---------------------------- addressing style --------------------------- */
+
+  // "the host does not start with the bucket name" is satisfiable by
+  // coincidence. Every one of these is a path-style endpoint whose first host
+  // label equals the bucket, and the old heuristic dropped the bucket segment —
+  // so the provider read "1-projects" as the bucket name.
+  const COINCIDENTAL = [
+    ["https://s3.wasabisys.com", "s3"],
+    ["https://data.example.com", "data"],
+    ["https://acct.r2.cloudflarestorage.com", "acct"],
+  ];
+  const ambiguous = COINCIDENTAL.map(([endpoint, bucket]) => {
+    try {
+      new S3Store({ ...FAKE_CONFIG, endpoint, bucket });
+      return `${bucket}@${endpoint} was accepted`;
+    } catch (error) {
+      return /forcePathStyle explicitly/.test(error.message) ? null : `${bucket}: ${error.message}`;
+    }
+  }).filter(Boolean);
+  check(
+    "an endpoint whose first host label is the bucket name fails loudly instead of guessing",
+    ambiguous.length === 0
+  );
+
+  const wasabiStyle = s3(() => new Response("x", { headers: { etag: '"v1"' } }), {
+    endpoint: "https://s3.wasabisys.com",
+    bucket: "s3",
+    forcePathStyle: true,
+  });
+  await wasabiStyle.get("1-projects/a.md");
+  check(
+    "an explicit path-style endpoint keeps its bucket segment",
+    wasabiStyle.fetchImpl.calls[0].url.pathname === "/s3/1-projects/a.md"
+  );
+
+  const impliedPathStyle = s3(() => new Response("x", { headers: { etag: '"v1"' } }), {
+    endpoint: "https://storage.example-object-storage.test",
+    bucket: "1-projects",
+  });
+  await impliedPathStyle.get("1-projects/a.md");
+  check(
+    "path style is the default, so the bucket segment is never dropped by accident",
+    impliedPathStyle.forcePathStyle === true &&
+      impliedPathStyle.fetchImpl.calls[0].url.pathname === "/1-projects/1-projects/a.md"
+  );
+
+  const virtualHosted = s3(() => new Response("x", { headers: { etag: '"v1"' } }), {
+    endpoint: "https://example-bucket.s3.example-object-storage.test",
+    forcePathStyle: false,
+  });
+  await virtualHosted.get("1-projects/a.md");
+  check(
+    "virtual-hosted addressing is available, but only when asked for explicitly",
+    virtualHosted.fetchImpl.calls[0].url.pathname === "/1-projects/a.md"
+  );
+
+  /* ------------------------------ If-Match shape --------------------------- */
+
+  const injectionStore = s3(() => new Response("", { headers: { etag: '"v9"' } }));
+  const badEtags = [
+    'v1"\r\nx-amz-acl: public-read',
+    'v1"',
+    "v1\nv2",
+    "v1\u00e9",
+    "e".repeat(300),
+    "",
+    undefined,
+  ];
+  const etagRejections = [];
+  for (const etag of badEtags) {
+    try {
+      await injectionStore.put("index.md", "body", { onlyIf: { etagMatches: etag } });
+      etagRejections.push(etag);
+    } catch (error) {
+      if (!/unsafe etag/.test(error.message)) etagRejections.push(etag);
+    }
+  }
+  check(
+    "an etag with quotes, control characters, or CRLF never reaches the If-Match header",
+    etagRejections.length === 0 && injectionStore.fetchImpl.calls.length === 0
+  );
+  const okEtagStore = s3(() => new Response("", { headers: { etag: '"v9"' } }));
+  await okEtagStore.put("index.md", "body", { onlyIf: { etagMatches: 'W/"33a64df5"' } });
+  check(
+    "a normal etag still travels as a quoted If-Match",
+    okEtagStore.fetchImpl.calls[0].headers["if-match"] === '"33a64df5"'
+  );
+
+  /* --------------------------- hostile XML and size ------------------------ */
+
+  // String.fromCodePoint throws a RangeError above U+10FFFF, and a long enough
+  // digit run parses to Infinity. One hostile <Key> must not 500 a listing.
+  const hostileEntities = parseListObjectsV2(
+    listXml({
+      contents: [
+        { key: "&#1114112;.md" },
+        { key: "&#x110000;.md" },
+        { key: `&#${"9".repeat(400)};.md` },
+        { key: "&#65;-ok.md" },
+      ],
+    })
+  );
+  check(
+    "out-of-range numeric XML entities decode to a replacement character, not a RangeError",
+    hostileEntities.objects.length === 4 &&
+      hostileEntities.objects[0].key === "�.md" &&
+      hostileEntities.objects[1].key === "�.md" &&
+      hostileEntities.objects[2].key === "�.md" &&
+      hostileEntities.objects[3].key === "A-ok.md"
+  );
+
+  const declaredHugeStore = s3(
+    () => new Response(listXml({}), { headers: { "content-length": "900000000" } })
+  );
+  let declaredHugeError = null;
+  try {
+    await declaredHugeStore.list({});
+  } catch (error) {
+    declaredHugeError = error;
+  }
+  check(
+    "a list response that declares a huge Content-Length is refused before reading",
+    declaredHugeError instanceof Error && /exceeds \d+ bytes/.test(declaredHugeError.message)
+  );
+
+  // No Content-Length: the body has to be capped while it streams.
+  const megabyte = new Uint8Array(1_000_000);
+  megabyte.fill(0x20);
+  const streamingHugeStore = s3(
+    () =>
+      new Response(
+        new ReadableStream({
+          pull(controller) {
+            controller.enqueue(megabyte);
+          },
+        })
+      )
+  );
+  let streamingHugeError = null;
+  try {
+    await streamingHugeStore.list({});
+  } catch (error) {
+    streamingHugeError = error;
+  }
+  check(
+    "an endless list body is cut off at the cap instead of filling worker memory",
+    streamingHugeError instanceof Error && /exceeds \d+ bytes/.test(streamingHugeError.message)
+  );
+
   /* --------------------------- capability probe ---------------------------- */
 
   const honestBucket = memoryBucket();
@@ -353,9 +678,51 @@ export async function runStoreChecks(check) {
       honestProbe.conditionalWrite.mismatch === false
   );
   check(
+    "probe proves all three halves: wrong rejected, correct accepted, stale rejected",
+    honestProbe.conditionalWrite.rejectsWrong === true &&
+      honestProbe.conditionalWrite.acceptsCorrect === true &&
+      honestProbe.conditionalWrite.rejectsStale === true
+  );
+  check(
     "probe leaves nothing behind in the bucket",
     honestProbe.cleanedUp === true &&
       ![...honestBucket.objects.keys()].some((key) => key.startsWith(PROBE_PREFIX))
+  );
+
+  // Rejecting the impossible probe etag is not evidence of conflict detection.
+  // This backend 412s anything that does not look like one of its own etags and
+  // then ignores a well-formed stale one — last-writer-wins on privacy.md, so
+  // one of two concurrent set_visibility calls is lost and a note meant to be
+  // private stays team-readable.
+  const shapeOnlyBucket = memoryBucket({ shapeOnlyIfMatch: true });
+  const shapeOnlyProbe = await probeStore(new R2Store(shapeOnlyBucket));
+  check(
+    "probe catches a backend that validates etag shape instead of the object",
+    shapeOnlyProbe.ok === false &&
+      shapeOnlyProbe.conditionalWrite.rejectsWrong === true &&
+      shapeOnlyProbe.conditionalWrite.acceptsCorrect === true &&
+      shapeOnlyProbe.conditionalWrite.rejectsStale === false &&
+      shapeOnlyProbe.conditionalWrite.verified === false &&
+      shapeOnlyProbe.conditionalWrite.mismatch === true &&
+      shapeOnlyProbe.conditionalWrite.detail.includes("stale") &&
+      shapeOnlyProbe.cleanedUp === true &&
+      ![...shapeOnlyBucket.objects.keys()].some((key) => key.startsWith(PROBE_PREFIX))
+  );
+
+  // The opposite failure: every If-Match is refused. The old probe called this
+  // healthy; in production every visibility change burns its retries and throws
+  // "privacy manifest changed concurrently".
+  const alwaysRefusesBucket = memoryBucket({ rejectAllIfMatch: true });
+  const alwaysRefusesProbe = await probeStore(new R2Store(alwaysRefusesBucket));
+  check(
+    "probe catches a backend that refuses every If-Match, correct ones included",
+    alwaysRefusesProbe.ok === false &&
+      alwaysRefusesProbe.conditionalWrite.rejectsWrong === true &&
+      alwaysRefusesProbe.conditionalWrite.acceptsCorrect === false &&
+      alwaysRefusesProbe.conditionalWrite.verified === false &&
+      alwaysRefusesProbe.conditionalWrite.detail.includes("rejected a correct If-Match") &&
+      alwaysRefusesProbe.errors.some((error) => error.includes("rejects a correct precondition")) &&
+      alwaysRefusesProbe.cleanedUp === true
   );
 
   const ignoringBucket = memoryBucket({ ignoreIfMatch: true });
@@ -428,6 +795,86 @@ export async function runStoreChecks(check) {
     "the probe deletes its temp object even on a failing backend",
     wasabiProbe.cleanedUp === true &&
       wasabiLike.fetchImpl.calls.some((call) => call.method === "DELETE")
+  );
+
+  /* --------------------------- pagination guard ---------------------------- */
+
+  // The listing loops in src/index.js are driven by a customer-configured
+  // endpoint. A backend that always answers "truncated" — or replays one
+  // continuation token — used to spin until the Workers subrequest limit killed
+  // the request with an opaque error. Both shapes must stop and say why.
+  const hostileEnv = (list) => ({
+    BRAIN: {
+      async get() {
+        return null;
+      },
+      async put() {
+        return { etag: "x" };
+      },
+      async delete() {},
+      list,
+    },
+    PRIVATE_TOKEN: "priv-token",
+  });
+  const hostileCall = async (list, args) => {
+    const response = await worker.fetch(
+      new Request("https://x/mcp", {
+        method: "POST",
+        headers: { Authorization: "Bearer priv-token", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "search_notes", arguments: args },
+        }),
+      }),
+      hostileEnv(list),
+      { waitUntil() {} }
+    );
+    return await response.json();
+  };
+
+  const repeatedCursor = await hostileCall(
+    async () => ({ objects: [], truncated: true, cursor: "same-token" }),
+    { query: "anything", prefix: "1-projects" }
+  );
+  check(
+    "a backend replaying one continuation token stops the listing instead of looping",
+    /repeated a pagination cursor/.test(repeatedCursor.error?.message || "")
+  );
+
+  let advancing = 0;
+  const runawayPages = await hostileCall(
+    async () => ({ objects: [], truncated: true, cursor: `page-${++advancing}` }),
+    { query: "anything", prefix: "1-projects" }
+  );
+  check(
+    "an endlessly truncated listing is capped rather than exhausting subrequests",
+    /exceeded \d+ pages/.test(runawayPages.error?.message || "") && advancing <= 200
+  );
+
+  let delimitedPages = 0;
+  const runawayLayout = await hostileCall(
+    async () => ({
+      objects: [],
+      delimitedPrefixes: [],
+      truncated: true,
+      cursor: `layout-${++delimitedPages}`,
+    }),
+    { query: "anything" }
+  );
+  check(
+    "the delimited layout walk is capped too, not just the flat key walk",
+    /exceeded \d+ pages/.test(runawayLayout.error?.message || "") && delimitedPages <= 200
+  );
+
+  const dotSegmentRead = await hostileCall(async () => ({ objects: [], truncated: false }), {
+    query: "x",
+    prefix: "1-projects/./secret",
+  });
+  check(
+    "a tool path with a \".\" segment is refused by the tool layer, not just the adapter",
+    /invalid prefix/.test(JSON.stringify(dotSegmentRead.result || dotSegmentRead))
   );
 
   /* ------------------------ no binding in tool logic ----------------------- */

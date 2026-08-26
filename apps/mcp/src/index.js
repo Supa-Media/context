@@ -52,6 +52,8 @@ const CHAT_HISTORY_CONTENT_BYTE_CAP = 2_000_000;
 const INBOX_CONTENT_BYTE_CAP = 2_000_000;
 const GRANOLA_WEBHOOK_BYTE_CAP = 100_000;
 const GRANOLA_WEBHOOK_MAX_AGE_SECONDS = 5 * 60;
+/** Pages a single listing may fetch — 1000 keys each, so 100k objects. */
+const LIST_PAGE_CAP = 100;
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const SERVER_INSTRUCTIONS = `This is the user's context: markdown notes
@@ -906,16 +908,41 @@ function normalizePath(p) {
   if (typeof p !== "string") return null;
   const clean = p.replace(/^\/+/, "").replace(/\/{2,}/g, "/").trim();
   if (!clean || clean.includes("..") || clean.length > 512) return null;
+  // A "." segment is rejected here on purpose. It was previously caught only as
+  // a side effect of isPlumbing() hiding dot-prefixed folders, which is not a
+  // path rule and could be relaxed without anyone noticing.
+  if (clean.split("/").some((segment) => segment === ".")) return null;
   return clean;
+}
+
+/**
+ * Pagination is driven by a customer-configured endpoint, so the loop cannot
+ * trust it to terminate. A backend that keeps answering `IsTruncated: true` —
+ * or replays the same continuation token forever — would otherwise spin until
+ * the Workers subrequest limit kills the request with an opaque error. Both
+ * shapes are caught here and reported as themselves.
+ */
+function nextListCursor(page, seen) {
+  const cursor = page.truncated ? page.cursor : undefined;
+  if (!cursor) return undefined;
+  if (seen.has(cursor)) {
+    throw new Error("storage listing repeated a pagination cursor; refusing to loop");
+  }
+  seen.add(cursor);
+  if (seen.size >= LIST_PAGE_CAP) {
+    throw new Error(`storage listing exceeded ${LIST_PAGE_CAP} pages; refusing to loop`);
+  }
+  return cursor;
 }
 
 async function listAllKeys(store, prefix) {
   const keys = [];
+  const seen = new Set();
   let cursor;
   do {
     const page = await store.list({ prefix: prefix || undefined, cursor, limit: 1000 });
     for (const o of page.objects) keys.push({ key: o.key, size: o.size, uploaded: o.uploaded });
-    cursor = page.truncated ? page.cursor : undefined;
+    cursor = nextListCursor(page, seen);
   } while (cursor);
   return keys;
 }
@@ -923,6 +950,7 @@ async function listAllKeys(store, prefix) {
 async function listImmediateLayout(store, prefix = "") {
   const objects = [];
   const prefixes = new Set();
+  const seenCursors = new Set();
   let cursor;
   do {
     const page = await store.list({
@@ -938,7 +966,7 @@ async function listImmediateLayout(store, prefix = "") {
       else prefixes.add(`${prefix}${remainder.slice(0, slash + 1)}`); // test-stub fallback
     }
     for (const childPrefix of page.delimitedPrefixes || []) prefixes.add(childPrefix);
-    cursor = page.truncated ? page.cursor : undefined;
+    cursor = nextListCursor(page, seenCursors);
   } while (cursor);
   return {
     objects,
