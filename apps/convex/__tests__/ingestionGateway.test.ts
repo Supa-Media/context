@@ -31,6 +31,8 @@
  * Every value here is obviously fake. This repository is public.
  */
 
+/// <reference types="vite/client" />
+
 import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -72,13 +74,134 @@ async function ready(slug = "seyi"): Promise<{
 }
 
 async function resolve(t: TestConvex, name: string, sizeBytes = 4096) {
-  return await ingestPost(t, RESOLVE, { name, sizeBytes });
+  return await ingestPost(t, RESOLVE, { username: name, sizeBytes, envelopeFrom: "sender@example.test" });
 }
 
 async function resolvedTicket(t: TestConvex, name: string): Promise<string> {
   const body = await (await resolve(t, name)).json();
   return body.ingestion.ticket as string;
 }
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE ROUTES AND THE WORKER MUST AGREE ON THE WIRE.
+ *
+ * `infra/email-worker` is a separate deployment with its own test suite, and
+ * both suites can be entirely green while the two disagree about what a request
+ * looks like — a route reading `name` and a worker sending `username` typecheck
+ * perfectly, pass everything, and refuse every message in production, silently,
+ * because the refusal is the same one an unknown recipient gets.
+ *
+ * That very mismatch was written and nearly shipped in the change that added
+ * these routes. So the worker's **actual source** is read here and its request
+ * shapes are compared against what the handlers destructure, in the same spirit
+ * as `gatewayFormat.helpers.ts` reading the gateway's real parser rather than a
+ * transcription of it.
+ */
+describe("the wire contract matches the worker's", () => {
+  const WORKER_SOURCES = import.meta.glob(
+    "../../../infra/email-worker/src/controlPlane.ts",
+    { query: "?raw", import: "default", eager: true },
+  ) as Record<string, string>;
+
+  const HTTP_SOURCES = import.meta.glob("../http.ts", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }) as Record<string, string>;
+
+  const workerSource = Object.values(WORKER_SOURCES)[0];
+  const httpSource = Object.values(HTTP_SOURCES)[0];
+
+  test("the worker's source is actually being read", () => {
+    // Non-vacuity. If the glob stops matching, every assertion below passes
+    // over an empty string and proves nothing.
+    expect(typeof workerSource).toBe("string");
+    expect(workerSource).toContain("/gateway/ingest/resolve");
+    expect(typeof httpSource).toBe("string");
+  });
+
+  /** `post("/gateway/ingest/resolve", { a, b, c })` → `["a", "b", "c"]` */
+  function fieldsSentTo(path: string): string[] {
+    const call = new RegExp(
+      `post\\(\\s*"${path.replace(/\//g, "\\/")}"\\s*,\\s*\\{([^}]*)\\}`,
+    ).exec(workerSource);
+    expect(call, `the worker does not POST to ${path}`).not.toBeNull();
+    return call![1]
+      .split(",")
+      .map((entry) => entry.split(":")[0].trim())
+      .filter((entry) => entry.length > 0)
+      .sort();
+  }
+
+  /** The body keys a handler reads, from its `stringField(body, "x")` calls. */
+  function fieldsReadBy(routeName: string): string[] {
+    const start = httpSource.indexOf(`export const ${routeName} =`);
+    expect(start, `${routeName} is not declared in http.ts`).toBeGreaterThan(-1);
+    const rest = httpSource.slice(start);
+    const end = rest.indexOf("\nexport const ");
+    const handler = end === -1 ? rest : rest.slice(0, end);
+    return [
+      ...new Set([
+        ...[...handler.matchAll(/stringField\(body,\s*"(\w+)"\)/g)].map((m) => m[1]),
+        ...[...handler.matchAll(/\bbody\.(\w+)/g)].map((m) => m[1]),
+      ]),
+    ].sort();
+  }
+
+  test("resolve reads every field the worker sends", () => {
+    const sent = fieldsSentTo("/gateway/ingest/resolve");
+    expect(sent).toEqual(["envelopeFrom", "sizeBytes", "username"]);
+
+    const read = fieldsReadBy("gatewayIngestResolve");
+    // `envelopeFrom` is deliberately not read — see the route. Everything the
+    // route *does* depend on has to be something the worker actually sends.
+    for (const field of read) {
+      expect(sent, `resolve reads "${field}", which the worker never sends`).toContain(
+        field,
+      );
+    }
+    // …and the one that decides the recipient must be among them.
+    expect(read).toContain("username");
+  });
+
+  test("binding and record read every field the worker sends", () => {
+    expect(fieldsSentTo("/gateway/ingest/binding")).toEqual(["ticket"]);
+    expect(fieldsReadBy("gatewayIngestBinding")).toEqual(["ticket"]);
+
+    const recordSent = fieldsSentTo("/gateway/ingest/record");
+    expect(recordSent).toEqual(["bytes", "outcome", "ticket"]);
+    for (const field of fieldsReadBy("gatewayIngestRecord")) {
+      expect(recordSent, `record reads "${field}", which the worker never sends`).toContain(
+        field,
+      );
+    }
+  });
+
+  test("every path the worker POSTs to is a path this deployment serves", () => {
+    const posted = [...workerSource.matchAll(/post\(\s*"(\/gateway\/[^"]+)"/g)].map(
+      (m) => m[1],
+    );
+    expect(posted.length).toBeGreaterThan(0);
+    for (const path of posted) {
+      expect(
+        httpSource.replace(/\s+/g, " "),
+        `the worker POSTs to ${path}, which http.ts does not route`,
+      ).toContain(`path: "${path}"`);
+    }
+  });
+
+  test("the response the worker parses is the response the route builds", () => {
+    // The worker requires these keys and throws `ControlPlaneError` on a
+    // missing one — which it treats as an outage, not a refusal.
+    expect(workerSource).toMatch(/required\(\s*[\s\S]*?"ingestion",?\s*\)/);
+    expect(httpSource).toContain("json({ ingestion: null })");
+    expect(httpSource).toContain("json({ ingestion: { ticket, ...resolution } })");
+    expect(httpSource).toContain("json({ binding })");
+    expect(httpSource).toContain("json({ ok: true })");
+  });
+});
 
 /* -------------------------------------------------------------------------- */
 
@@ -327,7 +450,7 @@ describe("every other refusal is the same refusal", () => {
     const { t } = await ready();
 
     const missing = await ingestPost(t, RESOLVE, { sizeBytes: 1 });
-    const wrongType = await ingestPost(t, RESOLVE, { name: 42, sizeBytes: 1 });
+    const wrongType = await ingestPost(t, RESOLVE, { username: 42, sizeBytes: 1 });
     // A response body can only be read once, so the baseline is taken as a
     // string rather than re-read for each comparison.
     const unknown = await responseFingerprint(await resolve(t, "nobody-has-this-name"));
@@ -343,7 +466,7 @@ describe("the two doors have two keys", () => {
   test("the gateway secret does not open an ingest route", async () => {
     const { t } = await ready();
 
-    const response = await ingestPost(t, RESOLVE, { name: "seyi", sizeBytes: 1 }, {
+    const response = await ingestPost(t, RESOLVE, { username: "seyi", sizeBytes: 1 }, {
       secret: TEST_GATEWAY_SECRET,
     });
     expect(response.status).toBe(401);
@@ -366,10 +489,10 @@ describe("the two doors have two keys", () => {
   test("no secret at all, and the wrong secret, are one answer", async () => {
     const { t } = await ready();
 
-    const absent = await ingestPost(t, RESOLVE, { name: "seyi", sizeBytes: 1 }, {
+    const absent = await ingestPost(t, RESOLVE, { username: "seyi", sizeBytes: 1 }, {
       secret: null,
     });
-    const wrong = await ingestPost(t, RESOLVE, { name: "seyi", sizeBytes: 1 }, {
+    const wrong = await ingestPost(t, RESOLVE, { username: "seyi", sizeBytes: 1 }, {
       secret: "not-the-secret",
     });
 

@@ -580,21 +580,31 @@ export const gatewayGrantsRevoke = gatewayRoute(async (ctx, body) => {
  * plaintext goes back to the worker and is never stored; only its digest is.
  */
 export const gatewayIngestResolve = emailWorkerRoute(async (ctx, body) => {
-  const name = stringField(body, "name");
+  // `username` is the worker's word for the local part of the address a sender
+  // wrote. It is a name in the one global namespace usernames and context slugs
+  // share, and it resolves only if it belongs to a personal context — see
+  // `resolvePersonalContextForIngestion`.
+  const username = stringField(body, "username");
   const sizeBytes = body.sizeBytes;
   // A malformed request is answered exactly like an unknown name. A 400 would
   // tell a caller holding the worker secret which part of its request was the
   // bad one, and there is nothing here a legitimate caller could act on.
-  if (name === null || typeof sizeBytes !== "number" || !Number.isFinite(sizeBytes)) {
+  if (username === null || typeof sizeBytes !== "number" || !Number.isFinite(sizeBytes)) {
     return json({ ingestion: null });
   }
 
+  // `envelopeFrom` is sent and deliberately not read. The contract offers it
+  // "for rate limiting only; NOT authority", and it is attacker-chosen, so
+  // limiting on it protects nothing — the limit below is keyed on the
+  // recipient, which is the thing being probed. Reading it here would also put
+  // a stranger's address one refactor away from a log line.
+  //
   // Minted before the lookup, so the work done is the same whether or not the
   // name resolves. Nothing is written unless the mutation decides to write it.
   const ticket = randomOpaqueToken(32);
   const resolution = await ctx.runMutation(
     internal.functions.ingestionGateway.resolveForIngestion,
-    { name, hashedTicket: await hashToken(ticket), sizeBytes },
+    { name: username, hashedTicket: await hashToken(ticket), sizeBytes },
   );
   if (resolution === null) return json({ ingestion: null });
 

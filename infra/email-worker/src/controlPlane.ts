@@ -48,58 +48,68 @@
  *    the other, never both. So the local part in `<name>@context.lc` selects at
  *    most one row, and if that row is a `user` row it is a person.
  *
- * 3. **The resolver must follow `names.by_name(...).userId`.** That field only
- *    exists on the `user` arm of the discriminator; a workspace row has a
- *    `workspaceId` and no `userId`, so there is nothing on it to follow. This
- *    is stronger than reading `workspaces.kind === "personal"`, which
- *    `schema.ts` itself calls descriptive rather than structural — a personal
- *    context is really "a workspace with one owner member", and a field that
- *    describes rather than constrains is a field that can drift. Route through
- *    the identity, not through the label.
+ * 3. **The resolver must admit only a personal context, and must establish that
+ *    structurally.** The name selects at most one row; whether that row may
+ *    receive mail is a second question, and the answer has to be more than a
+ *    label.
  *
- * A name that belongs to a shared context is a `kind: "workspace"` row with no
- * `userId`, so it produces the same `{ "ingestion": null }` as a name nobody
- * has ever claimed. That is required, not incidental: a refusal that differed
- * would tell any stranger with a mail client which names on this domain are
- * teams.
+ *    `apps/convex/functions/lib/ingestionStore.ts`'s
+ *    `resolvePersonalContextForIngestion` is the single implementation, and it
+ *    requires **both** `workspaces.kind === "personal"` **and** that the
+ *    context has exactly one member who is its owner. The second is the
+ *    stricter half, and it is what makes this structural rather than
+ *    descriptive: `schema.ts` defines a personal context as "a workspace with
+ *    a single `owner` member", so a context that has since been shared with
+ *    three people stops receiving mail whatever its `kind` field says.
  *
- * ── PRECONDITIONS THIS CONTRACT PLACES ON THE CONTROL PLANE ─────────────────
+ *    ── What this is NOT, and why ──
  *
- * Stated because they are not true of `apps/convex` as it stands, and shipping
- * the route without them makes the argument above false rather than merely
- * unverified:
+ *    An earlier draft of this file specified resolution through
+ *    `names.by_name(...).userId` — the `kind: "user"` arm of the discriminator
+ *    — and forbade any fallback to `workspaceId`, on the grounds that routing
+ *    through an identity beats routing through a label.
  *
- *   a. **Signup must claim the username as a `names` row of `kind: "user"`.**
- *      Today `claimName` supports that arm but the only production caller is
- *      `createWorkspace`, which always passes `kind: "workspace"`. Until
- *      signup claims the user arm too, every name in the table is a workspace
- *      slug and step 3 resolves nothing at all — which fails closed, but for
- *      the wrong reason.
- *   b. **A user has exactly one personal context, created with the account and
- *      never reassigned.** The username is its path. This is the model the
- *      product owner specified, and it is what makes "the username is the
- *      address" and "the username is the folder you find it in" the same
- *      sentence.
- *   c. **The resolver must never fall back to `names.by_name(...).workspaceId`
- *      when the user arm misses.** That fallback is the entire bug this
- *      re-spec exists to prevent, and it is one plausible-looking line.
+ *    That is the better design and it is not the one that shipped, because its
+ *    precondition is false: **nothing in `apps/convex` has ever written a
+ *    `kind: "user"` row.** `claimName` supports the arm, but its only
+ *    production caller is `createWorkspace`, which always passes
+ *    `kind: "workspace"`. A resolver following the user arm today would resolve
+ *    nothing at all — fail-closed, but for the wrong reason, and shipping a
+ *    route that cannot work is not a security property.
+ *
+ *    What a person actually has is a personal context whose slug is their
+ *    handle, which is exactly what CLAUDE.md means by usernames and workspace
+ *    slugs sharing one namespace, and it is how `resolveInviteeUser` in
+ *    `functions/invitations.ts` has always resolved a handle to a person.
+ *
+ *    If signup ever claims the `kind: "user"` arm, that one function is where
+ *    it belongs — and the argument gets stronger without anything here
+ *    changing.
+ *
+ * A name that belongs to a shared context produces the same
+ * `{ "ingestion": null }` as a name nobody has ever claimed. That is required,
+ * not incidental: a refusal that differed would tell any stranger with a mail
+ * client which names on this domain are teams.
+ * `apps/convex/__tests__/ingestionGateway.test.ts` asserts the two refusals are
+ * byte-identical, over status, headers and body.
  *
  * ============================================================================
- * THIS CONTRACT DOES NOT EXIST YET — AND IT NEEDS A DECISION
+ * THIS CONTRACT RELAXES THE TWO-PROOF RULE — DELIBERATELY
  * ============================================================================
  *
- * `apps/convex/http.ts` today exposes nine routes, all of them `gatewayRoute`,
- * and the two that can resolve a context or yield a credential both require
- * **an end-user OAuth access token** as their second proof. That is the durable
+ * `apps/convex/http.ts`'s nine gateway routes are all `gatewayRoute`, and the
+ * two that can resolve a context or yield a credential both require **an
+ * end-user OAuth access token** as their second proof. That is the durable
  * decision recorded in CLAUDE.md: the gateway secret alone opens nothing, and
  * the gateway never gets to name the context it wants.
  *
  * **An inbound email has no user token.** Nobody is present, nothing was
  * authorized just now, and the only identifier in hand is a local part a
  * stranger typed. So the two-proof shape cannot be reproduced here, and this
- * contract is a genuine relaxation of it. It is the single thing in this
- * package that a human has to agree to before it ships. What follows is the
- * narrowest shape found that keeps as much of the property as email allows:
+ * contract is a genuine relaxation of it. What follows is the narrowest shape
+ * found that keeps as much of the property as email allows — and it is now
+ * implemented, in `apps/convex/functions/ingestionGateway.ts` and the three
+ * routes at the bottom of `apps/convex/http.ts`:
  *
  * 1. **Its own secret.** `EMAIL_WORKER_SECRET`, not `GATEWAY_SECRET`. The
  *    gateway secret is documented as held by exactly two parties and buys
@@ -136,11 +146,28 @@
  *    and so does the fact that a stolen secret opens *some* storage without a
  *    human in the loop.
  *
- *    Mitigations that belong on the control-plane side, and should be part of
- *    accepting this contract: rate-limit `resolve` hard, per source; expire
- *    tickets aggressively; and a per-user ingestion kill switch the owner
- *    controls (which, unlike a shared-context switch, has an unambiguous owner
- *    to operate it).
+ *    Mitigations on the control-plane side, and where each of them now lives:
+ *
+ *      - **Rate-limit `resolve`.** `RESOLVE_LIMIT` in
+ *        `functions/ingestionGateway.ts`: 60 per name per hour, keyed on the
+ *        **recipient** rather than the envelope-from, which is attacker-chosen
+ *        and bounds nothing. The cost is that flooding one address can suppress
+ *        that person's real mail for the window; the alternative is an
+ *        unbounded oracle for everybody.
+ *      - **Expire tickets aggressively.** `TICKET_TTL_MS`: five minutes, and
+ *        single-use for the credential and single-use again for the accounting
+ *        write. Expiry is enforced on read, so a row nobody has swept is still
+ *        dead.
+ *      - **A per-user kill switch.** Already there, and it is the policy
+ *        itself: `allowedSenders: []` with `allowedDomains: []` and
+ *        `allowAnySender: false` accepts nothing, and a personal context has an
+ *        unambiguous owner to set it. `schema.ts` says why there is no separate
+ *        `enabled` flag — a second way to express "off" is a second thing to
+ *        check.
+ *
+ *    Still open, and bigger than this contract: minting a **write-only,
+ *    short-lived credential per ticket** would close the residual risk rather
+ *    than bound it. That is a storage-provisioning change, not a routing one.
  *
  * ----------------------------------------------------------------------------
  * 1. POST /gateway/ingest/resolve
