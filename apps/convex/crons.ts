@@ -33,4 +33,23 @@ crons.interval(
   {},
 );
 
+/**
+ * Sweep answered and abandoned invitations.
+ *
+ * `workspaceInvitations` gains a row for every person anybody ever tried to
+ * invite. They are inert once expired — every reader and every writer checks
+ * `expiresAt`, and the sweep only touches rows that have been dead for an hour
+ * — but they are permanent without this, and an invitation that was declined,
+ * withdrawn or ignored is precisely a row nobody reads.
+ *
+ * Daily rather than hourly: invitations expire in a week, not in ten minutes,
+ * so there is no backlog worth chasing more often.
+ */
+crons.interval(
+  "sweep expired invitations",
+  { hours: 24 },
+  internal.functions.invitations.purgeExpiredInvitations,
+  {},
+);
+
 export default crons;

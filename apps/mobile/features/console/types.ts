@@ -1,6 +1,7 @@
 import type { FileBrowser } from "./files/browser";
 import type { IngestionState } from "./ingestion/settings";
 import type { MapGraph } from "./map/layout";
+import type { MembersView } from "./members/members";
 import type { ConnectFormValues } from "./storage/connect";
 
 /**
@@ -146,6 +147,12 @@ export interface ConsoleData {
    * the actual editor without being able to offer a control that would lie.
    */
   files: FileBrowser;
+  /**
+   * Who can reach the selected context, and the owner-only controls to change
+   * it. Its `actions` are absent for anyone who is not the owner, and in the
+   * demo — the same rule as `storageActions`, expressed the same way.
+   */
+  members: MembersView;
   /** True while the first Convex round-trip is outstanding. */
   loading: boolean;
 }

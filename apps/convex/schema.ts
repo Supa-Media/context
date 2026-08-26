@@ -99,6 +99,100 @@ const schema = defineSchema({
     .index("by_workspace_user", ["workspaceId", "userId"]),
 
   /**
+   * An outstanding offer of membership.
+   *
+   * ## The invitation is addressed to an identifier, never to a user id
+   *
+   * `invitee` holds the normalized `@name` or email address exactly as the
+   * owner typed it, and it is resolved to a person only when somebody tries to
+   * accept. That is not laziness, it is the whole oracle defence: if inviting
+   * `@does-not-exist` were handled differently from inviting `@lk` — no row
+   * versus a row, or a row carrying a `userId` versus one that does not — then
+   * `listInvitations` would tell the inviter which names are real, and an
+   * attacker with an account could enumerate the user base by typing names into
+   * an invite box. Resolving late also happens to be the correct semantics: an
+   * account's email can change, and the invitation should follow whoever holds
+   * that address when it is answered, not whoever held it when it was sent.
+   *
+   * At most one row exists per `(workspaceId, inviteeKind, invitee)`. Re-inviting
+   * supersedes the previous row in place, so a person who declined leaves no
+   * trace for the next invitation to sit beside — see `functions/invitations.ts`.
+   *
+   * ## `token` is stored in plaintext, deliberately, and that is not the rule
+   * `oauthGrants` follows
+   *
+   * A refresh token is a bearer credential: whoever holds it *is* the client, so
+   * a dump of that table would be a set of working credentials and only a hash
+   * may be stored. An invitation token is not a bearer credential. Accepting
+   * additionally requires being the addressed identity — holding a name claim or
+   * a verified email that matches `invitee` — so possession alone grants
+   * nothing, and a dump of this table is inert for anyone who is not already the
+   * invitee. What the token buys is that the handle is unguessable and
+   * unenumerable: an attacker cannot walk this table by id.
+   *
+   * Hashing it would buy no confidentiality against an attacker who is already
+   * the invitee, and would cost the one delivery channel that exists — the
+   * invitee's own `listMyInvitations`, which is how an invitation is answered
+   * in-app while nothing here sends email.
+   *
+   * `role` is `editor` or `member` and structurally cannot be `owner`. Handing
+   * over a context is a separate, deliberate act; an invitation must never be
+   * able to perform it.
+   */
+  workspaceInvitations: defineTable({
+    workspaceId: v.id("workspaces"),
+    /**
+     * `name` — a `@handle` out of the shared namespace, stored undecorated.
+     * `email` — a lowercased address.
+     *
+     * Kept as an explicit field rather than derived from the string's shape, so
+     * no reader has to guess and no two readers can guess differently.
+     */
+    inviteeKind: v.union(v.literal("name"), v.literal("email")),
+    invitee: v.string(),
+    role: v.union(v.literal("editor"), v.literal("member")),
+    invitedBy: v.id("users"),
+    /** Unguessable, single-use, and useless without the matching identity. */
+    token: v.string(),
+    /**
+     * `pending` is the only status any reader acts on. The others exist so the
+     * row is not silently reused: `accepted` and `declined` are terminal, and
+     * `revoked` is the owner taking the offer back.
+     */
+    status: v.union(
+      v.literal("pending"),
+      v.literal("accepted"),
+      v.literal("declined"),
+      v.literal("revoked"),
+    ),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    respondedAt: v.optional(v.number()),
+  })
+    /**
+     * Pending invitations for one context. There is deliberately no plain
+     * `by_workspace` index beside it: nothing needs one, and an unnarrowed
+     * listing is the shape this one exists to prevent.
+     *
+     * `status` is in the key rather than filtered afterwards because the
+     * `listInvitations` read is bounded: with a plain `by_workspace` index, a
+     * context that has answered a few hundred invitations would fill the
+     * bounded window with dead rows and push its live ones out of sight.
+     * Narrowing in the index means the bound applies to what is actually being
+     * listed.
+     */
+    .index("by_workspace_status", ["workspaceId", "status"])
+    /**
+     * Serves two reads with one index: the `(kind, invitee)` prefix finds every
+     * context that has invited *you*, and the full triple finds the one row a
+     * re-invitation must supersede.
+     */
+    .index("by_invitee", ["inviteeKind", "invitee", "workspaceId"])
+    .index("by_token", ["token"])
+    /** For the sweep, and for nothing else — same reasoning as `oauthAuthorizations`. */
+    .index("by_expiresAt", ["expiresAt"]),
+
+  /**
    * The customer's bucket credential.
    *
    * KEYED BY `workspaceId`, NEVER `userId`. A binding belongs to the context,

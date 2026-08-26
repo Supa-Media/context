@@ -293,6 +293,35 @@ someone tidying up, and each fix is a different disaster:
 Matching is exact — scheme, host, port, no wildcards — for the same reason
 `redirectUriMatches` is. Unset `ALLOWED_ORIGINS` means non-browser clients only,
 which is fail-closed and breaks nothing already deployed. See `src/origin.js`.
+### An invitation is addressed to a string, and its token is stored in the clear
+
+Two things about `functions/invitations.ts` look like oversights and are not.
+
+**`inviteMember` never resolves the invitee.** It writes a row addressed to the
+`@name` or the email, returns `null`, and finds out who that is only when
+somebody accepts. Resolving up front — to store a `userId`, to answer "sent"
+versus "no such person", to skip writing a row nobody can answer — turns the
+invite box into a name-enumeration endpoint for the whole platform, because the
+attacker in this threat model is the *inviter* and anybody with an account has
+one. For the same reason `listInvitations` returns pending invitations and
+nothing else: a decline, a withdrawal and an expiry must be the same absence, or
+saying no tells the sender you exist. The one permitted asymmetry is that
+inviting an existing member is a no-op — an owner can already enumerate their
+own members.
+
+**The token is not hashed**, which is the opposite of the rule `oauthGrants`
+follows, and the difference is that this token is not a bearer credential:
+accepting also requires being the addressed identity, so a dump of the table is
+inert for anybody who is not already the invitee. Hashing would buy no
+confidentiality and would cost the only delivery channel there is —
+`listMyInvitations`, the invitee's own query — while nothing here sends email.
+
+Ownership is not transferable. Every context has exactly one `owner`, written by
+`createWorkspace`; `inviteMember` and `setMemberRole` both exclude `owner` in
+their argument validators, and `removeMember` refuses to delete it. Adding
+`owner` to either union would be an ownership transfer with no confirmation and
+no way back. `@name` resolving to a person depends on that invariant — a handle
+addresses the sole owner of the personal context it names.
 
 ### A guard nobody has checked is not a guard
 

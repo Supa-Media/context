@@ -7,11 +7,12 @@ import { Hint } from "../../design/components/Field";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { colors } from "../../design/tokens";
+import { MembersSection } from "../members/MembersSection";
 import { PaneHead } from "../ConsoleShell";
 import type { ConsoleClient, ConsoleData } from "../types";
 
 /**
- * One URL for every AI tool, and one revocable grant per client.
+ * Who and what can reach this context — the people, and the robots.
  *
  * App level, not per context: there is a single endpoint for the whole
  * account, and the list below spans every context you can reach. Each row says
@@ -23,6 +24,12 @@ import type { ConsoleClient, ConsoleData } from "../types";
  * `functions/grants.listGrants` and Revoke calls `revokeGrant`, which is why
  * the demo console omits the callback rather than rendering a button that
  * cannot do anything.
+ *
+ * `MembersSection` is mounted here because "who has access" is the question
+ * this pane answers and there is no per-context settings view yet. It takes one
+ * plain prop and imports nothing from the shell or the router, so moving it into
+ * a context view when navigation is reshaped is a one-line change — do that
+ * rather than copying it.
  */
 export function ConnectionsPane({ data }: { data: ConsoleData }) {
   return (
@@ -78,6 +85,10 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
           <ClientRow key={client.id} client={client} />
         ))}
       </Card>
+
+      <View style={styles.members}>
+        <MembersSection view={data.members} />
+      </View>
     </View>
   );
 }
@@ -119,4 +130,5 @@ const styles = StyleSheet.create({
   rowSub: { marginTop: 2 },
   rowContext: { color: colors.text2, fontWeight: "600" },
   hintStrong: { color: colors.hintStrong, fontWeight: "600" },
+  members: { marginTop: 11 },
 });

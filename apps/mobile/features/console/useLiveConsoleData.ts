@@ -19,6 +19,7 @@ import {
 } from "./placeholderData";
 import { useFileBrowser } from "./files/useFileBrowser";
 import { useIngestionSettings } from "./ingestion/useIngestionSettings";
+import { useMembers } from "./members/useMembers";
 import { toBindStorageArgs, type Provider } from "./storage/connect";
 import { atName, contextTone, describeScopes, formatCount, grantTone, lastUsedLabel } from "./format";
 import {
@@ -263,6 +264,11 @@ export function useLiveConsoleData(): ConsoleData {
     canEdit: selected?.role === "owner",
   });
 
+  const members = useMembers({
+    workspaceId: selectedContextId,
+    role: selected?.role,
+  });
+
   const files = useFileBrowser({
     workspaceId: selectedContextId,
     canEdit,
@@ -294,6 +300,7 @@ export function useLiveConsoleData(): ConsoleData {
       ingestion.settings?.address ?? placeholderIngestionAddress(selected?.slug ?? "you"),
     ingestion,
     files,
+    members,
     loading: workspaces === undefined,
   };
 }
