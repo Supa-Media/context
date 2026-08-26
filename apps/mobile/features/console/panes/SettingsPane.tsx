@@ -168,7 +168,14 @@ function BindingCard({
   demo: boolean;
   onRebind: () => void;
 }) {
-  const reverify = useReverify(storage, actions ? actions.reverify : null);
+  // The third argument is which context is being verified. A probe's result
+  // belongs to one workspace and must never be shown for another — see
+  // `useReverify`.
+  const reverify = useReverify(
+    storage,
+    actions ? actions.reverify : null,
+    actions ? actions.workspaceId : null,
+  );
   const [disconnecting, setDisconnecting] = useState(false);
 
   const addressing = forcePathStyleToAddressing(storage.forcePathStyle);

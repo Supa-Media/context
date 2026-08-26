@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   createReverifyController,
   type ObservedBinding,
   type ReverifyState,
 } from "./reverify";
+
+type Controller = ReturnType<typeof createReverifyController<ReturnType<typeof setTimeout>>>;
 
 /**
  * React binding for `createReverifyController` — the state machine holds the
@@ -19,11 +21,33 @@ import {
  * The effect depends on the row's *fields*, not on the object, because the
  * binding is rebuilt on every render of `useLiveConsoleData` and an identity
  * dependency would re-run on every keystroke elsewhere in the console.
+ *
+ * ## One probe belongs to one context
+ *
+ * `subject` is the workspace being verified, and it is not decoration. The
+ * controller settles by watching `updatedAt` move past a baseline it captured
+ * when the probe started — and two workspaces have completely unrelated
+ * `updatedAt` values. A controller that outlives a context switch will happily
+ * read the *next* context's row as the answer to the *previous* context's
+ * probe and report "your bucket is reachable and writable" about a bucket
+ * nothing ever checked. On a product whose entire promise is that the customer
+ * owns the storage, a fabricated green is the worst thing this pane could say.
+ *
+ * So the controller is rebuilt, and the outcome cleared, whenever the subject
+ * changes. Neither is keyed on `run`, which the caller rebuilds as a fresh
+ * closure every render (`storageActions` is an object literal in
+ * `useLiveConsoleData`) — that is what caused the render loop this file was
+ * rewritten to fix. See `../querySpec.ts` for the general rule.
  */
 export function useReverify(
   binding: ObservedBinding | null,
   /** `null` when the viewer is not an owner, or in the demo console. */
   run: (() => Promise<{ queued: boolean; status: string }>) | null,
+  /**
+   * The workspace this pane is verifying — `null` when there is none. A probe
+   * is about one context, and its result must never be shown for another.
+   */
+  subject: string | null,
 ): {
   state: ReverifyState;
   /** `null` when there is nothing to run — render no button rather than a dead one. */
@@ -32,50 +56,71 @@ export function useReverify(
 } {
   const [state, setState] = useState<ReverifyState>({ kind: "idle" });
 
-  /**
-   * `run` is read through a ref, and the controller is built exactly once.
-   *
-   * The caller builds `storageActions` as a fresh object literal on every
-   * render (see `useLiveConsoleData`), so `run` is a new function every time.
-   * Listing it as a dependency rebuilt the controller on every render, which
-   * made the effect below re-run on every render, which called `setState` with
-   * a **new** `{ kind: "idle" }` object — never `Object.is`-equal to the last
-   * one, so React could not bail out — which caused another render. An
-   * unbreakable loop, and a blank pane.
-   *
-   * The lesson is the same one in `../querySpec.ts`: a value that is rebuilt
-   * every render must not appear in a dependency array. A ref is how a callback
-   * stays current without being a dependency.
-   */
+  /** Read through a ref so a per-render closure never becomes a dependency. */
   const runRef = useRef(run);
   runRef.current = run;
 
-  const controller = useMemo(
-    () =>
-      createReverifyController<ReturnType<typeof setTimeout>>({
-        queue: async () => {
-          const current = runRef.current;
-          if (current === null) return { queued: false, status: "unknown" };
-          return await current();
-        },
-        schedule: (fn, ms) => setTimeout(fn, ms),
-        cancel: (handle) => clearTimeout(handle),
-        onChange: setState,
-      }),
+  /**
+   * The controller, rebuilt when the subject changes and **fetched through this
+   * function everywhere** — never captured in a variable at render time.
+   *
+   * `dispose()` is a one-way latch: a disposed controller silently queues
+   * nothing. Cleanup-then-setup happens on a living tree — `<StrictMode>` in
+   * development, Fast Refresh, React 19's `<Activity>` prerendering — and it
+   * runs the unmount cleanup without producing another render. A controller
+   * held in a `useMemo`, or read into a `const` and closed over by `start`,
+   * would therefore be dead with nothing to notice: the Re-verify button
+   * renders and does nothing, which is the exact failure `reverify.ts` exists
+   * to prevent. Resolving it at call time is what makes the rebuild reachable.
+   */
+  const held = useRef<{ subject: string | null; controller: Controller } | null>(null);
+
+  const controllerFor = (which: string | null): Controller => {
+    if (held.current === null || held.current.subject !== which) {
+      // Abandoning a controller mid-probe: cancel its timers so a late callback
+      // cannot report on a context the user has already left.
+      held.current?.controller.dispose();
+      held.current = {
+        subject: which,
+        controller: createReverifyController<ReturnType<typeof setTimeout>>({
+          queue: async () => {
+            const current = runRef.current;
+            if (current === null) return { queued: false, status: "unknown" };
+            return await current();
+          },
+          schedule: (fn, ms) => setTimeout(fn, ms),
+          cancel: (handle) => clearTimeout(handle),
+          onChange: setState,
+        }),
+      };
+    }
+    return held.current.controller;
+  };
+
+  useEffect(
+    () => () => {
+      held.current?.controller.dispose();
+      held.current = null;
+    },
     [],
   );
 
-  useEffect(() => () => controller.dispose(), [controller]);
-
   /**
-   * Clear a stale outcome when the controls appear or disappear — which is what
-   * changing context, or losing owner access, looks like from here. Keyed on a
-   * boolean rather than on `run` itself, for the reason above.
+   * Clear a stale outcome when the subject changes, or when the controls appear
+   * or disappear — a different context, or owner access gained or lost.
+   *
+   * Written as a render-phase reset rather than an effect on purpose: an effect
+   * would paint the previous context's "your bucket is reachable and writable"
+   * for one frame before clearing it. Guarded by a value that actually changed,
+   * so it converges immediately instead of looping, and it costs nothing on
+   * mount because the key starts out already seen.
    */
-  const canRun = run !== null;
-  useEffect(() => {
+  const resetKey = `${subject ?? ""} ${run !== null}`;
+  const [seenKey, setSeenKey] = useState(resetKey);
+  if (seenKey !== resetKey) {
+    setSeenKey(resetKey);
     setState({ kind: "idle" });
-  }, [canRun]);
+  }
 
   const status = binding?.status;
   const updatedAt = binding?.updatedAt;
@@ -85,15 +130,16 @@ export function useReverify(
 
   useEffect(() => {
     if (updatedAt === undefined || status === undefined) return;
-    controller.observe({ status, updatedAt, lastVerifiedAt, lastError, errorCode });
-  }, [controller, status, updatedAt, lastVerifiedAt, lastError, errorCode]);
+    controllerFor(subject).observe({ status, updatedAt, lastVerifiedAt, lastError, errorCode });
+    // `controllerFor` is deliberately absent: it is redefined every render and
+    // listing it would re-run this on every render — the defect this whole file
+    // was rewritten to remove. `subject` is what actually selects a controller.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject, status, updatedAt, lastVerifiedAt, lastError, errorCode]);
 
   return {
     state,
-    start:
-      run === null || binding === null
-        ? null
-        : () => controller.start(binding),
-    dismiss: () => controller.dismiss(),
+    start: run === null || binding === null ? null : () => controllerFor(subject).start(binding),
+    dismiss: () => controllerFor(subject).dismiss(),
   };
 }

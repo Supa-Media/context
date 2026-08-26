@@ -7,13 +7,23 @@
  *     -> { address, targetFolder, allowedSenders, allowedDomains, allowAnySender } | null
  *   updateIngestionSettings({ workspaceId, targetFolder?, allowedSenders?, … })
  *
- * and it is being built in parallel with this screen. So the lookup is by name
- * at runtime rather than through the generated `api` types: if the deployment
- * has no `functions/ingestion` module, `available` comes back false and the
- * card says the address is not configurable yet instead of throwing on a
- * missing function reference. A `null` result is a different thing again — the
- * module exists but this context has no alias issued — and both are states the
- * UI has to be able to draw.
+ * and it was built in parallel with this screen. So the lookup is by name at
+ * runtime rather than through the generated `api` types, the intent being that
+ * a deployment with no `functions/ingestion` module reports `available: false`
+ * and the card says the address is not configurable yet, instead of throwing
+ * on a missing function reference.
+ *
+ * **That fallback does not work and never did.** The generated `api` is
+ * `anyApi`, a proxy that returns a fresh object for *any* property name, so
+ * `getRef` is never `undefined`, `available` is always `true`, and a deployment
+ * missing the module gets a server-side throw rather than the gentle
+ * degradation described above. Dead machinery on a false premise — harmless
+ * today only because `functions/ingestion.ts` exists, and the reason a proxy
+ * ended up in a dependency array in the first place. Removing it is issue #16;
+ * it stays here so this change remains a crash fix and nothing more.
+ *
+ * A `null` result is a different thing again — the module exists but this
+ * context has no alias issued — and that state the UI really does have to draw.
  *
  * `save` is absent, not disabled, for anyone who cannot use it. Same rule as
  * `StorageActions`: a control that is never offered cannot mislead.

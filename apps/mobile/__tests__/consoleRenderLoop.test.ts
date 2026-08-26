@@ -138,17 +138,18 @@ describe("the console mounts without looping", () => {
     // literal, so `run` is a new function every time. That must not be enough
     // to restart the controller.
     const { renders, error } = mount(() =>
-      useReverify({ status: "connected", updatedAt: 1 }, async () => ({
-        queued: true,
-        status: "verifying",
-      })),
+      useReverify(
+        { status: "connected", updatedAt: 1 },
+        async () => ({ queued: true, status: "verifying" }),
+        "ws_1",
+      ),
     );
     expect(error).toBeNull();
     expect(renders).toBeLessThan(RUNAWAY);
   });
 
   test("re-verify, with no owner controls to run", () => {
-    const { renders, error } = mount(() => useReverify(null, null));
+    const { renders, error } = mount(() => useReverify(null, null, null));
     expect(error).toBeNull();
     expect(renders).toBeLessThan(RUNAWAY);
   });
