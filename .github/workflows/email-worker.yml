@@ -1,0 +1,56 @@
+# The email worker's own CI.
+#
+# Same gap `mcp.yml` and `router.yml` were written to close: the Supa
+# framework's reusable pipeline filters on apps/mobile, apps/convex and
+# packages/shared, so nothing under infra/ is covered. Without this job the
+# 210 tests that hold this worker's security properties — DMARC before the
+# allowlist, personal contexts only, one indistinguishable bounce for every
+# refusal — would only ever run on a developer's machine.
+name: Email Worker
+
+# No `paths:` filter on pull_request. A filtered-out required check never
+# reports and leaves the PR pending forever; see the note in mcp.yml.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - "infra/email-worker/**"
+      - ".github/workflows/email-worker.yml"
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: email-worker-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test Email Worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --filter @context/email-worker... --frozen-lockfile
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Typecheck
+        working-directory: infra/email-worker
+        run: npx tsc --noEmit
+
+      - name: Ingestion tests
+        working-directory: infra/email-worker
+        run: npx vitest run

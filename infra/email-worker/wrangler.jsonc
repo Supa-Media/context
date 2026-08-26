@@ -1,0 +1,105 @@
+{
+  // context-email: the Cloudflare Email Worker behind <username>@context.lc.
+  //
+  // Mail addressed to a username lands in that person's personal context, whose
+  // path *is* the username. Shared contexts have no ingestion address — nothing
+  // to configure, nothing to disable — so everything from outside passes through
+  // one accountable owner before anyone else can see it. See the block comment
+  // in src/controlPlane.ts for why that is structural rather than a filter.
+  //
+  // Cloudflare Email Routing is live on context.lc — MX, SPF and DKIM are
+  // verified in DNS — but until this Worker is deployed and bound to a routing
+  // rule, nothing receives mail: every message to <name>@context.lc goes
+  // nowhere.
+  //
+  // ── DEPLOYMENT IS NOT COMPLETE WHEN `wrangler deploy` SUCCEEDS ────────────
+  //
+  // Three things are configured in the Cloudflare dashboard, not here, and the
+  // Worker is either wrong or useless without them.
+  //
+  // 1. ROUTE IT AS A CATCH-ALL, NOT AS PER-ADDRESS RULES.
+  //
+  //    Email Routing rejects mail for an address with no matching rule, before
+  //    the Worker ever runs. If addresses were added one rule at a time, then
+  //    Cloudflare's own behaviour would differ between a claimed name and an
+  //    unclaimed one — and every refusal in src/index.ts would be uniform for
+  //    nothing, because the enumeration oracle would live one layer above it.
+  //    The catch-all action must be "Send to a Worker → context-email", so
+  //    every address on the domain reaches the same code and gets the same
+  //    answer.
+  //
+  // 2. VERIFY `AUTH_SERVICE_ID` AGAINST A REAL DELIVERY.
+  //
+  //    src/auth.ts refuses any message whose topmost `Authentication-Results`
+  //    header does not carry this exact authserv-id. That is what stops a
+  //    sender forging their own SPF/DKIM/DMARC verdict — and it depends on our
+  //    MX prepending its header above anything the sender wrote.
+  //
+  //    This repository's rule is that a guard nobody has checked is not a
+  //    guard. Before enabling ingestion: send one message through, capture the
+  //    raw headers, confirm (a) the authserv-id below is the one Cloudflare
+  //    actually writes and (b) it appears above any header the sender supplied.
+  //    Add the captured headers as a fixture in src/auth.test.ts. Until then
+  //    this value is a plausible guess, and a wrong guess fails CLOSED — the
+  //    Worker refuses everything rather than trusting a forgery.
+  //
+  // 3. VERIFY `OPERATIONS_MAILBOX` AS AN EMAIL ROUTING DESTINATION.
+  //
+  //    postmaster@ and abuse@ are forwarded there, never ingested. RFC 2142
+  //    requires them to stay deliverable and CLAUDE.md records that as
+  //    load-bearing. Cloudflare will not forward to an unverified destination,
+  //    so an unverified address means those two mailboxes bounce.
+  //
+  // CUSTOM DOMAINS ARE NOT ATTACHED HERE, and neither is the email route.
+  // Same convention as infra/router: attaching them requires the zone to
+  // already be on Cloudflare DNS, which a CI deploy cannot do and should not
+  // silently try to.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "context-email",
+  "main": "src/index.ts",
+  // A stable past date rather than "today": a future-dated (or clock-skewed)
+  // CI runner rejects a compatibility_date that resolves to the future.
+  "compatibility_date": "2026-07-01",
+
+  "vars": {
+    // The Convex HTTP-actions origin: https://<deployment>.convex.site — the
+    // `.site` host, NOT the `.cloud` one the client library uses.
+    //
+    // Public information (it is in every web client's network tab), so it is
+    // fine in a public repository.
+    "CONTROL_PLANE_URL": "https://curious-bloodhound-797.convex.site",
+
+    // The apex we accept mail for. A recipient on any other domain is refused
+    // before anything else happens.
+    "INGEST_DOMAIN": "context.lc",
+
+    // The authserv-id in the `Authentication-Results` header we will believe.
+    // See note 2 above — CONFIRM THIS AGAINST A REAL DELIVERY.
+    "AUTH_SERVICE_ID": "mx.cloudflare.net",
+
+    // DELIBERATELY EMPTY. postmaster@ and abuse@ are forwarded here; with it
+    // unset they are refused and a loud `operations_mailbox_unset` is logged.
+    // Set it to a verified Email Routing destination. Not a secret, but it is
+    // a real mailbox on a real person's account, so it is left for whoever
+    // deploys rather than committed.
+    "OPERATIONS_MAILBOX": "",
+
+    // Hard ceiling on a message this Worker will read. Capped again in code at
+    // 5 MB regardless of what is set here.
+    "MAX_MESSAGE_BYTES": "5000000",
+
+    // Allow-list of native R2 binding names, for self-hosters whose control
+    // plane returns a `r2-binding` provider. Empty for the product deployment,
+    // whose tenants bring their own buckets over the S3 API.
+    "NATIVE_BINDINGS": ""
+  },
+
+  // EMAIL_WORKER_SECRET is a secret, set with `wrangler secret put` and never
+  // committed. It is NOT `GATEWAY_SECRET`: see the contract block in
+  // src/controlPlane.ts for why the two are deliberately separate and what a
+  // leak of this one would and would not buy.
+
+  "observability": {
+    "enabled": true
+  }
+}

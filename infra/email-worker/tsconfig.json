@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2022"],
+    "module": "es2022",
+    "moduleResolution": "bundler",
+    "types": ["@cloudflare/workers-types"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    // The storage adapter is `apps/mcp/src/store/*.js` — plain JS with JSDoc
+    // types, imported here rather than reimplemented. `checkJs` stays off: that
+    // code is typechecked (or not) by its own package, and turning it on here
+    // would make this package's typecheck fail for reasons that belong to
+    // another one.
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": ["src"]
+}
