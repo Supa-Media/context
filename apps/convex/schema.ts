@@ -324,8 +324,11 @@ const schema = defineSchema({
      *    structure; there is one.**
      *  - `empty`           — verified, reachable, writable, and empty. This is
      *    the only state in which asking PARA-or-custom makes sense.
-     *  - `created`         — a starting layout was written.
-     *  - `failed`          — a write failed partway. Some files may exist.
+     *  - `created`         — a starting layout was written, in full.
+     *  - `partial`         — the essential file landed and something
+     *    best-effort did not. **This is a success**: the bucket is a working
+     *    context. `scaffoldMissing` says what is absent.
+     *  - `failed`          — an essential file did not land. Not a context yet.
      *  - `not-attempted`   — verification did not get far enough to look.
      *
      * Both absent on a binding that has never been verified. Readable by every
@@ -334,6 +337,28 @@ const schema = defineSchema({
      */
     scaffolded: v.optional(v.boolean()),
     scaffoldReason: v.optional(v.string()),
+    /**
+     * WHAT WE STILL OWE THIS BUCKET.
+     *
+     * Keys of the layout the owner chose that are not in the bucket: written
+     * by every scaffold attempt, empty once one completes, absent until one
+     * runs. Two jobs, and the second is the load-bearing one:
+     *
+     *  1. It is the honest half of `partial` — the console can name the two
+     *     READMEs that did not land, instead of calling the whole thing failed.
+     *  2. **It is how we tell our own half-written scaffold from a vault that
+     *     was here before we arrived.** Both look like "the bucket already
+     *     holds a context" to anything reading the bucket, and treating them
+     *     the same is what made a partly-failed scaffold impossible to finish
+     *     through the product (issue #22). This field can only ever be
+     *     non-empty because *we* observed this bucket empty and then wrote into
+     *     it — so a non-empty value is the licence `applyStructure` needs to
+     *     retry, and `bindStorage` clears it, because it describes one bucket.
+     *
+     * Key names this control plane generated. Never provider text, never note
+     * content.
+     */
+    scaffoldMissing: v.optional(v.array(v.string())),
     boundBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),

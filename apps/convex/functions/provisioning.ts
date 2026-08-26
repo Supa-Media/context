@@ -129,8 +129,12 @@ export type VerificationErrorCode =
  *  - `existing-context` — the bucket already holds somebody's notes.
  *  - `empty`            — verified and empty. The only state where asking for a
  *                         folder layout makes sense.
- *  - `created`          — a starting layout was written.
- *  - `failed`           — a scaffold write failed partway.
+ *  - `created`          — a starting layout was written, in full.
+ *  - `partial`          — the layout's essential file landed, some best-effort
+ *                         folders or READMEs did not. **A success.** The bucket
+ *                         is a working context; `scaffoldMissing` names what to
+ *                         create by hand or ask an agent for.
+ *  - `failed`           — an essential file did not land. Not a context yet.
  *  - `not-attempted`    — verification did not get far enough to look.
  *  - `no-binding`       — there was nothing to verify. Never persisted: there
  *                         is no row to persist it on.
@@ -139,6 +143,7 @@ export type ScaffoldState =
   | "existing-context"
   | "empty"
   | "created"
+  | "partial"
   | "failed"
   | "not-attempted"
   | "no-binding";
@@ -152,6 +157,14 @@ export interface VerificationOutcome {
   conditionalWrite: boolean;
   scaffolded: boolean;
   scaffoldReason: ScaffoldState;
+  /**
+   * Keys of the chosen layout that are not in the bucket. Present only when a
+   * scaffold actually ran — a look-only probe leaves whatever the last attempt
+   * recorded, because it is the record of what we still owe this bucket.
+   *
+   * These are key names this module generated, never provider text.
+   */
+  scaffoldMissing?: string[];
   error?: string;
   /** Absent when `verified`, and absent when the failure has no useful code. */
   errorCode?: VerificationErrorCode;
@@ -226,6 +239,16 @@ export const verifyStorageBinding = internalAction({
      * "verify and classify"; see the two modes above.
      */
     structure: v.optional(structureChoiceValidator),
+    /**
+     * Finish a layout we already began writing into this bucket.
+     *
+     * Only `applyStructure` sets it, and only from `scaffoldMissing` on the
+     * binding — control-plane evidence that this bucket was observed empty and
+     * then written into by us. It reaches `scaffoldContext`'s `resume`, which
+     * swaps the "is anything here" guard for "is anything here that we did not
+     * write". Meaningless without `structure`, and ignored without it.
+     */
+    resume: v.optional(v.boolean()),
   },
   returns: v.object({
     verified: v.boolean(),
@@ -234,6 +257,7 @@ export const verifyStorageBinding = internalAction({
     conditionalWrite: v.boolean(),
     scaffolded: v.boolean(),
     scaffoldReason: v.string(),
+    scaffoldMissing: v.optional(v.array(v.string())),
     error: v.optional(v.string()),
     errorCode: v.optional(v.string()),
   }),
@@ -364,6 +388,7 @@ export const verifyStorageBinding = internalAction({
     let scaffolded = false;
     let scaffoldReason: ScaffoldState;
     let scaffoldError: string | undefined;
+    let scaffoldMissing: string[] | undefined;
     if (args.structure === undefined) {
       // Look, do not touch. `hasExistingContext` is the same detector the
       // scaffolder runs as its first guard, listing **with a delimiter** — a
@@ -377,10 +402,17 @@ export const verifyStorageBinding = internalAction({
       const result = await scaffoldContext(store, {
         structureTemplate: args.structure.template,
         customFolders: args.structure.folders,
+        resume: args.resume === true,
       });
       scaffolded = result.scaffolded;
       scaffoldReason = result.reason;
       if (result.error) scaffoldError = redactSecrets(result.error, secrets);
+      // Recorded only when we actually tried to write. `existing-context` means
+      // the guard refused before the first `get`, so this attempt learned
+      // nothing about what the bucket still owes — and clearing the previous
+      // attempt's list there would strand a half-written bucket exactly the way
+      // issue #22 describes.
+      if (result.reason !== "existing-context") scaffoldMissing = result.missing;
     }
 
     return await record(ctx, args, {
@@ -393,6 +425,7 @@ export const verifyStorageBinding = internalAction({
       conditionalWrite: summary.capabilities.conditionalWrite,
       scaffolded,
       scaffoldReason,
+      scaffoldMissing,
       error: scaffoldError,
     });
   },
@@ -427,6 +460,8 @@ async function record(
       scaffolded: outcome.scaffoldReason === "not-attempted" ? undefined : outcome.scaffolded,
       scaffoldReason:
         outcome.scaffoldReason === "not-attempted" ? undefined : outcome.scaffoldReason,
+      // Already narrowed by the caller: present only when a scaffold ran.
+      scaffoldMissing: outcome.scaffoldMissing,
       actorUserId: args.actorUserId,
     });
   } catch {

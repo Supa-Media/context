@@ -328,7 +328,23 @@ export const applyStructure = mutation({
           "This context's storage has not been verified yet. Wait for the connection check to finish, or fix the error it reported.",
       });
     }
-    if (binding.scaffoldReason === "existing-context") {
+    // FINISHING SOMETHING WE STARTED IS NOT THE SAME AS SCAFFOLDING OVER
+    // SOMEBODY'S VAULT, AND THIS IS THE LINE BETWEEN THEM.
+    //
+    // A scaffold that stopped halfway leaves real files in the bucket, so from
+    // then on every detector correctly reports "this bucket holds a context" —
+    // and the retry got refused with `CONTEXT_NOT_EMPTY`, telling the owner
+    // nothing had been changed while their bucket sat half-written. Finishing
+    // it needed a person deleting objects over S3 (issue #22).
+    //
+    // `scaffoldMissing` is the discriminator, and it is the only thing here
+    // that could be: it is written exclusively by an attempt that got past the
+    // emptiness guard, which is to say by us, into a bucket we had just
+    // observed empty. A vault that was here before we arrived never gets one —
+    // the guard refuses before the first `get` — so the refusal below is
+    // untouched for the case it exists to protect.
+    const unfinished = (binding.scaffoldMissing?.length ?? 0) > 0;
+    if (binding.scaffoldReason === "existing-context" && !unfinished) {
       throw new ConvexError({
         code: "CONTEXT_NOT_EMPTY",
         message:
@@ -393,6 +409,10 @@ export const applyStructure = mutation({
         workspaceId: args.workspaceId,
         actorUserId: userId,
         structure: { template: args.template, folders },
+        // Only ever true for a bucket we half-wrote ourselves. The scaffolder
+        // still refuses anything it did not write, byte for byte, and still
+        // `get`s every key before it `put`s it.
+        resume: unfinished,
       },
     );
 

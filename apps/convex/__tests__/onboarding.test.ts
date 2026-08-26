@@ -393,6 +393,51 @@ describe("a context that already exists is never scaffolded over", () => {
     });
   });
 
+  /**
+   * SABOTAGE, for the resume path.
+   *
+   * `applyStructure` decides whether a retry may skip the emptiness guard by
+   * reading `scaffoldMissing` off the binding — a field only a scaffold of ours
+   * can ever write. Here the row is *forged* to say so over a bucket that is
+   * somebody's live brain. The bucket must still come out byte-identical,
+   * because the licence the mutation hands out is not the enforcement: the
+   * scaffolder checks the bucket itself, and refuses anything it did not write.
+   */
+  test("even a forged resume licence cannot scaffold over a live brain", async () => {
+    const { t, owner, workspaceId, backend } = await connected({
+      seed: {
+        "privacy.md": "# hand written, do not touch\n",
+        "index.md": "# My brain\n",
+        "1-projects/ship-it.md": "# Ship it\n",
+        "0-inbox/README.md": "my own inbox readme, not yours\n",
+      },
+    });
+    const before = backend.snapshot();
+
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(row!._id, {
+        scaffoldReason: "partial",
+        scaffolded: true,
+        scaffoldMissing: ["0-inbox/README.md", "1-projects/README.md"],
+      });
+    });
+
+    expect(await apply(t, owner, workspaceId, { template: "para" })).toMatchObject({
+      queued: true,
+    });
+    await drainScheduled(t);
+
+    expect(backend.snapshot()).toEqual(before);
+    expect(await binding(t, owner, workspaceId)).toMatchObject({
+      scaffolded: false,
+      scaffoldReason: "existing-context",
+    });
+  });
+
   test("a second application is refused once a layout has been written", async () => {
     const { t, owner, workspaceId, backend } = await connected();
     await apply(t, owner, workspaceId, { template: "para" });
@@ -534,6 +579,162 @@ describe("choosing a layout is owner-only and validated", () => {
     expect(text).not.toContain(FAKE_STORAGE.secretAccessKey);
     expect(text).not.toContain(FAKE_STORAGE.accessKeyId);
     expect(text).not.toContain(FAKE_STORAGE.bucket);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * ISSUE #22, THROUGH THE WHOLE STACK.
+ *
+ * A bucket refuses some of the writes. What the person is told, and whether
+ * they can get out of it without an S3 client.
+ *
+ * The old answer to both was bad: the binding said `failed` even though the
+ * `privacy.md` that makes a context a context had landed, and the retry came
+ * back "this bucket already holds a context, nothing has been changed" — over a
+ * bucket we had half-written ourselves five seconds earlier.
+ */
+describe("a scaffold that only partly lands can be finished from the console", () => {
+  const README_KEYS = PARA_FOLDERS.map((folder) => `${folder}/README.md`);
+
+  test("lost folders are reported as a caveat on a success, not as a failure", async () => {
+    const { t, owner, workspaceId, backend } = await connected({
+      refuseWrite: (key) => key.endsWith("/README.md"),
+    });
+
+    await apply(t, owner, workspaceId, { template: "para" });
+    await drainScheduled(t);
+
+    // The context works: the manifest the gateway enforces visibility with is
+    // in the bucket, and it parses.
+    const { parsePrivacyManifest } = gatewayInternals();
+    expect(
+      parsePrivacyManifest(backend.objects.get(PRIVACY_KEY)!.body).rules,
+    ).toHaveLength(PARA_FOLDERS.length);
+
+    const row = await binding(t, owner, workspaceId);
+    expect(row).toMatchObject({
+      status: "connected",
+      scaffolded: true,
+      scaffoldReason: "partial",
+    });
+    // …and it says exactly what is missing, so the console can name it rather
+    // than apologise vaguely.
+    expect([...(row?.scaffoldMissing ?? [])].sort()).toEqual([...README_KEYS].sort());
+  });
+
+  test("the owner can retry and finish it — no S3 client required", async () => {
+    const refuse = { readmes: true };
+    const { t, owner, workspaceId, backend } = await connected({
+      refuseWrite: (key) => refuse.readmes && key.endsWith("/README.md"),
+    });
+    await apply(t, owner, workspaceId, { template: "para" });
+    await drainScheduled(t);
+    expect((await binding(t, owner, workspaceId))?.scaffoldReason).toBe("partial");
+
+    // Whatever was wrong with the bucket is fixed. The same button again.
+    refuse.readmes = false;
+    expect(await apply(t, owner, workspaceId, { template: "para" })).toMatchObject({
+      queued: true,
+    });
+    await drainScheduled(t);
+
+    expect([...backend.objects.keys()].sort()).toEqual(
+      [...README_KEYS, "index.md", "privacy.md"].sort(),
+    );
+    const row = await binding(t, owner, workspaceId);
+    expect(row).toMatchObject({ scaffolded: true, scaffoldReason: "created" });
+    expect(row?.scaffoldMissing).toEqual([]);
+  });
+
+  test("a run whose privacy.md failed is a failure, and is also retryable", async () => {
+    const refuse = { all: true };
+    const { t, owner, workspaceId, backend } = await connected({
+      // Everything but the plumbing, so the writability probe still passes and
+      // the binding is genuinely connected. This is a bucket that accepts
+      // writes and then refuses these ones — a policy on the note surface, not
+      // a dead credential.
+      refuseWrite: (key) => refuse.all && !key.startsWith("."),
+    });
+    await apply(t, owner, workspaceId, { template: "para" });
+    await drainScheduled(t);
+
+    expect(await binding(t, owner, workspaceId)).toMatchObject({
+      scaffolded: false,
+      scaffoldReason: "failed",
+    });
+    expect([...backend.objects.keys()]).toEqual([]);
+
+    refuse.all = false;
+    await apply(t, owner, workspaceId, { template: "para" });
+    await drainScheduled(t);
+
+    expect((await binding(t, owner, workspaceId))?.scaffoldReason).toBe("created");
+    expect([...backend.objects.keys()].sort()).toEqual(
+      [...README_KEYS, "index.md", "privacy.md"].sort(),
+    );
+  });
+
+  /**
+   * The retry has to survive the owner poking the other button first.
+   * "Check the connection" reclassifies the bucket, and a half-written one now
+   * honestly reads as a context — which is precisely the reading that stranded
+   * them. `scaffoldMissing` is what a look-only probe must not erase.
+   */
+  test("re-verifying in between does not strand the half-written bucket", async () => {
+    const refuse = { readmes: true };
+    const { t, owner, workspaceId, backend } = await connected({
+      refuseWrite: (key) => refuse.readmes && key.endsWith("/README.md"),
+    });
+    await apply(t, owner, workspaceId, { template: "para" });
+    await drainScheduled(t);
+
+    await asUser(t, owner).mutation(api.functions.storage.reverifyStorage, {
+      workspaceId,
+    });
+    await drainScheduled(t);
+    expect(await binding(t, owner, workspaceId)).toMatchObject({
+      // Honest about what is in the bucket…
+      scaffoldReason: "existing-context",
+    });
+    // …and still remembers what it owes.
+    expect(
+      [...((await binding(t, owner, workspaceId))?.scaffoldMissing ?? [])].sort(),
+    ).toEqual([...README_KEYS].sort());
+
+    refuse.readmes = false;
+    await apply(t, owner, workspaceId, { template: "para" });
+    await drainScheduled(t);
+    expect([...backend.objects.keys()].sort()).toEqual(
+      [...README_KEYS, "index.md", "privacy.md"].sort(),
+    );
+  });
+
+  test("rebinding to another bucket takes the licence with it", async () => {
+    const { t, owner, workspaceId } = await connected({
+      refuseWrite: (key) => key.endsWith("/README.md"),
+    });
+    await apply(t, owner, workspaceId, { template: "para" });
+    await drainScheduled(t);
+    expect((await binding(t, owner, workspaceId))?.scaffoldMissing).not.toEqual([]);
+
+    // A different bucket, which happens to be somebody's live brain. Carrying
+    // "we owe this bucket five READMEs" across would carry a licence to write
+    // into it, earned somewhere else entirely.
+    const other = memoryS3("some-other-bucket");
+    other.seed("1-projects/theirs.md", "# Theirs\n");
+    vi.stubGlobal("fetch", other.fetchImpl);
+    await bindFakeStorage(t, owner, workspaceId, { bucket: "some-other-bucket" });
+    expect((await binding(t, owner, workspaceId))?.scaffoldMissing).toBeUndefined();
+
+    await drainScheduled(t);
+    expect(
+      errorCode(
+        await captureError(() => apply(t, owner, workspaceId, { template: "para" })),
+      ),
+    ).toBe("CONTEXT_NOT_EMPTY");
+    expect(other.snapshot()).toEqual({ "1-projects/theirs.md": "# Theirs\n" });
   });
 });
 

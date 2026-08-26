@@ -29,6 +29,10 @@
  *     a judgement call over a listing and guard 2 is not a judgement call at
  *     all.
  *
+ * Guard 1 has one narrowing, for the case where the thing in the bucket is our
+ * own half-written scaffold rather than somebody's brain: see `resume` on
+ * `scaffoldContext` and `hasForeignContent`. Guard 2 does not move.
+ *
  * The residual race — an object created between the `get` and the `put` — is
  * unavoidable with the `ContextStore` surface, which has no create-if-absent
  * (S3's `If-None-Match: *` is not supported by every backend we accept, and
@@ -503,19 +507,26 @@ export function renderFolderReadme(folder: string): string {
 }
 
 /**
- * Every file a fresh context starts with, in write order.
+ * Every file a fresh context starts with, **in write order, essentials first**.
  *
  * A folder in object storage is not a thing you create — it is the prefix of a
  * key that exists. `README.md` is what makes each one real, and it carries the
  * folder's purpose while it is at it.
+ *
+ * The order is not cosmetic. A bucket can stop accepting writes partway
+ * through — a credential rotated out from under us, a policy change, a bucket
+ * that filled up — and what has landed by then is decided entirely by this
+ * list. `privacy.md` goes first because it is the one file whose absence makes
+ * the context behave differently rather than merely read thinner; see
+ * `ESSENTIAL_KEYS`.
  */
 export function scaffoldFiles(
   template: StructureTemplate,
   customFolders: readonly CustomFolder[] = [],
 ): { key: string; body: string }[] {
   const files = [
-    { key: INDEX_KEY, body: renderIndex(template, customFolders) },
     { key: PRIVACY_KEY, body: renderPrivacyManifest(template, customFolders) },
+    { key: INDEX_KEY, body: renderIndex(template, customFolders) },
   ];
   if (template === "para") {
     for (const folder of PARA_FOLDERS) {
@@ -597,16 +608,137 @@ export async function hasExistingContext(store: ScaffoldStore): Promise<boolean>
   return false;
 }
 
+/**
+ * Is there anything in this bucket that **we did not put there**?
+ *
+ * ## The question `hasExistingContext` cannot answer
+ *
+ * A scaffold that fails partway leaves real objects in the bucket, so from
+ * that moment on `hasExistingContext` says "this is somebody's context" — and
+ * it is right, in the only sense it can see. It is also the reason the person
+ * whose scaffold half-landed could not finish it through the product: the
+ * retry's first guard saw the `privacy.md` the *first attempt* wrote and
+ * refused, reporting a bucket we had half-written as a bucket we must not
+ * touch (issue #22).
+ *
+ * So a resuming scaffold asks a narrower question, and the narrowing is the
+ * whole safety argument: **every non-plumbing object in the bucket must be a
+ * key this exact layout would write, holding the exact bytes this exact layout
+ * would write there.** Byte-identity is what makes the answer "we wrote this"
+ * rather than "something with this name is here": a person's own
+ * hand-maintained `privacy.md` or `1-projects/README.md` is not byte-identical
+ * to our generated one, and one note of theirs anywhere — `1-projects/ship.md`
+ * — is a key no layout of ours contains. Either way this returns `true` and
+ * the caller refuses, exactly as it does for a vault that was here before we
+ * arrived.
+ *
+ * That also means a resume completes **the layout it started**. Asking to
+ * resume a half-written PARA bucket with a `custom` layout finds `0-inbox/`
+ * foreign and refuses, rather than interleaving two layouts in somebody's
+ * bucket.
+ *
+ * Listed with the same delimiter and page cap as `hasExistingContext`, for the
+ * same `.history/` reason. A folder prefix that *is* one of ours is then
+ * walked flat, because "the prefix `1-projects/` exists" says nothing about
+ * whether what is under it is our README or a thousand of their notes.
+ */
+export async function hasForeignContent(
+  store: ScaffoldStore,
+  files: readonly { key: string; body: string }[],
+): Promise<boolean> {
+  const ours = new Map(files.map((file) => [file.key, file.body]));
+  const ourPrefixes = new Set(
+    files
+      .filter((file) => file.key.includes("/"))
+      .map((file) => `${file.key.slice(0, file.key.indexOf("/"))}/`),
+  );
+
+  const isOurs = async (key: string): Promise<boolean> => {
+    const body = ours.get(key);
+    if (body === undefined) return false;
+    const object = await store.get(key);
+    // Listed but unreadable a moment later: treat as not ours, which refuses.
+    if (object === null) return false;
+    return (await object.text()) === body;
+  };
+
+  const walk = async (
+    prefix: string,
+    delimiter: string | undefined,
+  ): Promise<boolean> => {
+    let cursor: string | undefined = undefined;
+    for (let page = 0; page < DETECT_PAGE_CAP; page += 1) {
+      const listing: Awaited<ReturnType<ScaffoldStore["list"]>> = await store.list(
+        { prefix, delimiter, cursor, limit: DETECT_PAGE_SIZE },
+      );
+      for (const object of listing.objects ?? []) {
+        if (isPlumbingKey(object.key)) continue;
+        if (!(await isOurs(object.key))) return true;
+      }
+      for (const found of listing.delimitedPrefixes ?? []) {
+        if (isPlumbingKey(found)) continue;
+        if (!ourPrefixes.has(found)) return true;
+        // Ours by name. Now prove what is under it is ours by content.
+        if (await walk(found, undefined)) return true;
+      }
+      if (!listing.truncated || !listing.cursor) break;
+      cursor = listing.cursor;
+    }
+    return false;
+  };
+
+  return await walk("", "/");
+}
+
 /* -------------------------------------------------------------------------- */
 /*                                 scaffolding                                */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * THE FILES A CONTEXT CANNOT FUNCTION SAFELY WITHOUT.
+ *
+ * `privacy.md`, and nothing else. That is read off the gateway's own code
+ * (`apps/mcp/src/index.js`), not chosen as a preference:
+ *
+ *  - **`privacy.md` is load-bearing, and it is a security control.** It is the
+ *    visibility manifest `loadPrivacyState` parses, and its absence is not a
+ *    thinner version of the same thing — `loadPrivacyState` falls through to
+ *    `loadLegacyPrivacyState`, so the context silently runs on the
+ *    pre-manifest `.note-acl/*.json` format. `set_folder_visibility` refuses
+ *    outright ("privacy.md is required before folder visibility can be
+ *    changed"), and `persistExactVisibility` writes any per-note decision into
+ *    the legacy sidecar instead of the manifest. Reads do fail closed —
+ *    `visibilityOf` with no rules returns `private` — so nothing leaks, but a
+ *    context whose access control is a fallback nobody chose is not one we
+ *    should call created.
+ *  - **`index.md` is not.** The gateway reads it in exactly one place, and
+ *    guarded: `toolOrient`'s `if (index && canSee("index.md", …))`. Nothing
+ *    else in the gateway opens it, no visibility decision consults it, and no
+ *    write path requires it. A missing `index.md` costs a paragraph of
+ *    orientation prose. Best-effort.
+ *  - **Folder `README.md`s are not.** A folder in object storage is the prefix
+ *    of a key that exists; the READMEs are the leg-up, not the structure. An
+ *    owner whose `2-areas/README.md` never landed can ask their own agent for
+ *    it in one sentence — which is the point of the product.
+ *
+ * So a scaffold that lands `privacy.md` and loses two READMEs **succeeded**,
+ * with a caveat naming what is missing. Reporting that as total failure is
+ * what left people stuck.
+ */
+export const ESSENTIAL_KEYS: readonly string[] = [PRIVACY_KEY];
+
 export type ScaffoldReason =
-  /** Files were written. `written` says which. */
+  /** Every file landed. `written` says which. */
   | "created"
+  /**
+   * The essentials landed; something best-effort did not. `written` says what
+   * landed, `missing` says what did not, and both are true at once — this is a
+   * success with a caveat, not a failure.
+   */
+  | "partial"
   /** The bucket already holds a context. Nothing was read or written. */
   | "existing-context"
-  /** A write failed partway. `written` says what did land. */
+  /** An essential file did not land. `written` says what did. */
   | "failed";
 
 export interface ScaffoldResult {
@@ -616,15 +748,34 @@ export interface ScaffoldResult {
   written: string[];
   /** Keys that already existed and were therefore left exactly as they were. */
   skipped: string[];
-  /** Present only when `reason` is `"failed"`. Never carries a credential. */
+  /**
+   * Keys of this layout that are **not in the bucket** now — whether the write
+   * was refused or never attempted. Empty on `created`. This is what a retry
+   * has left to do, and what the console tells the owner about.
+   */
+  missing: string[];
+  /** Present when something failed. Never carries a credential. */
   error?: string;
 }
 
 /**
- * Write the starting layout, if and only if the bucket has none.
+ * Write the starting layout, if and only if the bucket has none — or finish
+ * one this control plane already began.
  *
  * Idempotent: running it twice writes nothing the second time, and running it
  * against somebody's existing brain writes nothing at all.
+ *
+ * ## Best effort, except where it is not
+ *
+ * One failed `README.md` used to abandon the whole run and report `failed`,
+ * which is both a lie and a dead end: the bucket had a working `privacy.md`
+ * in it, and the person was told their context did not get set up. So the loop
+ * carries on past a refused write and the *outcome* is decided by
+ * `ESSENTIAL_KEYS` — `created` when everything landed, `partial` when the
+ * essentials did and something optional did not, `failed` only when an
+ * essential did not. A failed essential does stop the loop: there is no point
+ * laying READMEs into a bucket that has just refused the access manifest, and
+ * every extra `put` there is another write into storage that is misbehaving.
  */
 export async function scaffoldContext(
   store: ScaffoldStore,
@@ -636,25 +787,47 @@ export async function scaffoldContext(
      * function does not re-check them.
      */
     customFolders?: readonly CustomFolder[];
+    /**
+     * Finish a layout **we** already started, rather than refusing because it
+     * is there.
+     *
+     * Set only by a caller holding control-plane evidence that this bucket was
+     * observed empty and then written into by us — `storageBindings`'
+     * `scaffoldMissing`. It swaps the first guard from "is anything here" to
+     * "is anything here that we did not write", which is `hasForeignContent`;
+     * read its comment for why that is still safe for somebody's live vault.
+     * The per-key `get` below is unchanged either way, so nothing this flag
+     * does can overwrite a byte.
+     */
+    resume?: boolean;
   },
 ): Promise<ScaffoldResult> {
-  if (await hasExistingContext(store)) {
+  const files = scaffoldFiles(
+    options.structureTemplate,
+    options.customFolders ?? [],
+  );
+
+  const occupied =
+    options.resume === true
+      ? await hasForeignContent(store, files)
+      : await hasExistingContext(store);
+  if (occupied) {
     return {
       scaffolded: false,
       reason: "existing-context",
       written: [],
       skipped: [],
+      missing: [],
     };
   }
 
+  const essential = new Set(ESSENTIAL_KEYS);
   const written: string[] = [];
   const skipped: string[] = [];
-  for (const file of scaffoldFiles(
-    options.structureTemplate,
-    options.customFolders ?? [],
-  )) {
+  let error: string | undefined;
+  for (const file of files) {
     try {
-      // The second guard. `hasExistingContext` looked at the shape of the
+      // The second guard. The detector above looked at the shape of the
       // bucket; this looks at the exact key about to be written.
       if ((await store.get(file.key)) !== null) {
         skipped.push(file.key);
@@ -666,18 +839,32 @@ export async function scaffoldContext(
         continue;
       }
       written.push(file.key);
-    } catch (error) {
-      return {
-        scaffolded: written.length > 0,
-        reason: "failed",
-        written,
-        skipped,
-        error: scaffoldErrorMessage(error),
-      };
+    } catch (caught) {
+      // First failure wins the message: it is the one that describes what went
+      // wrong with the bucket, and the five that follow it are echoes.
+      error ??= scaffoldErrorMessage(caught);
+      if (essential.has(file.key)) break;
     }
   }
 
-  return { scaffolded: written.length > 0, reason: "created", written, skipped };
+  const landed = new Set([...written, ...skipped]);
+  const missing = files
+    .map((file) => file.key)
+    .filter((key) => !landed.has(key));
+  const reason: ScaffoldReason = !ESSENTIAL_KEYS.every((key) => landed.has(key))
+    ? "failed"
+    : missing.length > 0
+      ? "partial"
+      : "created";
+
+  return {
+    scaffolded: written.length > 0,
+    reason,
+    written,
+    skipped,
+    missing,
+    error,
+  };
 }
 
 function scaffoldErrorMessage(error: unknown): string {

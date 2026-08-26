@@ -421,6 +421,52 @@ describe("a custom layout is written in the owner's own words", () => {
 /* -------------------------------------------------------------------------- */
 
 /**
+ * Somebody's brain, as it looked before we ever touched it: a hand-written
+ * privacy manifest with real sharing decisions in it, a hand-written index, and
+ * notes. Module-scope because the resume tests further down have to prove this
+ * bucket is refused too — a scaffold that can be finished must not become a way
+ * into a vault that was here first.
+ */
+function seedLiveBrain(store: { seed(key: string, body: string): void }): void {
+  store.seed(
+    PRIVACY_KEY,
+    [
+      "---",
+      "role: privacy-manifest",
+      "version: 1",
+      "---",
+      "",
+      "# Brain Privacy Map",
+      "",
+      "<!-- BEGIN BRAIN PRIVACY RULES -->",
+      "",
+      "```yaml",
+      "default_visibility: private",
+      "",
+      "folder_defaults:",
+      "  1-projects: team",
+      "  1-projects/private: private",
+      "  2-areas: team",
+      "  2-areas/health: private",
+      "  index.md: team",
+      "",
+      "note_overrides:",
+      "  1-projects/secret-plan.md: private",
+      "```",
+      "",
+      "<!-- END BRAIN PRIVACY RULES -->",
+      "",
+    ].join("\n"),
+  );
+  store.seed(INDEX_KEY, "# My brain\n\nHand-written manifest.\n");
+  store.seed("1-projects/ship-the-thing.md", "# Ship the thing\n");
+  store.seed("1-projects/secret-plan.md", "# Secret plan\n");
+  store.seed("2-areas/health/notes.md", "# Health\n");
+  store.seed("0-inbox/README.md", "my own inbox readme, not yours\n");
+  store.seed("4-archive/2024/old.md", "# Old\n");
+}
+
+/**
  * An existing brain, connected for the first time.
  *
  * "Nothing changes" is asserted as *byte-identical*, not as "we did not crash":
@@ -430,47 +476,6 @@ describe("a custom layout is written in the owner's own words", () => {
  * whatever our defaults happen to say.
  */
 describe("an existing context is never overwritten", () => {
-  function seedLiveBrain(store: {
-    seed(key: string, body: string): void;
-  }): void {
-    store.seed(
-      PRIVACY_KEY,
-      [
-        "---",
-        "role: privacy-manifest",
-        "version: 1",
-        "---",
-        "",
-        "# Brain Privacy Map",
-        "",
-        "<!-- BEGIN BRAIN PRIVACY RULES -->",
-        "",
-        "```yaml",
-        "default_visibility: private",
-        "",
-        "folder_defaults:",
-        "  1-projects: team",
-        "  1-projects/private: private",
-        "  2-areas: team",
-        "  2-areas/health: private",
-        "  index.md: team",
-        "",
-        "note_overrides:",
-        "  1-projects/secret-plan.md: private",
-        "```",
-        "",
-        "<!-- END BRAIN PRIVACY RULES -->",
-        "",
-      ].join("\n"),
-    );
-    store.seed(INDEX_KEY, "# My brain\n\nHand-written manifest.\n");
-    store.seed("1-projects/ship-the-thing.md", "# Ship the thing\n");
-    store.seed("1-projects/secret-plan.md", "# Secret plan\n");
-    store.seed("2-areas/health/notes.md", "# Health\n");
-    store.seed("0-inbox/README.md", "my own inbox readme, not yours\n");
-    store.seed("4-archive/2024/old.md", "# Old\n");
-  }
-
   test("every existing object is byte-identical afterwards", async () => {
     const store = memoryStore();
     seedLiveBrain(store);
@@ -614,6 +619,243 @@ describe("an existing context is never overwritten", () => {
       "do not touch me\n",
     );
     expect(result.written).toContain(INDEX_KEY);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                     a scaffold that only partly lands                      */
+/* -------------------------------------------------------------------------- */
+
+const PARA_READMES = PARA_FOLDERS.map((folder) => `${folder}/README.md`);
+
+/**
+ * ISSUE #22.
+ *
+ * A bucket can refuse a write partway through — a policy that denies a prefix,
+ * a credential rotated out from under us — and the old code did two wrong
+ * things with that. It called the whole run `failed`, when the file that
+ * actually matters had landed and the bucket *was* a working context. And it
+ * left the owner unable to finish: the retry's first guard saw the `privacy.md`
+ * the first attempt wrote, called the bucket an existing context, and told them
+ * "nothing has been changed" while their bucket sat half-written. Completing it
+ * meant deleting objects by hand over S3.
+ *
+ * What is essential is decided by the gateway, not by taste: `privacy.md` is
+ * the visibility manifest `loadPrivacyState` parses, and without it a context
+ * silently runs on the legacy `.note-acl` fallback and cannot have its folder
+ * visibility changed at all. `index.md` is read in one guarded place
+ * (`toolOrient`) and READMEs in none. See `ESSENTIAL_KEYS`.
+ */
+describe("essentials are guaranteed; folders and READMEs are best effort", () => {
+  test("privacy.md is written before anything best-effort, not after", async () => {
+    // A bucket that accepts exactly one object and then starts refusing. What
+    // survives is decided entirely by write order.
+    let accepted = 0;
+    const store = memoryStore({ refuseWrite: () => accepted++ >= 1 });
+
+    const result = await scaffoldContext(store, { structureTemplate: "para" });
+
+    expect(result.written).toEqual([PRIVACY_KEY]);
+    expect(result.reason).toBe("partial");
+  });
+
+  test("folders that will not write are a caveat, not a failure", async () => {
+    const store = memoryStore({
+      refuseWrite: (key) => key.endsWith("/README.md"),
+    });
+
+    const result = await scaffoldContext(store, { structureTemplate: "para" });
+
+    expect(result).toMatchObject({ scaffolded: true, reason: "partial" });
+    expect(result.written.sort()).toEqual([INDEX_KEY, PRIVACY_KEY].sort());
+    expect(result.missing.sort()).toEqual([...PARA_READMES].sort());
+    // The claim behind calling this a success: the manifest the gateway
+    // enforces visibility with is there, and it parses.
+    const { parsePrivacyManifest } = gatewayInternals();
+    expect(
+      parsePrivacyManifest(store.objects.get(PRIVACY_KEY)!.body).rules,
+    ).toHaveLength(PARA_FOLDERS.length);
+  });
+
+  test("an essential that will not write is a failure, and stops the run", async () => {
+    const store = memoryStore({ refuseWrite: (key) => key === PRIVACY_KEY });
+
+    const result = await scaffoldContext(store, { structureTemplate: "para" });
+
+    expect(result).toMatchObject({ scaffolded: false, reason: "failed" });
+    expect(result.missing).toContain(PRIVACY_KEY);
+    // Nothing else was laid into a bucket that just refused the access
+    // manifest. A folder full of READMEs and no privacy.md is not a context.
+    expect([...store.objects.keys()]).toEqual([]);
+    expect(result.error).toContain("AccessDenied");
+  });
+
+  test("the error never becomes the reason a good scaffold looks bad", async () => {
+    const store = memoryStore();
+    const result = await scaffoldContext(store, { structureTemplate: "para" });
+    expect(result).toMatchObject({ reason: "created", missing: [] });
+    expect(result.error).toBeUndefined();
+  });
+});
+
+/**
+ * FINISHING THE JOB.
+ *
+ * `resume` narrows the first guard from "is anything here" to "is anything here
+ * that we did not write, byte for byte". Every test in this block is either
+ * that finishing the job now works, or that the narrowing did not open a door.
+ */
+describe("a half-written scaffold can be finished", () => {
+  /** A partial run, and a switch to let the bucket start accepting writes. */
+  async function halfWritten() {
+    const refuse = { readmes: true };
+    const store = memoryStore({
+      refuseWrite: (key) => refuse.readmes && key.endsWith("/README.md"),
+    });
+    const first = await scaffoldContext(store, { structureTemplate: "para" });
+    expect(first.reason).toBe("partial");
+    return { store, refuse, first };
+  }
+
+  test("a plain retry still refuses — the bucket does look like a context", async () => {
+    const { store } = await halfWritten();
+
+    // Not a bug in the detector. From the outside this bucket holds a
+    // privacy.md and an index.md, which is exactly what a small context looks
+    // like. It is the caller that has to know better.
+    expect(await hasExistingContext(store)).toBe(true);
+    expect(
+      await scaffoldContext(store, { structureTemplate: "para" }),
+    ).toMatchObject({ reason: "existing-context", written: [] });
+  });
+
+  test("a resumed retry completes the layout instead of refusing", async () => {
+    const { store, refuse } = await halfWritten();
+    const privacyBefore = store.objects.get(PRIVACY_KEY)!;
+    refuse.readmes = false;
+
+    const second = await scaffoldContext(store, {
+      structureTemplate: "para",
+      resume: true,
+    });
+
+    expect(second).toMatchObject({ scaffolded: true, reason: "created" });
+    expect(second.missing).toEqual([]);
+    expect(second.written.sort()).toEqual([...PARA_READMES].sort());
+    expect(second.skipped.sort()).toEqual([INDEX_KEY, PRIVACY_KEY].sort());
+    // The files the first attempt landed were skipped, not rewritten: same
+    // etag, same bytes. A resume that re-`put` privacy.md would reset any
+    // visibility the owner had already changed.
+    expect(store.objects.get(PRIVACY_KEY)).toBe(privacyBefore);
+    expect([...store.objects.keys()].sort()).toEqual(
+      [...PARA_READMES, INDEX_KEY, PRIVACY_KEY].sort(),
+    );
+  });
+
+  test("resuming twice is still idempotent", async () => {
+    const { store, refuse } = await halfWritten();
+    refuse.readmes = false;
+    await scaffoldContext(store, { structureTemplate: "para", resume: true });
+    const before = store.snapshot();
+
+    const third = await scaffoldContext(store, {
+      structureTemplate: "para",
+      resume: true,
+    });
+    expect(third).toMatchObject({ scaffolded: false, reason: "created" });
+    expect(store.snapshot()).toEqual(before);
+  });
+
+  /**
+   * THE GUARD THAT HAS TO SURVIVE.
+   *
+   * Resume is a licence to write into a bucket that is not empty. If it ever
+   * applied to somebody's live vault it would be the exact bug the whole module
+   * exists to prevent, so the licence is checked against the bucket itself,
+   * not only against the row that granted it.
+   */
+  test("a vault that was here before we arrived is refused, resume or not", async () => {
+    const store = memoryStore();
+    seedLiveBrain(store);
+    const before = store.snapshot();
+
+    expect(
+      await scaffoldContext(store, { structureTemplate: "para", resume: true }),
+    ).toMatchObject({ scaffolded: false, reason: "existing-context", written: [] });
+    expect(store.snapshot()).toEqual(before);
+  });
+
+  test("one note of theirs beside our half-written layout is enough to refuse", async () => {
+    const { store, refuse } = await halfWritten();
+    refuse.readmes = false;
+    // Inside a folder our own layout owns, which is the case a root-only check
+    // would wave through: `1-projects/` is a prefix we would have written.
+    store.seed("1-projects/their-note.md", "# Mine, thanks\n");
+    const before = store.snapshot();
+
+    expect(
+      await scaffoldContext(store, { structureTemplate: "para", resume: true }),
+    ).toMatchObject({ reason: "existing-context", written: [] });
+    expect(store.snapshot()).toEqual(before);
+  });
+
+  test("a file at one of our keys that we did not write is enough to refuse", async () => {
+    const { store, refuse } = await halfWritten();
+    refuse.readmes = false;
+    // Same key, different bytes. Byte-identity is what makes the answer "we
+    // wrote this" rather than "something with this name is here".
+    store.seed(PRIVACY_KEY, "# hand written, do not touch\n");
+    const before = store.snapshot();
+
+    expect(
+      await scaffoldContext(store, { structureTemplate: "para", resume: true }),
+    ).toMatchObject({ reason: "existing-context", written: [] });
+    expect(store.snapshot()).toEqual(before);
+  });
+
+  test("resuming with a different layout than the one we started is refused", async () => {
+    const { store, refuse } = await halfWritten();
+    refuse.readmes = false;
+
+    // The half-written PARA files are not keys a custom layout would write, so
+    // they read as foreign — which is the right answer. Two interleaved
+    // layouts in somebody's bucket is not a repair.
+    expect(
+      await scaffoldContext(store, {
+        structureTemplate: "custom",
+        customFolders: [{ folder: "clients", description: "One per client." }],
+        resume: true,
+      }),
+    ).toMatchObject({ reason: "existing-context", written: [] });
+  });
+
+  test("plumbing beside a half-written layout is not foreign", async () => {
+    const { store, refuse } = await halfWritten();
+    refuse.readmes = false;
+    store.seed(".history/privacy.md.1", "an earlier version");
+    store.seed(".context-probe/probe", "left by verification");
+
+    expect(
+      await scaffoldContext(store, { structureTemplate: "para", resume: true }),
+    ).toMatchObject({ reason: "created" });
+  });
+
+  test("resume finishes a run whose essential failed, once the bucket lets it", async () => {
+    const refuse = { all: true };
+    const store = memoryStore({ refuseWrite: () => refuse.all });
+    expect(
+      await scaffoldContext(store, { structureTemplate: "para" }),
+    ).toMatchObject({ reason: "failed", scaffolded: false });
+
+    refuse.all = false;
+    const second = await scaffoldContext(store, {
+      structureTemplate: "para",
+      resume: true,
+    });
+    expect(second).toMatchObject({ scaffolded: true, reason: "created" });
+    expect(second.written.sort()).toEqual(
+      [...PARA_READMES, INDEX_KEY, PRIVACY_KEY].sort(),
+    );
   });
 });
 
