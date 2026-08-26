@@ -1972,6 +1972,24 @@ async function toolArchiveChat(store, scope, rules, args) {
     );
   }
 
+  // A team connection may not archive into a private-default subtree.
+  //
+  // `write_note` refuses exactly this (`scope === "team" && !existing &&
+  // inheritedVisibility !== "team"`), and the two tools were disagreeing about
+  // the same write surface: `archive_chat` never consulted the folder default,
+  // so a team connection could create notes under a `4-archive/chat-history/`
+  // tree the owner had deliberately made private, and stamp a team override
+  // onto them. It discloses nothing — the content is the caller's own — but it
+  // silently overrides an owner's folder rule and contradicts what `scope_info`
+  // advertises as the write surface.
+  //
+  // Deliberately below the proposal branch above: a team caller who *asks* for
+  // a private archive still gets to queue one for owner review. That is the
+  // sanctioned way into a private destination, and it ends in a human deciding.
+  if (scope === "team" && visibilityOf(path, rules) !== "team") {
+    return writePermissionError("archive destination");
+  }
+
   await persistExactVisibility(store, path, visibility, rules);
   let put;
   try {

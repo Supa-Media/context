@@ -1607,6 +1607,64 @@ check(
     (await call("pub-token", "read_note", { path: privateChatIntendedPath })).isError
 );
 
+// archive_chat must respect the folder default the way write_note does. Make
+// one platform's archive folder private and check that a team connection can no
+// longer plant a team-visible note in it — while the sanctioned route into a
+// private destination, a proposal for the owner to review, still works.
+const notionFolderDry = await call("priv-token", "set_folder_visibility", {
+  path: "4-archive/chat-history/notion",
+  visibility: "private",
+  dry_run: true,
+});
+const notionPrivacyEtag = notionFolderDry.content[0].text.match(/privacy_etag: (\S+)/)?.[1];
+const notionFolderApply = await call("priv-token", "set_folder_visibility", {
+  path: "4-archive/chat-history/notion",
+  visibility: "private",
+  expected_privacy_etag: notionPrivacyEtag,
+});
+check(
+  "a folder default can be tightened to private for the archive_chat check",
+  !notionFolderApply.isError
+);
+const teamArchiveIntoPrivateFolder = await call("pub-token", "archive_chat", {
+  platform: "notion",
+  history: "## User\nLand this in a private-default folder.\n\n## Assistant\nShould not.",
+});
+check(
+  "archive_chat refuses a team connection writing into a private-default folder",
+  teamArchiveIntoPrivateFolder.isError &&
+    ![...objects.keys()].some(
+      (key) => key.startsWith("4-archive/chat-history/notion/") && !key.startsWith(".")
+    )
+);
+check(
+  "and refuses it with the same permission error write_note uses, naming no path",
+  teamArchiveIntoPrivateFolder.content[0].text.startsWith("permission denied:") &&
+    !teamArchiveIntoPrivateFolder.content[0].text.includes("4-archive/chat-history") &&
+    !teamArchiveIntoPrivateFolder.content[0].text.includes("notion")
+);
+const teamProposalIntoPrivateFolder = await call("pub-token", "archive_chat", {
+  platform: "notion",
+  history: "## User\nQueue it instead.\n\n## Assistant\nQueued.",
+  visibility: "private",
+});
+check(
+  "a team connection can still queue a private archive there for owner review",
+  !teamProposalIntoPrivateFolder.isError &&
+    /proposal queued: [0-9a-f-]+/i.test(teamProposalIntoPrivateFolder.content[0].text)
+);
+const personalArchiveIntoPrivateFolder = await call("priv-token", "archive_chat", {
+  platform: "notion",
+  history: "## User\nOwner archives here.\n\n## Assistant\nFine.",
+});
+check(
+  "a personal connection still archives into its own private folder",
+  !personalArchiveIntoPrivateFolder.isError &&
+    /chat archived: 4-archive\/chat-history\/notion\//.test(
+      personalArchiveIntoPrivateFolder.content[0].text
+    )
+);
+
 // -- move note / folder
 const portableRead = (await call("pub-token", "read_note", { path: "1-projects/portable/a.md" })).content[0].text;
 const portableEtag = portableRead.match(/etag: (\S+)/)[1];
