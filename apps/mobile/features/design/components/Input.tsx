@@ -65,7 +65,12 @@ export function TextField({
         aria-labelledby={labelId}
         aria-describedby={describedBy}
         aria-invalid={error !== undefined}
-        accessibilityLabel={label}
+        // The visible label is the default, but a caller may override it. A
+        // repeated row — "Folder", "What goes in it" — shows its labels once at
+        // the top and leaves the rest blank, and every input in it still has to
+        // announce which row it belongs to. Spreading `props` above is not
+        // enough to allow that: this line runs after it and would win.
+        accessibilityLabel={props.accessibilityLabel ?? label}
         placeholderTextColor={colors.muted}
         onFocus={(event) => {
           setFocused(true);
