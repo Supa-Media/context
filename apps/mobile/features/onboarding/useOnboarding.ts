@@ -8,10 +8,6 @@
  *
  * ## The one call pinned by hand
  *
- * `applyStructure` is named as a string rather than reached through the
- * generated `api`, because the mutation lands in a parallel branch (#21) and
- * this branch's `_generated/api.d.ts` does not know about it yet.
- *
  * It is a **pinned name**, not a search. There was a `findApplyStructure()`
  * here that walked `Object.values(api.functions)` looking for a callable with
  * one of several plausible names, so that a deployment without it could report
@@ -28,8 +24,8 @@
  * deployment that does not have it fails the way any other missing function
  * fails — loudly, into `describeStructureFailure`, which is already written to
  * say that the context and the bucket are fine and folders can be made in the
- * console. When #21 lands, this becomes `api.functions.workspaces.applyStructure`
- * and the type declaration below goes away.
+ * console. #21 has landed, so the call now goes through the generated `api`
+ * and the hand-declared argument shape is gone.
  *
  * `scaffoldReason` on the storage binding is the other half-landed field, and
  * that one genuinely is optional: an older backend does not send it, and
@@ -38,7 +34,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQueries, useQuery, type RequestForQueries } from "convex/react";
-import { makeFunctionReference } from "convex/server";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { EMPTY_QUERY_SPEC } from "../console/querySpec";
@@ -66,25 +61,15 @@ import {
 } from "./verify";
 
 /**
- * `functions/workspaces:applyStructure`, by name.
+ * `functions/workspaces:applyStructure`, as a name.
  *
- * Hand-declared only because the generated types for it live on an unmerged
- * branch. The argument shape is copied from that mutation's validator: the
- * template field is `template` (`structureTemplate` is the column it writes,
- * not the argument it takes), and `folders` is required for `custom` and
- * refused for `para`.
+ * The call itself goes through the generated `api` — fully typed now that the
+ * mutation has landed on main — so the argument shape is not restated here and
+ * cannot drift from the validator. The constant survives only because the mount
+ * tests assert on which function was called, and asserting on a string beats
+ * asserting on an `anyApi` proxy, which is a fresh object on every access.
  */
 export const APPLY_STRUCTURE = "functions/workspaces:applyStructure";
-
-const applyStructureRef = makeFunctionReference<
-  "mutation",
-  {
-    workspaceId: Id<"workspaces">;
-    template: StructureTemplate;
-    folders?: StructureFolderSpec[];
-  },
-  { queued: boolean; template: string; folders: string[] }
->(APPLY_STRUCTURE);
 
 /** Convex hands back `undefined` while loading and an `Error` when a query throws. */
 function usable<T>(value: unknown): T | undefined {
@@ -321,7 +306,7 @@ export function useOnboarding(): OnboardingController {
   const [folders, setFolders] = useState<CustomFolderRow[]>(emptyCustomFolders());
   const [applying, setApplying] = useState(false);
   const [structureFailure, setStructureFailure] = useState<CreateFailure | null>(null);
-  const applyStructureMutation = useMutation(applyStructureRef);
+  const applyStructureMutation = useMutation(api.functions.workspaces.applyStructure);
 
   const folderErrors = validateCustomFolders(folders);
 
