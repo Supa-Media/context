@@ -26,7 +26,13 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import type { FileBrowser } from "./browser";
 import { afterPaste, planPaste, put, type Clipboard } from "./clipboard";
-import { editorReducer, emptyEditor, guardLeaving, isDirty } from "./editor";
+import {
+  SAVE_TIMEOUT_MS,
+  editorReducer,
+  emptyEditor,
+  guardLeaving,
+  isDirty,
+} from "./editor";
 import {
   ancestorsOf,
   describeMoveProblem,
@@ -97,6 +103,26 @@ export function useFileBrowser(options: {
   // captured when the row was rendered.
   const editorRef = useRef(editor);
   editorRef.current = editor;
+
+  /**
+   * The generation counter and timer handle for the save in flight.
+   *
+   * The same shape `createReverifyController` uses, and for the same reason: a
+   * response that arrives after its own attempt was abandoned must not be able
+   * to settle anything. Here the counter is bumped both when a new save starts
+   * *and* when one times out, so a write that lands after we stopped waiting is
+   * discarded rather than being allowed to mark the editor clean against a
+   * draft the person has since typed more into.
+   */
+  const saveRun = useRef(0);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (saveTimer.current !== null) clearTimeout(saveTimer.current);
+    },
+    [],
+  );
 
   const refresh = useCallback(
     async (folders: readonly string[]) => {
@@ -229,10 +255,45 @@ export function useFileBrowser(options: {
     [listings, options.canEdit, refresh, workspaceId],
   );
 
+  /**
+   * Write the open note.
+   *
+   * `writeNote` is a Convex action and `ConvexReactClient.action()` has no
+   * client-side timeout, so a connection that drops mid-save leaves the promise
+   * pending forever — and the editor pinned in `saving`, where Save is
+   * disabled, Discard is not rendered, and `guardLeaving` blocks opening
+   * anything else. **There is no control left**, and the only escape is a
+   * reload that loses the draft.
+   *
+   * So the save is raced against a timer, exactly the way `storage/reverify.ts`
+   * races the probe: same 30s, same generation counter, and a settled state
+   * that offers a way forward rather than a spinner that promises one.
+   */
   const save = useCallback(() => {
     const current = editorRef.current;
     if (workspaceId === null || current.path === null || current.readOnly) return;
+
+    saveRun.current += 1;
+    const mine = saveRun.current;
+    if (saveTimer.current !== null) clearTimeout(saveTimer.current);
     dispatch({ type: "saveStarted" });
+
+    saveTimer.current = setTimeout(() => {
+      saveTimer.current = null;
+      if (saveRun.current !== mine) return;
+      // Bump past `mine` so the write, if it ever lands, cannot come back and
+      // settle an attempt the editor has already given up on.
+      saveRun.current += 1;
+      dispatch({ type: "saveTimedOut" });
+    }, SAVE_TIMEOUT_MS);
+
+    const settle = () => {
+      if (saveTimer.current !== null) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+    };
+
     writeNote({
       workspaceId,
       path: current.path,
@@ -240,6 +301,8 @@ export function useFileBrowser(options: {
       expectedEtag: current.etag ?? undefined,
     })
       .then((result) => {
+        if (saveRun.current !== mine) return;
+        settle();
         dispatch({
           type: "saveSucceeded",
           etag: result.etag,
@@ -248,6 +311,8 @@ export function useFileBrowser(options: {
         void refresh([parentPath(current.path!)]);
       })
       .catch((error: unknown) => {
+        if (saveRun.current !== mine) return;
+        settle();
         dispatch({ type: "saveFailed", error: toFileError(error) });
       });
   }, [refresh, workspaceId, writeNote]);

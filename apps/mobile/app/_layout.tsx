@@ -4,6 +4,7 @@ import { View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SupaConvexProvider } from "@supa-media/core/providers";
+import { ErrorBoundary } from "../features/app/ErrorBoundary";
 import { ensureFontsLoaded } from "../features/design/fonts";
 import { colors } from "../features/design/tokens";
 
@@ -22,6 +23,13 @@ import { colors } from "../features/design/tokens";
  * already links the faces, and this covers a host that serves its own shell.
  * It runs during module evaluation rather than in an effect so the stylesheet
  * request starts before the first paint.
+ *
+ * `ErrorBoundary` sits *inside* the Convex provider and *around* every route,
+ * which is the only placement that works: the throws it exists to catch come
+ * from `useQuery`, which re-throws a failed query during render, and those
+ * hooks live in the route tree below here. Without it a single failed query —
+ * an auth blip, a deploy — unmounts the whole app to a blank dark page with no
+ * message and no way back. See `features/app/ErrorBoundary.tsx`.
  */
 ensureFontsLoaded();
 
@@ -33,7 +41,9 @@ export default function RootLayout() {
           <StatusBar style="light" />
           {/* One dark ground under every route, so nothing flashes white. */}
           <View style={{ flex: 1, backgroundColor: colors.ground }}>
-            <Slot />
+            <ErrorBoundary>
+              <Slot />
+            </ErrorBoundary>
           </View>
         </SupaConvexProvider>
       </SafeAreaProvider>

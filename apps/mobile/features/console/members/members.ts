@@ -13,6 +13,8 @@
  * error. `MembersView.actions` is therefore the entire object, present or not.
  */
 
+import type { ConsoleFailure } from "../failure";
+
 /** A member's role, as the control plane spells it. */
 export type MemberRole = "owner" | "editor" | "member";
 
@@ -65,6 +67,15 @@ export interface MembersView {
   /** Absent for anyone who is not the owner of this context. */
   actions?: MemberActions;
   loading: boolean;
+  /**
+   * Set when `listMembers` came back as an error rather than a list.
+   *
+   * A failed query is not an empty context, and it is not a permanent
+   * "Loading…" either. It reaches the section as a *value* — rather than as a
+   * throw that would unmount the whole console — because `useMembers`
+   * subscribes with `useQueries`. See `../failure.ts`.
+   */
+  failure: ConsoleFailure | null;
   /** Shown instead of the controls when they are absent for a real reason. */
   readOnlyReason?: string;
 }

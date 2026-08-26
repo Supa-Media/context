@@ -66,6 +66,24 @@ export const emptyEditor: EditorState = {
   readOnly: false,
 };
 
+/**
+ * How long a save may sit in `saving` before the editor says so.
+ *
+ * The same number and the same reasoning as `REVERIFY_TIMEOUT_MS` in
+ * `storage/reverify.ts`: the work is real network I/O against a bucket that may
+ * be slow or unreachable, 30s is generous for the happy path, and nobody should
+ * be left watching a spinner forever.
+ *
+ * Here it is not a nicety. `writeNote` is a Convex **action**, and
+ * `ConvexReactClient.action()` has no client-side timeout — a connection that
+ * drops mid-save leaves that promise pending for good. In that state Save is
+ * disabled (`saveButton`), `NoteEditor` renders Discard only for `dirty` and
+ * `error` so it is absent, and `guardLeaving` refuses to open another note:
+ * **there is no control left on the screen.** The only way out was a reload,
+ * which throws the draft away.
+ */
+export const SAVE_TIMEOUT_MS = 30_000;
+
 export type EditorAction =
   | { type: "opened"; note: OpenNote }
   | { type: "closed" }
@@ -73,6 +91,8 @@ export type EditorAction =
   | { type: "saveStarted" }
   | { type: "saveSucceeded"; etag: string; conflictCheck: ConflictCheck }
   | { type: "saveFailed"; error: FileError }
+  /** `SAVE_TIMEOUT_MS` elapsed with the save still outstanding. */
+  | { type: "saveTimedOut" }
   /** The person chose "use theirs" after a conflict. */
   | { type: "reloaded"; note: OpenNote }
   /** The person chose "keep mine" — rebase the draft onto the current etag. */
@@ -140,6 +160,29 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         };
       }
       return { ...state, status: "error", message: action.error.message };
+
+    case "saveTimedOut":
+      // Only a save that is still running times out. A response that landed
+      // first wins, and a note that has since been closed or reopened must not
+      // be dragged back into an error by a timer belonging to the old one.
+      if (state.status !== "saving") return state;
+      // `error` rather than a status of its own, because the two states want
+      // exactly the same controls: Save re-enabled to try again, and Discard
+      // rendered so the draft can be let go deliberately rather than lost to a
+      // reload. See `saveButton` and `NoteEditor`.
+      //
+      // The wording says what is actually known. The write may well have landed
+      // — we stopped waiting, we did not cancel it — and claiming it failed
+      // would be a lie in one of the two directions. If it did land, the next
+      // Save is a conditional write against an etag that has moved, which comes
+      // back as a conflict, keeps the draft, and offers the choice. Safe in
+      // both branches.
+      return {
+        ...state,
+        status: "error",
+        message:
+          "Still waiting on your bucket, so we stopped waiting. We don't know whether that save landed. Your draft is right here — save again, or discard it.",
+      };
 
     case "conflictOverridden":
       // Move onto the etag that is actually current. The next save is then an

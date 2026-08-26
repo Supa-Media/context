@@ -1,3 +1,4 @@
+import type { ConsoleFailure } from "./failure";
 import type { FileBrowser } from "./files/browser";
 import type { IngestionState } from "./ingestion/settings";
 import type { MapGraph } from "./map/layout";
@@ -155,6 +156,16 @@ export interface ConsoleData {
   members: MembersView;
   /** True while the first Convex round-trip is outstanding. */
   loading: boolean;
+  /**
+   * Set when the subscription the console cannot do without came back as an
+   * error rather than data.
+   *
+   * It exists because Convex's `useQuery` re-throws a failed query during
+   * render, which unmounted the console to a blank dark page. The live console
+   * reads that subscription through `useQueries` instead, so the error is a
+   * value the shell can draw. `null` in the demo, which cannot fail.
+   */
+  failure: ConsoleFailure | null;
 }
 
 /** The selected context, or `null` when there is none yet. */

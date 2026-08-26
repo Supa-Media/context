@@ -123,6 +123,19 @@ export function describeStorageFailure(
   };
 }
 
+/**
+ * We stopped waiting. Not a failure — an unknown, and it has to say so.
+ *
+ * Claiming "nothing was saved" here would be a guess: `bindStorage` may well
+ * have completed a moment after we gave up. It does not need to be guessed
+ * about either, because the pane reads `getStorageBinding` reactively, so a
+ * bind that did land shows up on its own. See `./timeout.ts`.
+ */
+export const STORAGE_TIMEOUT_FAILURE: StorageFailure = {
+  headline: "Still waiting on your provider",
+  next: "We stopped waiting so you aren't stuck on this form. If the connection did go through, this pane will show it in a moment — otherwise check the endpoint and try again.",
+};
+
 /** Pull `{ code, message }` out of a thrown `ConvexError`, or a plain throw. */
 export function convexErrorParts(error: unknown): {
   code: string | undefined;

@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, View, useWindowDimensions } f
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { Button } from "../design/components/Button";
+import { CenteredScroll } from "../design/components/CenteredScroll";
 import { TextField } from "../design/components/Input";
 import { Text } from "../design/components/Text";
 import { clamp, colors, fonts, layout, leading, radii, tracking } from "../design/tokens";
@@ -67,7 +68,15 @@ export function LoginScreen() {
   return (
     <View style={styles.ground}>
       <StageBackdrop />
-      <View style={styles.wrap}>
+      {/*
+        Scrollable for the same reason the consent screen is: this was a centred
+        flex box with `overflow: hidden` and no ScrollView, on a page where
+        `ScrollViewStyleReset` has already switched document scrolling off. The
+        soft keyboard takes roughly half a phone viewport, and Send code / Verify
+        went with it — clipped, with nothing to scroll. See `CenteredScroll`.
+      */}
+      <CenteredScroll testID="login-page">
+        <View style={styles.wrap}>
         <Pressable
           onPress={() => router.replace(LANDING_ROUTE)}
           accessibilityLabel="Context.lc home"
@@ -173,25 +182,30 @@ export function LoginScreen() {
           Your notes stay in a bucket you own. Signing in only creates an account in the
           control plane — it never moves a file.
         </Text>
-      </View>
+        </View>
+      </CenteredScroll>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // `overflow: "hidden"` keeps `StageBackdrop`'s glow inside the page. It no
+  // longer clips the content: that lives in the ScrollView.
   ground: {
     flex: 1,
     backgroundColor: colors.ground,
     overflow: "hidden",
   },
+  // No `flex: 1` and no `justifyContent` here any more — both belong to
+  // `CenteredScroll`'s content container. `paddingVertical` is new: the page
+  // used to get its breathing room from being centred in a taller box, which
+  // is exactly what stops being true once it can scroll.
   wrap: {
-    flex: 1,
     width: "100%",
     maxWidth: 480,
     marginHorizontal: "auto",
     paddingHorizontal: layout.gutter,
-    justifyContent: "center",
-    gap: 0,
+    paddingVertical: 48,
   },
   mark: { alignSelf: "flex-start", marginBottom: 34 },
   markSuffix: { color: colors.muted },
