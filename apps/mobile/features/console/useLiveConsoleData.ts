@@ -18,6 +18,7 @@ import {
   placeholderIngestionAddress,
 } from "./placeholderData";
 import { useFileBrowser } from "./files/useFileBrowser";
+import { useMembers } from "./members/useMembers";
 import { toBindStorageArgs, type Provider } from "./storage/connect";
 import { atName, contextTone, describeScopes, formatCount, grantTone, lastUsedLabel } from "./format";
 import {
@@ -254,6 +255,11 @@ export function useLiveConsoleData(): ConsoleData {
           disconnect: () => disconnectStorage({ workspaceId: selectedContextId }),
         };
 
+  const members = useMembers({
+    workspaceId: selectedContextId,
+    role: selected?.role,
+  });
+
   const files = useFileBrowser({
     workspaceId: selectedContextId,
     canEdit,
@@ -283,6 +289,7 @@ export function useLiveConsoleData(): ConsoleData {
     endpoint: MCP_ENDPOINT,
     ingestionAddress: placeholderIngestionAddress(selected?.slug ?? "you"),
     files,
+    members,
     loading: workspaces === undefined,
   };
 }

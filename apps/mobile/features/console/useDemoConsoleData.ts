@@ -8,6 +8,10 @@ import {
   PLACEHOLDER_VERSIONING_ON,
 } from "./placeholderData";
 import { useDemoFileBrowser } from "./files/useDemoFileBrowser";
+import type {
+  ConsoleInvitation,
+  ConsoleMember,
+} from "./members/members";
 import type { ConsoleClient, ConsoleContext, ConsoleData } from "./types";
 
 /**
@@ -39,6 +43,44 @@ const DEMO_CLIENTS: ConsoleClient[] = [
   { id: "c3", name: "Codex CLI", detail: "Full access · last used yesterday", status: "ok" },
   { id: "c4", name: "Notion AI", detail: "Team access only · never used", status: "warn" },
 ];
+
+const DEMO_MEMBERS: ConsoleMember[] = [
+  {
+    userId: "m1",
+    role: "owner",
+    name: "Seyi",
+    email: "seyi@example.com",
+    joinedAt: 0,
+    isMe: true,
+  },
+  { userId: "m2", role: "editor", name: "LK", email: "lk@example.com", joinedAt: 1, isMe: false },
+  {
+    userId: "m3",
+    role: "member",
+    name: "Ade",
+    email: "ade@example.com",
+    joinedAt: 2,
+    isMe: false,
+  },
+];
+
+/**
+ * One outstanding invitation, dated relative to now.
+ *
+ * Unlike the storage row's frozen `updatedAt`, this one has to move with the
+ * clock: the row renders "expires in N days", and a fixed timestamp would read
+ * "expired" to every visitor after the first week.
+ */
+function demoInvitations(now: number): ConsoleInvitation[] {
+  return [
+    {
+      invitationId: "i1",
+      invitee: "@tomi",
+      role: "editor",
+      expiresAt: now + 6 * 24 * 60 * 60 * 1000,
+    },
+  ];
+}
 
 export function useDemoConsoleData(): ConsoleData {
   const [selectedContextId, setSelectedContextId] = useState<string>("seyi");
@@ -81,6 +123,15 @@ export function useDemoConsoleData(): ConsoleData {
     endpoint: MCP_ENDPOINT,
     ingestionAddress: "seyi@context.lc",
     files,
+    // Names, but no controls — `actions` absent exactly like `storageActions`
+    // and the clients' `revoke`. A demo console must never offer a button that
+    // pretends to act, and inviting somebody is the least reversible of them.
+    members: {
+      members: DEMO_MEMBERS,
+      invitations: demoInvitations(Date.now()),
+      actions: undefined,
+      loading: false,
+    },
     loading: false,
   };
 }

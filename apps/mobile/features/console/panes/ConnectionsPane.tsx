@@ -7,23 +7,30 @@ import { Hint } from "../../design/components/Field";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { colors } from "../../design/tokens";
+import { MembersSection } from "../members/MembersSection";
 import { PaneHead } from "../ConsoleShell";
 import type { ConsoleClient, ConsoleData } from "../types";
 
 /**
- * One URL for every AI tool, and one revocable grant per client.
+ * Who and what can reach this context — the people, and the robots.
  *
  * The endpoint and the grant list are both real: grants come from
  * `functions/grants.listGrants` and Revoke calls `revokeGrant`, which is why
  * the demo console omits the callback rather than rendering a button that
  * cannot do anything.
+ *
+ * `MembersSection` is mounted here because "who has access" is the question
+ * this pane answers and there is no per-context settings view yet. It takes one
+ * plain prop and imports nothing from the shell or the router, so moving it into
+ * a context view when navigation is reshaped is a one-line change — do that
+ * rather than copying it.
  */
 export function ConnectionsPane({ data }: { data: ConsoleData }) {
   return (
     <View>
       <PaneHead
         title="Connections"
-        description="One URL for every AI tool. Each client gets its own grant — revoking one leaves the others working."
+        description="One URL for every AI tool, and the people you have shared this context with. Each client gets its own grant — revoking one leaves the others working."
       />
 
       <Card>
@@ -72,6 +79,10 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
           <ClientRow key={client.id} client={client} />
         ))}
       </Card>
+
+      <View style={styles.members}>
+        <MembersSection view={data.members} />
+      </View>
     </View>
   );
 }
@@ -108,4 +119,5 @@ const styles = StyleSheet.create({
   clientsHead: { marginBottom: 13 },
   rowSub: { marginTop: 2 },
   hintStrong: { color: colors.hintStrong, fontWeight: "600" },
+  members: { marginTop: 11 },
 });

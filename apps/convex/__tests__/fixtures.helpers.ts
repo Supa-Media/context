@@ -3,9 +3,10 @@
  *
  * Deliberately thin. These tests exist to prove authorization, so the setup
  * must not quietly do anything the real code would refuse to do — with one
- * exception, `addMember`, which inserts a membership row directly because
- * there is no invitation flow yet. Everything else goes through the real
- * public functions.
+ * exception, `addMember`, which inserts a membership row directly to furnish a
+ * shared context in one line. `joinViaInvitation` does the same thing through
+ * the real invitation flow, and is what the membership and invitation tests
+ * use. Everything else goes through the real public functions.
  *
  * Every value here is obviously fake. This repository is public.
  */
@@ -73,8 +74,12 @@ export async function createWorkspace(
 /**
  * Add a member directly.
  *
- * There is no invitation mutation yet, and inventing one here would be testing
- * a fiction. Direct insert keeps the tests honest about what exists.
+ * A shortcut, and now a real one: `joinViaInvitation` below does this through
+ * `inviteMember` + `acceptInvitation`, and the invitation and membership suites
+ * use that. This stays because most of the older tests only need "a workspace
+ * with a second person in it" and should not also depend on how that person got
+ * there — a fixture that exercises three mutations is a fixture that can fail
+ * for reasons the test is not about.
  */
 export async function addMember(
   t: TestConvex,
@@ -91,6 +96,57 @@ export async function addMember(
       invitedBy,
       joinedAt: Date.now(),
     }),
+  );
+}
+
+/**
+ * The token of the one pending invitation addressed to `userId`, or `null`.
+ *
+ * Read the way the product reads it — through `listMyInvitations`, the
+ * invitee's own query — rather than off the row, so a test that uses this is
+ * also asserting that the delivery channel works.
+ */
+export async function pendingInvitationToken(
+  t: TestConvex,
+  userId: Id<"users">,
+  workspaceId: Id<"workspaces">,
+): Promise<string | null> {
+  const mine = await asUser(t, userId).query(
+    api.functions.invitations.listMyInvitations,
+    {},
+  );
+  return mine.find((row) => row.workspaceId === workspaceId)?.token ?? null;
+}
+
+/**
+ * Invite somebody and have them accept — the whole real flow, in one line.
+ *
+ * Unlike `addMember`, every step here is a public mutation, so a fixture built
+ * on it cannot set up a state the product could not reach.
+ */
+export async function joinViaInvitation(
+  t: TestConvex,
+  options: {
+    workspaceId: Id<"workspaces">;
+    owner: Id<"users">;
+    invitee: Id<"users">;
+    /** The `@name` or address the invitation is sent to. */
+    addressedTo: string;
+    role: "editor" | "member";
+  },
+): Promise<void> {
+  await asUser(t, options.owner).mutation(api.functions.invitations.inviteMember, {
+    workspaceId: options.workspaceId,
+    invitee: options.addressedTo,
+    role: options.role,
+  });
+  const token = await pendingInvitationToken(t, options.invitee, options.workspaceId);
+  if (token === null) {
+    throw new Error(`no invitation reached ${options.addressedTo}`);
+  }
+  await asUser(t, options.invitee).mutation(
+    api.functions.invitations.acceptInvitation,
+    { token },
   );
 }
 
