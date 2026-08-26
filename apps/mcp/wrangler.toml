@@ -1,0 +1,24 @@
+# Brain — personal MCP server over R2.
+# Deploy with a PERSONAL Cloudflare account: `wrangler login` must open the
+# personal account, never an org one. Verify with `wrangler whoami` first.
+
+name = "brain"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+[[r2_buckets]]
+binding = "BRAIN"
+bucket_name = "brain"
+
+# Daily 05:00 UTC calendar refresh (only runs if CALENDAR_ICS_URL secret is set).
+[triggers]
+crons = ["0 5 * * *"]
+
+# Secrets (set with `wrangler secret put <NAME>` — never commit values):
+#   PRIVATE_TOKEN      personal/full-access token  (required; compatibility name)
+#   TEAM_TOKEN         shared team-level token     (recommended)
+#   PUBLIC_TOKEN       legacy alias for TEAM_TOKEN (optional during migration)
+#   INBOX_TOKEN        capture-only token          (optional, for /inbox)
+#   CALENDAR_ICS_URL   Google Calendar secret iCal (optional)
+#   GRANOLA_API_KEY    reads Granola note contents  (optional, for native webhook)
+#   GRANOLA_WEBHOOK_SECRET verifies Granola events  (optional, for native webhook)

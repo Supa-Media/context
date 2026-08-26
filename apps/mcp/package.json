@@ -1,0 +1,18 @@
+{
+  "name": "@context/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Context MCP gateway — a Cloudflare Worker serving a customer-owned markdown bucket over MCP",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node test/test.mjs",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "typecheck": "echo \"no typecheck (plain JS worker)\" && exit 0",
+    "lint": "echo \"no lint configured yet\" && exit 0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.124.0"
+  }
+}

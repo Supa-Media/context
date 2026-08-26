@@ -1,0 +1,15 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  ci:
+    uses: Supa-Media/supa-framework/.github/workflows/ci.yml@main
+    with:
+      app-slug: "context"
+      strictness: "standard"
+    secrets: inherit

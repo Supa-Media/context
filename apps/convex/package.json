@@ -1,0 +1,19 @@
+{
+  "name": "@context/convex",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "dev": "convex dev"
+  },
+  "dependencies": {
+    "@supa-media/convex": "^0.2.0",
+    "@context/shared": "workspace:*",
+    "@convex-dev/auth": "^0.0.90",
+    "convex": "^1.31.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.2"
+  }
+}

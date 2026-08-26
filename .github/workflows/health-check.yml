@@ -1,0 +1,41 @@
+# Production health check + auto-redeploy.
+#
+# `workflow_call` workflows can't own a `schedule:`, so this thin caller owns
+# the cron and calls the framework's reusable health-check workflow, which
+# calls one or more Convex query functions and redeploys (via deploy-convex.yml)
+# if any of them fail.
+#
+# Before this is useful:
+#   1. Replace convex-url below with your deployment's URL.
+#   2. Replace health-check-functions with a real query function path
+#      (e.g. "functions/context/queries:listPublic").
+#   3. Make sure scripts/sync-secrets-to-convex.sh (or your equivalent) exists,
+#      or drop the sync-secrets-script input if you don't need it.
+
+name: Production Health Check
+
+on:
+  # Fill in `convex-url` below and uncomment this before enabling the schedule.
+  # schedule:
+  #   # Run every 6 hours
+  #   - cron: "0 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      force_redeploy:
+        description: "Force redeploy even if health check passes"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  health-check:
+    uses: Supa-Media/supa-framework/.github/workflows/health-check.yml@main
+    with:
+      app-name: "Context"
+      convex-url: "https://YOUR-DEPLOYMENT.convex.cloud"
+      health-check-functions: |
+        functions/context/queries:listPublic
+      environment: production
+      sync-secrets-script: scripts/sync-secrets-to-convex.sh
+      force-redeploy: ${{ github.event.inputs.force_redeploy == 'true' }}
+    secrets: inherit

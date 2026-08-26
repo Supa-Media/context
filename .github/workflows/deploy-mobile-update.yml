@@ -1,0 +1,68 @@
+name: Deploy Mobile Update (OTA)
+
+# Publishes an EAS Update (over-the-air JS bundle) on merge to main, so installed
+# builds with a matching runtimeVersion pick it up without a native rebuild.
+#
+# IMPORTANT: build-time public env vars (EXPO_PUBLIC_*) MUST be present here too.
+# `eas update` exports the JS bundle in this runner, so a missing
+# EXPO_PUBLIC_CONVEX_URL would ship `undefined` and crash the app on launch —
+# exactly like a native build without it. (See docs/SECRETS.md.)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/mobile/**"
+      - "packages/shared/**"
+      - ".github/workflows/deploy-mobile-update.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-mobile-update-production
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      # Inlined into the OTA JS bundle at export time.
+      EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Verify required secrets
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          for v in EXPO_TOKEN EXPO_PUBLIC_CONVEX_URL; do
+            if [ -z "${!v:-}" ]; then
+              echo "ERROR: missing required secret '$v' in the 'production' environment."
+              exit 1
+            fi
+          done
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # GITHUB_TOKEN authenticates the @supa-media/* GitHub Packages registry.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Publish to the `production` BRANCH, which the production channel (read by
+      # production builds) points to. `--auto` would publish to the git branch
+      # (main), which isn't linked to the channel, so updates would never land.
+      - name: Publish OTA update
+        working-directory: apps/mobile
+        run: eas update --branch production --message "$(git log -1 --pretty=%s)" --non-interactive
