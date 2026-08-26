@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Button, PressRow } from "../../design/components/Button";
+import { Dot } from "../../design/components/Dot";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { colors, layout, radii } from "../../design/tokens";
@@ -77,6 +78,21 @@ export function BrowsePane({
     ? `${shortProvider(data.storage.provider)} · ${data.storage.bucket}`
     : "no bucket connected";
 
+  /**
+   * A context with nowhere to keep notes.
+   *
+   * This is a legitimate state — onboarding offers "I'll do this later" rather
+   * than trapping somebody in a credential form thirty seconds into their first
+   * session — but it is one they have to be able to *see*. A grey chip reading
+   * "no bucket connected", sitting among other grey chips, is not seeing it:
+   * nothing in this pane can work until a bucket is bound, and an empty tree
+   * with no explanation reads as broken rather than as unfinished.
+   *
+   * Not shown while the binding is still loading. "Not loaded yet" is not "not
+   * connected" — the same distinction the rest of the console keeps.
+   */
+  const noBucket = data.storage === null && !data.loading;
+
   const manifestBroken = files.listings[""]?.manifestUsable === false;
 
   return (
@@ -92,7 +108,9 @@ export function BrowsePane({
             that chip is describing was the wrong shape.
           */
           <View style={styles.headActions}>
-            <Pill tone="neutral">{storageLabel}</Pill>
+            <Pill tone={noBucket ? "warn" : "neutral"} leading={noBucket ? <Dot tone="warn" /> : undefined}>
+              {storageLabel}
+            </Pill>
             {onOpenSettings ? (
               <PressRow
                 accessibilityLabel={`Settings for ${atName(current?.slug ?? "this context")}`}
@@ -114,6 +132,24 @@ export function BrowsePane({
       {files.readOnlyReason !== undefined && !files.canEdit ? (
         <View style={styles.notice}>
           <Text variant="hint">{files.readOnlyReason}</Text>
+        </View>
+      ) : null}
+
+      {noBucket ? (
+        <View style={[styles.notice, styles.noticeWarn]}>
+          <Text variant="hint" style={styles.noticeWarnText}>
+            No bucket is connected to this context yet, so there is nowhere to keep notes.
+            Point it at an S3-compatible bucket you own and everything here starts working —
+            your name and your capture address are already yours.
+          </Text>
+          {onOpenSettings ? (
+            <Button
+              label="Connect a bucket"
+              onPress={onOpenSettings}
+              style={styles.dismiss}
+              testID="browse-connect-storage"
+            />
+          ) : null}
         </View>
       ) : null}
 
