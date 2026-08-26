@@ -12,6 +12,7 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { Button } from "../design/components/Button";
 import { Card } from "../design/components/Card";
+import { CenteredScroll } from "../design/components/CenteredScroll";
 import { ChoiceGroup, FormError } from "../design/components/Input";
 import { Pill } from "../design/components/Pill";
 import { StageBackdrop } from "../design/components/StageBackdrop";
@@ -169,21 +170,31 @@ export function ConsentScreen() {
   return (
     <View style={styles.ground}>
       <StageBackdrop />
-      <View style={styles.wrap}>
-        <Text variant="mark" style={styles.mark}>
-          Context
-          <Text variant="mark" style={styles.markSuffix}>
-            .lc
+      {/*
+        Scrollable, and not optional. This body runs 700–900px with a context
+        chooser and a few scope lines, and the browser it lands in is often a
+        390×700 phone that an AI client redirected somebody to. Centred inside a
+        clipped flex box, Approve and Deny were simply off the screen with
+        nothing to scroll — the OAuth flow could not be finished on a phone at
+        all. See `CenteredScroll`.
+      */}
+      <CenteredScroll testID="consent-page">
+        <View style={styles.wrap}>
+          <Text variant="mark" style={styles.mark}>
+            Context
+            <Text variant="mark" style={styles.markSuffix}>
+              .lc
+            </Text>
           </Text>
-        </Text>
-        <ConsentBody
-          view={view}
-          onChooseContext={setChosenContextId}
-          onDecide={decide}
-          onLeaveForConsole={() => router.replace(CONSOLE_ROUTE)}
-          onLeaveForHome={() => router.replace(LANDING_ROUTE)}
-        />
-      </View>
+          <ConsentBody
+            view={view}
+            onChooseContext={setChosenContextId}
+            onDecide={decide}
+            onLeaveForConsole={() => router.replace(CONSOLE_ROUTE)}
+            onLeaveForHome={() => router.replace(LANDING_ROUTE)}
+          />
+        </View>
+      </CenteredScroll>
     </View>
   );
 }
@@ -477,15 +488,19 @@ function firstParam(value: string | string[] | undefined): string | null {
 export type { AuthorizationRequest };
 
 const styles = StyleSheet.create({
+  // `overflow: "hidden"` keeps `StageBackdrop`'s glow inside the page. It no
+  // longer clips the content: that lives in the ScrollView, which owns its own
+  // overflow.
   ground: { flex: 1, backgroundColor: colors.ground, overflow: "hidden" },
+  // No `flex: 1` and no `justifyContent` here any more — both belong to
+  // `CenteredScroll`'s content container, which is what makes the page centre
+  // on a tall window and scroll on a short one instead of clipping.
   wrap: {
-    flex: 1,
     width: "100%",
     maxWidth: 560,
     marginHorizontal: "auto",
     paddingHorizontal: 28,
     paddingVertical: 48,
-    justifyContent: "center",
   },
   mark: { alignSelf: "flex-start", marginBottom: 30 },
   markSuffix: { color: colors.muted },

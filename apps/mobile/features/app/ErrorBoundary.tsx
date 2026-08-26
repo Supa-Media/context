@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { Button } from "../design/components/Button";
+import { CenteredScroll } from "../design/components/CenteredScroll";
 import { Text } from "../design/components/Text";
 import { StageBackdrop } from "../design/components/StageBackdrop";
 import { colors, leading, radii } from "../design/tokens";
@@ -90,7 +91,7 @@ export function ErrorScreen({ error, onRetry }: { error: Error; onRetry: () => v
   return (
     <View style={styles.ground} testID="error-boundary">
       <StageBackdrop />
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+      <CenteredScroll>
         <View style={styles.wrap}>
           <Text variant="mark" style={styles.mark}>
             Context
@@ -129,15 +130,13 @@ export function ErrorScreen({ error, onRetry }: { error: Error; onRetry: () => v
             ) : null}
           </View>
         </View>
-      </ScrollView>
+      </CenteredScroll>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   ground: { flex: 1, backgroundColor: colors.ground, overflow: "hidden" },
-  scroll: { flex: 1 },
-  content: { flexGrow: 1, justifyContent: "center" },
   wrap: {
     width: "100%",
     maxWidth: 520,
