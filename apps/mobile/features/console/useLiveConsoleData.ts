@@ -17,6 +17,7 @@ import {
   PLACEHOLDER_VERSIONING_ON,
   placeholderIngestionAddress,
 } from "./placeholderData";
+import { EMPTY_QUERY_SPEC } from "./querySpec";
 import { useFileBrowser } from "./files/useFileBrowser";
 import { useIngestionSettings } from "./ingestion/useIngestionSettings";
 import { useMembers } from "./members/useMembers";
@@ -110,7 +111,16 @@ export function useLiveConsoleData(): ConsoleData {
   // One subscription per workspace, keyed by id. `useQueries` is what makes a
   // variable-length fan-out legal: a `useQuery` in a loop would break the rules
   // of hooks the moment a context is added or removed.
+  //
+  // The dependency list is `[workspaces]` and must stay that way — a value from
+  // `useQuery`, which is referentially stable between data changes. It must
+  // never gain an `api.…` entry: those are fresh proxies on every access, and
+  // an unstable `useQueries` spec renders the console as a blank white page.
+  // See `./querySpec.ts` for the full chain.
   const queries = useMemo<RequestForQueries>(() => {
+    // An account with no contexts subscribes to nothing, and says so with the
+    // shared constant rather than a fresh `{}`.
+    if ((workspaces ?? []).length === 0) return EMPTY_QUERY_SPEC;
     const spec: RequestForQueries = {};
     for (const workspace of workspaces ?? []) {
       spec[`grants:${workspace.workspaceId}`] = {

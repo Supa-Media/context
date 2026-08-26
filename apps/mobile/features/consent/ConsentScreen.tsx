@@ -18,6 +18,7 @@ import { StageBackdrop } from "../design/components/StageBackdrop";
 import { Text } from "../design/components/Text";
 import { clamp, colors, fonts, leading, radii, tracking } from "../design/tokens";
 import { atName } from "../console/format";
+import { EMPTY_QUERY_SPEC } from "../console/querySpec";
 import { CONSOLE_ROUTE, LANDING_ROUTE } from "../auth/redirect";
 import { leaveTo } from "./leave";
 import { isSafeRedirect } from "./redirectSafety";
@@ -71,7 +72,10 @@ export function ConsentScreen() {
   // Neither query is issued without a session: an unauthenticated visitor must
   // not be able to probe a `request_id` at all.
   const queries = useMemo<RequestForQueries>(() => {
-    if (!auth.isAuthenticated) return {};
+    // The shared constant, not a fresh `{}`: an unstable spec makes
+    // `useSubscription` set state during render, and this screen going blank is
+    // an OAuth approval nobody can complete. See `console/querySpec.ts`.
+    if (!auth.isAuthenticated) return EMPTY_QUERY_SPEC;
     const spec: RequestForQueries = {
       workspaces: { query: api.functions.workspaces.listMyWorkspaces, args: {} },
     };
