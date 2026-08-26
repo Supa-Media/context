@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createReverifyController,
   type ObservedBinding,
@@ -32,24 +32,50 @@ export function useReverify(
 } {
   const [state, setState] = useState<ReverifyState>({ kind: "idle" });
 
+  /**
+   * `run` is read through a ref, and the controller is built exactly once.
+   *
+   * The caller builds `storageActions` as a fresh object literal on every
+   * render (see `useLiveConsoleData`), so `run` is a new function every time.
+   * Listing it as a dependency rebuilt the controller on every render, which
+   * made the effect below re-run on every render, which called `setState` with
+   * a **new** `{ kind: "idle" }` object — never `Object.is`-equal to the last
+   * one, so React could not bail out — which caused another render. An
+   * unbreakable loop, and a blank pane.
+   *
+   * The lesson is the same one in `../querySpec.ts`: a value that is rebuilt
+   * every render must not appear in a dependency array. A ref is how a callback
+   * stays current without being a dependency.
+   */
+  const runRef = useRef(run);
+  runRef.current = run;
+
   const controller = useMemo(
     () =>
       createReverifyController<ReturnType<typeof setTimeout>>({
         queue: async () => {
-          if (run === null) return { queued: false, status: "unknown" };
-          return await run();
+          const current = runRef.current;
+          if (current === null) return { queued: false, status: "unknown" };
+          return await current();
         },
         schedule: (fn, ms) => setTimeout(fn, ms),
         cancel: (handle) => clearTimeout(handle),
         onChange: setState,
       }),
-    [run],
+    [],
   );
 
+  useEffect(() => () => controller.dispose(), [controller]);
+
+  /**
+   * Clear a stale outcome when the controls appear or disappear — which is what
+   * changing context, or losing owner access, looks like from here. Keyed on a
+   * boolean rather than on `run` itself, for the reason above.
+   */
+  const canRun = run !== null;
   useEffect(() => {
     setState({ kind: "idle" });
-    return () => controller.dispose();
-  }, [controller]);
+  }, [canRun]);
 
   const status = binding?.status;
   const updatedAt = binding?.updatedAt;
