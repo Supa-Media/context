@@ -44,8 +44,18 @@ permissions:
   packages: read
 
 env:
-  # The product gateway's own Wrangler config, relative to apps/mcp.
-  MCP_WRANGLER_CONFIG: wrangler.product.toml
+  # The product gateway's Wrangler config, relative to apps/mcp.
+  #
+  # This used to name `wrangler.product.toml`, a file that has never existed —
+  # so the "Look for the product Wrangler config" step below skipped the deploy
+  # and the job went green. The gateway was therefore never deployed at all,
+  # while every run reported success, and `mcp.context.lc` did not resolve.
+  #
+  # The reason for the indirection is gone: `wrangler.toml` IS the product
+  # config (read its header), and the personal single-tenant `brain` Worker now
+  # lives on a different Cloudflare account with its own config. The identity
+  # guard below still refuses a config naming that Worker or its bucket.
+  MCP_WRANGLER_CONFIG: wrangler.toml
 
 jobs:
   test:
@@ -93,8 +103,10 @@ jobs:
             echo "found=true" >> "$GITHUB_OUTPUT"
             echo "OK — deploying with $path."
           else
-            echo "found=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Skipping the gateway deploy — $path does not exist. apps/mcp/wrangler.toml is the founder's personal single-tenant deployment and is deliberately not used here; add the product config to enable this deploy."
+            echo "ERROR: $path does not exist, so there is nothing to deploy."
+            echo "This used to be a warning that let the job pass. It cost the"
+            echo "project a gateway that was never deployed while CI stayed green."
+            exit 1
           fi
 
       # A last line of defence for the live personal deployment. If the product
@@ -186,19 +198,54 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # A deploy that reports success without the endpoint answering is exactly
+      # how this gateway stayed undeployed for weeks. Ask the public URL.
+      - name: Verify the gateway is actually serving
+        if: steps.config.outputs.found == 'true'
+        run: |
+          set -euo pipefail
+          origin="https://mcp.context.lc"
+
+          # RFC 9728 discovery is unauthenticated and must name this origin.
+          # A worker that is up but misconfigured (PUBLIC_ORIGIN unset, so the
+          # documents advertise a workers.dev URL) would pass a bare 200 check
+          # and hand every client the wrong address — so match the content.
+          for attempt in $(seq 1 20); do
+            body="$(curl -fsS --max-time 20 "$origin/.well-known/oauth-protected-resource" || true)"
+            case "$body" in
+              *'"resource":"https://mcp.context.lc/mcp"'*)
+                echo "OK — discovery is live and self-consistent (attempt $attempt)."
+                break
+                ;;
+            esac
+            if [ "$attempt" -eq 20 ]; then
+              echo "ERROR: $origin never served correct protected-resource metadata."
+              echo "Last body: ${body:-<empty>}"
+              exit 1
+            fi
+            echo "Attempt $attempt: not serving correctly yet."
+            sleep 15
+          done
+
+          # And the endpoint the product actually hands people must refuse an
+          # unauthenticated call rather than 404 or 500. 401 is the right answer.
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+            -X POST -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+            "$origin/mcp")"
+          if [ "$code" != "401" ]; then
+            echo "ERROR: POST $origin/mcp returned $code; expected 401 for an unauthenticated call."
+            exit 1
+          fi
+          echo "OK — $origin/mcp refuses an unauthenticated call with 401."
+
       - name: Summary
         if: always()
         run: |
           {
             echo "## MCP gateway deploy (production)"
             echo ""
-            if [ "${{ steps.config.outputs.found }}" = "true" ]; then
-              echo "- **Deployed with:** \`apps/mcp/$MCP_WRANGLER_CONFIG\`"
-              echo "- **Serves:** https://mcp.context.lc (custom domain attached in the Cloudflare dashboard)"
-            else
-              echo "- **Skipped** — \`apps/mcp/$MCP_WRANGLER_CONFIG\` does not exist yet."
-              echo "- \`apps/mcp/wrangler.toml\` is the founder's personal single-tenant"
-              echo "  deployment and is deliberately never deployed from CI."
-            fi
+            echo "- **Deployed with:** \`apps/mcp/$MCP_WRANGLER_CONFIG\`"
+            echo "- **Serves:** https://mcp.context.lc — verified live by the step above."
             echo "- **Commit:** \`${GITHUB_SHA::7}\`"
           } >> "$GITHUB_STEP_SUMMARY"

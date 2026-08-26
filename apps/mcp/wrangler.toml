@@ -33,7 +33,7 @@ compatibility_date = "2026-08-01"
 # request's `Host` header, which is right for `wrangler dev` and a workers.dev
 # URL and wrong behind anything that rewrites `Host`. Set it before serving
 # production traffic, and set it to your own origin, never someone else's.
-# PUBLIC_ORIGIN = "https://mcp.example.com"
+PUBLIC_ORIGIN = "https://mcp.context.lc"
 
 # Browser origins permitted to reach `/mcp` and `/inbox`, comma- or
 # space-separated. MCP requires a server to validate `Origin` on the Streamable
@@ -49,7 +49,7 @@ compatibility_date = "2026-08-01"
 #
 # Matching is exact — scheme, host and port, no wildcards. On the product
 # deployment the console is the apex, so:
-# ALLOWED_ORIGINS = "https://context.lc"
+ALLOWED_ORIGINS = "https://context.lc"
 # Self-hosting: put your own console origin here, not that one.
 
 # Self-host only. Comma-separated allowlist of Worker binding names that a
