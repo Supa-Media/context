@@ -93,7 +93,7 @@
     //
     // Public information (it is in every web client's network tab), so it is
     // fine in a public repository.
-    "CONTROL_PLANE_URL": "https://curious-bloodhound-797.convex.site",
+    "CONTROL_PLANE_URL": "https://clean-ptarmigan-116.convex.site",
 
     // The apex we accept mail for. A recipient on any other domain is refused
     // before anything else happens.

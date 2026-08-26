@@ -204,6 +204,38 @@ jobs:
           printf '%s' "$EMAIL_WORKER_SECRET" | pnpm exec wrangler secret put EMAIL_WORKER_SECRET
           echo "OK — the Worker's secret matches this repository's."
 
+      # The worker, the gateway and the router must all name the SAME Convex
+      # deployment. They did not: this worker was pinned to a deployment the
+      # rest of the product stopped using, so every ingest call would have
+      # authenticated against a backend nobody else talks to — silently, since
+      # a wrong-but-live deployment answers rather than erroring.
+      #
+      # The router's config is the single source of truth for which deployment
+      # is production, so compare against it rather than keeping a third copy.
+      - name: Verify this worker names the production Convex deployment
+        run: |
+          set -euo pipefail
+          router=$(node -e '
+            const fs = require("fs");
+            const raw = fs.readFileSync("infra/router/wrangler.jsonc", "utf8");
+            const m = raw.match(/"CONVEX_ORIGIN"\s*:\s*"https:\/\/([a-z0-9-]+)\.convex\.(?:site|cloud)"/);
+            if (!m) { console.error("No CONVEX_ORIGIN in infra/router/wrangler.jsonc."); process.exit(1); }
+            process.stdout.write(m[1]);
+          ')
+          mine=$(node -e '
+            const fs = require("fs");
+            const raw = fs.readFileSync("infra/email-worker/wrangler.jsonc", "utf8");
+            const m = raw.match(/"CONTROL_PLANE_URL"\s*:\s*"https:\/\/([a-z0-9-]+)\.convex\.(?:site|cloud)"/);
+            if (!m) { console.error("No CONTROL_PLANE_URL in infra/email-worker/wrangler.jsonc."); process.exit(1); }
+            process.stdout.write(m[1]);
+          ')
+          if [ "$router" != "$mine" ]; then
+            echo "ERROR: this worker targets '$mine' but production is '$router'."
+            echo "Fix CONTROL_PLANE_URL in infra/email-worker/wrangler.jsonc."
+            exit 1
+          fi
+          echo "OK — email worker and router both use '$router'."
+
       - name: Deploy context-email
         working-directory: infra/email-worker
         run: pnpm exec wrangler deploy
@@ -396,7 +428,7 @@ jobs:
           set -euo pipefail
           # Public information — it is in every web client's network tab — and
           # is the same value as vars.CONTROL_PLANE_URL in wrangler.jsonc.
-          origin="https://curious-bloodhound-797.convex.site"
+          origin="https://clean-ptarmigan-116.convex.site"
           url="$origin/gateway/ingest/resolve"
 
           for attempt in $(seq 1 20); do
