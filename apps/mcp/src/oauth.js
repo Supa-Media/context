@@ -35,7 +35,7 @@
  *  - **No `plain` PKCE.** See `verifyPkce`.
  */
 
-import { sha256Hex } from "./controlPlane.js";
+import { isLoopbackHost, sha256Hex } from "./controlPlane.js";
 
 /** Access tokens are short-lived; the refresh token is the durable half. */
 const ACCESS_TOKEN_TTL_SECONDS = 3600;
@@ -338,9 +338,7 @@ function redirectUriIsAcceptable(value) {
   // MCP: redirect URIs MUST be https or loopback. `http://localhost` is the
   // native-client case; plain http anywhere else would put an authorization
   // code on the wire in cleartext.
-  if (url.protocol === "http:") {
-    return url.hostname === "127.0.0.1" || url.hostname === "[::1]" || url.hostname === "localhost";
-  }
+  if (url.protocol === "http:") return isLoopbackHost(url.hostname);
   // A custom scheme (`myapp://callback`) is legal for native clients under RFC
   // 8252 but is not something this deployment has a client for, and accepting
   // arbitrary schemes widens the redirect surface for no current benefit.
@@ -558,7 +556,16 @@ export async function handleAuthorize(request, env, controlPlane, { origin, slug
   } catch {
     return fail("server_error", "The authorization request could not be started.");
   }
-  if (consent.protocol !== "https:" && consent.hostname !== "control-plane.test") {
+  // The https requirement is the check that stops this redirect from becoming a
+  // confused deputy, so it is not softened by a hostname baked into the source.
+  // It previously exempted `control-plane.test` so the suite could use a plain
+  // http double, which left a permanent cleartext carve-out in a production
+  // code path — one that widens the moment anything can influence the consent
+  // hostname, and that no deployment can turn off. Loopback is allowed instead:
+  // it is the same exception `redirectUriIsAcceptable` already makes, it cannot
+  // leave the machine, and a test double just binds a port like every other
+  // local server.
+  if (consent.protocol !== "https:" && !isLoopbackHost(consent.hostname)) {
     return fail("server_error", "The authorization request could not be started.");
   }
 

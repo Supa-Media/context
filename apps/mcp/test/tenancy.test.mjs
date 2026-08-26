@@ -669,6 +669,44 @@ export async function runTenancyChecks(check) {
       .status === 404
   );
 
+  // A malformed percent-escape used to reach `decodeURIComponent` unguarded at
+  // the very top of `fetch`, before any routing or auth, so any unauthenticated
+  // request could turn the Worker into an exception instead of a response.
+  // These paths are undecodable, therefore they name no workspace and no token.
+  for (const malformed of ["/%zz/mcp", "/%e0%a4%a/mcp", "/@%zz/mcp", "/%zz"]) {
+    let status = null;
+    try {
+      status = (
+        await worker.fetch(new Request(`https://mcp.context.test${malformed}`), env, {
+          waitUntil() {},
+        })
+      ).status;
+    } catch {
+      status = "threw";
+    }
+    check(`a malformed escape in the path (${malformed}) routes instead of throwing`, status === 404);
+  }
+  let tokenPathStatus = null;
+  try {
+    tokenPathStatus = (
+      await worker.fetch(
+        new Request("https://mcp.context.test/t/%zz/mcp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping", params: {} }),
+        }),
+        env,
+        { waitUntil() {} }
+      )
+    ).status;
+  } catch {
+    tokenPathStatus = "threw";
+  }
+  check(
+    "a malformed escape in a token-in-path token is a 401, not a Worker exception",
+    tokenPathStatus === 401
+  );
+
   /* ------------------- 7. no static-token path exists at all ------------------ */
 
   const staticEnv = {

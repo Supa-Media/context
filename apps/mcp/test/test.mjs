@@ -1624,13 +1624,67 @@ const moveConflict = await call("pub-token", "move_note", {
   destination: "1-projects/portable/existing.md",
 });
 check("move_note refuses destination overwrite", moveConflict.isError && objects.has("1-projects/portable/renamed.md"));
+// A team move_folder over a tree with a private island moves what the caller
+// can see and leaves the island alone. It must NOT refuse: refusing reports
+// that unreadable content is in there, which is a private-note existence
+// oracle a team connection can walk the whole tree with (see the dry-run
+// indistinguishability check below).
 const mixedMove = await call("pub-token", "move_folder", {
   source: "1-projects/mixed",
   destination: "1-projects/mixed-dest",
 });
 check(
-  "team move_folder refuses a tree with a private island",
-  mixedMove.isError && objects.has("1-projects/mixed/public.md") && !objects.has("1-projects/mixed-dest/public.md")
+  "team move_folder moves the visible half of a tree with a private island",
+  !mixedMove.isError &&
+    objects.has("1-projects/mixed-dest/public.md") &&
+    !objects.has("1-projects/mixed/public.md")
+);
+check(
+  "team move_folder leaves the private island where it was",
+  objects.has("1-projects/mixed/private/secret.md") &&
+    !objects.has("1-projects/mixed-dest/private/secret.md")
+);
+check(
+  "the moved half stays team-readable and the island stays unreadable",
+  !(await call("pub-token", "read_note", { path: "1-projects/mixed-dest/public.md" })).isError &&
+    (await call("pub-token", "read_note", { path: "1-projects/mixed/private/secret.md" })).isError
+);
+
+// The oracle itself. `1-projects/mixed/private` is private by folder default
+// and, after the move above, is all that is left under `1-projects/mixed`. A
+// team caller must not be able to tell that folder apart from one that was
+// never created: both are "not found", byte for byte. dry_run makes the
+// question free to ask, so any difference is walkable across the whole tree.
+const onlyPrivateProbe = await call("pub-token", "move_folder", {
+  source: "1-projects/mixed/private",
+  destination: "1-projects/probe-dest",
+  dry_run: true,
+});
+const neverExistedProbe = await call("pub-token", "move_folder", {
+  source: "1-projects/no-such-folder-at-all",
+  destination: "1-projects/probe-dest",
+  dry_run: true,
+});
+check(
+  "team move_folder dry_run cannot distinguish an all-private folder from a missing one",
+  onlyPrivateProbe.isError &&
+    neverExistedProbe.isError &&
+    onlyPrivateProbe.content[0].text === neverExistedProbe.content[0].text
+);
+check(
+  "the private-only probe changed nothing",
+  objects.has("1-projects/mixed/private/secret.md")
+);
+// A personal connection still sees and moves the whole tree, islands included.
+const personalIslandMove = await call("priv-token", "move_folder", {
+  source: "1-projects/mixed",
+  destination: "1-projects/mixed-personal",
+});
+check(
+  "personal move_folder still moves a tree a team connection could only half-see",
+  !personalIslandMove.isError &&
+    objects.has("1-projects/mixed-personal/private/secret.md") &&
+    !objects.has("1-projects/mixed/private/secret.md")
 );
 const privateFolderMove = await call("priv-token", "move_folder", {
   source: "1-projects/private-folder",

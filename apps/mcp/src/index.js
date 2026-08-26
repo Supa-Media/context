@@ -59,6 +59,7 @@ import {
   SessionRefusal,
   StorageUnavailable,
   bearerToken,
+  decodePathSegment,
   hasScope,
   resolveSession,
   splitWorkspacePath,
@@ -246,7 +247,10 @@ export default {
     let pathToken = null;
     const tokenInPath = path.match(/^\/t\/([^/]+)(\/.*)?$/);
     if (tokenInPath) {
-      pathToken = decodeURIComponent(tokenInPath[1]);
+      // A malformed escape decodes to nothing rather than throwing out of
+      // `fetch`. An undecodable token is not a token; the route still resolves
+      // and the request gets the ordinary 401 instead of a Worker exception.
+      pathToken = decodePathSegment(tokenInPath[1]);
       path = tokenInPath[2] || "/";
     }
 
@@ -2446,15 +2450,29 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
 
   const sourcePrefix = `${source}/`;
   const destinationPrefix = `${destination}/`;
-  const allObjects = (await listAllKeys(store, sourcePrefix)).filter(({ key }) => !isPlumbing(key));
+  // Invisible content is filtered out, not refused on.
+  //
+  // Refusing the whole move because the tree contains something this
+  // connection cannot see reports a fact about content the connection is not
+  // allowed to know exists. With dry_run it costs nothing to ask, so a team
+  // caller could walk the tree and separate "folder I can move" from "folder
+  // with a private note in it" from "folder that does not exist" — localising
+  // every private note to its containing folder without reading one. SECURITY.md
+  // counts inference as a privacy-tier bypass in its own right.
+  //
+  // Filtering is also what `move_notes` already does with the same paths: a
+  // team caller naming each visible note explicitly moves exactly these
+  // objects and leaves the private ones behind. move_folder is the bulk
+  // spelling of that operation, so it behaves the same way rather than
+  // becoming the one tool that answers a question the others refuse.
+  const allObjects = (await listAllKeys(store, sourcePrefix))
+    .filter(({ key }) => !isPlumbing(key))
+    .filter(({ key }) => canSee(key, scope, rules, overrides));
+  // A folder holding nothing this caller can see is "not found" — byte-identical
+  // to a folder that was never there.
   if (!allObjects.length) return toolError("not found");
   if (allObjects.length > FOLDER_MOVE_CAP) {
     return toolError(`folder has more than ${FOLDER_MOVE_CAP} objects; split it into smaller moves`);
-  }
-  if (scope !== "private" && allObjects.some(({ key }) => !canSee(key, scope, rules, overrides))) {
-    return toolError(
-      "permission denied: the folder includes content this connection cannot access; no paths were changed"
-    );
   }
 
   const moves = allObjects.map(({ key }) => {

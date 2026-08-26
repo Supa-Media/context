@@ -384,6 +384,18 @@ export async function sha256Hex(value) {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * Loopback hosts, in the spellings `URL` produces.
+ *
+ * Lives here rather than in `oauth.js` because that module already imports from
+ * this one; the reverse would be a cycle. Shared so "http is only ever
+ * acceptable to this machine" is stated once instead of drifting between the
+ * redirect-URI rules, the consent-URL check, and the control-plane URL check.
+ */
+export function isLoopbackHost(hostname) {
+  return hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "localhost";
+}
+
 function requireConfig(env) {
   const base = typeof env?.CONTROL_PLANE_URL === "string" ? env.CONTROL_PLANE_URL.trim() : "";
   const secret = typeof env?.GATEWAY_SECRET === "string" ? env.GATEWAY_SECRET : "";
@@ -399,10 +411,14 @@ function requireConfig(env) {
   } catch {
     throw new ControlPlaneError("not configured");
   }
-  if (url.protocol !== "https:" && url.hostname !== "control-plane.test") {
-    // The one exception is the offline test host, which never leaves the
-    // process. Everything else carries a decrypted storage secret on the way
-    // back and must be encrypted in transit.
+  if (url.protocol !== "https:" && !isLoopbackHost(url.hostname)) {
+    // Every response on this channel can carry a decrypted storage secret, so
+    // it must be encrypted in transit. The exception is loopback, for a control
+    // plane running on the same machine during development — it cannot leave
+    // the host. This used to exempt the literal hostname `control-plane.test`
+    // instead, which put a cleartext carve-out for one specific name into a
+    // production code path that no deployment could turn off; the test double
+    // is https and never needed it.
     throw new ControlPlaneError("not configured");
   }
   return { base: base.replace(/\/+$/, ""), secret };

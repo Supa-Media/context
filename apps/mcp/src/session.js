@@ -117,6 +117,24 @@ export function bearerToken(request) {
 const SLUG_PATTERN = /^[a-z0-9-]{2,32}$/;
 
 /**
+ * Percent-decode one path segment, or `null` if it is not decodable.
+ *
+ * Case is preserved: this is also how the token-in-path route decodes an
+ * access token, and a token is case-sensitive. Callers that want a slug
+ * lowercase the result themselves.
+ *
+ * Exported so every place this worker decodes a caller-supplied path segment
+ * agrees that "malformed" is a routing answer, not an exception.
+ */
+export function decodePathSegment(segment) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Pull an optional workspace selector off the front of a path.
  *
  * `mcp.context.lc/@seyi/mcp` and `mcp.context.lc/seyi/mcp` both select the
@@ -151,7 +169,15 @@ const SLUG_PATTERN = /^[a-z0-9-]{2,32}$/;
 export function splitWorkspacePath(pathname) {
   const match = pathname.match(/^\/@?([^/]+)(\/.*)?$/);
   if (!match) return { slug: null, path: pathname };
-  const candidate = decodeURIComponent(match[1]).toLowerCase();
+  // `decodeURIComponent` throws a URIError on a malformed escape ("%zz", or a
+  // truncated multi-byte sequence). This runs at the very top of `fetch`,
+  // before any routing or auth, so an unhandled throw here turns
+  // `GET /%zz/mcp` — which anyone on the internet can send — into a Worker
+  // exception instead of a 404. A path that cannot be decoded names no
+  // workspace, which is exactly what "no slug" already means.
+  const decoded = decodePathSegment(match[1]);
+  if (decoded === null) return { slug: null, path: pathname };
+  const candidate = decoded.toLowerCase();
   // A first segment that is a known top-level route is a route, not a slug.
   if (RESERVED_FIRST_SEGMENTS.has(candidate)) return { slug: null, path: pathname };
   if (!SLUG_PATTERN.test(candidate)) return { slug: null, path: pathname };
