@@ -1,0 +1,146 @@
+# Deploy context-router — the Cloudflare Worker fronting https://context.lc —
+# on every merge to `main`.
+#
+# The router is the front door: every request for the web app and every request
+# in the sign-in flow passes through it. A broken deploy takes the whole site
+# down, so its own test suite gates the deploy and a bad Cloudflare credential
+# is diagnosed before `wrangler deploy` can fail opaquely.
+#
+# This deliberately does NOT use the framework's reusable deploy-web workflow:
+# that targets Cloudflare *Pages* (`wrangler pages deploy`), which cannot
+# express a Worker doing custom fetch routing.
+name: Deploy Router (production)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/router/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/deploy-router.yml"
+  workflow_dispatch:
+
+# Never on `pull_request`: a deploy triggered by a fork's pull request would
+# run untrusted code with the account's Cloudflare credentials.
+concurrency:
+  group: deploy-router-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  deploy:
+    name: Test + deploy context-router
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      # infra/router has to be a pnpm workspace member for the filtered install
+      # below to resolve it from the root lockfile. Without the glob, pnpm's
+      # error is about a filter matching no projects, which reads like a typo
+      # rather than a missing one-line config. Say the actual fix instead.
+      - name: Verify infra/* is a workspace package
+        run: |
+          set -euo pipefail
+          if ! grep -qE '^\s*-\s*"?infra/\*"?\s*$' pnpm-workspace.yaml; then
+            echo "ERROR: pnpm-workspace.yaml does not include infra/*."
+            echo ""
+            echo "Add this line under 'packages:' and regenerate the lockfile:"
+            echo "  - \"infra/*\""
+            echo ""
+            echo "infra/router carries devDependencies (vitest, wrangler, typescript)"
+            echo "that have to be resolvable from the root pnpm-lock.yaml."
+            exit 1
+          fi
+          echo "OK — infra/* is a workspace package."
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Scoped to infra/router and its dependencies — all this job needs.
+      # GITHUB_TOKEN authenticates the @supa-media/* GitHub Packages registry;
+      # pnpm errors if the variable .npmrc interpolates is undefined, even when
+      # nothing in the filtered set comes from that registry.
+      - name: Install dependencies
+        run: pnpm install --filter "./infra/router..." --frozen-lockfile
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Typecheck
+        working-directory: infra/router
+        run: pnpm typecheck
+
+      # Gates the deploy. The routing decisions are pure functions precisely so
+      # this can prove them without a network or the Workers runtime.
+      - name: Test
+        working-directory: infra/router
+        run: pnpm test
+
+      - name: Verify required secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for var in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            if [ -z "${!var:-}" ]; then
+              echo "ERROR: missing required secret '$var' in the 'production' environment."
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          echo "OK — every required secret is present."
+
+      # Prove the token can actually write to the account wrangler will deploy
+      # into, BEFORE the opaque wrangler failure. A mis-scoped token otherwise
+      # dies with "Could not route ... [code: 7003]", which says nothing about
+      # the cause. This prints the account NAME it resolves to — never the
+      # secret — so a token pointed at the wrong Cloudflare account is obvious.
+      - name: Verify Cloudflare credentials (preflight)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          resp="$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID")"
+          node -e '
+            const d = JSON.parse(process.argv[1] || "{}");
+            if (d.success) {
+              console.log("[ok] token can access account: " + ((d.result && d.result.name) || "(unknown)"));
+            } else {
+              console.error("[FAIL] CLOUDFLARE_API_TOKEN cannot access CLOUDFLARE_ACCOUNT_ID.");
+              console.error("       Cloudflare errors: " + JSON.stringify(d.errors));
+              process.exit(1);
+            }
+          ' "$resp"
+
+      - name: Deploy context-router
+        working-directory: infra/router
+        run: pnpm exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Router deploy (production)"
+            echo ""
+            echo "- **Worker:** \`context-router\`"
+            echo "- **Serves:** https://context.lc and https://www.context.lc"
+            echo "- **Custom domains are attached in the Cloudflare dashboard,** not by this"
+            echo "  workflow — see the comment at the top of \`infra/router/wrangler.jsonc\`."
+            echo "- **Commit:** \`${GITHUB_SHA::7}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

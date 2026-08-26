@@ -1,3 +1,6 @@
 packages:
   - "apps/*"
   - "packages/*"
+  # Edge infrastructure that isn't an app: the Cloudflare Worker fronting
+  # context.lc. Matches events-os, which keeps its router here too.
+  - "infra/*"

@@ -1,0 +1,55 @@
+# Edge router CI.
+#
+# Same gap `mcp.yml` was written to close: the Supa framework's reusable
+# pipeline filters on apps/mobile, apps/convex and packages/shared, so nothing
+# under infra/ is covered. Without this, the router's routing table would only
+# ever be exercised on merge, inside its own deploy — which is too late, since
+# a wrong decision there sends traffic for context.lc somewhere unintended.
+name: Edge Router
+
+# No `paths:` filter on pull_request. A filtered-out required check never
+# reports and leaves the PR pending forever; see the note in mcp.yml.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - "infra/router/**"
+      - ".github/workflows/router.yml"
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: router-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test Edge Router
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --filter @context/router... --frozen-lockfile
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Typecheck
+        working-directory: infra/router
+        run: npx tsc --noEmit
+
+      - name: Routing tests
+        working-directory: infra/router
+        run: npx vitest run
