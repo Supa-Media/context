@@ -11,8 +11,10 @@
 
 import {
   applyRootPrefix,
+  assertSafeEtag,
   assertSafeKey,
   assertSafePrefix,
+  normalizeEtag,
   normalizeRootPrefix,
   stripListResult,
 } from "./index.js";
@@ -42,6 +44,22 @@ export class R2Store {
   }
 
   async put(key, value, options) {
+    // An `onlyIf` carrying a missing or empty etag is rejected, exactly as
+    // S3Store does. R2's R2Conditional with no etagMatches carries no
+    // condition at all — a caller that asked for a conditional write would
+    // silently get last-writer-wins, which is the failure this adapter exists
+    // to make impossible. Unreachable today (every call site passes a real
+    // object etag), but the two adapters must agree, and the in-memory test
+    // stub shares R2's blind spot so nothing else would catch a drift.
+    if (options && "onlyIf" in options) {
+      const expected = options.onlyIf?.etagMatches;
+      if (typeof expected !== "string" || !expected.trim()) {
+        throw new Error(
+          "onlyIf requires a non-empty etagMatches; refusing to downgrade a conditional write to an unconditional one",
+        );
+      }
+      assertSafeEtag(normalizeEtag(expected));
+    }
     return this.bucket.put(applyRootPrefix(this.rootPrefix, assertSafeKey(key)), value, options);
   }
 

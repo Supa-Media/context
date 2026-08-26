@@ -816,7 +816,7 @@ export async function runStoreChecks(check) {
     },
     PRIVATE_TOKEN: "priv-token",
   });
-  const hostileCall = async (list, args) => {
+  const hostileCall = async (list, args, tool = "search_notes") => {
     const response = await worker.fetch(
       new Request("https://x/mcp", {
         method: "POST",
@@ -825,7 +825,7 @@ export async function runStoreChecks(check) {
           jsonrpc: "2.0",
           id: 1,
           method: "tools/call",
-          params: { name: "search_notes", arguments: args },
+          params: { name: tool, arguments: args },
         }),
       }),
       hostileEnv(list),
@@ -876,6 +876,80 @@ export async function runStoreChecks(check) {
     "a tool path with a \".\" segment is refused by the tool layer, not just the adapter",
     /invalid prefix/.test(JSON.stringify(dotSegmentRead.result || dotSegmentRead))
   );
+
+
+  /* ---------------- adapter parity: onlyIf validation (R2) ---------------- */
+
+  // R2Store used to pass `onlyIf` straight through while S3Store validated it.
+  // An R2Conditional with no etagMatches carries no condition, so a caller
+  // asking for a conditional write would silently get last-writer-wins — the
+  // failure the adapter exists to prevent. The in-memory stub shares R2's
+  // blind spot (`if (expected && ...)`), so only an explicit check catches a
+  // drift back.
+  {
+    const objects = new Map();
+    const bucket = {
+      async get() { return null; },
+      async put() { return { etag: "e1" }; },
+      async delete() {},
+      async list() { return { objects: [], truncated: false }; },
+    };
+    const r2 = new R2Store(bucket);
+
+    for (const [label, bad] of [
+      ["an empty etag", { onlyIf: { etagMatches: "" } }],
+      ["a whitespace etag", { onlyIf: { etagMatches: "   " } }],
+      ["a missing etag", { onlyIf: {} }],
+      ["a null onlyIf", { onlyIf: null }],
+      ["a non-string etag", { onlyIf: { etagMatches: 42 } }],
+    ]) {
+      let rejected = false;
+      try { await r2.put("1-projects/a.md", "x", bad); } catch { rejected = true; }
+      check(`R2Store refuses a conditional write with ${label}`, rejected);
+    }
+
+    let injected = false;
+    try {
+      await r2.put("1-projects/a.md", "x", { onlyIf: { etagMatches: 'abc"\r\nx-evil: 1' } });
+    } catch { injected = true; }
+    check("R2Store refuses a header-injecting etag, as S3Store does", injected);
+
+    let accepted = true;
+    try { await r2.put("1-projects/a.md", "x", { onlyIf: { etagMatches: "abc123" } }); }
+    catch { accepted = false; }
+    check("R2Store still accepts a real conditional write", accepted);
+
+    let unconditional = true;
+    try { await r2.put("1-projects/a.md", "x"); } catch { unconditional = false; }
+    check("R2Store still accepts an unconditional write", unconditional);
+    void objects;
+  }
+
+  /* -------------------- folder paths keep a trailing slash ------------------- */
+
+  // "1-projects/" is a natural way to name a folder. It used to survive
+  // normalizePath, produce an empty final segment, and surface a reasonable
+  // question as an internal error from the adapter.
+  {
+    const folderScope = await hostileCall(
+      async () => ({ objects: [], truncated: false }),
+      { path: "1-projects/" },
+      "scope_info"
+    );
+    check(
+      "scope_info accepts a folder path with a trailing slash",
+      !/unsafe storage key|internal error/.test(JSON.stringify(folderScope))
+    );
+
+    const folderSearch = await hostileCall(async () => ({ objects: [], truncated: false }), {
+      query: "anything",
+      prefix: "1-projects/",
+    });
+    check(
+      "search_notes accepts a folder prefix with a trailing slash",
+      !/unsafe storage key|internal error|invalid prefix/.test(JSON.stringify(folderSearch))
+    );
+  }
 
   /* ------------------------ no binding in tool logic ----------------------- */
 

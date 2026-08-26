@@ -906,7 +906,17 @@ function writePermissionError(operation = "destination") {
 
 function normalizePath(p) {
   if (typeof p !== "string") return null;
-  const clean = p.replace(/^\/+/, "").replace(/\/{2,}/g, "/").trim();
+  // A trailing slash is stripped rather than rejected. "1-projects/" is a
+  // natural way to name a folder — scope_info and search_notes get asked it
+  // routinely — and leaving it on produces an empty final segment that the
+  // storage adapter refuses, surfacing a reasonable question as an internal
+  // error. move_folder already stripped it locally; doing it here covers every
+  // caller.
+  const clean = p
+    .replace(/^\/+/, "")
+    .replace(/\/{2,}/g, "/")
+    .replace(/\/+$/, "")
+    .trim();
   if (!clean || clean.includes("..") || clean.length > 512) return null;
   // A "." segment is rejected here on purpose. It was previously caught only as
   // a side effect of isPlumbing() hiding dot-prefixed folders, which is not a
