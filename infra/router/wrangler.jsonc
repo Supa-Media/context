@@ -67,7 +67,7 @@
     // naming this variable, and the rest of the site is unaffected. Set it to
     // the production deployment's `.convex.site` URL — the value Convex prints
     // as CONVEX_SITE_URL — and redeploy.
-    "CONVEX_ORIGIN": "https://curious-bloodhound-797.convex.site"
+    "CONVEX_ORIGIN": "https://clean-ptarmigan-116.convex.site"
   },
 
   "observability": {
