@@ -645,6 +645,55 @@ async function keysUnder(store: FileStore, folder: string): Promise<string[]> {
   return keys;
 }
 
+/**
+ * Every `.history/` key holding an earlier version of this path.
+ *
+ * `keysUnder` deliberately skips plumbing, and `.history/` is plumbing — which
+ * is right for move and copy, and was wrong for delete. This is the one caller
+ * that has to look inside it.
+ *
+ * **Matched by prefix, not by parsing the stamp.** Snapshots are written as
+ * `.history/<path>.<stamp>.md` with an optional kind in the middle, and there
+ * are five spellings of that across two apps already (`.md`, `.move.md`,
+ * `.archive.md`, `.batch-move.md`, `.inbox.md`) written by four different
+ * functions. A regex that had to stay in sync with all of them would fail
+ * *silently and in the wrong direction*: an unrecognised key is a copy left
+ * behind under a sentence promising none. `.history/<path>.` is the one thing
+ * every writer agrees on, so that is what this matches, and the only thing it
+ * can over-match is another note's — equally unreachable — plumbing, which
+ * would need a note literally named `<this note>.something.md`.
+ *
+ * No `FOLDER_OPERATION_CAP`. That cap exists to stop someone moving a folder
+ * bigger than an action can carry, and refusing is a safe answer there: nothing
+ * has happened yet. Refusing to finish a *purge* is not safe in the same way —
+ * it would leave exactly the hidden copy this function exists to remove. The
+ * listing is still bounded by `LIST_PAGE_CAP` pages.
+ */
+async function historyKeysFor(
+  store: FileStore,
+  path: string,
+  pathIsFolder: boolean,
+): Promise<string[]> {
+  // A folder's history mirrors its shape (`.history/1-projects/note.md.<stamp>.md`),
+  // so the whole subtree goes. A file's history is the siblings sharing its name.
+  const prefix = pathIsFolder ? `${HISTORY_PREFIX}${path}/` : `${HISTORY_PREFIX}${path}.`;
+  const keys: string[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+    const listing = await store.list({ prefix, cursor, limit: 1000 });
+    for (const object of listing.objects ?? []) {
+      // For a file, a `/` in the tail would mean a directory we did not put
+      // there — leave it rather than sweep something we cannot explain.
+      if (pathIsFolder || !object.key.slice(prefix.length).includes("/")) {
+        keys.push(object.key);
+      }
+    }
+    if (!listing.truncated || !listing.cursor) break;
+    cursor = listing.cursor;
+  }
+  return keys;
+}
+
 /** Does this path name a folder (something has keys under it)? */
 async function isFolder(store: FileStore, path: string): Promise<boolean> {
   const listing = await store.list({ prefix: `${path}/`, limit: 1 });
@@ -831,11 +880,26 @@ export interface DeleteResult {
 /**
  * Delete permanently.
  *
- * No `.history/` copy is written, and that is the point: if this left a
- * recoverable copy behind, the console would be telling people their file is
- * gone forever while quietly keeping it, and "permanently delete" would be a
- * lie in a UI whose whole job is to be trustworthy about where their data is.
- * Archive is the recoverable one.
+ * No `.history/` copy is written **and every existing one is purged**, which is
+ * the point: if this left a recoverable copy behind, the console would be
+ * telling people their file is gone forever while quietly keeping it, and
+ * "permanently delete" would be a lie in a UI whose whole job is to be
+ * trustworthy about where their data is. Archive is the recoverable one.
+ *
+ * Writing no new snapshot was never enough on its own, and for a while this
+ * function thought it was. Every save of an existing note leaves the version it
+ * replaced in `.history/`, so any note that had ever been edited kept its
+ * content in the bucket after being "permanently" deleted — invisible, because
+ * `isPlumbing` hides `.history/` from the file tree and from every gateway
+ * tool, and unreachable, because `canSee` refuses plumbing at every scope. A
+ * copy nobody can read is still a copy: it is in the customer's bucket, it is
+ * in their storage bill, and it is in the export their provider hands to
+ * whoever subpoenas it.
+ *
+ * Purging it costs nothing that exists. Nothing reads `.history/` — not the
+ * console, not `read_note`, not any other tool — so there is no rollback to
+ * break, only a claim in `apps/mcp/src/index.js`'s header comment that one is
+ * possible. Fix that comment before building the feature, not this function.
  *
  * `confirmation` must be the literal `DELETE_CONFIRMATION`. A boolean flag
  * would be satisfied by any truthy value a buggy caller passed; a specific
@@ -862,8 +926,22 @@ export async function deletePath(
   if (!targetIsFolder && (await store.get(path)) === null) throw notFound();
 
   for (const key of keys) await store.delete(key);
+
+  // The half that used to be missing. Deleting a folder purges its history
+  // subtree in one go; deleting a file purges the snapshots that share its
+  // name. Done after the live keys so a failure mid-purge leaves the bucket in
+  // the state the *old* behaviour left it in — file gone, history behind —
+  // rather than history gone and the file still sitting there.
+  for (const key of await historyKeysFor(store, path, targetIsFolder)) {
+    await store.delete(key);
+  }
+
   await forgetPrivacy(store, keys, targetIsFolder ? path : null);
 
+  // `paths` stays the live keys. It is what the console echoes and what the
+  // audit log records as "what you deleted"; the history that came with them is
+  // plumbing, and listing it would be the first time we ever showed a customer
+  // a `.history/` key.
   return { paths: keys };
 }
 

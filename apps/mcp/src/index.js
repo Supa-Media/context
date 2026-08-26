@@ -37,8 +37,17 @@
  *   cron                       calendar refresh (single-deployment only)
  *
  * Object storage has no dependable versioning, so before any overwrite the
- * previous version is snapshotted to .history/<path>.<timestamp>.md (never
- * listed or team-visible; readable by personal access for a rollback).
+ * previous version is snapshotted to .history/<path>.<timestamp>.md.
+ *
+ * Those snapshots are **unreachable, not merely unlisted**. `isPlumbing`
+ * treats every dot-prefixed segment as plumbing and `canSee` refuses plumbing
+ * at every scope, personal included, so no tool here can read one back. There
+ * is no rollback; this comment used to claim there was, and that claim is part
+ * of why permanent deletion spent so long quietly keeping copies. Deleting a
+ * note now purges its snapshots with it — see `deletePath` in
+ * apps/convex/functions/lib/fileOps.ts. If a rollback is ever built, that is
+ * the function it has to be reconciled with, and the console's delete dialog
+ * is the sentence it has to keep true.
  */
 
 import { createControlPlane } from "./controlPlane.js";
