@@ -183,11 +183,53 @@ function check(label, cond) {
 }
 
 // -- protocol basics
+//
+// Every `.result` access below is optional-chained on purpose.
+//
+// A break that makes an early call return an error instead of a result used to
+// throw a TypeError here and kill the process before a single check ran —
+// exit 1, zero PASS, zero FAIL. That looks like detection if you measure by
+// counting FAIL lines, and it is the opposite: the named checks that should
+// own the failure never execute, so they cannot report, and every later check
+// silently becomes dead weight. A crash is a worse signal than a failure
+// because it takes the rest of the suite with it.
 const init = await rpc("priv-token", "initialize", { protocolVersion: "2025-06-18" });
-check("initialize echoes protocol", init.result.protocolVersion === "2025-06-18");
-check("initialize has instructions", init.result.instructions.includes("PARA"));
-check("initialize prompts proactive durable memory", init.result.instructions.includes("rediscover"));
-check("initialize prompts scoped chat archiving", init.result.instructions.includes("archive_chat") && init.result.instructions.includes("Default privacy is the"));
+check("initialize echoes protocol", init.result?.protocolVersion === "2025-06-18");
+check("initialize has instructions", init.result?.instructions?.includes("PARA") === true);
+// A client asking for a revision from the future must get a counter-offer in a
+// normal result — never a JSON-RPC error, which is how servers actually fail to
+// connect — and the counter-offer must be the newest thing we speak, not an
+// arbitrarily older one.
+const futureInit = await rpc("priv-token", "initialize", { protocolVersion: "2999-01-01" });
+check("an unknown protocol revision is answered, not errored", !futureInit.error);
+check(
+  "an unknown protocol revision is counter-offered the newest we support",
+  futureInit.result?.protocolVersion === "2025-11-25"
+);
+// `2026-07-28` deleted `initialize`. Counter-offering it to a client that just
+// sent one would name a revision that client cannot possibly speak.
+check(
+  "the initialize counter-offer never names a revision that has no initialize",
+  futureInit.result?.protocolVersion !== "2026-07-28"
+);
+const olderInit = await rpc("priv-token", "initialize", { protocolVersion: "2024-11-05" });
+check(
+  "a revision we still support is echoed rather than upgraded",
+  olderInit.result?.protocolVersion === "2024-11-05"
+);
+const versionlessInit = await rpc("priv-token", "initialize", {});
+check(
+  "an initialize with no protocolVersion is answered with the newest we support",
+  versionlessInit.result?.protocolVersion === "2025-11-25"
+);
+const newestInit = await rpc("priv-token", "initialize", { protocolVersion: "2025-11-25" });
+check(
+  "the newest legacy revision is echoed and carries a server description",
+  newestInit.result?.protocolVersion === "2025-11-25" &&
+    typeof newestInit.result?.serverInfo.description === "string"
+);
+check("initialize prompts proactive durable memory", init.result?.instructions.includes("rediscover"));
+check("initialize prompts scoped chat archiving", init.result?.instructions.includes("archive_chat") && init.result?.instructions.includes("Default privacy is the"));
 const noteRes = await worker.fetch(
   new Request("https://x/mcp", {
     method: "POST",
@@ -199,20 +241,20 @@ const noteRes = await worker.fetch(
 );
 check("notification → 202", noteRes.status === 202);
 const tools = await rpc("priv-token", "tools/list");
-check("18 tools listed", tools.result.tools.length === 18);
-check("set_visibility tool is discoverable", tools.result.tools.some((tool) => tool.name === "set_visibility"));
+check("18 tools listed", tools.result?.tools.length === 18);
+check("set_visibility tool is discoverable", tools.result?.tools.some((tool) => tool.name === "set_visibility"));
 check(
   "set_folder_visibility tool is discoverable",
-  tools.result.tools.some((tool) => tool.name === "set_folder_visibility")
+  tools.result?.tools.some((tool) => tool.name === "set_folder_visibility")
 );
-const writeNoteTool = tools.result.tools.find((tool) => tool.name === "write_note");
-const setVisibilityTool = tools.result.tools.find((tool) => tool.name === "set_visibility");
-const setFolderVisibilityTool = tools.result.tools.find(
+const writeNoteTool = tools.result?.tools.find((tool) => tool.name === "write_note");
+const setVisibilityTool = tools.result?.tools.find((tool) => tool.name === "set_visibility");
+const setFolderVisibilityTool = tools.result?.tools.find(
   (tool) => tool.name === "set_folder_visibility"
 );
-const scopeInfoTool = tools.result.tools.find((tool) => tool.name === "scope_info");
-const searchNotesTool = tools.result.tools.find((tool) => tool.name === "search_notes");
-const archiveChatTool = tools.result.tools.find((tool) => tool.name === "archive_chat");
+const scopeInfoTool = tools.result?.tools.find((tool) => tool.name === "scope_info");
+const searchNotesTool = tools.result?.tools.find((tool) => tool.name === "search_notes");
+const archiveChatTool = tools.result?.tools.find((tool) => tool.name === "archive_chat");
 check(
   "write_note advertises only private and team visibility",
   JSON.stringify(writeNoteTool.inputSchema.properties.visibility?.enum) === JSON.stringify(["private", "team"])
@@ -238,11 +280,11 @@ check(
 );
 check(
   "tool surface uses team terminology instead of the old public-access wording",
-  !/(?:public connections?|writable public|public archive)/i.test(JSON.stringify(tools.result.tools))
+  !/(?:public connections?|writable public|public archive)/i.test(JSON.stringify(tools.result?.tools))
 );
 check(
   "read tools have read-only annotations",
-  tools.result.tools.find((tool) => tool.name === "read_note").annotations.readOnlyHint === true
+  tools.result?.tools.find((tool) => tool.name === "read_note").annotations.readOnlyHint === true
 );
 
 // -- auth
@@ -265,8 +307,737 @@ check(
 );
 check(
   "server contract says team access is authenticated and not internet-public",
-  /team/i.test(init.result.instructions) &&
-    /(?:not|no|never)[^\n.]{0,40}(?:internet[- ]public|publicly accessible)/i.test(init.result.instructions)
+  /team/i.test(init.result?.instructions) &&
+    /(?:not|no|never)[^\n.]{0,40}(?:internet[- ]public|publicly accessible)/i.test(init.result?.instructions)
+);
+
+// -- Origin validation on the Streamable HTTP transport (DNS rebinding)
+//
+// The whole point of this control is that a browser sets `Origin` and page
+// script cannot override it. So these checks are written the way a browser
+// would send them: a header that is either absent (every non-browser client) or
+// a serialized origin — never a plausible-looking string a server invented.
+//
+// ## Sabotage record
+//
+// A guard nobody has checked is not a guard, so `src/origin.js` was broken
+// thirteen ways as temporary local edits and each break was confirmed to fail a
+// named check below. Nothing ships to reproduce them — a switch that disables
+// origin validation is not something that belongs in a deployable artifact:
+//
+//   `null` folded in with an absent header ......... 1 check
+//   exact match weakened to endsWith ............... 2 checks
+//   exact match weakened to startsWith ............. 3 checks
+//   absent Origin treated as an attack ............. suite dies at the first RPC
+//   raw header compared instead of the normalized .. 2 checks
+//   opaque origins accepted after parsing .......... 1 check
+//   wildcard entries given wildcard meaning ........ 1 check
+//   /inbox dropped from the guarded paths .......... 1 check
+//   guard moved below the OPTIONS short-circuit .... 1 check
+//   refusal varying with the caller's token ........ 1 check
+//   guard applied before the token is stripped ..... 1 check
+//   unconfigured allowlist failing open ............ 1 check
+//   empty Origin header read as absent ............. 1 check
+//
+// The opaque-origin case is here *because* of that pass: the first version
+// refused `null` on the header side only, an allowlist entry of `file://`
+// normalized to the string "null" and matched it, and every other check in this
+// file stayed green.
+const CONSOLE_ORIGIN = "https://console.context.test";
+const originEnv = { ...env, ALLOWED_ORIGINS: CONSOLE_ORIGIN };
+const noAllowlistEnv = { ...env, ALLOWED_ORIGINS: undefined };
+
+async function transportRequest(
+  originHeader,
+  { token = "priv-token", useEnv = originEnv, path = "/mcp", method = "POST" } = {}
+) {
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${accessTokenFor(token)}`;
+  if (originHeader !== undefined) headers.Origin = originHeader;
+  const init = { method, headers };
+  if (method === "POST") {
+    headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify({ jsonrpc: "2.0", id: 90210, method: "ping", params: {} });
+  }
+  return worker.fetch(new Request(`https://x${path}`, init), useEnv, { waitUntil() {} });
+}
+
+/** Everything a caller can observe about a response, as one comparable string. */
+async function fingerprint(response) {
+  const headers = [...response.headers]
+    .map(([name, value]) => `${name}: ${value}`)
+    .sort()
+    .join("\n");
+  return `${response.status}\n${headers}\n${await response.text()}`;
+}
+
+const originAllowed = await transportRequest(CONSOLE_ORIGIN);
+const originAllowedBody = await originAllowed.json();
+check("an allowlisted browser origin reaches the transport", originAllowed.status === 200);
+check(
+  "an allowlisted origin gets a real MCP answer, not merely a status",
+  originAllowedBody.id === 90210 && originAllowedBody.result !== undefined
+);
+check(
+  "a disallowed browser origin is refused",
+  (await transportRequest("https://evil.example")).status === 403
+);
+
+/*
+ * The absent-Origin cases.
+ *
+ * Every non-browser MCP client — Claude Desktop, Codex CLI, ChatGPT — sends no
+ * Origin header at all. Absence is not an attack signal, and refusing it is the
+ * one mistake here that breaks every real client at once while looking like a
+ * tightening.
+ *
+ * These exist because the behaviour was correct and *unpinned*: inverting
+ * `originIsAllowed` to refuse an absent header failed zero checks. Every other
+ * origin rule had a test; this one did not, so the regression that costs the
+ * most was the only one CI would have missed.
+ */
+const originAbsent = await transportRequest(undefined);
+check(
+  "a request with no Origin header reaches the transport",
+  originAbsent.status === 200
+);
+check(
+  "a non-browser client gets a real MCP answer, not merely a status",
+  (await originAbsent.json()).id === 90210
+);
+check(
+  "no Origin is still accepted when an allowlist IS configured",
+  (await transportRequest(undefined, { useEnv: originEnv })).status === 200
+);
+check(
+  "no Origin is still accepted when no allowlist is configured",
+  (await transportRequest(undefined, { useEnv: noAllowlistEnv })).status === 200
+);
+check(
+  "absence and empty-string are treated differently — empty is a browser saying nothing",
+  (await transportRequest(undefined)).status === 200 &&
+    (await transportRequest("")).status === 403
+);
+check(
+  "the /inbox path also accepts a headerless client",
+  (await transportRequest(undefined, { path: "/inbox" })).status !== 403
+);
+check(
+  "a refused origin is told why, without an auth challenge to retry against",
+  await (async () => {
+    const res = await transportRequest("https://evil.example");
+    const body = await res.json();
+    return (
+      // The spec is specific about this one thing: if a 403 carries a body it
+      // must be a JSON-RPC error response with no `id`.
+      body.jsonrpc === "2.0" &&
+      body.id === null &&
+      typeof body.error?.code === "number" &&
+      body.result === undefined &&
+      !res.headers.has("WWW-Authenticate") &&
+      // No CORS header either: the browser should not get to read the refusal.
+      !res.headers.has("Access-Control-Allow-Origin")
+    );
+  })()
+);
+
+// Rule 1: absence is not an attack signal. Claude Desktop, Codex CLI and the
+// SDKs send no Origin at all; if this check ever fails, every client is down.
+check(
+  "a request with no Origin still works (non-browser clients send none)",
+  (await transportRequest(undefined)).status === 200
+);
+check(
+  "a request with no Origin works even with nothing allowlisted",
+  (await transportRequest(undefined, { useEnv: noAllowlistEnv })).status === 200
+);
+check(
+  "an unconfigured allowlist still refuses a browser origin",
+  (await transportRequest("https://evil.example", { useEnv: noAllowlistEnv })).status === 403
+);
+
+// Rule 2: `null` is present-and-untrusted, not absent. A sandboxed iframe is
+// the one-line bypass this exists to close.
+check(
+  "the null origin is refused, not treated as absent",
+  (await transportRequest("null")).status === 403
+);
+check(
+  "an opaque file:// origin is refused",
+  (await transportRequest("file://")).status === 403
+);
+// `new URL("file:///x").origin` is the *string* "null", so an operator who put
+// an opaque scheme in the allowlist would otherwise authorize every sandboxed
+// iframe and local file on the internet at once. Both sides of the comparison
+// have to refuse it. (Found by sabotage: refusing it only on the header side
+// left this open and every other check stayed green.)
+check(
+  "an opaque allowlist entry authorizes nothing",
+  (
+    await transportRequest("file://", { useEnv: { ...env, ALLOWED_ORIGINS: "file:///" } })
+  ).status === 403
+);
+check(
+  "an opaque allowlist entry does not authorize the null origin either",
+  (
+    await transportRequest("null", { useEnv: { ...env, ALLOWED_ORIGINS: "file:///" } })
+  ).status === 403
+);
+check(
+  "an empty Origin header is refused rather than read as absent",
+  (await transportRequest("")).status === 403
+);
+check(
+  "an Origin that is not a URL at all is refused",
+  (await transportRequest("console.context.test")).status === 403
+);
+
+// Rule 3: exact — scheme, host, port. Every one of these is a real attack
+// shape against a check written with startsWith/endsWith/includes.
+check(
+  "a scheme downgrade does not match an https allowlist entry",
+  (await transportRequest("http://console.context.test")).status === 403
+);
+check(
+  "a different port is a different origin",
+  (await transportRequest("https://console.context.test:8443")).status === 403
+);
+check(
+  "the default port is not a different origin",
+  (await transportRequest("https://console.context.test:443")).status === 200
+);
+check(
+  "suffix confusion is refused (https://context.lc.evil.com)",
+  (await transportRequest("https://console.context.test.evil.com")).status === 403
+);
+check(
+  "an allowed origin's name buried in a hostile URL's path is refused",
+  (await transportRequest("https://evil.example/console.context.test")).status === 403
+);
+check(
+  "a prefix of an allowed origin is refused",
+  (await transportRequest("https://console.context.tes")).status === 403
+);
+check(
+  "an unlisted subdomain of an allowed origin is refused",
+  (await transportRequest("https://staging.console.context.test")).status === 403
+);
+check(
+  "the parent domain of an allowed origin is refused",
+  (await transportRequest("https://context.test")).status === 403
+);
+check(
+  "a trailing-dot host is a different origin and is refused",
+  (await transportRequest("https://console.context.test.")).status === 403
+);
+// Scheme and host are case-insensitive per RFC 6454, so this must be ACCEPTED.
+// Getting it backwards would look like hardening and would break a client.
+check(
+  "case differences in scheme and host still match",
+  (await transportRequest("HTTPS://CONSOLE.CONTEXT.TEST")).status === 200
+);
+check(
+  "an allowlist entry written in mixed case matches a lowercase browser origin",
+  (
+    await transportRequest(CONSOLE_ORIGIN, {
+      useEnv: { ...env, ALLOWED_ORIGINS: "HTTPS://Console.Context.TEST" },
+    })
+  ).status === 200
+);
+
+// No wildcards, configured or otherwise. `https://*.console.context.test`
+// parses, so it lands in the allowlist as a host literally named `*.…` — which
+// no browser can send. Inert, and asserted to stay that way.
+check(
+  "a wildcard allowlist entry grants no subdomain",
+  (
+    await transportRequest("https://app.console.context.test", {
+      useEnv: { ...env, ALLOWED_ORIGINS: "https://*.console.context.test" },
+    })
+  ).status === 403
+);
+check(
+  "a bare * in the allowlist grants nothing",
+  (
+    await transportRequest("https://evil.example", {
+      useEnv: { ...env, ALLOWED_ORIGINS: "*" },
+    })
+  ).status === 403
+);
+check(
+  "a malformed allowlist entry is dropped without taking the good ones with it",
+  (
+    await transportRequest(CONSOLE_ORIGIN, {
+      useEnv: { ...env, ALLOWED_ORIGINS: `not-a-url, ${CONSOLE_ORIGIN} ,,` },
+    })
+  ).status === 200
+);
+check(
+  "the gateway's own origin is always permitted",
+  (await transportRequest("https://x", { useEnv: noAllowlistEnv })).status === 200
+);
+
+// The refusal must not become the oracle the rest of the gateway avoids being.
+const refusalFingerprints = await Promise.all([
+  transportRequest("https://evil.example").then(fingerprint),
+  transportRequest("https://evil.example", { token: null }).then(fingerprint),
+  transportRequest("https://evil.example", { token: "cat_not_a_real_token_00000000000000" }).then(
+    fingerprint
+  ),
+  transportRequest("https://evil.example", { token: "readonly-token" }).then(fingerprint),
+  transportRequest("https://evil.example", { path: "/@primary/mcp" }).then(fingerprint),
+  transportRequest("https://evil.example", { path: "/@nobody-has-this-name/mcp" }).then(fingerprint),
+]);
+check(
+  "the origin refusal is byte-identical whatever the token or workspace",
+  new Set(refusalFingerprints).size === 1
+);
+check(
+  "a bad origin is refused as a bad origin, never as an auth failure",
+  (await transportRequest("https://evil.example", { token: null })).status === 403
+);
+
+// Coverage of the transport's other spellings and its neighbour.
+check(
+  "the token-in-path transport form is guarded too",
+  (
+    await transportRequest("https://evil.example", {
+      token: null,
+      path: `/t/${accessTokenFor("priv-token")}/mcp`,
+    })
+  ).status === 403
+);
+check(
+  "the capture endpoint is guarded too",
+  (
+    await transportRequest("https://evil.example", { token: "inbox-token", path: "/inbox" })
+  ).status === 403
+);
+check(
+  "the capture endpoint still serves a client that sends no Origin",
+  (await transportRequest(undefined, { token: "inbox-token", path: "/inbox" })).status !== 403
+);
+
+// The preflight is refused on the same terms as the request it precedes —
+// otherwise the browser is told the call is permitted and then it isn't.
+check(
+  "a preflight from a disallowed origin is refused",
+  (await transportRequest("https://evil.example", { method: "OPTIONS", token: null })).status === 403
+);
+check(
+  "a preflight from an allowed origin succeeds",
+  (await transportRequest(CONSOLE_ORIGIN, { method: "OPTIONS", token: null })).status === 204
+);
+check(
+  "a preflight for a non-transport path is unaffected",
+  (
+    await transportRequest("https://evil.example", {
+      method: "OPTIONS",
+      token: null,
+      path: "/.well-known/oauth-protected-resource",
+    })
+  ).status === 204
+);
+// Discovery is public, unauthenticated, and fetched cross-origin by browser
+// clients before they hold any credential. Guarding it would break the flow it
+// exists to start, and it exposes nothing.
+check(
+  "discovery documents stay reachable from any origin",
+  (
+    await worker.fetch(
+      new Request("https://x/.well-known/oauth-protected-resource", {
+        headers: { Origin: "https://evil.example" },
+      }),
+      originEnv,
+      { waitUntil() {} }
+    )
+  ).status === 200
+);
+
+// -- protocol revisions: the legacy handshake era and the modern per-request era
+//
+// `2026-07-28` is not an increment on `2025-11-25`; it deletes `initialize`,
+// sessions, the GET stream, resumability and `ping`, and replaces the
+// counter-offer with an error. This gateway is dual-era, so the checks below
+// come in pairs: the modern shape works, and the legacy shape is untouched by
+// it. The second half of each pair is the one that matters — every client in
+// the wild today is legacy.
+const MODERN = "2026-07-28";
+
+async function modernFetch({
+  method,
+  params = {},
+  id = 4242,
+  bodyVersion = MODERN,
+  headerVersion = MODERN,
+  headerMethod,
+  headerName,
+  token = "priv-token",
+  omitBodyVersion = false,
+  omitHeaderVersion = false,
+  omitHeaderMethod = false,
+  omitHeaderName = false,
+  rawBody,
+  httpMethod = "POST",
+} = {}) {
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${accessTokenFor(token)}`;
+  if (!omitHeaderVersion) headers["MCP-Protocol-Version"] = headerVersion;
+  if (!omitHeaderMethod) headers["Mcp-Method"] = headerMethod ?? method;
+  const nameSource = method === "tools/call" ? params.name : undefined;
+  if (nameSource !== undefined && !omitHeaderName) {
+    headers["Mcp-Name"] = headerName ?? nameSource;
+  }
+  const meta = omitBodyVersion
+    ? {}
+    : { "io.modelcontextprotocol/protocolVersion": bodyVersion };
+  const body =
+    rawBody !== undefined
+      ? rawBody
+      : JSON.stringify({ jsonrpc: "2.0", id, method, params: { ...params, _meta: meta } });
+  const res = await worker.fetch(
+    new Request("https://x/mcp", {
+      method: httpMethod,
+      headers,
+      body: httpMethod === "POST" ? body : undefined,
+    }),
+    env,
+    { waitUntil() {} }
+  );
+  const text = await res.text();
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    /* 202 and 405 carry no body */
+  }
+  return { status: res.status, body: parsed, headers: res.headers };
+}
+
+// server/discover is the one RPC 2026-07-28 makes unconditionally mandatory.
+// Advertising the revision without it is self-detecting: a conformant client
+// probes with it and correctly concludes the server is legacy.
+const discover = await modernFetch({ method: "server/discover" });
+check("server/discover answers on the modern path", discover.status === 200);
+check(
+  "server/discover reports the modern revisions and the tools capability",
+  JSON.stringify(discover.body.result?.supportedVersions) === JSON.stringify([MODERN]) &&
+    !!discover.body.result?.capabilities.tools
+);
+check(
+  "server/discover never offers a handshake revision on the modern path",
+  !discover.body.result?.supportedVersions.some((v) => v.startsWith("2025-") || v.startsWith("2024-"))
+);
+check(
+  "server/discover carries instructions and the server identity in _meta",
+  discover.body.result?.instructions.includes("PARA") &&
+    discover.body.result?._meta["io.modelcontextprotocol/serverInfo"].name === "context"
+);
+check("every modern result is tagged complete", discover.body.result?.resultType === "complete");
+
+const modernList = await modernFetch({ method: "tools/list" });
+check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 18);
+check(
+  "modern tools/list carries the required freshness hints",
+  typeof modernList.body.result?.ttlMs === "number" &&
+    modernList.body.result?.resultType === "complete"
+);
+// `public` would let a shared proxy serve one grant's tool list to another —
+// and this list is filtered by the caller's scopes.
+check(
+  "a per-grant list is never marked publicly cacheable",
+  modernList.body.result?.cacheScope === "private"
+);
+check(
+  "modern tools/list is filtered by grant scope exactly as the legacy path is",
+  (await modernFetch({ method: "tools/list", token: "readonly-token" })).body.result?.tools.every(
+    (tool) => tool.annotations?.readOnlyHint === true
+  )
+);
+
+const modernCall = await modernFetch({
+  method: "tools/call",
+  params: { name: "read_note", arguments: { path: "index.md" } },
+});
+check(
+  "modern tools/call reaches the same tool implementation",
+  modernCall.status === 200 &&
+    modernCall.body.result?.content[0].text.includes("public manifest") &&
+    modernCall.body.result?.resultType === "complete"
+);
+check(
+  "the write-scope gate applies on the modern path too",
+  (
+    await modernFetch({
+      method: "tools/call",
+      token: "readonly-token",
+      params: { name: "write_note", arguments: { path: "1-projects/x.md", content: "no" } },
+    })
+  ).body.result?.content[0].text.includes("permission denied")
+);
+
+// The mirrored headers exist so an intermediary can route without parsing the
+// body. That is only safe if the server that parses the body proves they agree.
+const headerMismatchCases = [
+  ["a missing MCP-Protocol-Version header", { method: "tools/list", omitHeaderVersion: true, headerMethod: "tools/list" }],
+  ["a body with no declared protocol version", { method: "tools/list", omitBodyVersion: true }],
+  ["a header version that disagrees with the body", { method: "tools/list", headerVersion: "2025-11-25" }],
+  ["a missing Mcp-Method header", { method: "tools/list", omitHeaderMethod: true }],
+  ["an Mcp-Method that disagrees with the body", { method: "tools/list", headerMethod: "tools/call" }],
+  [
+    "a missing Mcp-Name header on tools/call",
+    { method: "tools/call", params: { name: "read_note", arguments: {} }, omitHeaderName: true },
+  ],
+  [
+    "an Mcp-Name that disagrees with the body",
+    { method: "tools/call", params: { name: "read_note", arguments: {} }, headerName: "archive_note" },
+  ],
+];
+for (const [label, options] of headerMismatchCases) {
+  const res = await modernFetch(options);
+  check(
+    `${label} is refused with 400 and HeaderMismatch`,
+    res.status === 400 && res.body?.error?.code === -32020
+  );
+}
+// A non-ASCII tool name travels base64-wrapped; the server must decode before
+// comparing, or a legal name looks like an attack.
+check(
+  "a base64-sentinel Mcp-Name is decoded before it is compared",
+  (
+    await modernFetch({
+      method: "tools/call",
+      params: { name: "read_note", arguments: { path: "index.md" } },
+      headerName: `=?base64?${btoa("read_note")}?=`,
+    })
+  ).status === 200
+);
+check(
+  "a base64-sentinel Mcp-Name that decodes to the wrong name is still refused",
+  (
+    await modernFetch({
+      method: "tools/call",
+      params: { name: "read_note", arguments: { path: "index.md" } },
+      headerName: `=?base64?${btoa("archive_note")}?=`,
+    })
+  ).body?.error?.code === -32020
+);
+
+// The modern era inverts negotiation: an error carrying `supported`, not a
+// counter-offer in a result. Implementing these two backwards is precisely the
+// bug that has broken real servers.
+const unsupported = await modernFetch({
+  method: "tools/list",
+  bodyVersion: "2027-01-01",
+  headerVersion: "2027-01-01",
+});
+check(
+  "an unsupported modern version is a 400 UnsupportedProtocolVersionError",
+  unsupported.status === 400 && unsupported.body?.error?.code === -32022
+);
+check(
+  "the version error names what was requested and what is supported",
+  unsupported.body?.error?.data?.requested === "2027-01-01" &&
+    JSON.stringify(unsupported.body?.error?.data?.supported) === JSON.stringify([MODERN])
+);
+check(
+  "the modern version error never points a modern client at a handshake revision",
+  !unsupported.body?.error?.data?.supported?.some((v) => v < "2026-01-01")
+);
+
+// Unknown method is 404 on this transport, not 200-with-an-error. The status is
+// what lets a dual-era client tell "no such method" from "not a modern server".
+for (const gone of ["ping", "initialize", "logging/setLevel", "subscriptions/listen"]) {
+  const res = await modernFetch({ method: gone });
+  check(
+    `${gone} is 404 with method-not-found in the modern era`,
+    res.status === 404 && res.body?.error?.code === -32601
+  );
+}
+check(
+  "a modern notification is accepted with 202 and no body",
+  (await modernFetch({ method: "notifications/progress", id: null })).status === 202
+);
+check(
+  "batching does not exist in the modern era",
+  (
+    await modernFetch({
+      method: "tools/list",
+      rawBody: JSON.stringify([
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/list",
+          params: { _meta: { "io.modelcontextprotocol/protocolVersion": MODERN } },
+        },
+      ]),
+    })
+  ).status === 400
+);
+
+// Sessions and resumability are gone: ignore the headers, never mint or echo.
+const sessionProbe = await worker.fetch(
+  new Request("https://x/mcp", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessTokenFor("priv-token")}`,
+      "MCP-Protocol-Version": MODERN,
+      "Mcp-Method": "tools/list",
+      "Mcp-Session-Id": "attacker-chosen-session",
+      "Last-Event-ID": "17",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 7,
+      method: "tools/list",
+      params: { _meta: { "io.modelcontextprotocol/protocolVersion": MODERN } },
+    }),
+  }),
+  env,
+  { waitUntil() {} }
+);
+check(
+  "a session id is ignored and never echoed back",
+  sessionProbe.status === 200 && !sessionProbe.headers.has("Mcp-Session-Id")
+);
+for (const verb of ["GET", "DELETE"]) {
+  check(
+    `${verb} on the MCP endpoint is 405`,
+    (await modernFetch({ method: "tools/list", httpMethod: verb })).status === 405
+  );
+}
+
+// --- and now the half that must not have moved: legacy clients ---
+check(
+  "a legacy client sending no version header still works",
+  (await rpc("priv-token", "tools/list")).result?.tools.length === 18
+);
+async function legacyWithVersionHeader(version) {
+  return worker.fetch(
+    new Request("https://x/mcp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessTokenFor("priv-token")}`,
+        "MCP-Protocol-Version": version,
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 11, method: "tools/list", params: {} }),
+    }),
+    env,
+    { waitUntil() {} }
+  );
+}
+for (const version of ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"]) {
+  check(
+    `a legacy client echoing ${version} is served`,
+    (await legacyWithVersionHeader(version)).status === 200
+  );
+}
+// At least one shipping client sends its own latest revision here instead of
+// the negotiated one. Refusing that would break a session that negotiated fine.
+check(
+  "a legacy request whose version header names the modern revision is not silently mis-served",
+  (await legacyWithVersionHeader("2026-07-28")).status === 400
+);
+check(
+  "a version header naming a revision this server has never implemented is refused",
+  (await legacyWithVersionHeader("1999-01-01")).status === 400
+);
+
+// The era inversion again, one layer down: same status code, opposite body
+// obligation. Half of this is quoted and half is inferred, and the halves are
+// labelled separately on purpose — nobody should later go hunting for a clause
+// that does not exist.
+//
+// QUOTED. On the modern path the body is mandated: an unsupported version
+// "MUST respond with `400 Bad Request` and an `UnsupportedProtocolVersionError`
+// listing its supported versions", and a client is told that a recognized
+// modern error in the body means "retry ... rather than falling back". So a
+// bare `400` there is not a lesser failure, it is a wrong one — it routes the
+// client into the era it just declined to use.
+//
+// INFERRED, and ours. The legacy rule says only "it MUST respond with `400 Bad
+// Request`". No body is required and none is forbidden. That the legacy 400
+// must *not* look like a modern error is this gateway's own hardening, argued
+// rather than cited: both eras share one endpoint, so dressing a legacy-shaped
+// refusal in a modern error body would hand a probing dual-era client the wrong
+// era determination. Asserted rather than assumed, because an invariant with no
+// clause behind it is exactly the kind that gets tidied away.
+function isRecognizableModernError(res, code) {
+  return (
+    res.status === 400 &&
+    res.body?.jsonrpc === "2.0" &&
+    res.body?.error?.code === code &&
+    typeof res.body?.error?.message === "string"
+  );
+}
+check(
+  "a modern version refusal is a recognizable modern error, never a bare 400",
+  isRecognizableModernError(unsupported, -32022)
+);
+check(
+  "a modern header refusal is a recognizable modern error, never a bare 400",
+  isRecognizableModernError(
+    await modernFetch({ method: "tools/list", omitHeaderMethod: true }),
+    -32020
+  )
+);
+check(
+  "a legacy refusal is deliberately not a modern error body, so fallback still works",
+  await (async () => {
+    const res = await legacyWithVersionHeader("1999-01-01");
+    const body = await res.json().catch(() => null);
+    return res.status === 400 && body?.error?.code !== -32022 && body?.error?.code !== -32020;
+  })()
+);
+
+check(
+  "a legacy batch is still served for the revisions that defined batching",
+  await (async () => {
+    const res = await worker.fetch(
+      new Request("https://x/mcp", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessTokenFor("priv-token")}`,
+        },
+        body: JSON.stringify([
+          { jsonrpc: "2.0", id: 21, method: "ping", params: {} },
+          { jsonrpc: "2.0", id: 22, method: "ping", params: {} },
+        ]),
+      }),
+      env,
+      { waitUntil() {} }
+    );
+    return (await res.json()).length === 2;
+  })()
+);
+
+// Incremental scope consent: name the scope that was missing, not the menu.
+const scopeRefusal = await worker.fetch(
+  new Request("https://x/mcp", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessTokenFor("inbox-token")}` },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 31, method: "ping", params: {} }),
+  }),
+  env,
+  { waitUntil() {} }
+);
+check(
+  "a scope refusal challenges for the one scope it needed",
+  scopeRefusal.status === 403 &&
+    /scope="context:read"/.test(scopeRefusal.headers.get("WWW-Authenticate"))
+);
+check(
+  "a 401 with no grant at all still advertises the full scope menu",
+  /scope="context:read context:write context:capture"/.test(
+    (
+      await worker.fetch(new Request("https://x/mcp", { method: "POST", body: "{}" }), env, {
+        waitUntil() {},
+      })
+    ).headers.get("WWW-Authenticate")
+  )
 );
 
 // -- orient scoping

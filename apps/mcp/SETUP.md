@@ -313,12 +313,33 @@ secret is ever written into a note or an audit record.
 | `CONTROL_PLANE_URL`         | yes      | secret | Convex HTTP-actions origin, no trailing slash                      |
 | `GATEWAY_SECRET`            | yes      | secret | proves "this caller is the gateway"; not sufficient on its own     |
 | `PUBLIC_ORIGIN`             | in prod  | var    | the gateway's public origin, used in every discovery document      |
+| `ALLOWED_ORIGINS`           | no       | var    | browser origins allowed to reach `/mcp` and `/inbox` (see below)   |
 | `NATIVE_BINDINGS`           | no       | var    | self-host only; allowlist of Worker binding names                  |
 | `LOCAL_CONTEXT_BUCKET`      | no       | binding| single-deployment ingestion only; unreachable from any request     |
 | `LOCAL_CONTEXT_ROOT_PREFIX` | no       | var    | root prefix for that bucket, applied inside the adapter            |
 | `CALENDAR_ICS_URL`          | no       | secret | calendar cron                                                      |
 | `GRANOLA_API_KEY`           | no       | secret | reads Granola note contents                                        |
 | `GRANOLA_WEBHOOK_SECRET`    | no       | secret | verifies Granola deliveries                                        |
+
+#### `ALLOWED_ORIGINS`
+
+MCP requires a server to validate the `Origin` header on the Streamable HTTP
+transport, because a page in a victim's browser that rebinds a hostname to this
+gateway would otherwise reach a session that can read and write their whole
+context. Set this to the browser origins you serve a console from, comma- or
+space-separated:
+
+```toml
+ALLOWED_ORIGINS = "https://console.example.com"
+```
+
+Matching is exact — scheme, host and port, no wildcards. This deployment's own
+origin is always allowed and does not need listing.
+
+**Leaving it unset is safe and is the right default.** Claude Desktop, Codex
+CLI, Claude Code and the MCP SDKs are not browsers and send no `Origin` at all;
+a request without one is always served. The setting only decides which *browser*
+origins may connect, so an unset allowlist means "non-browser clients only".
 
 ---
 

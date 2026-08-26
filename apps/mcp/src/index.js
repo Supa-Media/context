@@ -55,6 +55,19 @@ import {
   splitWorkspacePath,
   storeForSession,
 } from "./session.js";
+import { enforceOrigin, isTransportPath } from "./origin.js";
+import {
+  ERROR_HEADER_MISMATCH,
+  ERROR_METHOD_NOT_FOUND,
+  ERROR_UNSUPPORTED_PROTOCOL_VERSION,
+  LEGACY_PROTOCOLS,
+  META_SERVER_INFO,
+  MODERN_PROTOCOLS,
+  declaredProtocolVersion,
+  isModernRequest,
+  legacyProtocolHeaderIsAcceptable,
+  modernHeaderMismatch,
+} from "./protocol.js";
 import {
   authorizationServerMetadata,
   forbiddenResponse,
@@ -91,7 +104,6 @@ const GRANOLA_WEBHOOK_BYTE_CAP = 100_000;
 const GRANOLA_WEBHOOK_MAX_AGE_SECONDS = 5 * 60;
 /** Pages a single listing may fetch — 1000 keys each, so 100k objects. */
 const LIST_PAGE_CAP = 100;
-const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const SERVER_INSTRUCTIONS = `This is the user's context: markdown notes
 organized by the PARA method (1-projects = active work, 2-areas = ongoing
@@ -205,7 +217,6 @@ function localIngestionStore(env) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (request.method === "OPTIONS") return corsResponse();
 
     const origin = publicOrigin(request, env);
 
@@ -229,6 +240,23 @@ export default {
       pathToken = decodeURIComponent(tokenInPath[1]);
       path = tokenInPath[2] || "/";
     }
+
+    // MCP says a server MUST validate `Origin` on the Streamable HTTP
+    // transport, to stop a page in a victim's browser from reaching an
+    // authenticated endpoint by DNS rebinding. See `src/origin.js` for what
+    // counts as valid — in particular that *absence* is not an attack signal
+    // and `null` is not absence.
+    //
+    // It runs here, above the method dispatch and above every auth path, for
+    // two reasons: the preflight is refused on the same terms as the request it
+    // precedes, and the refusal is produced before any token, slug, or control
+    // plane answer exists to vary it.
+    if (isTransportPath(path)) {
+      const refusal = enforceOrigin(request, env, origin);
+      if (refusal) return refusal;
+    }
+
+    if (request.method === "OPTIONS") return corsResponse();
 
     const wellKnown = matchWellKnown(path);
     if (wellKnown) {
@@ -290,6 +318,9 @@ export default {
       if (!hasScope(session, needed)) {
         return forbiddenResponse(origin, null, {
           description: `This connection does not hold the ${needed} scope.`,
+          // Incremental consent: name the one scope that was missing, so the
+          // client can re-authorize for it rather than for everything.
+          scope: [needed],
         });
       }
 
@@ -614,6 +645,27 @@ async function handleMcp(request, store, session) {
   } catch {
     return jsonRpcError(null, -32700, "parse error");
   }
+
+  // Era routing. A modern request declares its revision on itself; a legacy one
+  // relies on a handshake that already happened. Serving the wrong shape is
+  // worse than refusing, so this decision is made once, from the request, and
+  // the two paths below never fall through into each other.
+  if (isModernRequest(request, Array.isArray(body) ? body[0] : body)) {
+    return handleModernMcp(request, body, store, session);
+  }
+
+  if (!legacyProtocolHeaderIsAcceptable(request.headers.get("MCP-Protocol-Version"))) {
+    return jsonRpcError(
+      null,
+      -32000,
+      "unsupported MCP-Protocol-Version header",
+      400
+    );
+  }
+
+  // JSON-RPC batching was removed in 2025-06-18 and never existed in the modern
+  // era. It survives here only for `2024-11-05` and `2025-03-26`, which are
+  // still in `LEGACY_PROTOCOLS` and did define it.
   if (Array.isArray(body)) {
     const results = [];
     for (const msg of body) {
@@ -624,6 +676,171 @@ async function handleMcp(request, store, session) {
   }
   const result = await handleRpc(body, store, session);
   return result ? json(result) : new Response(null, { status: 202 });
+}
+
+/* ------------------------------ modern MCP -------------------------------- */
+
+/**
+ * Serve one request under `2026-07-28` semantics.
+ *
+ * The modern era is stateless by construction, which is why this gateway can
+ * speak it at all: there was never a session to remove. What it does add is a
+ * stricter envelope — the version is declared per request and mirrored into
+ * headers, every result is tagged, and the transport carries real HTTP status
+ * codes instead of answering `200` with an error inside.
+ *
+ * Everything that decides *what a caller may see or do* is delegated to the
+ * same helpers the legacy path uses. That is deliberate and load-bearing: a
+ * scope check written twice is a scope check that will eventually differ, and
+ * the difference would be a privilege escalation reachable by adding one header
+ * to a request.
+ */
+async function handleModernMcp(request, msg, store, session) {
+  if (Array.isArray(msg)) {
+    // "The body of the HTTP POST MUST be a single JSON-RPC request or
+    // notification." Batching does not exist in this era.
+    return modernErrorResponse(null, ERROR_HEADER_MISMATCH, "batched requests are not supported", 400);
+  }
+
+  const id = msg?.id;
+  // A notification gets `202` and nothing else. This revision defines no
+  // client-to-server notification over HTTP and explicitly leaves header
+  // requirements for a notification POST unspecified, so none are imposed.
+  if (id === undefined || id === null) return new Response(null, { status: 202 });
+
+  const mismatch = modernHeaderMismatch(request, msg);
+  if (mismatch) return modernErrorResponse(id, ERROR_HEADER_MISMATCH, mismatch, 400);
+
+  const requested = declaredProtocolVersion(msg);
+  if (!MODERN_PROTOCOLS.includes(requested)) {
+    // The modern counterpart of the legacy counter-offer: an error carrying the
+    // versions the client could retry with. See `MODERN_ONLY_VERSION_LISTS` in
+    // `protocol.js` for why a legacy revision must never appear here.
+    //
+    // The body is not optional. A `400` whose body is *not* a recognized modern
+    // error is how a dual-era client concludes the server is legacy and falls
+    // back to `initialize` — so a bare `400` here does not merely lose detail,
+    // it routes the client into the era it just declined to use.
+    return modernErrorResponse(
+      id,
+      ERROR_UNSUPPORTED_PROTOCOL_VERSION,
+      "Unsupported protocol version",
+      400,
+      { supported: MODERN_PROTOCOLS, requested: requested ?? null }
+    );
+  }
+
+  const params = msg.params || {};
+  try {
+    switch (msg.method) {
+      case "server/discover":
+        // MUST be implemented. It is how a modern client learns what this
+        // server is without probing every list endpoint in turn. Modern-only
+        // `supportedVersions` — see `MODERN_ONLY_VERSION_LISTS`.
+        return modernResultResponse(id, {
+          supportedVersions: MODERN_PROTOCOLS,
+          capabilities: { tools: {} },
+          instructions: SERVER_INSTRUCTIONS,
+          ...CACHEABLE,
+        });
+      case "tools/list":
+        return modernResultResponse(id, {
+          tools: toolsForSession(session),
+          ...CACHEABLE,
+        });
+      case "tools/call":
+        return modernResultResponse(id, await callToolForSession(params, store, session));
+      default:
+        // On this transport an unknown method is `404`, not `200` with an error
+        // body. The status is what lets a dual-era client tell "this server
+        // does not have that method" from "this server is not modern at all".
+        return modernErrorResponse(
+          id,
+          ERROR_METHOD_NOT_FOUND,
+          `method not found: ${msg.method}`,
+          404
+        );
+    }
+  } catch (err) {
+    return modernErrorResponse(id, -32603, `internal error: ${err.message}`, 200);
+  }
+}
+
+/**
+ * Freshness hints required on every cacheable result in this revision.
+ *
+ * `cacheScope` is `private` and not negotiable: `tools/list` is filtered by the
+ * calling grant's scopes, so a shared intermediary that cached one caller's
+ * answer and served it to another would hand a read-only client the write
+ * tools. `public` would be a cross-grant leak dressed as a performance hint.
+ *
+ * One minute of `ttlMs` bounds how long a downgraded grant can keep seeing the
+ * wider tool list. A revoked grant is not a concern here — it fails
+ * authentication long before any cached list is consulted.
+ */
+const CACHEABLE = { ttlMs: 60_000, cacheScope: "private" };
+
+/** The server's own identity, reported in `_meta` on every modern result. */
+const SERVER_INFO = {
+  name: "context",
+  version: "1.0.0",
+  description: "A scoped MCP server over a customer-owned bucket of markdown notes.",
+};
+
+function modernResultResponse(id, result, status = 200) {
+  return json(
+    {
+      jsonrpc: "2.0",
+      id,
+      result: {
+        // Required on every result. `input_required` is the other value, for
+        // the multi-round-trip pattern; this server never needs input from a
+        // client, so every result it produces is complete.
+        resultType: "complete",
+        ...result,
+        _meta: { ...(result?._meta || {}), [META_SERVER_INFO]: SERVER_INFO },
+      },
+    },
+    status
+  );
+}
+
+function modernErrorResponse(id, code, message, status, data) {
+  const error = { code, message };
+  if (data !== undefined) error.data = data;
+  return json({ jsonrpc: "2.0", id: id ?? null, error }, status);
+}
+
+/**
+ * The tools this connection may see.
+ *
+ * A read-only grant is not shown tools it cannot use. Advertising them and then
+ * refusing every call makes a connected client look broken; it also invites an
+ * agent to spend a turn discovering it.
+ *
+ * Shared by both protocol eras on purpose. The filtering here and the
+ * enforcement in `callToolForSession` are the only two places authority is
+ * decided, so adding a protocol revision can never quietly add a second, laxer
+ * copy of either.
+ */
+function toolsForSession(session) {
+  return hasScope(session, SCOPE_WRITE)
+    ? toolDefinitions()
+    : toolDefinitions().filter((tool) => tool.annotations?.readOnlyHint === true);
+}
+
+/** Run one tool call for this session, enforcing scope. Shared by both eras. */
+async function callToolForSession(params, store, session) {
+  // Enforced here as well as filtered in `toolsForSession`: the listing is a
+  // courtesy, this is the control. A client that remembers a tool name from a
+  // wider grant, or simply guesses one, gets refused.
+  if (toolIsWriting(params?.name) && !hasScope(session, SCOPE_WRITE)) {
+    return toolError(
+      "permission denied: this connection holds a read-only grant. " +
+        "Reconnect the client with write access from the Context dashboard."
+    );
+  }
+  return callTool(params?.name, params?.arguments || {}, store, session.scope);
 }
 
 /** Tools that change something, derived from the definitions so it cannot drift. */
@@ -643,14 +860,35 @@ async function handleRpc(msg, store, session) {
   try {
     switch (method) {
       case "initialize": {
+        // MCP lifecycle: if the requested revision is one we speak, echo it.
+        // Otherwise counter-offer — in a normal result, never a JSON-RPC error
+        // — with the newest revision we do speak, and let the client decide
+        // whether it can live with that.
+        //
+        // Two ways to get this wrong, both seen in the wild:
+        //
+        //  - Answering with an error. A server that replied `-32602 unsupported
+        //    protocol version` to a client asking for a newer revision simply
+        //    failed to connect, where a counter-offer would have worked. The
+        //    counter-offer is a MUST for exactly this reason.
+        //  - Counter-offering something other than the newest. This used to
+        //    return a hardcoded "2025-03-26", so a client asking for a revision
+        //    from the future was talked down further than necessary and lost
+        //    capability for nothing.
+        //
+        // Derived from the array, which is ordered newest first, so the two
+        // cannot drift apart. Only *legacy* revisions are offerable here: a
+        // client that sent `initialize` has declared it speaks the handshake
+        // era, and answering it with `2026-07-28` — which deleted `initialize`
+        // — would name a revision it cannot possibly use.
         const requested = params?.protocolVersion;
-        const protocolVersion = SUPPORTED_PROTOCOLS.includes(requested)
+        const protocolVersion = LEGACY_PROTOCOLS.includes(requested)
           ? requested
-          : "2025-03-26";
+          : LEGACY_PROTOCOLS[0];
         return rpcResult(id, {
           protocolVersion,
           capabilities: { tools: {} },
-          serverInfo: { name: "context", version: "1.0.0" },
+          serverInfo: SERVER_INFO,
           instructions: SERVER_INSTRUCTIONS,
         });
       }
@@ -660,30 +898,10 @@ async function handleRpc(msg, store, session) {
       case "ping":
         return rpcResult(id, {});
       case "tools/list":
-        // A read-only grant is not shown tools it cannot use. Advertising them
-        // and then refusing every call makes a connected client look broken; it
-        // also invites an agent to spend a turn discovering it.
-        return rpcResult(id, {
-          tools: hasScope(session, SCOPE_WRITE)
-            ? toolDefinitions()
-            : toolDefinitions().filter((tool) => tool.annotations?.readOnlyHint === true),
-        });
+        return rpcResult(id, { tools: toolsForSession(session) });
       case "tools/call": {
         if (isNotification) return null;
-        // Enforced here as well as filtered above: the listing is a courtesy,
-        // this is the control. A client that remembers a tool name from a
-        // wider grant, or simply guesses one, gets refused.
-        if (toolIsWriting(params?.name) && !hasScope(session, SCOPE_WRITE)) {
-          return rpcResult(
-            id,
-            toolError(
-              "permission denied: this connection holds a read-only grant. " +
-                "Reconnect the client with write access from the Context dashboard."
-            )
-          );
-        }
-        const out = await callTool(params?.name, params?.arguments || {}, store, scope);
-        return rpcResult(id, out);
+        return rpcResult(id, await callToolForSession(params, store, session));
       }
       default:
         return isNotification ? null : jsonRpcErrorObj(id, -32601, `method not found: ${method}`);
@@ -3013,6 +3231,6 @@ function jsonRpcErrorObj(id, code, message) {
   return { jsonrpc: "2.0", id, error: { code, message } };
 }
 
-function jsonRpcError(id, code, message) {
-  return json(jsonRpcErrorObj(id, code, message));
+function jsonRpcError(id, code, message, status = 200) {
+  return json(jsonRpcErrorObj(id, code, message), status);
 }
