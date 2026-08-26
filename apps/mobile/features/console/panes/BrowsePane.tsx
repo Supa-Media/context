@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
-import { Button } from "../../design/components/Button";
+import { Button, PressRow } from "../../design/components/Button";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { colors, layout, radii } from "../../design/tokens";
@@ -41,7 +41,18 @@ type Dialog =
   | { kind: "delete"; path: string; isFolder: boolean }
   | null;
 
-export function BrowsePane({ data }: { data: ConsoleData }) {
+export function BrowsePane({
+  data,
+  /**
+   * Opens this context's settings — the storage binding and the ingestion
+   * rules. Absent where there is nowhere to go, and the gear is then not
+   * rendered rather than rendered dead.
+   */
+  onOpenSettings,
+}: {
+  data: ConsoleData;
+  onOpenSettings?: () => void;
+}) {
   const { width } = useWindowDimensions();
   const narrow = width < layout.narrowBreakpoint;
   const current = selectedContext(data);
@@ -73,7 +84,31 @@ export function BrowsePane({ data }: { data: ConsoleData }) {
       <PaneHead
         title={`Browse ${atName(current?.slug ?? "your context")}`}
         description="Plain markdown, exactly as it sits in your bucket. Edit it here or in Obsidian — it is the same file either way."
-        trailing={<Pill tone="neutral">{storageLabel}</Pill>}
+        trailing={
+          /*
+            The storage chip, and the way into everything behind it. A person
+            reading "R2 · brain" and wanting to change it is already looking
+            here — making them find a separate top-level pane to rotate the key
+            that chip is describing was the wrong shape.
+          */
+          <View style={styles.headActions}>
+            <Pill tone="neutral">{storageLabel}</Pill>
+            {onOpenSettings ? (
+              <PressRow
+                accessibilityLabel={`Settings for ${atName(current?.slug ?? "this context")}`}
+                onPress={onOpenSettings}
+                radius={radii.md}
+                style={styles.gear}
+                hoverStyle={styles.gearHover}
+                testID="browse-settings"
+              >
+                <Text style={styles.gearGlyph} aria-hidden>
+                  ⚙
+                </Text>
+              </PressRow>
+            ) : null}
+          </View>
+        }
       />
 
       {files.readOnlyReason !== undefined && !files.canEdit ? (
@@ -424,6 +459,21 @@ function shortProvider(provider: string): string {
 }
 
 const styles = StyleSheet.create({
+  headActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  /** The gear beside the storage chip — `.mini`'s materials at icon size. */
+  gear: {
+    width: 28,
+    height: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    backgroundColor: colors.surface3,
+  },
+  gearHover: { borderColor: "rgba(255,255,255,.26)" },
+  gearGlyph: { fontSize: 13, lineHeight: 15, color: colors.text2 },
+
   /** `.browse` — `grid-template-columns: 246px 1fr` */
   browse: { flexDirection: "row", gap: 16 },
   browseNarrow: { flexDirection: "column" },

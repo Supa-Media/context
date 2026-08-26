@@ -8,144 +8,27 @@
  * renders a control for, which is the same rule `useDemoConsoleData` already
  * applies to Revoke: a visitor is never offered a button that would lie.
  *
- * The data is chosen to teach the one thing the visibility UI is trying to
- * teach. `1-projects` defaults to team and `ltn-2026.md` inside it is held
- * back as private, so the landing page shows a folder carrying its default and
- * exactly one file carrying a marker — which is the whole model, visible in
- * four rows.
+ * The trees themselves live in `placeholderData.ts` — one per demo context,
+ * with the material and the reasoning behind it documented there. This module
+ * is the wiring, and the wiring's one real job is that **switching context
+ * resets everything**: the tree, what is expanded, what is selected, and the
+ * open note. A console that kept `1-projects/ltn-2026.md` open while you moved
+ * to a context with no such file would be showing one context's note under
+ * another context's name.
  */
 
-import { useCallback, useMemo, useReducer, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import { demoTreeFor, type DemoContextTree } from "../placeholderData";
 import type { FileBrowser } from "./browser";
 import { editorReducer, emptyEditor } from "./editor";
-import type { FileEntry, FolderListing, OpenNote } from "./types";
+import type { OpenNote } from "./types";
 
-function file(path: string, over: Partial<FileEntry> = {}): FileEntry {
-  return {
-    kind: "file",
-    path,
-    name: path.slice(path.lastIndexOf("/") + 1),
-    visibility: "private",
-    inherited: "private",
-    exception: false,
-    readOnly: false,
-    ...over,
-  };
-}
-
-function folder(path: string, visibility: "private" | "team"): FileEntry {
-  return {
-    kind: "folder",
-    path,
-    name: path.slice(path.lastIndexOf("/") + 1),
-    visibility,
-    inherited: visibility,
-    exception: false,
-    readOnly: false,
-  };
-}
-
-function listing(path: string, folderDefault: "private" | "team", entries: FileEntry[]): FolderListing {
-  return { path, folderDefault, entries, truncated: false, manifestUsable: true };
-}
-
-const DEMO_LISTINGS: Record<string, FolderListing> = {
-  "": listing("", "private", [
-    folder("0-inbox", "private"),
-    folder("1-projects", "team"),
-    folder("2-areas", "private"),
-    folder("3-resources", "private"),
-    folder("4-archive", "private"),
-    file("index.md"),
-    file("privacy.md", { readOnly: true }),
-  ]),
-  "1-projects": listing("1-projects", "team", [
-    file("1-projects/context-lc.md", { visibility: "team", inherited: "team" }),
-    file("1-projects/ltn-2026.md", {
-      visibility: "private",
-      inherited: "team",
-      exception: true,
-    }),
-  ]),
-  "2-areas": listing("2-areas", "private", [
-    folder("2-areas/communications", "private"),
-    folder("2-areas/public-worship", "private"),
-  ]),
-};
-
-/** The mockup's note, verbatim. */
-const DEMO_NOTES: Record<string, string> = {
-  "1-projects/context-lc.md": [
-    "---",
-    "updated: 2026-08-26",
-    "status: active",
-    "---",
-    "",
-    "# Context.LC — build decisions",
-    "",
-    "Tenancy is bucket-level, never prefix-level. No key",
-    "namespacing inside a customer bucket, so an existing",
-    "brain connects with zero migration and Obsidian",
-    "Remotely Save keeps working.",
-    "",
-    "A shared context is just a workspace with more than",
-    "one member — so a storage binding hangs off a",
-    "workspaceId, never a userId.",
-    "",
-  ].join("\n"),
-  "1-projects/ltn-2026.md": [
-    "---",
-    "updated: 2026-08-19",
-    "visibility: team",
-    "---",
-    "",
-    "# LTN 2026",
-    "",
-    "Held back from the folder's team default. The frontmatter",
-    "above says `team` and is ignored — privacy.md is what",
-    "decides, and it lists this note as an exception.",
-    "",
-  ].join("\n"),
-  "index.md": ["# Context", "", "Plain markdown files you own.", ""].join("\n"),
-  "privacy.md": [
-    "---",
-    "role: privacy-manifest",
-    "---",
-    "",
-    "# Access map",
-    "",
-    "This file decides what a connected AI client is allowed to see.",
-    "",
-    "<!-- BEGIN BRAIN PRIVACY RULES -->",
-    "",
-    "```yaml",
-    "default_visibility: private",
-    "",
-    "folder_defaults:",
-    "  0-inbox: private",
-    "  1-projects: team",
-    "  2-areas: private",
-    "  3-resources: private",
-    "  4-archive: private",
-    "",
-    "note_overrides:",
-    "  1-projects/ltn-2026.md: private",
-    "```",
-    "",
-    "<!-- END BRAIN PRIVACY RULES -->",
-    "",
-  ].join("\n"),
-};
-
-const DEMO_SELECTED = "1-projects/context-lc.md";
-
-function demoNote(path: string): OpenNote | null {
-  const text = DEMO_NOTES[path];
+/** The note at a path in this tree, or `null` when it is a folder. */
+export function demoNote(tree: DemoContextTree, path: string): OpenNote | null {
+  const text = tree.notes[path];
   if (text === undefined) return null;
-  const entry =
-    DEMO_LISTINGS[path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ""]?.entries.find(
-      (candidate) => candidate.path === path,
-    ) ?? null;
+  const parent = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+  const entry = tree.listings[parent]?.entries.find((candidate) => candidate.path === path) ?? null;
   return {
     path,
     text,
@@ -163,20 +46,27 @@ function demoNote(path: string): OpenNote | null {
 
 const noop = () => {};
 
-export function useDemoFileBrowser(): FileBrowser {
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set(["1-projects"]));
-  const [selectedPath, setSelectedPath] = useState<string | null>(DEMO_SELECTED);
-  const [editor, dispatch] = useReducer(editorReducer, emptyEditor, () =>
-    editorReducer(emptyEditor, { type: "opened", note: demoNote(DEMO_SELECTED)! }),
+export function useDemoFileBrowser(contextId: string | null): FileBrowser {
+  const tree = demoTreeFor(contextId);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(
+    () => new Set(tree.defaultExpanded),
   );
+  const [selectedPath, setSelectedPath] = useState<string | null>(tree.defaultSelection);
+  const [editor, dispatch] = useReducer(editorReducer, emptyEditor, () => {
+    const note = demoNote(tree, tree.defaultSelection);
+    return note === null ? emptyEditor : editorReducer(emptyEditor, { type: "opened", note });
+  });
 
-  const select = useCallback((path: string) => {
-    setSelectedPath(path);
-    const note = demoNote(path);
-    // A folder has no body, so the pane shows its summary instead of an editor.
-    if (note === null) dispatch({ type: "closed" });
-    else dispatch({ type: "opened", note });
-  }, []);
+  const select = useCallback(
+    (path: string) => {
+      setSelectedPath(path);
+      const note = demoNote(tree, path);
+      // A folder has no body, so the pane shows its summary instead of an editor.
+      if (note === null) dispatch({ type: "closed" });
+      else dispatch({ type: "opened", note });
+    },
+    [tree],
+  );
 
   const toggleFolder = useCallback((path: string) => {
     setExpanded((current) => {
@@ -187,13 +77,25 @@ export function useDemoFileBrowser(): FileBrowser {
     });
   }, []);
 
+  // Switching context means a different bucket, so nothing about the old one
+  // survives it. `useFileBrowser` does exactly this against a real workspace
+  // id; the demo has to behave the same way or the landing page would be
+  // demonstrating a bug.
+  useEffect(() => {
+    setExpanded(new Set(tree.defaultExpanded));
+    setSelectedPath(tree.defaultSelection);
+    const note = demoNote(tree, tree.defaultSelection);
+    if (note === null) dispatch({ type: "closed" });
+    else dispatch({ type: "opened", note });
+  }, [tree]);
+
   return useMemo(
     () => ({
       canEdit: false,
-      readOnlyReason: "This is a demo. Sign in to edit your own context.",
+      readOnlyReason: tree.readOnlyReason,
       loading: false,
       busy: false,
-      listings: DEMO_LISTINGS,
+      listings: tree.listings,
       expanded,
       toggleFolder,
       selectedPath,
@@ -219,6 +121,6 @@ export function useDemoFileBrowser(): FileBrowser {
       destroy: noop,
       setVisibility: noop,
     }),
-    [editor, expanded, select, selectedPath, toggleFolder],
+    [editor, expanded, select, selectedPath, toggleFolder, tree],
   );
 }

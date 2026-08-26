@@ -6,41 +6,62 @@ import { Text } from "../design/components/Text";
 import { gradient } from "../design/css";
 import { colors, layout, radii } from "../design/tokens";
 import { atName } from "./format";
-import { PANES, type PaneKey } from "./panes";
+import { APP_SECTIONS, selectContextRoute, type ConsoleRoute } from "./nav";
 import { selectedContext, type ConsoleData } from "./types";
 
 /**
  * The console chrome: title bar, left rail, and the pane body.
  *
- * It takes a `ConsoleData` and nothing else, which is what lets the same
- * component serve both the authenticated console and the read-only demo on the
- * landing page.
+ * The rail carries the two scopes rather than one flat list. **App** holds Map
+ * and Connections, which span every context you can reach. **Contexts** holds
+ * the contexts themselves, and picking one navigates *into* it — Browse is
+ * where you land, and its settings hang off it. That is not just tidier: a
+ * storage binding belongs to a workspace, so "Storage" sitting beside "Map" was
+ * claiming a scope it never had.
+ *
+ * It takes a `ConsoleData` and a route and nothing else, which is what lets the
+ * same component serve both the authenticated console and the read-only demo on
+ * the landing page.
  */
 export function ConsoleShell({
   data,
-  activePane,
-  onSelectPane,
+  route,
+  onNavigate,
   children,
 }: {
   data: ConsoleData;
-  activePane: PaneKey;
-  onSelectPane: (pane: PaneKey) => void;
+  route: ConsoleRoute;
+  onNavigate: (route: ConsoleRoute) => void;
   children: ReactNode;
 }) {
   const { width } = useWindowDimensions();
   const narrow = width < layout.narrowBreakpoint;
   const current = selectedContext(data);
+  const insideContext = route.kind === "context";
 
   return (
     <View style={styles.console}>
       <View style={styles.bar}>
         <WindowDots />
         <View style={styles.switcher}>
-          <Dot tone={current?.status ?? "warn"} />
-          <Text variant="wsSwitch">{atName(current?.slug ?? "no context")}</Text>
-          <Text variant="wsSwitch" style={styles.switcherKind}>
-            {current?.kind ?? ""}
-          </Text>
+          {insideContext ? (
+            <>
+              <Dot tone={current?.status ?? "warn"} />
+              <Text variant="wsSwitch">{atName(current?.slug ?? route.slug)}</Text>
+              <Text variant="wsSwitch" style={styles.switcherKind}>
+                {current?.kind ?? ""}
+              </Text>
+            </>
+          ) : (
+            // Map and Connections are not inside anything, and a context chip
+            // above them would be naming a scope the pane is not in.
+            <>
+              <Text variant="wsSwitch">All contexts</Text>
+              <Text variant="wsSwitch" style={styles.switcherKind}>
+                {`${data.contexts.length} reachable`}
+              </Text>
+            </>
+          )}
         </View>
         <View
           style={[styles.avatar, gradient("linear-gradient(140deg,#3B82F6,#8B5CF6)")]}
@@ -58,14 +79,14 @@ export function ConsoleShell({
         >
           <View style={[styles.railGroup, narrow && styles.railGroupNarrow]}>
             <Text variant="railHead" style={styles.railHead}>
-              Workspace
+              App
             </Text>
-            {PANES.map((pane) => (
+            {APP_SECTIONS.map((section) => (
               <RailButton
-                key={pane.key}
-                label={pane.label}
-                selected={pane.key === activePane}
-                onPress={() => onSelectPane(pane.key)}
+                key={section.key}
+                label={section.label}
+                selected={route.kind === "app" && route.section === section.key}
+                onPress={() => onNavigate({ kind: "app", section: section.key })}
                 role="tab"
               />
             ))}
@@ -84,9 +105,9 @@ export function ConsoleShell({
               <RailButton
                 key={context.id}
                 label={atName(context.slug)}
-                accessibilityLabel={`Switch to ${atName(context.slug)}`}
-                selected={context.id === data.selectedContextId}
-                onPress={() => data.selectContext(context.id)}
+                accessibilityLabel={`Open ${atName(context.slug)}`}
+                selected={route.kind === "context" && route.slug === context.slug}
+                onPress={() => onNavigate(selectContextRoute(context.slug))}
                 leading={<Dot tone={context.status} />}
               />
             ))}

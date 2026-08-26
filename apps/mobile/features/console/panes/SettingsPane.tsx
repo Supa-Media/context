@@ -2,16 +2,17 @@ import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Card, Grow, Row } from "../../design/components/Card";
-import { CopyField } from "../../design/components/CopyField";
 import { Dot } from "../../design/components/Dot";
 import { Check, FieldGrid } from "../../design/components/Field";
 import { FormError, Notice } from "../../design/components/Input";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { colors, leading } from "../../design/tokens";
-import { useCopy } from "../../design/useCopy";
 import { PaneHead } from "../ConsoleShell";
-import type { ConsoleData, ConsoleStorage, StorageActions } from "../types";
+import { atName } from "../format";
+import { loadedFolders } from "../files/browser";
+import { IngestionCard } from "../ingestion/IngestionCard";
+import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageActions } from "../types";
 import { ConnectForm } from "../storage/ConnectForm";
 import { forcePathStyleToAddressing } from "../storage/connect";
 import { describeStorageFailure } from "../storage/errors";
@@ -19,13 +20,23 @@ import { useReverify } from "../storage/useReverify";
 import type { ReverifyState } from "../storage/reverify";
 
 /**
- * The customer's bucket, their credentials, and what we could prove about it.
+ * A context's settings: its bucket, its credentials, and its ingestion rules.
+ *
+ * This used to be a top-level "Storage" pane sitting beside Map and
+ * Connections. It was in the wrong place, and not only visually — a storage
+ * binding hangs off a `workspaceId`, never a `userId`, so two contexts can and
+ * do point at two different buckets. A pane at app level was quietly claiming
+ * there is one. It is reached now from the gear beside the storage chip in
+ * Browse, which is where somebody looking at `R2 · brain` is already looking.
+ *
+ * The components below are the Storage pane's, moved rather than rewritten:
+ * the same binding card, the same connect form, the same re-verify state
+ * machine.
  *
  * Only two of the four capability lines are live today —
  * `getStorageBinding` returns `capabilities.conditionalWrite` and a status.
  * The object count, PARA detection, and versioning state are placeholder and
- * are marked as such in `placeholderData.ts`; they need the connect-time probe
- * to persist what it saw.
+ * are marked as such in `placeholderData.ts`.
  *
  * Every control here comes from `data.storageActions`, which is **absent** in
  * the demo console and for anyone who is not the owner of this context. That is
@@ -33,19 +44,37 @@ import type { ReverifyState } from "../storage/reverify";
  * owner-only, so rendering them for an editor would be offering a button whose
  * only possible outcome is a permission error.
  */
-export function StoragePane({ data }: { data: ConsoleData }) {
+export function SettingsPane({ data, onClose }: { data: ConsoleData; onClose: () => void }) {
   const storage = data.storage;
   const actions = data.storageActions;
-  const ingestion = useCopy(data.ingestionAddress);
+  const current = selectedContext(data);
   const [rebinding, setRebinding] = useState(false);
 
   return (
     <View>
       <PaneHead
-        title="Storage"
-        description="Your bucket, your credentials. Revoke the key at your provider and Context loses access immediately — no export needed."
-        trailing={storage ? <StatusPill storage={storage} /> : undefined}
+        title={`${atName(current?.slug ?? "this context")} settings`}
+        description="This context's bucket and its ingestion rules. Both belong to the context, not to your account — another context can point somewhere else entirely."
+        trailing={
+          <View style={styles.headActions}>
+            {storage ? <StatusPill storage={storage} /> : null}
+            <Button
+              label="Done"
+              accessibilityLabel="Close settings and go back to browsing"
+              onPress={onClose}
+              testID="settings-close"
+            />
+          </View>
+        }
       />
+
+      <Text variant="eyebrow" style={styles.sectionHead}>
+        Storage
+      </Text>
+      <Text variant="paneSub" style={styles.sectionSub}>
+        Your bucket, your credentials. Revoke the key at your provider and Context loses
+        access immediately — no export needed.
+      </Text>
 
       {storage === null ? (
         data.loading ? (
@@ -95,25 +124,19 @@ export function StoragePane({ data }: { data: ConsoleData }) {
         />
       )}
 
-      <Card style={styles.spaced}>
-        <Row>
-          <Grow>
-            <Text variant="rowTitle">Ingestion address</Text>
-            <Text variant="rowSub" style={styles.rowSub}>
-              Forward any email here and it lands in{" "}
-              <Text variant="mono" style={styles.inlineMono}>
-                0-inbox/
-              </Text>
-            </Text>
-          </Grow>
-          <Button
-            label={ingestion.label}
-            accessibilityLabel="Copy your ingestion address"
-            onPress={ingestion.copy}
-          />
-        </Row>
-        <CopyField value={data.ingestionAddress} copyable={false} style={styles.spacedTight} />
-      </Card>
+      <Text variant="eyebrow" style={styles.sectionHeadLater}>
+        Email ingestion
+      </Text>
+      <Text variant="paneSub" style={styles.sectionSub}>
+        Forward mail into this context. The address is semi-public once it is in a
+        forwarding rule, so who may send to it is the setting that matters.
+      </Text>
+
+      <IngestionCard
+        state={data.ingestion}
+        fallbackAddress={data.ingestionAddress}
+        folders={loadedFolders(data.files.listings)}
+      />
     </View>
   );
 }
@@ -323,6 +346,10 @@ function joinSentences(...parts: Array<string | undefined>): string | undefined 
 }
 
 const styles = StyleSheet.create({
+  headActions: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
+  sectionHead: { marginBottom: 4 },
+  sectionHeadLater: { marginTop: 30, marginBottom: 4 },
+  sectionSub: { marginBottom: 12, maxWidth: 546 },
   rowSub: { marginTop: 2 },
   checks: {
     marginTop: 15,
@@ -336,7 +363,4 @@ const styles = StyleSheet.create({
   actions: { marginTop: 17, gap: 9, flexWrap: "wrap" },
   readOnly: { marginTop: 12, lineHeight: leading(12.5, 1.6) },
   loadingRow: { flexDirection: "row", alignItems: "center", gap: 11 },
-  spaced: { marginTop: 11 },
-  spacedTight: { marginTop: 11 },
-  inlineMono: { fontSize: 12 },
 });

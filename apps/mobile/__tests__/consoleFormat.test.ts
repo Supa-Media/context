@@ -9,7 +9,6 @@ import {
   relativeTime,
 } from "../features/console/format";
 import { contextKindFor } from "../features/console/map/graph";
-import { PANES, paneForPath, paneHref } from "../features/console/panes";
 import { withAlpha } from "../features/design/color";
 import {
   HERO_LONGEST_LINE_AT_98,
@@ -132,35 +131,8 @@ describe("names and counts", () => {
   });
 });
 
-describe("pane routing", () => {
-  test("every pane has a distinct URL", () => {
-    const hrefs = PANES.map((pane) => pane.href);
-    expect(new Set(hrefs).size).toBe(hrefs.length);
-  });
-
-  test("a console URL resolves to its pane", () => {
-    expect(paneForPath("/console")).toBe("map");
-    expect(paneForPath("/console/browse")).toBe("browse");
-    expect(paneForPath("/console/connections")).toBe("connect");
-    expect(paneForPath("/console/storage")).toBe("storage");
-  });
-
-  test("a trailing slash is not a different pane", () => {
-    expect(paneForPath("/console/")).toBe("map");
-    expect(paneForPath("/console/storage/")).toBe("storage");
-  });
-
-  test("an unknown console URL falls back to the map rather than rendering nothing", () => {
-    expect(paneForPath("/console/nope")).toBe("map");
-    expect(paneForPath("")).toBe("map");
-  });
-
-  test("paneHref round-trips", () => {
-    for (const pane of PANES) {
-      expect(paneForPath(paneHref(pane.key))).toBe(pane.key);
-    }
-  });
-});
+// The console navigation model moved out of this file when it stopped being a
+// flat list of panes. See `consoleNav.test.ts`.
 
 describe("withAlpha", () => {
   test("converts the palette's hex colours", () => {

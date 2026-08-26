@@ -1,4 +1,5 @@
 import type { FileBrowser } from "./files/browser";
+import type { IngestionState } from "./ingestion/settings";
 import type { MapGraph } from "./map/layout";
 import type { ConnectFormValues } from "./storage/connect";
 
@@ -28,6 +29,15 @@ export interface ConsoleContext {
 export interface ConsoleClient {
   id: string;
   name: string;
+  /**
+   * The context that let it in, as "@seyi".
+   *
+   * Connections is app level, so the list spans every context — and a grant
+   * belongs to exactly one of them. Without this on the row, "revoke this
+   * client" is a question nobody can answer, and revoking the wrong one is
+   * silent.
+   */
+  context: string;
   /** "Full access · last used 4 minutes ago" */
   detail: string;
   status: StatusTone;
@@ -115,7 +125,19 @@ export interface ConsoleData {
   /** Absent in the demo and for non-owners. See `StorageActions`. */
   storageActions?: StorageActions;
   endpoint: string;
+  /**
+   * The ingestion alias to display when the backend cannot yet answer for it.
+   * Derived from the slug; `ingestion.settings.address` is the real one.
+   */
   ingestionAddress: string;
+  /**
+   * Where forwarded mail lands and who is allowed to send it.
+   *
+   * Per context, like storage: the alias is issued against a workspace, and
+   * the allow-list is the only thing standing between a semi-public address
+   * and anyone who learns it.
+   */
+  ingestion: IngestionState;
   /**
    * The file editor.
    *

@@ -18,6 +18,7 @@ import {
   placeholderIngestionAddress,
 } from "./placeholderData";
 import { useFileBrowser } from "./files/useFileBrowser";
+import { useIngestionSettings } from "./ingestion/useIngestionSettings";
 import { toBindStorageArgs, type Provider } from "./storage/connect";
 import { atName, contextTone, describeScopes, formatCount, grantTone, lastUsedLabel } from "./format";
 import {
@@ -181,16 +182,17 @@ export function useLiveConsoleData(): ConsoleData {
     return buildConstellation({ contexts: contextInputs, clients: clientInputs });
   }, [graphKey]);
 
-  const selectedGrants =
-    selectedContextId === null
-      ? []
-      : activeGrants.filter((grant) => grant.workspaceId === selectedContextId);
-
   const now = Date.now();
 
-  const clients: ConsoleClient[] = selectedGrants.map((grant) => ({
+  // Every grant, not the selected context's: Connections is app level, and one
+  // endpoint serves all of them. The row carries which context let the client
+  // in, because that is what the grant is attached to and what Revoke acts on.
+  const slugOf = new Map(contexts.map((context) => [context.id, atName(context.slug)]));
+
+  const clients: ConsoleClient[] = activeGrants.map((grant) => ({
     id: grant.grantId,
     name: grant.clientName ?? grant.clientId,
+    context: slugOf.get(grant.workspaceId) ?? "a context",
     detail: `${describeScopes(grant.scopes)} · ${lastUsedLabel(grant.lastUsedAt, now)}`,
     status: grantTone(grant.status, grant.lastUsedAt),
     revoke: () => {
@@ -254,6 +256,13 @@ export function useLiveConsoleData(): ConsoleData {
           disconnect: () => disconnectStorage({ workspaceId: selectedContextId }),
         };
 
+  // Same owner-only rule as the storage binding — and the same graceful
+  // absence when the deployment has no ingestion module yet.
+  const ingestion = useIngestionSettings({
+    workspaceId: selectedContextId,
+    canEdit: selected?.role === "owner",
+  });
+
   const files = useFileBrowser({
     workspaceId: selectedContextId,
     canEdit,
@@ -281,7 +290,9 @@ export function useLiveConsoleData(): ConsoleData {
     storage,
     storageActions,
     endpoint: MCP_ENDPOINT,
-    ingestionAddress: placeholderIngestionAddress(selected?.slug ?? "you"),
+    ingestionAddress:
+      ingestion.settings?.address ?? placeholderIngestionAddress(selected?.slug ?? "you"),
+    ingestion,
     files,
     loading: workspaces === undefined,
   };

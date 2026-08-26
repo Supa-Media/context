@@ -13,6 +13,12 @@ import type { ConsoleClient, ConsoleData } from "../types";
 /**
  * One URL for every AI tool, and one revocable grant per client.
  *
+ * App level, not per context: there is a single endpoint for the whole
+ * account, and the list below spans every context you can reach. Each row says
+ * which context let that client in, because that is what a grant hangs off —
+ * see `ConsoleClient.context`. It is the same placement the constellation
+ * draws.
+ *
  * The endpoint and the grant list are both real: grants come from
  * `functions/grants.listGrants` and Revoke calls `revokeGrant`, which is why
  * the demo console omits the callback rather than rendering a button that
@@ -23,7 +29,7 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
     <View>
       <PaneHead
         title="Connections"
-        description="One URL for every AI tool. Each client gets its own grant — revoking one leaves the others working."
+        description="One URL for every AI tool, across every context you can reach. Each client gets its own grant — revoking one leaves the others working."
       />
 
       <Card>
@@ -83,7 +89,11 @@ function ClientRow({ client }: { client: ConsoleClient }) {
       <Grow>
         <Text variant="rowTitle">{client.name}</Text>
         <Text variant="rowSub" style={styles.rowSub}>
-          {client.detail}
+          {/* Which context, then what it can do there. */}
+          <Text variant="rowSub" style={styles.rowContext}>
+            {client.context}
+          </Text>
+          {` · ${client.detail}`}
         </Text>
       </Grow>
       {/*
@@ -94,7 +104,7 @@ function ClientRow({ client }: { client: ConsoleClient }) {
       <Button
         label="Revoke"
         variant="danger"
-        accessibilityLabel={`Revoke access for ${client.name}`}
+        accessibilityLabel={`Revoke ${client.name}'s access to ${client.context}`}
         disabled={client.revoke === undefined}
         onPress={client.revoke}
       />
@@ -107,5 +117,6 @@ const styles = StyleSheet.create({
   spaced: { marginTop: 11 },
   clientsHead: { marginBottom: 13 },
   rowSub: { marginTop: 2 },
+  rowContext: { color: colors.text2, fontWeight: "600" },
   hintStrong: { color: colors.hintStrong, fontWeight: "600" },
 });

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Slot, useRouter, usePathname } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useAuthActions } from "@convex-dev/auth/react";
@@ -7,21 +8,53 @@ import { colors, layout } from "../../../features/design/tokens";
 import { StageBackdrop } from "../../../features/design/components/StageBackdrop";
 import { ConsoleShell } from "../../../features/console/ConsoleShell";
 import { ConsoleDataProvider } from "../../../features/console/ConsoleDataContext";
-import { paneForPath, paneHref } from "../../../features/console/panes";
+import {
+  hrefFor,
+  resolveContextRoute,
+  routeForPath,
+  sameRoute,
+} from "../../../features/console/nav";
 import { useLiveConsoleData } from "../../../features/console/useLiveConsoleData";
 
 /**
- * The console chrome for every pane.
+ * The console chrome for every route.
  *
  * The layout owns the Convex subscriptions and hands them down through
- * `ConsoleDataProvider`, so switching panes moves a URL without re-fetching or
- * resetting which context you were looking at.
+ * `ConsoleDataProvider`, so moving between the map, a context, and that
+ * context's settings moves a URL without re-fetching everything.
+ *
+ * It also owns the one piece of coupling the hierarchy creates: **the URL is
+ * the truth about which context you are in**, and the selection follows it.
+ * The alternative — a selection that the URL merely reflects — means a
+ * pasted link lands you in whichever context happened to be selected, which
+ * is the bug this restructuring exists to remove.
  */
 export default function ConsoleLayout() {
   const data = useLiveConsoleData();
   const router = useRouter();
   const pathname = usePathname();
-  const pane = paneForPath(pathname);
+  const route = routeForPath(pathname);
+
+  const resolution = resolveContextRoute({
+    route,
+    contexts: data.contexts,
+    selectedContextId: data.selectedContextId,
+    loading: data.loading,
+  });
+
+  const { selectContext } = data;
+  useEffect(() => {
+    if (resolution.action === "select") selectContext(resolution.contextId);
+    if (resolution.action === "redirect") router.replace(resolution.href);
+    // `resolution` is derived and stable enough to compare by its parts; the
+    // action and its payload are the only things that should retrigger this.
+  }, [
+    resolution.action,
+    resolution.action === "select" ? resolution.contextId : null,
+    resolution.action === "redirect" ? resolution.href : null,
+    router,
+    selectContext,
+  ]);
 
   return (
     <ConsoleDataProvider value={data}>
@@ -47,8 +80,13 @@ export default function ConsoleLayout() {
 
             <ConsoleShell
               data={data}
-              activePane={pane}
-              onSelectPane={(key) => router.replace(paneHref(key))}
+              route={route}
+              // Pressing the rail entry you are already on should do nothing,
+              // not re-enter the route — which on a context would reset the
+              // file browser out from under an open note.
+              onNavigate={(next) => {
+                if (!sameRoute(next, route)) router.replace(hrefFor(next));
+              }}
             >
               <Slot />
             </ConsoleShell>

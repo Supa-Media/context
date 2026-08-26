@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Linking, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { useConvexAuth } from "convex/react";
@@ -10,8 +10,14 @@ import { ConsoleShell } from "../console/ConsoleShell";
 import { BrowsePane } from "../console/panes/BrowsePane";
 import { ConnectionsPane } from "../console/panes/ConnectionsPane";
 import { MapPane } from "../console/panes/MapPane";
-import { StoragePane } from "../console/panes/StoragePane";
-import type { PaneKey } from "../console/panes";
+import { SettingsPane } from "../console/panes/SettingsPane";
+import {
+  closeSettings,
+  openSettings,
+  resolveContextRoute,
+  MAP_ROUTE,
+  type ConsoleRoute,
+} from "../console/nav";
 import { useDemoConsoleData } from "../console/useDemoConsoleData";
 import { ConsoleHalo, StageBackdrop } from "../design/components/StageBackdrop";
 import { FloatingTiles } from "./FloatingTiles";
@@ -25,16 +31,37 @@ const ARCHITECTURE_URL = "https://github.com/Supa-Media/context#how-it-works";
  * The public landing page, from `docs/design/console-mockup.html`.
  *
  * The console below the hero is the real console components running on demo
- * data — the panes switch, the tree selects — rather than a screenshot. It has
- * no ability to act: `useDemoConsoleData` supplies no `revoke` callback and the
- * storage actions are disabled.
+ * data — the rail navigates, contexts switch, the tree selects — rather than a
+ * screenshot. It has no ability to act: `useDemoConsoleData` supplies no
+ * `revoke` callback, no storage actions, and no ingestion `save`.
+ *
+ * It holds a `ConsoleRoute` in state where the signed-in console reads one
+ * from the URL. Same type, same transitions, same resolver — so the demo
+ * cannot drift into behaving differently from the thing it is advertising.
  */
 export function Landing() {
   const { width } = useWindowDimensions();
   const router = useRouter();
   const auth = useConvexAuth();
   const demo = useDemoConsoleData();
-  const [pane, setPane] = useState<PaneKey>("map");
+  const [route, setRoute] = useState<ConsoleRoute>(MAP_ROUTE);
+
+  // The route names a context by slug; the demo data selects one by id. Same
+  // resolution the console layout runs against the URL.
+  const resolution = resolveContextRoute({
+    route,
+    contexts: demo.contexts,
+    selectedContextId: demo.selectedContextId,
+    loading: demo.loading,
+  });
+  const { selectContext } = demo;
+  useEffect(() => {
+    if (resolution.action === "select") selectContext(resolution.contextId);
+  }, [
+    resolution.action,
+    resolution.action === "select" ? resolution.contextId : null,
+    selectContext,
+  ]);
 
   const heroSize = clamp(46, 7.6, 98, width);
   const subSize = clamp(16, 1.5, 19, width);
@@ -158,11 +185,23 @@ export function Landing() {
 
           <View style={styles.consoleStage}>
             <ConsoleHalo />
-            <ConsoleShell data={demo} activePane={pane} onSelectPane={setPane}>
-              {pane === "map" ? <MapPane data={demo} /> : null}
-              {pane === "browse" ? <BrowsePane data={demo} /> : null}
-              {pane === "connect" ? <ConnectionsPane data={demo} /> : null}
-              {pane === "storage" ? <StoragePane data={demo} /> : null}
+            <ConsoleShell data={demo} route={route} onNavigate={setRoute}>
+              {route.kind === "app" && route.section === "map" ? <MapPane data={demo} /> : null}
+              {route.kind === "app" && route.section === "connections" ? (
+                <ConnectionsPane data={demo} />
+              ) : null}
+              {route.kind === "context" && route.view === "browse" ? (
+                <BrowsePane
+                  data={demo}
+                  onOpenSettings={() => setRoute((current) => openSettings(current))}
+                />
+              ) : null}
+              {route.kind === "context" && route.view === "settings" ? (
+                <SettingsPane
+                  data={demo}
+                  onClose={() => setRoute((current) => closeSettings(current))}
+                />
+              ) : null}
             </ConsoleShell>
           </View>
 
