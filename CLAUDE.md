@@ -80,7 +80,7 @@ Zero npm dependencies — keep it that way. It runs on the Workers runtime, so
 use Web Crypto and `fetch`, not Node APIs.
 
 `pnpm test` in `apps/mcp` runs the suite against an in-memory store stub. It is
-fast, offline, and currently 320 checks. **Do not let it regress.** If you
+fast, offline, and currently 408 checks. **Do not let it regress.** If you
 change behavior, change the test in the same commit and say why.
 
 The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,
@@ -235,6 +235,64 @@ variants are asserted equal by whole response body.
 A "nicer" preview showing an owner or a note count would hand anyone in a Slack
 channel an existence oracle for usernames, undoing what the control plane's
 byte-identical errors exist for.
+
+### Two MCP eras, two lists, and they must never be merged
+
+`2026-07-28` is not an increment on `2025-11-25`. It deletes the `initialize`
+handshake, protocol-level sessions, `Mcp-Session-Id`, the GET stream, SSE
+resumability and `ping`, and replaces the version counter-offer with an error.
+The spec calls the two shapes **modern** and **legacy**; this gateway serves
+both, which it can only do because it never had a session to remove.
+
+`src/protocol.js` therefore keeps `MODERN_PROTOCOLS` and `LEGACY_PROTOCOLS`
+apart. Sorting them into one array is the obvious-looking tidy-up and is wrong
+in both directions:
+
+- **Legacy negotiation may only offer legacy revisions.** A client that sent
+  `initialize` has declared it speaks the handshake era; answering it with
+  `2026-07-28` names a revision that has no `initialize` in it.
+- **Modern negotiation may only offer modern revisions.** `server/discover` and
+  the `-32022` error both carry a list the client is expected to *retry with* on
+  the path it is already on. A legacy revision there sends it looking for a
+  handshake it just declared it is not using.
+
+Negotiation itself is inverted between the two, and implementing it backwards is
+the single most common way real MCP servers fail to connect: legacy **must**
+counter-offer inside a normal `InitializeResult` and **must not** error; modern
+**must** error with `-32022` and `data.supported` and has no result to
+counter-offer in.
+
+A revision goes in a list only once its semantics are implemented. Claiming one
+we do not speak is worse than lagging, and it is self-detecting: a conformant
+client probes, gets an answer that is not modern, and correctly concludes the
+server lied.
+
+### Authority is decided once, never per protocol era
+
+`toolsForSession` and `callToolForSession` are the only two places that decide
+what a connection may see and do. Both eras call them. A scope check
+implemented separately for a new protocol revision is a scope check that will
+drift, and the drift would be a privilege escalation reachable by adding one
+header to a request. There is a test asserting the read-only filter and the
+write gate hold identically on both paths.
+
+### An absent `Origin` is allowed; `null` is not
+
+The transport paths (`/mcp`, `/inbox`) refuse any browser origin not on the
+allowlist. Two halves of that are counter-intuitive enough to be "fixed" by
+someone tidying up, and each fix is a different disaster:
+
+- **No `Origin` header at all must pass.** Claude Desktop, Codex CLI and the
+  SDKs are not browsers and send none. Refusing absence would take down every
+  real client while stopping nothing, because the header a browser cannot forge
+  is precisely the one an attacker's page always sends.
+- **`Origin: null` must not pass.** A sandboxed iframe serializes to the opaque
+  origin `null`, so folding it in with "no header" is a one-line bypass an
+  attacker can trigger with an `<iframe sandbox>` attribute.
+
+Matching is exact — scheme, host, port, no wildcards — for the same reason
+`redirectUriMatches` is. Unset `ALLOWED_ORIGINS` means non-browser clients only,
+which is fail-closed and breaks nothing already deployed. See `src/origin.js`.
 
 ### A guard nobody has checked is not a guard
 

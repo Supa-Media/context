@@ -179,7 +179,7 @@ export function slugFromResource(resource, origin) {
  *
  * The parameter is `resource_metadata`, not `resource_metadata_uri`.
  */
-export function challengeHeader(origin, slug, { error, description } = {}) {
+export function challengeHeader(origin, slug, { error, description, scope } = {}) {
   const metadataUrl = protectedResourceMetadataUrl(origin, slug);
   const parts = [];
   if (error) parts.push(`error="${error}"`);
@@ -190,7 +190,13 @@ export function challengeHeader(origin, slug, { error, description } = {}) {
     // message worth preserving.
     parts.push(`error_description="${description.replace(/["\r\n]/g, "'")}"`);
   }
-  parts.push(`scope="${SUPPORTED_SCOPES.join(" ")}"`);
+  // Incremental scope consent: when the refusal is about a *specific* missing
+  // scope, name that scope rather than the whole menu. A client that is told
+  // `scope="context:write"` can re-authorize for exactly the increment it
+  // needs; one told the full list either asks for everything or gives up. The
+  // default stays the full list, because a 401 is "you have no grant at all"
+  // and there is no increment to ask for.
+  parts.push(`scope="${(scope?.length ? scope : SUPPORTED_SCOPES).join(" ")}"`);
   parts.push(`resource_metadata="${metadataUrl}"`);
   return `Bearer ${parts.join(", ")}`;
 }
@@ -214,7 +220,16 @@ export function unauthorizedResponse(origin, slug, refusal) {
   );
 }
 
-/** Build the 403 for a caller who is authenticated but out of scope. */
+/**
+ * Build the 403 for a caller who is authenticated but out of scope.
+ *
+ * `refusal.scope`, when present, names the scopes this particular refusal
+ * wanted, so the challenge can drive incremental consent. It must only be set
+ * where the refusal genuinely is about scopes: the 403 for workspace selection
+ * deliberately says nothing about *which* workspace, and a scope list that
+ * varied with the target would start leaking the same fact through a different
+ * header.
+ */
 export function forbiddenResponse(origin, slug, refusal) {
   return jsonResponse(
     {
@@ -226,6 +241,7 @@ export function forbiddenResponse(origin, slug, refusal) {
       "WWW-Authenticate": challengeHeader(origin, slug, {
         error: "insufficient_scope",
         description: refusal?.description,
+        scope: refusal?.scope,
       }),
     }
   );

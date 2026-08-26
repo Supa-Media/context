@@ -35,6 +35,23 @@ compatibility_date = "2026-08-01"
 # production traffic, and set it to your own origin, never someone else's.
 # PUBLIC_ORIGIN = "https://mcp.example.com"
 
+# Browser origins permitted to reach `/mcp` and `/inbox`, comma- or
+# space-separated. MCP requires a server to validate `Origin` on the Streamable
+# HTTP transport, because a page in a victim's browser that rebinds a hostname
+# to this gateway would otherwise reach a session that can read and write the
+# whole context.
+#
+# Unset means "non-browser clients only". That is deliberately fail-closed and
+# breaks nothing you are already running: Claude Desktop, Codex CLI and the MCP
+# SDKs send no `Origin` at all, and a request without one is always served. It
+# only refuses *browser* clients you have not listed. This deployment's own
+# origin is always permitted and does not need listing.
+#
+# Matching is exact — scheme, host and port, no wildcards. On the product
+# deployment the console is the apex, so:
+# ALLOWED_ORIGINS = "https://context.lc"
+# Self-hosting: put your own console origin here, not that one.
+
 # Self-host only. Comma-separated allowlist of Worker binding names that a
 # control-plane storage binding is permitted to name.
 #
