@@ -20,7 +20,16 @@ export const NAME_MAX_LENGTH = 32;
 /**
  * Names we never hand out.
  *
- * Three overlapping reasons, all of which matter:
+ * **This list is a security control, not a style guide.** A name is a
+ * username, a workspace slug, a future subdomain, AND — since email ingestion
+ * runs on the apex domain — the local part of a real mailbox: claiming
+ * `@support` means receiving everything sent to `support@` the company's own
+ * domain. Trimming an entry does not tidy the list, it opens a mailbox.
+ *
+ * Four overlapping reasons, all of which matter:
+ *  - **Mail interception** — see `MAIL_ROLE_NAMES` below. This is the newest
+ *    and sharpest of the four, because it turns a claimed name into a live
+ *    interception of somebody else's mail rather than a merely confusing URL.
  *  - **Routing** — these are (or will be) path segments and subdomains on our
  *    own surfaces, so `@api/...` must never resolve to a person's context.
  *  - **Impersonation** — `@support` and `@security` are the names an attacker
@@ -32,7 +41,101 @@ export const NAME_MAX_LENGTH = 32;
  * Adding to this list is cheap. Removing from it is a breaking change for
  * nobody, so err toward reserving.
  */
+
+/**
+ * Mailbox names that must never belong to a user.
+ *
+ * A person's capture address is `<name>@<apex>` — the apex domain, not a
+ * subdomain. That is a deliberate product decision, and its direct consequence
+ * is that **this list is the only thing standing between a signup and mail
+ * interception**: whoever holds the name receives the mail. Four clusters,
+ * each for a different concrete attack:
+ *
+ *  - **RFC 2142 mandatory** (`postmaster`, `abuse`) — required by the standard
+ *    to reach the domain's operators. These are where a mail provider, a
+ *    blocklist operator, or a victim of abuse *from* our domain writes. Losing
+ *    them to a user means abuse reports go to the abuser and deliverability
+ *    problems arrive at a stranger's inbox. Non-negotiable, in every sense.
+ *  - **Other RFC 2142 roles** — the addresses correspondents are entitled to
+ *    assume are operational (`hostmaster`, `webmaster`, `security`, `info`,
+ *    `sales`, …). Same failure mode, less catastrophic.
+ *  - **Automated senders** — `noreply` and its spellings, `mailer-daemon`,
+ *    `bounce(s)`, `notifications`, `alerts`. These are the From: addresses our
+ *    own system uses. A user holding one receives the bounce stream — which is
+ *    a live feed of who else is on the platform — and can send *as* a name
+ *    recipients have been trained to treat as the system talking.
+ *  - **Auth, identity, and company surfaces** — `verify`, `password`,
+ *    `reset`, `billing`, `legal`, `support`, … The phishing case: mail from
+ *    `verify@` or `password-reset@` the real domain, with real SPF/DKIM
+ *    alignment, is indistinguishable from ours to a recipient and to a spam
+ *    filter, because it *is* from our domain.
+ *
+ * A future contributor pruning "unused" entries here is removing an
+ * anti-phishing control. Do not.
+ */
+const MAIL_ROLE_NAMES = [
+  // RFC 2142 §4 — required. Never claimable, always deliverable to us.
+  "postmaster",
+  "abuse",
+  // RFC 2142 — other defined roles.
+  "hostmaster",
+  "webmaster",
+  "usenet",
+  "news",
+  "uucp",
+  "ftp",
+  "info",
+  "marketing",
+  "sales",
+  "security",
+  // Automated senders, bounce handling, and anti-phishing.
+  "noreply",
+  "no-reply",
+  "donotreply",
+  "do-not-reply",
+  "mailer-daemon",
+  "bounce",
+  "bounces",
+  "notifications",
+  "alerts",
+  // Company and support surfaces.
+  "hello",
+  "support",
+  "help",
+  "contact",
+  "team",
+  "billing",
+  "legal",
+  "privacy",
+  "press",
+  "careers",
+  "jobs",
+  // Auth and identity — the names that read as trustworthy in a From: line.
+  "admin",
+  "administrator",
+  "root",
+  "system",
+  "account",
+  "accounts",
+  "auth",
+  "login",
+  "verify",
+  "verification",
+  "password",
+  "reset",
+];
+
+/**
+ * The two RFC 2142 addresses a domain is *required* to keep reachable.
+ *
+ * Exported so a test can assert them independently of the list they live in:
+ * if someone prunes `RESERVED_NAMES`, dropping these two must be a distinct,
+ * loud failure rather than one line lost in a diff.
+ */
+export const RFC2142_MANDATORY_NAMES: readonly string[] = ["postmaster", "abuse"];
+
 export const RESERVED_NAMES: ReadonlySet<string> = new Set([
+  ...MAIL_ROLE_NAMES,
   // Routing / infrastructure
   "api",
   "app",
@@ -79,12 +182,26 @@ export const RESERVED_NAMES: ReadonlySet<string> = new Set([
   "root",
   "security",
   "system",
-  // On-bucket layout words, so a name can never be confused for a folder
+  // On-bucket layout words, so a name can never be confused for a folder.
+  //
+  // The numbered forms are the ones that actually exist on a bucket
+  // (`0-inbox/`, `1-projects/`, …); the bare words are reserved too because
+  // they are how people say them out loud and how a future UI would label
+  // them. `.history/` and `.audit/` cannot be claimed as written — a name may
+  // not contain a dot — but their undotted forms are reserved so that
+  // `@history` can never be mistaken for the history folder in a path.
+  "0-inbox",
+  "1-projects",
+  "2-areas",
+  "3-resources",
+  "4-archive",
   "inbox",
   "projects",
   "areas",
   "resources",
   "archive",
+  "history",
+  "audit",
 ]);
 
 /** Why a candidate name was rejected. Stable codes — clients map these to copy. */
@@ -93,6 +210,7 @@ export type NameRejection =
   | "too_long"
   | "invalid_characters"
   | "invalid_start_or_end"
+  | "reserved_label_form"
   | "reserved"
   | "taken";
 
@@ -113,6 +231,24 @@ export function normalizeName(raw: string): string {
 }
 
 const ALLOWED_CHARS = /^[a-z0-9-]+$/;
+
+/**
+ * Hyphens in the third and fourth positions — the reserved LDH label form.
+ *
+ * `xn--` is the one everybody knows: it is the ACE prefix, so `xn--80ak6aa92e`
+ * is a valid `[a-z0-9-]` string that a browser address bar, a mail client, and
+ * a certificate viewer all render as Unicode. Since a name is described as a
+ * future subdomain, handing one out is handing out a homograph — `@apple`
+ * spelled in Cyrillic, addressed as `@xn--80ak6aa92e`, and displayed to a
+ * victim as the real thing.
+ *
+ * The check is the general rule from RFC 5891 §4.2.3.1 rather than a literal
+ * `xn--` match: *every* label with `--` in positions 3 and 4 is reserved by
+ * IDNA, and reserving only the prefix in use today leaves the next one
+ * (`aa--`, `yz--`, whatever IDNA allocates) claimable. It costs us nothing —
+ * no legitimate two-letter-then-double-hyphen name exists.
+ */
+const RESERVED_LABEL_FORM = /^..--/;
 
 /**
  * Validate a candidate name against the shared-namespace rules.
@@ -140,6 +276,9 @@ export function validateName(raw: string): NameValidation {
   if (normalized.startsWith("-") || normalized.endsWith("-")) {
     return { ok: false, reason: "invalid_start_or_end", normalized };
   }
+  if (RESERVED_LABEL_FORM.test(normalized)) {
+    return { ok: false, reason: "reserved_label_form", normalized };
+  }
   if (RESERVED_NAMES.has(normalized)) {
     return { ok: false, reason: "reserved", normalized };
   }
@@ -157,6 +296,8 @@ export function describeRejection(reason: NameRejection): string {
       return "Names may only contain lowercase letters, numbers, and hyphens.";
     case "invalid_start_or_end":
       return "Names cannot start or end with a hyphen.";
+    case "reserved_label_form":
+      return "Names cannot have two hyphens in the third and fourth positions.";
     case "reserved":
       return "That name is reserved.";
     case "taken":

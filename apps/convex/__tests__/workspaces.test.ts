@@ -114,6 +114,130 @@ describe("createWorkspace", () => {
   });
 });
 
+/**
+ * Name squatting.
+ *
+ * `createWorkspace` used to require only authentication: no cap, no rate
+ * limit, and — still — no release, rename, or delete path anywhere. An
+ * adversarial review claimed 40 names from one account without resistance. The
+ * namespace is `[a-z0-9-]{2,32}`, of which roughly 1.3k two-character and 46k
+ * three-character names exist, so one account could exhaust the memorable end
+ * of it in minutes, permanently. Names are the addressing scheme *and* a
+ * future subdomain, which makes that availability loss and impersonation at
+ * once.
+ *
+ * Both limits are deliberate product decisions (see `functions/workspaces.ts`
+ * for the numbers and the reasoning); these tests pin that they exist and
+ * apply per account, not the specific values.
+ */
+describe("one account cannot claim the namespace", () => {
+  /** Names that are well-formed, unreserved, and distinct. */
+  function candidates(count: number): string[] {
+    return Array.from({ length: count }, (_, i) => `context-name-${i}`);
+  }
+
+  async function createUntilRefused(
+    t: ReturnType<typeof setupTest>,
+    userId: Awaited<ReturnType<typeof createUser>>,
+    attempts: string[],
+    onWindowRollover?: () => Promise<void>,
+  ): Promise<{ created: number; error: unknown }> {
+    let created = 0;
+    for (const slug of attempts) {
+      try {
+        await createWorkspace(t, userId, slug);
+        created += 1;
+        if (onWindowRollover) await onWindowRollover();
+      } catch (error) {
+        return { created, error };
+      }
+    }
+    throw new Error("Expected creation to be refused, but it never was.");
+  }
+
+  test("a burst of creations is rate limited", async () => {
+    const t = setupTest();
+    const squatter = await createUser(t, "squatter@example.invalid");
+
+    const { created, error } = await createUntilRefused(
+      t,
+      squatter,
+      candidates(40),
+    );
+
+    expect(errorCode(error)).toBe("RATE_LIMITED");
+    expect(created).toBeLessThan(40);
+    // The refusal tells the client when to come back, rather than dead-ending.
+    expect(
+      (error as { data: { retryAfterMs: number } }).data.retryAfterMs,
+    ).toBeGreaterThan(0);
+
+    // Only the names that actually succeeded were taken out of the namespace.
+    const claimed = await t.run((ctx) => ctx.db.query("names").collect());
+    expect(claimed).toHaveLength(created);
+  });
+
+  test("a patient squatter still hits a hard cap on how many contexts they own", async () => {
+    const t = setupTest();
+    const squatter = await createUser(t, "squatter@example.invalid");
+
+    // Waiting out the rate limit is exactly what a script would do, so expire
+    // the window after every success and keep going.
+    const expireWindow = async () => {
+      await t.run(async (ctx) => {
+        for (const row of await ctx.db.query("rateLimits").collect()) {
+          await ctx.db.patch(row._id, { windowStartedAt: 0, count: 0 });
+        }
+      });
+    };
+
+    const { created, error } = await createUntilRefused(
+      t,
+      squatter,
+      candidates(40),
+      expireWindow,
+    );
+
+    expect(errorCode(error)).toBe("WORKSPACE_LIMIT_REACHED");
+    expect(created).toBeLessThan(40);
+    expect(await t.run((ctx) => ctx.db.query("names").collect())).toHaveLength(
+      created,
+    );
+  });
+
+  test("the limits are per account, so one squatter does not block anyone else", async () => {
+    const t = setupTest();
+    const squatter = await createUser(t, "squatter@example.invalid");
+    const { created } = await createUntilRefused(t, squatter, candidates(40));
+    expect(created).toBeGreaterThan(0);
+
+    // A second person is unaffected by the first one's exhausted budget.
+    const newcomer = await createUser(t, "newcomer@example.invalid");
+    const workspaceId = await createWorkspace(t, newcomer, "atlas");
+    expect(await t.run((ctx) => ctx.db.get(workspaceId))).not.toBeNull();
+  });
+
+  test("being invited into other people's contexts does not spend your own allowance", async () => {
+    const t = setupTest();
+    const alice = await createUser(t, "alice@example.invalid");
+    const bob = await createUser(t, "bob@example.invalid");
+
+    // Alice owns several shared contexts and adds Bob to all of them.
+    for (let i = 0; i < 4; i += 1) {
+      const shared = await createWorkspace(t, alice, `shared-${i}`, {
+        kind: "shared",
+      });
+      await addMember(t, shared, bob, "member", alice);
+    }
+
+    // Bob can still create his own. Counting *memberships* rather than
+    // ownership here would have let anyone exhaust someone else's allowance by
+    // inviting them.
+    const bobsOwn = await createWorkspace(t, bob, "bob-context");
+    expect(await t.run((ctx) => ctx.db.get(bobsOwn))).not.toBeNull();
+  });
+});
+
 describe("listMyWorkspaces", () => {
   test("returns a set, not a single context, even for one workspace", async () => {
     const t = setupTest();

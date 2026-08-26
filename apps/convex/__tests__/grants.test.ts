@@ -215,6 +215,103 @@ describe("registerClient (RFC 7591, internal)", () => {
   });
 });
 
+/**
+ * What `createGrant` will and will not write.
+ *
+ * `hashedRefreshToken: v.string()` accepted `""`, and an empty hash is not an
+ * unusable grant — it is a grant every *other* empty hash resolves to, so the
+ * next blank one written would inherit this workspace. And a `clientId` that
+ * nothing registered describes an authority nobody can attribute; there is no
+ * legitimate flow that produces one, since registration precedes authorization
+ * in OAuth.
+ */
+describe("createGrant (internal)", () => {
+  async function registeredWorkspace() {
+    const t = setupTest();
+    const user = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, user, "atlas");
+    await t.mutation(internal.functions.grants.registerClient, {
+      clientId: "claude",
+      clientName: "Claude",
+      redirectUris: ["https://client.example/callback"],
+      hashedClientSecret: null,
+    });
+    return { t, user, workspaceId };
+  }
+
+  const VALID_HASH = "a".repeat(64);
+
+  test("writes a grant for a registered client and a real token hash", async () => {
+    const { t, user, workspaceId } = await registeredWorkspace();
+    const grantId = await t.mutation(internal.functions.grants.createGrant, {
+      workspaceId,
+      userId: user,
+      clientId: "claude",
+      scopes: ["context.read"],
+      hashedRefreshToken: VALID_HASH,
+    });
+    expect(await t.run((ctx) => ctx.db.get(grantId))).not.toBeNull();
+  });
+
+  test("refuses an empty or non-hash refresh token", async () => {
+    const { t, user, workspaceId } = await registeredWorkspace();
+
+    for (const hashedRefreshToken of [
+      "",
+      "not-a-hash",
+      "A".repeat(64), // uppercase: not what hashToken emits
+      "a".repeat(63),
+    ]) {
+      const error = await captureError(() =>
+        t.mutation(internal.functions.grants.createGrant, {
+          workspaceId,
+          userId: user,
+          clientId: "claude",
+          scopes: ["context.read"],
+          hashedRefreshToken,
+        }),
+      );
+      expect(errorCode(error), `${hashedRefreshToken} was accepted`).toBe(
+        "INVALID_TOKEN_HASH",
+      );
+    }
+    expect(await t.run((ctx) => ctx.db.query("oauthGrants").collect())).toEqual([]);
+  });
+
+  test("refuses a client nobody registered", async () => {
+    const { t, user, workspaceId } = await registeredWorkspace();
+    const error = await captureError(() =>
+      t.mutation(internal.functions.grants.createGrant, {
+        workspaceId,
+        userId: user,
+        clientId: "never-registered",
+        scopes: ["context.read"],
+        hashedRefreshToken: VALID_HASH,
+      }),
+    );
+    expect(errorCode(error)).toBe("CLIENT_NOT_REGISTERED");
+  });
+
+  test("answers the authorization question before the validation ones", async () => {
+    const { t, workspaceId } = await registeredWorkspace();
+    const stranger = await createUser(t, "stranger@example.invalid");
+
+    // Malformed *and* unauthorized. Which complaint comes back must not depend
+    // on the request being well-formed, or the shape of the error becomes a
+    // way to probe which workspace ids are real.
+    const error = await captureError(() =>
+      t.mutation(internal.functions.grants.createGrant, {
+        workspaceId,
+        userId: stranger,
+        clientId: "never-registered",
+        scopes: [],
+        hashedRefreshToken: "",
+      }),
+    );
+    expect(errorCode(error)).toBe("WORKSPACE_NOT_FOUND");
+  });
+});
+
 describe("resolveGrantByRefreshToken (internal)", () => {
   test("returns null for an unknown hash", async () => {
     const { t } = await threeClients();

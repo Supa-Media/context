@@ -8,7 +8,9 @@
 
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import {
+  type TestConvex,
   FAKE_STORAGE,
   addMember,
   asUser,
@@ -43,7 +45,9 @@ describe("bindStorage", () => {
     expect(binding!.encryptedSecretAccessKey).not.toContain(
       FAKE_STORAGE.secretAccessKey,
     );
-    expect(binding!.encryptedSecretAccessKey.startsWith("v1:")).toBe(true);
+    // `v2` — the envelope now carries a key id and is bound to the workspace.
+    // See `lib/crypto.ts` for why `v1` is rejected rather than migrated.
+    expect(binding!.encryptedSecretAccessKey.startsWith("v2:")).toBe(true);
     // The whole row, serialized, must not contain the plaintext anywhere.
     expect(JSON.stringify(binding)).not.toContain(FAKE_STORAGE.secretAccessKey);
   });
@@ -188,6 +192,64 @@ describe("bindStorage", () => {
     );
     expect(errorCode(error)).toBe("NOT_AUTHENTICATED");
   });
+
+  /**
+   * The endpoint is an SSRF sink.
+   *
+   * An owner types a URL and something of ours later makes a request to it —
+   * the connect probe now, the gateway afterwards. "The owner chose it" is not
+   * a defense, because the request is not made *as* the owner: it is made from
+   * inside our network, with whatever that reaches. `169.254.169.254` is the
+   * cloud instance-metadata service; the RFC 1918 ranges are whatever else is
+   * on the box's network.
+   */
+  test("refuses an endpoint pointing back inside our own network", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "atlas");
+
+    for (const endpoint of [
+      "https://169.254.169.254/latest/meta-data/", // instance metadata
+      "https://localhost:9000/",
+      "https://127.0.0.1/",
+      "https://10.0.0.5/",
+      "https://192.168.1.10/",
+      "https://172.16.4.2/",
+      "https://[::1]/",
+      "https://[fd00::1]/",
+      "https://minio.internal/",
+      "https://storage.local/",
+    ]) {
+      expect(
+        errorCode(
+          await captureError(() =>
+            bindFakeStorage(t, owner, workspaceId, { endpoint }),
+          ),
+        ),
+        `${endpoint} was accepted`,
+      ).toBe("INVALID_ENDPOINT");
+    }
+
+    // Nothing was written by any of those attempts.
+    expect(await t.run((ctx) => ctx.db.query("storageBindings").collect())).toEqual(
+      [],
+    );
+  });
+
+  test("still accepts an ordinary provider endpoint", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "atlas");
+
+    for (const endpoint of [
+      "https://accountid.r2.cloudflarestorage.example/",
+      "https://s3.us-east-1.amazonaws.example/",
+      "https://s3.example.com:9000/",
+    ]) {
+      const result = await bindFakeStorage(t, owner, workspaceId, { endpoint });
+      expect(result.status).toBe("unverified");
+    }
+  });
 });
 
 describe("no public function returns a decrypted secret", () => {
@@ -202,7 +264,7 @@ describe("no public function returns a decrypted secret", () => {
 
     expect(serialized).not.toContain(FAKE_STORAGE.secretAccessKey);
     expect(serialized).not.toContain("encryptedSecretAccessKey");
-    expect(serialized).not.toContain("v1:");
+    expect(serialized).not.toContain("v2:");
     // Even the access key id — half a credential — comes back masked.
     expect(serialized).not.toContain(FAKE_STORAGE.accessKeyId);
     expect(binding?.maskedAccessKeyId.endsWith("ID00")).toBe(true);
@@ -277,6 +339,260 @@ describe("getBindingForGateway (internal)", () => {
   });
 });
 
+/**
+ * An envelope is bound to the workspace it was written for.
+ *
+ * The reviewer's demonstration: copy Alice's `encryptedSecretAccessKey` into
+ * Bob's binding row and ask the gateway for Bob's credential. It returned
+ * Alice's plaintext. `getBindingForGateway` does no authorization of its own —
+ * a bare `workspaceId` goes in and a decrypted secret comes out — so before
+ * the AAD, the whole credential boundary was "whatever calls it passes the
+ * right id", and the thing that calls it (the gateway) is not written yet.
+ */
+describe("a credential cannot be moved between workspaces", () => {
+  test("Alice's envelope in Bob's row yields nothing, not Alice's secret", async () => {
+    const t = setupTest();
+    const alice = await createUser(t, "alice@example.invalid");
+    const bob = await createUser(t, "bob@example.invalid");
+    const aliceWs = await createWorkspace(t, alice, "alice-context");
+    const bobWs = await createWorkspace(t, bob, "bob-context");
+
+    await bindFakeStorage(t, alice, aliceWs, {
+      secretAccessKey: "alice-secret-not-real-00000000000000",
+    });
+    await bindFakeStorage(t, bob, bobWs, {
+      secretAccessKey: "bob-secret-not-real-0000000000000000",
+    });
+
+    // The attack: lift the opaque envelope out of Alice's row into Bob's.
+    await t.run(async (ctx) => {
+      const alices = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", aliceWs))
+        .unique();
+      const bobs = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", bobWs))
+        .unique();
+      await ctx.db.patch(bobs!._id, {
+        encryptedSecretAccessKey: alices!.encryptedSecretAccessKey,
+      });
+    });
+
+    const error = await captureError(() =>
+      t.action(internal.functions.storage.getBindingForGateway, {
+        workspaceId: bobWs,
+      }),
+    );
+
+    expect(errorCode(error)).toBe("CREDENTIAL_UNAVAILABLE");
+    // Not merely "did not return the secret" — the secret is nowhere in the
+    // failure either.
+    expect(JSON.stringify((error as { data?: unknown }).data)).not.toContain(
+      "alice-secret",
+    );
+
+    // Alice's own workspace is unaffected: this is a binding, not breakage.
+    const alices = await t.action(
+      internal.functions.storage.getBindingForGateway,
+      { workspaceId: aliceWs },
+    );
+    expect(alices?.secretAccessKey).toBe("alice-secret-not-real-00000000000000");
+  });
+
+  test("a v1 envelope is refused rather than opened unbound", async () => {
+    const { t, workspaceId } = await boundWorkspace();
+
+    // What a row written before the AAD existed looks like.
+    await t.run(async (ctx) => {
+      const binding = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(binding!._id, {
+        encryptedSecretAccessKey: "v1:aXZpdml2aXZpdml2aQ==:Y2lwaGVydGV4dA==",
+      });
+    });
+
+    const error = await captureError(() =>
+      t.action(internal.functions.storage.getBindingForGateway, { workspaceId }),
+    );
+    // A coded `ConvexError`, not a bare `Error` the caller sees as
+    // "Server Error" — the gateway has to be able to tell "rebind this" from
+    // "we are broken".
+    expect(errorCode(error)).toBe("CREDENTIAL_UNAVAILABLE");
+  });
+});
+
+/**
+ * Key rotation, end to end.
+ *
+ * `v1` recorded an algorithm version and no key id, so `decryptSecret` had
+ * exactly one key to try. Rotating `STORAGE_SECRET_ENCRYPTION_KEY` made every
+ * binding permanently undecryptable — the answer to "the key leaked" was "every
+ * customer re-pastes their secret".
+ */
+describe("rotating the encryption key", () => {
+  const SECOND_KEY = "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=";
+
+  /** Swap the process env for one test, then put it back. */
+  async function withEnv(
+    overrides: Record<string, string | undefined>,
+    body: () => Promise<void>,
+  ) {
+    const before: Record<string, string | undefined> = {};
+    for (const [key, value] of Object.entries(overrides)) {
+      before[key] = process.env[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    try {
+      await body();
+    } finally {
+      for (const [key, value] of Object.entries(before)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  }
+
+  async function envelopeOf(
+    t: TestConvex,
+    workspaceId: Id<"workspaces">,
+  ): Promise<string> {
+    const binding = await t.run((ctx) =>
+      ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique(),
+    );
+    return binding!.encryptedSecretAccessKey;
+  }
+
+  test("a binding written before a rotation keeps working, and can be moved to the new key", async () => {
+    const { t, workspaceId } = await boundWorkspace();
+    const originalKey = process.env.STORAGE_SECRET_ENCRYPTION_KEY!;
+    expect((await envelopeOf(t, workspaceId)).startsWith("v2:k1:")).toBe(true);
+
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: originalKey,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: "k1",
+      },
+      async () => {
+        // Mid-rotation: the old envelope still opens.
+        const credential = await t.action(
+          internal.functions.storage.getBindingForGateway,
+          { workspaceId },
+        );
+        expect(credential?.secretAccessKey).toBe(FAKE_STORAGE.secretAccessKey);
+
+        const result = await t.action(
+          internal.functions.storage.rekeyStorageBindings,
+          {},
+        );
+        expect(result).toMatchObject({ rekeyed: 1, skipped: 0, unreadable: 0 });
+        expect((await envelopeOf(t, workspaceId)).startsWith("v2:k2:")).toBe(
+          true,
+        );
+
+        // Idempotent: a second pass has nothing left to do.
+        expect(
+          await t.action(internal.functions.storage.rekeyStorageBindings, {}),
+        ).toMatchObject({ rekeyed: 0 });
+      },
+    );
+
+    // Rotation finished: the old key is gone from the environment entirely and
+    // the binding still works. This is the step that was impossible before.
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: undefined,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: undefined,
+      },
+      async () => {
+        const credential = await t.action(
+          internal.functions.storage.getBindingForGateway,
+          { workspaceId },
+        );
+        expect(credential?.secretAccessKey).toBe(FAKE_STORAGE.secretAccessKey);
+      },
+    );
+  });
+
+  test("the re-encryption keeps the workspace binding, so a rekeyed envelope is still not portable", async () => {
+    const t = setupTest();
+    const alice = await createUser(t, "alice@example.invalid");
+    const bob = await createUser(t, "bob@example.invalid");
+    const aliceWs = await createWorkspace(t, alice, "alice-context");
+    const bobWs = await createWorkspace(t, bob, "bob-context");
+    await bindFakeStorage(t, alice, aliceWs);
+    await bindFakeStorage(t, bob, bobWs);
+    const originalKey = process.env.STORAGE_SECRET_ENCRYPTION_KEY!;
+
+    await withEnv(
+      {
+        STORAGE_SECRET_ENCRYPTION_KEY: SECOND_KEY,
+        STORAGE_SECRET_ENCRYPTION_KEY_ID: "k2",
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS: originalKey,
+        STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID: "k1",
+      },
+      async () => {
+        expect(
+          await t.action(internal.functions.storage.rekeyStorageBindings, {}),
+        ).toMatchObject({ rekeyed: 2 });
+
+        const alicesEnvelope = await envelopeOf(t, aliceWs);
+        await t.run(async (ctx) => {
+          const bobs = await ctx.db
+            .query("storageBindings")
+            .withIndex("by_workspace", (q) => q.eq("workspaceId", bobWs))
+            .unique();
+          await ctx.db.patch(bobs!._id, {
+            encryptedSecretAccessKey: alicesEnvelope,
+          });
+        });
+
+        expect(
+          errorCode(
+            await captureError(() =>
+              t.action(internal.functions.storage.getBindingForGateway, {
+                workspaceId: bobWs,
+              }),
+            ),
+          ),
+        ).toBe("CREDENTIAL_UNAVAILABLE");
+      },
+    );
+  });
+
+  test("a row nothing configured can open is counted and left alone, never destroyed", async () => {
+    const { t, workspaceId } = await boundWorkspace();
+    await t.run(async (ctx) => {
+      const binding = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(binding!._id, {
+        encryptedSecretAccessKey: "v1:aXZpdml2aXZpdml2aQ==:Y2lwaGVydGV4dA==",
+      });
+    });
+
+    const result = await t.action(
+      internal.functions.storage.rekeyStorageBindings,
+      {},
+    );
+    expect(result).toMatchObject({ rekeyed: 0, unreadable: 1 });
+    // Still there. A migration that deletes what it cannot read is a migration
+    // that loses the customer's binding.
+    expect(await envelopeOf(t, workspaceId)).toContain("v1:");
+  });
+});
+
 describe("recordVerification (internal)", () => {
   test("marks a binding connected and records probed capabilities", async () => {
     const { t, owner, workspaceId } = await boundWorkspace();
@@ -314,6 +630,60 @@ describe("recordVerification (internal)", () => {
     );
     expect(binding?.status).toBe("error");
     expect(binding?.lastError).toContain("AccessDenied");
+  });
+
+  /**
+   * `lastError` is an untrusted string on a member-readable surface.
+   *
+   * The schema claimed it "never contains the secret" with nothing enforcing
+   * it, and nothing bounded its length either — so whatever ran the probe
+   * could store an arbitrarily large provider response, verbatim, for every
+   * member of the workspace to read.
+   */
+  test("caps a huge provider error rather than storing it verbatim", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+
+    await t.mutation(internal.functions.storage.recordVerification, {
+      workspaceId,
+      ok: false,
+      error: "x".repeat(50_000),
+    });
+
+    const binding = await asUser(t, owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    expect(binding?.lastError!.length).toBeLessThanOrEqual(300);
+    expect(binding?.lastError!.endsWith("…")).toBe(true);
+  });
+
+  test("redacts the credential-shaped fragments it can recognize", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    const envelope = await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      return row!.encryptedSecretAccessKey;
+    });
+
+    await t.mutation(internal.functions.storage.recordVerification, {
+      workspaceId,
+      ok: false,
+      error: `SignatureDoesNotMatch for ${FAKE_STORAGE.accessKeyId}: Credential=${FAKE_STORAGE.accessKeyId}/20260101/auto/s3, Signature=deadbeefcafe stored=${envelope}`,
+    });
+
+    const binding = await asUser(t, owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    const stored = binding?.lastError ?? "";
+
+    expect(stored).not.toContain(FAKE_STORAGE.accessKeyId);
+    expect(stored).not.toContain(envelope);
+    expect(stored).not.toContain("deadbeefcafe");
+    // ...and it is still a usable diagnostic, which is the point of keeping it.
+    expect(stored).toContain("SignatureDoesNotMatch");
   });
 
   test("a later success clears the stale error", async () => {

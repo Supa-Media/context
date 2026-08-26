@@ -144,7 +144,18 @@ describe("rebinding storage is owner-only", () => {
 });
 
 describe("revoking someone else's grant is owner-only", () => {
-  test("a member cannot revoke another user's grant", async () => {
+  /**
+   * A read-only member gets `GRANT_NOT_FOUND`, not `INSUFFICIENT_ROLE`.
+   *
+   * This assertion used to expect `INSUFFICIENT_ROLE`, and that was the bug:
+   * `listGrants` deliberately shows a `member` only their own grants, so an
+   * `INSUFFICIENT_ROLE` here confirmed that a guessed grant id was real and
+   * belonged to a colleague — the same disclosure the listing rule exists to
+   * prevent, reached through a different endpoint. An editor still gets
+   * `INSUFFICIENT_ROLE` (see the next test), because an editor can already
+   * enumerate every grant in the workspace and so learns nothing from it.
+   */
+  test("a member is told nothing about a grant they could not have listed", async () => {
     const { t, owner, member, workspaceId } = await sharedContext();
     const ownersGrant = await seedGrant(
       t,
@@ -159,7 +170,31 @@ describe("revoking someone else's grant is owner-only", () => {
         grantId: ownersGrant,
       }),
     );
-    expect(errorCode(error)).toBe("INSUFFICIENT_ROLE");
+    expect(errorCode(error)).toBe("GRANT_NOT_FOUND");
+
+    // ...and byte-identical to a grant id that never existed, so the refusal
+    // is not an oracle even in aggregate.
+    const dangling = await t.run(async (ctx) => {
+      const id = await ctx.db.insert("oauthGrants", {
+        workspaceId,
+        userId: member,
+        clientId: "temp",
+        scopes: [],
+        hashedRefreshToken: "hash-temp",
+        status: "active" as const,
+        createdAt: Date.now(),
+      });
+      await ctx.db.delete(id);
+      return id;
+    });
+    const nonexistent = await captureError(() =>
+      asUser(t, member).mutation(api.functions.grants.revokeGrant, {
+        grantId: dangling,
+      }),
+    );
+    expect(JSON.stringify((error as { data: unknown }).data)).toBe(
+      JSON.stringify((nonexistent as { data: unknown }).data),
+    );
 
     expect((await t.run((ctx) => ctx.db.get(ownersGrant)))?.status).toBe("active");
   });

@@ -12,9 +12,53 @@ import { requireAuthId } from "@supa-media/convex/auth";
 import { mutation, query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { claimName, checkAvailability, nameRejectionError } from "./lib/nameClaims";
+import { consumeRateLimit } from "./lib/rateLimit";
 import { requireWorkspaceAccess } from "./lib/workspaceAuth";
 
 const MAX_DISPLAY_NAME_LENGTH = 80;
+
+/**
+ * How many contexts one account may own, and how fast it may create them.
+ *
+ * ## Why there is a limit at all
+ *
+ * Creating a workspace claims a name out of a single global namespace that has
+ * no release, rename, or delete path — a claim is permanent. The short end of
+ * `[a-z0-9-]{2,32}` is small (~1.3k two-character names, ~46k three-character
+ * ones), so an unlimited account can exhaust the memorable part of the
+ * namespace in minutes and keep it forever. Names are also the addressing
+ * scheme (`@name/1-projects/foo.md`) and a future subdomain, which makes a
+ * squatted name an impersonation surface as well as a denial of one.
+ *
+ * ## The numbers, and what they are a guess at
+ *
+ * These are a **product decision made here rather than left implicit**, and
+ * they are deliberately loose enough that no honest user meets them:
+ *
+ *  - `MAX_WORKSPACES_PER_USER` — one personal context plus a healthy number of
+ *    shared ones. Someone genuinely running more than this is a case to look
+ *    at, and raising a constant is a one-line change; un-squatting a namespace
+ *    is not.
+ *  - `WORKSPACE_CREATE_*` — a burst limit, aimed at scripted claiming rather
+ *    than at people. Creating ten contexts in an hour by hand does not happen.
+ *
+ * Ownership is counted from `workspaceMembers`, so this bounds contexts a user
+ * *owns*, not contexts they were invited into: being added to a colleague's
+ * shared context must never use up your own allowance.
+ */
+const MAX_WORKSPACES_PER_USER = 10;
+const WORKSPACE_CREATE_LIMIT = 5;
+const WORKSPACE_CREATE_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * Caps on how many rows one response carries.
+ *
+ * An unbounded `.collect()` reads however many rows exist, which is a cost set
+ * by whoever can insert them. These bound the read; if a real workspace ever
+ * approaches one, it needs pagination rather than a bigger constant.
+ */
+const MAX_MEMBERS_RETURNED = 200;
+const MAX_WORKSPACES_RETURNED = 100;
 
 const workspaceSummary = v.object({
   workspaceId: v.id("workspaces"),
@@ -71,6 +115,30 @@ export const createWorkspace = mutation({
       });
     }
 
+    // How many contexts this account already owns. Read before the name is
+    // even looked at: hitting the cap must not depend on what you asked for.
+    const owned = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .take(MAX_WORKSPACES_PER_USER + 1);
+    if (owned.filter((m) => m.role === "owner").length >= MAX_WORKSPACES_PER_USER) {
+      throw new ConvexError({
+        code: "WORKSPACE_LIMIT_REACHED",
+        message: `You can own at most ${MAX_WORKSPACES_PER_USER} contexts.`,
+        limit: MAX_WORKSPACES_PER_USER,
+      });
+    }
+
+    // Counts commits, not attempts: this whole mutation is one transaction, so
+    // a creation that goes on to fail rolls the increment back with it. That
+    // is the right unit here — a failed claim takes nothing out of the
+    // namespace — but see `lib/rateLimit.ts` for what it does not protect.
+    await consumeRateLimit(ctx, {
+      key: `workspace.create:${userId}`,
+      limit: WORKSPACE_CREATE_LIMIT,
+      windowMs: WORKSPACE_CREATE_WINDOW_MS,
+    });
+
     // Check first so a bad slug fails before we write anything. `claimName`
     // re-checks inside the same transaction, which is what actually enforces
     // uniqueness; this pass only buys a clean early error.
@@ -126,7 +194,7 @@ export const listMyWorkspaces = query({
     const memberships = await ctx.db
       .query("workspaceMembers")
       .withIndex("by_user", (q) => q.eq("userId", userId))
-      .collect();
+      .take(MAX_WORKSPACES_RETURNED);
 
     const summaries = [];
     for (const membership of memberships) {
@@ -174,10 +242,13 @@ export const getWorkspace = query({
       userId,
     );
 
+    // Bounded, so `memberCount` saturates at the cap rather than paying for an
+    // unbounded read. A context with more members than this does not exist,
+    // and if one ever does the number wants pagination, not a full scan.
     const members = await ctx.db
       .query("workspaceMembers")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
-      .collect();
+      .take(MAX_MEMBERS_RETURNED);
 
     return {
       workspaceId: workspace._id,
@@ -220,7 +291,7 @@ export const listMembers = query({
     const members = await ctx.db
       .query("workspaceMembers")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .collect();
+      .take(MAX_MEMBERS_RETURNED);
 
     const rows = [];
     for (const member of members) {

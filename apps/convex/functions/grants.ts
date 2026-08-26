@@ -25,8 +25,20 @@ import {
   query,
 } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import { TOKEN_HASH_PATTERN } from "./lib/crypto";
 import { recordAudit } from "./lib/audit";
-import { getMembership, roleAtLeast } from "./lib/workspaceAuth";
+import { getMembership, roleAtLeast, workspaceNotFound } from "./lib/workspaceAuth";
+
+/**
+ * The most grants one response carries.
+ *
+ * An unbounded `.collect()` is a read whose cost is set by whoever can add
+ * rows — here, by however many AI clients a workspace has ever connected. A
+ * cap keeps one pathological workspace from turning a dashboard query into a
+ * full-table read. Nobody has 200 connected clients; if a real workspace ever
+ * approaches this, it needs pagination, not a bigger number.
+ */
+const MAX_GRANTS_RETURNED = 200;
 
 /**
  * One error for "no such grant" and for "a grant you have no business
@@ -75,26 +87,22 @@ export const listGrants = query({
     const userId = (await requireAuthId(ctx)) as Id<"users">;
 
     const membership = await getMembership(ctx, args.workspaceId, userId);
-    if (membership === null) {
-      // Not a member: identical to "no such workspace".
-      throw new ConvexError({
-        code: "WORKSPACE_NOT_FOUND",
-        message: "Workspace not found",
-      });
-    }
+    // Not a member: identical to "no such workspace", and identical *by
+    // construction* — the error comes from the one helper that builds it.
+    if (membership === null) throw workspaceNotFound();
 
     const seesAll = roleAtLeast(membership.role, "editor");
     const rows: Doc<"oauthGrants">[] = seesAll
       ? await ctx.db
           .query("oauthGrants")
           .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-          .collect()
+          .take(MAX_GRANTS_RETURNED)
       : await ctx.db
           .query("oauthGrants")
           .withIndex("by_workspace_user", (q) =>
             q.eq("workspaceId", args.workspaceId).eq("userId", userId),
           )
-          .collect();
+          .take(MAX_GRANTS_RETURNED);
 
     const summaries = [];
     for (const grant of rows) {
@@ -132,6 +140,29 @@ export const listGrants = query({
  * Marks the single row `revoked` and touches nothing else. Sibling grants —
  * same user, same workspace, different client — keep working, which is the
  * property the whole per-client model exists to provide.
+ *
+ * ## Which refusal a caller gets, and why it differs by role
+ *
+ * The rule is: **the error may never tell you something `listGrants` would
+ * have refused to tell you.** A grant id is the only handle on a grant, so an
+ * error that distinguishes "real but not yours" from "no such grant" is an
+ * existence oracle for whoever cannot otherwise enumerate them.
+ *
+ *  - Not a member of the grant's workspace → `GRANT_NOT_FOUND`, identical to a
+ *    grant id that never existed.
+ *  - A read-only `member` aiming at somebody else's grant → also
+ *    `GRANT_NOT_FOUND`. `listGrants` shows a `member` only their own grants,
+ *    so an `INSUFFICIENT_ROLE` here would confirm that a guessed id is real
+ *    and belongs to a colleague — precisely the disclosure the listing rule
+ *    exists to prevent, reached by a different door.
+ *  - An `editor` → `INSUFFICIENT_ROLE`. An editor already sees every grant in
+ *    the workspace, so naming the missing role leaks nothing and is the only
+ *    form of the refusal they can act on.
+ *
+ * The grant row is read before any of this, because the grant is what says
+ * which workspace to authorize against — there is no index from a grant id to
+ * a caller. Nothing read from it reaches the caller before authorization
+ * succeeds, and both refusals are byte-identical to the non-existent case.
  */
 export const revokeGrant = mutation({
   args: { grantId: v.id("oauthGrants") },
@@ -149,6 +180,7 @@ export const revokeGrant = mutation({
 
     const isOwnGrant = grant.userId === userId;
     if (!isOwnGrant && membership.role !== "owner") {
+      if (!roleAtLeast(membership.role, "editor")) throw grantNotFound();
       throw new ConvexError({
         code: "INSUFFICIENT_ROLE",
         message: "Only a workspace owner can revoke someone else's client.",
@@ -250,7 +282,17 @@ export const getClient = internalQuery({
  * code can outlive the moment it was issued, and a person removed from a
  * workspace in between must not end up with a working grant to it.
  *
- * Takes the refresh token's SHA-256 hash, never the token.
+ * Takes the refresh token's SHA-256 hash, never the token — and insists on the
+ * *shape* of one. `v.string()` alone accepts `""`, and an empty hash is not an
+ * unusable grant, it is a grant that any other empty hash resolves to: whoever
+ * next wrote a blank one would inherit this workspace. Requiring 64 lowercase
+ * hex characters means a caller that forgot to hash, or hashed nothing, fails
+ * loudly at write time instead of quietly creating a collision.
+ *
+ * The client must already be registered. A grant naming a `clientId` nothing
+ * has registered describes an authority nobody can attribute — it would show
+ * up in `listGrants` with no name, and there is no legitimate flow that
+ * produces one, since registration precedes authorization in OAuth.
  */
 export const createGrant = internalMutation({
   args: {
@@ -262,11 +304,27 @@ export const createGrant = internalMutation({
   },
   returns: v.id("oauthGrants"),
   handler: async (ctx, args) => {
+    // Authorization first, before anything about the request is validated:
+    // whether a workspace exists must not be inferable from *which* complaint
+    // a malformed request gets back.
     const membership = await getMembership(ctx, args.workspaceId, args.userId);
-    if (membership === null) {
+    if (membership === null) throw workspaceNotFound();
+
+    if (!TOKEN_HASH_PATTERN.test(args.hashedRefreshToken)) {
       throw new ConvexError({
-        code: "WORKSPACE_NOT_FOUND",
-        message: "Workspace not found",
+        code: "INVALID_TOKEN_HASH",
+        message: "A grant needs the SHA-256 hash of its refresh token.",
+      });
+    }
+
+    const client = await ctx.db
+      .query("oauthClients")
+      .withIndex("by_clientId", (q) => q.eq("clientId", args.clientId))
+      .unique();
+    if (client === null) {
+      throw new ConvexError({
+        code: "CLIENT_NOT_REGISTERED",
+        message: "That client is not registered.",
       });
     }
 

@@ -110,9 +110,12 @@ const schema = defineSchema({
    * so a bucket that already looks like a Context brain connects unchanged.
    *
    * `encryptedSecretAccessKey` is an opaque envelope produced by
-   * `functions/lib/crypto.ts` (`v1:<iv-b64>:<ciphertext-b64>`). The plaintext
-   * secret is never stored, never returned by a public function, and is
-   * decrypted only by an internal function serving the gateway.
+   * `functions/lib/crypto.ts` (`v2:<key-id>:<iv-b64>:<ciphertext-b64>`). The
+   * plaintext secret is never stored, never returned by a public function, and
+   * is decrypted only by an internal function serving the gateway. The
+   * envelope is bound to this row's `workspaceId` as AES-GCM additional
+   * authenticated data, so moving it to another workspace's row makes it
+   * undecryptable rather than portable.
    */
   storageBindings: defineTable({
     workspaceId: v.id("workspaces"),
@@ -140,12 +143,33 @@ const schema = defineSchema({
       v.literal("error"),
     ),
     lastVerifiedAt: v.optional(v.number()),
-    /** Provider-side failure text. Never contains the secret. */
+    /**
+     * Provider-side failure text, truncated and scrubbed on the way in by
+     * `recordVerification` — see the redaction there for exactly what is
+     * enforced and what is only convention. Any member of the workspace can
+     * read this field, so treat it as published.
+     */
     lastError: v.optional(v.string()),
     boundBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * Fixed-window counters for the operations that must not be unbounded.
+   *
+   * Today that is workspace creation, because a workspace claims a name out of
+   * a global namespace that has no release path — see `lib/rateLimit.ts` for
+   * what this scheme does and does not protect against.
+   *
+   * Holds no identity of its own: the key is a caller-built string, and the
+   * row carries a count and a timestamp and nothing else.
+   */
+  rateLimits: defineTable({
+    key: v.string(),
+    windowStartedAt: v.number(),
+    count: v.number(),
+  }).index("by_key", ["key"]),
 
   /**
    * MCP clients registered dynamically (RFC 7591). A client is a piece of

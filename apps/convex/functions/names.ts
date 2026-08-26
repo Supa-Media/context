@@ -28,6 +28,18 @@ import {
  *
  * The response carries a reason code and no information about the holder of a
  * taken name.
+ *
+ * ## It is not rate limited, and cannot be
+ *
+ * This is a Convex `query`, and a query cannot write — so it cannot maintain a
+ * counter, and no table-based limiter can throttle it. Rather than pretend
+ * otherwise, the limit lives where it bites: `createWorkspace` caps how many
+ * names one account may ever hold and how fast it may take them. Probing tells
+ * an attacker which names are free; the cap is what stops them converting that
+ * list into claims. If this endpoint ever needs real throttling, it needs an
+ * infrastructure-level limiter, not a rewrite into a mutation — making it a
+ * mutation would cost the reactive, cacheable behavior the name picker depends
+ * on and would still be trivially parallelizable.
  */
 export const checkNameAvailable = query({
   args: { name: v.string() },

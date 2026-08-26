@@ -17,10 +17,36 @@ import { requireAuthId } from "@supa-media/convex/auth";
 import { internalMutation, query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
-import { getMembership } from "./lib/workspaceAuth";
+import { getMembership, workspaceNotFound } from "./lib/workspaceAuth";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
+
+/**
+ * Validate `limit` in the handler, because a validator cannot.
+ *
+ * `v.number()` is float64, and float64 includes `NaN`, `Infinity`, and
+ * fractions — all of which Convex will happily encode and send. The old
+ * `Math.min(Math.max(limit, 1), MAX)` clamp turns `NaN` into `NaN`, and
+ * `.take(NaN)` throws a `TypeError`: a plain `Error` with a `null` payload,
+ * which the client scrubs to "Server Error". That is exactly the dead end
+ * `lib/workspaceAuth.ts` forbids, reached by way of an argument nobody thought
+ * of as attacker-controlled.
+ *
+ * Rejecting rather than clamping, because a client asking for 1e9 rows or for
+ * `NaN` has a bug, and silently serving it 200 rows hides the bug instead of
+ * surfacing it.
+ */
+function requireLimit(limit: number | undefined): number {
+  if (limit === undefined) return DEFAULT_LIMIT;
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) {
+    throw new ConvexError({
+      code: "INVALID_LIMIT",
+      message: `limit must be a whole number between 1 and ${MAX_LIMIT}.`,
+    });
+  }
+  return limit;
+}
 
 /**
  * Record an event. Internal only.
@@ -90,18 +116,12 @@ export const listEvents = query({
   handler: async (ctx, args) => {
     const userId = (await requireAuthId(ctx)) as Id<"users">;
 
+    // Membership first, and through the one helper that builds this error, so
+    // "not yours" and "does not exist" cannot drift apart.
     const membership = await getMembership(ctx, args.workspaceId, userId);
-    if (membership === null) {
-      throw new ConvexError({
-        code: "WORKSPACE_NOT_FOUND",
-        message: "Workspace not found",
-      });
-    }
+    if (membership === null) throw workspaceNotFound();
 
-    const limit = Math.min(
-      Math.max(args.limit ?? DEFAULT_LIMIT, 1),
-      MAX_LIMIT,
-    );
+    const limit = requireLimit(args.limit);
 
     const events = await ctx.db
       .query("auditEvents")

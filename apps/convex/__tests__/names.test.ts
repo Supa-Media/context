@@ -11,6 +11,7 @@ import { api } from "../_generated/api";
 import {
   NAME_MAX_LENGTH,
   RESERVED_NAMES,
+  RFC2142_MANDATORY_NAMES,
   normalizeName,
   validateName,
 } from "../functions/lib/names";
@@ -96,6 +97,110 @@ describe("validateName (pure rules)", () => {
   test("reserves the routing words a URL would otherwise swallow", () => {
     for (const name of ["api", "mcp", "www", "oauth", "app"]) {
       expect(RESERVED_NAMES.has(name)).toBe(true);
+    }
+  });
+
+  /**
+   * The two addresses RFC 2142 requires a domain to keep reachable.
+   *
+   * Asserted separately from the general reserved-word test, and against an
+   * exported constant rather than a literal in the list, so that pruning
+   * `RESERVED_NAMES` cannot drop them quietly. Email ingestion runs on the
+   * apex domain — a person's capture address is `<name>@<apex>` — so whoever
+   * holds `postmaster` or `abuse` receives the mail that mail providers,
+   * blocklist operators, and abuse victims send to the domain's operators.
+   * Losing `abuse` to a user means abuse reports arrive at the abuser.
+   */
+  test("the RFC 2142 mandatory mailboxes can never be claimed", () => {
+    expect(RFC2142_MANDATORY_NAMES).toEqual(["postmaster", "abuse"]);
+    for (const name of RFC2142_MANDATORY_NAMES) {
+      expect(RESERVED_NAMES.has(name), `${name} must stay reserved`).toBe(true);
+      expect(validateName(name)).toMatchObject({ ok: false, reason: "reserved" });
+      expect(validateName(name.toUpperCase())).toMatchObject({
+        ok: false,
+        reason: "reserved",
+      });
+    }
+  });
+
+  /**
+   * Mail roles, now that ingestion is on the apex domain.
+   *
+   * `<name>@<apex>` is a user's capture address, so a claimed name is a live
+   * mailbox. These are the ones an attacker wants: the automated senders whose
+   * bounce stream reveals who else is on the platform, and the auth-shaped
+   * names (`verify@`, `password@`) whose mail carries our real SPF/DKIM
+   * alignment and is therefore indistinguishable from ours to a recipient.
+   */
+  test("reserves the mailbox names that would intercept our mail or pass as us", () => {
+    for (const name of [
+      "noreply",
+      "no-reply",
+      "mailer-daemon",
+      "bounces",
+      "notifications",
+      "verify",
+      "password",
+      "reset",
+      "accounts",
+      "legal",
+      "hello",
+      "webmaster",
+    ]) {
+      expect(
+        validateName(name),
+        `${name}@ is a mailbox on our apex domain and must not be claimable`,
+      ).toMatchObject({ ok: false, reason: "reserved" });
+    }
+  });
+
+  /**
+   * The reserved list used to name folders that do not exist.
+   *
+   * It reserved `inbox`, `projects`, `areas`, `resources`, `archive` — none of
+   * which appear on a bucket. The real layout (CLAUDE.md, "Plain files stay
+   * canonical") is `0-inbox/`, `1-projects/`, `2-areas/`, `3-resources/`,
+   * `4-archive/`, `.history/`, `.audit/`, so `@0-inbox` and `@1-projects`
+   * claimed cleanly while the guard congratulated itself on `@inbox`.
+   */
+  test("reserves the folder names that are actually on a bucket", () => {
+    for (const name of [
+      "0-inbox",
+      "1-projects",
+      "2-areas",
+      "3-resources",
+      "4-archive",
+      "history",
+      "audit",
+    ]) {
+      expect(
+        validateName(name),
+        `${name} is a real on-bucket path segment and must not be claimable`,
+      ).toMatchObject({ ok: false, reason: "reserved" });
+    }
+  });
+
+  /**
+   * Punycode, and the general form of it.
+   *
+   * `xn--80ak6aa92e` is a valid `[a-z0-9-]` string that renders as Unicode in
+   * an address bar, a mail client, and a certificate viewer. Names are
+   * described as a future subdomain, so handing one out is handing out a
+   * homograph of whatever the attacker encoded. IDNA reserves *every* label
+   * with `--` in the third and fourth positions, not just `xn--`, and so do
+   * we: reserving only today's prefix leaves the next allocation claimable.
+   */
+  test("refuses the reserved LDH label form, including the punycode prefix", () => {
+    for (const name of ["xn--80ak6aa92e", "xn--fiqs8s", "aa--bb", "zz--x"]) {
+      expect(validateName(name)).toMatchObject({
+        ok: false,
+        reason: "reserved_label_form",
+      });
+    }
+
+    // ...without collateral damage to ordinary hyphenated names.
+    for (const name of ["shared-thing", "x-9-y", "a-b", "abc--d"]) {
+      expect(validateName(name)).toMatchObject({ ok: true });
     }
   });
 });
@@ -189,6 +294,19 @@ describe("claiming", () => {
     const names = await t.run((ctx) => ctx.db.query("names").collect());
     expect(names).toHaveLength(1);
     expect(names[0].claimedBy).toBe(alice);
+  });
+
+  test("a punycode name cannot be claimed as a workspace slug", async () => {
+    const t = setupTest();
+    const user = await createUser(t, "a@example.invalid");
+    const error = await captureError(() =>
+      createWorkspace(t, user, "xn--80ak6aa92e"),
+    );
+    expect(errorCode(error)).toBe("NAME_UNAVAILABLE");
+    expect((error as { data: { reason: string } }).data.reason).toBe(
+      "reserved_label_form",
+    );
+    expect(await t.run((ctx) => ctx.db.query("names").collect())).toHaveLength(0);
   });
 
   test("a reserved word cannot be claimed as a workspace slug", async () => {

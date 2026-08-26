@@ -50,6 +50,13 @@ export function roleAtLeast(role: WorkspaceRole, minimum: WorkspaceRole): boolea
  * Constructed in one place so no future endpoint can accidentally leak the
  * difference between "exists but not yours" and "never existed" by wording its
  * own message slightly differently.
+ *
+ * "In one place" was a claim, not a fact, until it was checked: `grants.ts` and
+ * `audit.ts` each built their own `WORKSPACE_NOT_FOUND` inline, so their
+ * payloads matched this one only by coincidence and a change here would have
+ * silently split them apart. `__tests__/workspaceAuth.test.ts` now fails if the
+ * literal `WORKSPACE_NOT_FOUND` appears anywhere in `functions/` outside this
+ * file — a single-sourcing claim is only worth as much as its enforcement.
  */
 export function workspaceNotFound(): ConvexError<{
   code: string;
@@ -88,6 +95,14 @@ export async function getMembership(
  * Deliberately loads the membership FIRST. If the membership row is missing we
  * throw without ever reading the workspace, so no timing or code path differs
  * between "workspace exists" and "workspace does not exist".
+ *
+ * That ordering is the whole point of this function and it is *not* obvious
+ * from the outside: swapping the two lines changes no return value, no error
+ * payload, and no test that only inspects what comes back — which is why
+ * `__tests__/workspaceAuth.test.ts` records the reads and asserts the
+ * `workspaces` table is never touched on the failure path. If you move the
+ * `ctx.db.get` above the membership lookup, that test fails; do not "fix" it
+ * by relaxing the assertion.
  */
 export async function requireWorkspaceAccess(
   ctx: QueryCtx,
