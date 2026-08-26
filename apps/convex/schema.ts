@@ -292,6 +292,64 @@ const schema = defineSchema({
   }).index("by_workspace", ["workspaceId"]),
 
   /**
+   * Who may post into a context by email, and where it lands.
+   *
+   * ## Why this is a security table, not a preferences table
+   *
+   * A capture address is `<slug>@context.lc` (see `functions/lib/ingestion.ts`
+   * and CLAUDE.md, "Ingestion is on the apex"). It is **semi-public**: the
+   * console shows it, people paste it into forwarding rules, and it is
+   * guessable from a slug that is itself public addressing. Anything that
+   * lands there becomes a note, and notes are read back by the owner's AI
+   * clients *as trusted context*. So an open inbox is not a spam problem, it
+   * is a durable prompt-injection channel into somebody's second brain.
+   *
+   * Hence the shape: an allowlist that starts closed, and one explicit boolean
+   * to open it. There is no "allow" wildcard string, no regex field, and no
+   * suffix rule — every one of those is a way to write a policy that admits
+   * more than its author meant.
+   *
+   * ## One row per workspace, seeded at creation
+   *
+   * `createWorkspace` writes this row with the owner's account email in
+   * `allowedSenders`. Seeded rather than inferred on read: "empty list, accepts
+   * nothing" and "the owner's address" are different behaviours the moment mail
+   * arrives, and which one a workspace has should be a stored fact rather than
+   * something a later code path derives. A workspace with **no row** is the
+   * fail-closed floor — it accepts nothing — and only workspaces created before
+   * this table existed can be in that state.
+   *
+   * The seeded entry does not follow a later account-email change. That is
+   * deliberate: changing the address you log in with must not silently repoint
+   * who can write to your context.
+   *
+   * Note what is absent: no `enabled` flag. `allowedSenders: []` with
+   * `allowedDomains: []` and `allowAnySender: false` already means "accept
+   * nothing", and a second way to express off is a second thing to check.
+   */
+  ingestionSettings: defineTable({
+    workspaceId: v.id("workspaces"),
+    /**
+     * Canonical folder form: no leading slash, exactly one trailing slash
+     * (`0-inbox/`). Validated syntactically only — see `normalizeTargetFolder`
+     * for why existence is not checked here.
+     */
+    targetFolder: v.string(),
+    /** Normalized addr-specs, lowercased. Capped at `MAX_ALLOWED_SENDERS`. */
+    allowedSenders: v.array(v.string()),
+    /**
+     * Whole domains, lowercased, matched by **exact equality**. A subdomain is
+     * a different domain and must be listed separately.
+     */
+    allowedDomains: v.array(v.string()),
+    /** Explicit opt-in to accept from anyone. Never a default. */
+    allowAnySender: v.boolean(),
+    updatedBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
    * Fixed-window counters for the operations that must not be unbounded.
    *
    * Today that is workspace creation, because a workspace claims a name out of

@@ -13,6 +13,7 @@ import { mutation, query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import { claimName, checkAvailability, nameRejectionError } from "./lib/nameClaims";
+import { seedIngestionSettings } from "./lib/ingestionStore";
 import { consumeRateLimit } from "./lib/rateLimit";
 import {
   getMembership,
@@ -174,6 +175,13 @@ export const createWorkspace = mutation({
       role: "owner",
       joinedAt: now,
     });
+
+    // The capture address `<slug>@context.lc` becomes live the moment the slug
+    // is claimed, so the policy governing it has to exist by the time this
+    // transaction commits — a workspace that is addressable but has no stored
+    // policy is a window, however brief. Seeded closed: the owner's own account
+    // email and nobody else. See `lib/ingestionStore.ts`.
+    await seedIngestionSettings(ctx, { workspaceId, ownerUserId: userId, now });
 
     return { workspaceId, slug: availability.normalized };
   },
