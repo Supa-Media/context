@@ -28,19 +28,45 @@
   //    every address on the domain reaches the same code and gets the same
   //    answer.
   //
-  // 2. VERIFY `AUTH_SERVICE_ID` AGAINST A REAL DELIVERY.
+  // 2. AUTHENTICATION IS THE OPEN BLOCKER. READ BEFORE ANNOUNCING THE FEATURE.
   //
   //    src/auth.ts refuses any message whose topmost `Authentication-Results`
   //    header does not carry this exact authserv-id. That is what stops a
   //    sender forging their own SPF/DKIM/DMARC verdict — and it depends on our
   //    MX prepending its header above anything the sender wrote.
   //
+  //    Cloudflare appears not to send that header. Its own documentation of
+  //    Email Routing describes stamping `ARC-Authentication-Results` (RFC 8617)
+  //    rather than `Authentication-Results` (RFC 8601), with the ARC instance
+  //    tag ahead of the authserv-id:
+  //
+  //      ARC-Authentication-Results: i=1; mx.cloudflare.net; dkim=pass …
+  //      https://blog.cloudflare.com/email-routing-subdomains/
+  //
+  //    That breaks ingestion twice over, and neither break is a wrong value
+  //    here: src/mime.ts collects only headers named `authentication-results`,
+  //    so the ARC header never reaches the verifier at all; and even handed to
+  //    it directly, the leading `i=1` is read as the authserv-id and the header
+  //    is rejected as malformed. Both are pinned as tests — see "the header
+  //    Cloudflare Email Routing actually sends" in src/auth.test.ts.
+  //
+  //    So the authserv-id below is, as far as the documentation goes, the RIGHT
+  //    value; it is simply compared against a header that never arrives. Every
+  //    message is refused today, whatever it is set to.
+  //
+  //    DO NOT "fix" this by trusting the topmost ARC header. That header is
+  //    forgeable by the sender exactly as the other one is, and
+  //    cloudflare/workerd issue #6740 reports that Worker-delivered mail may
+  //    carry NO authentication verdicts at all — in which case the only header
+  //    present would be the attacker's own. The question is not answerable from
+  //    documentation; it needs one real delivery.
+  //
   //    This repository's rule is that a guard nobody has checked is not a
   //    guard. Before enabling ingestion: send one message through, capture the
-  //    raw headers, confirm (a) the authserv-id below is the one Cloudflare
-  //    actually writes and (b) it appears above any header the sender supplied.
-  //    Add the captured headers as a fixture in src/auth.test.ts. Until then
-  //    this value is a plausible guess, and a wrong guess fails CLOSED — the
+  //    raw headers, confirm (a) which header carries the verdict, (b) that the
+  //    authserv-id below is the one Cloudflare actually writes, and (c) that it
+  //    appears above any header the sender supplied. Add the captured headers
+  //    as a fixture in src/auth.test.ts. Until then this fails CLOSED — the
   //    Worker refuses everything rather than trusting a forgery.
   //
   // 3. VERIFY `OPERATIONS_MAILBOX` AS AN EMAIL ROUTING DESTINATION.

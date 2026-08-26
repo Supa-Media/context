@@ -241,6 +241,82 @@ describe("fail-closed configuration", () => {
   });
 });
 
+/**
+ * What Cloudflare Email Routing *actually* puts on a message, as opposed to
+ * what this file was written against.
+ *
+ * `verifySender` reads `Authentication-Results` (RFC 8601). Cloudflare's own
+ * documentation of Email Routing says it stamps **`ARC-Authentication-Results`**
+ * (RFC 8617) instead, and that header's value begins with an ARC instance tag —
+ * `i=1;` — *before* the authserv-id:
+ *
+ *   ARC-Authentication-Results: i=1; mx.cloudflare.net; dkim=pass header.d=…
+ *   — https://blog.cloudflare.com/email-routing-subdomains/
+ *
+ * Two independent consequences, both of which make ingestion refuse everything
+ * no matter what `AUTH_SERVICE_ID` is set to. They are pinned here because the
+ * deployment note in wrangler.jsonc asks for exactly this — a fixture rather
+ * than a claim — and because each one has to be fixed deliberately, by someone
+ * who has decided the trust question below.
+ *
+ * THE TRUST QUESTION, WHICH IS NOT SETTLED AND MUST NOT BE GUESSED:
+ * `ARC-Authentication-Results` is forgeable by a sender exactly as
+ * `Authentication-Results` is, so trusting it rests on the same assumption —
+ * that ours is prepended above anything the sender wrote. cloudflare/workerd
+ * issue #6740 reports that on Email Routing → Worker delivery **no**
+ * authentication header with real verdicts arrives at all. If that is true
+ * here, then trusting the topmost ARC header would hand an attacker the pass
+ * they typed. Only a real delivery settles it; until then this refuses, which
+ * is the correct direction to be wrong in.
+ */
+describe("the header Cloudflare Email Routing actually sends", () => {
+  const CLOUDFLARE_AUTHSERV = "mx.cloudflare.net";
+  // The documented shape, verbatim in structure: ARC instance tag, then the
+  // authserv-id, then the verdicts.
+  const CLOUDFLARE_ARC_VALUE =
+    "i=1; mx.cloudflare.net; dkim=pass header.d=example.com;" +
+    " spf=pass smtp.mailfrom=alice@example.com; dmarc=pass header.from=example.com";
+
+  it("cannot parse the value, because `i=1` is read as the authserv-id", () => {
+    // The leading ARC instance tag occupies the first clause, which RFC 8601
+    // reserves for the authserv-id. `i=1` contains `=`, which the authserv-id
+    // charset excludes, so the whole header is rejected as malformed.
+    expect(parseAuthenticationResults(CLOUDFLARE_ARC_VALUE)).toBeNull();
+  });
+
+  it("therefore refuses a genuine, fully-passing Cloudflare verdict", () => {
+    // Every method says pass and the domain aligns. It is still refused — so
+    // no value of AUTH_SERVICE_ID makes this deployment ingest anything.
+    expect(
+      verify([CLOUDFLARE_ARC_VALUE], "alice@example.com", CLOUDFLARE_AUTHSERV),
+    ).toEqual({ ok: false, reason: "unparseable_authentication_results" });
+  });
+
+  it("would still refuse even if the instance tag were stripped, because the header name differs", () => {
+    // Second, independent breakage: ./mime.ts collects only headers named
+    // `authentication-results`, so an `ARC-Authentication-Results` header never
+    // reaches `verifySender` at all — it arrives as an empty list.
+    expect(verify([], "alice@example.com", CLOUDFLARE_AUTHSERV)).toEqual({
+      ok: false,
+      reason: "no_authentication_results",
+    });
+  });
+
+  it("names the authserv-id to configure once the header is read correctly", () => {
+    // With the instance tag removed, the authserv-id Cloudflare writes parses
+    // cleanly and is `mx.cloudflare.net` — which is what wrangler.jsonc already
+    // guesses. The guess is right; the header it is compared against is wrong.
+    const withoutInstanceTag = CLOUDFLARE_ARC_VALUE.replace(/^i=\d+;\s*/, "");
+    const parsed = parseAuthenticationResults(withoutInstanceTag)!;
+    expect(parsed.authservId).toBe(CLOUDFLARE_AUTHSERV);
+    expect(verify([withoutInstanceTag], "alice@example.com", CLOUDFLARE_AUTHSERV)).toMatchObject({
+      ok: true,
+      method: "dmarc",
+      domain: "example.com",
+    });
+  });
+});
+
 describe("domainOf", () => {
   it("takes the last @, so a quoted local part cannot move the domain", () => {
     expect(domainOf('"a@b"@example.com')).toBe("example.com");
