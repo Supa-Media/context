@@ -80,7 +80,7 @@ Zero npm dependencies — keep it that way. It runs on the Workers runtime, so
 use Web Crypto and `fetch`, not Node APIs.
 
 `pnpm test` in `apps/mcp` runs the suite against an in-memory store stub. It is
-fast, offline, and currently 194 checks. **Do not let it regress.** If you
+fast, offline, and currently 320 checks. **Do not let it regress.** If you
 change behavior, change the test in the same commit and say why.
 
 The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,
@@ -158,6 +158,95 @@ Open source from the first commit. That raises the bar in three concrete ways:
   documented.
 
 Work goes through pull requests with review. Do not push to `main`.
+
+## Durable decisions
+
+Things that were argued through once and should not be silently reversed. Each
+names what a "simplification" of it would actually cost.
+
+### The gateway is a Cloudflare Worker, not Convex
+
+Convex would remove a service boundary and a shared secret, which is a real
+argument and was seriously considered. It loses on two counts: self-hosting
+("clone this, deploy one dependency-free file, your bucket still works") is a
+published commitment, not a preference, and Convex actions bill compute on the
+hottest path in the system for a product whose pitch is free.
+
+### Credential retrieval takes two independent proofs
+
+The gateway secret proves the caller is the gateway. The end user's access
+token, forwarded verbatim, proves a real person authorized that workspace right
+now. Convex resolves the workspace **from the token's grant** — the gateway
+cannot name the workspace it wants, only be told, and any id it sends is a veto
+rather than a lookup key.
+
+An earlier draft made the gateway secret sufficient on its own. That would have
+been the highest-value credential in the system: one leak and every customer's
+bucket keys are retrievable in bulk. **A change that lets the gateway name its
+own workspace would look like a cleanup and would be a catastrophe.** There is
+a test asserting `expectedWorkspaceId` is never used as a lookup key.
+
+### Never cache a decrypted credential across requests
+
+Workers reuse isolates across tenants. A cache keyed even slightly wrong is a
+cross-tenant leak. This costs roughly 20–60ms per call and that is the right
+trade. Per-request caching is fine; anything that outlives a request is not.
+
+### Scheduling is not calling
+
+In the credential-reachability graph, `ctx.runQuery/runMutation/runAction`
+propagates taint — it awaits a value and hands it to the caller.
+`ctx.scheduler.runAfter` does not: it enqueues a job in a separate transaction
+whose return value the scheduler discards, so there is no channel back.
+
+Without that distinction no public function could trigger a bucket probe, and
+"verify the credential the user just pasted" would have to be a polling cron
+chosen to satisfy a static check rather than because it is right. Scheduled
+targets must still be statically resolvable `internal.` references.
+
+### Credential barriers are enumerated, never inferred
+
+Reading a bucket needs a credential, so a console read path cannot exist under
+a blanket "no public function may reach a decrypt". Taint stops at an
+explicitly listed barrier — see `CREDENTIAL_BARRIERS` in
+`__tests__/structure.test.ts`. Barriers must be internal actions whose return
+validators are checked for credential fields.
+
+This is a genuine relaxation with a real residual risk: a future operation that
+returns a credential from inside a barrier would not be caught statically. The
+enumeration is the mitigation — adding a second barrier fails CI loudly, which
+forces the conversation.
+
+### Ingestion is on the apex, which makes the reserved-name list a security control
+
+Capture addresses are `<username>@context.lc`. A user who claimed `support`
+would receive mail sent to support@context.lc. The reserved list in
+`functions/lib/names.ts` is therefore a mail-interception control, not
+cosmetic. RFC 2142 requires `postmaster` and `abuse` stay deliverable to us;
+both are asserted separately so a tidy-up cannot drop them.
+
+### Link previews reveal nothing about a context
+
+A crawler is unauthenticated, and Context has no public tier. Every
+name-bearing path renders one frozen object — same title, description and
+image, canonical pointing at the root rather than the requested URL. Nine
+variants are asserted equal by whole response body.
+
+A "nicer" preview showing an owner or a note count would hand anyone in a Slack
+channel an existence oracle for usernames, undoing what the control plane's
+byte-identical errors exist for.
+
+### A guard nobody has checked is not a guard
+
+Three times now a protection has been weaker than it looked: a credential check
+that grepped export names (defeated by a rename in a new file), an isolation
+claim that inverted without breaking a test, and an import guard that read
+English prose as code. Every guard here should have a test proving it catches
+what it claims — and where practical, a self-test proving the checker itself
+works.
+
+Sabotage-test rather than trusting a green run: break the invariant deliberately
+and confirm the right tests fail.
 
 ## Engineering standards
 

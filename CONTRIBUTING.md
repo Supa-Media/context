@@ -28,7 +28,7 @@ pnpm install
 npx convex dev                  # your own Convex deployment
 pnpm dev                        # Convex + Expo
 
-cd apps/mcp && pnpm test        # 194 checks, offline, no dependencies
+cd apps/mcp && pnpm test        # 320 checks, offline, no dependencies
 ```
 
 ## Repository layout
