@@ -221,7 +221,11 @@ export function useDemoConsoleData(): ConsoleData {
       invitations: demoInvitations(Date.now()),
       actions: undefined,
       loading: false,
+      failure: null,
     },
     loading: false,
+    // Nothing here is fetched, so nothing here can fail: the landing page's
+    // console is data, not a subscription.
+    failure: null,
   };
 }

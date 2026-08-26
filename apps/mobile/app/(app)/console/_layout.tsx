@@ -3,6 +3,7 @@ import { Slot, useRouter, usePathname } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { Button } from "../../../features/design/components/Button";
+import { FormError } from "../../../features/design/components/Input";
 import { Text } from "../../../features/design/components/Text";
 import { colors, layout } from "../../../features/design/tokens";
 import { StageBackdrop } from "../../../features/design/components/StageBackdrop";
@@ -15,6 +16,7 @@ import {
   sameRoute,
 } from "../../../features/console/nav";
 import { useLiveConsoleData } from "../../../features/console/useLiveConsoleData";
+import { canReload, reloadApp } from "../../../features/app/reload";
 
 /**
  * The console chrome for every route.
@@ -78,6 +80,28 @@ export default function ConsoleLayout() {
               <SignOutButton />
             </View>
 
+            {/*
+              The console's own subscription came back as an error rather than
+              data. It reaches here as a value — `useLiveConsoleData` reads it
+              with `useQueries` — where a `useQuery` would have re-thrown it
+              during render and blanked the page. So: say what happened, offer
+              the one thing that actually helps, and keep the chrome around it
+              so there is still a way out.
+            */}
+            {data.failure !== null ? (
+              <View style={styles.failure} testID="console-failure">
+                <FormError
+                  headline={data.failure.headline}
+                  next={[data.failure.next, data.failure.detail].filter(Boolean).join(" ")}
+                />
+                {canReload ? (
+                  <View style={styles.failureActions}>
+                    <Button label="Reload" variant="white" onPress={reloadApp} />
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+
             <ConsoleShell
               data={data}
               route={route}
@@ -132,6 +156,8 @@ const styles = StyleSheet.create({
     paddingVertical: 26,
   },
   markSuffix: { color: colors.muted },
+  failure: { marginBottom: 18 },
+  failureActions: { marginTop: 14, flexDirection: "row", gap: 14 },
   foot: {
     paddingTop: 28,
     paddingBottom: 48,

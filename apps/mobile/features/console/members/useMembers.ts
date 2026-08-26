@@ -1,7 +1,9 @@
 import { useMemo } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
+import { describeQueryFailure } from "../failure";
+import { EMPTY_QUERY_SPEC } from "../querySpec";
 import {
   canManageMembers,
   type AssignableRole,
@@ -42,7 +44,15 @@ interface InvitationSummary {
   expiresAt: number;
 }
 
-/** Convex hands back `undefined` while loading and an `Error` when a query throws. */
+/**
+ * Convex hands back `undefined` while loading and an `Error` when a query threw.
+ *
+ * **Only true of `useQueries`.** `useQuery` re-throws a failed query during
+ * render, before any caller gets to look at the value, so this guard sitting
+ * beside a `useQuery` was dead code claiming a protection it did not have — one
+ * failed `listMembers` took the whole console down with it. The subscriptions
+ * below are `useQueries` precisely so this is real. See `../failure.ts`.
+ */
 function usable<T>(value: unknown): T | undefined {
   if (value === undefined || value instanceof Error) return undefined;
   return value as T;
@@ -55,17 +65,35 @@ export function useMembers(options: {
 }): MembersView {
   const { workspaceId, role } = options;
 
-  // `"skip"` rather than a conditional hook: the selected context changes as
-  // somebody clicks around the rail, and a hook that appears and disappears
+  // An empty spec rather than a conditional hook: the selected context changes
+  // as somebody clicks around the rail, and a hook that appears and disappears
   // would break the rules of hooks the first time they do.
-  const rawMembers = useQuery(
-    api.functions.workspaces.listMembers,
-    workspaceId === null ? "skip" : { workspaceId },
-  );
-  const rawInvitations = useQuery(
-    api.functions.invitations.listInvitations,
-    workspaceId === null ? "skip" : { workspaceId },
-  );
+  //
+  // `useQueries` rather than two `useQuery`s, and that is not a tidy-up.
+  // `useQuery` re-throws a failed query *during render*, so a `listMembers`
+  // that threw — a context somebody was just removed from, a session that
+  // lapsed mid-session — unmounted the entire console rather than this card.
+  // Here the error is a value, and `failure` below draws it.
+  //
+  // `workspaceId` is the only dependency, and the `api` references are reached
+  // for *inside* the memo: `api` is a proxy that mints a new object on every
+  // property access, and one in a dependency array makes the spec unstable,
+  // which makes `useSubscription` set state during render forever. See
+  // `../querySpec.ts`.
+  const spec = useMemo<RequestForQueries>(() => {
+    if (workspaceId === null) return EMPTY_QUERY_SPEC;
+    return {
+      members: { query: api.functions.workspaces.listMembers, args: { workspaceId } },
+      invitations: {
+        query: api.functions.invitations.listInvitations,
+        args: { workspaceId },
+      },
+    };
+  }, [workspaceId]);
+
+  const results = useQueries(spec);
+  const rawMembers = results.members;
+  const rawInvitations = results.invitations;
 
   const inviteMember = useMutation(api.functions.invitations.inviteMember);
   const revokeInvitation = useMutation(api.functions.invitations.revokeInvitation);
@@ -120,11 +148,21 @@ export function useMembers(options: {
     };
   }, [workspaceId, role, inviteMember, removeMember, setMemberRole, revokeInvitation]);
 
+  // The members list is the one this card is about; a failed invitations query
+  // on its own leaves the people list standing, which is the more useful half.
+  const failed = rawMembers instanceof Error ? rawMembers : null;
+
   return {
     members,
     invitations,
     actions,
+    // A query that threw is an answer, not a wait. "Loading…" forever is the
+    // quiet version of the same bug.
     loading: workspaceId !== null && rawMembers === undefined,
+    failure:
+      failed === null
+        ? null
+        : describeQueryFailure(failed, "who can reach this context"),
     readOnlyReason:
       workspaceId === null || actions !== undefined
         ? undefined

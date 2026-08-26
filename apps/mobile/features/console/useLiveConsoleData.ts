@@ -3,7 +3,6 @@ import {
   useAction,
   useMutation,
   useQueries,
-  useQuery,
   type RequestForQueries,
 } from "convex/react";
 import { api } from "@context/convex/_generated/api";
@@ -17,6 +16,7 @@ import {
   PLACEHOLDER_VERSIONING_ON,
   placeholderIngestionAddress,
 } from "./placeholderData";
+import { describeQueryFailure } from "./failure";
 import { EMPTY_QUERY_SPEC } from "./querySpec";
 import { useFileBrowser } from "./files/useFileBrowser";
 import { useIngestionSettings } from "./ingestion/useIngestionSettings";
@@ -90,16 +90,41 @@ interface GrantSummary {
   lastUsedAt?: number;
 }
 
-/** Convex hands back `undefined` while loading and an `Error` when a query throws. */
+/**
+ * Convex hands back `undefined` while loading and an `Error` when a query threw.
+ *
+ * **Only true of `useQueries`.** `useQuery` re-throws a failed query during
+ * render before any caller can look at it, so this guard is live code here and
+ * would be dead code beside a `useQuery`. That is exactly what it was until the
+ * subscriptions in this file moved across: see `./failure.ts`.
+ */
 function usable<T>(value: unknown): T | undefined {
   if (value === undefined || value instanceof Error) return undefined;
   return value as T;
 }
 
 export function useLiveConsoleData(): ConsoleData {
-  const workspaces = useQuery(api.functions.workspaces.listMyWorkspaces) as
-    | WorkspaceSummary[]
-    | undefined;
+  // `useQueries`, not `useQuery`, and this is the whole point of the exercise.
+  // `listMyWorkspaces` is the query the console cannot render without, and a
+  // `useQuery` re-throws a failure *during render* — with no boundary above it
+  // that unmounted the entire console to a blank dark page, silently. Here the
+  // error arrives as a value and becomes `failure` below: a screen with words
+  // on it and a way out.
+  //
+  // The spec depends on nothing, so it is stable forever, and the `api`
+  // reference is reached for *inside* the memo — `api` is a proxy that mints a
+  // new object on every property access, and one in a dependency array is what
+  // makes `useSubscription` set state during render. See `./querySpec.ts`.
+  const workspacesSpec = useMemo<RequestForQueries>(
+    () => ({ workspaces: { query: api.functions.workspaces.listMyWorkspaces, args: {} } }),
+    [],
+  );
+  const workspacesResult = useQueries(workspacesSpec).workspaces;
+  const workspaces = usable<WorkspaceSummary[]>(workspacesResult);
+  const failure =
+    workspacesResult instanceof Error
+      ? describeQueryFailure(workspacesResult, "your contexts")
+      : null;
 
   const [explicitContextId, setExplicitContextId] = useState<Id<"workspaces"> | null>(null);
 
@@ -318,6 +343,10 @@ export function useLiveConsoleData(): ConsoleData {
     ingestion,
     files,
     members,
-    loading: workspaces === undefined,
+    // A query that threw is not "still loading". Leaving the console spinning
+    // forever on an answer that already arrived — and is an error — is the
+    // quieter version of the blank page this replaced.
+    loading: workspaces === undefined && failure === null,
+    failure,
   };
 }

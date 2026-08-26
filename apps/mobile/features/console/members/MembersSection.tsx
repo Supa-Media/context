@@ -49,6 +49,21 @@ export function MembersSection({ view }: { view: MembersView }) {
   const { actions } = view;
   const now = Date.now();
 
+  // A query that came back as an error is neither an empty context nor a
+  // permanent "Loading…", which is how both halves of this card would otherwise
+  // read. It only reaches here at all because `useMembers` subscribes with
+  // `useQueries`; a `useQuery` threw it past every layout in the app.
+  if (view.failure !== null) {
+    return (
+      <View testID="members-failure">
+        <FormError
+          headline={view.failure.headline}
+          next={[view.failure.next, view.failure.detail].filter(Boolean).join(" ")}
+        />
+      </View>
+    );
+  }
+
   return (
     <View>
       <Card>
