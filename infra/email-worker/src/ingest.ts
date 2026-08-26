@@ -61,6 +61,10 @@
  */
 
 import { RESERVED_NAMES, RFC2142_MANDATORY_NAMES, normalizeName, validateName } from "../../../apps/convex/functions/lib/names";
+// The control plane's own folder rules, imported rather than restated — the
+// same function `updateIngestionSettings` validates a folder with. See
+// `normalizeTargetFolder` below for why this Worker checks them again.
+import { normalizeTargetFolder as controlPlaneFolderRules } from "../../../apps/convex/functions/lib/ingestion";
 // The same adapter-boundary prefix rules the gateway uses, rather than a second
 // opinion about what a safe key prefix is. See apps/mcp/src/store/index.js.
 import { assertSafePrefix } from "../../../apps/mcp/src/store/index.js";
@@ -241,23 +245,62 @@ export interface IngestInput {
   fenceNonce: string;
 }
 
-/** Where a capture lands when the workspace has not configured anything. */
+/** Where a capture lands when the owner has not configured anything. */
 export const DEFAULT_TARGET_FOLDER = "0-inbox/";
 
 /**
- * Validate a workspace's configured target folder.
+ * Validate the target folder the control plane handed back.
  *
  * Returns `null` for anything unusable rather than silently falling back to the
  * default: a folder the control plane stored and this Worker ignored is a
  * capture filed somewhere the owner is not looking, which is worse than a
  * refusal they can see in their logs.
+ *
+ * ## Two checks, because they are two different questions
+ *
+ * `controlPlaneFolderRules` is the product rule — the same
+ * `normalizeTargetFolder` that `updateIngestionSettings` refuses a bad folder
+ * with, imported rather than restated. It is what refuses `..`, and what
+ * refuses **any dot-prefixed segment**: `.history/` and `.audit/` are the
+ * on-bucket plumbing, and a capture landing in `.history/` would forge note
+ * history. That is the one this Worker used to be missing, and the gap was
+ * silent — a stored `.history/` folder, from a row written before that rule or
+ * by any future path that skips it, would have been accepted here.
+ *
+ * `assertSafePrefix` is the adapter rule — what `S3Store` and `R2Store` agree
+ * is an addressable prefix. It is deliberately not the same set: it knows
+ * nothing about `.history/`, and the product rule knows nothing about the
+ * adapter's key length.
+ *
+ * Both must pass. Re-validating what the control plane already validated is the
+ * point: this Worker is a separate deployment, and a receiver that trusts the
+ * answer it was given has no defence left when the answer is wrong.
+ *
+ * ## The product rule's *verdict* is used; its repairs are not
+ *
+ * `controlPlaneFolderRules` canonicalises as well as validates — it collapses
+ * `a//b` to `a/b` and hands that back. That is right on the write path, where a
+ * person is typing a folder and a tidy-up is a kindness. It is wrong here.
+ *
+ * The control plane stores the canonical form, so a folder arriving with a
+ * double slash means the answer did not come from the write path this Worker
+ * thinks it did. Accepting a repaired version of it would file a capture at a
+ * key nobody stored, which is the same failure as ignoring the folder outright.
+ * So `assertSafePrefix` and the returned key are both computed from what we
+ * were actually given, and the product rule contributes a yes/no and nothing
+ * else.
  */
 export function normalizeTargetFolder(value: string): string | null {
   const raw = singleLine(value ?? "");
   if (!raw) return DEFAULT_TARGET_FOLDER;
   if (raw.length > 200) return null;
+
   const trimmed = raw.replace(/^\/+/, "").replace(/\/+$/, "");
   if (!trimmed) return null;
+
+  // The verdict only. See above.
+  if (!controlPlaneFolderRules(trimmed).ok) return null;
+
   try {
     assertSafePrefix(trimmed);
   } catch {

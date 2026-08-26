@@ -342,8 +342,41 @@ describe("the target folder is configuration, and is still a path", () => {
     }
   });
 
+  it("refuses the on-bucket plumbing folders", () => {
+    // `.history/` and `.audit/` are where note history and the audit trail
+    // live. A capture landing in `.history/` would forge note history — which
+    // is why `lib/ingestion.ts` refuses any dot-prefixed segment on the write
+    // path, and why this Worker refuses it again on the read path.
+    //
+    // `assertSafePrefix` does NOT catch these: it knows about `.` and `..` and
+    // nothing about `.history`. So this used to hold only because the control
+    // plane happened to have validated first, and a receiver whose defence is
+    // "the other side checked" has no defence at all.
+    //
+    // Sabotage: drop the `controlPlaneFolderRules` call from
+    // `normalizeTargetFolder` and every line here goes green again.
+    for (const plumbing of [".history", ".history/", ".audit/", "a/.history/b", ".git/"]) {
+      expect(normalizeTargetFolder(plumbing), plumbing).toBeNull();
+    }
+  });
+
+  it("takes the control plane's verdict, not its repairs", () => {
+    // `lib/ingestion.ts` collapses `a//b` to `a/b` on the write path, where a
+    // person is typing a folder and a tidy-up is a kindness. Here it must not:
+    // the stored form is already canonical, so a double slash means the answer
+    // did not come from that path, and filing a capture at a repaired key is
+    // the same failure as ignoring the folder outright. Sabotage: return the
+    // product rule's `folder` instead of the input and this goes red.
+    expect(normalizeTargetFolder("a//b")).toBeNull();
+  });
+
   it("refuses to capture at all when the folder is unusable", async () => {
     const decision = await decide(rawMessage(), { targetFolder: "../escape" });
+    expect(decision).toEqual({ kind: "refuse", reason: "invalid_target_folder" });
+  });
+
+  it("refuses to capture into the plumbing, end to end", async () => {
+    const decision = await decide(rawMessage(), { targetFolder: ".history/" });
     expect(decision).toEqual({ kind: "refuse", reason: "invalid_target_folder" });
   });
 });
