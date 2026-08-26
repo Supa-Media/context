@@ -3,21 +3,34 @@ import {
   hasElevatedScope,
   normalizeScopes,
   scopeSentences,
+  visibilityTierForRole,
 } from "../features/consent/scopes";
 
 /**
  * The consent screen's whole job is to let someone weigh what they are handing
- * over. These tests exist to make three properties non-negotiable:
+ * over. These tests exist to make four properties non-negotiable:
  *
  *  1. Nothing a client asked for is dropped from the list.
  *  2. A wildcard is never described as anything narrower than everything.
  *  3. A scope we cannot describe is *said* to be one, rather than being
  *     silently omitted or folded into a reassuring summary.
+ *  4. No sentence describes a grant as narrower than the approver's own role
+ *     makes it. See "what an owner is told" below.
  */
 
-const ids = (scopes: string | string[]) => scopeSentences(scopes).map((line) => line.id);
-const sentences = (scopes: string | string[]) =>
-  scopeSentences(scopes).map((line) => line.sentence);
+/**
+ * The role most of these cases do not care about.
+ *
+ * `member` rather than `owner` on purpose: it is the tier whose sentences are
+ * about the shape of the list rather than about privacy, so a future change to
+ * the owner wording cannot quietly rewrite what these tests mean.
+ */
+const MEMBER = "member";
+
+const ids = (scopes: string | string[], role: string | null = MEMBER) =>
+  scopeSentences(scopes, role).map((line) => line.id);
+const sentences = (scopes: string | string[], role: string | null = MEMBER) =>
+  scopeSentences(scopes, role).map((line) => line.sentence);
 
 describe("normalizeScopes", () => {
   test("splits the OAuth space-delimited form", () => {
@@ -66,19 +79,19 @@ describe("scopeSentences", () => {
   });
 
   test("no scopes is an empty list, not an invented one", () => {
-    expect(scopeSentences("")).toEqual([]);
-    expect(scopeSentences([])).toEqual([]);
+    expect(scopeSentences("", MEMBER)).toEqual([]);
+    expect(scopeSentences([], MEMBER)).toEqual([]);
   });
 
   // The property that matters most: a grant the screen did not mention is a
   // grant nobody consented to.
   test("nothing a client asks for is dropped", () => {
     const asked = ["context:read", "context:write", "wat:huh", "context:audit"];
-    expect(scopeSentences(asked)).toHaveLength(4);
+    expect(scopeSentences(asked, MEMBER)).toHaveLength(4);
   });
 
   test("an unrecognised scope says so, and shows the raw string", () => {
-    const [line] = scopeSentences("wat:huh");
+    const [line] = scopeSentences("wat:huh", MEMBER);
     expect(line.tone).toBe("unknown");
     expect(line.sentence).toContain("wat:huh");
     expect(line.detail).toContain("Approve only if you know");
@@ -86,14 +99,14 @@ describe("scopeSentences", () => {
 
   describe("wildcards", () => {
     test("collapse to one line that claims everything", () => {
-      const lines = scopeSentences("* context:read");
+      const lines = scopeSentences("* context:read", MEMBER);
       expect(lines).toHaveLength(1);
       expect(lines[0].id).toBe("wildcard");
       expect(lines[0].tone).toBe("elevated");
     });
 
     test("mention that it covers whatever is added later", () => {
-      expect(scopeSentences("*")[0].detail).toContain("anything Context adds later");
+      expect(scopeSentences("*", MEMBER)[0].detail).toContain("anything Context adds later");
     });
 
     test("every spelling of a wildcard collapses", () => {
@@ -104,23 +117,98 @@ describe("scopeSentences", () => {
   });
 
   describe("tone", () => {
-    test("reading is plain; changing, deleting, and reaching private are not", () => {
-      expect(scopeSentences("context:read")[0].tone).toBe("plain");
+    test("reading is plain for a member; changing, deleting, and reaching private are not", () => {
+      expect(scopeSentences("context:read", MEMBER)[0].tone).toBe("plain");
       for (const scope of ["context:write", "context:delete", "context:private"]) {
-        expect(scopeSentences(scope)[0].tone).toBe("elevated");
+        expect(scopeSentences(scope, MEMBER)[0].tone).toBe("elevated");
       }
     });
 
     test("team access is plain — it is named people, never the public", () => {
-      const [line] = scopeSentences("context:team");
+      const [line] = scopeSentences("context:team", MEMBER);
       expect(line.tone).toBe("plain");
       expect(line.detail).toContain("private notes stay invisible");
     });
   });
 
   test("hasElevatedScope distinguishes a read-only client from a writing one", () => {
-    expect(hasElevatedScope(scopeSentences("context:read context:team"))).toBe(false);
-    expect(hasElevatedScope(scopeSentences("context:read context:write"))).toBe(true);
-    expect(hasElevatedScope(scopeSentences("nonsense"))).toBe(true);
+    expect(hasElevatedScope(scopeSentences("context:read context:team", MEMBER))).toBe(false);
+    expect(hasElevatedScope(scopeSentences("context:read context:write", MEMBER))).toBe(true);
+    expect(hasElevatedScope(scopeSentences("nonsense", MEMBER))).toBe(true);
+  });
+});
+
+/**
+ * What an owner is told, versus what everybody else is told.
+ *
+ * The bug these pin: the read line used to promise "Everything in this context
+ * except notes you marked private" to every approver. For an owner that is the
+ * opposite of what happens — `visibilityTierForRole` gives an owner's grant the
+ * `private` tier, at which the gateway's `canSee` returns true for every key.
+ * So the default grant on the default account handed an AI client every private
+ * note under a sentence swearing it would not.
+ *
+ * These tests are the contract, not the wording: they assert on what is
+ * *claimed*, so a rewrite that stays true stays green and a rewrite that
+ * reintroduces the promise does not.
+ */
+describe("the read line tells the truth about who is approving", () => {
+  const readDetail = (role: string | null) => {
+    const [line] = scopeSentences("context:read", role);
+    return line.detail ?? "";
+  };
+
+  test("an owner is told their private notes are included, in the elevated tone", () => {
+    const [line] = scopeSentences("context:read", "owner");
+    expect(line.detail).toMatch(/including/i);
+    expect(line.detail).toMatch(/private/i);
+    expect(line.tone).toBe("elevated");
+  });
+
+  test("an owner is never told anything is excluded", () => {
+    // The exact shape of the old lie, and any paraphrase of it.
+    expect(readDetail("owner")).not.toMatch(/\bexcept\b/i);
+    expect(readDetail("owner")).not.toMatch(/\bother than\b/i);
+    expect(readDetail("owner")).not.toMatch(/stays? (?:invisible|hidden|private)/i);
+  });
+
+  test("an editor and a member are told private notes are excluded, in the plain tone", () => {
+    for (const role of ["editor", "member"]) {
+      const [line] = scopeSentences("context:read", role);
+      expect(line.detail).toMatch(/except/i);
+      expect(line.detail).toMatch(/private/i);
+      expect(line.tone).toBe("plain");
+    }
+  });
+
+  test("an owner and a member are not told the same thing", () => {
+    expect(readDetail("owner")).not.toBe(readDetail("member"));
+  });
+
+  test("no role yet — because no context is picked — claims no exclusion either", () => {
+    for (const role of [null, undefined, "some-role-we-shipped-later"]) {
+      const [line] = scopeSentences("context:read", role);
+      expect(line.detail).not.toMatch(/\bexcept\b/i);
+      // Unknown means we cannot promise the narrow reading, so it reads loud.
+      expect(line.tone).toBe("elevated");
+    }
+  });
+
+  test("an owner's read-only grant counts as elevated, so the screen says the loud thing", () => {
+    expect(hasElevatedScope(scopeSentences("context:read", "owner"))).toBe(true);
+    expect(hasElevatedScope(scopeSentences("context:read", "member"))).toBe(false);
+  });
+
+  /**
+   * The mapping this whole file leans on. It mirrors `visibilityTierForRole` in
+   * `apps/mcp/src/session.js`; if that changes and this does not, the sentences
+   * above become false again.
+   */
+  test("the tier mapping matches the gateway's", () => {
+    expect(visibilityTierForRole("owner")).toBe("private");
+    expect(visibilityTierForRole("editor")).toBe("team");
+    expect(visibilityTierForRole("member")).toBe("team");
+    expect(visibilityTierForRole(null)).toBe("unknown");
+    expect(visibilityTierForRole("something-new")).toBe("unknown");
   });
 });

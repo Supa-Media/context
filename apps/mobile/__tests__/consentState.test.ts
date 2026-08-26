@@ -235,6 +235,40 @@ describe("resolveConsentView — ready", () => {
     const view = resolveConsentView(inputs({ decision: { kind: "idle", error } }));
     expect(view.kind === "ready" && view.error).toEqual(error);
   });
+
+  /**
+   * The sentences follow the picker, because the grant does.
+   *
+   * `w1` is owned and `w2` is not, and the same `context:read` reaches every
+   * private note in the first and none in the second. A screen that described
+   * both the same way would be lying to whichever half it did not describe —
+   * which is what it did, always in the owner's direction.
+   */
+  describe("the scope sentences follow the selected context's role", () => {
+    const readDetail = (view: ReturnType<typeof resolveConsentView>) =>
+      (view.kind === "ready" && view.scopeLines.find((line) => line.id === "read")?.detail) || "";
+
+    test("the owned context's read line does not promise an exclusion", () => {
+      const view = resolveConsentView(inputs({ chosenContextId: "w1" }));
+      expect(readDetail(view)).not.toMatch(/\bexcept\b/i);
+      expect(readDetail(view)).toMatch(/private/i);
+    });
+
+    test("switching to the context you only edit changes what you are told", () => {
+      const owned = resolveConsentView(inputs({ chosenContextId: "w1" }));
+      const edited = resolveConsentView(inputs({ chosenContextId: "w2" }));
+      expect(readDetail(edited)).toMatch(/except/i);
+      expect(readDetail(edited)).not.toBe(readDetail(owned));
+    });
+
+    test("with no context picked yet, it claims no exclusion rather than guessing", () => {
+      const view = resolveConsentView(
+        inputs({ request: { ...REQUEST, workspaceSlug: null, requestedWorkspaceSlug: null } }),
+      );
+      expect(view.kind === "ready" && view.selectedContextId).toBe(null);
+      expect(readDetail(view)).not.toMatch(/\bexcept\b/i);
+    });
+  });
 });
 
 describe("resolveConsentView — leaving", () => {
