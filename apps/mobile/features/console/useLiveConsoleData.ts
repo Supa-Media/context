@@ -298,9 +298,16 @@ export function useLiveConsoleData(): ConsoleData {
     stats: [
       { value: formatCount(contexts.length), label: "contexts reachable" },
       { value: formatCount(activeGrants.length), label: "AI clients connected" },
-      // Placeholders: only the gateway can see inside the customer's bucket.
-      { value: PLACEHOLDER_NOTE_TOTAL, label: "notes across all" },
-      { value: PLACEHOLDER_BYTES_TOTAL, label: "in your own bucket" },
+      // Nothing counts a whole bucket yet, so these two are placeholders — but
+      // an account with no contexts has no bucket to be wrong about, and
+      // "1,284 notes across all / 2.4 GB in your own bucket" on the very first
+      // screen someone sees is not a placeholder, it is a false statement about
+      // their data. An em dash says "not known yet"; a number does not.
+      { value: contexts.length === 0 ? "—" : PLACEHOLDER_NOTE_TOTAL, label: "notes across all" },
+      {
+        value: contexts.length === 0 ? "—" : PLACEHOLDER_BYTES_TOTAL,
+        label: "in your own bucket",
+      },
     ],
     clients,
     storage,
