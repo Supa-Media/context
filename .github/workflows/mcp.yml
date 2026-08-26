@@ -11,12 +11,16 @@
 # dependencies and we intend to keep it that way (see CONTRIBUTING.md).
 name: MCP Gateway
 
+# No `paths:` filter on pull_request, deliberately.
+#
+# These jobs are meant to be required status checks. A required check that is
+# filtered out never reports at all — GitHub leaves it pending as "Expected"
+# and the pull request can never merge. That is not hypothetical: it blocked
+# every PR that did not touch apps/mcp. The jobs take seconds, so running them
+# on every PR is far cheaper than the footgun.
 on:
   pull_request:
     branches: [main]
-    paths:
-      - "apps/mcp/**"
-      - ".github/workflows/mcp.yml"
   push:
     branches: [main]
     paths:
@@ -30,12 +34,19 @@ jobs:
   test:
     name: Test Gateway
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # Required. setup-node defaults this to true, detects pnpm from the
+          # root package.json's `packageManager` field, and shells out to
+          # `pnpm` to resolve its cache directory. This workflow deliberately
+          # never installs pnpm, so the step dies with "Unable to locate
+          # executable file: pnpm" before the suite ever runs.
+          package-manager-cache: false
 
       # No `pnpm install`. If this ever needs one, a dependency crept into the
       # gateway and that is the thing to fix.
@@ -46,31 +57,58 @@ jobs:
   no-dependencies:
     name: Gateway stays dependency-free
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
 
-      - name: Assert apps/mcp declares no runtime dependencies
+      - name: Assert apps/mcp declares no dependencies
         run: |
-          deps=$(node -p "JSON.stringify(require('./apps/mcp/package.json').dependencies || {})")
-          if [ "$deps" != "{}" ]; then
-            echo "apps/mcp declared runtime dependencies: $deps"
-            echo ""
-            echo "The gateway is the piece users self-host, and a dependency is"
-            echo "something that can break under them or quietly change what"
-            echo "happens to their notes. Propose it in an issue first."
-            exit 1
-          fi
-          echo "OK — no runtime dependencies."
+          set -euo pipefail
+          for field in dependencies optionalDependencies peerDependencies bundleDependencies; do
+            declared=$(node -p "JSON.stringify(require('./apps/mcp/package.json').$field || {})")
+            if [ "$declared" != "{}" ]; then
+              echo "apps/mcp declared $field: $declared"
+              echo ""
+              echo "The gateway is the piece users self-host, and a dependency is"
+              echo "something that can break under them or quietly change what"
+              echo "happens to their notes. Propose it in an issue first."
+              exit 1
+            fi
+          done
+          echo "OK — no dependencies in any field."
 
-      # The worker runs on the Cloudflare Workers runtime, where Node built-ins
-      # do not exist. A `node:` import typechecks and tests fine against the
-      # in-memory stub, then fails at the edge on real traffic.
-      - name: Assert no Node built-in imports
+      # The real invariant is "apps/mcp/src imports nothing but its own files".
+      #
+      # Grepping for `node:` specifically was too weak: it missed bare
+      # side-effect imports, dynamic import(), the legacy specifier form
+      # (`from "crypto"`), and every third-party package. shamefully-hoist
+      # widens that last hole — a package installed anywhere in the workspace
+      # hoists to the root node_modules, so a bare import from apps/mcp/src
+      # would resolve, bundle, and ship without ever appearing in
+      # apps/mcp/package.json.
+      #
+      # So require every specifier to be relative.
+      - name: Assert apps/mcp/src imports only relative paths
         run: |
-          if grep -rnE "(from|require\()\s*['\"]node:" apps/mcp/src/; then
+          set -euo pipefail
+          test -d apps/mcp/src || { echo "apps/mcp/src not found — has the layout moved?"; exit 1; }
+
+          offenders=$(
+            grep -rnoE "(from|import|require)[[:space:]]*\(?[[:space:]]*['\"][^'\"]+['\"]" apps/mcp/src/ \
+              | grep -vE "['\"]\.{1,2}/" \
+              || true
+          )
+
+          if [ -n "$offenders" ]; then
+            echo "$offenders"
             echo ""
-            echo "apps/mcp/src must not import Node built-ins — it runs on the"
-            echo "Workers runtime. Use Web Crypto and fetch instead."
+            echo "apps/mcp/src may only import relative paths."
+            echo ""
+            echo "It runs on the Cloudflare Workers runtime, where Node built-ins"
+            echo "do not exist — a 'node:' import typechecks and passes the"
+            echo "in-memory test stub, then fails at the edge on real traffic."
+            echo "And a third-party package hoisted to the workspace root would"
+            echo "resolve here without appearing in apps/mcp/package.json."
             exit 1
           fi
-          echo "OK — no Node built-in imports in src/."
+          echo "OK — every specifier in apps/mcp/src is relative."
