@@ -174,7 +174,6 @@ export type RefusalReason =
   | "unparseable_message"
   | "empty_message"
   | "sender_not_allowed"
-  | "sender_matcher_unwired"
   | "invalid_target_folder"
   | "control_plane_unavailable"
   | "storage_unavailable"

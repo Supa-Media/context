@@ -101,7 +101,7 @@ import {
   type RefusalReason,
 } from "./ingest";
 import { DEFAULT_MIME_LIMITS } from "./mime";
-import { SENDER_MATCHER_WIRED, senderIsAllowed, type IngestionPolicy } from "./policy";
+import { senderIsAllowed, type IngestionPolicy } from "./policy";
 import type { AttachmentPolicy } from "./note";
 // The gateway's storage adapter, imported rather than reimplemented. Tenancy is
 // bucket-level: neither adapter namespaces a key, and the customer's optional
@@ -379,10 +379,6 @@ export async function handleEmail(
   // A username, and therefore the path of exactly one personal context. There
   // is no other kind of destination this Worker can produce.
   const username = recipient.username;
-
-  // Fail closed while the policy matcher is unwired. An ingestion path whose
-  // only protection is a policy check must not run without one. See ./policy.ts.
-  if (!SENDER_MATCHER_WIRED) return refuse("sender_matcher_unwired", username);
 
   const hardCap = Math.min(
     Number(env.MAX_MESSAGE_BYTES) > 0 ? Number(env.MAX_MESSAGE_BYTES) : HARD_MAX_MESSAGE_BYTES,

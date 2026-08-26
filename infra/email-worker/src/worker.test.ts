@@ -217,24 +217,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/* -------------------------- unwire the fail-closed ------------------------- */
-
-// The suite needs the pipeline to actually run. ./policy.ts's exported matcher
-// denies everything while the control plane's real one is unwritten, so the
-// module is mocked with a stand-in whose only job is to say yes to the fixture
-// sender. The real seam's fail-closed behaviour is asserted separately, against
-// the unmocked module, in policy.test.ts.
-vi.mock("./policy", async (importOriginal) => {
-  const original = await importOriginal<typeof import("./policy")>();
-  return {
-    ...original,
-    SENDER_MATCHER_WIRED: true,
-    senderIsAllowed: (from: string, policy: { allowedSenders: readonly string[]; allowAnySender: boolean }) =>
-      policy.allowAnySender || policy.allowedSenders.includes(from),
-  };
-});
-
 /* --------------------------------- the tests ------------------------------- */
+
+// Nothing is mocked here. `./policy` re-exports the control plane's own
+// `senderIsAllowed`, so this suite drives the exact matcher a deployment does,
+// against `RESOLUTION.policy` above — which admits the fixture sender and
+// nobody else.
 
 describe("a message that should be captured is", () => {
   it("written to the target folder with an audit record", async () => {

@@ -5,10 +5,11 @@
  * THIS FILE DELIBERATELY DOES NOT IMPLEMENT SENDER MATCHING
  * ============================================================================
  *
- * `senderIsAllowed` lives in `apps/convex/functions/lib/` and is a pure
- * function shared by the control plane (which validates and stores a policy)
- * and this Worker (which enforces it). One matcher, one set of tests, one place
- * where a subtle rule lives.
+ * `senderIsAllowed` lives in `apps/convex/functions/lib/ingestion.ts` and is a
+ * pure function shared by the control plane (which validates and stores a
+ * policy) and this Worker (which enforces it). One matcher, one set of tests,
+ * one place where a subtle rule lives. This module is a re-export and nothing
+ * else — there is no local definition here to drift from it.
  *
  * The rules that make a second implementation dangerous, and which this Worker
  * therefore must not restate:
@@ -22,78 +23,49 @@
  *   entry that names a tag (`alice+notes@example.com`) is literal and admits
  *   only that tag.
  *
- * Both are the kind of rule that gets "simplified" into a bypass. Call the
- * function.
+ * Both are the kind of rule that gets "simplified" into a bypass. `./policy.test.ts`
+ * runs the attack strings through *this* import path, so a future edit that
+ * replaces the re-export with a local matcher fails there rather than in
+ * production.
  *
  * ============================================================================
- * WIRING STATUS — READ BEFORE DEPLOYING
+ * WHAT THE MATCHER IS NOT
  * ============================================================================
  *
- * As of this package's first commit, `apps/convex/functions/lib/` does not yet
- * export `senderIsAllowed`; it is being written in parallel. Rather than
- * inline a placeholder matcher that would look like the real thing and could
- * survive review, this module exports a matcher that **denies everything** and
- * a flag saying so.
- *
- * The consequence is deliberate: until the real matcher is imported here, this
- * Worker refuses every message. That is the correct fail-closed posture for an
- * ingestion path whose only protection is a policy check, and it makes the
- * missing wiring impossible to miss — an unwired deployment ingests nothing at
- * all rather than ingesting everything.
- *
- * **To wire it**, replace the body of this module with:
- *
- *     export { senderIsAllowed } from "../../../apps/convex/functions/lib/<module>";
- *     export const SENDER_MATCHER_WIRED = true;
- *
- * keeping `IngestionPolicy` in agreement with what that module exports, and
- * delete `denyEverything`. Nothing else in this package changes: `ingest.ts`
- * takes the matcher as an argument and its tests inject their own.
+ * It is not authentication, and it must never be reached as though it were.
+ * `senderIsAllowed` is handed an address; whether the sender proved that
+ * address is decided earlier, by `./auth.ts`, from `Authentication-Results`.
+ * `./ingest.ts` calls `verifySender` first and passes `verdict.address` here —
+ * never the raw `From:` header. An allow-list applied to an unproved claim is a
+ * check an attacker satisfies by typing the name of someone trusted.
  */
 
 /**
- * The policy the control plane stores **per user**, governing that person's own
- * personal context — the only kind email can reach.
+ * The policy the control plane stores for **one person's personal context** —
+ * the only kind of context email can reach.
  *
- * That it is a user-level record is what makes the default coherent. The
+ * That it is a per-person record is what makes the default coherent. The
  * sensible starting allow-list is "the address you signed up with", which is a
  * fact about a person; asked of a shared context it had no answer at all
  * ("whose email?"), and a policy whose default nobody can state is a policy
  * that gets set to allow-anything.
  *
- * Structurally identical to what `senderIsAllowed` expects. Declared here (and
- * re-declared, not imported, while the seam is unwired) so this package
- * typechecks on its own; once wired, prefer importing the type from the same
- * module as the function so the two cannot drift.
+ * Imported rather than re-declared, so the shape this Worker enforces and the
+ * shape the control plane validates on write cannot diverge.
  */
-export interface IngestionPolicy {
-  /** Full addresses. Sub-address matching per the rules above. */
-  allowedSenders: readonly string[];
-  /** Bare domains. Exact equality only. */
-  allowedDomains: readonly string[];
-  /**
-   * When true, any *authenticated* sender is accepted.
-   *
-   * Note what it does not mean: it never bypasses `verifySender`. An address
-   * that failed SPF/DKIM/DMARC alignment is refused under this flag exactly as
-   * it is under a list. "Any sender" means any sender who is really who they
-   * say they are.
-   */
-  allowAnySender: boolean;
-}
-
-export type SenderMatcher = (from: string, policy: IngestionPolicy) => boolean;
+export type { IngestionPolicy } from "../../../apps/convex/functions/lib/ingestion";
 
 /**
- * The unwired matcher. Refuses everything, unconditionally.
+ * The one matcher.
  *
- * Not exported as `senderIsAllowed` by accident: the name is deliberately not
- * the real one, so a grep for the real name finds the import that should be
- * here and not a local definition pretending to be it.
+ * Note what `allowAnySender: true` does *not* mean: it never bypasses
+ * `verifySender`. An address that failed SPF/DKIM/DMARC alignment is refused
+ * under that flag exactly as it is under a list, because it never reaches this
+ * function at all. "Any sender" means any sender who is really who they say
+ * they are.
  */
-const denyEverything: SenderMatcher = () => false;
+export { senderIsAllowed } from "../../../apps/convex/functions/lib/ingestion";
 
-/** False until the real matcher is imported. See the block comment above. */
-export const SENDER_MATCHER_WIRED = false;
+import type { IngestionPolicy } from "../../../apps/convex/functions/lib/ingestion";
 
-export const senderIsAllowed: SenderMatcher = denyEverything;
+export type SenderMatcher = (from: string, policy: IngestionPolicy) => boolean;
