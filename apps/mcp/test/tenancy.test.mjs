@@ -1,0 +1,1152 @@
+/**
+ * Multi-tenancy, OAuth, and the ways both are supposed to fail.
+ *
+ * Two workspaces are stood up on the **same provider, the same endpoint, and
+ * adjacent bucket names** (`tenant-a` / `tenant-ab`), because that is the
+ * arrangement where a prefix comparison, a `startsWith`, or a stale credential
+ * actually leaks. Tenants on different providers would pass an isolation suite
+ * that a one-character bug defeats.
+ *
+ * Offline and dependency-free: the control plane is an in-memory server
+ * speaking the documented HTTP contract, and the object store is an in-memory
+ * S3 backend the real `S3Store` signs requests against.
+ *
+ * ## Sabotage record
+ *
+ * A suite that cannot fail proves nothing, so this one was deliberately broken
+ * three ways before it was trusted. No flag ships to do it — a switch that
+ * disables tenancy is not something that belongs in a deployable artifact — so
+ * these were run as temporary local edits and reverted:
+ *
+ * 1. **Tenant resolution returns the wrong workspace**, with the control plane
+ *    reverting to the single-secret design where it trusts the workspace id the
+ *    gateway asks for. 13 checks failed, including tenant A reading tenant B's
+ *    note, tenant A's write landing in tenant B's bucket, and the byte-identical
+ *    refusal collapsing.
+ * 2. **`redirectUriMatches` weakened to `presented.startsWith(registered)`.**
+ *    2 checks failed, including the `…/callback.evil` suffix attack.
+ * 3. **PKCE not enforced** — `plain` accepted at the authorization endpoint and
+ *    the verifier never compared. 2 checks failed.
+ */
+
+import worker from "../src/index.js";
+import { createControlPlane } from "../src/controlPlane.js";
+import {
+  CONTROL_PLANE_ORIGIN,
+  GATEWAY_SECRET,
+  createControlPlaneStub,
+  createS3Backend,
+  sha256Hex,
+} from "./controlPlaneStub.mjs";
+
+const S3_ENDPOINT = "https://s3.example-object-storage.test";
+
+/** A token long enough to be a real one; obviously fake, as this repo is public. */
+function token(label) {
+  return `cat_${label}_${"0".repeat(Math.max(0, 34 - label.length))}`;
+}
+
+const TOKEN_A = token("tenant_a_owner");
+const TOKEN_B = token("tenant_b_owner");
+const TOKEN_A_READONLY = token("tenant_a_readonly");
+const TOKEN_A_SIBLING = token("tenant_a_sibling");
+const REFRESH_A = `crt_tenant_a_${"0".repeat(24)}`;
+
+async function rpc(env, tokenValue, method, params, { path = "/mcp" } = {}) {
+  const response = await worker.fetch(
+    new Request(`https://mcp.context.test${path}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${tokenValue}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    }),
+    env,
+    { waitUntil() {} }
+  );
+  const text = await response.text();
+  let body = null;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = null;
+  }
+  return { response, status: response.status, text, body };
+}
+
+async function callTool(env, tokenValue, name, args = {}, options = {}) {
+  const { body } = await rpc(env, tokenValue, "tools/call", { name, arguments: args }, options);
+  return body?.result;
+}
+
+function form(fields) {
+  return new URLSearchParams(fields).toString();
+}
+
+async function postForm(env, path, fields) {
+  const response = await worker.fetch(
+    new Request(`https://mcp.context.test${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: form(fields),
+    }),
+    env,
+    { waitUntil() {} }
+  );
+  const text = await response.text();
+  let body = null;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = null;
+  }
+  return { response, status: response.status, body, text };
+}
+
+/** base64url of the SHA-256 of a verifier — an S256 PKCE challenge. */
+async function s256(verifier) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  let binary = "";
+  for (const byte of new Uint8Array(digest)) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+const PRIVACY_MANIFEST =
+  "---\nrole: privacy-manifest\n---\n\n" +
+  "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
+  "folder_defaults:\n  1-projects: team\n\nnote_overrides:\n  # none\n```\n\n" +
+  "<!-- END BRAIN PRIVACY RULES -->\n";
+
+export async function runTenancyChecks(check) {
+  const restoreFetch = (() => {
+    const previous = globalThis.fetch;
+    return () => {
+      globalThis.fetch = previous;
+    };
+  })();
+
+  const s3 = createS3Backend(S3_ENDPOINT);
+  const restoreS3 = s3.install();
+  const controlPlane = createControlPlaneStub();
+  const restoreControlPlane = controlPlane.install();
+
+  // Two customers, same provider, same endpoint, adjacent bucket names. A
+  // rootPrefix on A as well, to prove it is applied inside the adapter and is
+  // invisible to — and not a substitute for — tenancy.
+  controlPlane.addWorkspace("ws_a", "alpha", {
+    provider: "s3",
+    endpoint: S3_ENDPOINT,
+    region: "auto",
+    bucket: "tenant-a",
+    rootPrefix: "context/",
+    accessKeyId: "AKIAEXAMPLEEXAMPLEAA",
+    secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEAA",
+    forcePathStyle: true,
+    capabilities: { conditionalWrite: true },
+    status: "active",
+  });
+  controlPlane.addWorkspace("ws_b", "alphabet", {
+    provider: "s3",
+    endpoint: S3_ENDPOINT,
+    region: "auto",
+    bucket: "tenant-ab",
+    accessKeyId: "AKIAEXAMPLEEXAMPLEBB",
+    secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEBB",
+    forcePathStyle: true,
+    capabilities: { conditionalWrite: true },
+    status: "active",
+  });
+
+  const grantA = await controlPlane.addGrant({
+    accessToken: TOKEN_A,
+    refreshToken: REFRESH_A,
+    workspaceId: "ws_a",
+    role: "owner",
+    scopes: ["context:read", "context:write"],
+    clientId: "mcp_client_alpha",
+    userId: "user_a",
+  });
+  await controlPlane.addGrant({
+    accessToken: TOKEN_B,
+    workspaceId: "ws_b",
+    role: "owner",
+    scopes: ["context:read", "context:write"],
+    clientId: "mcp_client_beta",
+    userId: "user_b",
+  });
+  const grantAReadonly = await controlPlane.addGrant({
+    accessToken: TOKEN_A_READONLY,
+    workspaceId: "ws_a",
+    role: "owner",
+    scopes: ["context:read"],
+    clientId: "mcp_client_alpha_readonly",
+    userId: "user_a",
+  });
+  const grantASibling = await controlPlane.addGrant({
+    accessToken: TOKEN_A_SIBLING,
+    workspaceId: "ws_a",
+    role: "owner",
+    scopes: ["context:read", "context:write"],
+    clientId: "mcp_client_alpha_sibling",
+    userId: "user_a",
+  });
+
+  // The sibling connected through the real flow in production; here its client
+  // row is placed directly so it can authenticate at the revocation endpoint.
+  for (const clientId of [
+    "mcp_client_alpha",
+    "mcp_client_alpha_sibling",
+    "mcp_client_alpha_readonly",
+  ]) {
+    controlPlane.clients.set(clientId, {
+      clientId,
+      clientName: clientId,
+      redirectUris: ["https://client.test/callback"],
+      hashedClientSecret: null,
+      tokenEndpointAuthMethod: "none",
+    });
+  }
+
+  // Seed both buckets directly, honouring A's rootPrefix.
+  const bucketA = s3.bucketFor("tenant-a");
+  const bucketB = s3.bucketFor("tenant-ab");
+  bucketA.set("context/privacy.md", { body: PRIVACY_MANIFEST, etag: "a0" });
+  bucketA.set("context/1-projects/alpha.md", { body: "alpha's project", etag: "a1" });
+  bucketA.set("context/index.md", { body: "# alpha index", etag: "a2" });
+  bucketB.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "b0" });
+  bucketB.set("1-projects/beta-secret.md", { body: "BETA-ONLY-MARKER", etag: "b1" });
+  bucketB.set("1-projects/alpha.md", { body: "beta's own file, same name", etag: "b2" });
+
+  const env = {
+    CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+    GATEWAY_SECRET,
+    NATIVE_BINDINGS: "ALLOWED_BUCKET",
+    ALLOWED_BUCKET: memoryR2(),
+    // Present on env and deliberately NOT in NATIVE_BINDINGS. A control plane
+    // that names it must not be able to reach it.
+    LOCAL_CONTEXT_BUCKET: memoryR2({ "secret.md": "CRON-ONLY-MARKER" }),
+  };
+
+  /* ------------------------- 1. cross-tenant isolation ------------------------ */
+
+  const listA = (await callTool(env, TOKEN_A, "list_notes"))?.content?.[0]?.text || "";
+  check("tenant A lists its own notes", listA.includes("1-projects/alpha.md"));
+  check(
+    "tenant A's listing never names tenant B's notes",
+    !listA.includes("beta-secret") && !listA.includes("BETA-ONLY")
+  );
+  check("tenant A's listing is not rootPrefix-decorated", !listA.includes("context/1-projects"));
+
+  const listB = (await callTool(env, TOKEN_B, "list_notes"))?.content?.[0]?.text || "";
+  check("tenant B lists its own notes", listB.includes("1-projects/beta-secret.md"));
+  check("tenant B's listing never names tenant A's notes", !listB.includes("alpha's project"));
+
+  const aReadsBSecret = await callTool(env, TOKEN_A, "read_note", {
+    path: "1-projects/beta-secret.md",
+  });
+  check(
+    "tenant A cannot read a path that exists only in tenant B",
+    aReadsBSecret?.isError === true && !aReadsBSecret.content[0].text.includes("BETA-ONLY")
+  );
+
+  // The same key exists in both buckets with different content: the single
+  // most direct test that the credential, not the key, decides the bucket.
+  const aReadsShared = await callTool(env, TOKEN_A, "read_note", { path: "1-projects/alpha.md" });
+  const bReadsShared = await callTool(env, TOKEN_B, "read_note", { path: "1-projects/alpha.md" });
+  check(
+    "the same key in two tenants resolves to two different objects",
+    aReadsShared.content[0].text.includes("alpha's project") &&
+      bReadsShared.content[0].text.includes("beta's own file")
+  );
+
+  const aSearch = (await callTool(env, TOKEN_A, "search_notes", { query: "BETA-ONLY-MARKER" }))
+    ?.content?.[0]?.text;
+  check("tenant A's search cannot reach tenant B's content", !aSearch.includes("beta-secret"));
+
+  const beforeWrite = bucketB.get("1-projects/alpha.md").body;
+  await callTool(env, TOKEN_A, "write_note", {
+    path: "1-projects/alpha.md",
+    content: "alpha rewrote this",
+    visibility: "team",
+    confirm_team_publish: true,
+  });
+  check(
+    "a write by tenant A lands in tenant A's bucket",
+    bucketA.get("context/1-projects/alpha.md").body === "alpha rewrote this"
+  );
+  check(
+    "a write by tenant A leaves tenant B's identically-keyed object untouched",
+    bucketB.get("1-projects/alpha.md").body === beforeWrite
+  );
+
+  const aCreates = await callTool(env, TOKEN_A, "write_note", {
+    path: "1-projects/brand-new.md",
+    content: "new",
+    visibility: "team",
+    confirm_team_publish: true,
+  });
+  check("tenant A can create a new note", !aCreates.isError);
+  check(
+    "tenant A's new note does not appear in tenant B's bucket",
+    !bucketB.has("1-projects/brand-new.md") && bucketA.has("context/1-projects/brand-new.md")
+  );
+
+  // Existence inference through the workspace selector.
+  const aSelectsB = await rpc(env, TOKEN_A, "ping", {}, { path: "/@alphabet/mcp" });
+  const aSelectsNothing = await rpc(env, TOKEN_A, "ping", {}, { path: "/@nosuchworkspace/mcp" });
+  check("selecting another tenant's workspace is refused", aSelectsB.status === 403);
+  check(
+    "a real workspace you cannot reach is byte-identical to one that does not exist",
+    aSelectsB.status === aSelectsNothing.status &&
+      aSelectsB.text === aSelectsNothing.text &&
+      aSelectsB.response.headers.get("WWW-Authenticate") ===
+        aSelectsNothing.response.headers.get("WWW-Authenticate")
+  );
+  const aSelectsSelf = await rpc(env, TOKEN_A, "ping", {}, { path: "/@alpha/mcp" });
+  const aSelectsSelfBare = await rpc(env, TOKEN_A, "ping", {}, { path: "/alpha/mcp" });
+  check("naming your own workspace in the URL works", aSelectsSelf.body?.result !== undefined);
+  check("the @ is cosmetic and normalised away", aSelectsSelfBare.body?.result !== undefined);
+
+  /* ------------------- 2. a resolution failure is a refusal ------------------- */
+
+  const garbage = await rpc(env, `${token("not_a_real_token")}`, "ping", {});
+  check("an unknown token is refused", garbage.status === 401);
+  check(
+    "an unknown token's refusal names no workspace",
+    !garbage.text.includes("ws_") && !garbage.text.includes("alpha")
+  );
+
+  const noToken = await worker.fetch(
+    new Request("https://mcp.context.test/mcp", { method: "POST", body: "{}" }),
+    env,
+    { waitUntil() {} }
+  );
+  check("no token is refused", noToken.status === 401);
+
+  // The control plane goes down mid-flight. The failure must be a refusal, not
+  // a quiet fallback to some other store.
+  const brokenPlane = {
+    install() {
+      const previous = globalThis.fetch;
+      globalThis.fetch = async (input, init) => {
+        const url = typeof input === "string" ? input : input.url;
+        if (url.startsWith(CONTROL_PLANE_ORIGIN)) return new Response("boom", { status: 500 });
+        return previous(input, init);
+      };
+      return () => {
+        globalThis.fetch = previous;
+      };
+    },
+  };
+  let restoreBroken = brokenPlane.install();
+  const downstream = await rpc(env, TOKEN_A, "ping", {});
+  restoreBroken();
+  check("a control plane outage refuses rather than falling back", downstream.status === 401);
+  check("an outage refusal leaks no note content", !downstream.text.includes("alpha"));
+
+  // A control plane that answers, but with a shape this gateway does not
+  // recognise. Coercing it is how "undefined" becomes a workspace id.
+  const restoreMalformed = withControlPlaneOverride((path) => {
+    if (path === "/gateway/session") return { session: { grantId: "g", clientId: "c" } };
+    return null;
+  }, controlPlane);
+  const malformed = await rpc(env, TOKEN_A, "ping", {});
+  restoreMalformed();
+  check("a malformed session payload is refused, not coerced", malformed.status === 401);
+
+  // The binding call answers with a *different* workspace than the session
+  // resolved to. The two independent resolutions disagree; refuse.
+  const restoreMismatch = withControlPlaneOverride((path, body) => {
+    if (path === "/gateway/binding") {
+      return {
+        binding: {
+          workspaceId: "ws_b",
+          provider: "s3",
+          endpoint: S3_ENDPOINT,
+          region: "auto",
+          bucket: "tenant-ab",
+          accessKeyId: "AKIAEXAMPLEEXAMPLEBB",
+          secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEBB",
+          forcePathStyle: true,
+          capabilities: { conditionalWrite: true },
+          status: "active",
+        },
+      };
+    }
+    return null;
+  }, controlPlane);
+  const mismatch = await rpc(env, TOKEN_A, "tools/call", {
+    name: "list_notes",
+    arguments: {},
+  });
+  restoreMismatch();
+  check(
+    "a binding for the wrong workspace is refused, not served",
+    mismatch.status === 503 && !mismatch.text.includes("beta-secret")
+  );
+
+  // A binding that names a Worker binding the operator never allowlisted.
+  const restoreSmuggled = withControlPlaneOverride((path) => {
+    if (path === "/gateway/binding") {
+      return {
+        binding: {
+          workspaceId: "ws_a",
+          provider: "r2-binding",
+          bindingName: "LOCAL_CONTEXT_BUCKET",
+          capabilities: { conditionalWrite: true },
+          status: "active",
+        },
+      };
+    }
+    return null;
+  }, controlPlane);
+  const smuggled = await rpc(env, TOKEN_A, "tools/call", { name: "list_notes", arguments: {} });
+  restoreSmuggled();
+  check(
+    "a control plane cannot point a tenant at a non-allowlisted worker binding",
+    smuggled.status === 503 && !smuggled.text.includes("CRON-ONLY-MARKER")
+  );
+
+  const restoreUnbound = withControlPlaneOverride((path) => {
+    if (path === "/gateway/binding") return { binding: null };
+    return null;
+  }, controlPlane);
+  const unbound = await rpc(env, TOKEN_A, "tools/call", { name: "list_notes", arguments: {} });
+  restoreUnbound();
+  check("a workspace with no binding is refused", unbound.status === 503);
+  check("an unbound workspace never falls through to another store", !unbound.text.includes("alpha's"));
+
+  /* -------------- 3. the gateway secret is not sufficient on its own ---------- */
+
+  // Proof #1 alone: the gateway secret, with a token that resolves to nothing.
+  const secretOnly = await controlPlane.handle(`${CONTROL_PLANE_ORIGIN}/gateway/binding`, {
+    headers: { Authorization: `Bearer ${GATEWAY_SECRET}` },
+    body: JSON.stringify({ accessToken: "not-a-token", expectedWorkspaceId: "ws_a" }),
+  });
+  check(
+    "the gateway secret alone opens no credential",
+    (await secretOnly.json()).binding === null
+  );
+
+  // Proof #2 alone: a genuine user token, no gateway secret.
+  const tokenOnly = await controlPlane.handle(`${CONTROL_PLANE_ORIGIN}/gateway/binding`, {
+    headers: {},
+    body: JSON.stringify({ accessToken: TOKEN_A, expectedWorkspaceId: "ws_a" }),
+  });
+  check("a user token alone cannot reach the control plane", tokenOnly.status === 401);
+
+  const wrongSecret = await controlPlane.handle(`${CONTROL_PLANE_ORIGIN}/gateway/binding`, {
+    headers: { Authorization: "Bearer not-the-gateway-secret" },
+    body: JSON.stringify({ accessToken: TOKEN_A, expectedWorkspaceId: "ws_a" }),
+  });
+  check("a wrong gateway secret is refused", wrongSecret.status === 401);
+
+  // Both proofs, but the gateway asks for a workspace the grant does not name.
+  const crossAsk = await controlPlane.handle(`${CONTROL_PLANE_ORIGIN}/gateway/binding`, {
+    headers: { Authorization: `Bearer ${GATEWAY_SECRET}` },
+    body: JSON.stringify({ accessToken: TOKEN_A, expectedWorkspaceId: "ws_b" }),
+  });
+  const crossAskBody = await crossAsk.text();
+  const ghostAsk = await controlPlane.handle(`${CONTROL_PLANE_ORIGIN}/gateway/binding`, {
+    headers: { Authorization: `Bearer ${GATEWAY_SECRET}` },
+    body: JSON.stringify({ accessToken: TOKEN_A, expectedWorkspaceId: "ws_does_not_exist" }),
+  });
+  check(
+    "naming another tenant's workspace returns nothing, not that tenant's binding",
+    JSON.parse(crossAskBody).binding === null
+  );
+  check(
+    "a real-but-forbidden workspace is byte-identical to one that does not exist",
+    crossAskBody === (await ghostAsk.text())
+  );
+
+  const grantScoped = await controlPlane.handle(`${CONTROL_PLANE_ORIGIN}/gateway/binding`, {
+    headers: { Authorization: `Bearer ${GATEWAY_SECRET}` },
+    body: JSON.stringify({ accessToken: TOKEN_A, expectedWorkspaceId: null }),
+  });
+  const grantScopedBody = await grantScoped.json();
+  check(
+    "with no workspace named, the grant decides which one comes back",
+    grantScopedBody.binding.workspaceId === "ws_a" && grantScopedBody.binding.bucket === "tenant-a"
+  );
+  check(
+    "a binding response carries exactly one workspace, never a list",
+    !Array.isArray(grantScopedBody.binding) && typeof grantScopedBody.binding.bucket === "string"
+  );
+  // Structural, not behavioural: bulk extraction has to be impossible because
+  // the contract has no shape for it, not because nobody has called it yet.
+  const contractMethods = Object.keys(
+    createControlPlane({ CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET })
+  );
+  check(
+    "the control-plane client exposes no bulk or enumerating call at all",
+    contractMethods.every((name) => !/^(list|all|enumerate|search|find)/i.test(name)) &&
+      contractMethods.includes("getStorageBinding")
+  );
+
+  /* --------------------------- 4. scope enforcement -------------------------- */
+
+  const readOnlyRead = await callTool(env, TOKEN_A_READONLY, "read_note", {
+    path: "1-projects/alpha.md",
+  });
+  check("a read-only grant can read", !readOnlyRead.isError);
+
+  const readOnlyWrite = await callTool(env, TOKEN_A_READONLY, "write_note", {
+    path: "1-projects/alpha.md",
+    content: "should not land",
+    visibility: "team",
+  });
+  check("a read-only grant cannot write", readOnlyWrite.isError === true);
+  check(
+    "a refused write changed nothing",
+    bucketA.get("context/1-projects/alpha.md").body === "alpha rewrote this"
+  );
+
+  const readOnlyMove = await callTool(env, TOKEN_A_READONLY, "move_note", {
+    source: "1-projects/alpha.md",
+    destination: "1-projects/moved.md",
+  });
+  check("a read-only grant cannot move either", readOnlyMove.isError === true);
+
+  const readOnlyTools = (await rpc(env, TOKEN_A_READONLY, "tools/list")).body.result.tools;
+  check(
+    "a read-only grant is not shown write tools",
+    readOnlyTools.every((tool) => tool.annotations?.readOnlyHint === true) &&
+      readOnlyTools.some((tool) => tool.name === "read_note")
+  );
+  const fullTools = (await rpc(env, TOKEN_A, "tools/list")).body.result.tools;
+  check("a full grant is shown every tool", fullTools.length > readOnlyTools.length);
+
+  const captureToken = token("tenant_a_capture");
+  await controlPlane.addGrant({
+    accessToken: captureToken,
+    workspaceId: "ws_a",
+    role: "editor",
+    scopes: ["context:capture"],
+    clientId: "mcp_client_alpha_capture",
+    userId: "user_automation",
+  });
+  const captureAtMcp = await rpc(env, captureToken, "ping", {});
+  check("a capture-only grant cannot open an MCP session at all", captureAtMcp.status === 403);
+  check(
+    "the insufficient-scope refusal says so in the challenge",
+    (captureAtMcp.response.headers.get("WWW-Authenticate") || "").includes(
+      'error="insufficient_scope"'
+    )
+  );
+  const captureAtInbox = await worker.fetch(
+    new Request("https://mcp.context.test/inbox", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${captureToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "auto", text: "captured" }),
+    }),
+    env,
+    { waitUntil() {} }
+  );
+  check("but it can drop a capture in the inbox", captureAtInbox.status === 200);
+  check(
+    "and the capture landed in its own tenant's bucket",
+    [...bucketA.keys()].some((key) => key.startsWith("context/0-inbox/")) &&
+      ![...bucketB.keys()].some((key) => key.startsWith("0-inbox/"))
+  );
+
+  /* ------------------------------ 5. revocation ------------------------------ */
+
+  check(
+    "the sibling client works before revocation",
+    !(await callTool(env, TOKEN_A_SIBLING, "read_note", { path: "1-projects/alpha.md" })).isError
+  );
+  controlPlane.revoke(grantAReadonly);
+  const afterRevoke = await rpc(env, TOKEN_A_READONLY, "ping", {});
+  check("a revoked grant fails closed immediately", afterRevoke.status === 401);
+  check(
+    "revoking one client leaves its siblings working",
+    !(await callTool(env, TOKEN_A_SIBLING, "read_note", { path: "1-projects/alpha.md" })).isError &&
+      !(await callTool(env, TOKEN_A, "read_note", { path: "1-projects/alpha.md" })).isError
+  );
+  check(
+    "a revoked grant cannot fetch a storage credential either",
+    (
+      await (
+        await controlPlane.handle(`${CONTROL_PLANE_ORIGIN}/gateway/binding`, {
+          headers: { Authorization: `Bearer ${GATEWAY_SECRET}` },
+          body: JSON.stringify({ accessToken: TOKEN_A_READONLY, expectedWorkspaceId: null }),
+        })
+      ).json()
+    ).binding === null
+  );
+
+  /* --------------------- 6. discovery and the 401 challenge ------------------ */
+
+  const challenge = noToken.headers.get("WWW-Authenticate") || "";
+  check("a 401 carries a Bearer challenge", challenge.startsWith("Bearer "));
+  check(
+    "the challenge points at the resource metadata",
+    challenge.includes(
+      'resource_metadata="https://mcp.context.test/.well-known/oauth-protected-resource/mcp"'
+    )
+  );
+  check("the challenge advertises the scopes", challenge.includes('scope="context:read'));
+
+  const namedChallenge = (await rpc(env, "", "ping", {}, { path: "/@alpha/mcp" })).response.headers.get(
+    "WWW-Authenticate"
+  );
+  check(
+    "a named-workspace 401 points at that workspace's metadata",
+    namedChallenge.includes("/.well-known/oauth-protected-resource/@alpha/mcp")
+  );
+
+  const prm = await worker.fetch(
+    new Request("https://mcp.context.test/.well-known/oauth-protected-resource"),
+    env,
+    { waitUntil() {} }
+  );
+  const prmBody = await prm.json();
+  check("protected resource metadata is served", prm.status === 200);
+  check("it declares the canonical resource", prmBody.resource === "https://mcp.context.test/mcp");
+  check(
+    "it declares exactly one authorization server",
+    Array.isArray(prmBody.authorization_servers) && prmBody.authorization_servers.length === 1
+  );
+  check("it advertises scopes", prmBody.scopes_supported.includes("context:read"));
+
+  const prmSuffixed = await worker.fetch(
+    new Request("https://mcp.context.test/.well-known/oauth-protected-resource/@alpha/mcp"),
+    env,
+    { waitUntil() {} }
+  );
+  check(
+    "the path-suffixed well-known form is served too",
+    (await prmSuffixed.json()).resource === "https://mcp.context.test/@alpha/mcp"
+  );
+  const prmPrefixed = await worker.fetch(
+    new Request("https://mcp.context.test/@alpha/.well-known/oauth-protected-resource"),
+    env,
+    { waitUntil() {} }
+  );
+  check(
+    "per-workspace discovery works from the endpoint URL too",
+    (await prmPrefixed.json()).resource === "https://mcp.context.test/@alpha/mcp"
+  );
+
+  // The exact URL the 401 challenge points at. "mcp" looks like a slug, and a
+  // metadata document for a workspace called "mcp" would send every client that
+  // followed the challenge to the wrong resource identifier.
+  const prmChallengeTarget = await worker.fetch(
+    new Request("https://mcp.context.test/.well-known/oauth-protected-resource/mcp"),
+    env,
+    { waitUntil() {} }
+  );
+  check(
+    "the challenge's own metadata URL does not read /mcp as a workspace",
+    (await prmChallengeTarget.json()).resource === "https://mcp.context.test/mcp"
+  );
+
+  const asm = await worker.fetch(
+    new Request("https://mcp.context.test/.well-known/oauth-authorization-server"),
+    env,
+    { waitUntil() {} }
+  );
+  const asmBody = await asm.json();
+  check("authorization server metadata is served", asm.status === 200);
+  check("the issuer matches the origin", asmBody.issuer === "https://mcp.context.test");
+  check(
+    "it advertises S256 and only S256",
+    JSON.stringify(asmBody.code_challenge_methods_supported) === JSON.stringify(["S256"])
+  );
+  check(
+    "it advertises the authorization_code and refresh_token grants",
+    asmBody.grant_types_supported.includes("authorization_code") &&
+      asmBody.grant_types_supported.includes("refresh_token")
+  );
+  check("it advertises a registration endpoint", typeof asmBody.registration_endpoint === "string");
+  check("it advertises a revocation endpoint", typeof asmBody.revocation_endpoint === "string");
+
+  check(
+    "an unknown path is a 404, not a 200 that breaks discovery",
+    (await worker.fetch(new Request("https://mcp.context.test/anything"), env, { waitUntil() {} }))
+      .status === 404
+  );
+
+  /* ------------------- 7. no static-token path exists at all ------------------ */
+
+  const staticEnv = {
+    ...env,
+    PRIVATE_TOKEN: "priv-token",
+    TEAM_TOKEN: "team-token",
+    PUBLIC_TOKEN: "pub-token",
+    INBOX_TOKEN: "inbox-token",
+    BRAIN: memoryR2({ "privacy.md": PRIVACY_MANIFEST }),
+  };
+  for (const legacy of ["priv-token", "team-token", "pub-token", "inbox-token"]) {
+    const attempt = await rpc(staticEnv, legacy, "ping", {});
+    check(`a legacy env token (${legacy}) is not a credential any more`, attempt.status === 401);
+  }
+  const legacyInbox = await worker.fetch(
+    new Request("https://mcp.context.test/inbox", {
+      method: "POST",
+      headers: { Authorization: "Bearer inbox-token", "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "should not land" }),
+    }),
+    staticEnv,
+    { waitUntil() {} }
+  );
+  check("the inbox has no static token either", legacyInbox.status === 401);
+  check(
+    "an env-bound BRAIN bucket is unreachable from any request",
+    !JSON.stringify(env).includes("BRAIN")
+  );
+
+  /* ------------------------- 8. registration and PKCE ------------------------ */
+
+  const registration = await worker.fetch(
+    new Request("https://mcp.context.test/oauth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_name: "Test Client",
+        redirect_uris: ["https://client.test/callback"],
+        token_endpoint_auth_method: "none",
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        application_type: "web",
+      }),
+    }),
+    env,
+    { waitUntil() {} }
+  );
+  const registered = await registration.json();
+  check("dynamic client registration returns 201", registration.status === 201);
+  check("registration returns a client_id", typeof registered.client_id === "string");
+  check("a public client gets no secret", registered.client_secret === undefined);
+
+  const badRedirect = await worker.fetch(
+    new Request("https://mcp.context.test/oauth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_name: "Insecure",
+        redirect_uris: ["http://evil.test/callback"],
+      }),
+    }),
+    env,
+    { waitUntil() {} }
+  );
+  check(
+    "a non-loopback http redirect URI is rejected at registration",
+    badRedirect.status === 400 && (await badRedirect.json()).error === "invalid_redirect_uri"
+  );
+
+  const clientId = registered.client_id;
+  const verifier = "a".repeat(64);
+  const challengeValue = await s256(verifier);
+
+  const authorizeUrl = (overrides = {}) => {
+    const params = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: "https://client.test/callback",
+      code_challenge: challengeValue,
+      code_challenge_method: "S256",
+      state: "xyz",
+      scope: "context:read context:write",
+      resource: "https://mcp.context.test/mcp",
+      ...overrides,
+    });
+    return `https://mcp.context.test/oauth/authorize?${params}`;
+  };
+
+  const authorized = await worker.fetch(new Request(authorizeUrl()), env, { waitUntil() {} });
+  check("a valid authorization request redirects to consent", authorized.status === 302);
+  check(
+    "consent is hosted by the control plane, not the gateway",
+    (authorized.headers.get("Location") || "").startsWith(CONTROL_PLANE_ORIGIN)
+  );
+
+  const plainPkce = await worker.fetch(
+    new Request(authorizeUrl({ code_challenge_method: "plain", code_challenge: verifier })),
+    env,
+    { waitUntil() {} }
+  );
+  check("PKCE plain is rejected", plainPkce.status === 302);
+  check(
+    "the plain rejection is an OAuth error on the client's redirect",
+    (plainPkce.headers.get("Location") || "").includes("error=invalid_request")
+  );
+
+  const noPkce = await worker.fetch(
+    new Request(
+      `https://mcp.context.test/oauth/authorize?response_type=code&client_id=${clientId}` +
+        `&redirect_uri=${encodeURIComponent("https://client.test/callback")}`
+    ),
+    env,
+    { waitUntil() {} }
+  );
+  check(
+    "an authorization request with no PKCE at all is rejected",
+    (noPkce.headers.get("Location") || "").includes("error=invalid_request")
+  );
+
+  /* ----------------- 9. redirect URI validation is exact-match --------------- */
+
+  const prefixAttack = await worker.fetch(
+    new Request(authorizeUrl({ redirect_uri: "https://client.test/callback.evil" })),
+    env,
+    { waitUntil() {} }
+  );
+  check("a suffixed redirect URI does not match", prefixAttack.status === 400);
+  const substringAttack = await worker.fetch(
+    new Request(authorizeUrl({ redirect_uri: "https://client.test/call" })),
+    env,
+    { waitUntil() {} }
+  );
+  check("a truncated redirect URI does not match", substringAttack.status === 400);
+  const hostAttack = await worker.fetch(
+    new Request(authorizeUrl({ redirect_uri: "https://client.test.evil.test/callback" })),
+    env,
+    { waitUntil() {} }
+  );
+  check("a lookalike host does not match", hostAttack.status === 400);
+  check(
+    "an unmatched redirect URI is refused without redirecting anywhere",
+    prefixAttack.headers.get("Location") === null
+  );
+
+  // RFC 8252 §7.3: a native client's loopback port is unknowable at
+  // registration time, so the port — and only the port — is ignored.
+  const nativeRegistration = await worker.fetch(
+    new Request("https://mcp.context.test/oauth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_name: "CLI",
+        redirect_uris: ["http://127.0.0.1/callback"],
+        token_endpoint_auth_method: "none",
+        application_type: "native",
+      }),
+    }),
+    env,
+    { waitUntil() {} }
+  );
+  const nativeClient = await nativeRegistration.json();
+  const ephemeral = await worker.fetch(
+    new Request(
+      `https://mcp.context.test/oauth/authorize?response_type=code&client_id=${nativeClient.client_id}` +
+        `&redirect_uri=${encodeURIComponent("http://127.0.0.1:51763/callback")}` +
+        `&code_challenge=${challengeValue}&code_challenge_method=S256`
+    ),
+    env,
+    { waitUntil() {} }
+  );
+  check("a loopback client's ephemeral port is accepted", ephemeral.status === 302);
+  const loopbackPathAttack = await worker.fetch(
+    new Request(
+      `https://mcp.context.test/oauth/authorize?response_type=code&client_id=${nativeClient.client_id}` +
+        `&redirect_uri=${encodeURIComponent("http://127.0.0.1:51763/other")}` +
+        `&code_challenge=${challengeValue}&code_challenge_method=S256`
+    ),
+    env,
+    { waitUntil() {} }
+  );
+  check(
+    "the loopback exception ignores the port and nothing else",
+    loopbackPathAttack.status === 400
+  );
+
+  /* ---------------------- 10. the token endpoint and PKCE -------------------- */
+
+  const authorizationRecord = {
+    clientId,
+    redirectUri: "https://client.test/callback",
+    codeChallenge: challengeValue,
+    codeChallengeMethod: "S256",
+    scope: "context:read context:write",
+    resource: "https://mcp.context.test/mcp",
+    workspaceId: "ws_a",
+    userId: "user_a",
+  };
+
+  controlPlane.issueCode("code-wrong-verifier", authorizationRecord);
+  const wrongVerifier = await postForm(env, "/oauth/token", {
+    grant_type: "authorization_code",
+    code: "code-wrong-verifier",
+    redirect_uri: "https://client.test/callback",
+    client_id: clientId,
+    code_verifier: "b".repeat(64),
+    resource: "https://mcp.context.test/mcp",
+  });
+  check(
+    "a wrong PKCE verifier is rejected",
+    wrongVerifier.status === 400 && wrongVerifier.body.error === "invalid_grant"
+  );
+  const burned = await postForm(env, "/oauth/token", {
+    grant_type: "authorization_code",
+    code: "code-wrong-verifier",
+    redirect_uri: "https://client.test/callback",
+    client_id: clientId,
+    code_verifier: verifier,
+  });
+  check("a code presented with a wrong verifier is burned, not retryable", burned.status === 400);
+
+  controlPlane.issueCode("code-good", authorizationRecord);
+  const exchanged = await postForm(env, "/oauth/token", {
+    grant_type: "authorization_code",
+    code: "code-good",
+    redirect_uri: "https://client.test/callback",
+    client_id: clientId,
+    code_verifier: verifier,
+    resource: "https://mcp.context.test/mcp",
+  });
+  check("a correct verifier exchanges the code", exchanged.status === 200);
+  check("the token response carries a bearer access token", exchanged.body.token_type === "Bearer");
+  check("the token response carries a refresh token", typeof exchanged.body.refresh_token === "string");
+  check("the token response declares an expiry", exchanged.body.expires_in > 0);
+
+  const replay = await postForm(env, "/oauth/token", {
+    grant_type: "authorization_code",
+    code: "code-good",
+    redirect_uri: "https://client.test/callback",
+    client_id: clientId,
+    code_verifier: verifier,
+  });
+  check(
+    "an authorization code is single-use",
+    replay.status === 400 && replay.body.error === "invalid_grant"
+  );
+
+  controlPlane.issueCode("code-redirect-swap", authorizationRecord);
+  const redirectSwap = await postForm(env, "/oauth/token", {
+    grant_type: "authorization_code",
+    code: "code-redirect-swap",
+    redirect_uri: "https://client.test/other",
+    client_id: clientId,
+    code_verifier: verifier,
+  });
+  check("the token exchange re-checks the redirect URI", redirectSwap.status === 400);
+
+  controlPlane.issueCode("code-other-client", { ...authorizationRecord, clientId: "someone_else" });
+  const clientSwap = await postForm(env, "/oauth/token", {
+    grant_type: "authorization_code",
+    code: "code-other-client",
+    redirect_uri: "https://client.test/callback",
+    client_id: clientId,
+    code_verifier: verifier,
+  });
+  check("a code minted for another client cannot be spent", clientSwap.status === 400);
+
+  const wrongAudience = await postForm(env, "/oauth/token", {
+    grant_type: "authorization_code",
+    code: "irrelevant",
+    redirect_uri: "https://client.test/callback",
+    client_id: clientId,
+    code_verifier: verifier,
+    resource: "https://someone-elses-mcp.test/mcp",
+  });
+  check(
+    "a token request for another resource is rejected",
+    wrongAudience.status === 400 && wrongAudience.body.error === "invalid_target"
+  );
+
+  // A client handed `/@alpha/mcp` builds its token request from the workspace-
+  // free metadata endpoint but still sends the per-workspace resource. Rejecting
+  // that would break every real named-workspace connection at the last step.
+  controlPlane.issueCode("code-named-resource", {
+    ...authorizationRecord,
+    resource: "https://mcp.context.test/@alpha/mcp",
+  });
+  const namedResource = await postForm(env, "/oauth/token", {
+    grant_type: "authorization_code",
+    code: "code-named-resource",
+    redirect_uri: "https://client.test/callback",
+    client_id: clientId,
+    code_verifier: verifier,
+    resource: "https://mcp.context.test/@alpha/mcp",
+  });
+  check("a per-workspace resource indicator is accepted", namedResource.status === 200);
+
+  const jsonToken = await worker.fetch(
+    new Request("https://mcp.context.test/oauth/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ grant_type: "refresh_token" }),
+    }),
+    env,
+    { waitUntil() {} }
+  );
+  check("the token endpoint insists on form encoding", jsonToken.status === 400);
+
+  /* --------------------- 11. the new grant actually works -------------------- */
+
+  const newToken = exchanged.body.access_token;
+  const newSession = await callTool(env, newToken, "read_note", { path: "1-projects/alpha.md" });
+  check("a token minted by the flow reaches its workspace", !newSession.isError);
+  check(
+    "and reaches only its workspace",
+    (await callTool(env, newToken, "read_note", { path: "1-projects/beta-secret.md" })).isError ===
+      true
+  );
+
+  const refreshed = await postForm(env, "/oauth/token", {
+    grant_type: "refresh_token",
+    refresh_token: exchanged.body.refresh_token,
+    client_id: clientId,
+    resource: "https://mcp.context.test/mcp",
+  });
+  check("refresh returns a new access token", refreshed.status === 200);
+  check(
+    "refresh rotates the refresh token",
+    refreshed.body.refresh_token !== exchanged.body.refresh_token
+  );
+  const reusedRefresh = await postForm(env, "/oauth/token", {
+    grant_type: "refresh_token",
+    refresh_token: exchanged.body.refresh_token,
+    client_id: clientId,
+  });
+  check(
+    "a reused refresh token is invalid_grant",
+    reusedRefresh.status === 400 && reusedRefresh.body.error === "invalid_grant"
+  );
+  check(
+    "reusing a rotated refresh token kills the whole grant",
+    (await rpc(env, refreshed.body.access_token, "ping", {})).status === 401
+  );
+
+  /* ------------------------------ 12. revocation ----------------------------- */
+
+  const revoke = await postForm(env, "/oauth/revoke", {
+    token: TOKEN_A_SIBLING,
+    token_type_hint: "access_token",
+    client_id: "mcp_client_alpha_sibling",
+  });
+  check("revocation answers 200", revoke.status === 200);
+  check(
+    "the revoked client is cut off immediately",
+    (await rpc(env, TOKEN_A_SIBLING, "ping", {})).status === 401
+  );
+  check(
+    "its sibling on the same workspace is untouched",
+    (await rpc(env, TOKEN_A, "ping", {})).body?.result !== undefined
+  );
+  check(
+    "revocation of an unknown token still answers 200",
+    (
+      await postForm(env, "/oauth/revoke", {
+        token: "not-a-token",
+        client_id: "mcp_client_alpha_sibling",
+      })
+    ).status === 200
+  );
+
+  /* ------------------- 13. the credential is never cached -------------------- */
+
+  const before = controlPlane.calls.filter((c) => c.path === "/gateway/binding").length;
+  await callTool(env, TOKEN_A, "read_note", { path: "1-projects/alpha.md" });
+  await callTool(env, TOKEN_A, "read_note", { path: "1-projects/alpha.md" });
+  const after = controlPlane.calls.filter((c) => c.path === "/gateway/binding").length;
+  check("the storage binding is fetched afresh on every request", after - before === 2);
+  check(
+    "every binding fetch carries the caller's own token, not a workspace id",
+    controlPlane.calls
+      .filter((c) => c.path === "/gateway/binding")
+      .every((c) => typeof c.body.accessToken === "string" && c.body.accessToken.length > 0)
+  );
+
+  /* ------------------------- 14. no secret ever escapes ---------------------- */
+
+  const everythingSaid = [
+    listA,
+    listB,
+    garbage.text,
+    downstream.text,
+    unbound.text,
+    smuggled.text,
+    mismatch.text,
+    JSON.stringify(exchanged.body),
+    challenge,
+    JSON.stringify(prmBody),
+    JSON.stringify(asmBody),
+  ].join("\n");
+  check(
+    "no response ever contains the gateway secret",
+    !everythingSaid.includes(GATEWAY_SECRET)
+  );
+  check(
+    "no response ever contains a storage credential",
+    !everythingSaid.includes("wJalrXUtnFEMI") && !everythingSaid.includes("AKIAEXAMPLE")
+  );
+  check(
+    "no response names the control plane origin",
+    !garbage.text.includes(CONTROL_PLANE_ORIGIN) && !downstream.text.includes(CONTROL_PLANE_ORIGIN)
+  );
+
+  restoreControlPlane();
+  restoreS3();
+  restoreFetch();
+}
+
+/**
+ * Temporarily answer selected control-plane paths with a scripted payload,
+ * falling through to the real stub for anything the script returns null for.
+ */
+function withControlPlaneOverride(script, controlPlane) {
+  const previous = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url.startsWith(CONTROL_PLANE_ORIGIN)) {
+      const path = new URL(url).pathname;
+      const body = init?.body ? JSON.parse(init.body) : {};
+      const scripted = script(path, body);
+      if (scripted !== null && scripted !== undefined) {
+        return new Response(JSON.stringify(scripted), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return controlPlane.handle(url, init);
+    }
+    return previous(input, init);
+  };
+  return () => {
+    globalThis.fetch = previous;
+  };
+}
+
+/** The smallest thing that looks like an R2 binding. */
+function memoryR2(seed = {}) {
+  const objects = new Map(
+    Object.entries(seed).map(([key, body]) => [key, { body, etag: `m${key.length}` }])
+  );
+  let counter = 0;
+  return {
+    async get(key) {
+      if (!objects.has(key)) return null;
+      const { body, etag } = objects.get(key);
+      return {
+        etag,
+        text: async () => body,
+        arrayBuffer: async () => new TextEncoder().encode(body).buffer,
+      };
+    },
+    async put(key, value, options = {}) {
+      const expected = options?.onlyIf?.etagMatches;
+      if (expected && objects.get(key)?.etag !== expected) return null;
+      const body = typeof value === "string" ? value : new TextDecoder().decode(value);
+      const etag = `m${++counter}`;
+      objects.set(key, { body, etag });
+      return { etag };
+    },
+    async delete(key) {
+      objects.delete(key);
+    },
+    async list({ prefix } = {}) {
+      return {
+        objects: [...objects.keys()]
+          .filter((key) => !prefix || key.startsWith(prefix))
+          .sort()
+          .map((key) => ({ key, size: objects.get(key).body.length, uploaded: new Date() })),
+        truncated: false,
+      };
+    },
+  };
+}

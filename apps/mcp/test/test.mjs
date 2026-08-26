@@ -1,6 +1,12 @@
 import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
 import { runStoreChecks } from "./store.test.mjs";
+import { runTenancyChecks } from "./tenancy.test.mjs";
+import {
+  CONTROL_PLANE_ORIGIN,
+  GATEWAY_SECRET,
+  createControlPlaneStub,
+} from "./controlPlaneStub.mjs";
 
 // --- in-memory R2 stub, wrapped in the same adapter the worker builds ---
 const objects = new Map();
@@ -40,12 +46,95 @@ const bucket = {
 // same adapter the worker uses rather than the raw binding.
 const contextStore = new R2Store(bucket);
 
+/**
+ * This suite used to hand the worker three static env tokens. There are no
+ * static tokens any more: every request resolves through OAuth and the control
+ * plane, so the harness stands up a control plane that speaks the real HTTP
+ * contract and binds one workspace to the in-memory bucket above.
+ *
+ * The short names below (`priv-token`, `team-token`, …) survive as *labels*
+ * only, mapped to real OAuth-shaped access tokens by `accessTokenFor`. Keeping
+ * them means the ~200 behavioural checks in this file stayed exactly as they
+ * were while the access model underneath them changed completely — which is the
+ * point: privacy semantics are supposed to be unaffected by how a caller
+ * authenticated.
+ */
+const controlPlane = createControlPlaneStub();
+controlPlane.install();
+
+const WORKSPACE_ID = "ws_primary";
+controlPlane.addWorkspace(WORKSPACE_ID, "primary", {
+  provider: "r2-binding",
+  bindingName: "CONTEXT_BUCKET",
+  capabilities: { conditionalWrite: true },
+  status: "active",
+});
+
+/**
+ * Real tokens are long and opaque; the labels are not. Anything short would be
+ * rejected before it reached the control plane, which is itself correct.
+ */
+const ACCESS_TOKENS = {
+  "priv-token": "cat_test_owner_full_0000000000000000",
+  "team-token": "cat_test_member_read_000000000000000",
+  "pub-token": "cat_test_member_alias_00000000000000",
+  "inbox-token": "cat_test_capture_only_00000000000000",
+  "readonly-token": "cat_test_owner_readonly_000000000000",
+};
+function accessTokenFor(label) {
+  return ACCESS_TOKENS[label] || label;
+}
+
+// An owner: privacy tier `private`, full write.
+await controlPlane.addGrant({
+  accessToken: ACCESS_TOKENS["priv-token"],
+  workspaceId: WORKSPACE_ID,
+  role: "owner",
+  scopes: ["context:read", "context:write"],
+  clientId: "mcp_client_owner",
+  userId: "user_owner",
+});
+// Editors: privacy tier `team`, may write team content. Two of them, because
+// `pub-token` used to be a second static credential and the checks that used it
+// are really checks about the team tier.
+for (const label of ["team-token", "pub-token"]) {
+  await controlPlane.addGrant({
+    accessToken: ACCESS_TOKENS[label],
+    workspaceId: WORKSPACE_ID,
+    role: "editor",
+    scopes: ["context:read", "context:write"],
+    clientId: `mcp_client_${label}`,
+    userId: "user_colleague",
+  });
+}
+// Capture-only: may POST to /inbox and may not read a single note.
+await controlPlane.addGrant({
+  accessToken: ACCESS_TOKENS["inbox-token"],
+  workspaceId: WORKSPACE_ID,
+  role: "editor",
+  scopes: ["context:capture"],
+  clientId: "mcp_client_capture",
+  userId: "user_automation",
+});
+// An owner whose client was connected read-only.
+await controlPlane.addGrant({
+  accessToken: ACCESS_TOKENS["readonly-token"],
+  workspaceId: WORKSPACE_ID,
+  role: "owner",
+  scopes: ["context:read"],
+  clientId: "mcp_client_readonly",
+  userId: "user_owner",
+});
+
 const env = {
-  BRAIN: bucket,
-  PRIVATE_TOKEN: "priv-token",
-  TEAM_TOKEN: "team-token",
-  PUBLIC_TOKEN: "pub-token",
-  INBOX_TOKEN: "inbox-token",
+  CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+  GATEWAY_SECRET,
+  // The one binding name this deployment will honour from a control-plane
+  // answer. Anything else is refused even if it exists on `env`.
+  NATIVE_BINDINGS: "CONTEXT_BUCKET",
+  CONTEXT_BUCKET: bucket,
+  // Cron and webhook ingestion only; no caller can reach this.
+  LOCAL_CONTEXT_BUCKET: bucket,
   GRANOLA_WEBHOOK_SECRET: `whsec_${btoa("granola-webhook-secret")}`,
   GRANOLA_API_KEY: "granola-api-key",
 };
@@ -73,7 +162,10 @@ let rpcId = 0;
 async function rpc(token, method, params) {
   const req = new Request("https://x/mcp", {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    headers: {
+      Authorization: `Bearer ${accessTokenFor(token)}`,
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
   });
   const res = await worker.fetch(req, env, { waitUntil() {} });
@@ -99,7 +191,7 @@ check("initialize prompts scoped chat archiving", init.result.instructions.inclu
 const noteRes = await worker.fetch(
   new Request("https://x/mcp", {
     method: "POST",
-    headers: { Authorization: "Bearer priv-token" },
+    headers: { Authorization: `Bearer ${accessTokenFor("priv-token")}` },
     body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
   }),
   env,
@@ -161,9 +253,9 @@ const bad = await worker.fetch(
 );
 check("no token → 401", bad.status === 401);
 const teamAliasPing = await rpc("team-token", "ping", {});
-check("TEAM_TOKEN authenticates as a team connection", !!teamAliasPing?.result);
+check("an editor grant authenticates as a team connection", !!teamAliasPing?.result);
 check(
-  "legacy PUBLIC_TOKEN remains a supported team-credential alias",
+  "a second editor grant is an independent connection at the same tier",
   !!(await rpc("pub-token", "ping", {}))?.result
 );
 check(
@@ -899,7 +991,7 @@ check("audit plumbing is hidden from note listings", !listAfterAudit.includes(".
 
 // -- path token + inbox
 const pt = await worker.fetch(
-  new Request("https://x/t/pub-token/mcp", {
+  new Request(`https://x/t/${encodeURIComponent(accessTokenFor("pub-token"))}/mcp`, {
     method: "POST",
     body: JSON.stringify({ jsonrpc: "2.0", id: 999, method: "ping" }),
   }),
@@ -910,7 +1002,7 @@ check("token-in-path auth works", (await pt.json()).id === 999);
 const inbox = await worker.fetch(
   new Request("https://x/inbox", {
     method: "POST",
-    headers: { Authorization: "Bearer inbox-token", "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${accessTokenFor("inbox-token")}`, "Content-Type": "application/json" },
     body: JSON.stringify({ title: "Idea!", text: "capture me" }),
   }),
   env,
@@ -931,7 +1023,7 @@ const granolaPayload = {
 const granolaRequest = () =>
   new Request("https://x/inbox", {
     method: "POST",
-    headers: { Authorization: "Bearer inbox-token", "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${accessTokenFor("inbox-token")}`, "Content-Type": "application/json" },
     body: JSON.stringify(granolaPayload),
   });
 const granolaInbox = await worker.fetch(granolaRequest(), env, { waitUntil() {} });
@@ -956,7 +1048,7 @@ check(
 const invalidInboxJson = await worker.fetch(
   new Request("https://x/inbox", {
     method: "POST",
-    headers: { Authorization: "Bearer inbox-token", "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${accessTokenFor("inbox-token")}`, "Content-Type": "application/json" },
     body: "{nope",
   }),
   env,
@@ -967,7 +1059,7 @@ const oversizedInbox = await worker.fetch(
   new Request("https://x/inbox", {
     method: "POST",
     headers: {
-      Authorization: "Bearer inbox-token",
+      Authorization: `Bearer ${accessTokenFor("inbox-token")}`,
       "Content-Type": "text/plain",
       "Content-Length": "2000001",
     },
@@ -1183,7 +1275,21 @@ check("cron expands yearly recurrence", recurringCal.includes("12:00 — Yearly 
 check("calendar note reports recurring support", recurringCal.includes("Common recurring-event rules are expanded"));
 
 // -- storage adapters: signing, listing, rootPrefix, capability probe
-await runStoreChecks(check);
+// The cron checks above replaced globalThis.fetch wholesale to serve an ICS
+// feed. Everything below authenticates through the control plane again.
+controlPlane.install();
+await runStoreChecks(check, {
+  // The hostile-backend checks need a real way in; there is only one.
+  env,
+  ownerToken: accessTokenFor("priv-token"),
+});
+
+// -- multi-tenancy, OAuth, and the ways both are supposed to fail
+//
+// Last, and with its own control plane and object store: it swaps
+// globalThis.fetch and restores it, so it must not run while the calendar cron
+// checks above still own that global.
+await runTenancyChecks(check);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");
 process.exit(failures ? 1 : 0);

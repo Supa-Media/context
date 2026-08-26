@@ -1,0 +1,430 @@
+/**
+ * An in-memory control plane that speaks the exact HTTP contract documented in
+ * `src/controlPlane.js`.
+ *
+ * It is deliberately a *server*, not a mock of the client. The worker builds a
+ * real `createControlPlane()`, makes real `fetch` calls, and this answers them —
+ * so the request and response shapes in the contract comment are executed on
+ * every run rather than described. If the Convex side is built to a different
+ * shape, these tests are the thing that was wrong.
+ *
+ * It also enforces the security rules the contract asks Convex to enforce,
+ * because a stub that is more permissive than the real thing turns every
+ * isolation test into a test of the stub's good manners:
+ *
+ *  - the gateway secret is checked on every call;
+ *  - a binding is resolved **from the access token**, never from a workspace id
+ *    the caller supplied;
+ *  - `expectedWorkspaceId` can only cause a refusal, never a selection;
+ *  - a revoked or expired grant resolves to nothing, immediately;
+ *  - refusals are byte-identical whether or not the workspace exists.
+ *
+ * Everything in here is obviously fake. This repository is public.
+ */
+
+const encoder = new TextEncoder();
+
+export async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(value));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export const CONTROL_PLANE_ORIGIN = "https://control-plane.test";
+export const GATEWAY_SECRET = "test-gateway-secret-not-a-real-one";
+
+export function createControlPlaneStub(options = {}) {
+  const origin = options.origin || CONTROL_PLANE_ORIGIN;
+  const secret = options.secret || GATEWAY_SECRET;
+
+  /** workspaceId → binding descriptor (without workspaceId; added on the way out). */
+  const bindings = new Map();
+  /** workspaceId → { slug } */
+  const workspaces = new Map();
+  /** grantId → grant */
+  const grants = new Map();
+  /** sha256(access token) → grantId */
+  const accessTokens = new Map();
+  /** sha256(refresh token) → grantId */
+  const refreshTokens = new Map();
+  /** sha256 of a *previous* refresh token → grantId, for reuse detection */
+  const retiredRefreshTokens = new Map();
+  /** clientId → registered client */
+  const clients = new Map();
+  /** code → authorization record */
+  const codes = new Map();
+  /** requestId → parked authorization request */
+  const pendingAuthorizations = new Map();
+
+  /** Every call the worker made, for assertions about what was sent. */
+  const calls = [];
+
+  let grantCounter = 0;
+
+  function addWorkspace(workspaceId, slug, binding) {
+    workspaces.set(workspaceId, { slug });
+    bindings.set(workspaceId, binding);
+  }
+
+  async function addGrant({
+    accessToken,
+    refreshToken,
+    workspaceId,
+    role = "owner",
+    scopes = ["context:read", "context:write"],
+    clientId = "mcp_test_client",
+    userId = "user_test",
+    expiresAt,
+  }) {
+    const grantId = `grant_${++grantCounter}`;
+    grants.set(grantId, {
+      grantId,
+      workspaceId,
+      role,
+      scopes,
+      clientId,
+      userId,
+      status: "active",
+      expiresAt: expiresAt ?? Date.now() + 3_600_000,
+    });
+    accessTokens.set(await sha256Hex(accessToken), grantId);
+    if (refreshToken) refreshTokens.set(await sha256Hex(refreshToken), grantId);
+    return grantId;
+  }
+
+  function revoke(grantId) {
+    const grant = grants.get(grantId);
+    if (grant) grant.status = "revoked";
+  }
+
+  /** Resolve a presented access token exactly as Convex must: hash, then look up. */
+  async function grantForAccessToken(token) {
+    if (typeof token !== "string" || !token) return null;
+    const grantId = accessTokens.get(await sha256Hex(token));
+    if (!grantId) return null;
+    const grant = grants.get(grantId);
+    if (!grant || grant.status !== "active") return null;
+    if (typeof grant.expiresAt === "number" && grant.expiresAt <= Date.now()) return null;
+    return grant;
+  }
+
+  function ok(body) {
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  async function handle(url, init = {}) {
+    const parsed = new URL(url);
+    const path = parsed.pathname;
+    const body = init.body ? JSON.parse(init.body) : {};
+    const auth = init.headers?.Authorization || "";
+    calls.push({ path, body, auth });
+
+    // Proof #1: this caller is the gateway. Without it, nothing below runs.
+    if (auth !== `Bearer ${secret}`) {
+      return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 });
+    }
+
+    switch (path) {
+      case "/gateway/session": {
+        const grant = await grantForAccessToken(body.accessToken);
+        if (!grant) return ok({ session: null });
+        const workspace = workspaces.get(grant.workspaceId);
+        return ok({
+          session: {
+            grantId: grant.grantId,
+            clientId: grant.clientId,
+            actorUserId: grant.userId,
+            scopes: grant.scopes,
+            expiresAt: grant.expiresAt,
+            defaultWorkspaceId: grant.workspaceId,
+            workspaces: [
+              {
+                workspaceId: grant.workspaceId,
+                slug: workspace?.slug ?? null,
+                role: grant.role,
+              },
+            ],
+          },
+        });
+      }
+
+      case "/gateway/binding": {
+        // Proof #2: a live user grant. The workspace comes from THAT, never
+        // from the caller. `expectedWorkspaceId` is only ever a veto.
+        const grant = await grantForAccessToken(body.accessToken);
+        if (!grant) return ok({ binding: null });
+        if (
+          body.expectedWorkspaceId !== null &&
+          body.expectedWorkspaceId !== undefined &&
+          body.expectedWorkspaceId !== grant.workspaceId
+        ) {
+          // Identical to "no such workspace". Distinguishing the two would make
+          // this a customer-list oracle for anyone holding the gateway secret.
+          return ok({ binding: null });
+        }
+        const binding = bindings.get(grant.workspaceId);
+        if (!binding) return ok({ binding: null });
+        return ok({ binding: { workspaceId: grant.workspaceId, ...binding } });
+      }
+
+      case "/gateway/clients/register": {
+        clients.set(body.clientId, {
+          clientId: body.clientId,
+          clientName: body.clientName,
+          redirectUris: body.redirectUris,
+          hashedClientSecret: body.hashedClientSecret,
+          tokenEndpointAuthMethod: body.tokenEndpointAuthMethod,
+        });
+        return ok({ ok: true });
+      }
+
+      case "/gateway/clients/get":
+        return ok({ client: clients.get(body.clientId) || null });
+
+      case "/gateway/authorize/start": {
+        const requestId = `req_${pendingAuthorizations.size + 1}`;
+        pendingAuthorizations.set(requestId, body);
+        return ok({
+          requestId,
+          consentUrl: `${origin}/authorize?request_id=${requestId}`,
+        });
+      }
+
+      case "/gateway/codes/consume": {
+        const record = codes.get(body.code);
+        // Atomic single use: gone on read, so a replay — even a concurrent one
+        // — sees exactly what a code that never existed sees.
+        codes.delete(body.code);
+        if (!record) return ok({ authorization: null });
+        if (record.expiresAt <= Date.now()) return ok({ authorization: null });
+        if (record.clientId !== body.clientId) return ok({ authorization: null });
+        return ok({ authorization: record });
+      }
+
+      case "/gateway/grants/create": {
+        const grantId = `grant_${++grantCounter}`;
+        grants.set(grantId, {
+          grantId,
+          workspaceId: body.workspaceId,
+          userId: body.userId,
+          clientId: body.clientId,
+          scopes: body.scopes,
+          role: workspaces.get(body.workspaceId)?.role || "owner",
+          status: "active",
+          expiresAt: body.accessTokenExpiresAt,
+        });
+        accessTokens.set(body.hashedAccessToken, grantId);
+        refreshTokens.set(body.hashedRefreshToken, grantId);
+        return ok({ grantId });
+      }
+
+      case "/gateway/grants/rotate": {
+        const presentedHash = await sha256Hex(body.refreshToken);
+        const grantId = refreshTokens.get(presentedHash);
+        if (!grantId) {
+          // Reuse of an already-rotated refresh token: the token leaked, so the
+          // grant dies rather than the request merely failing.
+          const retired = retiredRefreshTokens.get(presentedHash);
+          if (retired) revoke(retired);
+          return ok({ grant: null });
+        }
+        const grant = grants.get(grantId);
+        if (!grant || grant.status !== "active" || grant.clientId !== body.clientId) {
+          return ok({ grant: null });
+        }
+        refreshTokens.delete(presentedHash);
+        retiredRefreshTokens.set(presentedHash, grantId);
+        refreshTokens.set(body.newHashedRefreshToken, grantId);
+        for (const [hash, id] of [...accessTokens]) {
+          if (id === grantId) accessTokens.delete(hash);
+        }
+        accessTokens.set(body.newHashedAccessToken, grantId);
+        grant.expiresAt = body.accessTokenExpiresAt;
+        if (Array.isArray(body.scopes) && body.scopes.length) grant.scopes = body.scopes;
+        return ok({
+          grant: {
+            grantId,
+            workspaceId: grant.workspaceId,
+            userId: grant.userId,
+            clientId: grant.clientId,
+            scopes: grant.scopes,
+          },
+        });
+      }
+
+      case "/gateway/grants/revoke": {
+        const hash = await sha256Hex(body.token);
+        const grantId =
+          body.tokenType === "access" ? accessTokens.get(hash) : refreshTokens.get(hash);
+        if (!grantId) return ok({ revoked: false });
+        const grant = grants.get(grantId);
+        // A client may only revoke its own grant; revoking a sibling would
+        // defeat the entire point of per-client grants.
+        if (!grant || grant.clientId !== body.clientId) return ok({ revoked: false });
+        revoke(grantId);
+        return ok({ revoked: true });
+      }
+
+      default:
+        return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
+    }
+  }
+
+  /**
+   * Replace `globalThis.fetch` with one that answers this control plane and
+   * hands everything else to whatever was there before. Returns a restore
+   * function.
+   */
+  function install() {
+    const previous = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.startsWith(origin)) return handle(url, init);
+      return previous ? previous(input, init) : new Response("", { status: 404 });
+    };
+    return () => {
+      globalThis.fetch = previous;
+    };
+  }
+
+  /** Park an authorization code, as the consent screen would after approval. */
+  function issueCode(code, record) {
+    codes.set(code, { expiresAt: Date.now() + 600_000, ...record });
+  }
+
+  return {
+    origin,
+    secret,
+    handle,
+    install,
+    addWorkspace,
+    addGrant,
+    revoke,
+    issueCode,
+    grants,
+    clients,
+    codes,
+    bindings,
+    accessTokens,
+    refreshTokens,
+    pendingAuthorizations,
+    calls,
+  };
+}
+
+/**
+ * A tiny S3-compatible backend over an in-memory map.
+ *
+ * Enough of GetObject / PutObject / DeleteObject / ListObjectsV2 for `S3Store`
+ * to drive a real workspace end to end, so the isolation tests exercise the
+ * actual signing and URL-building path rather than a store stub. Every bucket
+ * created here lives behind one endpoint host, which is the point: tenants on
+ * the *same provider, same endpoint, adjacent bucket names* is the arrangement
+ * a prefix-confusion bug would leak across.
+ */
+export function createS3Backend(endpointOrigin = "https://s3.example-object-storage.test") {
+  /** bucket → Map(key → { body, etag }) */
+  const buckets = new Map();
+  let etagCounter = 0;
+
+  function bucketFor(name) {
+    if (!buckets.has(name)) buckets.set(name, new Map());
+    return buckets.get(name);
+  }
+
+  async function handle(url, init = {}) {
+    const parsed = new URL(url);
+    const method = (init.method || "GET").toUpperCase();
+    // Path-style addressing: /<bucket>/<key...>
+    const segments = parsed.pathname.replace(/^\/+/, "").split("/");
+    const bucketName = decodeURIComponent(segments.shift() || "");
+    const key = segments.map(decodeURIComponent).join("/");
+    const objects = bucketFor(bucketName);
+
+    if (method === "GET" && parsed.searchParams.get("list-type") === "2") {
+      const prefix = parsed.searchParams.get("prefix") || "";
+      const delimiter = parsed.searchParams.get("delimiter") || "";
+      const contents = [];
+      const commonPrefixes = new Set();
+      for (const [objectKey, value] of [...objects.entries()].sort()) {
+        if (!objectKey.startsWith(prefix)) continue;
+        if (delimiter) {
+          const remainder = objectKey.slice(prefix.length);
+          const slash = remainder.indexOf(delimiter);
+          if (slash !== -1) {
+            commonPrefixes.add(prefix + remainder.slice(0, slash + 1));
+            continue;
+          }
+        }
+        contents.push({ key: objectKey, size: value.body.length, etag: value.etag });
+      }
+      const xml =
+        `<?xml version="1.0" encoding="UTF-8"?><ListBucketResult>` +
+        `<Name>${bucketName}</Name><IsTruncated>false</IsTruncated>` +
+        contents
+          .map(
+            (item) =>
+              `<Contents><Key>${escapeXml(item.key)}</Key>` +
+              `<LastModified>2026-08-01T10:00:00.000Z</LastModified>` +
+              `<ETag>&quot;${item.etag}&quot;</ETag><Size>${item.size}</Size></Contents>`
+          )
+          .join("") +
+        [...commonPrefixes]
+          .map((p) => `<CommonPrefixes><Prefix>${escapeXml(p)}</Prefix></CommonPrefixes>`)
+          .join("") +
+        `</ListBucketResult>`;
+      return new Response(xml, { status: 200 });
+    }
+
+    if (method === "GET") {
+      const object = objects.get(key);
+      if (!object) return new Response("", { status: 404 });
+      return new Response(object.body, { status: 200, headers: { etag: `"${object.etag}"` } });
+    }
+
+    if (method === "PUT") {
+      const ifMatch = init.headers?.["if-match"];
+      if (ifMatch) {
+        const expected = ifMatch.replace(/^"|"$/g, "");
+        const current = objects.get(key);
+        if (!current || current.etag !== expected) return new Response("", { status: 412 });
+      }
+      const body =
+        typeof init.body === "string"
+          ? init.body
+          : new TextDecoder().decode(
+              init.body instanceof Uint8Array ? init.body : new Uint8Array(init.body)
+            );
+      const etag = `s${++etagCounter}`;
+      objects.set(key, { body, etag });
+      return new Response("", { status: 200, headers: { etag: `"${etag}"` } });
+    }
+
+    if (method === "DELETE") {
+      objects.delete(key);
+      return new Response("", { status: 204 });
+    }
+
+    return new Response("", { status: 405 });
+  }
+
+  function install() {
+    const previous = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.startsWith(endpointOrigin)) return handle(url, init);
+      return previous ? previous(input, init) : new Response("", { status: 404 });
+    };
+    return () => {
+      globalThis.fetch = previous;
+    };
+  }
+
+  return { endpoint: endpointOrigin, buckets, bucketFor, handle, install };
+}
+
+function escapeXml(value) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
