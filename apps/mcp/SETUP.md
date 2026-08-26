@@ -209,6 +209,56 @@ labels are descriptive, not access control.
 
 ---
 
+## Storage adapter
+
+All storage goes through a `ContextStore` (`src/store/`), never through a
+binding directly:
+
+| Adapter   | File              | Use                                                                   |
+| --------- | ----------------- | --------------------------------------------------------------------- |
+| `R2Store` | `src/store/r2.js` | a Cloudflare R2 binding (what this deployment uses)                    |
+| `S3Store` | `src/store/s3.js` | any S3-compatible endpoint — R2's S3 API, AWS S3, Backblaze B2, Wasabi |
+
+`src/index.js` builds the store in exactly one place (`storeForRequest`), so
+pointing a deployment at a different bucket is a change there and nowhere else.
+`S3Store` signs its own requests with AWS Signature V4 using `fetch` and Web
+Crypto — no SDK, no dependencies.
+
+Three rules the adapters exist to protect:
+
+- **Keys are never rewritten.** A note lives at `1-projects/foo.md` in the
+  customer's bucket, full stop. If a customer configures a `rootPrefix`, the
+  adapter applies it and strips it back off; nothing above the adapter ever sees
+  it. A bucket that already looks like a context connects with zero migration,
+  and Obsidian/Remotely Save keeps working. (One documented exception: a list
+  `cursor` is an opaque backend token that still encodes the prefix. It is
+  passed through unchanged and never leaves the adapter's pagination loop — see
+  the comment on `stripListResult`.)
+- **Keys are validated, never normalized.** `.`, `..`, empty segments, control
+  characters, and backslashes are rejected at the adapter boundary, identically
+  for both adapters. Silently rewriting `a/../b.md` would escape the
+  `rootPrefix` — and, path-style, the bucket itself — with a perfectly valid
+  signature.
+- **Conditional writes are verified, not assumed.** `put(key, value, { onlyIf:
+  { etagMatches } })` is what makes every etag check in the tools real. R2 and
+  AWS S3 honour `If-Match`; **B2 and Wasabi accept the header and ignore it.**
+  Call `probeStore(store)` at connect time: it writes a temp object under
+  `.context-probe/` and proves all three halves of the contract — a wrong
+  `If-Match` is rejected, a correct one is accepted, and a now-stale one is
+  rejected again — then cleans up and returns a structured result. All three
+  matter: a backend that only checks etag *shape* passes the first two and
+  still does last-writer-wins on real conflicts.
+  `conditionalWrite.mismatch: true` means the backend claims a capability it
+  does not have — degrade honestly rather than losing conflict detection
+  silently.
+
+`S3Store` addresses buckets **path-style by default**. Virtual-hosted
+addressing (`<bucket>.<host>/<key>`) is opt-in with `forcePathStyle: false`. If
+the endpoint's first host label happens to equal the bucket name — `s3` on
+`s3.wasabisys.com`, or an account id on `<account>.r2.cloudflarestorage.com` —
+the constructor throws and asks for an explicit `forcePathStyle`, because
+guessing wrong there silently sends reads and writes to a *different bucket*.
+
 ## Operations
 
 - **Audit privacy** = read `privacy.md` in Obsidian or through personal MCP

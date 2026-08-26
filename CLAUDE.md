@@ -17,7 +17,7 @@ breaking one, stop and say so rather than working around it.
 - The control plane is **never** the canonical store. It holds metadata only:
   accounts, workspaces, storage bindings, grants, audit. Never note content.
 - A customer can revoke our storage credential without asking us first, and
-  keep a complete, usable brain.
+  keep a complete, usable context.
 - Credentials never live in Markdown, in the customer's bucket, in logs, in
   URLs, or on a device. Encrypted at rest in the control plane, decrypted only
   in the gateway at request time.
@@ -80,7 +80,7 @@ Zero npm dependencies — keep it that way. It runs on the Workers runtime, so
 use Web Crypto and `fetch`, not Node APIs.
 
 `pnpm test` in `apps/mcp` runs the suite against an in-memory store stub. It is
-fast, offline, and currently 134 checks. **Do not let it regress.** If you
+fast, offline, and currently 194 checks. **Do not let it regress.** If you
 change behavior, change the test in the same commit and say why.
 
 The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,

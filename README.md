@@ -21,8 +21,8 @@ That's not a feature we might remove later. It's the architecture:
 - **Plain files are canonical.** Markdown you can open in Obsidian, grep, or
   `rclone` out. Never a proprietary database that becomes the only copy.
 - **Tenancy is bucket-level.** We never rewrite your keys or namespace your
-  paths. A bucket that already looks like a Context brain just works — connect
-  it and nothing about it changes.
+  paths. A bucket already laid out this way just works — connect it and nothing
+  about it changes.
 - **The gateway is portable.** `apps/mcp` is a self-contained Cloudflare Worker.
   If Context.LC disappears tomorrow, deploy it yourself and your bucket keeps
   working.
@@ -95,7 +95,7 @@ pnpm install
 npx convex dev          # creates your Convex deployment
 pnpm dev                # Convex + Expo together
 
-cd apps/mcp && pnpm test   # 134 checks, no dependencies, no network
+cd apps/mcp && pnpm test   # 194 checks, no dependencies, no network
 ```
 
 Built on [supa-framework](https://github.com/Supa-Media/supa-framework).
