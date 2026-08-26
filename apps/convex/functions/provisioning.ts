@@ -35,17 +35,14 @@
 
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
-import {
-  type ActionCtx,
-  internalAction,
-  internalQuery,
-} from "../_generated/server";
+import { type ActionCtx, internalAction } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { S3Store } from "../../mcp/src/store/s3.js";
 import { probeStore } from "../../mcp/src/store/index.js";
 import {
+  type CustomFolder,
   type ScaffoldStore,
-  type StructureTemplate,
+  hasExistingContext,
   scaffoldContext,
 } from "./lib/scaffold";
 import {
@@ -123,6 +120,34 @@ export type VerificationErrorCode =
   | "NOT_WRITABLE"
   | "PROBE_FAILED";
 
+/**
+ * WHAT WE FOUND IN THE BUCKET, AND WHAT WE DID ABOUT IT.
+ *
+ * Persisted on the binding (see the schema) and published by
+ * `getStorageBinding`, because it is the fact onboarding branches on.
+ *
+ *  - `existing-context` — the bucket already holds somebody's notes.
+ *  - `empty`            — verified and empty. The only state where asking for a
+ *                         folder layout makes sense.
+ *  - `created`          — a starting layout was written, in full.
+ *  - `partial`          — the layout's essential file landed, some best-effort
+ *                         folders or READMEs did not. **A success.** The bucket
+ *                         is a working context; `scaffoldMissing` names what to
+ *                         create by hand or ask an agent for.
+ *  - `failed`           — an essential file did not land. Not a context yet.
+ *  - `not-attempted`    — verification did not get far enough to look.
+ *  - `no-binding`       — there was nothing to verify. Never persisted: there
+ *                         is no row to persist it on.
+ */
+export type ScaffoldState =
+  | "existing-context"
+  | "empty"
+  | "created"
+  | "partial"
+  | "failed"
+  | "not-attempted"
+  | "no-binding";
+
 /** What `verifyStorageBinding` reports. Deliberately free of any credential. */
 export interface VerificationOutcome {
   verified: boolean;
@@ -131,35 +156,74 @@ export interface VerificationOutcome {
   /** Observed, never declared. `false` on B2/Wasabi and any backend that lies. */
   conditionalWrite: boolean;
   scaffolded: boolean;
-  scaffoldReason: string;
+  scaffoldReason: ScaffoldState;
+  /**
+   * Keys of the chosen layout that are not in the bucket. Present only when a
+   * scaffold actually ran — a look-only probe leaves whatever the last attempt
+   * recorded, because it is the record of what we still owe this bucket.
+   *
+   * These are key names this module generated, never provider text.
+   */
+  scaffoldMissing?: string[];
   error?: string;
   /** Absent when `verified`, and absent when the failure has no useful code. */
   errorCode?: VerificationErrorCode;
 }
 
 /**
- * The workspace's chosen starting layout.
+ * The starting layout to lay down, as the caller supplied it.
  *
- * Internal and deliberately narrow: this is read by the verifying action,
- * which has a decrypted credential in scope, so it gets the one field it needs
- * and nothing else.
+ * **Taken at call time, never read off the workspace row**, and that is the
+ * whole fix for the sequencing bug this argument exists to close. The row's
+ * `structureTemplate` is set when the workspace is created — which, in the
+ * onboarding order the product actually has, is *before* the person has been
+ * asked anything. A prober that read it would write a PARA layout into the
+ * bucket the instant `bindStorage` succeeded, and the question asked afterwards
+ * would be decoration over a decision already taken.
+ *
+ * So the value travels with the request: `applyStructure` is the only thing
+ * that supplies one, and it does so with an answer in hand.
  */
-export const getStructureTemplate = internalQuery({
-  args: { workspaceId: v.id("workspaces") },
-  returns: v.union(v.null(), v.literal("para"), v.literal("custom")),
-  handler: async (ctx, args) => {
-    const workspace = await ctx.db.get(args.workspaceId);
-    return workspace === null ? null : workspace.structureTemplate;
-  },
+export interface StructureChoice {
+  template: "para" | "custom";
+  /** Validated by `applyStructure` before it gets here. Empty for `para`. */
+  folders: CustomFolder[];
+}
+
+const structureChoiceValidator = v.object({
+  template: v.union(v.literal("para"), v.literal("custom")),
+  folders: v.array(v.object({ folder: v.string(), description: v.string() })),
 });
 
 /**
- * Talk to the customer's bucket, record what is actually true about it, and
- * lay down a starting context if — and only if — the bucket has none.
+ * Talk to the customer's bucket and record what is actually true about it —
+ * and, when the caller has an answer in hand, lay down a starting context.
+ *
+ * ## Two modes, and why the difference is the point
+ *
+ * **Without `structure` (the default): look, do not touch.** The probe runs,
+ * the capability is recorded, and the bucket is *classified* — `empty` or
+ * `existing-context`. Not one byte is written. This is what `bindStorage`
+ * schedules and what `reverifyStorage` schedules, and it has to be: at the
+ * moment a credential is pasted, nobody has been asked which folder layout they
+ * want. A verification that scaffolded would answer that question on the user's
+ * behalf and then let the interface pretend to ask it.
+ *
+ * **With `structure`: verify, then scaffold that layout.** Only
+ * `applyStructure` supplies one, and only after a person has chosen. Reusing
+ * this action rather than adding a second one is deliberate: scaffolding is a
+ * write into somebody else's bucket, and it should be preceded by a fresh proof
+ * that the bucket is reachable and writable — which is exactly what the probe
+ * above it does. One action, one credential open, one place that talks to a
+ * customer's storage from the control plane.
+ *
+ * Either way the no-overwrite rule is the scaffolder's, not this function's:
+ * `scaffoldContext` refuses outright against a bucket that already holds a
+ * context, and `get`s every key before it `put`s it. A caller that asks for a
+ * layout on a live brain gets `existing-context` and an untouched bucket.
  *
  * INTERNAL ACTION. It decrypts, so it is unreachable from any client by
- * construction. `bindStorage` schedules it; a cron or an operator can run it
- * again at any time, and running it twice is harmless.
+ * construction. Running it twice is harmless.
  *
  * Never throws for a bad bucket. A wrong key, a missing bucket, a read-only
  * credential and a hostile endpoint are all *results*, recorded on the binding
@@ -170,6 +234,21 @@ export const verifyStorageBinding = internalAction({
     workspaceId: v.id("workspaces"),
     /** Who caused this, when a person did. Absent for a cron or an operator. */
     actorUserId: v.optional(v.id("users")),
+    /**
+     * Present only when somebody has actually chosen a layout. Absent means
+     * "verify and classify"; see the two modes above.
+     */
+    structure: v.optional(structureChoiceValidator),
+    /**
+     * Finish a layout we already began writing into this bucket.
+     *
+     * Only `applyStructure` sets it, and only from `scaffoldMissing` on the
+     * binding — control-plane evidence that this bucket was observed empty and
+     * then written into by us. It reaches `scaffoldContext`'s `resume`, which
+     * swaps the "is anything here" guard for "is anything here that we did not
+     * write". Meaningless without `structure`, and ignored without it.
+     */
+    resume: v.optional(v.boolean()),
   },
   returns: v.object({
     verified: v.boolean(),
@@ -178,6 +257,7 @@ export const verifyStorageBinding = internalAction({
     conditionalWrite: v.boolean(),
     scaffolded: v.boolean(),
     scaffoldReason: v.string(),
+    scaffoldMissing: v.optional(v.array(v.string())),
     error: v.optional(v.string()),
     errorCode: v.optional(v.string()),
   }),
@@ -305,19 +385,34 @@ export const verifyStorageBinding = internalAction({
     }
 
     // Only now — the bucket answered, and it accepted and removed a write.
-    const structureTemplate: StructureTemplate | null = await ctx.runQuery(
-      internal.functions.provisioning.getStructureTemplate,
-      { workspaceId: args.workspaceId },
-    );
-
     let scaffolded = false;
-    let scaffoldReason = "not-attempted";
+    let scaffoldReason: ScaffoldState;
     let scaffoldError: string | undefined;
-    if (structureTemplate !== null) {
-      const result = await scaffoldContext(store, { structureTemplate });
+    let scaffoldMissing: string[] | undefined;
+    if (args.structure === undefined) {
+      // Look, do not touch. `hasExistingContext` is the same detector the
+      // scaffolder runs as its first guard, listing **with a delimiter** — a
+      // flat listing of a real brain returns `.history/…` first and comes back
+      // looking empty, which would tell onboarding to prompt for a layout over
+      // the top of a live context.
+      scaffoldReason = (await hasExistingContext(store))
+        ? "existing-context"
+        : "empty";
+    } else {
+      const result = await scaffoldContext(store, {
+        structureTemplate: args.structure.template,
+        customFolders: args.structure.folders,
+        resume: args.resume === true,
+      });
       scaffolded = result.scaffolded;
       scaffoldReason = result.reason;
       if (result.error) scaffoldError = redactSecrets(result.error, secrets);
+      // Recorded only when we actually tried to write. `existing-context` means
+      // the guard refused before the first `get`, so this attempt learned
+      // nothing about what the bucket still owes — and clearing the previous
+      // attempt's list there would strand a half-written bucket exactly the way
+      // issue #22 describes.
+      if (result.reason !== "existing-context") scaffoldMissing = result.missing;
     }
 
     return await record(ctx, args, {
@@ -330,6 +425,7 @@ export const verifyStorageBinding = internalAction({
       conditionalWrite: summary.capabilities.conditionalWrite,
       scaffolded,
       scaffoldReason,
+      scaffoldMissing,
       error: scaffoldError,
     });
   },
@@ -357,6 +453,15 @@ async function record(
       capabilities: { conditionalWrite: outcome.conditionalWrite },
       error,
       errorCode: outcome.errorCode,
+      // Only when we actually looked. A probe that failed before it reached the
+      // bucket knows nothing new about what is in it, and overwriting a
+      // previous `existing-context` with `not-attempted` would turn a transient
+      // DNS blip into onboarding offering to scaffold over a live brain.
+      scaffolded: outcome.scaffoldReason === "not-attempted" ? undefined : outcome.scaffolded,
+      scaffoldReason:
+        outcome.scaffoldReason === "not-attempted" ? undefined : outcome.scaffoldReason,
+      // Already narrowed by the caller: present only when a scaffold ran.
+      scaffoldMissing: outcome.scaffoldMissing,
       actorUserId: args.actorUserId,
     });
   } catch {

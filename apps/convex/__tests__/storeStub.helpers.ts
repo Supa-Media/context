@@ -50,7 +50,19 @@ export interface MemoryStore extends ScaffoldStore {
 }
 
 export function memoryStore(
-  options: { ignoreIfMatch?: boolean } = {},
+  options: {
+    ignoreIfMatch?: boolean;
+    /**
+     * Refuse the write for these keys, the way a bucket policy or a rotated
+     * credential does: an error out of `put`, not a quiet no-op.
+     *
+     * The interesting failure is **selective**. `readOnly` refuses everything,
+     * which is a bucket we never had; a scaffold that lands `privacy.md` and
+     * then loses the folder READMEs is the one that left people with a
+     * half-written bucket and no way to finish it.
+     */
+    refuseWrite?: (key: string) => boolean;
+  } = {},
 ): MemoryStore {
   const objects = new Map<string, StoredValue>();
   let counter = 0;
@@ -75,6 +87,9 @@ export function memoryStore(
       return { etag: value.etag, text: async () => value.body };
     },
     async put(key, body, putOptions) {
+      if (options.refuseWrite?.(key)) {
+        throw new Error(`AccessDenied: no write permission for ${key}`);
+      }
       const expected = putOptions?.onlyIf?.etagMatches;
       if (expected && !options.ignoreIfMatch && objects.get(key)?.etag !== expected) {
         return null;
@@ -164,6 +179,13 @@ export interface MemoryS3Options {
   ignoreIfMatch?: boolean;
   /** Lists, refuses every write. */
   readOnly?: boolean;
+  /**
+   * Lists, and refuses the writes this says to refuse. The selective version
+   * of `readOnly`: a bucket policy that allows the root objects and denies a
+   * prefix is how a scaffold ends up half-written, which is the state a person
+   * has to be able to get out of through the product.
+   */
+  refuseWrite?: (key: string) => boolean;
   /** Refuses even to list. */
   unreachable?: boolean;
   /**
@@ -253,7 +275,7 @@ export function memoryS3(
     }
 
     if (method === "PUT") {
-      if (options.readOnly) {
+      if (options.readOnly || options.refuseWrite?.(key)) {
         return errorResponse(403, "AccessDenied", failureMessage);
       }
       const headers = new Headers(

@@ -444,6 +444,18 @@ export const applyBinding = internalMutation({
       lastVerifiedAt: undefined,
       lastError: undefined,
       errorCode: undefined,
+      // Same reasoning as `lastVerifiedAt`, and it matters more: a rebind
+      // points at a *different bucket*, so "we found an existing context" or
+      // "we laid one down" describes somewhere else entirely. Carrying either
+      // forward would have onboarding skip the question for a bucket nothing
+      // has ever looked at.
+      scaffolded: undefined,
+      scaffoldReason: undefined,
+      // And this one most of all: it is the licence to resume a half-written
+      // scaffold without the "already a context" guard. Carrying it to a
+      // different bucket would carry that licence somewhere it was never
+      // earned.
+      scaffoldMissing: undefined,
       boundBy: args.actorUserId,
       updatedAt: now,
     };
@@ -571,6 +583,31 @@ export const recordVerification = internalMutation({
      * unscrubbed text on a published surface — do not.
      */
     errorCode: v.optional(v.string()),
+    /**
+     * What the prober found in the bucket, and whether it wrote anything.
+     *
+     * Recorded here rather than computed on read because it is the *observed*
+     * state of somebody else's bucket at a moment we had a credential — a query
+     * cannot recompute it, and giving one the ability to would mean a public
+     * function that opens a credential. See the schema for the closed set.
+     *
+     * Omitted leaves whatever is on the row, so a re-verification that fails
+     * before it gets as far as looking does not erase what the last successful
+     * one learned.
+     */
+    scaffolded: v.optional(v.boolean()),
+    scaffoldReason: v.optional(v.string()),
+    /**
+     * Which keys of the chosen layout are still not in the bucket.
+     *
+     * Supplied only by a verification that actually attempted a scaffold. A
+     * look-only probe omits it, which leaves the previous attempt's list
+     * standing — that list is the record of what we still owe this bucket, and
+     * it is what lets `applyStructure` tell a scaffold of ours that stopped
+     * halfway from a vault that was here before we arrived. Erasing it because
+     * a re-verification wandered past would strand the owner.
+     */
+    scaffoldMissing: v.optional(v.array(v.string())),
     actorUserId: v.optional(v.id("users")),
   },
   returns: v.null(),
@@ -597,6 +634,9 @@ export const recordVerification = internalMutation({
         ? undefined
         : scrubProviderError(args.error ?? "Verification failed", binding),
       errorCode: args.ok ? undefined : args.errorCode,
+      scaffolded: args.scaffolded ?? binding.scaffolded,
+      scaffoldReason: args.scaffoldReason ?? binding.scaffoldReason,
+      scaffoldMissing: args.scaffoldMissing ?? binding.scaffoldMissing,
       updatedAt: now,
     });
 
@@ -916,6 +956,31 @@ export const getStorageBinding = query({
        * without matching on provider prose. See the schema's `errorCode`.
        */
       errorCode: v.optional(v.string()),
+      /**
+       * WHAT ONBOARDING BRANCHES ON.
+       *
+       * `scaffoldReason === "existing-context"` means this bucket already holds
+       * a context: say so and use it, and do **not** ask which folder layout
+       * they want. `"empty"` is the only value that makes that question worth
+       * asking. See the schema for the full set.
+       *
+       * Both absent until something has verified the binding. Neither is a
+       * credential, a key name, or note content — `scaffolded` is a boolean we
+       * computed and `scaffoldReason` is a code from a closed set we chose, so
+       * neither can carry provider text.
+       */
+      scaffolded: v.optional(v.boolean()),
+      scaffoldReason: v.optional(v.string()),
+      /**
+       * WHAT IS STILL NOT THERE, WHEN `scaffoldReason` IS `partial`.
+       *
+       * A layout whose `privacy.md` landed and whose `3-resources/README.md`
+       * did not is a working context with a gap, and this is the gap: bucket
+       * keys, ours, generated. Say so plainly and offer to try again — do not
+       * dress a `partial` up as a failure, and do not hide it either. Empty or
+       * absent means nothing is outstanding.
+       */
+      scaffoldMissing: v.optional(v.array(v.string())),
       updatedAt: v.number(),
     }),
   ),
@@ -942,6 +1007,9 @@ export const getStorageBinding = query({
       lastVerifiedAt: binding.lastVerifiedAt,
       lastError: binding.lastError,
       errorCode: binding.errorCode,
+      scaffolded: binding.scaffolded,
+      scaffoldReason: binding.scaffoldReason,
+      scaffoldMissing: binding.scaffoldMissing,
       updatedAt: binding.updatedAt,
     };
   },
