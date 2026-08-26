@@ -1,5 +1,5 @@
 /**
- * The live ingestion settings, wired to the control plane — when it has them.
+ * The live ingestion settings, wired to the control plane.
  *
  * The backend contract is
  *
@@ -7,23 +7,12 @@
  *     -> { address, targetFolder, allowedSenders, allowedDomains, allowAnySender } | null
  *   updateIngestionSettings({ workspaceId, targetFolder?, allowedSenders?, … })
  *
- * and it was built in parallel with this screen. So the lookup is by name at
- * runtime rather than through the generated `api` types, the intent being that
- * a deployment with no `functions/ingestion` module reports `available: false`
- * and the card says the address is not configurable yet, instead of throwing
- * on a missing function reference.
- *
- * **That fallback does not work and never did.** The generated `api` is
- * `anyApi`, a proxy that returns a fresh object for *any* property name, so
- * `getRef` is never `undefined`, `available` is always `true`, and a deployment
- * missing the module gets a server-side throw rather than the gentle
- * degradation described above. Dead machinery on a false premise — harmless
- * today only because `functions/ingestion.ts` exists, and the reason a proxy
- * ended up in a dependency array in the first place. Removing it is issue #16;
- * it stays here so this change remains a crash fix and nothing more.
- *
- * A `null` result is a different thing again — the module exists but this
- * context has no alias issued — and that state the UI really does have to draw.
+ * and **both are owner-only, for the read as well as the write**. That is not
+ * belt-and-braces: a personal context has exactly one member and that member is
+ * its owner, so "any member may read" described a role that cannot exist there.
+ * Anyone else gets `INSUFFICIENT_ROLE`, so this hook must not fire the query for
+ * them at all — `shouldReadIngestionSettings` is where that is decided, and it
+ * also declines for a context that has no capture address in the first place.
  *
  * `save` is absent, not disabled, for anyone who cannot use it. Same rule as
  * `StorageActions`: a control that is never offered cannot mislead.
@@ -31,62 +20,51 @@
 
 import { useCallback, useMemo } from "react";
 import { useConvex, useQueries, type RequestForQueries } from "convex/react";
-import type { FunctionReference } from "convex/server";
 import { api } from "@context/convex/_generated/api";
+import type { Id } from "@context/convex/_generated/dataModel";
 import { EMPTY_QUERY_SPEC } from "../querySpec";
-import type { IngestionPatch, IngestionSettings, IngestionState } from "./settings";
-
-/* eslint-disable @typescript-eslint/no-explicit-any */
-type AnyRef = FunctionReference<any, any, any, any>;
-
-/** The `functions/ingestion` module, if this deployment has one. */
-function ingestionModule(): Record<string, AnyRef | undefined> | undefined {
-  const modules = api.functions as unknown as Record<
-    string,
-    Record<string, AnyRef | undefined> | undefined
-  >;
-  return modules.ingestion;
-}
+import {
+  shouldReadIngestionSettings,
+  type IngestionAvailability,
+  type IngestionPatch,
+  type IngestionSettings,
+  type IngestionState,
+} from "./settings";
 
 export function useIngestionSettings(options: {
-  workspaceId: string | null;
-  /** Only an owner may change these, the same as the storage binding. */
+  workspaceId: Id<"workspaces"> | null;
+  /** Whether this kind of context receives mail at all. */
+  availability: IngestionAvailability;
+  /** Only an owner may read or change these, the same as the storage binding. */
   canEdit: boolean;
 }): IngestionState {
   const convex = useConvex();
-  const module = ingestionModule();
-  const getRef = module?.getIngestionSettings;
-  const updateRef = module?.updateIngestionSettings;
-  const { workspaceId, canEdit } = options;
+  const { workspaceId, availability, canEdit } = options;
+
+  const asking = shouldReadIngestionSettings({ workspaceId, canEdit, availability });
 
   // `useQueries` takes a spec that may be empty, which is what lets this
   // subscribe conditionally without a conditional hook.
-  //
-  // **`workspaceId` is the only dependency, and that is load-bearing.** This
-  // memo used to list `getRef` as well, which reads correctly and is a bug:
-  // `api` is a proxy that mints a new object on every property access, so
-  // `getRef` changed identity every render, the memo recomputed every render,
-  // and `useQueries` got a new spec every render — which makes `useSubscription`
-  // call `setState` during render, forever. The whole console rendered as a
-  // blank white page with React error #301. See `../querySpec.ts`.
-  //
-  // So the reference is fetched *inside* the memo, and the empty case returns
-  // the shared constant rather than a fresh `{}`.
   const spec = useMemo<RequestForQueries>(() => {
-    const ref = ingestionModule()?.getIngestionSettings;
-    if (ref === undefined || workspaceId === null) return EMPTY_QUERY_SPEC;
-    return { settings: { query: ref, args: { workspaceId } } };
-  }, [workspaceId]);
+    const empty: RequestForQueries = {};
+    if (!asking || workspaceId === null) return empty;
+    return {
+      settings: {
+        query: api.functions.ingestion.getIngestionSettings,
+        args: { workspaceId },
+      },
+    };
+  }, [asking, workspaceId]);
 
   const results = useQueries(spec);
 
-  // Same rule as the spec above: the reference is looked up when the callback
-  // runs, so an api proxy never lands in a dependency array.
   const save = useCallback(
     async (patch: IngestionPatch) => {
-      const ref = ingestionModule()?.updateIngestionSettings;
-      if (ref === undefined || workspaceId === null) return;
-      await convex.mutation(ref, { workspaceId, ...patch });
+      if (workspaceId === null) return;
+      await convex.mutation(api.functions.ingestion.updateIngestionSettings, {
+        workspaceId,
+        ...patch,
+      });
     },
     [convex, workspaceId],
   );
@@ -101,8 +79,10 @@ export function useIngestionSettings(options: {
     settings,
     // A thrown query is not "still loading" — it is an answer we cannot use,
     // and leaving the card spinning forever would be worse than saying so.
-    loading: getRef !== undefined && workspaceId !== null && raw === undefined,
-    available: getRef !== undefined,
-    save: updateRef !== undefined && canEdit && workspaceId !== null ? save : undefined,
+    loading: asking && raw === undefined,
+    availability,
+    // The same three conditions as the read: there is no point offering a Save
+    // whose mutation would throw `INSUFFICIENT_ROLE` or `INGESTION_NOT_AVAILABLE`.
+    save: asking ? save : undefined,
   };
 }

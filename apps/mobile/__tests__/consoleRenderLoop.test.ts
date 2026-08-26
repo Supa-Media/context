@@ -6,6 +6,7 @@ import { describe, expect, test } from "@jest/globals";
 import { act, createElement, useEffect, useRef, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { ConvexProvider } from "convex/react";
+import type { Id } from "@context/convex/_generated/dataModel";
 import { useIngestionSettings } from "../features/console/ingestion/useIngestionSettings";
 import { useReverify } from "../features/console/storage/useReverify";
 
@@ -122,7 +123,11 @@ function mount(useHook: () => unknown): { renders: number; error: Error | null }
 describe("the console mounts without looping", () => {
   test("ingestion settings, for a context", () => {
     const { renders, error } = mount(() =>
-      useIngestionSettings({ workspaceId: "ws_1", canEdit: true }),
+      useIngestionSettings({
+        workspaceId: "ws_1" as Id<"workspaces">,
+        availability: "available",
+        canEdit: true,
+      }),
     );
     expect(error).toBeNull();
     expect(renders).toBeLessThan(RUNAWAY);
@@ -132,7 +137,7 @@ describe("the console mounts without looping", () => {
     // The empty spec has to be stable too, or the very first page a new user
     // sees is the blank one.
     const { renders, error } = mount(() =>
-      useIngestionSettings({ workspaceId: null, canEdit: false }),
+      useIngestionSettings({ workspaceId: null, availability: "available", canEdit: false }),
     );
     expect(error).toBeNull();
     expect(renders).toBeLessThan(RUNAWAY);

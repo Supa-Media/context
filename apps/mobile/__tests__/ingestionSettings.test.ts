@@ -1,30 +1,43 @@
 import { describe, expect, test } from "@jest/globals";
+import { ConvexError } from "convex/values";
 import {
   DEFAULT_TARGET_FOLDER,
   MAX_ALLOWED_DOMAINS,
   MAX_ALLOWED_SENDERS,
   MAX_FOLDER_LENGTH,
+  NO_INGESTION_ADDRESS,
   addSender,
   describeDraftProblem,
   describeFolderProblem,
+  describeIngestionAbsence,
   describeSenderPolicy,
   diff,
   draftOf,
   emptyDraft,
+  ingestionAvailabilityFor,
   isDirty,
   isSenderProblem,
   normaliseFolder,
   parseSenderEntry,
+  refusalMessage,
   removeSender,
   senderEntries,
   senderLabel,
+  shouldReadIngestionSettings,
   type IngestionDraft,
+  type IngestionState,
 } from "../features/console/ingestion/settings";
 
 /**
  * The ingestion address is semi-public, so the allow-list is a security
  * control and not a preference. These are the rules that decide whether a
  * stranger who learned the address can write into somebody's context.
+ *
+ * And one rule above all of those: **only a personal context receives email at
+ * all.** A shared context has no capture address — not a disabled one, not one
+ * awaiting configuration — so the console must not draw it one. The last four
+ * blocks below are that rule, and the thing they mostly pin is that "this
+ * context has no address" never gets worded like "ingestion is off here".
  */
 
 const base: IngestionDraft = {
@@ -322,5 +335,176 @@ describe("saving only what changed", () => {
     const draft = draftOf(settings);
     draft.allowedSenders.push("c@d.com");
     expect(settings.allowedSenders).toEqual(["a@b.com"]);
+  });
+});
+
+// ─── only a personal context receives email ──────────────────────────────────
+
+/** A personal context whose owner is looking at it, with a policy loaded. */
+const owned: IngestionState = {
+  settings: {
+    address: "seyi@context.lc",
+    ...base,
+  },
+  loading: false,
+  availability: "available",
+  save: async () => {},
+};
+
+/** The same context, before its owner has said who may send. */
+const off: IngestionState = { ...owned, settings: null };
+
+/** Somebody else's personal context: no query is fired, so nothing is known. */
+const notMine: IngestionState = { settings: null, loading: false, availability: "available" };
+
+describe("which contexts have a capture address at all", () => {
+  test("a personal context does, a shared one does not", () => {
+    expect(ingestionAvailabilityFor("personal")).toBe("available");
+    expect(ingestionAvailabilityFor("shared")).toBe("no-address");
+  });
+
+  test("a kind nobody has taught this yet is not assumed to receive mail", () => {
+    // `resolvePersonalContextForIngestion` accepts `personal` and nothing else,
+    // so a kind added later must not default into having an inbox.
+    expect(ingestionAvailabilityFor("organisation")).toBe("no-address");
+  });
+
+  test("no context selected yet is not the same as a shared one", () => {
+    // The console before the workspace list has landed. Reading this as
+    // "no address" would announce a rule about a context nobody has picked.
+    expect(ingestionAvailabilityFor(undefined)).toBe("available");
+  });
+
+  test("a context with no address is handed a state with nothing in it", () => {
+    expect(NO_INGESTION_ADDRESS.availability).toBe("no-address");
+    expect(NO_INGESTION_ADDRESS.settings).toBeNull();
+    // Never spinning: there is no answer on its way.
+    expect(NO_INGESTION_ADDRESS.loading).toBe(false);
+    // And never a Save button, which is the control that would lie.
+    expect(NO_INGESTION_ADDRESS.save).toBeUndefined();
+  });
+});
+
+describe("who the console asks for a policy", () => {
+  test("an owner of a personal context, and that is the whole list", () => {
+    expect(
+      shouldReadIngestionSettings({
+        workspaceId: "w1",
+        canEdit: true,
+        availability: "available",
+      }),
+    ).toBe(true);
+  });
+
+  test("a shared context is never asked — the only answer it could give is null", () => {
+    expect(
+      shouldReadIngestionSettings({
+        workspaceId: "w1",
+        canEdit: true,
+        availability: "no-address",
+      }),
+    ).toBe(false);
+  });
+
+  test("a member is not asked either: the read is owner-only, not just the write", () => {
+    // `getIngestionSettings` throws INSUFFICIENT_ROLE for anyone but the owner,
+    // so firing it for a member trades a screen that explains for one that failed.
+    expect(
+      shouldReadIngestionSettings({
+        workspaceId: "w1",
+        canEdit: false,
+        availability: "available",
+      }),
+    ).toBe(false);
+  });
+
+  test("no context, no query", () => {
+    expect(
+      shouldReadIngestionSettings({
+        workspaceId: null,
+        canEdit: true,
+        availability: "available",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("what the card says when it has no allow-list to show", () => {
+  test("a shared context is told it does not receive email, not that ingestion is off", () => {
+    const shared = describeIngestionAbsence(NO_INGESTION_ADDRESS);
+    const closed = describeIngestionAbsence(off);
+    expect(shared?.reason).toBe("no-address");
+    expect(closed?.reason).toBe("off");
+
+    // The two are different situations and must not read as the same one. "Off"
+    // is a setting its owner can change this afternoon; "no address" is not a
+    // setting at all, and offering to fix it would be the lie.
+    expect(shared!.text).not.toBe(closed!.text);
+    expect(shared!.text).toMatch(/[Oo]nly a personal context receives email/);
+    expect(shared!.text).not.toMatch(/\boff\b/i);
+    expect(shared!.text).not.toMatch(/until|set a target folder|who may send/i);
+    expect(closed!.text).toMatch(/^Ingestion is off/);
+  });
+
+  test("a context with no address says how a note gets there instead", () => {
+    const shared = describeIngestionAbsence(NO_INGESTION_ADDRESS);
+    expect(shared).not.toBeNull();
+    if (shared === null || shared.reason !== "no-address") throw new Error("wrong state");
+    expect(shared.title).toMatch(/does not receive email/);
+    expect(shared.text).toMatch(/moves it here/);
+  });
+
+  test("a shared context is never a loading state", () => {
+    // Nothing is on its way, so a spinner would spin forever.
+    const shared = describeIngestionAbsence({ ...NO_INGESTION_ADDRESS, loading: true });
+    expect(shared?.reason).toBe("no-address");
+  });
+
+  test("a member is told the rules are the owner's, not that ingestion is off", () => {
+    const absence = describeIngestionAbsence(notMine);
+    expect(absence?.reason).toBe("owner-only");
+    // Claiming "nothing is accepted" would be a fact this console never asked for.
+    expect(absence!.text).not.toMatch(/^Ingestion is off/);
+  });
+
+  test("all three absences are worded differently", () => {
+    const texts = [NO_INGESTION_ADDRESS, off, notMine].map(
+      (state) => describeIngestionAbsence(state)!.text,
+    );
+    expect(new Set(texts).size).toBe(3);
+  });
+
+  test("nothing is said while the answer is still coming, or once it has", () => {
+    expect(describeIngestionAbsence({ ...off, loading: true })).toBeNull();
+    expect(describeIngestionAbsence(owned)).toBeNull();
+  });
+});
+
+describe("a refusal, turned into something a person can read", () => {
+  test("the control plane's own sentence is shown, including the one about shared contexts", () => {
+    // Unreachable from the console — a context with no address is never offered
+    // a Save — but a refusal is a refusal, and this one is written to be read.
+    const error = new ConvexError({
+      code: "INGESTION_NOT_AVAILABLE",
+      message:
+        "Only a personal context receives email. Notes reach a shared context when someone moves them there.",
+    });
+    expect(refusalMessage(error)).toMatch(/^Only a personal context receives email\./);
+  });
+
+  test("a payload with no message falls back rather than rendering an object", () => {
+    expect(refusalMessage(new ConvexError({ code: "INGESTION_NOT_AVAILABLE" }))).toBe(
+      "The control plane refused the change. Try again.",
+    );
+  });
+
+  test("an unknown failure never puts the runtime's own words on screen", () => {
+    expect(refusalMessage(new Error("TypeError: undefined is not a function"))).toBe(
+      "The control plane refused the change. Try again.",
+    );
+    expect(refusalMessage(undefined)).toBe("The control plane refused the change. Try again.");
+    expect(refusalMessage({ data: { message: 7 } })).toBe(
+      "The control plane refused the change. Try again.",
+    );
   });
 });

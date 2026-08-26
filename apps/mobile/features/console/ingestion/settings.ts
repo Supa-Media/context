@@ -14,6 +14,11 @@
  *    PARA, and it is nobody's business but the owner's if it should be
  *    `2-areas/receipts/` instead.
  *
+ * And there is a third thing that used to be presented as universal and is not:
+ * **which contexts have an address at all.** Only a personal one does. See
+ * `IngestionAvailability` below, and the header of
+ * `apps/convex/functions/lib/ingestionStore.ts` for the reasoning.
+ *
  * Everything here is pure so the awkward cases — a typo'd domain, a folder
  * spelled with a leading slash, a list that would allow the whole internet
  * without saying so — are pinned by tests rather than found in production.
@@ -66,6 +71,23 @@ export interface IngestionPatch {
 }
 
 /**
+ * Whether this context has a capture address at all.
+ *
+ * Not a setting, and this is the distinction the whole card turns on. **Only a
+ * personal context receives email** — see the header of
+ * `apps/convex/functions/lib/ingestionStore.ts`, which is the reasoning: inbound
+ * mail is unauthenticated by nature, and writing into a space several people
+ * read is a different risk from writing into your own. A shared context has no
+ * address. Not a disabled one, not one awaiting configuration.
+ *
+ * So `"no-address"` is not "off". Off is a personal context whose owner has not
+ * said who may send yet, and they can change that this afternoon. `"no-address"`
+ * is a fact about the kind of context, and there is no form that would change
+ * it — which is exactly why the card must not draw one.
+ */
+export type IngestionAvailability = "available" | "no-address";
+
+/**
  * What the settings card is handed.
  *
  * Declared here, in the pure module, rather than beside the Convex hook: the
@@ -78,11 +100,11 @@ export interface IngestionPatch {
  * offered cannot mislead.
  */
 export interface IngestionState {
-  /** The stored settings, or `null` while loading or when none are issued. */
+  /** The stored settings, or `null` while loading, and always when unavailable. */
   settings: IngestionSettings | null;
   loading: boolean;
-  /** False when this deployment has no ingestion functions at all. */
-  available: boolean;
+  /** Whether a capture address exists here at all. See `IngestionAvailability`. */
+  availability: IngestionAvailability;
   save?: (patch: IngestionPatch) => Promise<void>;
 }
 
@@ -94,10 +116,31 @@ export interface IngestionState {
  * module, so that "may I claim delivery here?" has exactly one answer and one
  * place to change it.
  *
- * It is `true` only when the control plane positively said so. Every other
- * state — a query in flight, a query that threw, a deployment with no
- * ingestion module, a control plane too old to carry the field, a workspace
- * with no policy row — is `false`, because none of them are a yes.
+ * ### It is two questions, and delivery needs a yes to both
+ *
+ * They were found separately and they are genuinely separate:
+ *
+ *  - **Is a receiver live at all?** A property of the *deployment*, which only
+ *    the control plane can see. It arrives as `receiving` on the settings
+ *    contract, from `ingestionIsReceiving()` in
+ *    `apps/convex/functions/lib/ingestion.ts`, and it is false by absence.
+ *  - **May *this* context receive mail?** A property of the *context*. Only a
+ *    personal one has a capture address at all — see `IngestionAvailability`
+ *    and `resolvePersonalContextForIngestion` on the backend.
+ *
+ * A live receiver does not give a shared context an inbox, and a personal
+ * context does not conjure a receiver. So this is an `&&`, not a pick, and the
+ * `availability` half is checked explicitly rather than left to lean on the
+ * fact that a `no-address` state also happens to carry `settings === null`
+ * today. That coincidence is an invariant three modules maintain by hand
+ * (`NO_INGESTION_ADDRESS`, `shouldReadIngestionSettings`, and the demo's own
+ * null); one of them slipping would otherwise turn straight back into a shared
+ * context announcing delivery, which is precisely the bug this branch exists
+ * to fix.
+ *
+ * Everything else is `false`, because none of them are a yes: a query in
+ * flight, a query that threw, a control plane too old to carry the field, a
+ * workspace with no policy row.
  *
  * ### Why this exists at all
  *
@@ -110,20 +153,156 @@ export interface IngestionState {
  * fail-closed default — which is exactly what made the whole section read as
  * live and trustworthy.
  *
- * The address is still shown: it is the address, and it will be correct the
- * moment the receiver ships. What is gated is the claim about what happens to
- * anything sent to it.
+ * Where there is an address, it is still shown: it is the real address, and it
+ * will be correct the moment the receiver ships. What is gated is the claim
+ * about what happens to anything sent to it. Where there is *no* address — a
+ * shared context — nothing is shown at all; that is `describeIngestionAbsence`,
+ * not this.
  */
 export function receivesMail(state: IngestionState): boolean {
-  return state.settings?.receiving === true;
+  return state.availability === "available" && state.settings?.receiving === true;
 }
 
-/** What a console with no ingestion backend behind it shows. */
-export const UNAVAILABLE_INGESTION: IngestionState = {
+/**
+ * What a context with no capture address is handed.
+ *
+ * There is nothing to load and nothing to save, so the state is complete the
+ * moment it is built — no query is ever fired for one of these.
+ */
+export const NO_INGESTION_ADDRESS: IngestionState = {
   settings: null,
   loading: false,
-  available: false,
+  availability: "no-address",
 };
+
+/**
+ * Which contexts get an address, decided from the workspace's `kind`.
+ *
+ * `kind` is the console's half of the rule `resolvePersonalContextForIngestion`
+ * enforces on the backend, and it is only the first half — that function also
+ * requires the context to have exactly one member, because a personal context
+ * somebody has since invited people into is not somewhere unauthenticated mail
+ * may land whatever its row says.
+ *
+ * **The console cannot see that second half**, because the workspace summary
+ * carries no membership count. So one state is described imprecisely: a
+ * `personal` context with a second member is shown the "ingestion is off" card,
+ * when the truth is that it has no address at all and setting one would be
+ * refused. It is a narrow corner — you have to invite somebody into your own
+ * context — and it fails honestly rather than quietly: the backend answers
+ * `null` to the read, and refuses the save with `INGESTION_NOT_AVAILABLE`,
+ * whose sentence `refusalMessage` puts on screen. Closing it properly means
+ * teaching `listMyWorkspaces` to say how many members a context has.
+ *
+ * An `undefined` kind is the console before the workspace list has landed, not
+ * an unknown kind of context. It reads as available so the card falls through to
+ * its ordinary loading and empty states rather than announcing a rule about a
+ * context nobody has selected yet.
+ */
+export function ingestionAvailabilityFor(kind: string | undefined): IngestionAvailability {
+  if (kind === undefined) return "available";
+  return kind === "personal" ? "available" : "no-address";
+}
+
+/**
+ * Whether the console should subscribe to `getIngestionSettings` at all.
+ *
+ * Owner-only for the **read** as well as the write: `getIngestionSettings`
+ * throws `INSUFFICIENT_ROLE` for anyone else, so firing it for a member would
+ * trade a screen that says "this is the owner's" for a screen that failed. And
+ * a context with no capture address has no policy to fetch — the only answer
+ * that query could give is `null`, which the card would then have to tell apart
+ * from "off".
+ */
+export function shouldReadIngestionSettings(options: {
+  workspaceId: string | null;
+  /** True only for an owner. */
+  canEdit: boolean;
+  availability: IngestionAvailability;
+}): boolean {
+  return (
+    options.workspaceId !== null &&
+    options.canEdit &&
+    options.availability === "available"
+  );
+}
+
+/**
+ * Why the card has no allow-list to show, in the product's own words.
+ *
+ * Three absences, and wording any two of them the same would be a lie about
+ * which one you are in:
+ *
+ *  - **`no-address`** — this kind of context never receives mail. There is no
+ *    setting behind it and no owner who could turn it on.
+ *  - **`owner-only`** — there may well be a policy; it is not yours to read.
+ *  - **`off`** — the fail-closed floor of a context that *does* receive mail:
+ *    no policy row, so nothing is accepted. `getIngestionSettings` documents
+ *    `null` as exactly this, and it is a state the owner can leave today.
+ *
+ * `null` means there is something to show and the card should draw it.
+ */
+export type IngestionAbsence =
+  | { reason: "no-address"; title: string; text: string }
+  | { reason: "owner-only"; title: string; text: string }
+  | { reason: "off"; text: string };
+
+export function describeIngestionAbsence(state: IngestionState): IngestionAbsence | null {
+  // First, because it is not a loading state and not an empty one: a shared
+  // context is never waiting for an answer that could arrive.
+  if (state.availability === "no-address") {
+    return {
+      reason: "no-address",
+      title: "This context does not receive email",
+      // The backend's own sentence, so somebody who ever does trip
+      // `INGESTION_NOT_AVAILABLE` reads the same thing twice rather than two
+      // explanations that have to be reconciled.
+      text: "Only a personal context receives email. A note reaches this one when someone moves it here.",
+    };
+  }
+  if (state.loading || state.settings !== null) return null;
+  if (state.save === undefined) {
+    return {
+      reason: "owner-only",
+      title: "Only an owner sees these rules",
+      text: "Where mail lands, and who may send it, belongs to whoever owns this context.",
+    };
+  }
+  return {
+    reason: "off",
+    // Said as what an owner has to *do*, not as what happens to mail in the
+    // meantime. It used to end "…nothing sent to this address is accepted
+    // until you set a target folder" — a fail-closed-sounding claim about a
+    // pipeline that has never run once, and one of the sentences
+    // `__tests__/captureHonesty.test.ts` bans by vocabulary.
+    text: "Ingestion is off for this context — you have to set a target folder and say who may send.",
+  };
+}
+
+/**
+ * What the control plane said, or a fixed sentence.
+ *
+ * Never the raw error text of an unknown failure — the same rule the file
+ * editor's `toFileError` and `members.ts`'s `describeMembersFailure` follow. A
+ * `ConvexError` payload is written for a person; anything else is whatever the
+ * runtime produced, and putting that in front of somebody is how a stack trace
+ * ends up in a screenshot.
+ *
+ * Duck-typed rather than `instanceof ConvexError` for the same reason
+ * `members.ts` is: it keeps this module free of every import the landing page
+ * would otherwise drag in, and it is the shape that matters, not the class.
+ * `INGESTION_NOT_AVAILABLE` should be unreachable from the console — a context
+ * with no address is never offered a Save button — but it is a refusal like any
+ * other if it is ever hit, and it carries a sentence written to be read.
+ */
+export function refusalMessage(error: unknown): string {
+  const data = (error as { data?: unknown } | null)?.data;
+  if (typeof data === "object" && data !== null && "message" in data) {
+    const message = (data as { message: unknown }).message;
+    if (typeof message === "string") return message;
+  }
+  return "The control plane refused the change. Try again.";
+}
 
 export const DEFAULT_TARGET_FOLDER = "0-inbox/";
 
