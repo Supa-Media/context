@@ -155,3 +155,32 @@ export function restoreTargetFor(archivedPath: string): string | null {
   const match = archivedPath.match(/^4-archive\/[^/]+\/(.+)$/);
   return match ? match[1] : null;
 }
+
+/**
+ * What the permanent-delete dialog says will happen.
+ *
+ * A string in a pure module, not a paragraph inside a component, because it is
+ * a **claim about the backend** and it has already been wrong once. It used to
+ * read "there is no copy kept anywhere, and nothing to restore from" while
+ * `deletePath` deleted only the live keys — so every note that had ever been
+ * edited kept its previous versions in `.history/`, invisible and unreachable
+ * but very much still in the customer's bucket. `deletePath` purges them now,
+ * and this sentence is what a test can hold it to.
+ *
+ * Two things it deliberately does not say:
+ *
+ *  - **Nothing about the whole bucket.** "No copy anywhere" is a claim this
+ *    product cannot currently make: a note that was renamed or moved before
+ *    being deleted still has a `.history/<old path>.<stamp>.move.md` snapshot
+ *    under the path it used to live at, and `deletePath` only sees the path it
+ *    is given. The sentence says what is removed *alongside the note*, which
+ *    is exactly what happens.
+ *  - **Nothing about the storage provider.** Bucket versioning, backups and
+ *    replication are the customer's own settings, and we cannot see them.
+ */
+export function describeDeleteForever(path: string, isFolder: boolean): string {
+  const subject = isFolder
+    ? `Every file in ${path} will be removed from your bucket, along with the earlier versions Context kept alongside them.`
+    : `${path} will be removed from your bucket, along with the earlier versions Context kept alongside it.`;
+  return `${subject} This cannot be undone, and nothing is moved to an archive.`;
+}

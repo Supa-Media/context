@@ -157,8 +157,9 @@ export function BrowsePane({
         <View style={[styles.notice, styles.noticeWarn]}>
           <Text variant="hint" style={styles.noticeWarnText}>
             privacy.md is missing or could not be read, so everything is treated as
-            private and nothing can be shared until it is fixed. Reconnect this bucket to
-            have a fresh one written.
+            private and nothing can be shared until it is fixed. Nothing is exposed by
+            this — it fails closed. Write a valid privacy.md at the root of the bucket,
+            or ask a connected AI client to, and sharing works again.
           </Text>
         </View>
       ) : null}

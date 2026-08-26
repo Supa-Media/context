@@ -821,8 +821,10 @@ export const archiveEntry = action({
  * string, which the console only sends after the person has been told plainly
  * that the file cannot be recovered.
  *
- * Nothing is kept: no `.history/` copy, no archive. See `lib/fileOps.ts` for
- * why leaving a hidden copy behind would be the worse choice.
+ * Nothing is kept: no archive, no new `.history/` snapshot, **and the existing
+ * `.history/` snapshots for that path are purged too**. That last clause is the
+ * one this comment used to imply and the code did not do. See `lib/fileOps.ts`
+ * for why leaving a hidden copy behind would be the worse choice.
  */
 export const deleteEntry = action({
   args: {

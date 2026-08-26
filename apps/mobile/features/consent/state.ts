@@ -250,11 +250,21 @@ export function resolveConsentView(inputs: ConsentInputs): ConsentView {
 
   const busy = inputs.decision.kind === "submitting" ? inputs.decision.choice : null;
 
+  // The scope sentences depend on the *selected* context's role, not on the
+  // account. `context:read` granted by an owner reaches every private note in
+  // that context; granted by an editor or member it reaches none of them —
+  // the gateway takes the privacy tier from the membership role, never from
+  // the scope string. Someone who owns one context and is a member of another
+  // is therefore told two different, both-true things as they switch the
+  // picker. Null when nothing is selected yet, which `scopeSentences` says out
+  // loud rather than guessing at.
+  const chosenRole = inputs.contexts.find((context) => context.id === chosen)?.role ?? null;
+
   return {
     kind: "ready",
     clientName: request.clientName,
     redirectHost: redirectHost(request.redirectUri),
-    scopeLines: scopeSentences(requestScopes(request)),
+    scopeLines: scopeSentences(requestScopes(request), chosenRole),
     contexts: inputs.contexts,
     selectedContextId: chosen,
     contextIsAChoice: inputs.contexts.length > 1,

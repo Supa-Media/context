@@ -63,7 +63,23 @@ function bucket(options: { ignoreIfMatch?: boolean } = {}): MemoryStore & FileSt
   store.seed("2-areas/health.md", "# Health\n");
   store.seed("4-archive/README.md", "# Archive\n");
   store.seed(".history/1-projects/context-lc.md.old.md", "# older\n");
+  // Every note in a real bucket has been edited at least once, and every one of
+  // those edits left the version it replaced in `.history/`. A fixture without
+  // these describes a bucket nobody has — and let the delete tests below pass
+  // by having nothing to find, which is exactly how the copy on the console's
+  // delete dialog came to be false.
+  store.seed(".history/1-projects/pay.md.2026-07-01T09-00-00-000Z.md", "# Pay\n\nsalaries\n");
+  store.seed(
+    ".history/1-projects/pay.md.2026-07-02T09-00-00-000Z.move.md",
+    "# Pay\n\nsalaries\n",
+  );
+  store.seed(".history/2-areas/health.md.2026-07-01T09-00-00-000Z.md", "# Health\n\nolder\n");
   return store;
+}
+
+/** Every `.history/` key still in the bucket. */
+function historyKeys(store: MemoryStore): string[] {
+  return Object.keys(store.snapshot()).filter((key) => key.startsWith(".history/"));
 }
 
 /** Make `1-projects` team-visible, with one note held back as an exception. */
@@ -843,6 +859,162 @@ describe("deleting is the permanent one", () => {
       key.startsWith("1-projects/"),
     );
     expect(remaining).toEqual([]);
+  });
+
+  /**
+   * The half that was missing, said as a fact about keys rather than about
+   * content.
+   *
+   * `nothing is quietly kept behind` above searches for a string, which is the
+   * right assertion for "is my salary data gone" and the wrong one for "is
+   * there a copy". These name the bucket directly: after a permanent delete,
+   * **no key under `.history/` for that path may remain**. Everything else in
+   * this product is reversible — archive, an overwritten note — and this one
+   * says on screen that it is not. A hidden copy is still a copy: it is in the
+   * customer's bucket, on their storage bill, and in whatever their provider
+   * hands over.
+   */
+  describe("permanent means the history goes too", () => {
+    test("a deleted note leaves no key under .history/ for its path", async () => {
+      const store = bucket();
+      await deletePath(store, {
+        path: "1-projects/pay.md",
+        confirmation: DELETE_CONFIRMATION,
+        scope: "private",
+      });
+      expect(
+        historyKeys(store).filter((key) => key.startsWith(".history/1-projects/pay.md.")),
+      ).toEqual([]);
+    });
+
+    test("and no key anywhere in the bucket still holds its content", async () => {
+      const store = bucket();
+      await deletePath(store, {
+        path: "1-projects/pay.md",
+        confirmation: DELETE_CONFIRMATION,
+        scope: "private",
+      });
+      expect(
+        Object.entries(store.snapshot()).filter(([, body]) => body.includes("salaries")),
+      ).toEqual([]);
+    });
+
+    /**
+     * The version an *edit* left behind, not one a fixture planted. This is the
+     * path a real person takes: write a note, change it, delete it.
+     */
+    test("a note written, edited, then deleted leaves nothing of either version", async () => {
+      const store = bucket();
+      const first = await writeFile(store, {
+        path: "1-projects/secret.md",
+        text: "# Secret\n\nthe first draft\n",
+        scope: "private",
+        now: NOW,
+      });
+      await writeFile(store, {
+        path: "1-projects/secret.md",
+        text: "# Secret\n\nthe second draft\n",
+        expectedEtag: first.etag,
+        scope: "private",
+        now: NOW + 60_000,
+      });
+      // The bug, stated: the edit really did stash the first draft.
+      expect(
+        historyKeys(store).some((key) => store.snapshot()[key].includes("the first draft")),
+      ).toBe(true);
+
+      await deletePath(store, {
+        path: "1-projects/secret.md",
+        confirmation: DELETE_CONFIRMATION,
+        scope: "private",
+      });
+
+      expect(
+        historyKeys(store).filter((key) => key.startsWith(".history/1-projects/secret.md.")),
+      ).toEqual([]);
+      expect(
+        Object.entries(store.snapshot()).filter(([, body]) => body.includes("draft")),
+      ).toEqual([]);
+    });
+
+    test("deleting a folder purges the whole history subtree beneath it", async () => {
+      const store = bucket();
+      await deletePath(store, {
+        path: "1-projects",
+        confirmation: DELETE_CONFIRMATION,
+        scope: "private",
+      });
+      expect(historyKeys(store).filter((key) => key.startsWith(".history/1-projects/"))).toEqual(
+        [],
+      );
+    });
+
+    /**
+     * The purge is narrow. Deleting one note must not take the history of the
+     * notes beside it — that would be the opposite failure, and just as silent.
+     */
+    test("it takes only this path's history, never a neighbour's", async () => {
+      const store = bucket();
+      const before = historyKeys(store).filter((key) => key.startsWith(".history/2-areas/"));
+      expect(before.length).toBeGreaterThan(0);
+
+      await deletePath(store, {
+        path: "1-projects/pay.md",
+        confirmation: DELETE_CONFIRMATION,
+        scope: "private",
+      });
+
+      expect(historyKeys(store).filter((key) => key.startsWith(".history/2-areas/"))).toEqual(
+        before,
+      );
+      expect(store.snapshot()["1-projects/context-lc.md"]).toBeDefined();
+      expect(store.snapshot()[".history/1-projects/context-lc.md.old.md"]).toBeDefined();
+    });
+
+    /**
+     * Archive is the recoverable one, and it must stay that way: it is what the
+     * delete dialog points people at instead. Archiving is a move, and a move
+     * keeps its snapshot.
+     */
+    test("archiving still keeps a history entry — only deleting purges", async () => {
+      const store = bucket();
+      await archivePath(store, { path: "2-areas/health.md", scope: "private", now: NOW });
+      expect(historyKeys(store).some((key) => key.startsWith(".history/2-areas/health.md."))).toBe(
+        true,
+      );
+    });
+
+    test("a refused delete purges nothing", async () => {
+      const store = bucket();
+      const before = historyKeys(store);
+      await capture(() =>
+        deletePath(store, {
+          path: "1-projects/pay.md",
+          confirmation: "yes",
+          scope: "private",
+        }),
+      );
+      expect(historyKeys(store)).toEqual(before);
+    });
+
+    /**
+     * A `team` caller cannot see the note, so they cannot delete it — and they
+     * must not be able to reach through the refusal to shred its history
+     * either. The refusal has to be total, not just about the live key.
+     */
+    test("a caller who cannot see the note cannot purge its history", async () => {
+      const store = bucket();
+      await shareProjects(store);
+      const before = historyKeys(store);
+      await capture(() =>
+        deletePath(store, {
+          path: "1-projects/pay.md",
+          confirmation: DELETE_CONFIRMATION,
+          scope: "team",
+        }),
+      );
+      expect(historyKeys(store)).toEqual(before);
+    });
   });
 
   test("a deleted note's exception is forgotten, so a later note at that path is not secretly private", async () => {
