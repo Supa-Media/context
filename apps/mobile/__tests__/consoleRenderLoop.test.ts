@@ -137,7 +137,7 @@ describe("the console mounts without looping", () => {
     // The empty spec has to be stable too, or the very first page a new user
     // sees is the blank one.
     const { renders, error } = mount(() =>
-      useIngestionSettings({ workspaceId: null, availability: "available", canEdit: false }),
+      useIngestionSettings({ workspaceId: null, availability: "no-address", canEdit: false }),
     );
     expect(error).toBeNull();
     expect(renders).toBeLessThan(RUNAWAY);
