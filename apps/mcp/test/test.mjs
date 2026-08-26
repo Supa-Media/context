@@ -607,9 +607,36 @@ check(
     })
   ).status === 200
 );
+// The self-origin is whatever the deployment DECLARED, never whatever `Host`
+// the caller claimed. With no `PUBLIC_ORIGIN` there is no declared origin, so
+// there is no self to allow — which is what "unconfigured means non-browser
+// clients only" has always claimed and did not do. Before this, `publicOrigin`
+// fell back to the request's own `Host`, so the allowlist became a function of
+// attacker input in exactly the rebinding case the file exists to stop: a page
+// sending `Host: x` and `Origin: https://x` matched itself.
 check(
-  "the gateway's own origin is always permitted",
-  (await transportRequest("https://x", { useEnv: noAllowlistEnv })).status === 200
+  "with no PUBLIC_ORIGIN, a browser origin matching the claimed Host is refused",
+  (await transportRequest("https://x", { useEnv: noAllowlistEnv })).status === 403
+);
+check(
+  "a declared PUBLIC_ORIGIN is still permitted without being listed",
+  (
+    await transportRequest("https://x", {
+      useEnv: { ...noAllowlistEnv, PUBLIC_ORIGIN: "https://x" },
+    })
+  ).status === 200
+);
+check(
+  "and a claimed Host cannot smuggle itself past a declared PUBLIC_ORIGIN",
+  (
+    await transportRequest("https://x", {
+      useEnv: { ...noAllowlistEnv, PUBLIC_ORIGIN: "https://mcp.context.test" },
+    })
+  ).status === 403
+);
+check(
+  "tightening the self-origin leaves non-browser clients alone",
+  (await transportRequest(undefined, { useEnv: noAllowlistEnv })).status === 200
 );
 
 // The refusal must not become the oracle the rest of the gateway avoids being.
@@ -835,6 +862,34 @@ for (const [label, options] of headerMismatchCases) {
     res.status === 400 && res.body?.error?.code === -32020
   );
 }
+// A method name inherited from Object.prototype must be an ordinary unknown
+// method, not a crash. `NAME_HEADER_SOURCE` is a plain object literal, so a
+// bare lookup resolved `__proto__`, `valueOf` and friends through the
+// prototype: each is truthy, so the mirrored-header check took it for a rule
+// and called it. That threw *outside* the try in `handleModernMcp`, escaped
+// `fetch`, and returned a bodyless 500 in place of the JSON-RPC error the
+// modern contract requires. The legacy path is a `switch` and never was
+// affected — so this is per-era divergence, the shape CLAUDE.md warns about.
+for (const prototypeMethod of [
+  "__proto__",
+  "valueOf",
+  "hasOwnProperty",
+  "__defineGetter__",
+  "constructor",
+  "toString",
+]) {
+  const modernRes = await modernFetch({ method: prototypeMethod });
+  check(
+    `a prototype-named method (${prototypeMethod}) is method-not-found on the modern path, not a crash`,
+    modernRes.status !== 500 && modernRes.body?.error?.code === -32601
+  );
+  const legacyRes = await rpc("priv-token", prototypeMethod, {});
+  check(
+    `and the legacy path answers it identically (${prototypeMethod})`,
+    legacyRes?.error?.code === -32601
+  );
+}
+
 // A non-ASCII tool name travels base64-wrapped; the server must decode before
 // comparing, or a legal name looks like an attack.
 check(

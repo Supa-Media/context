@@ -224,8 +224,7 @@ function localIngestionStore(env) {
   return new R2Store(bucket, { rootPrefix: env.LOCAL_CONTEXT_ROOT_PREFIX });
 }
 
-export default {
-  async fetch(request, env, ctx) {
+async function route(request, env, ctx) {
     const url = new URL(request.url);
 
     const origin = publicOrigin(request, env);
@@ -265,7 +264,7 @@ export default {
     // precedes, and the refusal is produced before any token, slug, or control
     // plane answer exists to vary it.
     if (isTransportPath(path)) {
-      const refusal = enforceOrigin(request, env, origin);
+      const refusal = enforceOrigin(request, env);
       if (refusal) return refusal;
     }
 
@@ -367,6 +366,30 @@ export default {
     }
 
     return json({ error: "not_found" }, 404);
+}
+
+/**
+ * One catch around the whole request.
+ *
+ * An unhandled throw in a Worker is not an error response — it is a 1101 with
+ * no body at all, which tells a client nothing and an operator less. Two
+ * separate bugs have escaped exactly this way: a `URIError` from a malformed
+ * `%` escape in the path, and a `TypeError` from a prototype-named JSON-RPC
+ * method. Both were fixed at their source; both would have been a plain 500
+ * rather than a dead request had this existed. Two of a kind is enough to stop
+ * patching the class one instance at a time.
+ *
+ * It carries no detail on purpose. A thrown message here could be anything the
+ * request reached — a storage error naming a key, a parser quoting its input —
+ * and this response goes to an unauthenticated caller on the open internet.
+ */
+export default {
+  async fetch(request, env, ctx) {
+    try {
+      return await route(request, env, ctx);
+    } catch {
+      return json({ error: "server_error" }, 500);
+    }
   },
 
   async scheduled(event, env, ctx) {

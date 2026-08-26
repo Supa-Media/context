@@ -126,16 +126,35 @@ export function parseAllowedOrigins(value) {
  * isolates across tenants — a cache keyed even slightly wrong is the whole
  * class of bug the rest of this codebase refuses to open.
  *
- * The gateway's own origin is always included: a request from a page served by
- * this very deployment is same-origin, and refusing it would be surprising
- * without protecting anything. Everything else has to be configured.
- * Unconfigured therefore means "non-browser clients only", which is the right
- * default for a fresh self-host: it breaks nothing anybody is running and
- * authorizes nobody.
+ * The gateway's own origin is included when — and only when — the deployment
+ * states what that origin is. A page served by this very deployment is
+ * same-origin, and refusing it would be surprising without protecting anything.
+ * Everything else has to be configured. Unconfigured therefore means
+ * "non-browser clients only", which is the right default for a fresh self-host:
+ * it breaks nothing anybody is running and authorizes nobody.
+ *
+ * **The self-origin comes from `PUBLIC_ORIGIN`, never from the request.** That
+ * distinction is the whole guard. `publicOrigin()` falls back to
+ * `new URL(request.url).origin` — the `Host` the caller claimed — so deriving
+ * the allowlist from it made the allowlist a function of attacker input in
+ * exactly the case this file exists to stop: a rebinding page sends
+ * `Host: attacker.example` *and* `Origin: https://attacker.example`, the
+ * allowlist computes to `["https://attacker.example"]`, and the match succeeds.
+ * The sentence above ("authorizes nobody") was true of the comment and false of
+ * the code.
+ *
+ * Production sets `PUBLIC_ORIGIN`, so it was never exposed there, and
+ * Cloudflare rejects an unrecognised `Host` at the edge. What it did reach was
+ * every case CLAUDE.md says must keep working anyway: `wrangler dev`, a
+ * self-host whose operator skipped a variable SETUP.md called optional, and any
+ * zone with a wildcard worker route, where a dangling subdomain quietly became
+ * an allowed origin — undoing "exact match, no wildcards" by the back door.
  */
-export function allowedOrigins(env, gatewayOrigin) {
+export function allowedOrigins(env) {
   const configured = parseAllowedOrigins(env?.ALLOWED_ORIGINS);
-  const self = normalizeOrigin(gatewayOrigin);
+  const self = normalizeOrigin(
+    typeof env?.PUBLIC_ORIGIN === "string" ? env.PUBLIC_ORIGIN.trim() : ""
+  );
   if (self && !configured.includes(self)) configured.push(self);
   return configured;
 }
@@ -210,8 +229,8 @@ export function originRefusalResponse() {
  * may not. Callers must return the response untouched — adding a header derived
  * from the request would reintroduce the variance the constant body avoids.
  */
-export function enforceOrigin(request, env, gatewayOrigin) {
-  if (originIsAllowed(request.headers.get("Origin"), allowedOrigins(env, gatewayOrigin))) {
+export function enforceOrigin(request, env) {
+  if (originIsAllowed(request.headers.get("Origin"), allowedOrigins(env))) {
     return null;
   }
   return originRefusalResponse();
