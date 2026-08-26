@@ -82,6 +82,40 @@ jobs:
           esac
           echo "OK — EAS project id is set."
 
+      # The web bundle and the backend must name the SAME Convex deployment.
+      # They did not: `EXPO_PUBLIC_CONVEX_URL` pointed at one deployment while
+      # `CONVEX_DEPLOY_KEY` deployed the functions to another, so every backend
+      # change went live somewhere no browser was talking to — and sign-in broke
+      # the moment the frontend's deployment lost an env var the real one had.
+      # Nothing anywhere reported it; the site simply said "Server Error".
+      #
+      # The router already records which deployment is production, so compare
+      # against that rather than against a second copy of the answer.
+      - name: Verify the frontend and the router name the same Convex deployment
+        run: |
+          set -euo pipefail
+          router=$(node -e '
+            const fs = require("fs");
+            const raw = fs.readFileSync("infra/router/wrangler.jsonc", "utf8");
+            const m = raw.match(/"CONVEX_ORIGIN"\s*:\s*"https:\/\/([a-z0-9-]+)\.convex\.(?:site|cloud)"/);
+            if (!m) { console.error("No CONVEX_ORIGIN in infra/router/wrangler.jsonc."); process.exit(1); }
+            process.stdout.write(m[1]);
+          ')
+          front=$(node -e '
+            const url = process.env.EXPO_PUBLIC_CONVEX_URL || "";
+            const m = url.match(/^https:\/\/([a-z0-9-]+)\.convex\.(?:cloud|site)\/?$/);
+            if (!m) { console.error(`EXPO_PUBLIC_CONVEX_URL is not a Convex URL: "${url}"`); process.exit(1); }
+            process.stdout.write(m[1]);
+          ')
+          if [ "$router" != "$front" ]; then
+            echo "ERROR: the web bundle would talk to '$front' while the router and the"
+            echo "backend deploy target '$router'. Those must be the same deployment."
+            echo "Fix the EXPO_PUBLIC_CONVEX_URL secret, or CONVEX_ORIGIN in"
+            echo "infra/router/wrangler.jsonc — whichever is wrong."
+            exit 1
+          fi
+          echo "OK — frontend and router both use '$router'."
+
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v5
@@ -140,9 +174,14 @@ jobs:
           ')
           echo "Built bundle: $bundle"
 
-          # EAS Hosting and the Cloudflare router in front of it need a moment to
-          # serve the new alias, so this polls rather than sleeping a fixed time.
-          for attempt in $(seq 1 20); do
+          # EAS Hosting and the Cloudflare router in front of it need a while to
+          # serve a new alias, so this polls rather than sleeping a fixed time.
+          #
+          # Twelve minutes, not five. The five-minute version failed a deploy
+          # that was in fact completely fine — the alias moved at around nine.
+          # A check that cries wolf is worse than no check at all, because the
+          # next genuinely-red deploy gets waved through as "that flaky step".
+          for attempt in $(seq 1 48); do
             live=$(curl -fsSL --max-time 20 https://context.lc/ || true)
             case "$live" in
               *"$bundle"*)
