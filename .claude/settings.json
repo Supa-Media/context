@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__playwright",
+      "mcp__github",
+      "WebFetch",
+      "WebSearch",
+      "Bash(pnpm:*)",
+      "Bash(npx convex:*)",
+      "Bash(npx wrangler:*)",
+      "Bash(npx eas-cli:*)",
+      "Bash(npx vitest:*)",
+      "Bash(npx jest:*)",
+      "Bash(npx tsc:*)",
+      "Bash(node:*)",
+      "Bash(gh:*)",
+      "Bash(git:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf /*)",
+      "Bash(git push --force:*)",
+      "Read(./.env.local)",
+      "Read(./**/.env.local)"
+    ]
+  }
+}

@@ -18,18 +18,37 @@ and this file is mostly about which opinions are load-bearing.
 ## Setup
 
 ```sh
-pnpm install
+bash scripts/cloud-setup.sh
 ```
 
-`@supa-media/*` packages come from GitHub Packages, so you'll need a token with
-`read:packages` exported as `GITHUB_TOKEN`.
+Idempotent, safe to re-run, and the right thing to point an unattended runner
+at — Claude Code on the web, a cloud session, a Routine. It installs
+dependencies with the GitHub Packages token and applies the checked-in
+permission allowlist.
+
+That second half exists because of a trap worth knowing about:
+
+> Project-level `permissions.allow` rules in `.claude/settings.json` are gated
+> behind the **workspace-trust dialog**, and a non-interactive session never
+> shows that dialog. On a fresh clone the allow rules are read and then
+> **ignored** — while `deny` rules always apply. So an agent that looks
+> correctly configured spends its whole run asking for permission it was
+> already granted.
+
+The script makes the allowlist effective two independent ways: it copies the
+rules into user-level `~/.claude/settings.json` (never trust-gated) and
+pre-seeds workspace trust for the clone path.
+
+Doing it by hand instead:
 
 ```sh
-npx convex dev                  # your own Convex deployment
-pnpm dev                        # Convex + Expo
-
-cd apps/mcp && pnpm test        # 320 checks, offline, no dependencies
+pnpm install                    # needs GITHUB_TOKEN with read:packages
+npx convex dev                  # links your own Convex deployment
+cp .env.example .env.local
 ```
+
+`@supa-media/*` come from GitHub Packages, so `pnpm install` fails without a
+token. `.npmrc` reads `${GITHUB_TOKEN}`; locally, `gh auth token` supplies one.
 
 ## Repository layout
 
