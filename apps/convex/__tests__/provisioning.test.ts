@@ -414,12 +414,143 @@ describe("credentials never leave the verifying action", () => {
 
 /* -------------------------------------------------------------------------- */
 
-describe("scaffolding on first successful verification", () => {
+/**
+ * VERIFICATION LOOKS; IT DOES NOT WRITE.
+ *
+ * This is the half of the connect flow that runs before anybody has been asked
+ * anything. `bindStorage` schedules it the instant a credential is pasted, so
+ * if it scaffolded, the folder layout would be chosen for the user and the
+ * question onboarding asks afterwards would be decoration over a decision
+ * already taken.
+ *
+ * What it does instead is *classify*, and publish the classification on the
+ * binding — which is what lets onboarding stop asking a question it can answer
+ * itself.
+ */
+describe("verification classifies the bucket without touching it", () => {
+  test("an empty bucket is reported empty, and stays empty", async () => {
+    const { t, owner, backend, workspaceId } = await connecting();
+
+    const result = await t.action(
+      internal.functions.provisioning.verifyStorageBinding,
+      { workspaceId },
+    );
+
+    expect(result).toMatchObject({
+      verified: true,
+      scaffolded: false,
+      scaffoldReason: "empty",
+    });
+    // Not one object. This is the regression that matters: a bucket connected
+    // before the owner chose a layout must come out of verification untouched.
+    expect([...backend.objects.keys()]).toEqual([]);
+    expect(await binding(t, owner, workspaceId)).toMatchObject({
+      status: "connected",
+      scaffolded: false,
+      scaffoldReason: "empty",
+    });
+  });
+
+  test("a bucket that already holds a context says so, with no prompt to answer", async () => {
+    const { t, owner, backend, workspaceId } = await connecting();
+    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    const before = backend.snapshot();
+
+    const result = await t.action(
+      internal.functions.provisioning.verifyStorageBinding,
+      { workspaceId },
+    );
+
+    expect(result).toMatchObject({
+      verified: true,
+      scaffolded: false,
+      scaffoldReason: "existing-context",
+    });
+    expect(backend.snapshot()).toEqual(before);
+    expect(await binding(t, owner, workspaceId)).toMatchObject({
+      scaffoldReason: "existing-context",
+    });
+  });
+
+  /**
+   * The delimiter listing, through the whole stack.
+   *
+   * A real brain snapshots every overwrite into `.history/`, which sorts before
+   * every digit. A flat first-page listing of one comes back looking completely
+   * empty — so a detector built on one would tell onboarding this live context
+   * is a blank bucket and offer to lay a layout over the top of it.
+   */
+  test("a live brain whose first pages are all .history is not reported empty", async () => {
+    const { t, backend, workspaceId } = await connecting();
+    for (let index = 0; index < 1500; index += 1) {
+      backend.seed(`.history/1-projects/ship-it.${index}.md`, "old");
+    }
+    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+
+    expect(
+      await t.action(internal.functions.provisioning.verifyStorageBinding, {
+        workspaceId,
+      }),
+    ).toMatchObject({ scaffoldReason: "existing-context" });
+  });
+
+  test("a bucket holding only plumbing is empty, and is left that way", async () => {
+    const { t, backend, workspaceId } = await connecting();
+    backend.seed(".obsidian/app.json", "{}");
+    const before = backend.snapshot();
+
+    expect(
+      await t.action(internal.functions.provisioning.verifyStorageBinding, {
+        workspaceId,
+      }),
+    ).toMatchObject({ scaffoldReason: "empty" });
+    expect(backend.snapshot()).toEqual(before);
+  });
+
+  /**
+   * A failure that never reached the bucket knows nothing new about what is in
+   * it. Overwriting a previous `existing-context` with a blank would turn one
+   * DNS blip into onboarding offering to scaffold over a live brain.
+   */
+  test("a later failed probe does not erase what the last good one learned", async () => {
+    const { t, owner, backend, workspaceId } = await connecting();
+    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    await t.action(internal.functions.provisioning.verifyStorageBinding, {
+      workspaceId,
+    });
+    expect((await binding(t, owner, workspaceId))?.scaffoldReason).toBe(
+      "existing-context",
+    );
+
+    const broken = memoryS3(FAKE_STORAGE.bucket, { unreachable: true });
+    vi.stubGlobal("fetch", broken.fetchImpl);
+    await t.action(internal.functions.provisioning.verifyStorageBinding, {
+      workspaceId,
+    });
+
+    const row = await binding(t, owner, workspaceId);
+    expect(row?.status).toBe("error");
+    expect(row?.scaffoldReason).toBe("existing-context");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Scaffolding, once somebody has actually chosen.
+ *
+ * The layout travels with the call — `structure` — rather than being read off
+ * a field frozen when the workspace was created. `applyStructure` is the only
+ * thing that supplies one; see `onboarding.test.ts` for that half.
+ */
+describe("scaffolding the layout the caller asked for", () => {
+  const PARA = { template: "para" as const, folders: [] };
+
   test("an empty bucket gets a context the gateway can read", async () => {
     const { t, backend, workspaceId } = await connecting();
     const result = await t.action(
       internal.functions.provisioning.verifyStorageBinding,
-      { workspaceId },
+      { workspaceId, structure: PARA },
     );
 
     expect(result).toMatchObject({ scaffolded: true, scaffoldReason: "created" });
@@ -443,15 +574,41 @@ describe("scaffolding on first successful verification", () => {
     ).toEqual([...PARA_FOLDERS]);
   });
 
-  test('a "custom" workspace gets no folders', async () => {
-    const { t, backend, workspaceId } = await connecting({
-      structureTemplate: "custom",
-    });
+  test("a custom layout gets the owner's own folders, with their own words", async () => {
+    const { t, backend, workspaceId } = await connecting();
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
+      structure: {
+        template: "custom",
+        folders: [
+          { folder: "clients", description: "One folder per client." },
+          { folder: "reading", description: "Books and articles worth keeping." },
+        ],
+      },
     });
 
-    expect([...backend.objects.keys()].sort()).toEqual(["index.md", "privacy.md"]);
+    expect([...backend.objects.keys()].sort()).toEqual([
+      "clients/README.md",
+      "index.md",
+      "privacy.md",
+      "reading/README.md",
+    ]);
+    // Their description, verbatim, in the folder's README and in the manifest.
+    expect(backend.objects.get("clients/README.md")!.body).toContain(
+      "One folder per client.",
+    );
+    expect(backend.objects.get("index.md")!.body).toContain(
+      "`reading/` — Books and articles worth keeping.",
+    );
+    // …and every one of them starts private, read back through the gateway's
+    // own parser.
+    const { parsePrivacyManifest } = gatewayInternals();
+    const parsed = parsePrivacyManifest(backend.objects.get(PRIVACY_KEY)!.body);
+    expect(parsed.rules.map((rule) => rule.prefix).sort()).toEqual([
+      "clients",
+      "reading",
+    ]);
+    expect(parsed.rules.every((rule) => rule.vis === "private")).toBe(true);
   });
 
   /**
@@ -469,9 +626,11 @@ describe("scaffolding on first successful verification", () => {
     }
     const before = backend.snapshot();
 
+    // Asked for a layout *explicitly*, which is the call that actually wants to
+    // write. Detection-only would prove less.
     const result = await t.action(
       internal.functions.provisioning.verifyStorageBinding,
-      { workspaceId },
+      { workspaceId, structure: PARA },
     );
 
     expect(result).toMatchObject({
@@ -483,16 +642,17 @@ describe("scaffolding on first successful verification", () => {
     expect((await binding(t, owner, workspaceId))?.status).toBe("connected");
   });
 
-  test("running verification twice writes nothing the second time", async () => {
+  test("running it twice writes nothing the second time", async () => {
     const { t, backend, workspaceId } = await connecting();
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
+      structure: PARA,
     });
     const before = backend.snapshot();
 
     const second = await t.action(
       internal.functions.provisioning.verifyStorageBinding,
-      { workspaceId },
+      { workspaceId, structure: PARA },
     );
     expect(second).toMatchObject({
       verified: true,
@@ -506,7 +666,7 @@ describe("scaffolding on first successful verification", () => {
     const { t, backend, workspaceId } = await connecting({ readOnly: true });
     const result = await t.action(
       internal.functions.provisioning.verifyStorageBinding,
-      { workspaceId },
+      { workspaceId, structure: PARA },
     );
     expect(result).toMatchObject({
       verified: false,
@@ -518,16 +678,20 @@ describe("scaffolding on first successful verification", () => {
 
   test("a customer's rootPrefix is honoured and is not tenancy", async () => {
     const { t, backend, workspaceId } = await connecting({
-      structureTemplate: "custom",
       rootPrefix: "notes/brain/",
     });
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
+      structure: {
+        template: "custom",
+        folders: [{ folder: "work", description: "The day job." }],
+      },
     });
 
     expect([...backend.objects.keys()].sort()).toEqual([
       "notes/brain/index.md",
       "notes/brain/privacy.md",
+      "notes/brain/work/README.md",
     ]);
     // Nothing derived from a workspace id ever appears in a key.
     for (const key of backend.objects.keys()) {

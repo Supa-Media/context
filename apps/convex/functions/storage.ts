@@ -444,6 +444,13 @@ export const applyBinding = internalMutation({
       lastVerifiedAt: undefined,
       lastError: undefined,
       errorCode: undefined,
+      // Same reasoning as `lastVerifiedAt`, and it matters more: a rebind
+      // points at a *different bucket*, so "we found an existing context" or
+      // "we laid one down" describes somewhere else entirely. Carrying either
+      // forward would have onboarding skip the question for a bucket nothing
+      // has ever looked at.
+      scaffolded: undefined,
+      scaffoldReason: undefined,
       boundBy: args.actorUserId,
       updatedAt: now,
     };
@@ -571,6 +578,20 @@ export const recordVerification = internalMutation({
      * unscrubbed text on a published surface — do not.
      */
     errorCode: v.optional(v.string()),
+    /**
+     * What the prober found in the bucket, and whether it wrote anything.
+     *
+     * Recorded here rather than computed on read because it is the *observed*
+     * state of somebody else's bucket at a moment we had a credential — a query
+     * cannot recompute it, and giving one the ability to would mean a public
+     * function that opens a credential. See the schema for the closed set.
+     *
+     * Omitted leaves whatever is on the row, so a re-verification that fails
+     * before it gets as far as looking does not erase what the last successful
+     * one learned.
+     */
+    scaffolded: v.optional(v.boolean()),
+    scaffoldReason: v.optional(v.string()),
     actorUserId: v.optional(v.id("users")),
   },
   returns: v.null(),
@@ -597,6 +618,8 @@ export const recordVerification = internalMutation({
         ? undefined
         : scrubProviderError(args.error ?? "Verification failed", binding),
       errorCode: args.ok ? undefined : args.errorCode,
+      scaffolded: args.scaffolded ?? binding.scaffolded,
+      scaffoldReason: args.scaffoldReason ?? binding.scaffoldReason,
       updatedAt: now,
     });
 
@@ -916,6 +939,21 @@ export const getStorageBinding = query({
        * without matching on provider prose. See the schema's `errorCode`.
        */
       errorCode: v.optional(v.string()),
+      /**
+       * WHAT ONBOARDING BRANCHES ON.
+       *
+       * `scaffoldReason === "existing-context"` means this bucket already holds
+       * a context: say so and use it, and do **not** ask which folder layout
+       * they want. `"empty"` is the only value that makes that question worth
+       * asking. See the schema for the full set.
+       *
+       * Both absent until something has verified the binding. Neither is a
+       * credential, a key name, or note content — `scaffolded` is a boolean we
+       * computed and `scaffoldReason` is a code from a closed set we chose, so
+       * neither can carry provider text.
+       */
+      scaffolded: v.optional(v.boolean()),
+      scaffoldReason: v.optional(v.string()),
       updatedAt: v.number(),
     }),
   ),
@@ -942,6 +980,8 @@ export const getStorageBinding = query({
       lastVerifiedAt: binding.lastVerifiedAt,
       lastError: binding.lastError,
       errorCode: binding.errorCode,
+      scaffolded: binding.scaffolded,
+      scaffoldReason: binding.scaffoldReason,
       updatedAt: binding.updatedAt,
     };
   },

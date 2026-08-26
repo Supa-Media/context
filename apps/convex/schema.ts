@@ -70,11 +70,28 @@ const schema = defineSchema({
     createdBy: v.id("users"),
     kind: v.union(v.literal("personal"), v.literal("shared")),
     /**
-     * Which folder scaffold the gateway lays down on first connect. Purely a
-     * setup hint — the tools operate on paths, not on a fixed taxonomy, and a
-     * `custom` workspace is not second-class.
+     * Which starting layout was written into the bucket. Purely a record of
+     * what onboarding laid down — the tools operate on paths, not on a fixed
+     * taxonomy, a `custom` workspace is not second-class, and the owner is free
+     * to rename or delete every one of these folders afterwards.
+     *
+     * Nothing reads this to decide what to write. `applyStructure` passes the
+     * choice to the scaffolder directly and patches this field alongside, so a
+     * value here can never cause a bucket write on some later, unrelated
+     * verification. What actually happened to the bucket is recorded on the
+     * storage binding, as `scaffoldReason`.
      */
     structureTemplate: v.union(v.literal("para"), v.literal("custom")),
+    /**
+     * The root folders the owner named, when they chose `custom`.
+     *
+     * Kept so the console can show what was laid down without listing the
+     * bucket. Not authoritative: the bucket is. If they rename a folder
+     * afterwards — which they may, freely — this goes stale, and that is fine.
+     */
+    customFolders: v.optional(
+      v.array(v.object({ folder: v.string(), description: v.string() })),
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_slug", ["slug"]),
@@ -286,6 +303,37 @@ const schema = defineSchema({
      * prose.
      */
     errorCode: v.optional(v.string()),
+    /**
+     * WHAT WE FOUND IN THE BUCKET, AND WHAT WE DID ABOUT IT.
+     *
+     * This pair is the whole reason onboarding can stop asking a question it
+     * can answer itself. `verifyStorageBinding` already looks at the bucket in
+     * order to decide whether scaffolding is safe; before these fields existed
+     * that conclusion was computed, used, and thrown away, so a client had no
+     * way to tell "your context is already here" from "this bucket is empty"
+     * without a credential of its own.
+     *
+     * `scaffolded` — did *we* write files. False for a bucket that already had
+     * a context, and false for one we have only looked at.
+     *
+     * `scaffoldReason` — a code from a closed set (`ScaffoldState` in
+     * `functions/provisioning.ts`):
+     *
+     *  - `existing-context` — the bucket already holds somebody's notes.
+     *    Nothing was written and nothing will be. **Do not prompt for a
+     *    structure; there is one.**
+     *  - `empty`           — verified, reachable, writable, and empty. This is
+     *    the only state in which asking PARA-or-custom makes sense.
+     *  - `created`         — a starting layout was written.
+     *  - `failed`          — a write failed partway. Some files may exist.
+     *  - `not-attempted`   — verification did not get far enough to look.
+     *
+     * Both absent on a binding that has never been verified. Readable by every
+     * member, like the rest of this row; neither carries note content, a key
+     * name, or anything a client did not already send us.
+     */
+    scaffolded: v.optional(v.boolean()),
+    scaffoldReason: v.optional(v.string()),
     boundBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),

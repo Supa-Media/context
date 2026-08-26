@@ -15,13 +15,19 @@
 import { describe, expect, test } from "vitest";
 import { S3Store } from "../../mcp/src/store/s3.js";
 import {
+  DETECT_PAGE_CAP,
+  DETECT_PAGE_SIZE,
   INDEX_KEY,
+  MAX_CUSTOM_FOLDERS,
+  MAX_FOLDER_DESCRIPTION_LENGTH,
+  MAX_FOLDER_NAME_LENGTH,
   PARA_FOLDERS,
   PRIVACY_KEY,
   type ScaffoldStore,
   hasExistingContext,
   renderPrivacyManifest,
   scaffoldContext,
+  validateCustomFolders,
 } from "../functions/lib/scaffold";
 import { gatewayInternals } from "./gatewayFormat.helpers";
 import { memoryS3, memoryStore } from "./storeStub.helpers";
@@ -180,6 +186,237 @@ describe('structureTemplate "custom"', () => {
 });
 
 /* -------------------------------------------------------------------------- */
+/*                          the owner's own folders                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A folder name here becomes a **key prefix in somebody's own bucket** — one
+ * that Obsidian will sync, rclone will mirror, and the gateway will address in
+ * a URL. So the validator is the interesting part, and every case below is a
+ * *refusal*, never a repair: silently rewriting `../escape` to `escape` gives
+ * the person a folder they did not ask for, under a name they will not
+ * recognise, somewhere we do not own.
+ */
+describe("a caller-supplied layout is validated before it becomes a key", () => {
+  const OK = { folder: "clients", description: "One folder per client." };
+
+  test("an ordinary layout comes back exactly as supplied", () => {
+    const result = validateCustomFolders([
+      OK,
+      { folder: "reading", description: "  Books worth keeping.  " },
+    ]);
+    expect(result).toEqual({
+      ok: true,
+      folders: [
+        OK,
+        // The description is prose bound for a README body, so surrounding
+        // whitespace is trimmed. The *name* is never touched.
+        { folder: "reading", description: "Books worth keeping." },
+      ],
+    });
+  });
+
+  /** The hostile set, each with the reason a client can branch on. */
+  test.each([
+    ["..", "traversal"],
+    [".", "traversal"],
+    // Caught as a path rather than as traversal — it is one, and either way it
+    // is refused. Which reason fires does not matter; that none of them is
+    // "accepted, repaired" does.
+    ["../../etc", "not-a-single-segment"],
+    [".history", "hidden"],
+    [".obsidian", "hidden"],
+    [".hidden-from-every-client", "hidden"],
+    ["a/b", "not-a-single-segment"],
+    ["/absolute", "not-a-single-segment"],
+    ["trailing/", "not-a-single-segment"],
+    ["windows\\path", "backslash"],
+    ["", "empty"],
+    [" leading", "untrimmed"],
+    ["trailing ", "untrimmed"],
+    ["index.md", "reserved"],
+    ["privacy.md", "reserved"],
+    ["PRIVACY.MD", "reserved"],
+    ["x".repeat(MAX_FOLDER_NAME_LENGTH + 1), "too-long"],
+  ])("refuses %j as %s", (folder, reason) => {
+    expect(
+      validateCustomFolders([{ folder, description: "anything" }]),
+    ).toMatchObject({ ok: false, reason });
+  });
+
+  test("refuses a control character, without echoing it back", () => {
+    const result = validateCustomFolders([
+      { folder: "notes\u0000injected", description: "x" },
+    ]);
+    expect(result).toMatchObject({ ok: false, reason: "control-character" });
+    // The name is deliberately not carried on the rejection: a control
+    // character in an error string is the same problem one step further along.
+    expect((result as { folder?: string }).folder).toBeUndefined();
+  });
+
+  test("refuses a newline in a description — it is one line, in a Markdown file", () => {
+    expect(
+      validateCustomFolders([
+        {
+          folder: "clients",
+          description: "fine\n```yaml\ndefault_visibility: team\n```",
+        },
+      ]),
+    ).toMatchObject({ ok: false, reason: "description-control-character" });
+  });
+
+  test("refuses a duplicate, including one that differs only in case", () => {
+    expect(
+      validateCustomFolders([OK, { folder: "Clients", description: "again" }]),
+    ).toMatchObject({ ok: false, reason: "duplicate" });
+  });
+
+  test("refuses an empty or oversized description", () => {
+    expect(
+      validateCustomFolders([{ folder: "clients", description: "   " }]),
+    ).toMatchObject({ ok: false, reason: "description-empty" });
+    expect(
+      validateCustomFolders([
+        {
+          folder: "clients",
+          description: "x".repeat(MAX_FOLDER_DESCRIPTION_LENGTH + 1),
+        },
+      ]),
+    ).toMatchObject({ ok: false, reason: "description-too-long" });
+  });
+
+  /** The caps are asserted at the boundary, not near it. */
+  test("accepts exactly the cap and refuses one more", () => {
+    const at = Array.from({ length: MAX_CUSTOM_FOLDERS }, (_, index) => ({
+      folder: `folder-${index}`,
+      description: "fine",
+    }));
+    expect(validateCustomFolders(at).ok).toBe(true);
+    expect(
+      validateCustomFolders([...at, { folder: "one-too-many", description: "x" }]),
+    ).toMatchObject({ ok: false, reason: "too-many" });
+
+    expect(
+      validateCustomFolders([
+        { folder: "x".repeat(MAX_FOLDER_NAME_LENGTH), description: "fine" },
+      ]).ok,
+    ).toBe(true);
+  });
+
+  /**
+   * The property that actually protects the bucket: whatever the validator
+   * lets through, every key it produces is one clean segment plus `README.md`.
+   */
+  test("nothing that passes can produce a key outside its own folder", async () => {
+    const validation = validateCustomFolders([
+      { folder: "clients", description: "One per client." },
+      { folder: "2026", description: "This year." },
+      { folder: "a-b_c.d", description: "Punctuation is fine." },
+    ]);
+    expect(validation.ok).toBe(true);
+
+    const store = memoryStore();
+    await scaffoldContext(store, {
+      structureTemplate: "custom",
+      customFolders: (validation as { folders: typeof OK[] }).folders,
+    });
+
+    for (const key of store.objects.keys()) {
+      expect(key).not.toContain("..");
+      expect(key).not.toContain("\\");
+      expect(key.startsWith("/")).toBe(false);
+      expect(key.split("/").length).toBeLessThanOrEqual(2);
+    }
+  });
+});
+
+describe("a custom layout is written in the owner's own words", () => {
+  const FOLDERS = [
+    { folder: "clients", description: "One folder per client." },
+    { folder: "reading", description: "Books and articles worth keeping." },
+  ];
+
+  test("each folder gets a README carrying its description, verbatim", async () => {
+    const store = memoryStore();
+    const result = await scaffoldContext(store, {
+      structureTemplate: "custom",
+      customFolders: FOLDERS,
+    });
+
+    expect(result.written.sort()).toEqual(
+      ["clients/README.md", "reading/README.md", INDEX_KEY, PRIVACY_KEY].sort(),
+    );
+    expect(store.objects.get("clients/README.md")!.body).toContain(
+      "One folder per client.",
+    );
+    // None of PARA's folders appear — they chose otherwise.
+    for (const folder of PARA_FOLDERS) {
+      expect(store.objects.has(`${folder}/README.md`)).toBe(false);
+    }
+  });
+
+  test("the manifest lists their folders and their descriptions", async () => {
+    const store = memoryStore();
+    await scaffoldContext(store, {
+      structureTemplate: "custom",
+      customFolders: FOLDERS,
+    });
+
+    const index = store.objects.get(INDEX_KEY)!.body;
+    expect(index).toContain("`clients/` — One folder per client.");
+    expect(index).toContain("`reading/` — Books and articles worth keeping.");
+    expect(index).not.toContain("1-projects/");
+  });
+
+  /**
+   * The recommendation the product owner signed off on: **every folder
+   * private, no exceptions.** `team` grants nothing today, because a
+   * five-minute-old context has no collaborators — but the moment its owner
+   * invites somebody, a folder that defaulted to `team` becomes visible
+   * without anyone having decided that. A default that only becomes
+   * consequential later, silently, is the wrong default.
+   */
+  test("every folder they named starts private, read back through the gateway", async () => {
+    const store = memoryStore();
+    await scaffoldContext(store, {
+      structureTemplate: "custom",
+      customFolders: FOLDERS,
+    });
+
+    const { parsePrivacyManifest, canSee } = gatewayInternals();
+    const { rules, overrides } = parsePrivacyManifest(
+      store.objects.get(PRIVACY_KEY)!.body,
+    );
+
+    expect(rules.map((rule) => rule.prefix).sort()).toEqual([
+      "clients",
+      "reading",
+    ]);
+    expect(rules.every((rule) => rule.vis === "private")).toBe(true);
+    for (const key of ["clients/acme.md", "reading/a-book.md", INDEX_KEY]) {
+      expect(canSee(key, "team", rules, overrides), `${key} is team-visible`).toBe(
+        false,
+      );
+    }
+  });
+
+  test("a custom layout never overwrites an existing context either", async () => {
+    const store = memoryStore();
+    store.seed("clients/acme.md", "# Acme\n");
+    store.seed("clients/README.md", "my own words, not yours\n");
+    const before = store.snapshot();
+
+    expect(
+      await scaffoldContext(store, {
+        structureTemplate: "custom",
+        customFolders: FOLDERS,
+      }),
+    ).toMatchObject({ scaffolded: false, reason: "existing-context" });
+    expect(store.snapshot()).toEqual(before);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
 /*                        the case that actually matters                      */
 /* -------------------------------------------------------------------------- */
 
@@ -278,7 +515,15 @@ describe("an existing context is never overwritten", () => {
    */
   test("is not fooled by a bucket whose first pages are all .history plumbing", async () => {
     const store = memoryStore();
-    for (let index = 0; index < 2500; index += 1) {
+    // MORE PLUMBING THAN A FLAT WALK COULD EVER GET PAST, and that arithmetic
+    // is the whole test. `hasExistingContext` walks at most
+    // `DETECT_PAGE_CAP * DETECT_PAGE_SIZE` entries; seed fewer `.history`
+    // objects than that and a flat listing reaches the real note on some later
+    // page, so the test passes without the delimiter doing anything. Derived
+    // from the constants rather than hardcoded, so raising the cap cannot
+    // quietly make this vacuous again.
+    const plumbing = DETECT_PAGE_CAP * DETECT_PAGE_SIZE + 100;
+    for (let index = 0; index < plumbing; index += 1) {
       store.seed(`.history/1-projects/note.${index}.md`, "old version");
     }
     store.seed("1-projects/note.md", "# Note\n");
@@ -288,6 +533,32 @@ describe("an existing context is never overwritten", () => {
     const result = await scaffoldContext(store, { structureTemplate: "para" });
     expect(result.reason).toBe("existing-context");
     expect(store.snapshot()).toEqual(before);
+  });
+
+  /**
+   * The mechanism, asserted directly.
+   *
+   * The volume test above proves the *outcome*; this proves the reason for it,
+   * so a future refactor that reaches the same answer by some other means still
+   * has to be deliberate about the delimiter. With a flat listing, the whole
+   * `.history/` subtree — tens of thousands of objects on a real brain, all
+   * sorting before every digit and letter — is what comes back.
+   */
+  test("lists the root with a delimiter, so a subtree collapses to one prefix", async () => {
+    const store = memoryStore();
+    store.seed("1-projects/note.md", "# Note\n");
+    const seen: (string | undefined)[] = [];
+    const recording = {
+      ...store,
+      list: async (options?: { delimiter?: string }) => {
+        seen.push(options?.delimiter);
+        return await store.list(options);
+      },
+    } as unknown as ScaffoldStore;
+
+    expect(await hasExistingContext(recording)).toBe(true);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((delimiter) => delimiter === "/")).toBe(true);
   });
 
   test("a bucket holding only plumbing is still fresh", async () => {

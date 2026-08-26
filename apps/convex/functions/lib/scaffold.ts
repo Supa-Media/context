@@ -86,6 +86,19 @@ export interface ScaffoldStore {
 /** Which starting layout to lay down. Mirrors `workspaces.structureTemplate`. */
 export type StructureTemplate = "para" | "custom";
 
+/**
+ * One root folder the owner named, with the one-line description that becomes
+ * its `README.md`.
+ *
+ * `folder` is **a single path segment that becomes a bucket key prefix**, typed
+ * by a person. Everything about how it is validated below follows from that;
+ * see `validateCustomFolders`.
+ */
+export interface CustomFolder {
+  folder: string;
+  description: string;
+}
+
 export const INDEX_KEY = "index.md";
 /** Re-exported so callers of this module keep one import. */
 export { PRIVACY_KEY } from "./privacy";
@@ -105,38 +118,206 @@ export const PARA_FOLDERS = [
   "4-archive",
 ] as const;
 
-const FOLDER_PURPOSE: Record<string, { title: string; blurb: string; examples: string[] }> = {
+/**
+ * `line` is the manifest entry — one line, in the owner's voice, saying what
+ * belongs in the folder. It is what `index.md` lists, and it is deliberately
+ * the same *shape* as the one-line description a `custom` layout asks its owner
+ * for, so a PARA manifest and a custom manifest read identically. `title`,
+ * `blurb` and `examples` are the longer form, which only the folder's own
+ * `README.md` uses.
+ */
+const FOLDER_PURPOSE: Record<
+  string,
+  { title: string; line: string; blurb: string; examples: string[] }
+> = {
   "0-inbox": {
     title: "Inbox",
+    line: "raw captures, unfiled. Process these into the folders below.",
     blurb:
       "Raw, unfiled captures. Anything that arrives before you have decided where it belongs — emailed notes, quick thoughts, clippings. Empty this regularly by moving notes somewhere else.",
     examples: ["a thought you had on a walk", "an emailed article you have not read yet"],
   },
   "1-projects": {
     title: "Projects",
+    line:
+      "active work with an end state. One folder per project.",
     blurb:
       "Active work with an end state. A project has a finish line: when it is reached, the folder moves to 4-archive.",
     examples: ["ship the new pricing page", "plan the March offsite"],
   },
   "2-areas": {
     title: "Areas",
+    line: "ongoing responsibilities.",
     blurb:
       "Ongoing responsibilities with no finish line. Areas are maintained, not completed.",
     examples: ["health", "finances", "the team you manage"],
   },
   "3-resources": {
     title: "Resources",
+    line:
+      "reference material: book notes, articles, ideas.",
     blurb:
       "Reference material you want to be able to find again, not tied to one project or area.",
     examples: ["how our deploy pipeline works", "notes on a book you read"],
   },
   "4-archive": {
     title: "Archive",
+    line:
+      "anything no longer active. Move, don't delete.",
     blurb:
       "Anything from the other folders that is no longer active. Nothing is deleted — it is moved here so the live folders stay readable.",
     examples: ["a project that shipped", "an area you no longer own"],
   },
 };
+
+/* -------------------------------------------------------------------------- */
+/*                          caller-supplied root folders                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Caps on a custom layout.
+ *
+ * `MAX_CUSTOM_FOLDERS` is a product judgement — a starting layout somebody can
+ * hold in their head — and also a bound on how many objects one call writes
+ * into a customer's bucket. `MAX_FOLDER_NAME_LENGTH` is well under the gateway's
+ * 512-character path cap, because this is one *segment* of a path that will
+ * have note names appended to it. `MAX_FOLDER_DESCRIPTION_LENGTH` is one line
+ * of prose, which is what it is asked for as.
+ *
+ * Exported so a client can refuse the same input before a round trip, and so a
+ * test can prove the boundary rather than a number near it.
+ */
+export const MAX_CUSTOM_FOLDERS = 12;
+export const MAX_FOLDER_NAME_LENGTH = 64;
+export const MAX_FOLDER_DESCRIPTION_LENGTH = 200;
+
+/**
+ * Why a proposed layout was refused. A closed set, so the caller can say
+ * something specific without matching on English.
+ */
+export type FolderRejection =
+  | "too-many"
+  | "empty"
+  | "untrimmed"
+  | "too-long"
+  | "control-character"
+  | "backslash"
+  | "not-a-single-segment"
+  | "traversal"
+  | "hidden"
+  | "reserved"
+  | "duplicate"
+  | "description-empty"
+  | "description-too-long"
+  | "description-control-character";
+
+export type FolderValidation =
+  | { ok: true; folders: CustomFolder[] }
+  | { ok: false; reason: FolderRejection; folder?: string };
+
+/** Root keys the scaffold owns. A *folder* by either name would be confusing. */
+const RESERVED_FOLDER_NAMES = new Set([INDEX_KEY, PRIVACY_KEY]);
+
+/** C0 controls, DEL, and C1. `\n` and `\r` are in here, which is what keeps a one-line description one line. */
+const CONTROL_CHARACTERS = /[\x00-\x1f\x7f-\x9f]/;
+
+/**
+ * Refuse, or hand back exactly what will be written.
+ *
+ * ## Why this is strict to the point of rudeness
+ *
+ * A folder name here becomes a **key prefix in somebody's own bucket**, and
+ * that bucket is also mounted in Obsidian, synced by rclone, and listed by the
+ * gateway. So the failure modes are not cosmetic: `..` is a traversal attempt
+ * against the adapter's key builder, a leading `.` produces a folder the
+ * gateway classifies as plumbing and hides from every client (a folder the
+ * owner created and can never see), a backslash is a path separator on the
+ * machine that syncs the bucket even though S3 treats it as an ordinary byte,
+ * and a control character produces a key that is unaddressable in a URL and
+ * unreadable in a listing.
+ *
+ * **Every one of these is a refusal, never a repair.** Silently rewriting
+ * `../escape` to `escape` or stripping a newline gives the person a folder they
+ * did not ask for, under a name they will not recognise, in a bucket we do not
+ * own. The one exception is the *description*, which is prose destined for the
+ * body of a README rather than for a key: surrounding whitespace there is
+ * trimmed, because rejecting a trailing space in a sentence is user-hostile and
+ * buys nothing.
+ *
+ * The scaffolder's own guards still stand behind this — `scaffoldContext`
+ * refuses to run at all against a non-empty bucket, and `get`s every key before
+ * it `put`s it — so a validation bug here cannot become an overwrite.
+ */
+export function validateCustomFolders(
+  input: readonly { folder: string; description: string }[],
+): FolderValidation {
+  if (input.length > MAX_CUSTOM_FOLDERS) {
+    return { ok: false, reason: "too-many" };
+  }
+
+  const folders: CustomFolder[] = [];
+  const seen = new Set<string>();
+  for (const entry of input) {
+    const folder = entry.folder;
+    if (typeof folder !== "string" || folder.length === 0) {
+      return { ok: false, reason: "empty" };
+    }
+    if (folder !== folder.trim()) {
+      return { ok: false, reason: "untrimmed", folder };
+    }
+    if (CONTROL_CHARACTERS.test(folder)) {
+      // Reported without echoing the name: a control character in an error
+      // string is the same problem one step further along.
+      return { ok: false, reason: "control-character" };
+    }
+    if (folder.length > MAX_FOLDER_NAME_LENGTH) {
+      return { ok: false, reason: "too-long", folder };
+    }
+    if (folder.includes("\\")) {
+      return { ok: false, reason: "backslash", folder };
+    }
+    // Checked before the `.`-prefix rule so traversal gets its own answer.
+    if (folder === "." || folder === "..") {
+      return { ok: false, reason: "traversal", folder };
+    }
+    if (folder.includes("/")) {
+      return { ok: false, reason: "not-a-single-segment", folder };
+    }
+    if (folder.startsWith(".")) {
+      return { ok: false, reason: "hidden", folder };
+    }
+    if (RESERVED_FOLDER_NAMES.has(folder.toLowerCase())) {
+      return { ok: false, reason: "reserved", folder };
+    }
+    // Case-insensitive, because two folders differing only in case are a
+    // permanent source of "why are my notes in the other one" on a bucket that
+    // is also synced to case-insensitive filesystems.
+    const fingerprint = folder.toLowerCase();
+    if (seen.has(fingerprint)) {
+      return { ok: false, reason: "duplicate", folder };
+    }
+    seen.add(fingerprint);
+
+    const description =
+      typeof entry.description === "string" ? entry.description.trim() : "";
+    if (description.length === 0) {
+      return { ok: false, reason: "description-empty", folder };
+    }
+    if (description.length > MAX_FOLDER_DESCRIPTION_LENGTH) {
+      return { ok: false, reason: "description-too-long", folder };
+    }
+    // Newlines included: it is asked for as one line, and a multi-line value
+    // here lands in a Markdown file where it can open a code fence or a
+    // front-matter block that was not there before.
+    if (CONTROL_CHARACTERS.test(description)) {
+      return { ok: false, reason: "description-control-character", folder };
+    }
+
+    folders.push({ folder, description });
+  }
+
+  return { ok: true, folders };
+}
 
 /* -------------------------------------------------------------------------- */
 /*                              privacy.md                                    */
@@ -172,8 +353,14 @@ function renderStartingRulesBlock(folderDefaults: readonly string[]): string {
  * a person who wants to share their projects changes one word on one line,
  * instead of having to know the syntax for adding a rule.
  */
-export function renderPrivacyManifest(template: StructureTemplate): string {
-  const folders = template === "para" ? [...PARA_FOLDERS] : [];
+export function renderPrivacyManifest(
+  template: StructureTemplate,
+  customFolders: readonly CustomFolder[] = [],
+): string {
+  const folders =
+    template === "para"
+      ? [...PARA_FOLDERS]
+      : customFolders.map((entry) => entry.folder);
   return [
     "---",
     "role: privacy-manifest",
@@ -205,7 +392,19 @@ export function renderPrivacyManifest(template: StructureTemplate): string {
 /*                                 index.md                                   */
 /* -------------------------------------------------------------------------- */
 
-export function renderIndex(template: StructureTemplate): string {
+/**
+ * The manifest: what this context is, and one line per folder saying what
+ * belongs in it.
+ *
+ * For a `custom` layout the owner's own folder names and one-line descriptions
+ * take the place of the PARA ones, **verbatim** — they were validated before
+ * they got here (`validateCustomFolders`), and rewording somebody's own
+ * description in their own file would be as rude as renaming their folder.
+ */
+export function renderIndex(
+  template: StructureTemplate,
+  customFolders: readonly CustomFolder[] = [],
+): string {
   const lines = [
     "---",
     "role: context-manifest",
@@ -239,8 +438,20 @@ export function renderIndex(template: StructureTemplate): string {
       "",
     );
     for (const folder of PARA_FOLDERS) {
-      const purpose = FOLDER_PURPOSE[folder];
-      lines.push(`- \`${folder}/\` — ${purpose.title.toLowerCase()}: ${purpose.blurb}`);
+      lines.push(`- \`${folder}/\` — ${FOLDER_PURPOSE[folder].line}`);
+    }
+    lines.push("");
+  } else if (customFolders.length > 0) {
+    lines.push(
+      "## Structure",
+      "",
+      "These are the folders you named when you set this context up. They are a",
+      "starting point, not a schema — rename them, nest inside them, add more, or",
+      "delete them. The tools address whatever paths exist.",
+      "",
+    );
+    for (const entry of customFolders) {
+      lines.push(`- \`${entry.folder}/\` — ${entry.description}`);
     }
     lines.push("");
   } else {
@@ -254,6 +465,25 @@ export function renderIndex(template: StructureTemplate): string {
   }
 
   return lines.join("\n");
+}
+
+/**
+ * A folder the owner named. Their description, verbatim, as the whole body.
+ *
+ * Deliberately shorter than the PARA READMEs: those explain a method the reader
+ * may not know, whereas this folder's purpose is something its owner just wrote
+ * down in their own words a moment ago.
+ */
+export function renderCustomFolderReadme(entry: CustomFolder): string {
+  return [
+    `# ${entry.folder}`,
+    "",
+    entry.description,
+    "",
+    "You named this folder when you set this context up. Rename it, nest inside",
+    "it, or delete it — the tools address paths, not a fixed taxonomy.",
+    "",
+  ].join("\n");
 }
 
 export function renderFolderReadme(folder: string): string {
@@ -272,17 +502,31 @@ export function renderFolderReadme(folder: string): string {
   ].join("\n");
 }
 
-/** Every file a fresh context starts with, in write order. */
+/**
+ * Every file a fresh context starts with, in write order.
+ *
+ * A folder in object storage is not a thing you create — it is the prefix of a
+ * key that exists. `README.md` is what makes each one real, and it carries the
+ * folder's purpose while it is at it.
+ */
 export function scaffoldFiles(
   template: StructureTemplate,
+  customFolders: readonly CustomFolder[] = [],
 ): { key: string; body: string }[] {
   const files = [
-    { key: INDEX_KEY, body: renderIndex(template) },
-    { key: PRIVACY_KEY, body: renderPrivacyManifest(template) },
+    { key: INDEX_KEY, body: renderIndex(template, customFolders) },
+    { key: PRIVACY_KEY, body: renderPrivacyManifest(template, customFolders) },
   ];
   if (template === "para") {
     for (const folder of PARA_FOLDERS) {
       files.push({ key: `${folder}/README.md`, body: renderFolderReadme(folder) });
+    }
+  } else {
+    for (const entry of customFolders) {
+      files.push({
+        key: `${entry.folder}/README.md`,
+        body: renderCustomFolderReadme(entry),
+      });
     }
   }
   return files;
@@ -301,8 +545,17 @@ export function isPlumbingKey(key: string): boolean {
   return key.split("/").some((segment) => segment.startsWith("."));
 }
 
-/** Pages of the root listing we are willing to walk before giving up. */
-const DETECT_PAGE_CAP = 5;
+/**
+ * Pages of the root listing we are willing to walk before giving up.
+ *
+ * Exported so `__tests__/scaffold.test.ts` can seed *more* plumbing than this
+ * many pages can hold. That is what makes the delimiter test below non-vacuous:
+ * with fewer objects than `DETECT_PAGE_CAP * 1000`, a flat listing eventually
+ * reaches the real notes anyway and the test passes for the wrong reason.
+ */
+export const DETECT_PAGE_CAP = 5;
+/** Keys per page. Named for the same reason as the cap above. */
+export const DETECT_PAGE_SIZE = 1000;
 
 /**
  * Does this bucket already hold a context?
@@ -330,7 +583,7 @@ export async function hasExistingContext(store: ScaffoldStore): Promise<boolean>
       prefix: "",
       delimiter: "/",
       cursor,
-      limit: 1000,
+      limit: DETECT_PAGE_SIZE,
     });
     for (const object of listing.objects ?? []) {
       if (!isPlumbingKey(object.key)) return true;
@@ -375,7 +628,15 @@ export interface ScaffoldResult {
  */
 export async function scaffoldContext(
   store: ScaffoldStore,
-  options: { structureTemplate: StructureTemplate },
+  options: {
+    structureTemplate: StructureTemplate;
+    /**
+     * The owner's own root folders, for a `custom` layout. Must already have
+     * been through `validateCustomFolders` — these become bucket keys, and this
+     * function does not re-check them.
+     */
+    customFolders?: readonly CustomFolder[];
+  },
 ): Promise<ScaffoldResult> {
   if (await hasExistingContext(store)) {
     return {
@@ -388,7 +649,10 @@ export async function scaffoldContext(
 
   const written: string[] = [];
   const skipped: string[] = [];
-  for (const file of scaffoldFiles(options.structureTemplate)) {
+  for (const file of scaffoldFiles(
+    options.structureTemplate,
+    options.customFolders ?? [],
+  )) {
     try {
       // The second guard. `hasExistingContext` looked at the shape of the
       // bucket; this looks at the exact key about to be written.

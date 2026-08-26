@@ -9,12 +9,20 @@
 
 import { ConvexError, v } from "convex/values";
 import { requireAuthId } from "@supa-media/convex/auth";
+import { internal } from "../_generated/api";
 import { mutation, query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import { claimName, checkAvailability, nameRejectionError } from "./lib/nameClaims";
 import { seedIngestionSettings } from "./lib/ingestionStore";
 import { consumeRateLimit } from "./lib/rateLimit";
+import {
+  type FolderRejection,
+  MAX_CUSTOM_FOLDERS,
+  MAX_FOLDER_DESCRIPTION_LENGTH,
+  MAX_FOLDER_NAME_LENGTH,
+  validateCustomFolders,
+} from "./lib/scaffold";
 import {
   getMembership,
   requireWorkspaceAccess,
@@ -96,6 +104,13 @@ export const createWorkspace = mutation({
     slug: v.string(),
     displayName: v.string(),
     kind: v.union(v.literal("personal"), v.literal("shared")),
+    /**
+     * The layout this context *expects* to start with. A default written onto
+     * the row, nothing more — **creating a workspace writes nothing into any
+     * bucket**, and by the time one is connected the owner will have been asked
+     * properly. `applyStructure` is what actually lays a layout down, and it
+     * overwrites this field with what was chosen then.
+     */
     structureTemplate: v.optional(
       v.union(v.literal("para"), v.literal("custom")),
     ),
@@ -184,6 +199,223 @@ export const createWorkspace = mutation({
     await seedIngestionSettings(ctx, { workspaceId, ownerUserId: userId, now });
 
     return { workspaceId, slug: availability.normalized };
+  },
+});
+
+/* -------------------------------------------------------------------------- */
+/*                        choosing the starting layout                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How often one workspace may ask us to write a starting layout into its
+ * bucket.
+ *
+ * Scaffolding is a handful of outbound writes to a customer-supplied endpoint,
+ * so the reasoning is `reverifyStorage`'s: keyed by **workspace**, because the
+ * workspace is what has a bucket, and loose enough that a person retrying a
+ * failed connect never meets it.
+ */
+const APPLY_STRUCTURE_LIMIT = 10;
+const APPLY_STRUCTURE_WINDOW_MS = 60 * 60 * 1000;
+
+/** The refusal, worded so the person can act on it. Names no key and no bucket. */
+function folderRejectionError(
+  reason: FolderRejection,
+  folder: string | undefined,
+): ConvexError<{ code: string; message: string; reason: string }> {
+  const named = folder === undefined ? "That folder name" : `"${folder}"`;
+  const message: Record<FolderRejection, string> = {
+    "too-many": `A starting layout can have at most ${MAX_CUSTOM_FOLDERS} folders. You can add more later.`,
+    empty: "Every folder needs a name.",
+    untrimmed: `${named} starts or ends with a space. Folder names become part of every file's path, so spaces at the edges are too easy to lose.`,
+    "too-long": `${named} is longer than ${MAX_FOLDER_NAME_LENGTH} characters.`,
+    "control-character":
+      "A folder name contains a character that cannot appear in a file path.",
+    backslash: `${named} contains a backslash. Use a plain name — this is one folder, not a path.`,
+    "not-a-single-segment": `${named} contains a slash. Name one folder; you can nest inside it afterwards.`,
+    traversal: `${named} is not a folder name.`,
+    hidden: `${named} starts with a dot. Names beginning with a dot are reserved for plumbing and are hidden from every client.`,
+    reserved: `${named} is the name of a file this context already creates.`,
+    duplicate: `${named} is listed twice.`,
+    "description-empty": `${named} needs a one-line description. It becomes that folder's README.`,
+    "description-too-long": `The description for ${named} is longer than ${MAX_FOLDER_DESCRIPTION_LENGTH} characters.`,
+    "description-control-character": `The description for ${named} must be a single line.`,
+  };
+  return new ConvexError({
+    code: "INVALID_FOLDER",
+    message: message[reason],
+    // A code from a closed set, so an interface can point at the offending
+    // field without matching on English.
+    reason,
+  });
+}
+
+/**
+ * Write the starting layout the owner chose.
+ *
+ * ## Why this exists at all
+ *
+ * The scaffold used to fire automatically the moment `bindStorage` succeeded,
+ * reading the `structureTemplate` recorded when the workspace was created. In
+ * the onboarding order the product actually has — claim a name, connect
+ * storage, *then* look at the bucket and ask — that meant the layout was
+ * written into the bucket before anybody had been asked which layout they
+ * wanted. The question was decoration.
+ *
+ * So the choice travels with the call: this hands it to
+ * `verifyStorageBinding`, which probes the bucket and scaffolds that layout, in
+ * one credential open. Nothing reads a frozen field to decide what to write.
+ *
+ * ## Everything here is reversible, and nothing here can overwrite
+ *
+ * This writes a `README.md` per folder plus `index.md` and `privacy.md`, all of
+ * them ordinary Markdown in the customer's own bucket. Every one can be
+ * renamed, edited or deleted afterwards, in the console or in Obsidian. It is a
+ * leg-up on an empty bucket, not a schema.
+ *
+ * The one rule that does not move: **it never overwrites.** The refusal below
+ * for a bucket that already holds a context is a courtesy — it gives the person
+ * an answer instead of a silent no-op — and it is emphatically not the
+ * enforcement. `scaffoldContext` refuses against a non-empty bucket and `get`s
+ * every key before it `put`s it, so this mutation's checks could be wrong, or
+ * bypassed entirely, and a live brain would still come through untouched.
+ *
+ * Owner-only, for `bindStorage`'s reason: it spends the workspace's budget and
+ * writes into the workspace's bucket.
+ *
+ * A mutation that **schedules** rather than an action that probes, for
+ * `reverifyStorage`'s reason: `verifyStorageBinding` decrypts, so a public
+ * function that *called* it would have a credential in its own scope. A
+ * scheduled job's result is discarded by the scheduler and cannot flow back
+ * here. Watch `getStorageBinding` for the outcome.
+ */
+export const applyStructure = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    template: v.union(v.literal("para"), v.literal("custom")),
+    /**
+     * Required for `custom`, refused for `para`. Each becomes a root folder
+     * whose `README.md` carries the description, verbatim.
+     */
+    folders: v.optional(
+      v.array(v.object({ folder: v.string(), description: v.string() })),
+    ),
+  },
+  returns: v.object({
+    queued: v.boolean(),
+    template: v.string(),
+    /** The folder names as they will be written. Echoed so a client can confirm. */
+    folders: v.array(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+    await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
+
+    const binding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (binding === null) {
+      throw new ConvexError({
+        code: "NO_STORAGE_BINDING",
+        message: "Connect storage before choosing a folder layout.",
+      });
+    }
+    if (binding.status !== "connected") {
+      throw new ConvexError({
+        code: "STORAGE_NOT_VERIFIED",
+        message:
+          "This context's storage has not been verified yet. Wait for the connection check to finish, or fix the error it reported.",
+      });
+    }
+    if (binding.scaffoldReason === "existing-context") {
+      throw new ConvexError({
+        code: "CONTEXT_NOT_EMPTY",
+        message:
+          "This bucket already holds a context, so there is nothing to set up. Nothing has been changed.",
+      });
+    }
+    if (binding.scaffoldReason === "created") {
+      throw new ConvexError({
+        code: "STRUCTURE_ALREADY_APPLIED",
+        message:
+          "A starting layout has already been written to this bucket. Rename or add folders from the console.",
+      });
+    }
+
+    // Validated before anything is written or persisted: these become keys in
+    // somebody's own bucket, and a bad one is refused rather than repaired.
+    let folders: { folder: string; description: string }[] = [];
+    if (args.template === "custom") {
+      const proposed = args.folders ?? [];
+      if (proposed.length === 0) {
+        throw new ConvexError({
+          code: "INVALID_STRUCTURE",
+          message: "Name at least one folder, or choose the standard layout.",
+        });
+      }
+      const validation = validateCustomFolders(proposed);
+      if (!validation.ok) {
+        throw folderRejectionError(validation.reason, validation.folder);
+      }
+      folders = validation.folders;
+    } else if (args.folders !== undefined && args.folders.length > 0) {
+      // Refused rather than ignored. Silently dropping folders somebody typed
+      // would have them look for folders that were never created.
+      throw new ConvexError({
+        code: "INVALID_STRUCTURE",
+        message:
+          "The standard layout has its own folders. Choose a custom layout to name your own.",
+      });
+    }
+
+    // Counted before the schedule, in the same transaction: a refusal throws
+    // and rolls the whole thing back, so a scaffold is never queued uncounted.
+    await consumeRateLimit(ctx, {
+      key: `workspace.applyStructure:${args.workspaceId}`,
+      limit: APPLY_STRUCTURE_LIMIT,
+      windowMs: APPLY_STRUCTURE_WINDOW_MS,
+    });
+
+    // The row records what was asked for. What actually reached the bucket is
+    // recorded on the binding as `scaffoldReason`, by the job below — this
+    // field is a note for the console, never an input to a later write.
+    await ctx.db.patch(args.workspaceId, {
+      structureTemplate: args.template,
+      customFolders: args.template === "custom" ? folders : undefined,
+      updatedAt: Date.now(),
+    });
+
+    await ctx.scheduler.runAfter(
+      0,
+      internal.functions.provisioning.verifyStorageBinding,
+      {
+        workspaceId: args.workspaceId,
+        actorUserId: userId,
+        structure: { template: args.template, folders },
+      },
+    );
+
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: userId,
+      action: "workspace.structure_applied",
+      // The folders go in `paths`, which is what that field is for: they are
+      // bucket-relative paths, and they are about to exist as keys in the
+      // owner's own bucket. The descriptions are not recorded anywhere — they
+      // are prose, and prose does not belong in an audit trail.
+      paths: folders.map((entry) => `${entry.folder}/README.md`),
+      details: {
+        template: args.template,
+        folderCount: folders.length,
+      },
+    });
+
+    return {
+      queued: true,
+      template: args.template,
+      folders: folders.map((entry) => entry.folder),
+    };
   },
 });
 
