@@ -6,29 +6,79 @@
  * S3-compatible endpoint. Keys are the customer's own keys: nothing here
  * namespaces or rewrites a path.
  *
- * Access model:
- *   - PRIVATE_TOKEN  → personal access; sees everything and may create private notes
- *   - TEAM_TOKEN     → sees/writes team notes only
- *   - PUBLIC_TOKEN   → compatibility alias for TEAM_TOKEN (not internet-public)
+ * Access model — OAuth, and only OAuth:
  *
- * Folder defaults and exact-note overrides live in the private, Obsidian-visible
- * privacy.md manifest. Existing scopes.yml and .note-acl objects are read only
- * as a migration fallback.
- *   - INBOX_TOKEN    → may only POST raw captures to /inbox (for iOS Shortcuts, Zapier, …)
+ * Every request carries an OAuth 2.1 access token, which the control plane
+ * resolves to a grant, a workspace, and a set of scopes. There is no static
+ * shared secret in this worker and no environment variable that grants access
+ * to anything. The old `PRIVATE_TOKEN` / `TEAM_TOKEN` / `PUBLIC_TOKEN` model is
+ * *gone*, not fenced: a single-tenant construct that must never be extended to
+ * multiple customers is safest when there is none of it left to extend.
+ *
+ * A session resolves to one workspace, a privacy tier (`private` for an owner,
+ * `team` for everyone else) and scopes (`context:read`, `context:write`,
+ * `context:capture`). Folder defaults and exact-note overrides live in the
+ * private, Obsidian-visible privacy.md manifest inside the customer's own
+ * bucket; scopes.yml and .note-acl objects are read only as a migration
+ * fallback.
  *
  * Endpoints:
- *   POST /mcp                MCP streamable-HTTP endpoint (Authorization: Bearer <token>)
- *   POST /t/<token>/mcp      same, token in path — for clients that can't set headers
- *   POST /inbox              drop a capture into 0-inbox/ (Bearer INBOX_TOKEN)
- *   POST /granola-webhook     receive signed Granola note events
- *   cron                     rewrites 2-areas/calendar/next-14-days.md from CALENDAR_ICS_URL
+ *   POST /mcp                  MCP streamable HTTP (Authorization: Bearer <access token>)
+ *   POST /@<slug>/mcp          the same context, named in the URL — a selector, never a boundary
+ *   POST /t/<token>/mcp        compatibility fallback for clients that cannot set headers
+ *   POST /inbox                drop a capture into 0-inbox/ (needs context:capture)
+ *   GET  /.well-known/oauth-protected-resource[/…]    RFC 9728
+ *   GET  /.well-known/oauth-authorization-server[/…]  RFC 8414
+ *   POST /oauth/register       RFC 7591 dynamic client registration
+ *   GET  /oauth/authorize      authorization code + PKCE (S256 only)
+ *   POST /oauth/token          code exchange and refresh
+ *   POST /oauth/revoke         RFC 7009, one client at a time
+ *   POST /granola-webhook      signed Granola note events (single-deployment only)
+ *   cron                       calendar refresh (single-deployment only)
  *
  * Object storage has no dependable versioning, so before any overwrite the
  * previous version is snapshotted to .history/<path>.<timestamp>.md (never
  * listed or team-visible; readable by personal access for a rollback).
  */
 
+import { createControlPlane } from "./controlPlane.js";
 import { R2Store } from "./store/r2.js";
+import {
+  SCOPE_CAPTURE,
+  SCOPE_READ,
+  SCOPE_WRITE,
+  SessionRefusal,
+  StorageUnavailable,
+  bearerToken,
+  hasScope,
+  resolveSession,
+  splitWorkspacePath,
+  storeForSession,
+} from "./session.js";
+import { enforceOrigin, isTransportPath } from "./origin.js";
+import {
+  ERROR_HEADER_MISMATCH,
+  ERROR_METHOD_NOT_FOUND,
+  ERROR_UNSUPPORTED_PROTOCOL_VERSION,
+  LEGACY_PROTOCOLS,
+  META_SERVER_INFO,
+  MODERN_PROTOCOLS,
+  declaredProtocolVersion,
+  isModernRequest,
+  legacyProtocolHeaderIsAcceptable,
+  modernHeaderMismatch,
+} from "./protocol.js";
+import {
+  authorizationServerMetadata,
+  forbiddenResponse,
+  handleAuthorize,
+  handleRegister,
+  handleRevoke,
+  handleToken,
+  protectedResourceMetadata,
+  publicOrigin,
+  unauthorizedResponse,
+} from "./oauth.js";
 
 const PRIVACY_KEY = "privacy.md";
 const LEGACY_SCOPES_KEY = "scopes.yml";
@@ -54,7 +104,6 @@ const GRANOLA_WEBHOOK_BYTE_CAP = 100_000;
 const GRANOLA_WEBHOOK_MAX_AGE_SECONDS = 5 * 60;
 /** Pages a single listing may fetch — 1000 keys each, so 100k objects. */
 const LIST_PAGE_CAP = 100;
-const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const SERVER_INSTRUCTIONS = `This is the user's context: markdown notes
 organized by the PARA method (1-projects = active work, 2-areas = ongoing
@@ -147,51 +196,169 @@ const ORIENT_OPERATING_CONTRACT = `## Connected agent operating contract
   partial or summarized captures honestly.`;
 
 /**
- * Build the storage adapter for this request. This is the only place a
- * Cloudflare binding name is allowed to appear — everything below works
- * against the ContextStore interface, so pointing a deployment at an
- * S3-compatible bucket is a change here and nowhere else.
+ * A store for the deployment's own local bucket, for the two features that have
+ * no user behind them: the calendar cron and the Granola webhook.
+ *
+ * **This is not an access path and no MCP session can reach it.** It exists
+ * only for a single-deployment install — someone self-hosting the gateway over
+ * their own bucket — where there is no customer credential to fetch and no
+ * OAuth token on a cron tick. On the multi-tenant product deployment
+ * `LOCAL_CONTEXT_BUCKET` is unset, and both features are inert.
+ *
+ * Anything a *caller* can reach goes through `storeForSession`, which requires a
+ * live grant. Do not call this from a request path that carries a token.
  */
-function storeForRequest(env) {
-  return new R2Store(env.BRAIN);
+function localIngestionStore(env) {
+  const bucket = env?.LOCAL_CONTEXT_BUCKET;
+  if (!bucket || typeof bucket.get !== "function") return null;
+  return new R2Store(bucket, { rootPrefix: env.LOCAL_CONTEXT_ROOT_PREFIX });
 }
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    if (request.method === "OPTIONS") return corsResponse();
+    const origin = publicOrigin(request, env);
 
-    // Token-in-path variant: /t/<token>/mcp
-    let path = url.pathname;
+    // The workspace selector comes off the front first, so every route below
+    // sees the same path whether or not the caller named a context. The slug
+    // selects; it never authorizes. See splitWorkspacePath.
+    const { slug, path: afterSlug } = splitWorkspacePath(url.pathname);
+
+    // Token-in-path fallback: /t/<token>/mcp, or /@slug/t/<token>/mcp.
+    //
+    // Kept for clients that genuinely cannot set an Authorization header. It is
+    // a TRANSPORT for an OAuth-issued access token and nothing else: the token
+    // is resolved by exactly the same code as a header token, gets exactly the
+    // same grant, and confers exactly the same authority. It is not, and has
+    // never been, the security boundary. A token in a URL lands in browser
+    // history, proxy logs, and referrer headers, so prefer the header.
+    let path = afterSlug;
     let pathToken = null;
-    const m = path.match(/^\/t\/([^/]+)(\/.*)?$/);
-    if (m) {
-      pathToken = decodeURIComponent(m[1]);
-      path = m[2] || "/";
+    const tokenInPath = path.match(/^\/t\/([^/]+)(\/.*)?$/);
+    if (tokenInPath) {
+      pathToken = decodeURIComponent(tokenInPath[1]);
+      path = tokenInPath[2] || "/";
     }
 
-    if (path === "/inbox" && request.method === "POST") {
-      return handleInbox(request, env, storeForRequest(env), pathToken);
+    // MCP says a server MUST validate `Origin` on the Streamable HTTP
+    // transport, to stop a page in a victim's browser from reaching an
+    // authenticated endpoint by DNS rebinding. See `src/origin.js` for what
+    // counts as valid — in particular that *absence* is not an attack signal
+    // and `null` is not absence.
+    //
+    // It runs here, above the method dispatch and above every auth path, for
+    // two reasons: the preflight is refused on the same terms as the request it
+    // precedes, and the refusal is produced before any token, slug, or control
+    // plane answer exists to vary it.
+    if (isTransportPath(path)) {
+      const refusal = enforceOrigin(request, env, origin);
+      if (refusal) return refusal;
+    }
+
+    if (request.method === "OPTIONS") return corsResponse();
+
+    const wellKnown = matchWellKnown(path);
+    if (wellKnown) {
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return new Response(null, { status: 405 });
+      }
+      if (wellKnown.kind === "authorization-server") {
+        return authorizationServerMetadata(origin);
+      }
+      // A client that was handed `https://host/@seyi/mcp` probes
+      // `/.well-known/oauth-protected-resource/@seyi/mcp` before the root form,
+      // so the slug can arrive in the prefix or in the suffix. Either way it
+      // describes the same resource.
+      return protectedResourceMetadata(origin, slug || wellKnown.slug);
+    }
+
+    if (path.startsWith("/oauth/")) {
+      const controlPlane = createControlPlane(env);
+      try {
+        if (path === "/oauth/register" && request.method === "POST") {
+          return await handleRegister(request, env, controlPlane);
+        }
+        if (path === "/oauth/authorize" && request.method === "GET") {
+          return await handleAuthorize(request, env, controlPlane, { origin, slug });
+        }
+        if (path === "/oauth/token" && request.method === "POST") {
+          return await handleToken(request, env, controlPlane, { origin, slug });
+        }
+        if (path === "/oauth/revoke" && request.method === "POST") {
+          return await handleRevoke(request, env, controlPlane);
+        }
+      } catch {
+        // Never relay a control-plane failure verbatim: its text is written for
+        // operators and the caller is an AI client on the open internet.
+        return json({ error: "server_error" }, 503);
+      }
+      return new Response(null, { status: 405 });
+    }
+
+    if (path === "/mcp" || path === "/inbox") {
+      if (request.method !== "POST") return new Response(null, { status: 405 });
+      const controlPlane = createControlPlane(env);
+      let session;
+      try {
+        session = await resolveSession(pathToken || bearerToken(request), slug, controlPlane);
+      } catch (error) {
+        if (!(error instanceof SessionRefusal)) throw error;
+        // A 403 from workspace selection deliberately drops the slug from its
+        // challenge, so the refusal for "a real context you cannot reach" is
+        // byte-identical to the one for a name nobody has ever registered.
+        // Echoing it back would make the challenge header itself the oracle the
+        // status code was careful not to be.
+        return error.status === 403
+          ? forbiddenResponse(origin, null, error)
+          : unauthorizedResponse(origin, slug, error);
+      }
+
+      const needed = path === "/inbox" ? SCOPE_CAPTURE : SCOPE_READ;
+      if (!hasScope(session, needed)) {
+        return forbiddenResponse(origin, null, {
+          description: `This connection does not hold the ${needed} scope.`,
+          // Incremental consent: name the one scope that was missing, so the
+          // client can re-authorize for it rather than for everything.
+          scope: [needed],
+        });
+      }
+
+      let store;
+      try {
+        store = await storeForSession(session, env, controlPlane);
+      } catch (error) {
+        if (!(error instanceof StorageUnavailable)) throw error;
+        // Authenticated, but this workspace has no bucket we can reach. A
+        // refusal, never a fallback: there is no other store to serve from and
+        // reaching for one would be the cross-tenant bug itself.
+        return json(
+          {
+            error: "storage_unavailable",
+            error_description:
+              "This context has no reachable storage. Reconnect it from the dashboard.",
+          },
+          503
+        );
+      }
+
+      return path === "/inbox"
+        ? handleInbox(request, env, store, session)
+        : handleMcp(request, store, session);
     }
 
     if (path === "/granola-webhook" && request.method === "POST") {
-      return handleGranolaWebhook(request, env, storeForRequest(env), ctx);
+      const store = localIngestionStore(env);
+      if (!store) return json({ error: "not_found" }, 404);
+      return handleGranolaWebhook(request, env, store, ctx);
     }
 
-    if (path === "/mcp") {
-      if (request.method === "GET") return new Response(null, { status: 405 });
-      if (request.method !== "POST") return new Response(null, { status: 405 });
-      const scope = resolveScope(request, env, pathToken);
-      if (!scope) return json({ error: "unauthorized" }, 401);
-      return handleMcp(request, storeForRequest(env), scope);
-    }
-
-    return new Response("context", { status: 200 });
+    return json({ error: "not_found" }, 404);
   },
 
   async scheduled(event, env, ctx) {
-    const store = storeForRequest(env);
+    const store = localIngestionStore(env);
+    if (!store) return;
     ctx.waitUntil(
       Promise.all([syncCalendar(env, store), processPendingGranolaEvents(env, store)])
     );
@@ -200,28 +367,30 @@ export default {
 
 /* ----------------------------- auth & scoping ----------------------------- */
 
-function bearerToken(request) {
-  const h = request.headers.get("Authorization") || "";
-  return h.startsWith("Bearer ") ? h.slice(7).trim() : null;
-}
-
-function timingSafeEqual(a, b) {
-  if (typeof a !== "string" || typeof b !== "string" || !a || !b) return false;
-  const enc = new TextEncoder();
-  const ba = enc.encode(a);
-  const bb = enc.encode(b);
-  if (ba.length !== bb.length) return false;
-  let diff = 0;
-  for (let i = 0; i < ba.length; i++) diff |= ba[i] ^ bb[i];
-  return diff === 0;
-}
-
-/** Returns 'private' (personal access) | 'team' | null. */
-function resolveScope(request, env, pathToken) {
-  const token = pathToken || bearerToken(request);
-  if (timingSafeEqual(token, env.PRIVATE_TOKEN)) return "private";
-  if (timingSafeEqual(token, env.TEAM_TOKEN)) return "team";
-  if (timingSafeEqual(token, env.PUBLIC_TOKEN)) return "team";
+/**
+ * Match the two discovery documents, with or without a resource path suffix.
+ *
+ * RFC 9728 §3 inserts the well-known segment between the host and the resource
+ * path, so a resource at `/@seyi/mcp` publishes metadata at
+ * `/.well-known/oauth-protected-resource/@seyi/mcp`. Clients probe the
+ * path-suffixed form first and the bare form second, so both are served — and
+ * the suffix is read for a slug rather than ignored.
+ */
+function matchWellKnown(path) {
+  const protectedResource = path.match(/^\/\.well-known\/oauth-protected-resource(\/.*)?$/);
+  if (protectedResource) {
+    // The suffix is the resource *path*, so it ends in "/mcp" — which is itself
+    // a valid-looking slug. Trimming that first is what stops
+    // `/.well-known/oauth-protected-resource/mcp` — the exact URL this worker's
+    // own 401 challenge points at — from being read as a workspace called "mcp"
+    // and answering with metadata for a resource nobody asked about.
+    const suffix = (protectedResource[1] || "").replace(/\/mcp\/?$/, "");
+    const named = suffix.match(/^\/@?([a-z0-9-]{2,32})$/);
+    return { kind: "protected-resource", slug: named ? named[1] : null };
+  }
+  if (/^\/\.well-known\/oauth-authorization-server(\/.*)?$/.test(path)) {
+    return { kind: "authorization-server", slug: null };
+  }
   return null;
 }
 
@@ -449,40 +618,277 @@ function visiblePrivateOverrides(rules) {
 
 /* --------------------------------- MCP ---------------------------------- */
 
-async function handleMcp(request, store, scope) {
+async function handleMcp(request, store, session) {
+  /**
+   * The acting identity, carried on the per-request store instance so that
+   * `recordChange` can put it in the audit record without every tool signature
+   * growing a parameter.
+   *
+   * This is request-scoped metadata on an adapter this request built for
+   * itself, not part of the ContextStore contract — `storeForSession` returns a
+   * fresh store per request, so there is nothing here for a reused isolate to
+   * carry into the next tenant's call.
+   *
+   * `actor_scope: "team"` stops meaning anything the moment "team" is four
+   * people, so the record names the human and the client too.
+   */
+  store.actor = {
+    workspaceId: session.workspaceId,
+    userId: session.actorUserId,
+    clientId: session.actorClientId,
+    grantId: session.grantId,
+  };
+
   let body;
   try {
     body = await request.json();
   } catch {
     return jsonRpcError(null, -32700, "parse error");
   }
+
+  // Era routing. A modern request declares its revision on itself; a legacy one
+  // relies on a handshake that already happened. Serving the wrong shape is
+  // worse than refusing, so this decision is made once, from the request, and
+  // the two paths below never fall through into each other.
+  if (isModernRequest(request, Array.isArray(body) ? body[0] : body)) {
+    return handleModernMcp(request, body, store, session);
+  }
+
+  if (!legacyProtocolHeaderIsAcceptable(request.headers.get("MCP-Protocol-Version"))) {
+    return jsonRpcError(
+      null,
+      -32000,
+      "unsupported MCP-Protocol-Version header",
+      400
+    );
+  }
+
+  // JSON-RPC batching was removed in 2025-06-18 and never existed in the modern
+  // era. It survives here only for `2024-11-05` and `2025-03-26`, which are
+  // still in `LEGACY_PROTOCOLS` and did define it.
   if (Array.isArray(body)) {
     const results = [];
     for (const msg of body) {
-      const r = await handleRpc(msg, store, scope);
+      const r = await handleRpc(msg, store, session);
       if (r) results.push(r);
     }
     return results.length ? json(results) : new Response(null, { status: 202 });
   }
-  const result = await handleRpc(body, store, scope);
+  const result = await handleRpc(body, store, session);
   return result ? json(result) : new Response(null, { status: 202 });
 }
 
-async function handleRpc(msg, store, scope) {
+/* ------------------------------ modern MCP -------------------------------- */
+
+/**
+ * Serve one request under `2026-07-28` semantics.
+ *
+ * The modern era is stateless by construction, which is why this gateway can
+ * speak it at all: there was never a session to remove. What it does add is a
+ * stricter envelope — the version is declared per request and mirrored into
+ * headers, every result is tagged, and the transport carries real HTTP status
+ * codes instead of answering `200` with an error inside.
+ *
+ * Everything that decides *what a caller may see or do* is delegated to the
+ * same helpers the legacy path uses. That is deliberate and load-bearing: a
+ * scope check written twice is a scope check that will eventually differ, and
+ * the difference would be a privilege escalation reachable by adding one header
+ * to a request.
+ */
+async function handleModernMcp(request, msg, store, session) {
+  if (Array.isArray(msg)) {
+    // "The body of the HTTP POST MUST be a single JSON-RPC request or
+    // notification." Batching does not exist in this era.
+    return modernErrorResponse(null, ERROR_HEADER_MISMATCH, "batched requests are not supported", 400);
+  }
+
+  const id = msg?.id;
+  // A notification gets `202` and nothing else. This revision defines no
+  // client-to-server notification over HTTP and explicitly leaves header
+  // requirements for a notification POST unspecified, so none are imposed.
+  if (id === undefined || id === null) return new Response(null, { status: 202 });
+
+  const mismatch = modernHeaderMismatch(request, msg);
+  if (mismatch) return modernErrorResponse(id, ERROR_HEADER_MISMATCH, mismatch, 400);
+
+  const requested = declaredProtocolVersion(msg);
+  if (!MODERN_PROTOCOLS.includes(requested)) {
+    // The modern counterpart of the legacy counter-offer: an error carrying the
+    // versions the client could retry with. See `MODERN_ONLY_VERSION_LISTS` in
+    // `protocol.js` for why a legacy revision must never appear here.
+    //
+    // The body is not optional. A `400` whose body is *not* a recognized modern
+    // error is how a dual-era client concludes the server is legacy and falls
+    // back to `initialize` — so a bare `400` here does not merely lose detail,
+    // it routes the client into the era it just declined to use.
+    return modernErrorResponse(
+      id,
+      ERROR_UNSUPPORTED_PROTOCOL_VERSION,
+      "Unsupported protocol version",
+      400,
+      { supported: MODERN_PROTOCOLS, requested: requested ?? null }
+    );
+  }
+
+  const params = msg.params || {};
+  try {
+    switch (msg.method) {
+      case "server/discover":
+        // MUST be implemented. It is how a modern client learns what this
+        // server is without probing every list endpoint in turn. Modern-only
+        // `supportedVersions` — see `MODERN_ONLY_VERSION_LISTS`.
+        return modernResultResponse(id, {
+          supportedVersions: MODERN_PROTOCOLS,
+          capabilities: { tools: {} },
+          instructions: SERVER_INSTRUCTIONS,
+          ...CACHEABLE,
+        });
+      case "tools/list":
+        return modernResultResponse(id, {
+          tools: toolsForSession(session),
+          ...CACHEABLE,
+        });
+      case "tools/call":
+        return modernResultResponse(id, await callToolForSession(params, store, session));
+      default:
+        // On this transport an unknown method is `404`, not `200` with an error
+        // body. The status is what lets a dual-era client tell "this server
+        // does not have that method" from "this server is not modern at all".
+        return modernErrorResponse(
+          id,
+          ERROR_METHOD_NOT_FOUND,
+          `method not found: ${msg.method}`,
+          404
+        );
+    }
+  } catch (err) {
+    return modernErrorResponse(id, -32603, `internal error: ${err.message}`, 200);
+  }
+}
+
+/**
+ * Freshness hints required on every cacheable result in this revision.
+ *
+ * `cacheScope` is `private` and not negotiable: `tools/list` is filtered by the
+ * calling grant's scopes, so a shared intermediary that cached one caller's
+ * answer and served it to another would hand a read-only client the write
+ * tools. `public` would be a cross-grant leak dressed as a performance hint.
+ *
+ * One minute of `ttlMs` bounds how long a downgraded grant can keep seeing the
+ * wider tool list. A revoked grant is not a concern here — it fails
+ * authentication long before any cached list is consulted.
+ */
+const CACHEABLE = { ttlMs: 60_000, cacheScope: "private" };
+
+/** The server's own identity, reported in `_meta` on every modern result. */
+const SERVER_INFO = {
+  name: "context",
+  version: "1.0.0",
+  description: "A scoped MCP server over a customer-owned bucket of markdown notes.",
+};
+
+function modernResultResponse(id, result, status = 200) {
+  return json(
+    {
+      jsonrpc: "2.0",
+      id,
+      result: {
+        // Required on every result. `input_required` is the other value, for
+        // the multi-round-trip pattern; this server never needs input from a
+        // client, so every result it produces is complete.
+        resultType: "complete",
+        ...result,
+        _meta: { ...(result?._meta || {}), [META_SERVER_INFO]: SERVER_INFO },
+      },
+    },
+    status
+  );
+}
+
+function modernErrorResponse(id, code, message, status, data) {
+  const error = { code, message };
+  if (data !== undefined) error.data = data;
+  return json({ jsonrpc: "2.0", id: id ?? null, error }, status);
+}
+
+/**
+ * The tools this connection may see.
+ *
+ * A read-only grant is not shown tools it cannot use. Advertising them and then
+ * refusing every call makes a connected client look broken; it also invites an
+ * agent to spend a turn discovering it.
+ *
+ * Shared by both protocol eras on purpose. The filtering here and the
+ * enforcement in `callToolForSession` are the only two places authority is
+ * decided, so adding a protocol revision can never quietly add a second, laxer
+ * copy of either.
+ */
+function toolsForSession(session) {
+  return hasScope(session, SCOPE_WRITE)
+    ? toolDefinitions()
+    : toolDefinitions().filter((tool) => tool.annotations?.readOnlyHint === true);
+}
+
+/** Run one tool call for this session, enforcing scope. Shared by both eras. */
+async function callToolForSession(params, store, session) {
+  // Enforced here as well as filtered in `toolsForSession`: the listing is a
+  // courtesy, this is the control. A client that remembers a tool name from a
+  // wider grant, or simply guesses one, gets refused.
+  if (toolIsWriting(params?.name) && !hasScope(session, SCOPE_WRITE)) {
+    return toolError(
+      "permission denied: this connection holds a read-only grant. " +
+        "Reconnect the client with write access from the Context dashboard."
+    );
+  }
+  return callTool(params?.name, params?.arguments || {}, store, session.scope);
+}
+
+/** Tools that change something, derived from the definitions so it cannot drift. */
+function toolIsWriting(name) {
+  const tool = toolDefinitions().find((entry) => entry.name === name);
+  // An unknown tool is treated as writing. `callTool` rejects it anyway, and a
+  // gate that fails open on a name it does not recognize is a gate that a typo
+  // in a future tool definition quietly disables.
+  return !tool || tool.annotations?.readOnlyHint !== true;
+}
+
+async function handleRpc(msg, store, session) {
   const { id, method, params } = msg || {};
   const isNotification = id === undefined || id === null;
+  const scope = session.scope;
 
   try {
     switch (method) {
       case "initialize": {
+        // MCP lifecycle: if the requested revision is one we speak, echo it.
+        // Otherwise counter-offer — in a normal result, never a JSON-RPC error
+        // — with the newest revision we do speak, and let the client decide
+        // whether it can live with that.
+        //
+        // Two ways to get this wrong, both seen in the wild:
+        //
+        //  - Answering with an error. A server that replied `-32602 unsupported
+        //    protocol version` to a client asking for a newer revision simply
+        //    failed to connect, where a counter-offer would have worked. The
+        //    counter-offer is a MUST for exactly this reason.
+        //  - Counter-offering something other than the newest. This used to
+        //    return a hardcoded "2025-03-26", so a client asking for a revision
+        //    from the future was talked down further than necessary and lost
+        //    capability for nothing.
+        //
+        // Derived from the array, which is ordered newest first, so the two
+        // cannot drift apart. Only *legacy* revisions are offerable here: a
+        // client that sent `initialize` has declared it speaks the handshake
+        // era, and answering it with `2026-07-28` — which deleted `initialize`
+        // — would name a revision it cannot possibly use.
         const requested = params?.protocolVersion;
-        const protocolVersion = SUPPORTED_PROTOCOLS.includes(requested)
+        const protocolVersion = LEGACY_PROTOCOLS.includes(requested)
           ? requested
-          : "2025-03-26";
+          : LEGACY_PROTOCOLS[0];
         return rpcResult(id, {
           protocolVersion,
           capabilities: { tools: {} },
-          serverInfo: { name: "context", version: "1.0.0" },
+          serverInfo: SERVER_INFO,
           instructions: SERVER_INSTRUCTIONS,
         });
       }
@@ -492,11 +898,10 @@ async function handleRpc(msg, store, scope) {
       case "ping":
         return rpcResult(id, {});
       case "tools/list":
-        return rpcResult(id, { tools: toolDefinitions() });
+        return rpcResult(id, { tools: toolsForSession(session) });
       case "tools/call": {
         if (isNotification) return null;
-        const out = await callTool(params?.name, params?.arguments || {}, store, scope);
-        return rpcResult(id, out);
+        return rpcResult(id, await callToolForSession(params, store, session));
       }
       default:
         return isNotification ? null : jsonRpcErrorObj(id, -32601, `method not found: ${method}`);
@@ -1045,6 +1450,14 @@ async function recordChange(store, action, actorScope, paths, details = {}) {
   const at = new Date().toISOString();
   const id = crypto.randomUUID();
   const entry = { at, action, actor_scope: actorScope, paths, details };
+  // Who, not just what tier. `actor_scope: "team"` is useless once "team" is
+  // four people and one of them wants to know which of their colleagues — or
+  // which of their AI clients — moved a note.
+  if (store.actor) {
+    entry.actor_user_id = store.actor.userId;
+    entry.actor_client_id = store.actor.clientId;
+    entry.workspace_id = store.actor.workspaceId;
+  }
   await store.put(`${AUDIT_PREFIX}${timestampSlug(new Date(at))}-${id}.json`, JSON.stringify(entry));
 }
 
@@ -2112,12 +2525,13 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
 
 /* -------------------------------- inbox ---------------------------------- */
 
-async function handleInbox(request, env, store, pathToken) {
-  const token = pathToken || bearerToken(request);
-  const ok =
-    timingSafeEqual(token, env.INBOX_TOKEN) ||
-    timingSafeEqual(token, env.PRIVATE_TOKEN);
-  if (!ok) return json({ error: "unauthorized" }, 401);
+async function handleInbox(request, env, store, session) {
+  store.actor = {
+    workspaceId: session.workspaceId,
+    userId: session.actorUserId,
+    clientId: session.actorClientId,
+    grantId: session.grantId,
+  };
 
   const contentLength = Number(request.headers.get("Content-Length") || 0);
   if (contentLength > INBOX_CONTENT_BYTE_CAP) {
@@ -2157,7 +2571,10 @@ async function handleInbox(request, env, store, pathToken) {
   }
   if (!String(capture.text).trim()) return json({ error: "empty" }, 400);
 
-  const actorScope = timingSafeEqual(token, env.PRIVATE_TOKEN) ? "private" : "inbox";
+  // A capture-only grant records as "inbox"; a full connection that happens to
+  // POST a capture records as itself, so the audit trail distinguishes an
+  // automation drop from a person filing something by hand.
+  const actorScope = hasScope(session, SCOPE_READ) ? session.scope : "inbox";
   const result = await writeInboxCapture(store, capture, { actorScope });
   return json({ ok: true, ...result });
 }
@@ -2328,6 +2745,25 @@ async function verifyGranolaSignature(headers, rawBody, signingSecret) {
     const [version, provided = ""] = candidate.split(",");
     return version === "v1" && timingSafeEqual(provided, expected);
   });
+}
+
+/**
+ * Constant-time string comparison, for the webhook HMAC above.
+ *
+ * The only remaining secret comparison in this worker. Access tokens are not
+ * compared here at all — they are hashed and resolved by the control plane —
+ * which is why this lives beside its one caller instead of in a shared auth
+ * section that no longer exists.
+ */
+function timingSafeEqual(a, b) {
+  if (typeof a !== "string" || typeof b !== "string" || !a || !b) return false;
+  const enc = new TextEncoder();
+  const ba = enc.encode(a);
+  const bb = enc.encode(b);
+  if (ba.length !== bb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ba.length; i++) diff |= ba[i] ^ bb[i];
+  return diff === 0;
 }
 
 function decodeBase64(value) {
@@ -2778,7 +3214,9 @@ function corsResponse() {
     status: 204,
     headers: {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      // GET is here for the two discovery documents, which a browser-based
+      // client fetches cross-origin before it holds any credential at all.
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization, Mcp-Session-Id, MCP-Protocol-Version",
       "Access-Control-Max-Age": "86400",
     },
@@ -2793,6 +3231,6 @@ function jsonRpcErrorObj(id, code, message) {
   return { jsonrpc: "2.0", id, error: { code, message } };
 }
 
-function jsonRpcError(id, code, message) {
-  return json(jsonRpcErrorObj(id, code, message));
+function jsonRpcError(id, code, message, status = 200) {
+  return json(jsonRpcErrorObj(id, code, message), status);
 }

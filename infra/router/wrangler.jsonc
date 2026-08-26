@@ -1,0 +1,76 @@
+{
+  // context-router: the Cloudflare Worker fronting https://context.lc.
+  //
+  // Full routing table lives in src/route.ts's module comment. In short:
+  //   - context.lc (apex): /api/auth/* -> Convex HTTP actions, /og/card.png ->
+  //     the Worker's own OpenGraph card, everything else -> the Expo web app
+  //     on EAS Hosting (or, for a link-preview crawler, server-rendered meta
+  //     tags). Paths are never rewritten.
+  //   - www.context.lc -> 301 https://context.lc<path><search>
+  //
+  // It exists because EAS Hosting only attaches custom domains on a paid plan.
+  // publicworship.life solves the same problem the same way (pw-router).
+  //
+  // CUSTOM DOMAINS ARE NOT ATTACHED HERE. This file intentionally has no
+  // top-level "routes"/"route" key. `context.lc` and `www.context.lc` are
+  // attached to this Worker as Custom Domains in the Cloudflare dashboard by
+  // the account owner, because that requires the zone to already be on
+  // Cloudflare DNS — something a CI deploy cannot do and should not silently
+  // try to. Same convention as events-os's infra/router.
+  //
+  // `mcp.context.lc` belongs to a DIFFERENT Worker (the MCP gateway in
+  // apps/mcp). Do not attach it here: customer storage credentials should not
+  // travel one hop further than they have to.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "context-router",
+  "main": "src/index.ts",
+  // A stable past date rather than "today": a future-dated (or clock-skewed)
+  // CI runner rejects a compatibility_date that resolves to the future.
+  "compatibility_date": "2026-07-01",
+
+  // Bundle src/og-card.png as bytes, so `import ogCard from "./og-card.png"`
+  // in src/index.ts resolves to an ArrayBuffer. The 1200x630 OpenGraph card
+  // ships inside the Worker rather than as an Expo bundle asset, because the
+  // one request every link-preview crawler is guaranteed to make should not
+  // depend on an upstream that might be mid-deploy. src/assets.d.ts declares
+  // the type for tsc, which knows nothing about this rule.
+  "rules": [
+    {
+      "type": "Data",
+      "globs": ["**/*.png"],
+      "fallthrough": false
+    }
+  ],
+
+  "vars": {
+    // The EAS Hosting origin for the exported Expo web bundle.
+    //
+    // Derived from apps/mobile/app.config.js's `slug: "context"` — EAS Hosting
+    // names the production alias after the project slug. CONFIRM IT: the first
+    // `eas deploy --prod` prints the real URL, and expo.app names are globally
+    // unique, so a slug this generic may well already be taken and the deploy
+    // will have landed somewhere else. Correcting it is a change to this line
+    // and a redeploy, nothing more — which is why it is a var and not a
+    // constant in src/route.ts.
+    //
+    // Public information (it is in every web client's network tab), so it is
+    // fine in a public repository. Neither of these is a secret.
+    "EXPO_ORIGIN": "https://context.expo.app",
+
+    // The Convex HTTP-actions origin: https://<deployment>.convex.site — the
+    // `.site` host, NOT the `.cloud` one the client library uses.
+    //
+    // DELIBERATELY EMPTY. The production Convex deployment does not exist yet
+    // (CONVEX_DEPLOY_KEY is provisioned but nothing has been deployed), and
+    // guessing would proxy the sign-in flow at whatever answers that name.
+    // While it is empty the Worker fails CLOSED: /api/auth/* returns a 503
+    // naming this variable, and the rest of the site is unaffected. Set it to
+    // the production deployment's `.convex.site` URL — the value Convex prints
+    // as CONVEX_SITE_URL — and redeploy.
+    "CONVEX_ORIGIN": "https://clean-ptarmigan-116.convex.site"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}

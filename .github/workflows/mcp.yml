@@ -79,36 +79,11 @@ jobs:
 
       # The real invariant is "apps/mcp/src imports nothing but its own files".
       #
-      # Grepping for `node:` specifically was too weak: it missed bare
-      # side-effect imports, dynamic import(), the legacy specifier form
-      # (`from "crypto"`), and every third-party package. shamefully-hoist
-      # widens that last hole — a package installed anywhere in the workspace
-      # hoists to the root node_modules, so a bare import from apps/mcp/src
-      # would resolve, bundle, and ship without ever appearing in
-      # apps/mcp/package.json.
-      #
-      # So require every specifier to be relative.
+      # This was a grep until it matched prose: a comment reading
+      # `… from "not yours"` is not an import. The check is now a script that
+      # strips comments and only looks at statement positions, and it
+      # self-tests — a guard nobody has checked is not a guard.
       - name: Assert apps/mcp/src imports only relative paths
         run: |
-          set -euo pipefail
-          test -d apps/mcp/src || { echo "apps/mcp/src not found — has the layout moved?"; exit 1; }
-
-          offenders=$(
-            grep -rnoE "(from|import|require)[[:space:]]*\(?[[:space:]]*['\"][^'\"]+['\"]" apps/mcp/src/ \
-              | grep -vE "['\"]\.{1,2}/" \
-              || true
-          )
-
-          if [ -n "$offenders" ]; then
-            echo "$offenders"
-            echo ""
-            echo "apps/mcp/src may only import relative paths."
-            echo ""
-            echo "It runs on the Cloudflare Workers runtime, where Node built-ins"
-            echo "do not exist — a 'node:' import typechecks and passes the"
-            echo "in-memory test stub, then fails at the edge on real traffic."
-            echo "And a third-party package hoisted to the workspace root would"
-            echo "resolve here without appearing in apps/mcp/package.json."
-            exit 1
-          fi
-          echo "OK — every specifier in apps/mcp/src is relative."
+          node scripts/check-gateway-imports.mjs --self-test
+          node scripts/check-gateway-imports.mjs apps/mcp/src

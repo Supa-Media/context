@@ -1,0 +1,204 @@
+# Deploy the MCP gateway Worker (apps/mcp) on every merge to `main`.
+#
+# The gateway decrypts and uses customers' storage credentials, so its suite is
+# a hard gate: the deploy job does not start unless every check passes. That is
+# the same reasoning as mcp.yml (this repo's gateway CI), which exists because
+# the most security-sensitive code here was once the least covered.
+#
+# ── The Wrangler config question ───────────────────────────────────────────
+#
+# `apps/mcp/wrangler.toml` is NOT the product config. It is the founder's live
+# single-tenant deployment: Worker `brain`, an R2 binding `BRAIN` to a bucket
+# `brain`, a calendar cron, and a header telling you to deploy it from a
+# PERSONAL Cloudflare account. Deploying that file with this repo's
+# CLOUDFLARE_* secrets would push it into the Supa Media account instead —
+# creating a second Worker called `brain` bound to a bucket that does not exist
+# there, and putting a live personal deployment one config edit away from being
+# overwritten.
+#
+# So this workflow never touches it. It deploys MCP_WRANGLER_CONFIG below, a
+# separate product config that does not exist yet — while it is absent the
+# deploy is skipped with a warning rather than falling back to the personal
+# one. See the deploy pipeline report / the proposal in the pull request for
+# what that file should contain; switching to a repurposed `wrangler.toml`
+# later is a one-line change here.
+name: Deploy MCP Gateway (production)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/mcp/**"
+      - ".github/workflows/deploy-mcp.yml"
+  workflow_dispatch:
+
+# Never on `pull_request`: a deploy triggered by a fork's pull request would
+# run untrusted code with the account's Cloudflare credentials, against the
+# Worker that holds customers' storage keys.
+concurrency:
+  group: deploy-mcp-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  # The product gateway's own Wrangler config, relative to apps/mcp.
+  MCP_WRANGLER_CONFIG: wrangler.product.toml
+
+jobs:
+  test:
+    name: Test gateway
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          # Required. setup-node defaults this to true, detects pnpm from the
+          # root package.json's `packageManager` field, and shells out to
+          # `pnpm` to resolve its cache directory. This job deliberately never
+          # installs pnpm, so it would die with "Unable to locate executable
+          # file: pnpm" before the suite ever ran.
+          package-manager-cache: false
+
+      # No install. apps/mcp has zero dependencies and its suite runs offline
+      # against an in-memory store stub. If this ever needs an install, a
+      # dependency crept into the gateway and that is the thing to fix.
+      - name: Run test suite
+        working-directory: apps/mcp
+        run: node test/test.mjs
+
+  deploy:
+    name: Deploy gateway
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      # Decide whether there is a product config to deploy. Absent one, this
+      # job stops short of `wrangler deploy` instead of reaching for the
+      # personal config — see the header.
+      - name: Look for the product Wrangler config
+        id: config
+        run: |
+          set -euo pipefail
+          path="apps/mcp/$MCP_WRANGLER_CONFIG"
+          if [ -f "$path" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "OK — deploying with $path."
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping the gateway deploy — $path does not exist. apps/mcp/wrangler.toml is the founder's personal single-tenant deployment and is deliberately not used here; add the product config to enable this deploy."
+          fi
+
+      # A last line of defence for the live personal deployment. If the product
+      # config ever ends up naming the personal Worker or binding its bucket,
+      # stop — a deploy under that name from these credentials is either a
+      # duplicate in the wrong account or, with the wrong token, a clobber.
+      - name: Refuse to deploy under the personal Worker's identity
+        if: steps.config.outputs.found == 'true'
+        run: |
+          set -euo pipefail
+          path="apps/mcp/$MCP_WRANGLER_CONFIG"
+          if grep -qE '^\s*name\s*=\s*"brain"' "$path"; then
+            echo "ERROR: $path declares name = \"brain\" — the founder's personal Worker."
+            exit 1
+          fi
+          if grep -qE '^\s*bucket_name\s*=\s*"brain"' "$path"; then
+            echo "ERROR: $path binds the personal 'brain' R2 bucket."
+            exit 1
+          fi
+          echo "OK — the product config has its own identity."
+
+      - name: Verify required secrets
+        if: steps.config.outputs.found == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for var in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            if [ -z "${!var:-}" ]; then
+              echo "ERROR: missing required secret '$var' in the 'production' environment."
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          echo "OK — every required secret is present."
+
+      # Prove the token can write to the account wrangler will deploy into,
+      # BEFORE the opaque wrangler failure ("Could not route ... [code: 7003]",
+      # which says nothing about the cause). Prints the account NAME it
+      # resolves to — never the secret — so a token pointed at the personal
+      # account instead of Supa Media's is immediately obvious.
+      - name: Verify Cloudflare credentials (preflight)
+        if: steps.config.outputs.found == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          resp="$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID")"
+          node -e '
+            const d = JSON.parse(process.argv[1] || "{}");
+            if (d.success) {
+              console.log("[ok] token can access account: " + ((d.result && d.result.name) || "(unknown)"));
+            } else {
+              console.error("[FAIL] CLOUDFLARE_API_TOKEN cannot access CLOUDFLARE_ACCOUNT_ID.");
+              console.error("       Cloudflare errors: " + JSON.stringify(d.errors));
+              process.exit(1);
+            }
+          ' "$resp"
+
+      - uses: pnpm/action-setup@v4
+        if: steps.config.outputs.found == 'true'
+
+      - uses: actions/setup-node@v5
+        if: steps.config.outputs.found == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Scoped to apps/mcp, which needs exactly one devDependency (wrangler) —
+      # the gateway itself still has no runtime dependencies. GITHUB_TOKEN
+      # authenticates the @supa-media/* GitHub Packages registry; pnpm errors
+      # if the variable .npmrc interpolates is undefined, even when nothing in
+      # the filtered set comes from that registry.
+      - name: Install wrangler
+        if: steps.config.outputs.found == 'true'
+        run: pnpm install --filter "./apps/mcp..." --frozen-lockfile
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy gateway
+        if: steps.config.outputs.found == 'true'
+        working-directory: apps/mcp
+        run: pnpm exec wrangler deploy --config "$MCP_WRANGLER_CONFIG"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## MCP gateway deploy (production)"
+            echo ""
+            if [ "${{ steps.config.outputs.found }}" = "true" ]; then
+              echo "- **Deployed with:** \`apps/mcp/$MCP_WRANGLER_CONFIG\`"
+              echo "- **Serves:** https://mcp.context.lc (custom domain attached in the Cloudflare dashboard)"
+            else
+              echo "- **Skipped** — \`apps/mcp/$MCP_WRANGLER_CONFIG\` does not exist yet."
+              echo "- \`apps/mcp/wrangler.toml\` is the founder's personal single-tenant"
+              echo "  deployment and is deliberately never deployed from CI."
+            fi
+            echo "- **Commit:** \`${GITHUB_SHA::7}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

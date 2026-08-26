@@ -127,7 +127,13 @@ function memoryBucket({
   };
 }
 
-export async function runStoreChecks(check) {
+/**
+ * @param {(label: string, ok: boolean) => void} check
+ * @param {{ env: object, ownerToken: string }} gateway a live control-plane-backed
+ *   environment from the main suite, so the worker checks below authenticate the
+ *   same way every other request does — there is no other way in.
+ */
+export async function runStoreChecks(check, gateway) {
   /* ------------------------- SigV4 request signing ------------------------- */
 
   // Known-answer test from the AWS SigV4 documentation: this exact secret,
@@ -803,8 +809,12 @@ export async function runStoreChecks(check) {
   // endpoint. A backend that always answers "truncated" — or replays one
   // continuation token — used to spin until the Workers subrequest limit killed
   // the request with an opaque error. Both shapes must stop and say why.
+  // The hostile bucket is reached the only way any bucket is reached: through a
+  // live grant on the harness's control plane. It is bound natively so the
+  // pagination guard is tested without a second S3 backend in the way.
   const hostileEnv = (list) => ({
-    BRAIN: {
+    ...gateway.env,
+    CONTEXT_BUCKET: {
       async get() {
         return null;
       },
@@ -814,13 +824,15 @@ export async function runStoreChecks(check) {
       async delete() {},
       list,
     },
-    PRIVATE_TOKEN: "priv-token",
   });
   const hostileCall = async (list, args, tool = "search_notes") => {
     const response = await worker.fetch(
       new Request("https://x/mcp", {
         method: "POST",
-        headers: { Authorization: "Bearer priv-token", "Content-Type": "application/json" },
+        headers: {
+          Authorization: `Bearer ${gateway.ownerToken}`,
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           jsonrpc: "2.0",
           id: 1,
@@ -831,7 +843,9 @@ export async function runStoreChecks(check) {
       hostileEnv(list),
       { waitUntil() {} }
     );
-    return await response.json();
+    const parsed = await response.json();
+    if (process.env.DEBUG_STORE) console.error("HOSTILE", response.status, JSON.stringify(parsed));
+    return parsed;
   };
 
   const repeatedCursor = await hostileCall(
@@ -954,10 +968,18 @@ export async function runStoreChecks(check) {
   /* ------------------------ no binding in tool logic ----------------------- */
 
   const workerSource = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
-  const bindingUses = workerSource.match(/env\.BRAIN/g) || [];
+  const legacyBindingUses = workerSource.match(/env\.BRAIN/g) || [];
   check(
-    "the R2 binding name appears only where the worker builds its store",
-    bindingUses.length === 1 &&
-      /function storeForRequest\(env\) \{\n\s+return new R2Store\(env\.BRAIN\);/.test(workerSource)
+    "the legacy single-tenant BRAIN binding is gone from the worker entirely",
+    legacyBindingUses.length === 0
+  );
+  check(
+    "the worker builds no store of its own; every caller-facing store comes from a session",
+    !/new R2Store\(env\.[A-Z_]*BRAIN/.test(workerSource) &&
+      /storeForSession\(session, env, controlPlane\)/.test(workerSource)
+  );
+  check(
+    "no static env token survives anywhere in the worker's logic",
+    !/env\.(PRIVATE|TEAM|PUBLIC|INBOX)_TOKEN/.test(workerSource)
   );
 }

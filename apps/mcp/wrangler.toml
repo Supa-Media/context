@@ -1,24 +1,125 @@
-# Brain — personal MCP server over R2.
-# Deploy with a PERSONAL Cloudflare account: `wrangler login` must open the
-# personal account, never an org one. Verify with `wrangler whoami` first.
+# Context MCP gateway — the product / self-host Worker config.
+#
+# This deploys the multi-tenant gateway in `src/`: a stateless Worker that holds
+# no database and no bucket of its own. Every request carries an OAuth 2.1
+# access token, the control plane resolves it to a workspace, and that
+# workspace's storage credential is fetched per request and thrown away with the
+# request. Nothing bound here grants access to anything, and that is the point —
+# see the header of `src/session.js` for why there is no cross-request cache.
+#
+# The original single-tenant `brain` Worker (an R2 `BRAIN` binding, a personal
+# calendar cron) now lives on a separate Cloudflare account with its own config.
+# It is no longer this file's subject, and `BRAIN` is not read anywhere in `src/`.
+#
+# One honest note about CI, so nobody is caught out: today
+# `.github/workflows/deploy-mcp.yml` deploys `MCP_WRANGLER_CONFIG`
+# (`wrangler.product.toml`) and *skips* the deploy when that file is absent,
+# rather than falling back to this one. Until that variable is pointed here,
+# production is deployed by hand — and this is the config a self-hoster runs
+# `wrangler deploy` against.
 
-name = "brain"
+name = "context-mcp"
 main = "src/index.js"
 compatibility_date = "2026-08-01"
 
-[[r2_buckets]]
-binding = "BRAIN"
-bucket_name = "brain"
+[vars]
 
-# Daily 05:00 UTC calendar refresh (only runs if CALENDAR_ICS_URL secret is set).
-[triggers]
-crons = ["0 5 * * *"]
+# The gateway's own public origin, e.g. "https://mcp.example.com" (no trailing
+# slash).
+#
+# Every URL in both discovery documents is built from this — including the
+# `authorization_endpoint` a client will send a person's browser to — so it has
+# to be the origin *you* serve on. Left unset, the worker falls back to the
+# request's `Host` header, which is right for `wrangler dev` and a workers.dev
+# URL and wrong behind anything that rewrites `Host`. Set it before serving
+# production traffic, and set it to your own origin, never someone else's.
+# PUBLIC_ORIGIN = "https://mcp.example.com"
 
-# Secrets (set with `wrangler secret put <NAME>` — never commit values):
-#   PRIVATE_TOKEN      personal/full-access token  (required; compatibility name)
-#   TEAM_TOKEN         shared team-level token     (recommended)
-#   PUBLIC_TOKEN       legacy alias for TEAM_TOKEN (optional during migration)
-#   INBOX_TOKEN        capture-only token          (optional, for /inbox)
-#   CALENDAR_ICS_URL   Google Calendar secret iCal (optional)
-#   GRANOLA_API_KEY    reads Granola note contents  (optional, for native webhook)
-#   GRANOLA_WEBHOOK_SECRET verifies Granola events  (optional, for native webhook)
+# Browser origins permitted to reach `/mcp` and `/inbox`, comma- or
+# space-separated. MCP requires a server to validate `Origin` on the Streamable
+# HTTP transport, because a page in a victim's browser that rebinds a hostname
+# to this gateway would otherwise reach a session that can read and write the
+# whole context.
+#
+# Unset means "non-browser clients only". That is deliberately fail-closed and
+# breaks nothing you are already running: Claude Desktop, Codex CLI and the MCP
+# SDKs send no `Origin` at all, and a request without one is always served. It
+# only refuses *browser* clients you have not listed. This deployment's own
+# origin is always permitted and does not need listing.
+#
+# Matching is exact — scheme, host and port, no wildcards. On the product
+# deployment the console is the apex, so:
+# ALLOWED_ORIGINS = "https://context.lc"
+# Self-hosting: put your own console origin here, not that one.
+
+# Self-host only. Comma-separated allowlist of Worker binding names that a
+# control-plane storage binding is permitted to name.
+#
+# Unset (the product setting) means no native binding can ever be used: tenants
+# bring their own buckets, reached over the S3 API with a credential they can
+# revoke without asking us. Without this allowlist, a control plane that was
+# compromised, confused, or merely pointed at the wrong row could name any R2
+# bucket this Worker can see, for any tenant. See `nativeStore` in
+# `src/session.js`.
+# NATIVE_BINDINGS = "CONTEXT_BUCKET"
+
+# Optional, single-deployment ingestion only: a root prefix applied inside the
+# storage adapter and invisible above it. Keys are never otherwise rewritten.
+# LOCAL_CONTEXT_ROOT_PREFIX = "context/"
+
+# ── Secrets (`wrangler secret put <NAME>`; never commit values) ──────────────
+#
+#   CONTROL_PLANE_URL       required. The Convex HTTP-actions origin
+#                           (https://<deployment>.convex.site), no trailing
+#                           slash. Not a secret in the cryptographic sense, but
+#                           deployment-specific and not worth publishing.
+#   GATEWAY_SECRET          required. Proves "this caller is the gateway" to the
+#                           control plane. On its own it opens nothing: fetching
+#                           a storage credential also requires the end user's
+#                           own access token, forwarded verbatim, and the
+#                           workspace is derived from *that* grant. See the
+#                           contract at the top of `src/controlPlane.js`.
+#
+# Without both of those the worker refuses every request. There is no degraded
+# mode and no second way in: `PRIVATE_TOKEN`, `TEAM_TOKEN`, `PUBLIC_TOKEN` and
+# `INBOX_TOKEN` no longer exist, and no environment variable grants access to
+# anything.
+#
+# Single-deployment ingestion only (all optional, all inert without a bucket
+# bound below):
+#   CALENDAR_ICS_URL        a calendar's secret iCal URL
+#   GRANOLA_API_KEY         reads Granola note contents
+#   GRANOLA_WEBHOOK_SECRET  verifies signed Granola webhook deliveries
+
+# ── Self-host only, commented out on purpose ────────────────────────────────
+#
+# The calendar cron and the Granola webhook are the two features with no user
+# behind them. No OAuth token arrives on a cron tick, so they cannot use the
+# per-request credential path; instead they write to one bucket bound directly
+# to this Worker. That only makes sense for someone hosting the gateway over
+# their own single context.
+#
+# `LOCAL_CONTEXT_BUCKET` is not an access path. No request carrying a token can
+# reach it, and it is never used to serve an MCP session or an `/inbox` capture
+# — those always go through `storeForSession`, which requires a live grant. On a
+# multi-tenant deployment it is unset, and both features are inert: the webhook
+# answers 404 and the cron returns immediately.
+#
+# [[r2_buckets]]
+# binding = "LOCAL_CONTEXT_BUCKET"
+# bucket_name = "my-context"
+
+# A native R2 binding for a self-hoster's *served* context — the other half of
+# `NATIVE_BINDINGS` above. The binding name here must appear in that allowlist
+# and must match the `bindingName` the control plane returns, or the gateway
+# refuses to build a store.
+#
+# [[r2_buckets]]
+# binding = "CONTEXT_BUCKET"
+# bucket_name = "my-context"
+
+# Daily 05:00 UTC calendar refresh, plus a retry pass over pending Granola
+# events. Does nothing unless `LOCAL_CONTEXT_BUCKET` is bound.
+#
+# [triggers]
+# crons = ["0 5 * * *"]

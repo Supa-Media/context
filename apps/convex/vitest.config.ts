@@ -22,6 +22,14 @@ export default defineConfig({
       // must never appear here or anywhere else in source.
       STORAGE_SECRET_ENCRYPTION_KEY:
         "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      // The gateway's half of the two-party secret. Obviously fake, and the
+      // suite proves it never reaches a response or an audit row — which is
+      // only checkable because the tests know what it is.
+      GATEWAY_SECRET: "test-gateway-secret-not-a-real-one",
+      // Where the consent screen lives. `.invalid` is reserved by RFC 2606 and
+      // resolves nowhere, so a test that accidentally made a request to it
+      // would fail rather than reach something.
+      APP_ORIGIN: "https://app.context.invalid",
     },
   },
 });

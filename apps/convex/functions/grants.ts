@@ -224,30 +224,57 @@ export const registerClient = internalMutation({
     clientName: v.string(),
     redirectUris: v.array(v.string()),
     hashedClientSecret: v.union(v.string(), v.null()),
+    tokenEndpointAuthMethod: v.optional(
+      v.union(v.literal("none"), v.literal("client_secret_post")),
+    ),
+    grantTypes: v.optional(v.array(v.string())),
+    responseTypes: v.optional(v.array(v.string())),
+    scope: v.optional(v.string()),
+    applicationType: v.optional(v.union(v.literal("native"), v.literal("web"))),
   },
   returns: v.id("oauthClients"),
   handler: async (ctx, args) => {
+    const metadata = {
+      clientName: args.clientName,
+      redirectUris: args.redirectUris,
+      hashedClientSecret: args.hashedClientSecret,
+      tokenEndpointAuthMethod: args.tokenEndpointAuthMethod,
+      grantTypes: args.grantTypes,
+      responseTypes: args.responseTypes,
+      scope: args.scope,
+      applicationType: args.applicationType,
+    };
+
     const existing = await ctx.db
       .query("oauthClients")
       .withIndex("by_clientId", (q) => q.eq("clientId", args.clientId))
       .unique();
     if (existing !== null) {
-      await ctx.db.patch(existing._id, {
-        clientName: args.clientName,
-        redirectUris: args.redirectUris,
-        hashedClientSecret: args.hashedClientSecret,
-      });
+      await ctx.db.patch(existing._id, metadata);
       return existing._id;
     }
     return await ctx.db.insert("oauthClients", {
       clientId: args.clientId,
-      clientName: args.clientName,
-      redirectUris: args.redirectUris,
-      hashedClientSecret: args.hashedClientSecret,
+      ...metadata,
       createdAt: Date.now(),
     });
   },
 });
+
+/**
+ * How a client that stored no `tokenEndpointAuthMethod` is treated.
+ *
+ * Rows written before the field existed have to mean *something*, and the only
+ * honest reading is the one the stored secret implies: a client with no secret
+ * cannot present one, so it is public. This is a fallback for legacy rows, not
+ * a substitute for the field — a client registering today always sends it.
+ */
+function authMethodOf(client: Doc<"oauthClients">): "none" | "client_secret_post" {
+  if (client.tokenEndpointAuthMethod !== undefined) {
+    return client.tokenEndpointAuthMethod;
+  }
+  return client.hashedClientSecret === null ? "none" : "client_secret_post";
+}
 
 export const getClient = internalQuery({
   args: { clientId: v.string() },
@@ -258,6 +285,10 @@ export const getClient = internalQuery({
       clientName: v.string(),
       redirectUris: v.array(v.string()),
       hashedClientSecret: v.union(v.string(), v.null()),
+      tokenEndpointAuthMethod: v.union(
+        v.literal("none"),
+        v.literal("client_secret_post"),
+      ),
     }),
   ),
   handler: async (ctx, args) => {
@@ -271,6 +302,7 @@ export const getClient = internalQuery({
       clientName: client.clientName,
       redirectUris: client.redirectUris,
       hashedClientSecret: client.hashedClientSecret,
+      tokenEndpointAuthMethod: authMethodOf(client),
     };
   },
 });
@@ -296,21 +328,43 @@ export const getClient = internalQuery({
  */
 export const createGrant = internalMutation({
   args: {
-    workspaceId: v.id("workspaces"),
-    userId: v.id("users"),
+    /**
+     * Strings, not `v.id()`, because the caller is an HTTP action relaying
+     * values that travelled to the gateway and back. `normalizeId` below turns
+     * an unparseable one into the same refusal a foreign workspace gets, which
+     * is strictly safer than a validator error whose *shape* tells the caller
+     * their id was well-formed but not theirs.
+     */
+    workspaceId: v.string(),
+    userId: v.string(),
     clientId: v.string(),
     scopes: v.array(v.string()),
     hashedRefreshToken: v.string(),
+    /**
+     * Optional only so that the pre-existing console tests, which create
+     * grants that no inbound request ever resolves, keep meaning what they
+     * meant. The gateway route requires both and refuses without them — a
+     * grant with no access-token hash cannot serve a request.
+     */
+    hashedAccessToken: v.optional(v.string()),
+    accessTokenExpiresAt: v.optional(v.number()),
   },
   returns: v.id("oauthGrants"),
   handler: async (ctx, args) => {
     // Authorization first, before anything about the request is validated:
     // whether a workspace exists must not be inferable from *which* complaint
     // a malformed request gets back.
-    const membership = await getMembership(ctx, args.workspaceId, args.userId);
+    const workspaceId = ctx.db.normalizeId("workspaces", args.workspaceId);
+    const userId = ctx.db.normalizeId("users", args.userId);
+    if (workspaceId === null || userId === null) throw workspaceNotFound();
+
+    const membership = await getMembership(ctx, workspaceId, userId);
     if (membership === null) throw workspaceNotFound();
 
-    if (!TOKEN_HASH_PATTERN.test(args.hashedRefreshToken)) {
+    const hashes = [args.hashedRefreshToken, args.hashedAccessToken].filter(
+      (hash): hash is string => hash !== undefined,
+    );
+    if (hashes.some((hash) => !TOKEN_HASH_PATTERN.test(hash))) {
       throw new ConvexError({
         code: "INVALID_TOKEN_HASH",
         message: "A grant needs the SHA-256 hash of its refresh token.",
@@ -329,18 +383,20 @@ export const createGrant = internalMutation({
     }
 
     const grantId = await ctx.db.insert("oauthGrants", {
-      workspaceId: args.workspaceId,
-      userId: args.userId,
+      workspaceId,
+      userId,
       clientId: args.clientId,
       scopes: args.scopes,
       hashedRefreshToken: args.hashedRefreshToken,
+      hashedAccessToken: args.hashedAccessToken,
+      accessTokenExpiresAt: args.accessTokenExpiresAt,
       status: "active",
       createdAt: Date.now(),
     });
 
     await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: args.userId,
+      workspaceId,
+      actorUserId: userId,
       actorClientId: args.clientId,
       action: "grant.created",
       details: { scopes: args.scopes.join(" ") },

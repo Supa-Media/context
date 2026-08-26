@@ -11,9 +11,15 @@ import { ConvexError, v } from "convex/values";
 import { requireAuthId } from "@supa-media/convex/auth";
 import { mutation, query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
+import { recordAudit } from "./lib/audit";
 import { claimName, checkAvailability, nameRejectionError } from "./lib/nameClaims";
+import { seedIngestionSettings } from "./lib/ingestionStore";
 import { consumeRateLimit } from "./lib/rateLimit";
-import { requireWorkspaceAccess } from "./lib/workspaceAuth";
+import {
+  getMembership,
+  requireWorkspaceAccess,
+  requireWorkspaceRole,
+} from "./lib/workspaceAuth";
 
 const MAX_DISPLAY_NAME_LENGTH = 80;
 
@@ -170,6 +176,13 @@ export const createWorkspace = mutation({
       joinedAt: now,
     });
 
+    // The capture address `<slug>@context.lc` becomes live the moment the slug
+    // is claimed, so the policy governing it has to exist by the time this
+    // transaction commits — a workspace that is addressable but has no stored
+    // policy is a window, however brief. Seeded closed: the owner's own account
+    // email and nobody else. See `lib/ingestionStore.ts`.
+    await seedIngestionSettings(ctx, { workspaceId, ownerUserId: userId, now });
+
     return { workspaceId, slug: availability.normalized };
   },
 });
@@ -281,6 +294,12 @@ export const listMembers = query({
       role: v.string(),
       email: v.optional(v.string()),
       name: v.optional(v.string()),
+      /**
+       * Whether this row is the caller, so an interface can say "you" instead
+       * of comparing ids it would otherwise have to be told. Same reason
+       * `listGrants` carries `isMine`.
+       */
+      isMe: v.boolean(),
       joinedAt: v.number(),
     }),
   ),
@@ -301,9 +320,141 @@ export const listMembers = query({
         role: member.role,
         email: user?.email,
         name: user?.name,
+        isMe: member.userId === userId,
         joinedAt: member.joinedAt,
       });
     }
     return rows.sort((a, b) => a.joinedAt - b.joinedAt);
+  },
+});
+
+/**
+ * The refusal for a member this workspace does not have.
+ *
+ * Safe to be distinct from every other error here, and distinct on purpose:
+ * only an `owner` reaches this line, and an owner can already enumerate their
+ * own members with `listMembers`. There is nothing for the refusal to disclose,
+ * and "that person is not in this context" is the only form of it they can act
+ * on.
+ */
+function memberNotFound(): ConvexError<{ code: string; message: string }> {
+  return new ConvexError({
+    code: "MEMBER_NOT_FOUND",
+    message: "That person is not a member of this context.",
+  });
+}
+
+/**
+ * Remove somebody from a context. Owner-only.
+ *
+ * ## An owner cannot be removed, including by themselves
+ *
+ * Every workspace has exactly one `owner` — `createWorkspace` writes it and
+ * nothing else ever mints one, because `inviteMember`'s role validator excludes
+ * `owner` and `setMemberRole`'s does too. Removing that row would leave a
+ * context with a storage credential, an audit trail and possibly other members,
+ * and nobody able to administer, rebind or wind it down: unrecoverable, from a
+ * single click. Handing a context to somebody else is a separate, deliberate
+ * act and is not built, so for now the answer is simply no.
+ *
+ * ## Already-issued AI-client grants stop working immediately
+ *
+ * Nothing here touches `oauthGrants`, and that is the design rather than an
+ * omission. Every path that turns a token into authority — the access-token
+ * resolution in `functions/controlPlane.ts`, the refresh rotation beside it,
+ * and `resolveGrantByRefreshToken` in `functions/grants.ts` — re-reads
+ * membership on every single call, so deleting this one row cuts off every
+ * client the person had connected, in the same instant, without a sweep or a
+ * revocation list to get wrong. Marking the grants revoked here as well would
+ * add a second mechanism that can silently become the one people rely on;
+ * `__tests__/membership.test.ts` proves the first one holds.
+ *
+ * Removing somebody who is not a member is `{ removed: false }`, not an error:
+ * the caller is an owner, so it is idempotent rather than informative.
+ */
+export const removeMember = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+  },
+  returns: v.object({ removed: v.boolean() }),
+  handler: async (ctx, args) => {
+    const actorId = (await requireAuthId(ctx)) as Id<"users">;
+    await requireWorkspaceRole(ctx, args.workspaceId, actorId, "owner");
+
+    const target = await getMembership(ctx, args.workspaceId, args.userId);
+    if (target === null) return { removed: false };
+
+    if (target.role === "owner") {
+      throw new ConvexError({
+        code: "CANNOT_REMOVE_OWNER",
+        message:
+          "A context's owner cannot be removed. Transferring ownership is a separate step, and is not built yet.",
+      });
+    }
+
+    await ctx.db.delete(target._id);
+
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: actorId,
+      action: "member.removed",
+      details: { targetUserId: args.userId, previousRole: target.role },
+    });
+
+    return { removed: true };
+  },
+});
+
+/**
+ * Change what somebody may do in a context. Owner-only.
+ *
+ * `editor` and `member` only — the same closed set `inviteMember` offers, for
+ * the same reason. A promotion to `owner` would be an ownership transfer with
+ * no confirmation and no way back, and a demotion *from* `owner` is the
+ * unrecoverable case `removeMember` describes.
+ *
+ * Setting the role somebody already has writes nothing and records nothing. An
+ * audit trail that logs a change that did not happen makes the trail harder to
+ * read, not easier.
+ */
+export const setMemberRole = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    role: v.union(v.literal("editor"), v.literal("member")),
+  },
+  returns: v.object({ role: v.string() }),
+  handler: async (ctx, args) => {
+    const actorId = (await requireAuthId(ctx)) as Id<"users">;
+    await requireWorkspaceRole(ctx, args.workspaceId, actorId, "owner");
+
+    const target = await getMembership(ctx, args.workspaceId, args.userId);
+    if (target === null) throw memberNotFound();
+
+    if (target.role === "owner") {
+      throw new ConvexError({
+        code: "CANNOT_CHANGE_OWNER_ROLE",
+        message:
+          "A context's owner keeps the owner role. Transferring ownership is a separate step, and is not built yet.",
+      });
+    }
+
+    if (target.role === args.role) return { role: target.role };
+
+    await ctx.db.patch(target._id, { role: args.role });
+
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: actorId,
+      action: "member.role_changed",
+      details: {
+        targetUserId: args.userId,
+        previousRole: target.role,
+        role: args.role,
+      },
+    });
+
+    return { role: args.role };
   },
 });

@@ -1,0 +1,127 @@
+# Deploy the Expo web app to EAS Hosting on every merge to `main`.
+#
+# Single environment by design (no staging yet) — mirrors deploy-convex.yml.
+# This exports the web bundle and publishes it to EAS Hosting at the project's
+# `*.expo.app` origin. That origin is NOT the address people use: context.lc is
+# a Cloudflare Worker (infra/router) that proxies to it, because EAS Hosting
+# only attaches custom domains on a paid plan. See infra/router/src/route.ts.
+#
+# @supa-media/* packages come from GitHub Packages, a registry that needs auth,
+# so every `pnpm install` step passes GITHUB_TOKEN (see .npmrc — pnpm errors
+# outright if the variable the file interpolates is undefined).
+name: Deploy Web (production)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/mobile/**"
+      - "packages/shared/**"
+      - ".github/workflows/deploy-web.yml"
+  workflow_dispatch:
+
+# Nothing here runs on `pull_request`, and never should: a deploy triggered by
+# a fork's pull request would run untrusted code with production credentials.
+concurrency:
+  group: deploy-web-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  deploy:
+    name: Deploy web to EAS Hosting (production)
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      # Inlined into the web bundle at export time. A missing value ships
+      # `undefined` and the app cannot reach the control plane at all, which
+      # is why the preflight below refuses to continue without it.
+      EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # Preflight before anything expensive, so a missing secret costs seconds
+      # rather than a full install and export.
+      - name: Verify required secrets
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for var in EXPO_TOKEN EXPO_PUBLIC_CONVEX_URL; do
+            if [ -z "${!var:-}" ]; then
+              echo "ERROR: missing required secret '$var' in the 'production' environment."
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          echo "OK — every required secret is present."
+
+      # `eas deploy` resolves the project from app.config.js's
+      # extra.eas.projectId. The template ships a placeholder there, and with it
+      # still in place the deploy dies with an opaque project-not-found error
+      # after a full install and bundle export. Say so up front instead.
+      - name: Verify the EAS project is linked
+        run: |
+          set -euo pipefail
+          id=$(node -e '
+            const cfg = require("./apps/mobile/app.config.js")({ config: {} });
+            process.stdout.write(String((cfg.extra && cfg.extra.eas && cfg.extra.eas.projectId) || ""));
+          ')
+          case "$id" in
+            ""|YOUR_EAS_PROJECT_ID)
+              echo "ERROR: apps/mobile/app.config.js still has the placeholder EAS project id ('${id:-<empty>}')."
+              echo "Run 'eas init' in apps/mobile to create the project, then commit the real"
+              echo "projectId (and the matching updates.url) before deploying."
+              exit 1
+              ;;
+          esac
+          echo "OK — EAS project id is set."
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Export web bundle
+        working-directory: apps/mobile
+        run: npx expo export --platform web
+
+      # Use the `eas` binary the Setup EAS step already installed — NOT
+      # `npx eas-cli`, which re-resolves `latest` from npm at this point and
+      # fails outright when a release's dist-tag has propagated but its
+      # manifest has not yet (ETARGET). That is not theoretical: it raced a
+      # real deploy in the events-os repo 43 seconds after eas-cli@21.3.0
+      # published.
+      - name: Deploy to EAS Hosting (production)
+        working-directory: apps/mobile
+        run: eas deploy --prod --environment=production --non-interactive
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Web deploy (production)"
+            echo ""
+            echo "- **Public URL:** https://context.lc (served by the \`context-router\` Worker)"
+            echo "- **EAS Hosting origin:** printed by the deploy step above — it must match"
+            echo "  \`EXPO_ORIGIN\` in \`infra/router/wrangler.jsonc\`."
+            echo "- **Commit:** \`${GITHUB_SHA::7}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

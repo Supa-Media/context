@@ -80,7 +80,7 @@ Zero npm dependencies — keep it that way. It runs on the Workers runtime, so
 use Web Crypto and `fetch`, not Node APIs.
 
 `pnpm test` in `apps/mcp` runs the suite against an in-memory store stub. It is
-fast, offline, and currently 194 checks. **Do not let it regress.** If you
+fast, offline, and currently 408 checks. **Do not let it regress.** If you
 change behavior, change the test in the same commit and say why.
 
 The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,
@@ -158,6 +158,182 @@ Open source from the first commit. That raises the bar in three concrete ways:
   documented.
 
 Work goes through pull requests with review. Do not push to `main`.
+
+## Durable decisions
+
+Things that were argued through once and should not be silently reversed. Each
+names what a "simplification" of it would actually cost.
+
+### The gateway is a Cloudflare Worker, not Convex
+
+Convex would remove a service boundary and a shared secret, which is a real
+argument and was seriously considered. It loses on two counts: self-hosting
+("clone this, deploy one dependency-free file, your bucket still works") is a
+published commitment, not a preference, and Convex actions bill compute on the
+hottest path in the system for a product whose pitch is free.
+
+### Credential retrieval takes two independent proofs
+
+The gateway secret proves the caller is the gateway. The end user's access
+token, forwarded verbatim, proves a real person authorized that workspace right
+now. Convex resolves the workspace **from the token's grant** — the gateway
+cannot name the workspace it wants, only be told, and any id it sends is a veto
+rather than a lookup key.
+
+An earlier draft made the gateway secret sufficient on its own. That would have
+been the highest-value credential in the system: one leak and every customer's
+bucket keys are retrievable in bulk. **A change that lets the gateway name its
+own workspace would look like a cleanup and would be a catastrophe.** There is
+a test asserting `expectedWorkspaceId` is never used as a lookup key.
+
+### Never cache a decrypted credential across requests
+
+Workers reuse isolates across tenants. A cache keyed even slightly wrong is a
+cross-tenant leak. This costs roughly 20–60ms per call and that is the right
+trade. Per-request caching is fine; anything that outlives a request is not.
+
+### Scheduling is not calling
+
+In the credential-reachability graph, `ctx.runQuery/runMutation/runAction`
+propagates taint — it awaits a value and hands it to the caller.
+`ctx.scheduler.runAfter` does not: it enqueues a job in a separate transaction
+whose return value the scheduler discards, so there is no channel back.
+
+Without that distinction no public function could trigger a bucket probe, and
+"verify the credential the user just pasted" would have to be a polling cron
+chosen to satisfy a static check rather than because it is right. Scheduled
+targets must still be statically resolvable `internal.` references.
+
+### Credential barriers are enumerated, never inferred
+
+Reading a bucket needs a credential, so a console read path cannot exist under
+a blanket "no public function may reach a decrypt". Taint stops at an
+explicitly listed barrier — see `CREDENTIAL_BARRIERS` in
+`__tests__/structure.test.ts`. Barriers must be internal actions whose return
+validators are checked for credential fields.
+
+This is a genuine relaxation with a real residual risk: a future operation that
+returns a credential from inside a barrier would not be caught statically. The
+enumeration is the mitigation — adding a second barrier fails CI loudly, which
+forces the conversation.
+
+### Ingestion is on the apex, which makes the reserved-name list a security control
+
+Capture addresses are `<username>@context.lc`. A user who claimed `support`
+would receive mail sent to support@context.lc. The reserved list in
+`functions/lib/names.ts` is therefore a mail-interception control, not
+cosmetic. RFC 2142 requires `postmaster` and `abuse` stay deliverable to us;
+both are asserted separately so a tidy-up cannot drop them.
+
+### Link previews reveal nothing about a context
+
+A crawler is unauthenticated, and Context has no public tier. Every
+name-bearing path renders one frozen object — same title, description and
+image, canonical pointing at the root rather than the requested URL. Nine
+variants are asserted equal by whole response body.
+
+A "nicer" preview showing an owner or a note count would hand anyone in a Slack
+channel an existence oracle for usernames, undoing what the control plane's
+byte-identical errors exist for.
+
+### Two MCP eras, two lists, and they must never be merged
+
+`2026-07-28` is not an increment on `2025-11-25`. It deletes the `initialize`
+handshake, protocol-level sessions, `Mcp-Session-Id`, the GET stream, SSE
+resumability and `ping`, and replaces the version counter-offer with an error.
+The spec calls the two shapes **modern** and **legacy**; this gateway serves
+both, which it can only do because it never had a session to remove.
+
+`src/protocol.js` therefore keeps `MODERN_PROTOCOLS` and `LEGACY_PROTOCOLS`
+apart. Sorting them into one array is the obvious-looking tidy-up and is wrong
+in both directions:
+
+- **Legacy negotiation may only offer legacy revisions.** A client that sent
+  `initialize` has declared it speaks the handshake era; answering it with
+  `2026-07-28` names a revision that has no `initialize` in it.
+- **Modern negotiation may only offer modern revisions.** `server/discover` and
+  the `-32022` error both carry a list the client is expected to *retry with* on
+  the path it is already on. A legacy revision there sends it looking for a
+  handshake it just declared it is not using.
+
+Negotiation itself is inverted between the two, and implementing it backwards is
+the single most common way real MCP servers fail to connect: legacy **must**
+counter-offer inside a normal `InitializeResult` and **must not** error; modern
+**must** error with `-32022` and `data.supported` and has no result to
+counter-offer in.
+
+A revision goes in a list only once its semantics are implemented. Claiming one
+we do not speak is worse than lagging, and it is self-detecting: a conformant
+client probes, gets an answer that is not modern, and correctly concludes the
+server lied.
+
+### Authority is decided once, never per protocol era
+
+`toolsForSession` and `callToolForSession` are the only two places that decide
+what a connection may see and do. Both eras call them. A scope check
+implemented separately for a new protocol revision is a scope check that will
+drift, and the drift would be a privilege escalation reachable by adding one
+header to a request. There is a test asserting the read-only filter and the
+write gate hold identically on both paths.
+
+### An absent `Origin` is allowed; `null` is not
+
+The transport paths (`/mcp`, `/inbox`) refuse any browser origin not on the
+allowlist. Two halves of that are counter-intuitive enough to be "fixed" by
+someone tidying up, and each fix is a different disaster:
+
+- **No `Origin` header at all must pass.** Claude Desktop, Codex CLI and the
+  SDKs are not browsers and send none. Refusing absence would take down every
+  real client while stopping nothing, because the header a browser cannot forge
+  is precisely the one an attacker's page always sends.
+- **`Origin: null` must not pass.** A sandboxed iframe serializes to the opaque
+  origin `null`, so folding it in with "no header" is a one-line bypass an
+  attacker can trigger with an `<iframe sandbox>` attribute.
+
+Matching is exact — scheme, host, port, no wildcards — for the same reason
+`redirectUriMatches` is. Unset `ALLOWED_ORIGINS` means non-browser clients only,
+which is fail-closed and breaks nothing already deployed. See `src/origin.js`.
+### An invitation is addressed to a string, and its token is stored in the clear
+
+Two things about `functions/invitations.ts` look like oversights and are not.
+
+**`inviteMember` never resolves the invitee.** It writes a row addressed to the
+`@name` or the email, returns `null`, and finds out who that is only when
+somebody accepts. Resolving up front — to store a `userId`, to answer "sent"
+versus "no such person", to skip writing a row nobody can answer — turns the
+invite box into a name-enumeration endpoint for the whole platform, because the
+attacker in this threat model is the *inviter* and anybody with an account has
+one. For the same reason `listInvitations` returns pending invitations and
+nothing else: a decline, a withdrawal and an expiry must be the same absence, or
+saying no tells the sender you exist. The one permitted asymmetry is that
+inviting an existing member is a no-op — an owner can already enumerate their
+own members.
+
+**The token is not hashed**, which is the opposite of the rule `oauthGrants`
+follows, and the difference is that this token is not a bearer credential:
+accepting also requires being the addressed identity, so a dump of the table is
+inert for anybody who is not already the invitee. Hashing would buy no
+confidentiality and would cost the only delivery channel there is —
+`listMyInvitations`, the invitee's own query — while nothing here sends email.
+
+Ownership is not transferable. Every context has exactly one `owner`, written by
+`createWorkspace`; `inviteMember` and `setMemberRole` both exclude `owner` in
+their argument validators, and `removeMember` refuses to delete it. Adding
+`owner` to either union would be an ownership transfer with no confirmation and
+no way back. `@name` resolving to a person depends on that invariant — a handle
+addresses the sole owner of the personal context it names.
+
+### A guard nobody has checked is not a guard
+
+Three times now a protection has been weaker than it looked: a credential check
+that grepped export names (defeated by a rename in a new file), an isolation
+claim that inverted without breaking a test, and an import guard that read
+English prose as code. Every guard here should have a test proving it catches
+what it claims — and where practical, a self-test proving the checker itself
+works.
+
+Sabotage-test rather than trusting a green run: break the invariant deliberately
+and confirm the right tests fail.
 
 ## Engineering standards
 

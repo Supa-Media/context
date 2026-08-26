@@ -99,6 +99,100 @@ const schema = defineSchema({
     .index("by_workspace_user", ["workspaceId", "userId"]),
 
   /**
+   * An outstanding offer of membership.
+   *
+   * ## The invitation is addressed to an identifier, never to a user id
+   *
+   * `invitee` holds the normalized `@name` or email address exactly as the
+   * owner typed it, and it is resolved to a person only when somebody tries to
+   * accept. That is not laziness, it is the whole oracle defence: if inviting
+   * `@does-not-exist` were handled differently from inviting `@lk` — no row
+   * versus a row, or a row carrying a `userId` versus one that does not — then
+   * `listInvitations` would tell the inviter which names are real, and an
+   * attacker with an account could enumerate the user base by typing names into
+   * an invite box. Resolving late also happens to be the correct semantics: an
+   * account's email can change, and the invitation should follow whoever holds
+   * that address when it is answered, not whoever held it when it was sent.
+   *
+   * At most one row exists per `(workspaceId, inviteeKind, invitee)`. Re-inviting
+   * supersedes the previous row in place, so a person who declined leaves no
+   * trace for the next invitation to sit beside — see `functions/invitations.ts`.
+   *
+   * ## `token` is stored in plaintext, deliberately, and that is not the rule
+   * `oauthGrants` follows
+   *
+   * A refresh token is a bearer credential: whoever holds it *is* the client, so
+   * a dump of that table would be a set of working credentials and only a hash
+   * may be stored. An invitation token is not a bearer credential. Accepting
+   * additionally requires being the addressed identity — holding a name claim or
+   * a verified email that matches `invitee` — so possession alone grants
+   * nothing, and a dump of this table is inert for anyone who is not already the
+   * invitee. What the token buys is that the handle is unguessable and
+   * unenumerable: an attacker cannot walk this table by id.
+   *
+   * Hashing it would buy no confidentiality against an attacker who is already
+   * the invitee, and would cost the one delivery channel that exists — the
+   * invitee's own `listMyInvitations`, which is how an invitation is answered
+   * in-app while nothing here sends email.
+   *
+   * `role` is `editor` or `member` and structurally cannot be `owner`. Handing
+   * over a context is a separate, deliberate act; an invitation must never be
+   * able to perform it.
+   */
+  workspaceInvitations: defineTable({
+    workspaceId: v.id("workspaces"),
+    /**
+     * `name` — a `@handle` out of the shared namespace, stored undecorated.
+     * `email` — a lowercased address.
+     *
+     * Kept as an explicit field rather than derived from the string's shape, so
+     * no reader has to guess and no two readers can guess differently.
+     */
+    inviteeKind: v.union(v.literal("name"), v.literal("email")),
+    invitee: v.string(),
+    role: v.union(v.literal("editor"), v.literal("member")),
+    invitedBy: v.id("users"),
+    /** Unguessable, single-use, and useless without the matching identity. */
+    token: v.string(),
+    /**
+     * `pending` is the only status any reader acts on. The others exist so the
+     * row is not silently reused: `accepted` and `declined` are terminal, and
+     * `revoked` is the owner taking the offer back.
+     */
+    status: v.union(
+      v.literal("pending"),
+      v.literal("accepted"),
+      v.literal("declined"),
+      v.literal("revoked"),
+    ),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    respondedAt: v.optional(v.number()),
+  })
+    /**
+     * Pending invitations for one context. There is deliberately no plain
+     * `by_workspace` index beside it: nothing needs one, and an unnarrowed
+     * listing is the shape this one exists to prevent.
+     *
+     * `status` is in the key rather than filtered afterwards because the
+     * `listInvitations` read is bounded: with a plain `by_workspace` index, a
+     * context that has answered a few hundred invitations would fill the
+     * bounded window with dead rows and push its live ones out of sight.
+     * Narrowing in the index means the bound applies to what is actually being
+     * listed.
+     */
+    .index("by_workspace_status", ["workspaceId", "status"])
+    /**
+     * Serves two reads with one index: the `(kind, invitee)` prefix finds every
+     * context that has invited *you*, and the full triple finds the one row a
+     * re-invitation must supersede.
+     */
+    .index("by_invitee", ["inviteeKind", "invitee", "workspaceId"])
+    .index("by_token", ["token"])
+    /** For the sweep, and for nothing else — same reasoning as `oauthAuthorizations`. */
+    .index("by_expiresAt", ["expiresAt"]),
+
+  /**
    * The customer's bucket credential.
    *
    * KEYED BY `workspaceId`, NEVER `userId`. A binding belongs to the context,
@@ -132,6 +226,32 @@ const schema = defineSchema({
     accessKeyId: v.string(),
     encryptedSecretAccessKey: v.string(),
     /**
+     * How the bucket is addressed in a request URL: as a path segment
+     * (`https://endpoint/my-context/note.md`) or as the first host label
+     * (`https://my-context.s3.example/note.md`).
+     *
+     * **Absent means "let the adapter decide", and that is the right default
+     * for almost everybody.** R2 and the classic AWS regional endpoints are
+     * path-style, which is what `S3Store` assumes when nothing says otherwise,
+     * so the overwhelming majority of bindings never carry this field.
+     *
+     * It exists because there is exactly one case the adapter refuses to guess:
+     * an endpoint whose first host label *is* the bucket name. That shape is
+     * produced both by a genuine virtual-hosted endpoint
+     * (`https://my-context.s3.amazonaws.com`) and by a path-style one that
+     * collides by coincidence (`s3.wasabisys.com` with a bucket called `s3`).
+     * Guessing wrong means signing requests against a different bucket than the
+     * customer named — a silent wrong-bucket write — so `S3Store` throws
+     * instead, and `bindStorage` refuses the binding up front with an error
+     * that names the two answers. Storing the answer is what makes the refusal
+     * fixable rather than a dead end.
+     *
+     * Emitted to the gateway verbatim (`binding.forcePathStyle` in the
+     * control-plane contract) so the adapter that signs the request and the
+     * adapter that probed the bucket address it identically.
+     */
+    forcePathStyle: v.optional(v.boolean()),
+    /**
      * Probed at connect time, not assumed. R2 and AWS S3 support conditional
      * writes; B2 and Wasabi do not reliably. We degrade honestly rather than
      * silently dropping conflict detection.
@@ -150,7 +270,81 @@ const schema = defineSchema({
      * read this field, so treat it as published.
      */
     lastError: v.optional(v.string()),
+    /**
+     * The machine-readable half of `lastError`.
+     *
+     * `lastError` is provider prose: it is written for a human, it is scrubbed
+     * and truncated, and it changes whenever a provider rewords a message. A UI
+     * that wants to offer "fix the addressing style" for one failure and "paste
+     * the key again" for another cannot key off that string without matching on
+     * text, so a code is recorded alongside it. The set is enumerated in
+     * `functions/provisioning.ts` (`VerificationErrorCode`); anything not in it
+     * should be treated by a client as "unknown, show `lastError`".
+     *
+     * Cleared on success, exactly like `lastError` — a stale code next to a
+     * green status misdiagnoses support tickets just as effectively as stale
+     * prose.
+     */
+    errorCode: v.optional(v.string()),
     boundBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * Who may post into a context by email, and where it lands.
+   *
+   * ## Why this is a security table, not a preferences table
+   *
+   * A capture address is `<slug>@context.lc` (see `functions/lib/ingestion.ts`
+   * and CLAUDE.md, "Ingestion is on the apex"). It is **semi-public**: the
+   * console shows it, people paste it into forwarding rules, and it is
+   * guessable from a slug that is itself public addressing. Anything that
+   * lands there becomes a note, and notes are read back by the owner's AI
+   * clients *as trusted context*. So an open inbox is not a spam problem, it
+   * is a durable prompt-injection channel into somebody's second brain.
+   *
+   * Hence the shape: an allowlist that starts closed, and one explicit boolean
+   * to open it. There is no "allow" wildcard string, no regex field, and no
+   * suffix rule — every one of those is a way to write a policy that admits
+   * more than its author meant.
+   *
+   * ## One row per workspace, seeded at creation
+   *
+   * `createWorkspace` writes this row with the owner's account email in
+   * `allowedSenders`. Seeded rather than inferred on read: "empty list, accepts
+   * nothing" and "the owner's address" are different behaviours the moment mail
+   * arrives, and which one a workspace has should be a stored fact rather than
+   * something a later code path derives. A workspace with **no row** is the
+   * fail-closed floor — it accepts nothing — and only workspaces created before
+   * this table existed can be in that state.
+   *
+   * The seeded entry does not follow a later account-email change. That is
+   * deliberate: changing the address you log in with must not silently repoint
+   * who can write to your context.
+   *
+   * Note what is absent: no `enabled` flag. `allowedSenders: []` with
+   * `allowedDomains: []` and `allowAnySender: false` already means "accept
+   * nothing", and a second way to express off is a second thing to check.
+   */
+  ingestionSettings: defineTable({
+    workspaceId: v.id("workspaces"),
+    /**
+     * Canonical folder form: no leading slash, exactly one trailing slash
+     * (`0-inbox/`). Validated syntactically only — see `normalizeTargetFolder`
+     * for why existence is not checked here.
+     */
+    targetFolder: v.string(),
+    /** Normalized addr-specs, lowercased. Capped at `MAX_ALLOWED_SENDERS`. */
+    allowedSenders: v.array(v.string()),
+    /**
+     * Whole domains, lowercased, matched by **exact equality**. A subdomain is
+     * a different domain and must be listed separately.
+     */
+    allowedDomains: v.array(v.string()),
+    /** Explicit opt-in to accept from anyone. Never a default. */
+    allowAnySender: v.boolean(),
+    updatedBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_workspace", ["workspaceId"]),
@@ -182,8 +376,116 @@ const schema = defineSchema({
     redirectUris: v.array(v.string()),
     /** `null` for public clients (PKCE, no secret to store). */
     hashedClientSecret: v.union(v.string(), v.null()),
+    /**
+     * How the client proves who it is at the token endpoint.
+     *
+     * Stored rather than inferred from `hashedClientSecret === null`, because
+     * the two can disagree and the disagreement is the interesting case: a
+     * client that registered `none` but somehow acquired a stored secret must
+     * still be treated as public, and a client that registered
+     * `client_secret_post` and has no stored secret is broken rather than
+     * silently public. RFC 7591's `client_secret_basic` is normalized to
+     * `client_secret_post` by the gateway before it reaches here — one
+     * credential-presentation path is one path to get wrong.
+     *
+     * Optional only because rows written before this field existed predate the
+     * gateway flow entirely; readers fall back to the `hashedClientSecret`
+     * shape.
+     */
+    tokenEndpointAuthMethod: v.optional(
+      v.union(v.literal("none"), v.literal("client_secret_post")),
+    ),
+    /**
+     * The rest of the RFC 7591 registration, kept because a re-registration
+     * after a redeploy must be able to reproduce what the client asked for.
+     * None of it is authority: the gateway enforces grant types and response
+     * types itself, and `scope` here is a request, not a grant.
+     */
+    grantTypes: v.optional(v.array(v.string())),
+    responseTypes: v.optional(v.array(v.string())),
+    scope: v.optional(v.string()),
+    applicationType: v.optional(
+      v.union(v.literal("native"), v.literal("web")),
+    ),
     createdAt: v.number(),
   }).index("by_clientId", ["clientId"]),
+
+  /**
+   * An authorization request parked by the gateway, and — once a human has
+   * approved it — the single-use code that closes the flow.
+   *
+   * **One row, two phases, on purpose.** The alternative is a `requests` table
+   * and a `codes` table, and then "the code carries the challenge forward
+   * unchanged" is a join that a future refactor can get wrong. Here the code
+   * cannot exist apart from the request that produced it, and the PKCE
+   * challenge the gateway will verify against is the same field the gateway
+   * wrote when it parked the request.
+   *
+   * `hashedCode` is a hash, not the code. The plaintext exists in the redirect
+   * that carried it to the client and nowhere else — the same rule the grants
+   * table follows, for the same reason: a dump of this table must not be a set
+   * of spendable codes.
+   *
+   * `status` is what makes redemption single-use. `consume` moves `approved` →
+   * `consumed` in the same transaction that reads the row, so two concurrent
+   * redemptions cannot both see `approved`.
+   */
+  oauthAuthorizations: defineTable({
+    /** Opaque, high-entropy, and the only handle on this row. */
+    requestId: v.string(),
+    clientId: v.string(),
+    /** Exactly the URI the flow started with. Re-checked at the token call. */
+    redirectUri: v.string(),
+    state: v.union(v.string(), v.null()),
+    codeChallenge: v.string(),
+    /** S256 only. `plain` makes the challenge the verifier, which is no PKCE at all. */
+    codeChallengeMethod: v.literal("S256"),
+    scope: v.string(),
+    resource: v.union(v.string(), v.null()),
+    /** A preselection hint for the consent screen. The person still chooses. */
+    requestedWorkspaceSlug: v.union(v.string(), v.null()),
+    /**
+     * `pending` → `approved` → `consumed` is the happy path; `pending` →
+     * `denied` is the person saying no.
+     *
+     * `denied` is a distinct terminal state rather than a reuse of `consumed`
+     * because the two mean opposite things — one produced a code that was
+     * spent, the other produced no code at all — and an audit trail that cannot
+     * tell "the user refused" from "the client redeemed" is not worth keeping.
+     * Everything downstream already fails closed on it: the consent screen
+     * shows only `pending`, and `consumeAuthorizationCode` requires `approved`.
+     */
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("consumed"),
+      v.literal("denied"),
+    ),
+    /** SHA-256 of the authorization code. Set when a person approves. */
+    hashedCode: v.optional(v.string()),
+    /** The workspace the person picked. Never something the gateway named. */
+    workspaceId: v.optional(v.id("workspaces")),
+    /** The person who approved. Never something the gateway named. */
+    userId: v.optional(v.id("users")),
+    approvedAt: v.optional(v.number()),
+    consumedAt: v.optional(v.number()),
+    /** When the person refused. Set with `status: "denied"`, and only then. */
+    deniedAt: v.optional(v.number()),
+    /** Both phases expire. RFC 6749 §4.1.2 wants a code dead within 10 minutes. */
+    expiresAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_requestId", ["requestId"])
+    .index("by_hashedCode", ["hashedCode"])
+    /**
+     * For the sweep, and for nothing else.
+     *
+     * An expired row is inert — every reader checks `expiresAt` — but inert is
+     * not the same as gone, and this table grows by one row per authorization
+     * attempt forever. The cron in `crons.ts` walks this index; without it the
+     * sweep would be a full table scan of the thing it is trying to keep small.
+     */
+    .index("by_expiresAt", ["expiresAt"]),
 
   /**
    * One row per connected AI client, per user, per workspace — individually
@@ -197,6 +499,34 @@ const schema = defineSchema({
     scopes: v.array(v.string()),
     /** Hash only. A raw refresh token never touches this database. */
     hashedRefreshToken: v.string(),
+    /**
+     * Hash only, same rule. This is what an inbound MCP request is resolved
+     * by: the gateway forwards the bearer token the client presented, verbatim
+     * over TLS, and it is hashed here on arrival.
+     *
+     * The direction is deliberate and it is the reason a dump of this table is
+     * inert. If the gateway sent the *hash* instead, the stored value would be
+     * a working credential and one database leak plus the gateway secret would
+     * impersonate every connected client.
+     *
+     * Optional because grants written before the access-token flow existed
+     * have none — and a grant with no access-token hash simply never resolves
+     * an inbound request, which is the correct fail-closed behaviour.
+     */
+    hashedAccessToken: v.optional(v.string()),
+    /** Epoch ms. A grant whose access token has expired resolves to nothing. */
+    accessTokenExpiresAt: v.optional(v.number()),
+    /**
+     * The refresh-token hash this grant most recently rotated away from.
+     *
+     * OAuth 2.1 §4.3.1 makes rotation mandatory for public clients, which
+     * makes reuse detection mandatory too: a refresh token presented twice is
+     * a refresh token that leaked. Keeping one generation of history is what
+     * lets `rotateGrant` tell "an unknown token" (refuse) from "a token this
+     * grant already retired" (refuse **and** revoke the grant, because
+     * somebody else is holding it).
+     */
+    previousHashedRefreshToken: v.optional(v.string()),
     status: v.union(v.literal("active"), v.literal("revoked")),
     lastUsedAt: v.optional(v.number()),
     createdAt: v.number(),
@@ -205,7 +535,9 @@ const schema = defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_user", ["userId"])
     .index("by_workspace_user", ["workspaceId", "userId"])
-    .index("by_refresh_token", ["hashedRefreshToken"]),
+    .index("by_refresh_token", ["hashedRefreshToken"])
+    .index("by_access_token", ["hashedAccessToken"])
+    .index("by_previous_refresh_token", ["previousHashedRefreshToken"]),
 
   /**
    * Who did what, in which context.
