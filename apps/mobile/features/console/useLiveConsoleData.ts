@@ -7,15 +7,7 @@ import {
 } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
-import {
-  MCP_ENDPOINT,
-  PLACEHOLDER_BYTES_TOTAL,
-  PLACEHOLDER_NOTE_TOTAL,
-  PLACEHOLDER_OBJECT_COUNT,
-  PLACEHOLDER_PARA_PRESENT,
-  PLACEHOLDER_VERSIONING_ON,
-  placeholderIngestionAddress,
-} from "./placeholderData";
+import { MCP_ENDPOINT, placeholderIngestionAddress } from "./placeholderData";
 import { describeQueryFailure } from "./failure";
 import { EMPTY_QUERY_SPEC } from "./querySpec";
 import { useFileBrowser } from "./files/useFileBrowser";
@@ -40,15 +32,24 @@ import type {
 /**
  * The live console.
  *
- * Reads every fact the control plane can honestly answer and fills the rest
- * from `placeholderData.ts`.
+ * Reads every fact the control plane can honestly answer, and **says nothing at
+ * all** about the rest. There is no import of an invented value in this file
+ * and there must never be one again: everything a signed-in person reads here
+ * is either derived from Convex or absent.
  *
- * The folder tree and the note itself are no longer among the placeholders:
- * they come from `useFileBrowser`, which reads the customer's bucket through
- * the actions in `apps/convex/functions/files.ts`. Note content passes through
- * an action and is returned; it is never stored in the control plane, which is
- * the same rule that made a *cached* tree impossible. The note and byte totals
- * remain placeholders because nothing counts a whole bucket yet.
+ * That is the fix for #20 and #25, which were the same bug on two surfaces —
+ * a bucket's object count, its PARA structure, its versioning state, and the
+ * note and byte totals were all constants from `placeholderData.ts`, drawn as
+ * verified facts about somebody's own storage. Nothing in the control plane
+ * counts a bucket, so those cannot be made true here; they can only stop being
+ * asserted. When the connect-time probe in `functions/storage.bindStorage`
+ * starts persisting what it saw, they come back as fields on the binding.
+ *
+ * The folder tree and the note itself were never placeholders: they come from
+ * `useFileBrowser`, which reads the customer's bucket through the actions in
+ * `apps/convex/functions/files.ts`. Note content passes through an action and
+ * is returned; it is never stored in the control plane, which is the same rule
+ * that made a *cached* tree impossible.
  */
 
 interface WorkspaceSummary {
@@ -255,9 +256,10 @@ export function useLiveConsoleData(): ConsoleData {
           accessKey: binding.maskedAccessKeyId,
           conditionalWrite: binding.capabilities.conditionalWrite,
           forcePathStyle: binding.forcePathStyle,
-          objectCount: PLACEHOLDER_OBJECT_COUNT,
-          paraPresent: PLACEHOLDER_PARA_PRESENT,
-          versioningOn: PLACEHOLDER_VERSIONING_ON,
+          // `objectCount`, `paraPresent` and `versioningOn` are deliberately
+          // not set. Nothing has counted this bucket, looked for PARA folders,
+          // or read its versioning setting, so the pane draws no row for any of
+          // them rather than a plausible one. See `ConsoleStorage`.
           lastError: binding.lastError,
           errorCode: binding.errorCode,
           updatedAt: binding.updatedAt,
@@ -320,19 +322,19 @@ export function useLiveConsoleData(): ConsoleData {
     selectedContextId,
     selectContext,
     graph,
+    // Two tiles, not the mockup's four. "notes across all" and "in your own
+    // bucket" are gone from the signed-in console entirely, because nothing
+    // counts a whole bucket and there is no honest value to put in them.
+    //
+    // #20 got half of this: it showed an em dash to an account with *no*
+    // contexts and kept "1,284 / 2.4 GB" for everyone else — so the moment
+    // somebody connected their first bucket the console started inventing
+    // numbers about it again. A permanent em dash would be honest but useless,
+    // and the grid reflows cleanly at two, so the tiles are simply not there.
+    // They come back when a stats call can fill them.
     stats: [
       { value: formatCount(contexts.length), label: "contexts reachable" },
       { value: formatCount(activeGrants.length), label: "AI clients connected" },
-      // Nothing counts a whole bucket yet, so these two are placeholders — but
-      // an account with no contexts has no bucket to be wrong about, and
-      // "1,284 notes across all / 2.4 GB in your own bucket" on the very first
-      // screen someone sees is not a placeholder, it is a false statement about
-      // their data. An em dash says "not known yet"; a number does not.
-      { value: contexts.length === 0 ? "—" : PLACEHOLDER_NOTE_TOTAL, label: "notes across all" },
-      {
-        value: contexts.length === 0 ? "—" : PLACEHOLDER_BYTES_TOTAL,
-        label: "in your own bucket",
-      },
     ],
     clients,
     storage,

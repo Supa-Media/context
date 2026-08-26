@@ -1,13 +1,5 @@
 import { useCallback, useState } from "react";
-import {
-  DEMO_GRAPH,
-  DEMO_INGESTION,
-  DEMO_STATS,
-  MCP_ENDPOINT,
-  PLACEHOLDER_OBJECT_COUNT,
-  PLACEHOLDER_PARA_PRESENT,
-  PLACEHOLDER_VERSIONING_ON,
-} from "./placeholderData";
+import { DEMO_GRAPH, DEMO_INGESTION, DEMO_STATS, MCP_ENDPOINT } from "./placeholderData";
 import { useDemoFileBrowser } from "./files/useDemoFileBrowser";
 import type { ConsoleInvitation, ConsoleMember } from "./members/members";
 import type {
@@ -90,6 +82,12 @@ const DEMO_CLIENTS: ConsoleClient[] = [
  * One binding per context, because a binding *is* per context — two of these
  * point at different buckets on purpose, which is the whole reason storage
  * moved out of the app-level rail and into a context's settings.
+ *
+ * `objectCount`, `paraPresent` and `versioningOn` are literals here and are
+ * optional on `ConsoleStorage`, so the demo is the only place they are ever
+ * filled in. The signed-in console leaves them undefined and draws no row —
+ * they were shared constants once, and the live pane imported them, which is
+ * how a real bucket holding six objects came to report 1,284 (#25).
  */
 const DEMO_STORAGE: Record<string, ConsoleStorage> = {
   seyi: {
@@ -101,9 +99,9 @@ const DEMO_STORAGE: Record<string, ConsoleStorage> = {
     region: "auto",
     accessKey: "a1b2…8f3c",
     conditionalWrite: true,
-    objectCount: PLACEHOLDER_OBJECT_COUNT,
-    paraPresent: PLACEHOLDER_PARA_PRESENT,
-    versioningOn: PLACEHOLDER_VERSIONING_ON,
+    objectCount: "1,284",
+    paraPresent: true,
+    versioningOn: false,
     // Frozen: nothing in the demo ever moves, so nothing can be waiting on it.
     updatedAt: 0,
   },

@@ -71,13 +71,20 @@ describe("an account with no contexts is told nothing it cannot verify", () => {
     const notes = data.stats.find((s) => s.label === "notes across all");
     const bytes = data.stats.find((s) => s.label === "in your own bucket");
 
-    // The specific numbers that were shipping to first-time users.
-    expect(notes?.value).not.toBe("1,284");
-    expect(bytes?.value).not.toBe("2.4 GB");
+    // These were an em dash here and the mockup's numbers for anybody who had
+    // a context — half a fix, and the half that shipped kept lying to every
+    // real user. Nothing can answer either honestly, so the tiles are gone from
+    // the signed-in console rather than standing empty forever.
+    // `liveConsoleFacts.test.ts` holds the same line for an account that has
+    // connected a bucket.
+    expect(notes).toBeUndefined();
+    expect(bytes).toBeUndefined();
 
-    // And nothing else numeric has crept in to replace them.
-    expect(notes?.value).not.toMatch(/\d/);
-    expect(bytes?.value).not.toMatch(/\d/);
+    // And nothing invented has crept back in under some other label.
+    for (const stat of data.stats) {
+      expect(stat.value).not.toBe("1,284");
+      expect(stat.value).not.toBe("2.4 GB");
+    }
   });
 
   test("the counts it CAN answer are still answered", () => {

@@ -64,10 +64,24 @@ export interface ConsoleStorage {
    * `undefined` when nobody had to answer. Shown only when it was a question.
    */
   forcePathStyle?: boolean;
-  /** Placeholder until the probe persists what it saw — see placeholderData. */
-  objectCount: string;
-  paraPresent: boolean;
-  versioningOn: boolean;
+  /**
+   * How many objects the bucket holds, whether it carries a PARA scaffold, and
+   * whether versioning is on — each `undefined` when nobody measured it.
+   *
+   * All three are `undefined` in the live console today and must stay that way
+   * until something actually looks: nothing in the control plane counts a
+   * bucket, walks it for PARA folders, or reads a bucket's versioning
+   * configuration. They used to be shared constants, drawn with a green check
+   * mark as facts about the customer's own bucket — "Reachable — 1,284
+   * objects" over a bucket holding six — which is #25.
+   *
+   * Optional rather than defaulted, on purpose: a default is a value, and a
+   * value gets drawn. `SettingsPane` renders each row only if its field is
+   * present, so "we do not know" costs a row rather than inventing one.
+   */
+  objectCount?: string;
+  paraPresent?: boolean;
+  versioningOn?: boolean;
   lastError?: string;
   /**
    * The machine-readable companion to `lastError`, from the closed set in
