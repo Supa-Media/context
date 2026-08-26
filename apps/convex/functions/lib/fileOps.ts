@@ -1064,7 +1064,7 @@ async function mutateManifest(
     if (state.text === null) {
       throw new FileOpError(
         "PRIVACY_MANIFEST_MISSING",
-        "This bucket has no privacy.md, so there is nothing to record visibility in. Reconnect the bucket to create one.",
+        "This bucket has no privacy.md, so there is nothing to record visibility in. Write one at the root of the bucket — everything stays private until you do.",
       );
     }
     if (state.invalid) {

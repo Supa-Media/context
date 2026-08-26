@@ -104,6 +104,10 @@ export default function ConsoleLayout() {
 
             <ConsoleShell
               data={data}
+              // No fake window frame here: the browser is already the window.
+              // The landing page keeps it, because there the console is a
+              // picture of the product rather than the product.
+              chrome={false}
               route={route}
               // Pressing the rail entry you are already on should do nothing,
               // not re-enter the route — which on a context would reset the

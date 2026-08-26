@@ -28,11 +28,25 @@ export function ConsoleShell({
   route,
   onNavigate,
   children,
+  chrome = true,
 }: {
   data: ConsoleData;
   route: ConsoleRoute;
   onNavigate: (route: ConsoleRoute) => void;
   children: ReactNode;
+  /**
+   * Draw the fake application window — traffic-light dots, rounded frame, drop
+   * shadow.
+   *
+   * True on the landing page, where this component is a *picture of the
+   * product* sitting inside a marketing page: the frame is what says "this is
+   * an app" to somebody who has never seen it. False in the real console, where
+   * the browser is already the window. Painting a second set of window controls
+   * inside a real one is chrome inside chrome — it reads as an embedded
+   * screenshot of the thing you are actually using, and costs a border, a
+   * shadow and 27px of title bar for nothing.
+   */
+  chrome?: boolean;
 }) {
   const { width } = useWindowDimensions();
   const narrow = width < layout.narrowBreakpoint;
@@ -40,9 +54,9 @@ export function ConsoleShell({
   const insideContext = route.kind === "context";
 
   return (
-    <View style={styles.console}>
-      <View style={styles.bar}>
-        <WindowDots />
+    <View style={chrome ? styles.console : styles.bare}>
+      <View style={[styles.bar, !chrome && styles.barBare]}>
+        {chrome ? <WindowDots /> : null}
         <View style={styles.switcher}>
           {insideContext ? (
             <>
@@ -191,6 +205,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     boxShadow: "0 50px 120px -40px rgba(0,0,0,1), 0 0 0 1px rgba(255,255,255,.03)",
   },
+  /**
+   * The same console without the window costume.
+   *
+   * No border, no radius, no drop shadow — in the real console the browser is
+   * already the window, and a second frame inside it reads as an embedded
+   * screenshot of the app you are currently using. `overflow: hidden` stays:
+   * it is what stops a long bucket name or a wide tree scrolling the page
+   * sideways.
+   */
+  bare: {
+    overflow: "hidden",
+    backgroundColor: colors.surface,
+  },
   /** `.cbar` */
   bar: {
     flexDirection: "row",
@@ -213,6 +240,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.surface,
+  },
+  /** Without the traffic lights the bar has no left inset to balance. */
+  barBare: {
+    paddingHorizontal: 0,
+    borderBottomWidth: 0,
+    backgroundColor: "transparent",
   },
   switcherKind: { color: colors.muted },
   /** `.avatar` */
