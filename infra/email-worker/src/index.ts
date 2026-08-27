@@ -150,6 +150,12 @@ export interface Env {
   MAX_MESSAGE_BYTES?: string;
   /** Allow-list of native R2 binding names, for self-hosters. See ./index.ts. */
   NATIVE_BINDINGS?: string;
+  /**
+   * `"1"` to log the bounded ARC shape beside an authentication refusal.
+   * Diagnostic only, off by default. See `describeArcShape` in ./auth.ts for
+   * what it emits — integers and one closed enum, never a sender string.
+   */
+  LOG_ARC_SHAPE?: string;
   [key: string]: unknown;
 }
 
@@ -166,6 +172,20 @@ interface LogFields {
   bytes?: number;
   attachments?: number;
   authMethod?: string;
+  /**
+   * A bounded description of the message's ARC header shape, e.g.
+   * `chain=pass headers=2 readable=2 above=1 ours=1 top=2`.
+   *
+   * Extending this deliberately closed set was a real decision, so: it is
+   * integers and one closed enum, with no header name, authserv-id, address or
+   * value fragment in it — nothing a sender writes can reach a log through it.
+   * It is here because whether the ARC path in ./auth.ts can ever fire depends
+   * on where Cloudflare puts headers nobody has yet captured from a real
+   * delivery, and without this the operator's only signal is that mail is still
+   * refused. Emitted only when `LOG_ARC_SHAPE` is set. Remove it, and the
+   * `LOG_ARC_SHAPE` variable with it, once a real delivery has settled that.
+   */
+  arc?: string;
   problems?: string[];
   duplicate?: boolean;
 }
@@ -341,8 +361,8 @@ export async function handleEmail(
    * The only `setReject` in this Worker. One constant, no interpolation, and
    * the reason goes to the log rather than to the sender.
    */
-  const refuse = (reason: RefusalReason, username?: string) => {
-    log({ event: "refused", reason, ...(username ? { username } : {}) });
+  const refuse = (reason: RefusalReason, username?: string, arc?: string) => {
+    log({ event: "refused", reason, ...(username ? { username } : {}), ...(arc ? { arc } : {}) });
     message.setReject(REFUSAL);
   };
 
@@ -440,11 +460,12 @@ export async function handleEmail(
       maxMessageBytes: Math.min(hardCap, resolution.maxMessageBytes || hardCap),
       limits: DEFAULT_MIME_LIMITS,
       authServiceId: env.AUTH_SERVICE_ID || "",
+      arcDiagnostics: env.LOG_ARC_SHAPE === "1",
     },
     senderIsAllowed,
   );
 
-  if (decision.kind === "refuse") return refuse(decision.reason, username);
+  if (decision.kind === "refuse") return refuse(decision.reason, username, decision.arc);
 
   // ── Credentials, fetched only now: after size, authentication and policy. ──
   let binding: Record<string, unknown> | null;

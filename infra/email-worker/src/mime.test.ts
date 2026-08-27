@@ -402,3 +402,61 @@ describe("Authentication-Results are exposed in order", () => {
     expect(parsed.authenticationResults[0]).toContain("dmarc=fail");
   });
 });
+
+describe("ARC headers carry their position and their foldedness", () => {
+  it("records whether each ARC header sits above the topmost Authentication-Results", () => {
+    // Position is the whole of ./auth.ts's forgery defence and it exists only
+    // in the message: an ARC header's own text cannot say where it sat. So the
+    // parser is the only layer that can record it, and this is the assertion
+    // that it does.
+    const parsed = parse(
+      rawMessage({
+        leadingHeaders: [["ARC-Authentication-Results", "i=2; mx.example-mta.test; dmarc=pass"]],
+        trailingHeaders: [["ARC-Authentication-Results", "i=1; mx.google.test; dmarc=pass"]],
+      }),
+    );
+    expect(parsed.arcAuthenticationResults.map((header) => header.abovePrimary)).toEqual([
+      true,
+      false,
+    ]);
+    expect(parsed.arcAuthenticationResults[0]!.value).toContain("i=2");
+  });
+
+  it("calls nothing 'above' when there is no Authentication-Results to be above", () => {
+    // No anchor, no block boundary. The conservative reading is the only safe
+    // one — and `verifySender` refuses such a message anyway, one check earlier.
+    const parsed = parse(
+      rawMessage({
+        authResults: null,
+        leadingHeaders: [["ARC-Authentication-Results", "i=1; mx.example-mta.test; dmarc=pass"]],
+      }),
+    );
+    expect(parsed.arcAuthenticationResults).toHaveLength(1);
+    expect(parsed.arcAuthenticationResults[0]!.abovePrimary).toBe(false);
+  });
+
+  it("collects every ARC header, with no cap of its own", () => {
+    // A cap here would be a truncation blind spot: a forged duplicate pushed
+    // past it would vanish from the list `verifySender` checks for ambiguity,
+    // and a check that cannot see the forgery is not a check. The only bound
+    // is `maxHeaderCount`, which applies to every header alike.
+    const many: [string, string][] = Array.from({ length: 30 }, (_, index) => [
+      "ARC-Authentication-Results",
+      `i=${index + 1}; mx.example-mta.test; dmarc=pass`,
+    ]);
+    const parsed = parse(rawMessage({ leadingHeaders: many }));
+    expect(parsed.arcAuthenticationResults).toHaveLength(30);
+  });
+
+  it("flags a folded ARC header, and only that one", () => {
+    const raw =
+      `ARC-Authentication-Results: i=2; mx.example-mta.test; dkim=none\r\n` +
+      `\t; dmarc=pass header.from=example.com\r\n` +
+      `ARC-Authentication-Results: i=1; mx.google.test; dmarc=pass\r\n` +
+      `Authentication-Results: mx.example-mta.test; dmarc=fail\r\n` +
+      `From: alice@example.com\r\n\r\nhi\r\n`;
+    const parsed = parse(new TextEncoder().encode(raw));
+    expect(parsed.arcAuthenticationResults.map((header) => header.folded)).toEqual([true, false]);
+    expect(parsed.arcAuthenticationResults[0]!.value).toContain("dmarc=pass");
+  });
+});

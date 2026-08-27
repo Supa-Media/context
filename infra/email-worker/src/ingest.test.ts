@@ -480,3 +480,83 @@ describe("stored attachments", () => {
     }
   });
 });
+
+/**
+ * The end-to-end shape of the ARC path: a forwarded message reaching the
+ * allow-list, and the diagnostic that exists because nobody has yet captured
+ * what Cloudflare really sends.
+ *
+ * The trust rules themselves live in ./auth.test.ts, with the forgery cases and
+ * the sabotage targets. What is asserted here is the wiring — that `decideCapture`
+ * hands the parser's positional and folding facts to `verifySender` at all,
+ * which is the one way this feature could be silently disarmed without a single
+ * auth test going red.
+ */
+describe("a forwarded message reaches the allow-list through the chain", () => {
+  const FORWARDED = `${AUTHSERV}; spf=none; dkim=pass header.d=forwarder.test;` +
+    ` dmarc=none header.from=example.com; arc=pass`;
+
+  const forwardedMessage = (arc: [string, string][]) =>
+    rawMessage({
+      from: "alice@example.com",
+      authResults: [FORWARDED],
+      leadingHeaders: arc,
+    });
+
+  it("captures one our MTA sealed, and records that it came via the chain", async () => {
+    const decision = await decide(
+      forwardedMessage([
+        [
+          "ARC-Authentication-Results",
+          `i=2; ${AUTHSERV}; dkim=pass header.d=example.com; dmarc=pass header.from=example.com`,
+        ],
+      ]),
+    );
+    expect(decision.kind).toBe("capture");
+    if (decision.kind !== "capture") return;
+    // Not "dmarc". The note and the log both say the alignment came from a
+    // chain, because that is a weaker claim than our own MTA making it.
+    expect(decision.log.authMethod).toBe("arc-dmarc");
+    expect(decision.log.sender).toBe("alice@example.com");
+    expect(decision.note).toContain("arc-dmarc");
+  });
+
+  it("refuses the same message when the ARC set is one the sender supplied", async () => {
+    // Identical but for position: a sender's headers land below our MTA's
+    // verdict, and this is the wiring that carries that fact through.
+    const decision = await decide(
+      rawMessage({
+        from: "alice@example.com",
+        authResults: [FORWARDED],
+        trailingHeaders: [
+          [
+            "ARC-Authentication-Results",
+            `i=2; ${AUTHSERV}; dkim=pass header.d=example.com; dmarc=pass header.from=example.com`,
+          ],
+        ],
+      }),
+    );
+    expect(decision).toEqual({ kind: "refuse", reason: "auth_unaligned" });
+  });
+
+  it("carries no ARC diagnostic unless the operator asked for one", async () => {
+    const decision = await decide(rawMessage({ from: "alice@example.com", authResults: [FORWARDED] }));
+    expect(decision).toEqual({ kind: "refuse", reason: "auth_unaligned" });
+  });
+
+  it("emits a bounded ARC shape when the operator did", async () => {
+    const decision = await decide(
+      rawMessage({
+        from: "alice@example.com",
+        authResults: [FORWARDED],
+        trailingHeaders: [["ARC-Authentication-Results", "i=1; mx.google.test; dmarc=pass"]],
+      }),
+      { arcDiagnostics: true },
+    );
+    expect(decision).toEqual({
+      kind: "refuse",
+      reason: "auth_unaligned",
+      arc: "chain=pass headers=1 readable=1 above=0 ours=0 top=1",
+    });
+  });
+});
