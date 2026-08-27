@@ -26,9 +26,9 @@ import type { ConsoleClient, ConsoleData } from "../types";
  * the demo console omits the callback rather than rendering a button that
  * cannot do anything.
  *
- * `ConnectClients` sits above the endpoint rather than replacing it. The
- * endpoint card answers "what is my URL"; the section below answers "where does
- * it go in my client", which is the question that actually stops people — see
+ * `ConnectClients` follows the endpoint rather than replacing it. The endpoint
+ * card answers "what is my URL"; the section under it answers "where does it go
+ * in my client", which is the question that actually stops people — see
  * `clients/providers.ts`.
  *
  * `MembersSection` is mounted here because "who has access" is the question

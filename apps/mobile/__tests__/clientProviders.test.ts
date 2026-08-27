@@ -7,12 +7,11 @@ import {
   SERVER_DESCRIPTION,
   SERVER_NAME,
   SERVER_SLUG,
+  shellQuote,
   vsCodeInstallHref,
 } from "../features/console/clients/providers";
-import {
-  isAppScheme,
-  isSafeProviderLink,
-} from "../features/console/clients/openScheme";
+import { isAppScheme } from "../features/console/clients/openScheme";
+import { isSafeRedirect } from "../features/consent/redirectSafety";
 
 /**
  * The connect catalogue.
@@ -218,27 +217,68 @@ describe("opening a link", () => {
 
   /**
    * `isAppScheme` says yes to `javascript:`, because it is a scheme and it is
-   * not http. The web opener assigns app schemes to `location`, so without a
-   * second check that would be script execution. Sabotage this pair and the
-   * next test is the one that fails.
+   * not http — and the web opener hands app schemes to `location.assign`. What
+   * stops that being script execution is `isSafeRedirect`, the consent screen's
+   * rule, reused rather than reimplemented: this module had its own copy and
+   * the copy was weaker (no `vbscript:`, no `about:`, no parse).
    */
-  test("script-bearing schemes are refused outright", () => {
+  test("script-bearing schemes are refused by the shared rule", () => {
     for (const href of [
       "javascript:alert(1)",
       "JavaScript:alert(1)",
       "data:text/html,<script>alert(1)</script>",
+      "vbscript:msgbox(1)",
+      "about:blank",
       "file:///etc/passwd",
       "blob:https://evil.test/x",
       "not-a-url",
     ]) {
-      expect(isSafeProviderLink(href)).toBe(false);
+      expect(isSafeRedirect(href)).toBe(false);
     }
   });
 
   test("every link in the catalogue passes the safety check", () => {
     for (const provider of CLIENT_PROVIDERS) {
-      expect(isSafeProviderLink(provider.link(SELF_HOSTED).href)).toBe(true);
+      expect(isSafeRedirect(provider.link(SELF_HOSTED).href)).toBe(true);
     }
+  });
+});
+
+describe("commands are safe to paste", () => {
+  /**
+   * The deep links were escaped from the start and the commands were not. An
+   * endpoint carrying `&` truncates the command at the ampersand: the URL is
+   * silently mangled, `b=2` runs as an assignment, and the person ends up with
+   * a server configured to talk to half an address.
+   */
+  test("an endpoint needing quotes gets them, in every command", () => {
+    const awkward = "https://host.test/mcp?a=1&b=2";
+    for (const provider of CLIENT_PROVIDERS.filter((p) => p.form === "command")) {
+      for (const field of provider.fields(awkward)) {
+        if (!field.value.includes("host.test")) continue;
+        expect(field.value).toContain(`'${awkward}'`);
+      }
+    }
+  });
+
+  /**
+   * And an ordinary endpoint does not, because quotes on every row are noise
+   * that teaches people to skip the row where quoting is load-bearing.
+   */
+  test("an ordinary endpoint is left bare", () => {
+    for (const provider of CLIENT_PROVIDERS.filter((p) => p.form === "command")) {
+      for (const field of provider.fields(SELF_HOSTED)) {
+        expect(field.value).not.toContain("'");
+      }
+    }
+  });
+
+  test("shellQuote handles the quote character itself", () => {
+    expect(shellQuote("https://ok.test/mcp")).toBe("https://ok.test/mcp");
+    expect(shellQuote("https://host/a b")).toBe("'https://host/a b'");
+    expect(shellQuote("it's")).toBe("'it'\\''s'");
+    expect(shellQuote("a;rm -rf /")).toBe("'a;rm -rf /'");
+    expect(shellQuote("$(whoami)")).toBe("'$(whoami)'");
   });
 });
 

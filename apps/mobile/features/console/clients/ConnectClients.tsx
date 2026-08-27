@@ -24,9 +24,11 @@ const AFTER_SENTENCE =
  * The endpoint alone was the whole of this pane, and it was not enough: it is
  * the same URL for everyone, so nobody has to *find* it — what they have to
  * find is the settings screen in their client that takes it, and every client
- * hides that somewhere different. So this sits above the endpoint card, and the
- * endpoint card stays, because a person who already knows where they are going
- * should not have to open an accordion to get the URL.
+ * hides that somewhere different.
+ *
+ * So this sits directly under the endpoint card, which stays: the URL first,
+ * then where to put it. Anyone who already knows where they are going gets the
+ * copy button without opening an accordion, and anyone who does not reads on.
  *
  * ## Only one row is open at a time
  *

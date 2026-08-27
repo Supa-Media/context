@@ -173,6 +173,28 @@ export function vsCodeInstallHref(endpoint: string): string {
   return `https://insiders.vscode.dev/redirect/mcp/install?name=${SERVER_SLUG}&config=${encodeURIComponent(config)}`;
 }
 
+// ─── Shell safety ────────────────────────────────────────────────────────────
+
+/**
+ * Quote an endpoint for a command somebody is going to paste into a shell.
+ *
+ * The deep links were hardened against an endpoint containing `&`; the commands
+ * were not, and they are the more dangerous half. `codex mcp add context --url
+ * https://host/mcp?a=1&b=2` truncates at the ampersand, backgrounds the first
+ * half and runs `b=2` as an assignment — the person gets a server configured
+ * with a mangled URL and no error to tell them so.
+ *
+ * Bare when it is safe to be bare, because `'https://mcp.context.lc/mcp'` in
+ * quotes on every row is noise that teaches people to ignore the quoting on the
+ * row where it matters. The unquoted set is the conservative POSIX one; the
+ * escape is the standard `'\''` idiom, so even an endpoint containing a single
+ * quote survives.
+ */
+export function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) return value;
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
 // ─── Field shapes ────────────────────────────────────────────────────────────
 
 /** Name, optionally a description, and the URL — in the order forms ask. */
@@ -239,7 +261,7 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
       {
         id: "add",
         label: "Add the server",
-        value: `claude mcp add --transport http ${SERVER_SLUG} ${endpoint}`,
+        value: `claude mcp add --transport http ${SERVER_SLUG} ${shellQuote(endpoint)}`,
       },
       { id: "login", label: "Then sign in", value: "/mcp" },
     ],
@@ -258,7 +280,7 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
       {
         id: "add",
         label: "Add the server",
-        value: `codex mcp add ${SERVER_SLUG} --url ${endpoint}`,
+        value: `codex mcp add ${SERVER_SLUG} --url ${shellQuote(endpoint)}`,
       },
       { id: "login", label: "Then sign in", value: `codex mcp login ${SERVER_SLUG}` },
     ],
@@ -313,7 +335,7 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
       {
         id: "add",
         label: "Add the server",
-        value: `gemini mcp add --transport http ${SERVER_SLUG} ${endpoint}`,
+        value: `gemini mcp add --transport http ${SERVER_SLUG} ${shellQuote(endpoint)}`,
       },
     ],
   },
