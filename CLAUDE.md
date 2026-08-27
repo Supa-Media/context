@@ -389,6 +389,139 @@ their argument validators, and `removeMember` refuses to delete it. Adding
 no way back. `@name` resolving to a person depends on that invariant — a handle
 addresses the sole owner of the personal context it names.
 
+### An invitation is delivered, and the delivery is scheduled rather than sent
+
+`inviteMember` mails an `email` invitee a link. Three things about how are
+load-bearing, and each undoes a different half of the section above.
+
+**The send is scheduled, never called.** A `ctx.runAction` would hand the
+inviter three answers to "does that mailbox exist": a return value, an exception
+from Resend, and — needing no API at all — a latency difference between a call
+that made an HTTPS round trip and one that did not. `ctx.scheduler.runAfter`
+enqueues a job in a separate transaction whose return value is discarded, so
+`inviteMember` still returns `null` and still takes the same time. That is what
+makes it safe for the *scheduled* job to decide things the mutation never could,
+including whether the address already belongs to somebody.
+
+**A `@name` invitee is mailed nothing.** Not a deferred send: we have no
+address, and finding one would be resolving an identifier to a person at invite
+time, which is exactly what the invite box refuses to do. `listMyInvitations`
+stays the channel for a handle and the fallback for every address, because mail
+is dropped for an unverified inviter, dropped with no Resend key, sent at most
+once per row, and may simply not arrive.
+
+**The emailed link is not the invitation token being used as a credential.** The
+token still only addresses the invitation; what signs a recipient in is a
+separate `authVerificationCodes` row, minted through `auth:store`, stored as
+`sha256(code)`, single-use, and capped at **24 hours** rather than seven days —
+a link sits in an inbox and gets forwarded in a way a typed code does not.
+Making the token itself authenticate would invert the unhashed-token decision in
+one step: a forwarded email would hand over an account. No code is minted for an
+address that already owns a personal context; auto-authentication serves the
+referral path, and the blast radius of a standing credential in a stranger's
+empty account is not that of one in an established owner's.
+
+`emailSentAt` is claimed in a transaction *before* the HTTP call, so one row is
+one message and there is no resend path. At-most-once over at-least-once
+deliberately: Context mailing the same person four times because a job retried
+is indistinguishable, from their side, from us being the abuse.
+
+**The link cannot sign anybody in yet, and the fix is upstream.**
+`@convex-dev/auth`'s `Email()` hardcodes an `authorize` that refuses any
+verification without a matching `params.email` — its documented
+`authorize: undefined` override does nothing in 0.0.90, because the factory
+never spreads its config. A separate link-only provider is committed to
+supa-framework and not yet released. Clearing the check on the OTP provider
+instead is one line shorter and would be a serious regression: the rate-limit
+key in `verifyCodeAndSignIn` is derived from `params.email`, so a verification
+with no email is not rate limited at all, and the OTP secret is six digits.
+Until the release, minting throws, the sender catches it, and a plain link goes
+out — the invitation arrives and works, and the recipient loses one screen.
+
+### The two onboarding gates ask two different questions
+
+They both used to count workspace memberships, and somebody invited into another
+person's context broke that rule in both directions at once: before accepting
+they had zero, so the `(app)` gate sent them to onboarding and they never saw
+the invitation; the moment they accepted they had one, so the welcome gate sent
+them to the console permanently, and they could never claim a name or own
+anything. Being given a context locked them out of having one.
+
+So the `(app)` gate asks whether there is anything here for you — a context you
+can open, or an invitation you can answer — and the welcome gate asks whether
+this flow has already run, which is a question about contexts you **own**.
+Collapsing them back into one number restores both bugs. `standingFrom` returns
+`undefined` unless *both* subscriptions have landed, because a standing built
+from a resolved workspace list and an in-flight invitation list reads
+`invitations: 0` — the exact shape of "send this person to onboarding".
+
+### The setup credential is not a stored credential
+
+Provisioning a bucket in a customer's Cloudflare account needs a credential that
+can create buckets and mint further credentials — categorically worse than the
+bucket key it produces. It is sealed for the length of one attempt and no
+longer: `cloudflareProvisioning` holds the envelope, the scheduled action opens
+it, and the row is deleted on success and stripped of the envelope on failure.
+**There is no steady state in which the control plane holds an account-level
+cloud credential**, which is why that table has no `succeeded` status and why a
+failed row keeps its reason and loses its credential.
+
+What persists is byte-for-byte what a manual connect would have left, written
+through `applyBinding` rather than a second copy of it. A "simplification" that
+inserted the binding directly would fork the field resets, the audit event and
+the scheduled verification, and the direction that fork fails is a bucket
+nothing ever probed.
+
+Two invariants a tidy-up would quietly break: the permission group is resolved
+**by name at runtime and the flow stops if it is absent** — there is no branch
+that mints a broader key to get past it, and a hardcoded id is a guess about
+what a token may do; and an opaque envelope is still the credential, so no
+public function may return one (`encryptedsetupcredential` is in
+`structure.test.ts`'s forbidden return-validator fields for the same reason
+`encryptedsecretaccesskey` is).
+
+Cloudflare error **10042** is a billing prerequisite, not a storage error. R2
+requires a payment method even inside the free tier, and the same error
+reappears months later when a card fails — Cloudflare blocks bucket access and
+leaves the data intact. Reporting it as "storage error" makes us answer for
+somebody else's billing rule and reads as us losing their notes.
+
+### The visibility tier is displayed, never stored
+
+A person given access to somebody else's context sees only `team` notes, and
+that is enforced twice already — `visibilityTierForGrant` in the gateway and
+`scopeForRole` in the control plane, both answering "team" for any role that is
+not owner before consulting anything else. The console shows it and stores
+nothing: a tier stored twice is a tier that can disagree with itself, and the
+direction it fails is "an AI client reads more than the person allowed".
+
+The chip lives in the frame beside the storage pill rather than in each pane
+head, because the tier is a property of the context you are in rather than of
+the route. It is gated on being inside a context while the storage chip is not,
+and that asymmetry is deliberate: on an all-contexts route you may hold three
+different roles in three contexts, and the wrong direction for one chip to be
+wrong in is "you are seeing everything".
+
+The owner's side states the rule and never a count. `ConsoleData` carries no
+note census and the listings it does carry are the caller's own filtered view,
+so a number drawn from either would be a guess rendered as a fact about
+somebody's storage.
+
+### There is no get-invitation-by-token query, and there must not be one
+
+`acceptInvitation` throws one `INVITATION_NOT_FOUND` for never-issued,
+not-yours, already-answered and expired. The invite screen keeps that collapse
+structurally rather than by discipline: it looks its token up in the caller's
+own `listMyInvitations`, so all four causes arrive as the same absence before
+any copy is chosen. The obvious future improvement — a by-token query, for a
+faster first paint — would reopen exactly the oracle `invitationNotFound()`
+closes.
+
+A failed subscription is the one permitted exception, with its own view. A query
+error says nothing about the token, and telling somebody their emailed link is
+spent when it is not is unrecoverable — the link is in an email they may never
+open again.
+
 ### A guard nobody has checked is not a guard
 
 Three times now a protection has been weaker than it looked: a credential check
