@@ -50,6 +50,9 @@ jobs:
 
       # No `pnpm install`. If this ever needs one, a dependency crept into the
       # gateway and that is the thing to fix.
+      - name: Worker fetch options workerd implements
+        run: node scripts/check-worker-fetch-options.mjs
+
       - name: Run test suite
         working-directory: apps/mcp
         run: node test/test.mjs
