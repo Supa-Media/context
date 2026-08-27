@@ -29,6 +29,7 @@
  * `MenuActionId` against a `FileBrowser`.
  */
 
+import { describeBinding, type Command } from "../../design/keymap";
 import type { Clipboard } from "./clipboard";
 import { restoreTargetFor } from "./paths";
 import type { TreeRow } from "./tree";
@@ -86,27 +87,66 @@ export interface MenuContext {
   clipboard: Clipboard | null;
   /** Web prints shortcuts; touch does not, and touch has no "open in new tab". */
   platform: "web" | "touch";
+  /**
+   * Whether the keyboard being printed for is an Apple one — `⌘⇧M` rather than
+   * `Ctrl+Shift+M`. Inert on touch, which prints no chords at all.
+   *
+   * Optional, and it defaults to Apple, which is the one judgement call in
+   * here. Both wrong answers are wrong; they are not equally wrong. `⌘` on
+   * Windows is unmistakably foreign — nobody has that key, so the reader knows
+   * at a glance they are being shown somebody else's keyboard and goes looking
+   * for the real chord. `Ctrl+Shift+M` on a Mac names a chord that *does* exist
+   * on the keyboard in front of them and is not this command, so they press it,
+   * nothing moves, and the menu looks broken rather than mistaken. Defaulting
+   * this way also makes an omitted flag behave exactly as the hard-coded glyph
+   * table it replaced did, so forgetting it is a no-op rather than a
+   * regression.
+   *
+   * The web console reads the real value from the browser and passes it; the
+   * decision does not belong in here, because this module is deliberately free
+   * of anything that could answer it.
+   */
+  apple?: boolean;
 }
 
 /**
- * Keyboard shortcuts, printed only.
+ * Which command each item runs, for the sole purpose of printing its chord.
  *
- * This module does not bind them — it says what the menu should claim, so the
- * label and the binding have one source and a rebind cannot leave the menu
- * lying about how to do something quickly.
+ * This module does not bind anything — `keymap.ts` does — and it deliberately
+ * does not keep its own copy of the chords either. It used to: a literal table
+ * of `"⌘⇧M"` strings sitting twelve lines from here, which is precisely the
+ * duplication `keymap.ts`'s own doc comment warns about, and it had already
+ * gone wrong in two different ways.
+ *
+ *  - **It was wrong on every non-Apple machine.** The glyphs were baked in, so
+ *    a Windows or Linux console printed `⌘⇧M` beside "Move to…" for a keyboard
+ *    with no `⌘` key on it. `describeBinding` is the thing that knows both
+ *    spellings.
+ *  - **It could claim a chord nothing binds.** `copyPath` carried `⌘⇧C` here
+ *    while `BINDINGS` has no such binding, so the menu advertised a keystroke
+ *    that did nothing at all. Going through the table means a command with no
+ *    binding prints no shortcut — which is a legitimate state, not an error
+ *    (see `describeBinding`), and is how "only on the action sheet" is allowed
+ *    to look.
+ *
+ * A rebind now moves the menu label with it, and a chord the menu prints is a
+ * chord that exists. An item absent from this map is an item with no keystroke.
  */
-const SHORTCUTS: Partial<Record<MenuActionId, string>> = {
-  newNote: "⌘N",
-  newFolder: "⌘⇧N",
-  rename: "F2",
-  duplicate: "⌘D",
-  moveTo: "⌘⇧M",
-  copy: "⌘C",
-  cut: "⌘X",
-  paste: "⌘V",
-  copyPath: "⌘⇧C",
-  archive: "⌘⌫",
-  delete: "⌘⇧⌫",
+const COMMANDS: Partial<Record<MenuActionId, Command>> = {
+  newNote: "newNote",
+  newFolder: "newFolder",
+  rename: "rename",
+  duplicate: "duplicate",
+  moveTo: "moveTo",
+  copy: "copy",
+  cut: "cut",
+  paste: "paste",
+  archive: "archive",
+  // The one pair whose names differ, and they differ on purpose: the menu item
+  // is `delete` because that is where it sits in the list, the command is
+  // `deleteForever` because that is what pressing it does. Mapping them here
+  // rather than renaming either keeps both names honest in their own file.
+  delete: "deleteForever",
 };
 
 /**
@@ -123,7 +163,11 @@ function makeItem(
   label: string,
   extra: { danger?: boolean; items?: MenuItem[] } = {},
 ): MenuItem {
-  const shortcut = context.platform === "web" ? SHORTCUTS[id] : undefined;
+  const command = COMMANDS[id];
+  const shortcut =
+    context.platform === "web" && command !== undefined
+      ? (describeBinding(command, context.apple ?? true) ?? undefined)
+      : undefined;
   return {
     id,
     label,

@@ -29,6 +29,7 @@ import {
   type MenuTarget,
 } from "../features/console/files/menu";
 import { put } from "../features/console/files/clipboard";
+import { BINDINGS, describeBinding } from "../features/design/keymap";
 import type { TreeRow } from "../features/console/files/tree";
 
 /* -------------------------------------------------------------------------- */
@@ -528,7 +529,6 @@ describe("shortcuts are printed on the web and absent on touch", () => {
     expect(find(file, "moveTo")?.shortcut).toBe("⌘⇧M");
     expect(find(file, "copy")?.shortcut).toBe("⌘C");
     expect(find(file, "cut")?.shortcut).toBe("⌘X");
-    expect(find(file, "copyPath")?.shortcut).toBe("⌘⇧C");
     expect(find(file, "archive")?.shortcut).toBe("⌘⌫");
     expect(find(file, "delete")?.shortcut).toBe("⌘⇧⌫");
 
@@ -539,6 +539,88 @@ describe("shortcuts are printed on the web and absent on touch", () => {
     expect(find(folder, "newNote")?.shortcut).toBe("⌘N");
     expect(find(folder, "newFolder")?.shortcut).toBe("⌘⇧N");
     expect(find(folder, "paste")?.shortcut).toBe("⌘V");
+  });
+
+  /**
+   * This used to read `expect(…copyPath…).toBe("⌘⇧C")`, and it was pinning a
+   * lie: `keymap.ts` binds no `copyPath` command, so the menu was advertising a
+   * chord that did nothing when pressed. Now that the labels come from the
+   * binding table there is nowhere for an invented chord to come from, and the
+   * assertion is the true half of the old one — the item is still offered, it
+   * simply no longer promises a keystroke.
+   *
+   * If `copyPath` is ever bound, this test should be *replaced* by one naming
+   * the new chord, not deleted.
+   */
+  test("an item with no binding prints no chord rather than inventing one", () => {
+    const file = menu({ kind: "row", row: note("1-projects/plan.md") });
+    expect(find(file, "copyPath")).toBeDefined();
+    expect(find(file, "copyPath")?.shortcut).toBeUndefined();
+    expect(BINDINGS.some((binding) => binding.command === ("copyPath" as never))).toBe(false);
+  });
+
+  /**
+   * The bug this whole wiring exists to kill: the chords were Apple glyphs
+   * baked into a literal table, so a Windows or Linux console printed `⌘⇧M`
+   * next to "Move to…" for a keyboard that has no `⌘` key on it.
+   */
+  test("a non-Apple console prints Ctrl+…, and no key that keyboard does not have", () => {
+    const file = menu({ kind: "row", row: note("1-projects/plan.md") }, { apple: false });
+    expect(find(file, "duplicate")?.shortcut).toBe("Ctrl+D");
+    expect(find(file, "moveTo")?.shortcut).toBe("Ctrl+Shift+M");
+    expect(find(file, "copy")?.shortcut).toBe("Ctrl+C");
+    expect(find(file, "archive")?.shortcut).toBe("Ctrl+Backspace");
+    expect(find(file, "delete")?.shortcut).toBe("Ctrl+Shift+Backspace");
+    // A chord with no modifier is the same sentence on every keyboard.
+    expect(find(file, "rename")?.shortcut).toBe("F2");
+
+    const folder = menu(
+      { kind: "row", row: dir("1-projects") },
+      { apple: false, clipboard: put("copy", "2-areas/handbook.md") },
+    );
+    for (const entry of [...file, ...folder]) {
+      for (const glyph of ["⌘", "⇧", "⌥", "⌫"]) {
+        expect(entry.shortcut ?? "").not.toContain(glyph);
+      }
+    }
+  });
+
+  /** Omitting the flag prints the Apple spelling; see the note on `apple`. */
+  test("an unstated keyboard is an Apple one", () => {
+    const stated = menu({ kind: "row", row: note("1-projects/plan.md") }, { apple: true });
+    const unstated = menu({ kind: "row", row: note("1-projects/plan.md") });
+    expect(unstated).toEqual(stated);
+  });
+
+  /**
+   * The property behind both of the above, and the reason the literal table
+   * had to go: every chord this menu prints is one `keymap.ts` can produce, on
+   * whichever keyboard it was asked about. A hand-written glyph — a rebind that
+   * moved, or a chord nothing binds — has no matching binding and fails here.
+   */
+  test("every chord the menu prints is one the keymap actually binds", () => {
+    for (const apple of [true, false]) {
+      const printable = new Set(
+        BINDINGS.map((binding) => describeBinding(binding.command, apple)).filter(
+          (chord): chord is string => chord !== null,
+        ),
+      );
+      for (const target of [
+        { kind: "row", row: note("1-projects/plan.md") } as const,
+        { kind: "row", row: dir("1-projects") } as const,
+        { kind: "background", folder: "1-projects" } as const,
+        {
+          kind: "selection",
+          rows: [note("1-projects/a.md"), note("1-projects/b.md")],
+        } as const,
+      ]) {
+        const list = menu(target, { apple, clipboard: put("copy", "2-areas/handbook.md") });
+        for (const entry of list) {
+          if (entry.shortcut === undefined) continue;
+          expect(printable.has(entry.shortcut)).toBe(true);
+        }
+      }
+    }
   });
 
   /**

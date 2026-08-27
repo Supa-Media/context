@@ -1,0 +1,270 @@
+import { useState, type ReactNode } from "react";
+import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import type { MenuActionId, MenuItem } from "../../console/files/menu";
+import { colors, radii, space } from "../tokens";
+import { PressRow } from "./Button";
+import { Text } from "./Text";
+
+/**
+ * The action menu — **touch**.
+ *
+ * `features/console/files/menu.ts` decides *what* to offer; this file and its
+ * `.web.tsx` sibling decide what that looks like under a thumb and under a
+ * pointer. The split is the same one `clipboard.ts` / `clipboard.web.ts` uses,
+ * and for the same reason: these are not one component with a branch in it,
+ * they are two different interactions that happen to answer the same question.
+ *
+ *  - A pointer **right-clicks**, and gets a popover at the pointer.
+ *  - A finger has no right button. The gesture is a **long press**, and the
+ *    answer is a sheet from the bottom edge — what iOS and Android already do
+ *    everywhere else, and what Obsidian mobile does for exactly this menu.
+ *
+ * Neither file imports the other. A platform module cannot: on web, `./Menu`
+ * resolves to `Menu.web.tsx`, so a `.web` file importing `./Menu` would import
+ * itself. `MenuProps` is therefore declared identically in both, and the two
+ * are held together by `MenuActionId` and `MenuItem`, which they share and
+ * neither owns.
+ *
+ * ## What is deliberately different here, not merely rescaled
+ *
+ *  - **Rows are at least 44pt tall.** A pointer lands where it is aimed; a
+ *    thumb lands within about 10mm of where it is aimed. A 28px row that is
+ *    fine on a desktop is a mis-tap next to "Delete forever…" on a phone.
+ *  - **A submenu pushes a page, it does not nest.** A popover hanging off the
+ *    side of another popover needs somewhere to hang and a hover to open it,
+ *    and a phone has neither. Visibility becomes a second page of the same
+ *    sheet with a way back, which is the pattern every mobile settings screen
+ *    already taught the person holding it.
+ *  - **No shortcut column.** `menu.ts` omits `shortcut` entirely when
+ *    `platform: "touch"`, so there is nothing to draw — and nothing here adds
+ *    it back. A column of chords nobody can type costs a fifth of the width of
+ *    a phone.
+ *  - **A Cancel row.** Dismissing by tapping the scrim works, but it is not
+ *    discoverable, and on a sheet whose last item is destructive the visible
+ *    way out matters.
+ */
+export interface MenuProps {
+  items: MenuItem[];
+  /** Where the pointer was. Web anchors a popover here; touch ignores it. */
+  anchor?: { x: number; y: number };
+  /** Sheet heading on touch — the file name. Web shows no heading. */
+  title?: string;
+  onSelect: (id: MenuActionId) => void;
+  onDismiss: () => void;
+}
+
+/**
+ * One row. The whole row is the target, and the label carries the danger
+ * colour rather than the row carrying a red fill: a filled red row on a sheet
+ * reads as the *recommended* action on iOS, which is the opposite of what
+ * "Delete forever…" is.
+ */
+function SheetRow({
+  id,
+  label,
+  danger = false,
+  trailing,
+  align = "left",
+  onPress,
+}: {
+  id: string;
+  label: string;
+  danger?: boolean;
+  trailing?: ReactNode;
+  align?: "left" | "center";
+  onPress: () => void;
+}) {
+  return (
+    <PressRow
+      accessibilityLabel={label}
+      onPress={onPress}
+      radius={radii.md}
+      testID={`menu-item-${id}`}
+      // `PressRow` takes one style object rather than an array, so the two
+      // shapes are merged here rather than layered.
+      style={StyleSheet.flatten([styles.row, align === "center" && styles.rowCentered])}
+      hoverStyle={styles.rowHover}
+    >
+      <Text
+        variant="body"
+        numberOfLines={1}
+        testID={`menu-label-${id}`}
+        style={danger ? styles.dangerLabel : undefined}
+      >
+        {label}
+      </Text>
+      {trailing}
+    </PressRow>
+  );
+}
+
+/** `separatorBefore` — a hairline with air around it, never a heavy rule. */
+function Separator() {
+  return <View aria-hidden style={styles.separator} />;
+}
+
+export function Menu({ items, title, onSelect, onDismiss }: MenuProps) {
+  /**
+   * Which submenu is open, by the id of its **parent** item.
+   *
+   * Held as an id rather than as the item itself so that a re-render with new
+   * items (a clipboard filled while the sheet is open) cannot leave a stale
+   * copy of a page on screen: the parent is looked up again every render, and
+   * an id that no longer exists collapses back to the first page.
+   */
+  const [openId, setOpenId] = useState<MenuActionId | null>(null);
+  const insets = useSafeAreaInsets();
+
+  const parent = items.find((item) => item.id === openId && item.items !== undefined) ?? null;
+  const page = parent?.items ?? items;
+
+  return (
+    <Modal
+      transparent
+      animationType="slide"
+      visible
+      // Android's back button and, on the web build of this component, Escape.
+      // Both mean "I am done with this sheet", so both are the same callback.
+      onRequestClose={onDismiss}
+    >
+      <Pressable style={styles.scrim} accessibilityLabel="Close menu" onPress={onDismiss}>
+        {/* Swallow presses inside the sheet, so only the scrim dismisses. */}
+        <Pressable
+          style={[styles.sheet, { paddingBottom: insets.bottom + space.x2 }]}
+          onPress={() => {}}
+          accessibilityLabel={title ?? "Actions"}
+          testID="menu-sheet"
+        >
+          <View aria-hidden style={styles.handle} />
+
+          {parent === null ? (
+            title === undefined ? null : (
+              <Text
+                variant="rowSub"
+                numberOfLines={1}
+                role="heading"
+                aria-level={2}
+                testID="menu-title"
+                style={styles.title}
+              >
+                {title}
+              </Text>
+            )
+          ) : (
+            /**
+             * The back row is the *only* way out of a submenu that does not
+             * also close the sheet, so it is a full-height row of its own
+             * rather than a chevron in the heading — a 44pt target, in the same
+             * place every time.
+             */
+            <>
+              <SheetRow
+                id="back"
+                label={`‹  ${parent.label}`}
+                onPress={() => setOpenId(null)}
+              />
+              <Separator />
+            </>
+          )}
+
+          <ScrollView
+            style={styles.list}
+            contentContainerStyle={styles.listContent}
+            testID="menu-list"
+          >
+            {page.map((item) => (
+              <View key={item.id}>
+                {item.separatorBefore === true ? <Separator /> : null}
+                <SheetRow
+                  id={item.id}
+                  label={item.label}
+                  danger={item.danger === true}
+                  trailing={
+                    item.items === undefined ? null : (
+                      <Text variant="tree" aria-hidden style={styles.chevron}>
+                        ›
+                      </Text>
+                    )
+                  }
+                  onPress={() => {
+                    /**
+                     * A parent is never dispatched. `menu.ts` gives the
+                     * Visibility item the id `"visibility"`, which has no
+                     * handler precisely so that a mistake here is a no-op
+                     * rather than a privacy change — but the check is what
+                     * keeps it from being one at all.
+                     */
+                    if (item.items !== undefined) {
+                      setOpenId(item.id);
+                      return;
+                    }
+                    onSelect(item.id);
+                    onDismiss();
+                  }}
+                />
+              </View>
+            ))}
+          </ScrollView>
+
+          <Separator />
+          <SheetRow id="cancel" label="Cancel" align="center" onPress={onDismiss} />
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const styles = StyleSheet.create({
+  scrim: {
+    flex: 1,
+    backgroundColor: "rgba(3,3,4,.72)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    borderTopLeftRadius: radii.console,
+    borderTopRightRadius: radii.console,
+    borderTopWidth: 1,
+    borderColor: colors.lineStrong,
+    backgroundColor: colors.surface2,
+    paddingTop: space.x2,
+    // A sheet that grows past this stops looking like a sheet and starts
+    // looking like a screen you cannot leave; the list scrolls instead.
+    maxHeight: "80%",
+    boxShadow: "0 -30px 80px -30px rgba(0,0,0,1)",
+  },
+  handle: {
+    alignSelf: "center",
+    width: 38,
+    height: 4,
+    borderRadius: radii.pill,
+    backgroundColor: colors.lineStrong,
+    marginBottom: space.x2,
+  },
+  title: {
+    paddingHorizontal: space.x5,
+    paddingBottom: space.x2,
+    color: colors.muted,
+  },
+  list: { flexGrow: 0 },
+  listContent: { paddingVertical: space.x1 },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.x3,
+    // The thumb target. 44pt is the floor, not the aim: the padding takes an
+    // ordinary single-line row past it, and this keeps a short label honest.
+    minHeight: 44,
+    paddingVertical: space.x3,
+    paddingHorizontal: space.x5,
+  },
+  rowCentered: { justifyContent: "center" },
+  rowHover: { backgroundColor: colors.surface3 },
+  dangerLabel: { color: colors.critText },
+  chevron: { marginLeft: "auto", color: colors.muted },
+  separator: {
+    height: 1,
+    backgroundColor: colors.line,
+    marginVertical: space.x2,
+  },
+});
