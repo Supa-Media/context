@@ -2,6 +2,8 @@ import { StyleSheet, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { colors, radii } from "../../design/tokens";
+import type { DragModifier } from "./dnd";
+import { useRowInteractions } from "./rowInteractions";
 import type { TreeRow } from "./tree";
 import type { Visibility } from "./types";
 
@@ -26,6 +28,18 @@ import type { Visibility } from "./types";
  *    leaves the one shared note with no more weight than its neighbours, which
  *    is the opposite of what the file says. The dot is a target to press, not a
  *    statement, and its accessibility label spells out what it would change.
+ *
+ * ## Where the operations live now
+ *
+ * Every file operation used to be a button — a toolbar above the tree and a row
+ * of seven above the note. They are on the row itself now, raised by a
+ * right-click on a pointer and a long press under a thumb, reached through
+ * `rowInteractions` so the *gesture* forks per platform while the items
+ * (`menu.ts`) and the drop rules (`dnd.ts`) do not.
+ *
+ * A row that cannot be dragged is not merely inert: `privacy.md` is generated,
+ * so `canDrag` is false for it and the browser refuses the drag outright rather
+ * than starting one that `dnd.ts` would have to refuse after the animation.
  */
 export function FileTree({
   rows,
@@ -33,12 +47,21 @@ export function FileTree({
   onSelect,
   onToggle,
   onCycleVisibility,
+  onMenu,
+  drag,
+  dropTarget = null,
 }: {
   rows: readonly TreeRow[];
   canEdit: boolean;
   onSelect: (path: string) => void;
   onToggle: (path: string) => void;
   onCycleVisibility: (row: TreeRow) => void;
+  /** Raise the row's menu. Absent where there is nothing to offer. */
+  onMenu?: (row: TreeRow, anchor: { x: number; y: number }) => void;
+  /** Drag wiring. Absent in the read-only demo, which must not offer one. */
+  drag?: TreeDragHandlers;
+  /** The row under a drag, washed to say the drop would land there. */
+  dropTarget?: string | null;
 }) {
   return (
     <>
@@ -55,43 +78,110 @@ export function FileTree({
         }
 
         return (
-          <View key={row.key} style={styles.row}>
-            <PressRow
-              accessibilityLabel={describeRow(row)}
-              selected={row.selected}
-              onPress={() => (row.kind === "folder" ? onToggle(row.path) : onSelect(row.path))}
-              radius={radii.sm}
-              style={StyleSheet.flatten([
-                styles.node,
-                styles.nodeGrow,
-                { paddingLeft: 8 + 13 * row.depth },
-              ])}
-              hoverStyle={styles.nodeHover}
-              selectedStyle={styles.nodeSelected}
-            >
-              <Text variant="treeMeta" style={styles.chevron} aria-hidden>
-                {row.kind === "folder" ? (row.expanded ? "▾" : "▸") : " "}
-              </Text>
-              <Text
-                variant="tree"
-                numberOfLines={1}
-                style={row.selected ? styles.nodeSelectedLabel : undefined}
-              >
-                {row.name}
-              </Text>
-            </PressRow>
-
-            <VisibilityControl
-              row={row}
-              canEdit={canEdit}
-              onPress={() => onCycleVisibility(row)}
-            />
-          </View>
+          <FileRow
+            key={row.key}
+            row={row}
+            canEdit={canEdit}
+            onSelect={onSelect}
+            onToggle={onToggle}
+            onCycleVisibility={onCycleVisibility}
+            onMenu={onMenu}
+            drag={drag}
+            isDropTarget={dropTarget === row.path}
+          />
         );
       })}
     </>
   );
 }
+
+/** What the tree needs from whoever owns the drag. */
+export interface TreeDragHandlers {
+  onDragStart: (path: string) => void;
+  onDragOver: (path: string, modifiers: readonly DragModifier[]) => void;
+  onDragLeave: (path: string) => void;
+  onDrop: (path: string, modifiers: readonly DragModifier[]) => void;
+  onDragEnd: () => void;
+  /** Whether this row may be picked up, and whether a drop may land on it. */
+  canDrag: (row: TreeRow) => boolean;
+  canDrop: (row: TreeRow) => boolean;
+}
+
+/**
+ * One row.
+ *
+ * Extracted from the map so it can hold a hook — `useRowInteractions` attaches
+ * the platform's gesture, and a hook cannot be called inside a loop body.
+ */
+function FileRow({
+  row,
+  canEdit,
+  onSelect,
+  onToggle,
+  onCycleVisibility,
+  onMenu,
+  drag,
+  isDropTarget,
+}: {
+  row: TreeRow;
+  canEdit: boolean;
+  onSelect: (path: string) => void;
+  onToggle: (path: string) => void;
+  onCycleVisibility: (row: TreeRow) => void;
+  onMenu?: (row: TreeRow, anchor: { x: number; y: number }) => void;
+  drag?: TreeDragHandlers;
+  isDropTarget: boolean;
+}) {
+  const interactions = useRowInteractions({
+    path: row.path,
+    onMenu: (anchor) => onMenu?.(row, anchor),
+    canDrag: drag !== undefined && drag.canDrag(row),
+    canDrop: drag !== undefined && drag.canDrop(row),
+    onDragStart: drag?.onDragStart ?? noopPath,
+    onDragOver: drag?.onDragOver ?? noopDrop,
+    onDragLeave: drag?.onDragLeave ?? noopPath,
+    onDrop: drag?.onDrop ?? noopDrop,
+    onDragEnd: drag?.onDragEnd ?? noopVoid,
+  });
+
+  return (
+    <View style={[styles.row, isDropTarget && styles.rowDrop]} ref={interactions.ref as never}>
+      <PressRow
+        accessibilityLabel={describeRow(row)}
+        selected={row.selected}
+        onPress={() => (row.kind === "folder" ? onToggle(row.path) : onSelect(row.path))}
+        radius={radii.sm}
+        style={StyleSheet.flatten([
+          styles.node,
+          styles.nodeGrow,
+          { paddingLeft: 8 + 13 * row.depth },
+        ])}
+        hoverStyle={styles.nodeHover}
+        selectedStyle={styles.nodeSelected}
+        // A long press with nowhere to send it would open nothing and swallow
+        // the tap that was meant to select the row.
+        {...(onMenu !== undefined ? interactions.pressableProps : {})}
+      >
+        <Text variant="treeMeta" style={styles.chevron} aria-hidden>
+          {row.kind === "folder" ? (row.expanded ? "\u25be" : "\u25b8") : " "}
+        </Text>
+        <Text
+          variant="tree"
+          numberOfLines={1}
+          style={row.selected ? styles.nodeSelectedLabel : undefined}
+        >
+          {row.name}
+        </Text>
+      </PressRow>
+
+      <VisibilityControl row={row} canEdit={canEdit} onPress={() => onCycleVisibility(row)} />
+    </View>
+  );
+}
+
+function noopPath(_path: string): void {}
+function noopDrop(_path: string, _modifiers: readonly DragModifier[]): void {}
+function noopVoid(): void {}
 
 function VisibilityControl({
   row,
@@ -164,7 +254,15 @@ function describeRow(row: TreeRow): string {
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center" },
+  row: { flexDirection: "row", alignItems: "center", borderRadius: radii.sm },
+  /**
+   * The row a drop would land in.
+   *
+   * A wash, never an insertion line between rows: a bucket lists
+   * alphabetically, so there is no position to drop *between*, and a line would
+   * promise an ordering the storage does not have.
+   */
+  rowDrop: { backgroundColor: colors.accentDim },
 
   /** `.tnode` */
   node: {

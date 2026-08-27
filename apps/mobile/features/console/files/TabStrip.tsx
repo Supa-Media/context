@@ -355,13 +355,21 @@ function TabItem({
 }
 
 /**
- * TODO(menu): replace with the shared `design/components/Menu` once it lands.
+ * TODO(menu): fold into the shared `design/components/Menu`.
  *
  * This is a plain popover, written to be thrown away: it hard-codes its own
  * card, its own scrim and its own rows, none of which should exist twice in the
- * app. The file-tree context menu (`menu.ts` → its component) wants exactly the
- * same object, and the moment `Menu` exists this should become a `MenuItem[]`
- * and a call.
+ * app. `Menu` (and its `.web` sibling) now exists and is the right home — it
+ * already has the popover-at-the-pointer and sheet-under-the-thumb pair this
+ * would otherwise grow itself.
+ *
+ * What stands in the way is one type, not a design disagreement: `MenuItem.id`
+ * is `MenuActionId`, the file-tree action union, and there is no `close`,
+ * `closeOthers` or `reopen` in it. Three tab items therefore cannot be
+ * expressed as `MenuItem[]` without widening that union — which is a decision
+ * about what `menu.ts` is *for* (it is currently "what can I do with this
+ * file?", and these are "what can I do with this tab?"), and belongs in the
+ * change that widens it rather than smuggled in here.
  *
  * It is a `Modal` rather than an absolutely-positioned sibling for one
  * non-cosmetic reason: the strip is a horizontal scroll view a few dozen pixels

@@ -1,15 +1,19 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
+import { Menu } from "../../design/components/Menu";
 import { Text } from "../../design/components/Text";
+import { writeClipboard } from "../../design/clipboard";
 import { colors, radii, space } from "../../design/tokens";
 import { useFrame } from "../../app/AppFrame";
 import { loadedFolders, type FileBrowser } from "./browser";
 import { Confirm, DeleteForever, MovePicker, NamePrompt } from "./Dialogs";
-import { FileTree } from "./FileTree";
+import { canDrop as verdictFor, type DragModifier, type DragSource } from "./dnd";
+import { FileTree, type TreeDragHandlers } from "./FileTree";
+import { itemsFor, type MenuActionId } from "./menu";
 import { baseName, parentPath } from "./paths";
 import { itemsFromListings, rank } from "./palette";
-import { buildTreeRows, type TreeRow } from "./tree";
+import { buildTreeRows, findEntry, type TreeRow } from "./tree";
 import type { Visibility } from "./types";
 
 /**
@@ -52,6 +56,10 @@ export function Explorer({
   const frame = useFrame();
   const [query, setQuery] = useState("");
   const [dialog, setDialog] = useState<Dialog>(null);
+  const [menu, setMenu] = useState<MenuState>(null);
+  const [drag, setDrag] = useState<DragSource | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [refusal, setRefusal] = useState<string | null>(null);
 
   const rows = useMemo(
     () =>
@@ -77,6 +85,160 @@ export function Explorer({
     files.select(path);
     if (frame.closesOnSelect) frame.closeDrawer();
   };
+
+  /* ---------------------------------------------------------------------- */
+  /*                          the row's own menu                              */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * Shortcuts are printed where there is a keyboard and room for a column.
+   * A compact window has neither, and a chord nobody can press is noise.
+   */
+  const platform = frame.density === "compact" ? ("touch" as const) : ("web" as const);
+
+  const openMenu = useCallback(
+    (row: TreeRow, anchor: { x: number; y: number }) => {
+      const items = itemsFor({
+        target: { kind: "row", row },
+        canEdit: files.canEdit,
+        clipboard: files.clipboard,
+        platform,
+      });
+      // An empty menu is not an empty menu — it is no menu. Opening a bordered
+      // rectangle with nothing in it reads as a bug.
+      if (items.length === 0) return;
+      setMenu({ row, anchor, items });
+    },
+    [files.canEdit, files.clipboard, platform],
+  );
+
+  const runAction = useCallback(
+    (id: MenuActionId, row: TreeRow) => {
+      const path = row.path;
+      const folder = row.kind === "folder" ? path : parentPath(path);
+      const kind = row.kind === "folder" ? ("folder" as const) : ("file" as const);
+
+      switch (id) {
+        case "open":
+        case "openInNewTab":
+          select(path);
+          return;
+        case "newNote":
+          setDialog({ kind: "newNote", folder });
+          return;
+        case "newFolder":
+          setDialog({ kind: "newFolder", folder });
+          return;
+        case "rename":
+          setDialog({ kind: "rename", path });
+          return;
+        case "moveTo":
+          setDialog({ kind: "move", path });
+          return;
+        case "archive":
+          setDialog({ kind: "archive", path });
+          return;
+        case "delete":
+          setDialog({ kind: "delete", path, isFolder: row.kind === "folder" });
+          return;
+        case "duplicate":
+          files.duplicate(path);
+          return;
+        case "copy":
+          files.copy(path);
+          return;
+        case "cut":
+          files.cut(path);
+          return;
+        case "paste":
+          files.paste(folder);
+          return;
+        case "restore": {
+          const target = restoreFolderFor(path);
+          if (target !== null) files.move(path, target);
+          return;
+        }
+        case "copyPath":
+          void writeClipboard(path);
+          return;
+        case "copyAtPath":
+          // The product's addressable form. Dragging a note out of the app
+          // produces the same string, so the two ways of taking a reference
+          // agree.
+          void writeClipboard(`${contextLabel}/${path}`);
+          return;
+        case "visibilityPrivate":
+          files.setVisibility(path, kind, "private");
+          return;
+        case "visibilityTeam":
+          files.setVisibility(path, kind, "team");
+          return;
+        case "visibilityFollow":
+          // Setting a note to its folder's default *removes* the exception
+          // rather than writing a redundant line — see `setVisibility` in
+          // `functions/lib/fileOps.ts`. So "follow folder" is expressible with
+          // the interface as it stands, and there is nothing to add.
+          files.setVisibility(path, kind, inheritedOf(files, path));
+          return;
+        case "visibility":
+          // The submenu's parent. It opens a submenu and dispatches nothing;
+          // firing an id here would set a visibility nobody asked for.
+          return;
+      }
+    },
+    [files, contextLabel, select],
+  );
+
+  /* ---------------------------------------------------------------------- */
+  /*                                 dragging                                 */
+  /* ---------------------------------------------------------------------- */
+
+  const dragHandlers = useMemo<TreeDragHandlers | undefined>(() => {
+    if (!files.canEdit) return undefined;
+    return {
+      canDrag: (row) => !row.readOnly && row.kind !== "loading" && row.kind !== "empty",
+      canDrop: (row) => row.kind === "folder",
+      onDragStart: (path) => {
+        const entry = findEntry(files.listings, path);
+        setDrag({ paths: [path], readOnly: entry?.readOnly ?? false });
+      },
+      onDragOver: (path) => setDropTarget(path),
+      onDragLeave: (path) => setDropTarget((current) => (current === path ? null : current)),
+      onDragEnd: () => {
+        setDrag(null);
+        setDropTarget(null);
+      },
+      onDrop: (path, modifiers) => {
+        const source = drag;
+        setDrag(null);
+        setDropTarget(null);
+        if (source === null) return;
+
+        const verdict = verdictFor(source, { kind: "folder", path }, modifiers, files.listings);
+        if (!verdict.ok) {
+          // The refusal is the product of `dnd.ts`, said in words rather than
+          // by the row simply springing back. A drop that fails silently
+          // teaches nothing.
+          setMenu(null);
+          setRefusal(verdict.reason);
+          return;
+        }
+        for (const move of verdict.moves) {
+          const destination = parentPath(move.to);
+          if (verdict.action === "copy") {
+            // A copy-drop is copy-then-paste, not a move: `files.copy` only
+            // loads the clipboard, and `paste` is what performs `copyEntry`.
+            // Calling `move` after `copy` would relocate the original and
+            // leave the clipboard pointing at a path that no longer exists.
+            files.copy(move.from);
+            files.paste(destination);
+          } else {
+            files.move(move.from, destination);
+          }
+        }
+      },
+    };
+  }, [files, drag]);
 
   const counts = countLoaded(files);
 
@@ -166,6 +328,9 @@ export function Explorer({
               files.select(path);
             }}
             onCycleVisibility={(row) => cycleVisibility(files, row)}
+            onMenu={openMenu}
+            drag={dragHandlers}
+            dropTarget={dropTarget}
           />
         )}
       </ScrollView>
@@ -176,9 +341,61 @@ export function Explorer({
         </Text>
       </View>
 
+      {refusal !== null ? (
+        <View style={styles.refusal}>
+          <Text variant="hint" style={styles.refusalText}>
+            {refusal}
+          </Text>
+          <PressRow
+            accessibilityLabel="Dismiss"
+            onPress={() => setRefusal(null)}
+            radius={radii.sm}
+            style={styles.refusalDismiss}
+            hoverStyle={styles.matchHover}
+          >
+            <Text variant="treeMeta" aria-hidden>
+              ×
+            </Text>
+          </PressRow>
+        </View>
+      ) : null}
+
+      {menu !== null ? (
+        <Menu
+          items={menu.items}
+          anchor={menu.anchor}
+          title={baseName(menu.row.path)}
+          onSelect={(id) => {
+            const row = menu.row;
+            setMenu(null);
+            runAction(id, row);
+          }}
+          onDismiss={() => setMenu(null)}
+        />
+      ) : null}
+
       <ExplorerDialogs files={files} dialog={dialog} onClose={() => setDialog(null)} />
     </View>
   );
+}
+
+interface MenuOpen {
+  row: TreeRow;
+  anchor: { x: number; y: number };
+  items: ReturnType<typeof itemsFor>;
+}
+type MenuState = MenuOpen | null;
+
+/**
+ * Where "Restore" puts an archived note back.
+ *
+ * `4-archive/<stamp>/1-projects/foo.md` keeps the original path inside the
+ * timestamped folder precisely so this is a string operation rather than a
+ * guess, and returns null for anything that is not an archive path.
+ */
+function restoreFolderFor(archivedPath: string): string | null {
+  const match = archivedPath.match(/^4-archive\/[^/]+\/(.+)$/);
+  return match === null ? null : parentPath(match[1]);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -413,6 +630,22 @@ const styles = StyleSheet.create({
   matchHover: { backgroundColor: colors.surface3 },
   matchOn: { backgroundColor: colors.accentDim },
   matchDetail: { opacity: 0.85 },
+
+  refusal: {
+    marginHorizontal: space.x2,
+    marginBottom: space.x2,
+    paddingVertical: space.x2,
+    paddingHorizontal: space.x3,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.warnBorder,
+    backgroundColor: colors.warnWash,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: space.x2,
+  },
+  refusalText: { flex: 1, color: colors.warnText },
+  refusalDismiss: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.sm },
 
   foot: {
     borderTopWidth: 1,
