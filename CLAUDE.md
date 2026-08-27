@@ -158,7 +158,22 @@ Open source from the first commit. That raises the bar in three concrete ways:
   working context without us. Keep `apps/mcp` dependency-free and its setup
   documented.
 
-Work goes through pull requests with review. Do not push to `main`.
+Work goes through pull requests. Do not push to `main` — the PR is the record
+of what changed and why, and it is what makes the history readable by somebody
+who was not here.
+
+**Review is self-review, and merging is yours to do.** Nobody is waiting to
+approve; a branch parked green and unmerged is not delivered, it is abandoned.
+So a change is finished when it is *merged*, and that means the self-review has
+to be real work rather than a formality — you are the only reader the diff will
+get before it lands. Read it as an adversary would: what would a reviewer catch,
+what does this file's own doc comments claim that the change now makes untrue,
+what rule stated elsewhere in this file does it quietly break. Act on what you
+find and say what you found; a self-review that finds nothing on a non-trivial
+diff is a self-review that did not happen.
+
+Merge only on green CI, and never on red — this is a public repository and the
+default branch is what people clone.
 
 ## Durable decisions
 

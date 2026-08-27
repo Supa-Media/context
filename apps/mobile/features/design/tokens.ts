@@ -157,7 +157,20 @@ export const layout = {
   explorerWidth: 260,
   explorerMinWidth: 200,
   explorerMaxWidth: 460,
-  /** Chrome along the edges of the frame. */
+  /**
+   * The smallest target a thumb can be asked to hit, in points.
+   *
+   * 44 is Apple's HIG minimum and Android's 48dp rounds down to about the same
+   * physical size. It lives here rather than in the one component that first
+   * needed it because it is not the bottom bar's rule — it is the rule for
+   * every control a phone offers, and the top bar's navigation control is one.
+   * `BottomBar` re-exports it as `MIN_TOUCH_TARGET` so its tests keep asserting
+   * the same number the styles use.
+   */
+  minTouchTarget: 44,
+  /** Chrome along the edges of the frame. Exactly `minTouchTarget`: the bar is
+      a touch target's worth of height, so a control may fill it and clear the
+      minimum without a number of its own. */
   topBarHeight: 44,
   statusBarHeight: 26,
   /**

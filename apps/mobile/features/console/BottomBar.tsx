@@ -72,12 +72,15 @@ import { colors, layout, radii, space } from "../design/tokens";
 /**
  * The smallest target a thumb can be asked to hit, in points.
  *
- * 44 is Apple's HIG minimum and Android's 48dp rounds down to about the same
- * physical size. Exported because the test asserts it: a rule enforced by a
- * number typed into a stylesheet and a different number typed into a test is a
- * rule that passes after somebody changes one of them.
+ * Exported because the test asserts it: a rule enforced by a number typed into
+ * a stylesheet and a different number typed into a test is a rule that passes
+ * after somebody changes one of them.
+ *
+ * The number itself lives in `design/tokens` — it governs every control a phone
+ * offers, not only this bar, and the frame's own navigation control is held to
+ * it too.
  */
-export const MIN_TOUCH_TARGET = 44;
+export const MIN_TOUCH_TARGET = layout.minTouchTarget;
 
 export interface BottomBarAction {
   id: string;

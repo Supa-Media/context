@@ -247,6 +247,20 @@ describe("a phone", () => {
     app.unmount();
   });
 
+  test("the control that opens it is a thumb-sized target", () => {
+    // It is the primary navigation on this surface, and the chip inside it is
+    // 27px tall. `BottomBar` holds the bottom row to this floor; a control in
+    // the top bar that every phone session has to hit is not exempt from it.
+    const app = mountFrame(390);
+    const toggle = app.find("frame-nav-toggle")!;
+
+    expect(Number.parseFloat(styleOf(toggle, "min-height"))).toBeGreaterThanOrEqual(
+      layout.minTouchTarget,
+    );
+
+    app.unmount();
+  });
+
   test("the scrim closes the sheet, and so does the switcher again", () => {
     const app = mountFrame(390);
 

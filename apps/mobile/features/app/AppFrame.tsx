@@ -319,11 +319,11 @@ export function AppFrame({
               role="button"
               aria-expanded={state.navOpen}
               testID="frame-nav-toggle"
-              style={styles.topLead}
+              style={[styles.topLead, styles.navToggle]}
             >
               {switcher}
               <Text style={styles.navChevron} aria-hidden>
-                {state.navOpen ? "\u2303" : "\u2304"}
+                {state.navOpen ? "\u25b4" : "\u25be"}
               </Text>
             </Pressable>
           ) : (
@@ -658,7 +658,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     boxShadow: "24px 0 60px -20px rgba(0,0,0,.9)",
   },
-  navChevron: { color: colors.muted, fontSize: 11 },
+  /**
+   * The primary navigation control on a phone, so it is held to the same floor
+   * as the bottom bar's targets rather than to the height of the chip inside
+   * it. The chip is 27px; the bar is a touch target tall, and filling it costs
+   * nothing visually because the chip stays centred within.
+   */
+  navToggle: { alignSelf: "stretch", minHeight: layout.minTouchTarget },
+  /**
+   * `▴`/`▾` rather than `⌃`/`⌄`. The arrowhead pair sits high in most faces —
+   * they are keyboard-legend glyphs, drawn to align with a modifier symbol
+   * rather than with running text — and beside a bordered chip the offset
+   * reads as a rendering fault. `BottomBar` makes the same argument about
+   * Unicode's optical inconsistency for the same reason.
+   */
+  navChevron: { color: colors.muted, fontSize: 10 },
   drawer: {
     position: "absolute",
     top: 0,
