@@ -401,6 +401,32 @@ describe("Authentication-Results are exposed in order", () => {
     );
     expect(parsed.authenticationResults[0]).toContain("dmarc=fail");
   });
+
+  it("records the first physical line separately from the unfolded value", () => {
+    // The one fact about a folded header that its unfolded text cannot carry:
+    // where our MTA's own CRLF was. Everything to the right of it may have been
+    // spliced on by the sender, so ./auth.ts reads only the left. Sabotage:
+    // snapshot after the extension instead of before, and this returns the
+    // whole value — the fold defence silently becomes a no-op.
+    const parsed = parse(
+      `Authentication-Results: mx.example-mta.test; dkim=pass header.d=example.com\n` +
+        `\theader.b="Zz"; dmarc=pass header.from=example.com\n` +
+        `From: alice@example.com\nSubject: s\n\nbody\n`,
+    );
+    expect(parsed.authenticationResultsFolded).toEqual([true]);
+    expect(parsed.authenticationResultsFirstLine).toEqual([
+      "mx.example-mta.test; dkim=pass header.d=example.com",
+    ]);
+    expect(parsed.authenticationResults[0]).toContain("dmarc=pass");
+  });
+
+  it("reports the whole value as the first line when nothing was folded", () => {
+    const parsed = parse(
+      rawMessage({ authResults: ["mx.example-mta.test; dmarc=pass header.from=example.com"] }),
+    );
+    expect(parsed.authenticationResultsFolded).toEqual([false]);
+    expect(parsed.authenticationResultsFirstLine).toEqual(parsed.authenticationResults);
+  });
 });
 
 describe("ARC headers carry their position and their foldedness", () => {

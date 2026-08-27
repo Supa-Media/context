@@ -351,6 +351,7 @@ function deliver(raw: string) {
     verdict: verifySender({
       authenticationResults: parsed.authenticationResults,
       authenticationResultsFolded: parsed.authenticationResultsFolded,
+      authenticationResultsFirstLine: parsed.authenticationResultsFirstLine,
       arcAuthenticationResults: parsed.arcAuthenticationResults,
       fromAddress: parsed.fromAddress,
       authServiceId: MX,
@@ -627,6 +628,153 @@ describe("a folded continuation cannot forge either verdict", () => {
     );
     expect(parsed.authenticationResultsFolded).toEqual([false]);
     expect(parsed.subject).toBe("a long one continued here");
+  });
+
+  it("is not fooled by a Received: the sender wrote under their own splice", () => {
+    // The discriminator NOT taken, pinned as a test so nobody takes it later.
+    //
+    // The tempting rule is "a folded AR with an MTA-ish header below it is
+    // interior to the MTA's block, so the MTA folded it". The sender writes
+    // every byte below the AR, so they supply that evidence themselves: this is
+    // the #35 forgery with one extra line. Under the interior rule it is
+    // verified as `attacker@supa.media`; under the rule that actually shipped —
+    // read only what the MTA emitted before its own CRLF — the spliced clause
+    // is not in the parsed string at all and the extra header changes nothing.
+    const { parsed, verdict } = deliver(
+      `Authentication-Results: ${MX}; dkim=none; spf=pass smtp.mailfrom=bounce@evil.test\n` +
+        `\t; dmarc=pass header.from=supa.media\n` +
+        `Received: from mx.cloudflare.net by mx.cloudflare.net; Mon, 25 Aug 2026 09:14:02 +0000\n` +
+        `ARC-Seal: i=1; a=rsa-sha256; d=cloudflare.net; s=2024; cv=pass; b=QUE=\n` +
+        `From: attacker@supa.media\n\nhi\n`,
+    );
+    expect(parsed.authenticationResultsFolded).toEqual([true]);
+    expect(verdict).toEqual({ ok: false, reason: "folded_authentication_results" });
+  });
+});
+
+/**
+ * The other half of the fold rule: our own MTA's long header, which it folds.
+ *
+ * This is the shape production actually produced — a Resend message that used
+ * to log `authMethod: "dkim"` and then, once the fold rule landed, logged
+ * `authMethod: "none"` with `authFailure: "folded_authentication_results"`.
+ * Every capture carried the spoofing warning after that, which is precisely how
+ * a warning stops being read.
+ *
+ * SABOTAGE, both directions:
+ *
+ *   - delete `authenticationResultsFirstLine` (or make `verifySender` read
+ *     `headers[0]` when folded) → "reads the clauses our MTA fitted on the
+ *     first line" goes RED with `folded_authentication_results`, i.e. back to
+ *     warning about everybody;
+ *   - make the fold trust the *whole* unfolded value → "refuses when the sender
+ *     folds a passing method into Authentication-Results" above goes RED with
+ *     `ok: true`, i.e. a stranger gets `verified: true` on somebody's note.
+ */
+describe("our own MTA folding its own long verdict", () => {
+  /**
+   * Cloudflare's `Authentication-Results` as it wraps it, with the ARC set it
+   * seals sitting *below* — which is the placement that makes the interior
+   * discriminator useless as well as unsound, since the sender writes that
+   * region too.
+   */
+  const CLOUDFLARE_FOLDED =
+    `Received: from a1.resend.dev (a1.resend.dev [149.72.154.232])\n` +
+    `\tby ${MX} with ESMTPS id 4bJcRHrMGNRW\n` +
+    `\tfor <capture@ctx.test>; Mon, 25 Aug 2026 09:14:02 +0000\n` +
+    `Authentication-Results: ${MX}; dkim=pass header.d=resend.dev\n` +
+    `\theader.i=@resend.dev header.b="Vv3nQx8K";\n` +
+    `\tspf=pass (${MX}: domain of bounces@resend.dev designates 149.72.154.232\n` +
+    `\tas permitted sender) smtp.mailfrom=bounces@resend.dev;\n` +
+    `\tdmarc=pass (p=NONE sp=NONE dis=NONE) header.from=resend.dev\n` +
+    `ARC-Seal: i=1; a=rsa-sha256; d=cloudflare.net; s=2024; cv=none; b=QUE=\n` +
+    `ARC-Message-Signature: i=1; a=rsa-sha256; d=cloudflare.net; s=2024; b=QkI=\n` +
+    `ARC-Authentication-Results: i=1; ${MX}; dkim=pass header.d=resend.dev;\n` +
+    `\tspf=pass smtp.mailfrom=bounces@resend.dev\n` +
+    `From: Resend <notifications@resend.dev>\n` +
+    `Subject: Your API key\n\nbody\n`;
+
+  it("reads the clauses our MTA fitted on the first line, and names the real method", () => {
+    const { parsed, verdict } = deliver(CLOUDFLARE_FOLDED);
+    expect(parsed.authenticationResultsFolded).toEqual([true]);
+    expect(verdict).toEqual({
+      ok: true,
+      address: "notifications@resend.dev",
+      domain: "resend.dev",
+      // `dkim`, not `dmarc`: the `dmarc=pass` is on a continuation line, so it
+      // is not read and the label does not claim it. Naming a method the
+      // message did not prove on the line we trusted would be the lie this
+      // whole file exists to avoid.
+      method: "dkim",
+    });
+  });
+
+  it("keeps the sender out of the value it read", () => {
+    // The first line stops where our MTA's CRLF was. Everything after it —
+    // including anything a sender spliced on — is absent from the string
+    // `verifySender` parses, which is the entire safety argument.
+    const { parsed } = deliver(CLOUDFLARE_FOLDED);
+    expect(parsed.authenticationResultsFirstLine).toEqual([
+      `${MX}; dkim=pass header.d=resend.dev`,
+    ]);
+    expect(parsed.authenticationResults[0]).toContain("dmarc=pass");
+    expect(parsed.authenticationResultsFirstLine[0]).not.toContain("dmarc");
+  });
+
+  it("stays unverified when the MTA folded before any clause — a known cost", () => {
+    // An MTA that wraps immediately after the authserv-id leaves nothing on the
+    // first line to read, and this comes out unverified. That is the
+    // fail-closed direction and it is the limitation to watch: if Cloudflare
+    // turns out to wrap this way, `authMethod` stays `none` in the log and the
+    // fix has not helped, which is the signal to reach for the ARC set our MTA
+    // seals *above* the AR instead. See `verifyViaArc`.
+    const { verdict } = deliver(
+      `Authentication-Results: ${MX};\n` +
+        `\tdkim=pass header.d=resend.dev;\n` +
+        `\tdmarc=pass header.from=resend.dev\n` +
+        `From: notifications@resend.dev\n\nbody\n`,
+    );
+    expect(verdict).toEqual({ ok: false, reason: "folded_authentication_results" });
+  });
+
+  it("still refuses a folded verdict whose first line names somebody else", () => {
+    const { verdict } = deliver(
+      `Authentication-Results: ${MX}; dkim=pass header.d=evil.test\n` +
+        `\theader.b="Zz"; dmarc=pass header.from=resend.dev\n` +
+        `From: notifications@resend.dev\n\nbody\n`,
+    );
+    expect(verdict).toEqual({ ok: false, reason: "folded_authentication_results" });
+  });
+
+  it("still refuses a folded verdict bearing a foreign authserv-id", () => {
+    // The authserv-id is the first token of the first line, so truncation can
+    // never hide it — and this reason is reported as itself rather than
+    // rewritten to the fold.
+    const { verdict } = deliver(
+      `Authentication-Results: attacker.test; dkim=pass header.d=resend.dev\n` +
+        `\theader.b="Zz"\n` +
+        `From: notifications@resend.dev\n\nbody\n`,
+    );
+    expect(verdict).toEqual({ ok: false, reason: "foreign_authserv_id" });
+  });
+
+  it("labels the folded-but-readable delivery verified, which is the point", () => {
+    const parsed = parseEmail(new TextEncoder().encode(CLOUDFLARE_FOLDED), LIMITS, htmlToText);
+    const identity = describeSender({
+      authenticationResults: parsed.authenticationResults,
+      authenticationResultsFolded: parsed.authenticationResultsFolded,
+      authenticationResultsFirstLine: parsed.authenticationResultsFirstLine,
+      arcAuthenticationResults: parsed.arcAuthenticationResults,
+      fromAddress: parsed.fromAddress,
+      authServiceId: MX,
+    });
+    expect(identity).toEqual({
+      address: "notifications@resend.dev",
+      domain: "resend.dev",
+      verified: true,
+      method: "dkim",
+      failure: null,
+    });
   });
 });
 

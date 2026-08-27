@@ -430,6 +430,7 @@ export async function decideCapture(
   const authInput = {
     authenticationResults: parsed.authenticationResults,
     authenticationResultsFolded: parsed.authenticationResultsFolded,
+    authenticationResultsFirstLine: parsed.authenticationResultsFirstLine,
     arcAuthenticationResults: parsed.arcAuthenticationResults,
     fromAddress: parsed.fromAddress,
     authServiceId: config.authServiceId,

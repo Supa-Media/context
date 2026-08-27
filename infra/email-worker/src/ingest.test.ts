@@ -256,17 +256,41 @@ describe("authentication labels a capture; it does not gate one", () => {
     expect(decision.note).toContain("the sender address may be spoofed");
   });
 
-  it("captures a message whose verdict our own MTA folded", async () => {
-    // The second refusal in production: Cloudflare folds its own long
-    // `Authentication-Results`, and the anti-forgery rule refuses every folded
-    // one. The rule stays — it still withholds the `verified` label — but it no
-    // longer costs the owner the message.
+  it("verifies a message whose verdict our own MTA folded", async () => {
+    // CHANGED, and this is the assertion that inverted. It used to expect
+    // `folded_authentication_results` and `verified: false`, because the fold
+    // rule refused every folded header — our own MTA's included. Cloudflare
+    // folds its long `Authentication-Results`, so that made *every* capture
+    // carry the spoofing warning, and a warning that always fires is one nobody
+    // reads by the time a message really is forged. The rule now reads a folded
+    // header only as far as the line our MTA emitted, which here carries the
+    // aligned `dkim=pass`.
     const decision = await decide(
       rawMessage({
         from: "alice@example.com",
         authResults: [
           `${AUTHSERV}; dkim=pass header.d=example.com;\r\n dmarc=pass header.from=example.com`,
         ],
+      }),
+    );
+    expect(decision.kind).toBe("capture");
+    if (decision.kind !== "capture") return;
+    expect(decision.log.authFailure).toBeUndefined();
+    // `dkim`, not `dmarc`: the DMARC clause is on the continuation line, which
+    // is the region a sender could have written into, so it is not read.
+    expect(decision.log.authMethod).toBe("dkim");
+    expect(decision.note).toContain("verified: true");
+    expect(decision.note).toContain('sender-authenticated-by: "dkim"');
+  });
+
+  it("still says unverified when the fold left nothing our MTA wrote to read", async () => {
+    // The other side of the same rule, and the fail-closed direction: an MTA
+    // that wraps before any clause leaves a first line that proves nothing, and
+    // the note says so rather than guessing at the rest.
+    const decision = await decide(
+      rawMessage({
+        from: "alice@example.com",
+        authResults: [`${AUTHSERV};\r\n dkim=pass header.d=example.com`],
       }),
     );
     expect(decision.kind).toBe("capture");
