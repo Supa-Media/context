@@ -33,7 +33,6 @@ import {
   type ConsentDecision,
   type ConsentView,
   type RequestResult,
-  type ScopeChoice,
 } from "./state";
 
 /**
@@ -576,27 +575,6 @@ function WithheldRow({ line }: { line: ScopeLine }) {
       <View style={styles.scopeGlyph} aria-hidden />
       <View style={styles.scopeText}>
         <Text variant="rowSub">{line.sentence}</Text>
-      </View>
-    </View>
-  );
-}
-
-function ScopeRow({ line }: { line: ScopeLine }) {
-  return (
-    <View style={styles.scope} role="listitem">
-      <View
-        style={[styles.scopeGlyph, line.tone !== "plain" && styles.scopeGlyphElevated]}
-        aria-hidden
-      />
-      <View style={styles.scopeText}>
-        <Text variant="rowTitle" style={line.tone === "unknown" ? styles.scopeUnknown : undefined}>
-          {line.sentence}
-        </Text>
-        {line.detail ? (
-          <Text variant="rowSub" style={styles.scopeDetail}>
-            {line.detail}
-          </Text>
-        ) : null}
       </View>
     </View>
   );
