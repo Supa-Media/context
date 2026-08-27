@@ -348,39 +348,18 @@ jobs:
           ' "$zresp" "$INGEST_DOMAIN")"
           echo "[ok] zone $INGEST_DOMAIN resolved."
 
-          rresp="$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-            "https://api.cloudflare.com/client/v4/zones/$zone/email/routing")"
-          node -e '
-            const d = JSON.parse(process.argv[1] || "{}");
-            const r = d.result || {};
-            // A token permission and a disabled feature have the same shape
-            // here, and conflating them cost a deploy: this step reported
-            // "Email Routing is not enabled" on a zone where it was enabled and
-            // routing correctly, because the token was not allowed to look. Say
-            // which — and never claim a fact about the zone from a 10000.
-            if ((d.errors || []).some((e) => e && e.code === 10000)) {
-              console.error("[FAIL] the CLOUDFLARE_API_TOKEN cannot READ Email Routing on " +
-                process.argv[2] + ".");
-              console.error("       This says NOTHING about whether Email Routing is enabled —");
-              console.error("       the token is not permitted to look. Grant it, on this zone:");
-              console.error("         Zone -> Email Routing Rules -> Read");
-              console.error("       API said: " + JSON.stringify(d.errors));
-              process.exit(1);
-            }
-            if (!d.success || r.enabled !== true) {
-              console.error("[FAIL] Email Routing is not enabled on " + process.argv[2] + ".");
-              console.error("       Enable it: Cloudflare dashboard -> " + process.argv[2] +
-                " -> Email -> Email Routing -> Get started.");
-              console.error("       API said: " + JSON.stringify(d.errors || r));
-              process.exit(1);
-            }
-            if (r.status && r.status !== "ready") {
-              console.error("[FAIL] Email Routing status is \"" + r.status + "\", not \"ready\".");
-              console.error("       Usually a missing or unverified MX record.");
-              process.exit(1);
-            }
-            console.log("[ok] Email Routing is enabled and ready.");
-          ' "$rresp" "$INGEST_DOMAIN"
+          # Deliberately NOT the zone settings endpoint
+          # (`/zones/:id/email/routing`). That needs **Email Routing Settings**,
+          # a different permission group from **Email Routing Rules** — and a
+          # deploy token has no business reading account settings it never
+          # changes. Asking for it failed the deploy with a 10000 that this step
+          # then misreported as "Email Routing is not enabled", about a zone that
+          # was enabled and routing correctly the whole time.
+          #
+          # The catch-all rule below is the thing that actually decides whether
+          # mail reaches this Worker, it is readable with the permission the
+          # token already has, and a zone with Email Routing switched off cannot
+          # have an enabled rule at all. So it subsumes the check it replaces.
 
           cresp="$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             "https://api.cloudflare.com/client/v4/zones/$zone/email/routing/rules/catch_all")"
