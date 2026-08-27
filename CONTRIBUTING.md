@@ -18,15 +18,28 @@ and this file is mostly about which opinions are load-bearing.
 ## Setup
 
 ```sh
+export GITHUB_TOKEN="$(gh auth token)"   # @supa-media/* live on GitHub Packages
+pnpm install
 bash scripts/cloud-setup.sh
 ```
 
-Idempotent, safe to re-run, and the right thing to point an unattended runner
-at — Claude Code on the web, a cloud session, a Routine. It installs
-dependencies with the GitHub Packages token and applies the checked-in
-permission allowlist.
+`cloud-setup.sh` is idempotent, safe to re-run, and the right thing to point an
+unattended runner at — Claude Code on the web, a cloud session, a Routine. It
+applies the checked-in permission allowlist and nothing else.
 
-That second half exists because of a trap worth knowing about:
+It deliberately does **not** install dependencies. It used to, and that made a
+missing `GITHUB_TOKEN` fatal: the install failed, `set -e` took the script with
+it, the permission step never ran, and the environment refused to start at all —
+so the one session that could have reported the problem never existed. It is now
+byte-identical to the same script in `togathernyc/togather` and
+`Supa-Media/events-os`, which is the point: three copies that drift are three
+scripts to debug.
+
+Install separately, as above. On an unattended runner, give the environment a
+`GITHUB_TOKEN` with `read:packages` as a secret — GitHub Packages requires
+authentication even for public packages, so there is no anonymous fallback.
+
+It exists because of a trap worth knowing about:
 
 > Project-level `permissions.allow` rules in `.claude/settings.json` are gated
 > behind the **workspace-trust dialog**, and a non-interactive session never
