@@ -265,13 +265,29 @@ describe("a message that should be captured is", () => {
     expect(note).toContain("the sender address may be spoofed");
   });
 
-  it("captured when our own MTA folded its verdict", async () => {
+  it("verified end to end when our own MTA folded its own long verdict", async () => {
+    // CHANGED: this used to assert `folded_authentication_results` and the
+    // spoofing warning, because the fold rule refused every folded header. Our
+    // own MTA folds, so that warning appeared on every capture and stopped
+    // carrying information. A folded verdict is now read as far as the line the
+    // MTA emitted, and this message's aligned `dkim=pass` is on it.
     const { observed, bucket } = await run(
       rawMessage({
         authResults: [
           `${AUTHSERV}; dkim=pass header.d=example.com;\r\n dmarc=pass header.from=example.com`,
         ],
       }),
+    );
+    expect(observed.rejected).toEqual([]);
+    const note = [...bucket.objects.entries()].find(([key]) => key.endsWith(".md"))![1];
+    expect(note).toContain("verified: true");
+    expect(note).toContain('sender-authenticated-by: "dkim"');
+    expect(note).not.toContain("the sender address may be spoofed");
+  });
+
+  it("still warns end to end when the fold hid every clause", async () => {
+    const { observed, bucket } = await run(
+      rawMessage({ authResults: [`${AUTHSERV};\r\n dmarc=pass header.from=example.com`] }),
     );
     expect(observed.rejected).toEqual([]);
     const note = [...bucket.objects.entries()].find(([key]) => key.endsWith(".md"))![1];

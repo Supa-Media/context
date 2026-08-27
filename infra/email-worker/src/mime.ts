@@ -137,6 +137,20 @@ export interface ParsedEmail {
    */
   authenticationResultsFolded: boolean[];
   /**
+   * Parallel again: the value as it stood on the header's **first physical
+   * line**, before any continuation was appended.
+   *
+   * This is the only part of a folded header that our MTA provably wrote.
+   * Unfolding concatenates continuation lines *after* the first line, so
+   * whatever a sender spliced on lands strictly to the right of it — and the
+   * first line is exactly the bytes the MTA emitted before its own first CRLF.
+   * `./auth.ts` reads this instead of the whole value when the header arrived
+   * folded; see rule 1a in `verifySender`.
+   *
+   * Equal to the full value for a header that was not folded.
+   */
+  authenticationResultsFirstLine: string[];
+  /**
    * Every `ARC-Authentication-Results` header (RFC 8617 §4.1.1), in order.
    *
    * This is how the *original* authentication verdict survives a forwarding
@@ -295,6 +309,14 @@ interface Header {
    * `headerValuesFolded`.
    */
   folded: boolean;
+  /**
+   * The value as it stood on the first physical line, before any continuation
+   * was appended. Identical to `value` when `folded` is false.
+   *
+   * See `ParsedEmail.authenticationResultsFirstLine` for why this is worth
+   * keeping: it is the part of a folded header a sender cannot have written.
+   */
+  firstLine: string;
 }
 
 /**
@@ -327,6 +349,8 @@ function parseHeaders(head: string, limits: MimeLimits, problems: Set<string>): 
   const headers: Header[] = [];
   let current: string | null = null;
   let folded = false;
+  /** `current` snapshotted at the moment the *first* continuation extended it. */
+  let firstPhysicalLine: string | null = null;
 
   const flush = () => {
     if (current === null) return;
@@ -338,15 +362,22 @@ function parseHeaders(head: string, limits: MimeLimits, problems: Set<string>): 
         value = value.slice(0, limits.maxHeaderValueChars);
         problems.add("header_value_truncated");
       }
+      // The snapshot is a prefix of `current`, so the colon is at the same
+      // index in both and the same slice recovers the value half.
+      let firstLine = firstPhysicalLine === null ? value : firstPhysicalLine.slice(colon + 1).trim();
+      if (firstLine.length > limits.maxHeaderValueChars) {
+        firstLine = firstLine.slice(0, limits.maxHeaderValueChars);
+      }
       // A header name is `printable US-ASCII except colon`. Anything else is a
       // continuation line the folding rules did not cover, or garbage.
-      if (/^[\x21-\x39\x3b-\x7e]+$/.test(name)) headers.push({ name, value, folded });
+      if (/^[\x21-\x39\x3b-\x7e]+$/.test(name)) headers.push({ name, value, folded, firstLine });
       else problems.add("malformed_header");
     } else if (current.trim()) {
       problems.add("malformed_header");
     }
     current = null;
     folded = false;
+    firstPhysicalLine = null;
   };
 
   for (const line of block.split("\n")) {
@@ -360,6 +391,9 @@ function parseHeaders(head: string, limits: MimeLimits, problems: Set<string>): 
       // leading whitespace is retained as a single space.
       if (current === null) problems.add("malformed_header");
       else {
+        // Snapshot before the first extension, never after: the point is to
+        // keep the line the MTA actually emitted, uncontaminated.
+        if (!folded) firstPhysicalLine = current;
         current += ` ${stripped.trim()}`;
         folded = true;
       }
@@ -402,13 +436,44 @@ function headerValues(headers: Header[], name: string, limit: number): string[] 
  * header bearing our authserv-id is fatal never fires: the attacker did not add
  * a header, they extended ours. Nor does a duplicate-clause check help, because
  * the attack works precisely when the MTA *omits* the method being forged —
- * there is no duplicate to notice. Refusing the fold is what closes it.
+ * there is no duplicate to notice.
+ *
+ * What closes it is `headerValuesFirstLine` below: a folded verdict is read
+ * only as far as the line our MTA emitted, so the spliced clauses are never in
+ * the string that gets parsed. This flag is the switch that selects it.
  */
 function headerValuesFolded(headers: Header[], name: string, limit: number): boolean[] {
   const out: boolean[] = [];
   for (const header of headers) {
     if (header.name !== name) continue;
     out.push(header.folded);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * The same values as `headerValues`, truncated at each header's first fold.
+ *
+ * Refusing every folded verdict is what the fold rule used to do, and it turned
+ * out to refuse *our own MTA's* long header — Cloudflare folds its
+ * `Authentication-Results`, so in production every capture was labelled
+ * possibly-spoofed and the warning stopped meaning anything.
+ *
+ * This is the discriminator that replaced it, and it does not try to guess who
+ * folded. It asks a question with an answer: **which bytes of this header did
+ * our MTA certainly write?** Unfolding appends each continuation to what came
+ * before, so a spliced-in line is always to the *right* of the first physical
+ * line, and the first physical line is always exactly what the MTA emitted
+ * before its own first CRLF. Reading only that is sound whoever folded — the
+ * genuine long header keeps the clauses that fit on line one, and the forged
+ * continuation is simply not there to read.
+ */
+function headerValuesFirstLine(headers: Header[], name: string, limit: number): string[] {
+  const out: string[] = [];
+  for (const header of headers) {
+    if (header.name !== name) continue;
+    out.push(header.firstLine);
     if (out.length >= limit) break;
   }
   return out;
@@ -870,6 +935,7 @@ export function parseEmail(
     attachments: [],
     authenticationResults: [],
     authenticationResultsFolded: [],
+    authenticationResultsFirstLine: [],
     arcAuthenticationResults: [],
     problems: [],
   };
@@ -956,6 +1022,11 @@ export function parseEmail(
       attachments,
       authenticationResults: headerValues(topHeaders, "authentication-results", 10),
       authenticationResultsFolded: headerValuesFolded(topHeaders, "authentication-results", 10),
+      authenticationResultsFirstLine: headerValuesFirstLine(
+        topHeaders,
+        "authentication-results",
+        10,
+      ),
       arcAuthenticationResults: collectArcHeaders(topHeaders),
       problems: [...problems].sort(),
     };

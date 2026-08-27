@@ -23,7 +23,8 @@
  *      the product, so that is not a corner case; it is the case.
  *   2. The retry was refused `auth_folded_authentication_results`, because
  *      Cloudflare folds its *own* long `Authentication-Results` header and the
- *      anti-forgery rule below refuses every folded one.
+ *      anti-forgery rule below used to refuse every folded one. (That rule no
+ *      longer refuses the fold — it reads the folded header short. See rule 4.)
  *
  * The owner's decision: an inbox is expected to contain unverified mail. People
  * connect mailboxes that already hold spam and mail spoofed to look like it came
@@ -69,13 +70,18 @@
  * 3. **A second header bearing our authserv-id is fatal.** Two verdicts from
  *    the same authority mean one of them is forged, and we do not get to pick.
  *
- * 4. **A folded topmost header is fatal.** RFC 5322 unfolding appends a first
- *    sender line beginning with SP or HTAB to the last header the MTA wrote.
- *    That is still *one* header, so rule 3 cannot see it. See rule 1a in
- *    `verifySender`. Cloudflare really does fold its own header, so in practice
- *    this rule is why most real mail is labelled unverified rather than why any
- *    forgery is caught — but it is kept, because the alternative is believing a
- *    verdict a sender may have written the tail of.
+ * 4. **A folded topmost header is read only as far as its first line.** RFC
+ *    5322 unfolding appends a first sender line beginning with SP or HTAB to
+ *    the last header the MTA wrote. That is still *one* header, so rule 3
+ *    cannot see it. This rule used to refuse every folded header, and since
+ *    Cloudflare folds its own long `Authentication-Results` that meant refusing
+ *    genuine mail — every capture carried the spoofing warning, which is how a
+ *    warning stops being read. What replaced it does not guess who folded: it
+ *    reads only the bytes the MTA provably wrote, which is everything up to its
+ *    own first CRLF, because unfolding can only append to the right of that.
+ *    See rule 1a in `verifySender`, which also records why the tempting
+ *    alternative — "the AR is interior to the MTA's block" — is both unsound
+ *    and vacuous.
  *
  * The residual assumption — that our MTA's header really is topmost — is an
  * assumption about another system's behaviour, and this repository's rule is
@@ -408,6 +414,18 @@ export interface VerifySenderInput {
    */
   authenticationResultsFolded?: boolean[];
   /**
+   * Parallel again: each value truncated at its first fold — the bytes our MTA
+   * emitted before its own first CRLF, which is the part of a folded header a
+   * sender cannot have written into. Read *instead of* the full value whenever
+   * the corresponding `authenticationResultsFolded` entry is true.
+   *
+   * Optional, and its absence is deliberately not "fall back to the full
+   * value": a caller that cannot say what the first line was has given us no
+   * trustworthy bytes at all, and a folded header with no first line is
+   * refused. ./mime.ts always supplies it.
+   */
+  authenticationResultsFirstLine?: string[];
+  /**
    * Every `ARC-Authentication-Results` header, in message order. Optional for
    * the same reason; absent means "no chain", which is a refusal, never a pass.
    */
@@ -630,7 +648,13 @@ function verifyViaArc(
  */
 export function describeArcShape(input: VerifySenderInput): string {
   const arcHeaders = input.arcAuthenticationResults || [];
-  const primary = parseAuthenticationResults(input.authenticationResults[0] || "");
+  // Read exactly what `verifySender` read, fold rule included, or the
+  // diagnostic describes a message the verdict was never taken from.
+  const primary = parseAuthenticationResults(
+    (input.authenticationResultsFolded?.[0] === true
+      ? input.authenticationResultsFirstLine?.[0]
+      : input.authenticationResults[0]) || "",
+  );
   const authServiceId = input.authServiceId.trim().toLowerCase();
   const chain = primary?.results.find((entry) => entry.method === "arc");
   const sets = arcHeaders.map((header) => parseArcAuthenticationResults(header.value));
@@ -658,6 +682,31 @@ export function describeArcShape(input: VerifySenderInput): string {
  * that is write it down.
  */
 export function verifySender(input: VerifySenderInput): SenderVerdict {
+  const verdict = evaluateSender(input);
+  if (verdict.ok) return verdict;
+  // A folded topmost verdict was read short — only its first physical line —
+  // so "nothing passed" is a weaker claim here than it is for an intact header:
+  // the clauses we refused to read may well have said otherwise. Report the
+  // fold, which is the honest account of why nothing was proved, rather than a
+  // finding about a value we only saw part of.
+  //
+  // Only the three reasons the truncation could itself have caused are
+  // rewritten. `foreign_authserv_id` is not among them (the authserv-id is the
+  // first token of the first line, so it is never truncated away), nor are the
+  // ambiguity and ARC reasons, which are findings about *other* headers.
+  if (input.authenticationResultsFolded?.[0] === true && FOLD_MAY_EXPLAIN.has(verdict.reason)) {
+    return { ok: false, reason: "folded_authentication_results" };
+  }
+  return verdict;
+}
+
+const FOLD_MAY_EXPLAIN: ReadonlySet<AuthFailure> = new Set<AuthFailure>([
+  "unparseable_authentication_results",
+  "not_authenticated",
+  "unaligned",
+]);
+
+function evaluateSender(input: VerifySenderInput): SenderVerdict {
   const authServiceId = input.authServiceId.trim().toLowerCase();
   if (!authServiceId) return { ok: false, reason: "not_configured" };
 
@@ -668,7 +717,7 @@ export function verifySender(input: VerifySenderInput): SenderVerdict {
   const headers = input.authenticationResults;
   if (!headers.length) return { ok: false, reason: "no_authentication_results" };
 
-  // Rule 1a: the topmost verdict must not have been folded.
+  // Rule 1a: a folded topmost verdict is read only as far as its first line.
   //
   // The sender's headers begin immediately below the ones the MTA prepended, so
   // a message whose first header line starts with SP or HTAB has that line
@@ -679,18 +728,44 @@ export function verifySender(input: VerifySenderInput): SenderVerdict {
   // authserv-id, because nothing was added — ours was extended. Nor would a
   // duplicate-clause check help, because the attack works precisely when the
   // MTA *omits* the method being forged, so there is no duplicate to notice.
-  // Refusing the fold is what closes it.
   //
-  // Conservative on purpose: an MTA may legitimately fold a long header of its
-  // own, and this refuses those too. Ingestion is fail-closed by design, and
-  // the deployment checklist already requires inspecting a real delivery before
-  // enabling — whether the MTA folds its own `Authentication-Results` belongs
-  // in that same look.
-  if (input.authenticationResultsFolded?.[0] === true) {
-    return { ok: false, reason: "folded_authentication_results" };
-  }
+  // This used to refuse every folded header outright, and it was flagged as
+  // conservative when it was written. It was worse than conservative: Cloudflare
+  // folds its own long `Authentication-Results`, so in production *every*
+  // capture was labelled possibly-spoofed, and a warning that always fires is
+  // one nobody reads by the time a message really is forged.
+  //
+  // So this does not refuse the fold, and it also does not try to guess who did
+  // the folding — see the note below on why that guess cannot be made from
+  // inside the message. It asks the question that does have an answer: **which
+  // bytes did our MTA certainly write?** Unfolding appends every continuation
+  // to what came before it, so a spliced-in line lands strictly to the right of
+  // the first physical line, and the first physical line is exactly what the
+  // MTA emitted before its own first CRLF. Reading only that is sound whoever
+  // folded: the genuine long header keeps whatever clauses fit on line one, and
+  // the forged continuation is simply not in the string being parsed.
+  //
+  // What it costs: a genuine header whose passing clause fell onto a
+  // continuation line is read as proving less than it did, and comes out
+  // unverified. That is the fail-closed direction.
+  //
+  // WHY NOT "is the AR interior to the MTA's block?" — the obvious alternative
+  // is to call the fold ours when some header we know our MTA writes
+  // (`Received`, `ARC-*`, `X-Forwarded-*`) appears *below* the AR, since the
+  // splice can only reach the MTA's *last* header. It does not hold, twice
+  // over. Unsound: the sender writes the whole block below the AR, so they can
+  // simply add `Received:` under their own continuation line and hand us the
+  // evidence themselves. And vacuous: if our MTA really does always write a
+  // header below its AR, then the splice never lands on the AR in the first
+  // place and no fold rule is needed at all — the discriminator can only ever
+  // fire on messages where its premise is the attacker's claim. `abovePrimary`
+  // in ./mime.ts is the sound half of that argument and stays exactly where it
+  // is; there is no sound "belowPrimary" to mirror it with.
+  const folded = input.authenticationResultsFolded?.[0] === true;
+  const topmost = folded ? input.authenticationResultsFirstLine?.[0] || "" : headers[0]!;
+  if (folded && !topmost) return { ok: false, reason: "folded_authentication_results" };
 
-  const parsed = parseAuthenticationResults(headers[0]!);
+  const parsed = parseAuthenticationResults(topmost);
   if (!parsed) return { ok: false, reason: "unparseable_authentication_results" };
 
   // Rule 2: the topmost verdict must be from the authority we configured. A
