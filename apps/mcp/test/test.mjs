@@ -9,25 +9,39 @@ import {
 } from "./controlPlaneStub.mjs";
 
 // --- in-memory R2 stub, wrapped in the same adapter the worker builds ---
+//
+// Objects are held as bytes, not as strings. This stub used to decode every
+// non-string `put` with a `TextDecoder` and re-encode it on the way out, which
+// is lossless only for text: any byte sequence that is not valid UTF-8 came
+// back as U+FFFD. That made it impossible to test a stored image at all, and
+// worse, it would have made a broken binary write *pass*. Bytes in, bytes out;
+// `text()` decodes on demand, exactly as R2 does.
 const objects = new Map();
 let etagCounter = 0;
+const encoder = new TextEncoder();
 const bucket = {
   async get(key) {
     if (!objects.has(key)) return null;
-    const { body, etag } = objects.get(key);
+    const { bytes, etag } = objects.get(key);
     return {
       etag,
-      text: async () => body,
-      arrayBuffer: async () => new TextEncoder().encode(body).buffer,
+      text: async () => new TextDecoder().decode(bytes),
+      // A fresh copy per call: a caller that mutates what it reads must not be
+      // able to rewrite the stored object through the back door.
+      arrayBuffer: async () => bytes.slice().buffer,
     };
   },
   async put(key, value, options = {}) {
     const expected = options?.onlyIf?.etagMatches;
     if (expected && objects.get(key)?.etag !== expected) return null;
-    const body =
-      typeof value === "string" ? value : new TextDecoder().decode(value);
+    const bytes =
+      typeof value === "string"
+        ? encoder.encode(value)
+        : value instanceof Uint8Array
+          ? new Uint8Array(value)
+          : new Uint8Array(value);
     const etag = `e${++etagCounter}`;
-    objects.set(key, { body, etag });
+    objects.set(key, { bytes, etag });
     return { etag };
   },
   async delete(key) {
@@ -37,10 +51,21 @@ const bucket = {
     const listed = [...objects.keys()]
       .filter((k) => !prefix || k.startsWith(prefix))
       .sort()
-      .map((key) => ({ key, size: objects.get(key).body.length, uploaded: new Date() }));
+      .map((key) => ({ key, size: objects.get(key).bytes.length, uploaded: new Date() }));
     return { objects: listed, truncated: false };
   },
 };
+
+/**
+ * Decode a stored object for an assertion. The stub holds bytes, so the checks
+ * that used to reach in for `.body` decode here instead of each doing it.
+ * Returns undefined for a key that was never written, so `?.includes(...)` at a
+ * call site still short-circuits rather than throwing.
+ */
+function storedText(key) {
+  const entry = objects.get(key);
+  return entry ? new TextDecoder().decode(entry.bytes) : undefined;
+}
 
 // Seeds and assertions go through the ContextStore, so the suite exercises the
 // same adapter the worker uses rather than the raw binding.
@@ -1144,7 +1169,7 @@ const makeFolderPrivate = await call("priv-token", "set_folder_visibility", {
 });
 const makeFolderPrivateText = makeFolderPrivate.content[0].text;
 const privateFolderPrivacyEtag = makeFolderPrivateText.match(/new_privacy_etag: (\S+)/)?.[1];
-const privacyAfterFolderPrivate = await objects.get("privacy.md").body;
+const privacyAfterFolderPrivate = storedText("privacy.md");
 check(
   "personal MCP atomically makes a folder private and hides every inherited note from team",
   !makeFolderPrivate.isError &&
@@ -1184,7 +1209,7 @@ check(
   "confirmed inheritance change republishes the folder and removes its direct rule",
   !publishFolderWithConfirmation.isError &&
     !(await call("team-token", "read_note", { path: managedTeamPath })).isError &&
-    !objects.get("privacy.md").body.includes(`  ${managedFolder}: private`)
+    !storedText("privacy.md").includes(`  ${managedFolder}: private`)
 );
 const teamCannotChangeFolderVisibility = await call("team-token", "set_folder_visibility", {
   path: managedFolder,
@@ -1547,8 +1572,8 @@ check(
   "private connection defaults chat history to private",
   !privateChatArchive.isError &&
     privateChatPath?.startsWith("4-archive/chat-history/codex/") &&
-    objects.get(privateChatPath)?.body.includes('visibility: "private"') &&
-    objects.get(privateChatPath)?.body.includes('completeness: "full-visible-transcript"')
+    storedText(privateChatPath).includes('visibility: "private"') &&
+    storedText(privateChatPath).includes('completeness: "full-visible-transcript"')
 );
 const publicReadPrivateChat = await call("pub-token", "read_note", { path: privateChatPath });
 check("team connection cannot discover private chat history", publicReadPrivateChat.isError && publicReadPrivateChat.content[0].text === "not found");
@@ -1577,8 +1602,8 @@ check(
   "team connection defaults chat history to team and labels partial context",
   !publicChatArchive.isError &&
     publicChatPath?.startsWith("4-archive/chat-history/claude/") &&
-    objects.get(publicChatPath)?.body.includes('visibility: "team"') &&
-    objects.get(publicChatPath)?.body.includes('completeness: "available-context"')
+    storedText(publicChatPath).includes('visibility: "team"') &&
+    storedText(publicChatPath).includes('completeness: "available-context"')
 );
 
 const publicPrivateChat = await call("pub-token", "archive_chat", {
@@ -1911,7 +1936,7 @@ const granolaRequest = () =>
   });
 const granolaInbox = await worker.fetch(granolaRequest(), env, { waitUntil() {} });
 const granolaBody = await granolaInbox.json();
-const granolaNote = objects.get(granolaBody.path)?.body || "";
+const granolaNote = storedText(granolaBody.path) || "";
 check(
   "structured Granola capture preserves context",
   granolaBody.ok &&
@@ -2021,7 +2046,7 @@ const granolaWebhook = await worker.fetch(await signedGranolaRequest(granolaEven
 });
 await Promise.all(granolaWork);
 const nativeGranolaNotes = [...objects.entries()].filter(([key]) => key.startsWith("0-inbox/granola/"));
-const nativeGranolaText = nativeGranolaNotes.map(([, value]) => value.body).join("\n");
+const nativeGranolaText = nativeGranolaNotes.map(([key]) => storedText(key)).join("\n");
 check(
   "signed Granola webhook fetches and files the full note",
   granolaWebhook.status === 202 &&
@@ -2068,7 +2093,7 @@ globalThis.fetch = async () =>
   );
 await worker.scheduled({}, env, { waitUntil: (p) => p });
 await new Promise((r) => setTimeout(r, 50));
-const cal = objects.get("2-areas/calendar/next-14-days.md")?.body || "";
+const cal = storedText("2-areas/calendar/next-14-days.md") || "";
 check("cron writes calendar note", cal.includes("Team sync") && cal.includes("@ HQ") && cal.includes("14:00"));
 
 function icsStamp(date) {
@@ -2142,7 +2167,7 @@ globalThis.fetch = async () =>
   );
 await worker.scheduled({}, env, { waitUntil: (p) => p });
 await new Promise((r) => setTimeout(r, 50));
-const recurringCal = objects.get("2-areas/calendar/next-14-days.md")?.body || "";
+const recurringCal = storedText("2-areas/calendar/next-14-days.md") || "";
 const targetSection = recurringCal
   .split(`## ${weeklyTarget.toISOString().slice(0, 10)}\n`)[1]
   ?.split("\n## ")[0] || "";
