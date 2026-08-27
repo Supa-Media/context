@@ -148,9 +148,21 @@ const schema = defineSchema({
    * unenumerable: an attacker cannot walk this table by id.
    *
    * Hashing it would buy no confidentiality against an attacker who is already
-   * the invitee, and would cost the one delivery channel that exists — the
-   * invitee's own `listMyInvitations`, which is how an invitation is answered
-   * in-app while nothing here sends email.
+   * the invitee, and would cost the in-app delivery channel — the invitee's own
+   * `listMyInvitations`, which is how a `@name` invitation is answered and how
+   * every invitation is answerable when mail does not arrive.
+   *
+   * That paragraph used to end "while nothing here sends email", which is no
+   * longer true: an `email` invitee is mailed a link by
+   * `functions/invitationEmail.ts`. The conclusion is unchanged and the reason
+   * is worth stating rather than deleting. **The emailed link is not this
+   * token being used as a credential.** The token still only addresses the
+   * invitation; what signs a recipient in is a separate, single-use,
+   * 24-hour `authVerificationCodes` row, minted through `auth:store` and stored
+   * as `sha256(code)` like every other sign-in code. Hashing `token` would
+   * therefore still buy nothing, and would still cost the channel that answers
+   * an invitation when no mail was sent — while the thing that *is* a bearer
+   * credential is hashed, in the table that was already built to hash it.
    *
    * `role` is `editor` or `member` and structurally cannot be `owner`. Handing
    * over a context is a separate, deliberate act; an invitation must never be
@@ -185,6 +197,23 @@ const schema = defineSchema({
     expiresAt: v.number(),
     createdAt: v.number(),
     respondedAt: v.optional(v.number()),
+    /**
+     * When this offer was mailed, if it was.
+     *
+     * Claimed in a transaction **before** the send, not recorded after it, and
+     * present purely so that one row produces at most one message: a retried
+     * job, a duplicated schedule, or an operator running the sender by hand all
+     * find it set. There is deliberately no resend path.
+     *
+     * Absent for every `@name` invitation (we have no address), for a
+     * deployment with no Resend key, and for an invitation from an account that
+     * has not verified its own address. A re-invitation supersedes the row and
+     * clears this along with the token, because a new offer is a new message.
+     *
+     * Not an oracle: it is never returned by `listInvitations`, and the inviter
+     * cannot read it or time it — see `functions/invitationEmail.ts`.
+     */
+    emailSentAt: v.optional(v.number()),
   })
     /**
      * Pending invitations for one context. There is deliberately no plain
@@ -363,6 +392,7 @@ const schema = defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_workspace", ["workspaceId"]),
+
 
   /**
    * Who may post into a **personal** context by email, and where it lands.

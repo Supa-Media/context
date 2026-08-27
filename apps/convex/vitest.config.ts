@@ -32,10 +32,22 @@ export default defineConfig({
       // "the gateway secret does not open an ingest route" cannot pass by
       // coincidence.
       EMAIL_WORKER_SECRET: "test-email-worker-secret-not-a-real-one",
-      // Where the consent screen lives. `.invalid` is reserved by RFC 2606 and
-      // resolves nowhere, so a test that accidentally made a request to it
-      // would fail rather than reach something.
+      // Where the consent screen lives, and where an invitation link points.
+      // `.invalid` is reserved by RFC 2606 and resolves nowhere, so a test that
+      // accidentally made a request to it would fail rather than reach
+      // something.
       APP_ORIGIN: "https://app.context.invalid",
+      // The address invitation mail is sent from. Same convention `auth.ts`
+      // uses for sign-in codes; `.invalid` again, so nothing here is a mailbox.
+      AUTH_EMAIL_FROM: "invitations@context.invalid",
+      // DELIBERATELY EMPTY, and it is the reason the rest of the suite is safe.
+      // `sendInvitationEmail` checks this before it reads or writes anything,
+      // so with no key every test that invites somebody takes no action at all
+      // — no `fetch`, no sign-in code minted, no row touched. The email tests
+      // set it themselves, for the length of one test, alongside a stubbed
+      // `fetch`. Giving it a value here would point the whole suite at
+      // api.resend.com.
+      RESEND_API_KEY: "",
     },
   },
 });
