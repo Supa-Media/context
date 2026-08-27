@@ -422,9 +422,28 @@ referral path, and the blast radius of a standing credential in a stranger's
 empty account is not that of one in an established owner's.
 
 `emailSentAt` is claimed in a transaction *before* the HTTP call, so one row is
-one message and there is no resend path. At-most-once over at-least-once
-deliberately: Context mailing the same person four times because a job retried
-is indistinguishable, from their side, from us being the abuse.
+one message. At-most-once over at-least-once deliberately: Context mailing the
+same person four times because a job retried is indistinguishable, from their
+side, from us being the abuse.
+
+**That bounds duplicates and does not bound floods**, which is worth stating
+because it read as a fence and was not one. `inviteMember` supersedes an
+existing invitation and clears `emailSentAt` — on purpose, since re-inviting
+somebody must not be a no-op in their inbox — so a re-invitation mails again,
+and the only ceiling was `INVITE_LIMIT`, 20 per hour per account, on free
+accounts. What rode on that gap is a subject line: a workspace display name is
+80 characters the sender chooses, arriving from our domain with a real app
+link beneath it.
+
+So there is a second limit, keyed on the **recipient** rather than the row or
+the sender, which is the only key that survives a second offer, a second
+inviter, a second workspace and a second account. It is consumed inside the
+scheduled action, and *last*, after every other refusal: enforcing it in
+`inviteMember` would raise an error at an inviter whose presence depended on
+other people's invitations to that address, which is a cross-tenant oracle, and
+consuming it earlier would spend budget on mail that was never going to be
+sent. The key is a hash of the address — footprint, not confidentiality, since
+addresses are guessable.
 
 **The link cannot sign anybody in yet, and the fix is upstream.**
 `@convex-dev/auth`'s `Email()` hardcodes an `authorize` that refuses any

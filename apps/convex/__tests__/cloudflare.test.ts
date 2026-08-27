@@ -516,6 +516,152 @@ describe("the pieces of the Cloudflare API this flow needs", () => {
   });
 
   /**
+   * THE SENTENCE THAT CAUSED THE BUG.
+   *
+   * "Nothing was changed; try again shortly" was emitted for every 5xx and
+   * every dead socket, including the ones that happen after a bucket has been
+   * created — and it is precisely the instruction that walks somebody into
+   * `BUCKET_NAME_TAKEN` on a bucket we made for them. The classifier cannot
+   * know what was changed, so it may not say.
+   */
+  test("the classifier never claims what was or was not changed", () => {
+    for (const status of [401, 403, 409, 418, 500, 503]) {
+      const failure = classifyCloudflareFailure({ status, errors: [] });
+      expect(failure.message).not.toMatch(/nothing was (changed|created)/i);
+    }
+  });
+
+  /**
+   * What is in the customer's account after a failure, which is the only
+   * question the message has to answer correctly.
+   */
+  test("the residue of a failure follows the stage it failed at", () => {
+    // Before the bucket call, nothing exists whatever went wrong.
+    expect(residueAfterFailure("resolve-permission-group", "CREDENTIAL_REJECTED")).toBe(
+      "nothing",
+    );
+    expect(residueAfterFailure("resolve-permission-group", "CLOUDFLARE_UNAVAILABLE")).toBe(
+      "nothing",
+    );
+    // A classified refusal of the create is Cloudflare saying it made nothing…
+    expect(residueAfterFailure("create-bucket", "R2_NOT_ENTITLED")).toBe("nothing");
+    expect(residueAfterFailure("create-bucket", "BUCKET_NAME_TAKEN")).toBe("nothing");
+    // …but an answer we never got leaves the question genuinely open.
+    expect(residueAfterFailure("create-bucket", "CLOUDFLARE_UNAVAILABLE")).toBe(
+      "possible-bucket",
+    );
+    // Past the create, the bucket is there no matter what failed next.
+    expect(residueAfterFailure("mint-token", "INSUFFICIENT_PERMISSIONS")).toBe("bucket");
+    expect(residueAfterFailure("mint-token", "CLOUDFLARE_UNAVAILABLE")).toBe("bucket");
+    // And past the mint there is a credential too, unless we took it back.
+    expect(residueAfterFailure("store-binding", "PROVISION_FAILED")).toBe(
+      "bucket-and-token",
+    );
+    expect(residueAfterFailure("store-binding", "PROVISION_FAILED", true)).toBe("bucket");
+  });
+
+  test("only the empty residue says nothing was created, and it names the bucket otherwise", () => {
+    expect(residueSentence("nothing", { bucket: BUCKET })).toMatch(/nothing was created/i);
+    for (const residue of ["possible-bucket", "bucket", "bucket-and-token"] as const) {
+      const sentence = residueSentence(residue, { bucket: BUCKET });
+      expect(sentence).not.toMatch(/nothing was (changed|created)/i);
+      expect(sentence).toContain(BUCKET);
+      // Every one of them has to end somewhere a person can act.
+      expect(sentence).toMatch(/same name|dashboard/i);
+    }
+    // The one residue that is an instruction rather than a fact names the
+    // token, because nothing else will ever tell them it is there.
+    expect(residueSentence("bucket-and-token", { bucket: BUCKET })).toContain(
+      scopedTokenName(BUCKET),
+    );
+  });
+
+  test("a recorded message is the reason plus what it left behind", () => {
+    const message = provisionFailureMessage({
+      message: "That credential is valid but not allowed to do this.",
+      stage: "mint-token",
+      errorCode: "INSUFFICIENT_PERMISSIONS",
+      bucket: BUCKET,
+    });
+    expect(message).toMatch(/not allowed to do this/);
+    expect(message).toContain(BUCKET);
+    expect(message).not.toMatch(/nothing was (changed|created)/i);
+  });
+
+  /**
+   * THE PROOF THAT DECIDES WHETHER WE MAY TOUCH SOMEBODY'S BUCKET.
+   *
+   * Everything unknown answers "no", because the direction this must fail in
+   * is "leave the customer's own storage alone".
+   */
+  test("a bucket is only ours if Cloudflare says it was made after the attempt began", () => {
+    const attemptStartedAt = Date.parse("2026-01-01T12:00:00.000Z");
+    expect(
+      bucketCreatedDuringAttempt({
+        creationDate: "2026-01-01T12:00:05.000Z",
+        attemptStartedAt,
+      }),
+    ).toBe(true);
+    // A bucket the customer already had cannot have been created after they
+    // started an attempt they had not started yet.
+    expect(
+      bucketCreatedDuringAttempt({
+        creationDate: "2025-11-30T09:00:00.000Z",
+        attemptStartedAt,
+      }),
+    ).toBe(false);
+    // Clock skew is allowed for, in the direction that only ever costs us a
+    // refusal we could have avoided.
+    expect(
+      bucketCreatedDuringAttempt({
+        creationDate: "2026-01-01T11:59:30.000Z",
+        attemptStartedAt,
+      }),
+    ).toBe(true);
+    expect(
+      bucketCreatedDuringAttempt({
+        creationDate: "2026-01-01T11:58:00.000Z",
+        attemptStartedAt,
+      }),
+    ).toBe(false);
+    // Unknown is not a maybe.
+    expect(bucketCreatedDuringAttempt({ creationDate: undefined, attemptStartedAt })).toBe(
+      false,
+    );
+    expect(bucketCreatedDuringAttempt({ creationDate: "", attemptStartedAt })).toBe(false);
+    expect(bucketCreatedDuringAttempt({ creationDate: "whenever", attemptStartedAt })).toBe(
+      false,
+    );
+  });
+
+  test("refusing a bucket that is not ours says so, and still offers a way out", () => {
+    const message = bucketNotOursMessage(BUCKET);
+    expect(message).toContain(BUCKET);
+    expect(message).toMatch(/cannot tell that it created it/i);
+    expect(message).toMatch(/different name/i);
+    expect(message).toMatch(/its own access key/i);
+  });
+
+  /**
+   * The mint call is the one endpoint whose *body* carries a live credential,
+   * and the raw-body fallback runs before the caller knows that value exists —
+   * so it could not be redacted by the caller's secret list even in principle.
+   */
+  test("a raw provider body loses anything shaped like a credential", () => {
+    const raw = JSON.stringify({
+      success: true,
+      result: { id: MINTED_TOKEN_ID, value: MINTED_TOKEN_VALUE },
+    });
+    const stripped = stripCredentialFields(raw);
+    expect(stripped).not.toContain(MINTED_TOKEN_VALUE);
+    expect(stripped).toContain("[redacted]");
+    // The id is not a credential and is useful when reading a failure.
+    expect(stripped).toContain(MINTED_TOKEN_ID);
+    expect(stripCredentialFields('{"secret":"s3kr1t","note":"hello"}')).toContain("hello");
+    expect(stripCredentialFields('{"secret":"s3kr1t"}')).not.toContain("s3kr1t");
+  });
+
+  /**
    * A 403 that is really a billing state must not be reported as a permissions
    * problem, whichever order the errors arrive in.
    */
