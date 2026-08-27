@@ -23,7 +23,8 @@
  * network call fails loudly rather than silently succeeding.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { handleEmail, REFUSAL, type Env, type InboundMessage } from "./index";
+import { handleEmail, type Env, type InboundMessage } from "./index";
+import { REFUSAL } from "./refusal";
 import { R2Store } from "../../../apps/mcp/src/store/r2.js";
 import { AUTHSERV, rawMessage, streamOf } from "./fixtures.test-helpers";
 

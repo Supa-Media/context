@@ -18,7 +18,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { senderIsAllowed } from "./policy";
 import { senderIsAllowed as controlPlaneMatcher } from "../../../apps/convex/functions/lib/ingestion";
-import { handleEmail, REFUSAL, type Env, type InboundMessage } from "./index";
+import { handleEmail, type Env, type InboundMessage } from "./index";
+import { REFUSAL } from "./refusal";
 import { AUTHSERV, rawMessage, streamOf } from "./fixtures.test-helpers";
 
 describe("the matcher is the control plane's, not a copy", () => {

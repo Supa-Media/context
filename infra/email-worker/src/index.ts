@@ -101,6 +101,7 @@ import {
   type RefusalReason,
 } from "./ingest";
 import { DEFAULT_MIME_LIMITS } from "./mime";
+import { REFUSAL } from "./refusal";
 import { senderIsAllowed, type IngestionPolicy } from "./policy";
 import type { AttachmentPolicy } from "./note";
 // The gateway's storage adapter, imported rather than reimplemented. Tenancy is
@@ -109,17 +110,12 @@ import type { AttachmentPolicy } from "./note";
 import { R2Store } from "../../../apps/mcp/src/store/r2.js";
 import { S3Store } from "../../../apps/mcp/src/store/s3.js";
 
-/**
- * The single refusal. Deliberately says nothing: not whether the address
- * exists, not whether the sender is allowed, not why.
- *
- * "550 5.7.1" is the right class — a permanent policy rejection — and the text
- * is the same for a mistyped address and for a targeted probe.
- */
-export const REFUSAL = "550 5.7.1 Message rejected by recipient policy";
-
-/** Where captures land, inside the owner's personal context, by default. */
-export { DEFAULT_TARGET_FOLDER };
+// `REFUSAL` and `DEFAULT_TARGET_FOLDER` used to be re-exported from here for
+// the tests' convenience. They are not any more, and must not be again: a
+// Workers entry module may only export handlers, so a single exported string
+// makes the whole script fail to instantiate — before any handler runs, with no
+// log and no stack. See the note on the default export at the bottom of this
+// file, and `entryExports.test.ts`, which pins it.
 
 /**
  * The subset of `ForwardableEmailMessage` this Worker uses.
