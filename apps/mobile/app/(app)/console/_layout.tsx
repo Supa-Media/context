@@ -14,6 +14,7 @@ import { AppFrame, useFrame } from "../../../features/app/AppFrame";
 import { BottomBar } from "../../../features/console/BottomBar";
 import { AccountBlock, Avatar, ConsoleRail } from "../../../features/console/ConsoleRail";
 import { ConsoleDataProvider } from "../../../features/console/ConsoleDataContext";
+import { TierChip } from "../../../features/console/ConsoleShell";
 import { Explorer } from "../../../features/console/files/Explorer";
 import { itemsFromListings } from "../../../features/console/files/palette";
 import { useTabs } from "../../../features/console/files/useTabs";
@@ -137,7 +138,21 @@ export default function ConsoleLayout() {
             </View>
           )
         }
-        topTrailing={<StorageChip data={data} />}
+        topTrailing={
+          <>
+            {/*
+              Gated on `insideContext`, and `StorageChip` beside it is not.
+              That is deliberate rather than an oversight to tidy: a bucket is
+              one fact about the selected context, but a tier is a claim about
+              what *you* can see, and on an all-contexts route you may be
+              looking at three contexts you hold three different roles in. One
+              chip cannot speak for them, and the wrong direction for it to be
+              wrong in is "you are seeing everything".
+            */}
+            {insideContext ? <TierChip role={current?.role} /> : null}
+            <StorageChip data={data} />
+          </>
+        }
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
         rail={(mode) => (
           <ConsoleRail

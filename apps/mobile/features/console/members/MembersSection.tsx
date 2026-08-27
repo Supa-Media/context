@@ -23,6 +23,7 @@ import {
   type MembersFailure,
   type MembersView,
 } from "./members";
+import { memberReachSentence } from "../visibility";
 
 /**
  * Who can reach this context, and the controls to change it.
@@ -44,10 +45,33 @@ import {
  * is all `listInvitations` returns: a declined invitation, a withdrawn one and
  * an expired one are the same absence, deliberately, so that answering "no"
  * never tells the person who sent it that you exist.
+ *
+ * `viewerRole` is the second prop, and it stays a plain string for the same
+ * reason the first one is a plain view model: it is the caller's role in the
+ * selected context, read straight off `ConsoleContext.role`, so this section
+ * still imports nothing from Convex, Expo Router, or the shell. It is passed in
+ * rather than dug out of `view.members` — the row a member holds and the role
+ * the context list reports come from the same membership, and reading it from
+ * two places is how they get to disagree.
  */
-export function MembersSection({ view }: { view: MembersView }) {
+export function MembersSection({
+  view,
+  viewerRole,
+}: {
+  view: MembersView;
+  /** The caller's role in this context. Absent until the context list lands. */
+  viewerRole?: string;
+}) {
   const { actions } = view;
   const now = Date.now();
+  /*
+    The owner's half of the tier: what inviting these people did and did not
+    hand over. `null` for everybody else, because it describes a decision only
+    the owner made — a member reading "anything you marked private is yours
+    alone" on somebody else's context would be reading a claim about the wrong
+    person's notes. Their half is the chip in Browse and Settings.
+  */
+  const reach = memberReachSentence(viewerRole);
 
   // A query that came back as an error is neither an empty context nor a
   // permanent "Loading…", which is how both halves of this card would otherwise
@@ -89,6 +113,14 @@ export function MembersSection({ view }: { view: MembersView }) {
         {view.members.map((member) => (
           <MemberRow key={member.userId} member={member} actions={actions} />
         ))}
+
+        {reach !== null ? (
+          <Hint>
+            <Text variant="hint" testID="members-tier-rule">
+              {reach}
+            </Text>
+          </Hint>
+        ) : null}
       </Card>
 
       <Card style={styles.spaced}>

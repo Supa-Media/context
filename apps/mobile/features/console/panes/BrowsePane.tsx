@@ -8,6 +8,7 @@ import { findEntry } from "../files/tree";
 import type { FileEntry, Visibility } from "../files/types";
 import { atName } from "../format";
 import { selectedContext, type ConsoleData } from "../types";
+import { tierSentence } from "../visibility";
 
 /**
  * Browse — the note, and nothing between you and it.
@@ -58,7 +59,19 @@ export function BrowsePane({
 
   const noBucket = data.storage === null && !data.loading;
   const manifestBroken = files.listings[""]?.manifestUsable === false;
+  /*
+    The one notice here that is not an event.
+
+    Browse is the pane where an absence is invisible: a folder the owner keeps
+    private does not appear in the tree, so an editor reading a short list has
+    no way to tell a small context from a filtered one. That is the whole
+    reason this line exists, and it is why it stays up rather than being
+    dismissible — the condition it reports never stops being true. `null` for
+    an owner, and `null` while the role is still loading.
+  */
+  const tierNote = tierSentence(current?.role);
   const hasNotice =
+    tierNote !== null ||
     noBucket ||
     manifestBroken ||
     files.notice !== null ||
@@ -80,6 +93,20 @@ export function BrowsePane({
 
       {hasNotice ? (
         <View style={styles.notices}>
+          {tierNote !== null ? (
+            <View style={styles.notice} testID="browse-tier-notice">
+              {/*
+                The sentence without the chip. The chip is in the top bar, on
+                every route of this context — repeating it two inches below
+                reads as two different claims rather than one. What earns its
+                height here is the sentence: a private folder in this tree is
+                not dimmed, it is *absent*, so somebody reading a short list
+                otherwise cannot tell a small context from a filtered one.
+              */}
+              <Text variant="hint">{tierNote}</Text>
+            </View>
+          ) : null}
+
           {files.readOnlyReason !== undefined && !files.canEdit ? (
             <View style={styles.notice}>
               <Text variant="hint">{files.readOnlyReason}</Text>

@@ -56,10 +56,16 @@ export interface MemberActions {
 /**
  * Everything the members section renders.
  *
- * Deliberately the *only* prop `MembersSection` takes. The section knows nothing
- * about Convex, routing, or where in the app it is mounted, so it drops
- * unchanged into a settings pane, a context view, or a modal — which matters
- * while the navigation around it is being reshaped.
+ * The section knows nothing about Convex, routing, or where in the app it is
+ * mounted, so it drops unchanged into a settings pane, a context view, or a
+ * modal — which matters while the navigation around it is being reshaped.
+ *
+ * This was the *only* prop the section took, and is now one of two: `viewerRole`
+ * sits beside it so the card can say what the people listed here can actually
+ * see. That is a fact about the reader rather than about the membership, so
+ * folding it into this view would have meant a `MembersView` that changes shape
+ * depending on who is looking at it. The property that matters — no Convex, no
+ * router, no knowledge of its own mounting — is unchanged.
  */
 export interface MembersView {
   members: ConsoleMember[];

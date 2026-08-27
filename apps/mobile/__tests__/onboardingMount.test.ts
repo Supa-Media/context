@@ -12,6 +12,7 @@ import {
   useOnboarding,
   type OnboardingController,
 } from "../features/onboarding/useOnboarding";
+import { afterStructure } from "../features/onboarding/flow";
 
 // React only treats `act` as authoritative when this is set, and warns loudly on
 // every call when it is not. Setting it keeps the suite's output readable and
@@ -256,7 +257,12 @@ describe("pressing “Create these”", () => {
     const applied = harness.calls.filter((call) => call.name === APPLY_STRUCTURE);
     expect(applied).toHaveLength(1);
     expect(applied[0]!.args).toEqual({ workspaceId: "w1", template: "para" });
-    expect(harness.current().step).toBe("done");
+    // Read from `afterStructure()` rather than written out, so that moving the
+    // step after this one cannot make this assertion quietly wrong — which is
+    // what it was between the tools step landing and this line being updated.
+    // What is being asserted is that a successful mutation *advances*, which is
+    // the half the sibling test below proves a failure must not do.
+    expect(harness.current().step).toBe(afterStructure());
     harness.unmount();
   });
 
