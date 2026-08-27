@@ -35,13 +35,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQueries, useQuery, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
+import { PARA_FOLDERS } from "@context/convex/functions/lib/scaffold";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { useIngestionSettings } from "../console/ingestion/useIngestionSettings";
 import { receivesMail } from "../console/ingestion/settings";
 import { EMPTY_QUERY_SPEC } from "../console/querySpec";
 import { toBindStorageArgs, type ConnectFormValues, type Provider } from "../console/storage/connect";
 import { describeCreateFailure, describeStructureFailure, type CreateFailure } from "./errors";
-import { afterStorage, type FlowShape, type StepKey, type StorageOutcome } from "./flow";
+import { afterStorage, afterStructure, type FlowShape, type StepKey, type StorageOutcome } from "./flow";
+import { seedPromptFor } from "./agents";
 import { canClaim, nameStatus, normalizedName, shouldCheckAvailability, type NameAvailability, type NameStatus } from "./name";
 import { ownedContexts } from "./route";
 import {
@@ -49,6 +51,7 @@ import {
   emptyCustomFolders,
   structureStepFor,
   toApplyStructureArgs,
+  toFolderSpecs,
   validateCustomFolders,
   type CustomFolderRow,
   type FolderErrors,
@@ -147,6 +150,21 @@ export interface OnboardingController {
   canApply: boolean;
   applyStructure: () => Promise<void>;
   skipStructure: () => void;
+
+  // ── Step 4 ────────────────────────────────────────────────────────────────
+  /**
+   * The prompt to hand a connected AI client, written for the folders this
+   * context actually has.
+   *
+   * Derived rather than stored, and derived from the same two pieces of state
+   * the layout step wrote — so somebody who declined the standard layout is
+   * never handed a prompt naming folders they declined. The alternative,
+   * reading the folders back off the bucket, would make this screen wait on a
+   * round trip for something already known locally.
+   */
+  seedPrompt: string;
+  /** Leaves the last step. Continuing is skipping; there is nothing to commit. */
+  finishAgents: () => void;
 }
 
 export function useOnboarding(): OnboardingController {
@@ -334,7 +352,7 @@ export function useOnboarding(): OnboardingController {
 
   const folderErrors = validateCustomFolders(folders);
 
-  const skipStructure = useCallback(() => setStep("done"), []);
+  const skipStructure = useCallback(() => setStep(afterStructure()), []);
 
   const applyStructure = useCallback(async () => {
     if (claimed === null || applying) return;
@@ -346,13 +364,30 @@ export function useOnboarding(): OnboardingController {
       // were chosen and typed. There is no other path out of the editor.
       const args = toApplyStructureArgs(claimed.workspaceId, template, folders);
       await applyStructureMutation({ ...args, workspaceId: claimed.workspaceId });
-      setStep("done");
+      setStep(afterStructure());
     } catch (error) {
       setStructureFailure(describeStructureFailure(error));
     } finally {
       setApplying(false);
     }
   }, [applyStructureMutation, applying, claimed, folderErrors, folders, template]);
+
+  // ── Step 4 ──────────────────────────────────────────────────────────────────
+  //
+  // `folders` is the editor's rows, which include blanks; `toFolderSpecs` drops
+  // those, so this names exactly the folders `applyStructure` was asked to
+  // create. On the `para` branch the folder list comes from the control plane's
+  // own constant rather than a second copy here, which is what stops the prompt
+  // naming a folder the scaffold does not write.
+  const seedPrompt = useMemo(
+    () =>
+      template === "para"
+        ? seedPromptFor(PARA_FOLDERS)
+        : seedPromptFor(toFolderSpecs(folders).map((spec) => spec.folder)),
+    [folders, template],
+  );
+
+  const finishAgents = useCallback(() => setStep("done"), []);
 
   // The first run never edits the ingestion policy. It reads it for one bit:
   // whether `DoneStep` may promise that mail sent to the capture address
@@ -405,5 +440,7 @@ export function useOnboarding(): OnboardingController {
     canApply: canApplyStructure(template, folders, folderErrors) && !applying,
     applyStructure,
     skipStructure,
+    seedPrompt,
+    finishAgents,
   };
 }

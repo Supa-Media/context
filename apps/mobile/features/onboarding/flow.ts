@@ -1,7 +1,7 @@
 /**
  * The shape of the first run.
  *
- * Four screens at most, and two of them can be one click each. Kept as a pure
+ * Five screens at most, and two of them can be one click each. Kept as a pure
  * module so the awkward transitions — the one where somebody skips connecting a
  * bucket, and the one where their bucket turns out to already hold a context —
  * are tests rather than something you find out about by clicking.
@@ -15,7 +15,7 @@
  * worth returning to.
  */
 
-export type StepKey = "name" | "storage" | "structure" | "done";
+export type StepKey = "name" | "storage" | "structure" | "agents" | "done";
 
 /**
  * What happened on the storage step. Three outcomes, not two.
@@ -46,15 +46,39 @@ export interface FlowShape {
  * button that cannot work. Neither is a degraded flow — a context whose binding
  * is unverified is a state the schema supports, and the console says so with a
  * way back.
+ *
+ * **The agents step shares that condition, for a related but distinct reason.**
+ * Its whole content is a prompt instructing an AI client to go and write notes.
+ * Handing that to somebody whose bucket we could not reach is handing them an
+ * instruction that will fail on contact, in a client rather than in our own UI
+ * where we could explain it — the same dishonesty as the capture address that
+ * used to be copyable before anything could receive mail. The endpoint is not
+ * lost by skipping the step: it is in the console, and `DoneStep` says where.
  */
 export function stepsFor(shape: FlowShape): StepKey[] {
-  if (shape.storage === "connected") return ["name", "storage", "structure", "done"];
+  if (shape.storage === "connected") {
+    return ["name", "storage", "structure", "agents", "done"];
+  }
   return ["name", "storage", "done"];
 }
 
 /** Where the storage step hands off to. */
 export function afterStorage(outcome: StorageOutcome): StepKey {
   return outcome === "connected" ? "structure" : "done";
+}
+
+/**
+ * Where the layout step hands off to.
+ *
+ * Always the agents step, because the layout step only exists on a run whose
+ * bucket is connected — which is exactly the condition the agents step needs.
+ * Written as a function rather than a literal `setStep("agents")` at the two
+ * call sites so that the pairing is stated once and asserted in `stepsFor`'s
+ * tests, rather than being a coincidence that holds until somebody changes one
+ * of the two branches.
+ */
+export function afterStructure(): StepKey {
+  return "agents";
 }
 
 /**
@@ -86,6 +110,7 @@ export const STEP_LABELS: Record<StepKey, string> = {
   name: "Your name",
   storage: "Your bucket",
   structure: "Your layout",
+  agents: "Your tools",
   done: "You're set",
 };
 
@@ -115,6 +140,8 @@ export function stepTitle(key: StepKey): string {
       return "Connect your bucket";
     case "structure":
       return "Pick a starting layout";
+    case "agents":
+      return "Point your AI tools at it";
     case "done":
       return "You're set";
   }

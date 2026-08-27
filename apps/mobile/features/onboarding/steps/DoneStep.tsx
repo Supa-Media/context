@@ -6,7 +6,7 @@ import { Notice } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
 import { colors, leading } from "../../design/tokens";
 import { MCP_ENDPOINT, placeholderIngestionAddress } from "../../console/placeholderData";
-import { storageWarning } from "../flow";
+import { storageWarning, stepsFor } from "../flow";
 import type { OnboardingController } from "../useOnboarding";
 
 /**
@@ -39,6 +39,7 @@ export function DoneStep({
 }) {
   const slug = controller.claimed?.slug ?? "you";
   const warning = storageWarning(controller.shape);
+  const sawAgentsStep = stepsFor(controller.shape).includes("agents");
 
   return (
     <View>
@@ -46,18 +47,29 @@ export function DoneStep({
         {`@${slug} is yours. Paste this endpoint into Claude, ChatGPT, or any other MCP client and it can read and write your context — under the rules you set.`}
       </Text>
 
-      <Text variant="eyebrow" style={styles.head}>
-        Your MCP endpoint
-      </Text>
-      <CopyField
-        value={MCP_ENDPOINT}
-        label="Copy your MCP endpoint"
-        testID="welcome-endpoint"
-      />
-      <Text variant="foot" style={styles.under}>
-        The same URL for everyone. Your client signs in and gets its own grant, which you can
-        revoke on its own at any time.
-      </Text>
+      {/*
+        The endpoint moved to the tools step, which is *about* it — but that
+        step only exists on a run whose bucket connected. A run that skipped
+        storage lands here having never been shown the one thing the product is
+        for, so this screen keeps it in exactly that case. Duplicating it on
+        every run would put the same field on two consecutive screens.
+      */}
+      {sawAgentsStep ? null : (
+        <>
+          <Text variant="eyebrow" style={styles.head}>
+            Your MCP endpoint
+          </Text>
+          <CopyField
+            value={MCP_ENDPOINT}
+            label="Copy your MCP endpoint"
+            testID="welcome-endpoint"
+          />
+          <Text variant="foot" style={styles.under}>
+            The same URL for everyone. Your client signs in and gets its own grant, which you
+            can revoke on its own at any time.
+          </Text>
+        </>
+      )}
 
       <Text variant="eyebrow" style={styles.head}>
         Your capture address

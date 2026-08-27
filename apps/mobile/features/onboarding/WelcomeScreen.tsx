@@ -11,6 +11,7 @@ import { useOnboarding } from "./useOnboarding";
 import { NameStep } from "./steps/NameStep";
 import { StorageStep } from "./steps/StorageStep";
 import { StructureStep } from "./steps/StructureStep";
+import { AgentsStep } from "./steps/AgentsStep";
 import { DoneStep } from "./steps/DoneStep";
 
 /**
@@ -136,6 +137,8 @@ function StepBody({
       return <StorageStep controller={controller} />;
     case "structure":
       return <StructureStep controller={controller} />;
+    case "agents":
+      return <AgentsStep controller={controller} onContinue={controller.finishAgents} />;
     case "done":
       return <DoneStep controller={controller} onOpenConsole={onOpenConsole} />;
   }

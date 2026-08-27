@@ -7,6 +7,8 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { NameStep } from "../features/onboarding/steps/NameStep";
 import { StructureStep } from "../features/onboarding/steps/StructureStep";
+import { AgentsStep } from "../features/onboarding/steps/AgentsStep";
+import { defaultSeedPrompt, seedPromptFor } from "../features/onboarding/agents";
 import { DoneStep } from "../features/onboarding/steps/DoneStep";
 import { nameStatus } from "../features/onboarding/name";
 import { emptyCustomFolders, validateCustomFolders } from "../features/onboarding/structure";
@@ -62,7 +64,7 @@ function controller(overrides: Partial<OnboardingController>): OnboardingControl
   return {
     step: "name",
     shape: { storage: "connected" },
-    contextCount: 0,
+    owned: 0,
     claimed: null,
     // What the control plane answers today: no email receiver is deployed.
     // `captureHonesty.test.ts` owns the assertions about what that does to the
@@ -90,6 +92,8 @@ function controller(overrides: Partial<OnboardingController>): OnboardingControl
     canApply: true,
     applyStructure: async () => {},
     skipStructure: () => {},
+    seedPrompt: "",
+    finishAgents: () => {},
     ...overrides,
   };
 }
@@ -204,6 +208,38 @@ describe("the layout screen", () => {
       }),
     );
     expect(rendered.text).toMatch(/1 folder\b/);
+  });
+});
+
+describe("the tools screen", () => {
+  test("hands over a prompt naming the folders this context actually has", () => {
+    // The failure this catches is silent and lands in somebody else's product:
+    // a prompt telling their AI to file work under `1-projects/` when they
+    // named their own folders one screen ago and have no such folder.
+    const { text } = render(
+      createElement(AgentsStep, {
+        controller: controller({
+          step: "agents",
+          seedPrompt: seedPromptFor(["work", "reading"]),
+        }),
+        onContinue: () => {},
+      }),
+    );
+    expect(text).toContain("work/");
+    expect(text).toContain("reading/");
+    expect(text).not.toContain("1-projects/");
+  });
+
+  test("does not imply a connected client sees everything", () => {
+    // Every grant defaults to `team`, owners included. A first-run screen
+    // promising otherwise describes a product we deliberately do not ship.
+    const { text } = render(
+      createElement(AgentsStep, {
+        controller: controller({ step: "agents", seedPrompt: defaultSeedPrompt() }),
+        onContinue: () => {},
+      }),
+    );
+    expect(text).toMatch(/team is the default/i);
   });
 });
 
