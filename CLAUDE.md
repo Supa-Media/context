@@ -476,17 +476,25 @@ consuming it earlier would spend budget on mail that was never going to be
 sent. The key is a hash of the address — footprint, not confidentiality, since
 addresses are guessable.
 
-**The link cannot sign anybody in yet, and the fix is upstream.**
-`@convex-dev/auth`'s `Email()` hardcodes an `authorize` that refuses any
-verification without a matching `params.email` — its documented
-`authorize: undefined` override does nothing in 0.0.90, because the factory
-never spreads its config. A separate link-only provider is committed to
-supa-framework and not yet released. Clearing the check on the OTP provider
-instead is one line shorter and would be a serious regression: the rate-limit
-key in `verifyCodeAndSignIn` is derived from `params.email`, so a verification
-with no email is not rate limited at all, and the OTP secret is six digits.
-Until the release, minting throws, the sender catches it, and a plain link goes
-out — the invitation arrives and works, and the recipient loses one screen.
+**The link signs its recipient in, through a second provider, and that
+separation is load-bearing.** `@convex-dev/auth`'s `Email()` hardcodes an
+`authorize` that refuses any verification without a matching `params.email` —
+right for a code typed off a screen, fatal for a link whose premise is that the
+URL carries everything. `@supa-media/convex` registers a separate link-only
+provider (`MAGIC_LINK_PROVIDER_ID`), which `auth.ts` opts into via `magicLink`.
+
+Clearing the check on the OTP provider instead is one line shorter and would be
+a serious regression: the rate-limit key in `verifyCodeAndSignIn` is derived
+from `params.email`, so a verification with no email is not rate limited at
+all, and the OTP secret is six digits. The separation holds at redemption
+because the library resolves which `authorize` to run from the provider
+recorded **on the row**, never from what the caller claims — and there is now a
+test that redeems a real mailed code with no email and asserts a session, so
+losing the override fails CI instead of silently making every link inert.
+
+Sign-in codes for the link are minted by the app, not the library, so
+`SIGNIN_CODE_TTL_MS` governs their life and `magicLink.maxAge` does not — see
+"The sign-in link's life is `SIGNIN_CODE_TTL_MS`" below.
 
 ### The two onboarding gates ask two different questions
 
