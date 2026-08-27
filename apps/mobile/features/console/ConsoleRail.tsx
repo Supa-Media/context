@@ -4,7 +4,7 @@ import { PressRow } from "../design/components/Button";
 import { Dot } from "../design/components/Dot";
 import { Text } from "../design/components/Text";
 import { gradient } from "../design/css";
-import { colors, radii, space } from "../design/tokens";
+import { colors, layout, radii, space } from "../design/tokens";
 import { atName } from "./format";
 import { APP_SECTIONS, selectContextRoute, type ConsoleRoute } from "./nav";
 import type { ConsoleData } from "./types";
@@ -28,13 +28,22 @@ import type { ConsoleData } from "./types";
  * contexts long enough to scroll must not be able to push your own identity
  * off the screen.
  *
- * ## Two widths, one rail
+ * ## Three modes, one rail
  *
  * `icons` is not a different component. A medium window pays for the explorer
  * column with the rail's labels, and a wide window can be collapsed to the same
  * state deliberately, so both arrive here as a mode. Every entry keeps its
- * accessibility label at both widths — a rail that becomes a row of unlabelled
+ * accessibility label at every mode — a rail that becomes a row of unlabelled
  * glyphs to a screen reader is not collapsed, it is broken.
+ *
+ * `sheet` is the phone: the same labels as `full`, on targets a thumb can
+ * actually hit. It is a mode rather than `full` with a flag because the sizes
+ * genuinely fork — `features/app/frame.ts` argues that a 44pt row is wrong
+ * under a pointer and a 24px row is unusable under a thumb, and a rail that
+ * takes one number to both surfaces has picked a side. Sign-out is the case
+ * that proves it: the reason the sheet exists at all is that it is the only
+ * way off a pane on a phone, and a 28×28 power button at the bottom of it
+ * would be a way out you cannot reliably press.
  */
 export function ConsoleRail({
   data,
@@ -45,12 +54,13 @@ export function ConsoleRail({
 }: {
   data: ConsoleData;
   route: ConsoleRoute;
-  mode: "full" | "icons";
+  mode: "full" | "icons" | "sheet";
   onNavigate: (route: ConsoleRoute) => void;
   /** The account block. Passed in so the rail never imports auth. */
   account: ReactNode;
 }) {
   const icons = mode === "icons";
+  const touch = mode === "sheet";
 
   return (
     <View style={styles.rail}>
@@ -66,6 +76,7 @@ export function ConsoleRail({
               label={section.label}
               glyph={SECTION_GLYPHS[section.key]}
               icons={icons}
+              touch={touch}
               selected={route.kind === "app" && route.section === section.key}
               onPress={() => onNavigate({ kind: "app", section: section.key })}
               role="tab"
@@ -90,6 +101,7 @@ export function ConsoleRail({
               // collapsed rail learnable rather than a row of identical dots.
               glyph={context.slug.slice(0, 1).toUpperCase()}
               icons={icons}
+              touch={touch}
               accessibilityLabel={`Open ${atName(context.slug)}`}
               selected={route.kind === "context" && route.slug === context.slug}
               onPress={() => onNavigate(selectContextRoute(context.slug))}
@@ -136,6 +148,7 @@ function RailEntry({
   label,
   glyph,
   icons,
+  touch = false,
   selected,
   onPress,
   leading,
@@ -145,6 +158,8 @@ function RailEntry({
   label: string;
   glyph: string;
   icons: boolean;
+  /** Phone sizing: the row clears `layout.minTouchTarget` on both axes. */
+  touch?: boolean;
   selected?: boolean;
   onPress: () => void;
   leading?: ReactNode;
@@ -160,7 +175,7 @@ function RailEntry({
       selected={selected}
       onPress={onPress}
       radius={radii.md}
-      style={icons ? styles.entryIcons : styles.entry}
+      style={icons ? styles.entryIcons : touch ? styles.entryTouch : styles.entry}
       hoverStyle={styles.entryHover}
       selectedStyle={styles.entryOn}
     >
@@ -193,12 +208,15 @@ export function AccountBlock({
   initial,
   onSignOut,
   compact = false,
+  touch = false,
 }: {
   name: string;
   detail?: string;
   initial: string;
   onSignOut: () => void;
   compact?: boolean;
+  /** Phone sizing: sign-out clears `layout.minTouchTarget` on both axes. */
+  touch?: boolean;
 }) {
   if (compact) {
     return (
@@ -231,7 +249,7 @@ export function AccountBlock({
         accessibilityLabel="Sign out"
         onPress={onSignOut}
         radius={radii.md}
-        style={styles.signOut}
+        style={touch ? styles.signOutTouch : styles.signOut}
         hoverStyle={styles.signOutHover}
         testID="rail-sign-out"
       >
@@ -286,6 +304,22 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: radii.md,
   },
+  /**
+   * The same row, thumb-sized. 7pt of padding around a ~21pt line gives 35 on a
+   * pointer, which is right there and wrong under a thumb. Spelled out rather
+   * than composed with `entry` because `PressRow` takes one style, and the
+   * neighbouring `entryIcons` already sets the precedent.
+   */
+  entryTouch: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    width: "100%",
+    minHeight: layout.minTouchTarget,
+    paddingVertical: space.x3,
+    paddingHorizontal: 9,
+    borderRadius: radii.md,
+  },
   entryHover: { backgroundColor: colors.surface2 },
   entryOn: { backgroundColor: colors.accentDim },
   entryOnLabel: { color: colors.accentText },
@@ -317,6 +351,18 @@ const styles = StyleSheet.create({
   signOut: {
     width: 28,
     height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radii.md,
+  },
+  /**
+   * The way out, on the surface where it is the only way out. 28×28 is a
+   * pointer's target; this is the one control in the sheet somebody reaches for
+   * deliberately and must not miss.
+   */
+  signOutTouch: {
+    width: layout.minTouchTarget,
+    height: layout.minTouchTarget,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radii.md,

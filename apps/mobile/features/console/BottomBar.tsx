@@ -9,13 +9,15 @@ import { colors, layout, radii, space } from "../design/tokens";
  *
  * At `compact` the frame renders a `bottomBar` and **no** status bar — the
  * bottom edge is one or the other, never both (`features/app/frame.ts`). This
- * is what goes in that slot, and it is the phone's answer to everything a
- * pointer gets from a rail, a right-click menu and a keyboard chord. There is
- * no keyboard here and no hover: if a command is not on this strip, on a phone
- * it does not exist. That is why the shape is copied from Obsidian mobile —
- * back, forward, search, new, tab count, menu — rather than invented: it is the
- * arrangement the people most likely to arrive at this product already have
- * muscle memory for.
+ * is what goes in that slot: the phone's answer to the right-click menu and the
+ * keyboard chord. **Navigation is not its job** — the top bar's switcher pulls
+ * the rail in as a sheet, and that is where the app-level panes, the other
+ * contexts and sign-out live (`features/app/frame.ts`). There is no keyboard
+ * here and no hover: if a *verb* is not on this strip, on a phone it does not
+ * exist. That is why the shape is copied from Obsidian mobile — back, forward,
+ * search, new, tab count, menu — rather than invented: it is the arrangement
+ * the people most likely to arrive at this product already have muscle memory
+ * for.
  *
  * ## Why this component knows nothing
  *
@@ -72,12 +74,15 @@ import { colors, layout, radii, space } from "../design/tokens";
 /**
  * The smallest target a thumb can be asked to hit, in points.
  *
- * 44 is Apple's HIG minimum and Android's 48dp rounds down to about the same
- * physical size. Exported because the test asserts it: a rule enforced by a
- * number typed into a stylesheet and a different number typed into a test is a
- * rule that passes after somebody changes one of them.
+ * Exported because the test asserts it: a rule enforced by a number typed into
+ * a stylesheet and a different number typed into a test is a rule that passes
+ * after somebody changes one of them.
+ *
+ * The number itself lives in `design/tokens` — it governs every control a phone
+ * offers, not only this bar, and the frame's own navigation control is held to
+ * it too.
  */
-export const MIN_TOUCH_TARGET = 44;
+export const MIN_TOUCH_TARGET = layout.minTouchTarget;
 
 export interface BottomBarAction {
   id: string;

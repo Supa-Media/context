@@ -29,6 +29,7 @@ import {
   resolveContextRoute,
   routeForPath,
   sameRoute,
+  type ConsoleRoute,
 } from "../../../features/console/nav";
 import { selectedContext, type ConsoleData } from "../../../features/console/types";
 import { useKeymap } from "../../../features/design/useKeymap";
@@ -138,6 +139,16 @@ export default function ConsoleLayout() {
             </View>
           )
         }
+        /*
+          The same words the chip draws, as a string. `AppFrame` cannot read
+          them off the node — and on native it could not derive them from the
+          rendered text either; see `switcherLabel`.
+        */
+        switcherLabel={
+          insideContext
+            ? [contextLabel, current?.kind].filter(Boolean).join(", ")
+            : `All contexts, ${data.contexts.length} reachable`
+        }
         topTrailing={
           <>
             {/*
@@ -154,20 +165,7 @@ export default function ConsoleLayout() {
           </>
         }
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
-        rail={(mode) => (
-          <ConsoleRail
-            data={data}
-            route={route}
-            mode={mode}
-            onNavigate={(next) => {
-              // Pressing the rail entry you are already on should do nothing,
-              // not re-enter the route — which on a context would reset the
-              // file browser out from under an open note.
-              if (!sameRoute(next, route)) router.replace(hrefFor(next));
-            }}
-            account={<Account data={data} compact={mode === "icons"} />}
-          />
-        )}
+        rail={(mode) => <Rail data={data} route={route} mode={mode} />}
         explorer={
           insideContext ? (
             <Explorer
@@ -352,6 +350,14 @@ function Shortcuts({
           case "toggleRail":
             frame.toggleRail();
             return true;
+          case "dismiss":
+            // `keymap.ts` says Escape "closes whatever is open, wherever you
+            // are", and until this the console answered for nothing but the
+            // palette — so the one panel that is the only way off a pane could
+            // be dismissed by a press or a scrim and not by the key everybody
+            // tries. Returns whether there was anything to close, so an Escape
+            // with no panel up still reaches the browser.
+            return frame.closeOverlays();
 
           /* ---- the note ------------------------------------------------- */
           case "save":
@@ -422,6 +428,48 @@ function Shortcuts({
 const NUMBERED_TABS = [
   "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8", "tab9",
 ] as const;
+
+/**
+ * The rail, wired to the router — and, on a phone, to the sheet it is inside.
+ *
+ * A component rather than an inline node in the slot, because it needs
+ * `useFrame`, and the slot is rendered *inside* `AppFrame`'s provider while the
+ * layout that passes it is above it.
+ *
+ * Choosing a destination dismisses the sheet, for the same reason choosing a
+ * note dismisses the tree drawer: on a phone the panel is covering the thing
+ * you just asked for. It dismisses even when the destination is the route you
+ * are already on — you asked for that pane, and a sheet that stays put because
+ * the router had nothing to do reads as a dead press.
+ */
+function Rail({
+  data,
+  route,
+  mode,
+}: {
+  data: ConsoleData;
+  route: ConsoleRoute;
+  mode: "full" | "icons" | "sheet";
+}) {
+  const frame = useFrame();
+  const router = useRouter();
+
+  return (
+    <ConsoleRail
+      data={data}
+      route={route}
+      mode={mode}
+      onNavigate={(next) => {
+        frame.closeNav();
+        // Pressing the rail entry you are already on should do nothing, not
+        // re-enter the route — which on a context would reset the file browser
+        // out from under an open note.
+        if (!sameRoute(next, route)) router.replace(hrefFor(next));
+      }}
+      account={<Account data={data} compact={mode === "icons"} touch={mode === "sheet"} />}
+    />
+  );
+}
 
 /**
  * The thumb's half of the console.
@@ -509,7 +557,15 @@ function StorageChip({ data }: { data: ConsoleData }) {
   );
 }
 
-function Account({ data, compact }: { data: ConsoleData; compact: boolean }) {
+function Account({
+  data,
+  compact,
+  touch = false,
+}: {
+  data: ConsoleData;
+  compact: boolean;
+  touch?: boolean;
+}) {
   const router = useRouter();
   const { signOut } = useAuthActions();
   const personal = data.contexts.find((context) => context.kind === "personal");
@@ -523,6 +579,7 @@ function Account({ data, compact }: { data: ConsoleData; compact: boolean }) {
       detail={data.ingestionAddress}
       initial={data.avatarInitial}
       compact={compact}
+      touch={touch}
       onSignOut={() => {
         void signOut().then(() => router.replace("/"));
       }}

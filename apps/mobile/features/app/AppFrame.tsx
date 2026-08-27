@@ -27,6 +27,8 @@ import {
   densityFor,
   explorerToggleFor,
   initialFrame,
+  panelsClearedFor,
+  railToggleFor,
   regionsFor,
   type Density,
   type FrameState,
@@ -53,9 +55,9 @@ import {
  * a wide window this is a desktop application — three columns at once, a
  * resizable explorer, a status bar, a right-click menu and a keyboard chord for
  * every operation. On a phone it is a phone application — the editor owns the
- * screen, the tree is a drawer, and the verbs sit on a bottom toolbar within
- * thumb reach, which is where Obsidian mobile puts them and where a thumb can
- * actually reach.
+ * screen, the rail and the tree come in as sheets over it, and the verbs sit on
+ * a bottom toolbar within thumb reach, which is where Obsidian mobile puts them
+ * and where a thumb can actually reach.
  *
  * Neither is derived from the other. What is shared is the layer underneath:
  * the menu items, the drop rules, the tab model and the ranking are one
@@ -96,9 +98,30 @@ export interface FrameApi {
    * second ⌘B that never once touched the explorer.
    */
   toggleExplorer: () => void;
-  /** ⌘B. Collapses the rail to its marks on a wide window. */
+  /**
+   * ⌘B, and the switcher in the top bar.
+   *
+   * Collapses the rail to its marks on a pointer layout and pulls it in as a
+   * sheet on a phone — `railToggleFor` owns which, for the same reason
+   * `explorerToggleFor` owns the other one.
+   */
   toggleRail: () => void;
   closeDrawer: () => void;
+  /**
+   * Dismisses the rail sheet. Clears the flag at any density; there is only
+   * anything to see at compact, where the sheet is the thing being dismissed.
+   */
+  closeNav: () => void;
+  /**
+   * Puts away whatever panel is over the editor, and says whether there was
+   * one.
+   *
+   * The scrim's handler, and Escape's. `keymap.ts` promises "Escape closes
+   * whatever is open, wherever you are"; the boolean is how a caller keeps
+   * that promise honest, returning `false` so the browser's own Escape
+   * behaviour survives when nothing was open.
+   */
+  closeOverlays: () => boolean;
   setExplorerWidth: (width: number) => void;
   /**
    * True on a phone: choosing a note has to dismiss the drawer, because the
@@ -129,6 +152,8 @@ export function useFrame(): FrameApi {
       toggleExplorer: noop,
       toggleRail: noop,
       closeDrawer: noop,
+      closeNav: noop,
+      closeOverlays: () => false,
       setExplorerWidth: noop,
       closesOnSelect: closesOnSelect(fallbackDensity),
     }
@@ -137,6 +162,21 @@ export function useFrame(): FrameApi {
 
 function noop(): void {}
 
+/**
+ * `inert`, spread rather than written as a prop.
+ *
+ * It is a real DOM attribute that react-native-web forwards
+ * (`modules/forwardedProps`), and it is not in React Native's `ViewProps` —
+ * because on native it means nothing and `accessibilityViewIsModal` on the
+ * panel does the job instead. Spreading a typed constant keeps the escape
+ * hatch in one named place, the way `css.ts` does for gradients and
+ * `cursor: col-resize` does below.
+ *
+ * `true`, not `""`. The empty string is how the attribute is spelled in HTML
+ * and it is dropped on the way to the DOM; only a boolean survives.
+ */
+const INERT = { inert: true } as unknown as { pointerEvents?: undefined };
+
 /* -------------------------------------------------------------------------- */
 /*                                   frame                                    */
 /* -------------------------------------------------------------------------- */
@@ -144,12 +184,45 @@ function noop(): void {}
 export interface AppFrameProps {
   /** The context switcher, at the leading edge of the top bar. */
   switcher: ReactNode;
+  /**
+   * What the switcher says, as a string — the accessible name of the control
+   * that opens the rail on a phone.
+   *
+   * Passed rather than derived, because deriving it only works on one of the
+   * two platforms this app ships to. On web the `<button>` takes its name from
+   * its content and the chevron beside it is `aria-hidden`, so "All contexts, 3
+   * reachable" is what a screen reader reads. On iOS and Android neither half
+   * holds: `aria-hidden` is destructured by `View` and **not** by `Text`
+   * (`react-native/Libraries/Text/Text.js`), so it is dropped as an unknown
+   * prop, and `RCTRecursiveAccessibilityLabel` concatenates every descendant's
+   * text regardless — VoiceOver would announce "@seyi personal black
+   * down-pointing small triangle".
+   *
+   * Every other glyph in this file sits inside a control that carries an
+   * explicit label, which short-circuits that recursion. This is the first one
+   * that relied on content-derived naming, and it is where the trick fails.
+   */
+  switcherLabel?: string;
   /** Storage chip, avatar — the trailing edge of the top bar. */
   topTrailing?: ReactNode;
   /** Opens the palette. Renders the search field on web, a button on touch. */
   onSearch?: () => void;
-  /** The rail, told how much room it has. Absent at compact. */
-  rail: (mode: "full" | "icons") => ReactNode;
+  /**
+   * The rail, told how much room it has and what shape it is in.
+   *
+   * The three modes are `Regions.rail` minus `hidden`, passed straight through
+   * rather than folded into two: a phone sheet has the width for labels *and*
+   * needs targets a thumb can hit, and collapsing it to `full` here is what
+   * made the sheet inherit a pointer layout's 35pt rows.
+   *
+   * Reachable at every density — a column on a pointer layout, a sheet the top
+   * bar brings in on a phone. It is not optional and must not become so: the
+   * app-level panes, the other contexts and sign-out are reachable through this
+   * node and no other, so a density with no way to reach it is a density you
+   * cannot navigate out of. On a phone it is mounted only while the sheet is
+   * up, which is why the slot is a function rather than a node.
+   */
+  rail: (mode: "full" | "icons" | "sheet") => ReactNode;
   /**
    * The file tree, rendered as a column or inside the drawer.
    *
@@ -169,6 +242,7 @@ export interface AppFrameProps {
 
 export function AppFrame({
   switcher,
+  switcherLabel,
   topTrailing,
   onSearch,
   rail,
@@ -182,7 +256,19 @@ export function AppFrame({
   const [state, setState] = useState<FrameState>(initialFrame);
 
   const density = densityFor(width);
-  const regions = regionsFor(density, state, { hasExplorer: explorer != null });
+  const hasExplorer = explorer != null;
+  const regions = regionsFor(density, state, { hasExplorer });
+
+  /*
+    A panel is not a preference. `railCollapsed` and `explorerWidth` survive a
+    resize on purpose; "a sheet is over your editor" cannot, because at every
+    other density there is nothing on screen that could put it away — see
+    `panelsClearedFor`. Without this, rotating an iPad out of compact and back
+    returns you to a scrim you never raised.
+  */
+  useEffect(() => {
+    setState((current) => panelsClearedFor(density, current));
+  }, [density]);
 
   // One command with one meaning per density, and `frame.ts` owns which. The
   // field it names is toggled; a `null` is a real no-op, not a licence to do
@@ -190,19 +276,53 @@ export function AppFrame({
   // ⌘B on every layout that has an explorer column.
   const toggleExplorer = useCallback(() => {
     setState((current) => {
-      const field = explorerToggleFor(densityFor(width));
-      return field === null ? current : { ...current, [field]: !current[field] };
+      // `hasExplorer` matters here for the same reason it matters to
+      // `regionsFor`: on Map and Connections there is no tree, the command has
+      // nothing to do, and doing nothing has to mean *nothing* — the line
+      // below would otherwise dismiss the rail sheet on its way to setting a
+      // flag `regionsFor` discards.
+      const field = explorerToggleFor(densityFor(width), { hasExplorer });
+      if (field === null) return current;
+      // The two compact panels share a place on the screen and a scrim, so
+      // raising one puts the other away. `frame.ts` resolves a state carrying
+      // both; that the resolution is unreachable from here is the point.
+      return { ...current, navOpen: false, [field]: !current[field] };
     });
-  }, [width]);
+  }, [width, hasExplorer]);
 
   const toggleRail = useCallback(
-    () => setState((current) => ({ ...current, railCollapsed: !current.railCollapsed })),
-    [],
+    () =>
+      setState((current) => {
+        const field = railToggleFor(densityFor(width));
+        return field === "navOpen"
+          ? { ...current, drawerOpen: false, navOpen: !current.navOpen }
+          : { ...current, railCollapsed: !current.railCollapsed };
+      }),
+    [width],
   );
   const closeDrawer = useCallback(
     () => setState((current) => (current.drawerOpen ? { ...current, drawerOpen: false } : current)),
     [],
   );
+  const closeNav = useCallback(
+    () => setState((current) => (current.navOpen ? { ...current, navOpen: false } : current)),
+    [],
+  );
+  /**
+   * The scrim covers whichever panel is up, so it dismisses whichever panel is
+   * up — and Escape means the same thing.
+   *
+   * Reports whether there was anything to close. Reading `state` for the answer
+   * rather than the updater's `current` is safe because a keystroke and a press
+   * both arrive between renders, and it is what lets the return value be
+   * synchronous for a keymap that has to decide, now, whether it handled the
+   * key.
+   */
+  const closeOverlays = useCallback(() => {
+    const wasOpen = state.drawerOpen || state.navOpen;
+    if (wasOpen) setState((current) => ({ ...current, drawerOpen: false, navOpen: false }));
+    return wasOpen;
+  }, [state.drawerOpen, state.navOpen]);
   const setExplorerWidth = useCallback(
     (next: number) =>
       setState((current) => ({ ...current, explorerWidth: clampExplorerWidth(next) })),
@@ -217,10 +337,22 @@ export function AppFrame({
       toggleExplorer,
       toggleRail,
       closeDrawer,
+      closeNav,
+      closeOverlays,
       setExplorerWidth,
       closesOnSelect: closesOnSelect(density),
     }),
-    [density, regions, state, toggleExplorer, toggleRail, closeDrawer, setExplorerWidth],
+    [
+      density,
+      regions,
+      state,
+      toggleExplorer,
+      toggleRail,
+      closeDrawer,
+      closeNav,
+      closeOverlays,
+      setExplorerWidth,
+    ],
   );
 
   const compact = density === "compact";
@@ -248,7 +380,36 @@ export function AppFrame({
             />
           ) : null}
 
-          <View style={styles.topLead}>{switcher}</View>
+          {/*
+            The switcher is the way into the rail on a phone.
+
+            Not a second `☰` beside the tree's: two identical glyphs in a 390px
+            bar opening two different panels is a coin toss, and one of them
+            does not exist on Map or Connections. The chip already names the
+            scope you are in — "All contexts", "@you · personal" — which is
+            exactly what a workspace switcher says, so pressing it to change
+            that scope is the behaviour it was already advertising. Its own
+            text is still the accessible name, spelled out through
+            `switcherLabel` because content-derived naming does not survive the
+            crossing to native.
+          */}
+          {regions.navToggle ? (
+            <Pressable
+              onPress={toggleRail}
+              role="button"
+              accessibilityLabel={switcherLabel}
+              aria-expanded={state.navOpen}
+              testID="frame-nav-toggle"
+              style={[styles.topLead, styles.navToggle]}
+            >
+              {switcher}
+              <Text style={styles.navChevron} aria-hidden>
+                {state.navOpen ? "\u25b4" : "\u25be"}
+              </Text>
+            </Pressable>
+          ) : (
+            <View style={styles.topLead}>{switcher}</View>
+          )}
 
           {/*
             Search sits in the top bar where there is a pointer and in the
@@ -262,7 +423,7 @@ export function AppFrame({
         </View>
 
         <View style={styles.body}>
-          {regions.rail !== "hidden" ? (
+          {regions.rail === "full" || regions.rail === "icons" ? (
             <View
               style={[styles.rail, regions.rail === "icons" && styles.railIcons]}
               role="navigation"
@@ -279,26 +440,79 @@ export function AppFrame({
             </View>
           ) : null}
 
-          <View style={styles.editor}>{children}</View>
+          {/*
+            Behind a panel, out of reach — of the pointer via the scrim, and of
+            the keyboard and the screen reader via these.
+
+            Without them Tab from the switcher lands *in the note the sheet is
+            covering*, and a swipe order walks the whole editor before reaching
+            the navigation somebody just asked for. `inert` is forwarded by
+            react-native-web and ignored by native; `importantForAccessibility`
+            is Android's and ignored on web. Each platform reads its own.
+          */}
+          <View
+            style={styles.editor}
+            {...(regions.scrim ? INERT : null)}
+            importantForAccessibility={regions.scrim ? "no-hide-descendants" : "auto"}
+          >
+            {children}
+          </View>
 
           {/*
-            The drawer is painted last so it lies over the editor without any
+            The panels are painted last so they lie over the editor without any
             z-index arithmetic — in React Native, later siblings are on top, and
             `zIndex` is the thing that behaves differently between the two
-            platforms.
+            platforms. Only ever one of them is up (`frame.ts` resolves it), so
+            their order relative to each other decides nothing.
           */}
           {regions.scrim ? (
             <Pressable
               style={styles.scrim}
-              onPress={closeDrawer}
-              accessibilityLabel="Close the file tree"
+              onPress={closeOverlays}
+              // It is focusable — `Pressable` gives it a tab stop — so it needs
+              // a role as well as a name. Labelled and roleless, a screen
+              // reader announces a stop it cannot describe.
+              role="button"
+              accessibilityLabel="Close this panel"
               testID="frame-scrim"
             />
           ) : null}
 
           {regions.explorer === "drawer" ? (
-            <View style={styles.drawer} testID="frame-drawer">
+            <View
+              style={[styles.drawer, { paddingBottom: insets.bottom }]}
+              accessibilityViewIsModal
+              testID="frame-drawer"
+            >
               {explorer}
+            </View>
+          ) : null}
+
+          {/*
+            The rail, over the editor rather than beside it. Full labels, not
+            the icon rail: a sheet has the width, and a phone has no hover to
+            recover a glyph's meaning with. It carries the account block too,
+            which is why sign-out was unreachable on a phone until this
+            existed.
+          */}
+          {regions.rail === "sheet" ? (
+            <View
+              /*
+                The home indicator. `insets.bottom` is applied to the bottom bar
+                and nowhere else, and Map and Connections have no bottom bar —
+                which is to say the panes you land on after signing in are
+                exactly the ones where a full-height panel runs to the edge of
+                the glass. The account block is pinned to the foot of this
+                sheet, so without this, sign-out sits under the indicator on the
+                one surface it is reachable from.
+              */
+              style={[styles.navSheet, { paddingBottom: insets.bottom }]}
+              accessibilityViewIsModal
+              role="navigation"
+              aria-label="Console"
+              testID="frame-nav-sheet"
+            >
+              {rail("sheet")}
             </View>
           ) : null}
         </View>
@@ -544,6 +758,48 @@ const styles = StyleSheet.create({
     left: 0,
     backgroundColor: "rgba(0,0,0,.55)",
   },
+  /**
+   * The rail as a panel: the tree drawer's geometry, 40pt narrower (300 against
+   * 340) because a list of destinations needs less width than a file tree with
+   * two levels of indent. The same gesture from the same edge, but its own
+   * style — the two are allowed to diverge, and sharing one would make that a
+   * rename rather than an edit.
+   */
+  navSheet: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    width: "86%",
+    maxWidth: 300,
+    borderRightWidth: 1,
+    borderRightColor: colors.lineStrong,
+    backgroundColor: colors.surface,
+    boxShadow: "24px 0 60px -20px rgba(0,0,0,.9)",
+  },
+  /**
+   * The primary navigation control on a phone, so it is held to the same floor
+   * as the bottom bar's targets rather than to the height of the chip inside
+   * it, which measures about 32pt (13px type at 1.55 leading, 5 of padding
+   * either side, a hairline border).
+   *
+   * `alignSelf: "stretch"` alone would give 43, not 44: the top bar is 44
+   * *including* its bottom hairline. So the floor is set explicitly and the
+   * control takes that last pixel back over the border, where nothing can see
+   * it. Stretching as well keeps the target the full height of the bar rather
+   * than 44 floating inside 43.
+   */
+  navToggle: { alignSelf: "stretch", minHeight: layout.minTouchTarget },
+  /**
+   * `▴`/`▾` rather than `⌃`/`⌄`. The arrowhead pair sits high in most faces —
+   * they are keyboard-legend glyphs, drawn to align with a modifier symbol
+   * rather than with running text — and beside a bordered chip the offset reads
+   * as a rendering fault. `BottomBar` makes the same observation about
+   * Unicode's optical inconsistency, and draws a different conclusion from it
+   * (every glyph gets a visible caption); here there is a chip beside it doing
+   * that job already.
+   */
+  navChevron: { color: colors.muted, fontSize: 10 },
   drawer: {
     position: "absolute",
     top: 0,
