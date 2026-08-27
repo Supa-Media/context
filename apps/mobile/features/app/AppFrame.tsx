@@ -27,6 +27,7 @@ import {
   densityFor,
   explorerToggleFor,
   initialFrame,
+  railToggleFor,
   regionsFor,
   type Density,
   type FrameState,
@@ -53,9 +54,9 @@ import {
  * a wide window this is a desktop application — three columns at once, a
  * resizable explorer, a status bar, a right-click menu and a keyboard chord for
  * every operation. On a phone it is a phone application — the editor owns the
- * screen, the tree is a drawer, and the verbs sit on a bottom toolbar within
- * thumb reach, which is where Obsidian mobile puts them and where a thumb can
- * actually reach.
+ * screen, the rail and the tree come in as sheets over it, and the verbs sit on
+ * a bottom toolbar within thumb reach, which is where Obsidian mobile puts them
+ * and where a thumb can actually reach.
  *
  * Neither is derived from the other. What is shared is the layer underneath:
  * the menu items, the drop rules, the tab model and the ranking are one
@@ -96,9 +97,17 @@ export interface FrameApi {
    * second ⌘B that never once touched the explorer.
    */
   toggleExplorer: () => void;
-  /** ⌘B. Collapses the rail to its marks on a wide window. */
+  /**
+   * ⌘B, and the switcher in the top bar.
+   *
+   * Collapses the rail to its marks on a pointer layout and pulls it in as a
+   * sheet on a phone — `railToggleFor` owns which, for the same reason
+   * `explorerToggleFor` owns the other one.
+   */
   toggleRail: () => void;
   closeDrawer: () => void;
+  /** Dismisses the rail sheet. A no-op at any density where the rail is a column. */
+  closeNav: () => void;
   setExplorerWidth: (width: number) => void;
   /**
    * True on a phone: choosing a note has to dismiss the drawer, because the
@@ -129,6 +138,7 @@ export function useFrame(): FrameApi {
       toggleExplorer: noop,
       toggleRail: noop,
       closeDrawer: noop,
+      closeNav: noop,
       setExplorerWidth: noop,
       closesOnSelect: closesOnSelect(fallbackDensity),
     }
@@ -148,7 +158,16 @@ export interface AppFrameProps {
   topTrailing?: ReactNode;
   /** Opens the palette. Renders the search field on web, a button on touch. */
   onSearch?: () => void;
-  /** The rail, told how much room it has. Absent at compact. */
+  /**
+   * The rail, told how much room it has.
+   *
+   * Mounted at every density — as a column on a pointer layout and as a sheet
+   * over the editor on a phone, where it is asked for `full` because a sheet
+   * has the width for labels. It is not optional and must not become so: the
+   * app-level panes, the other contexts and sign-out are reachable through this
+   * node and no other, so a density that does not render it is a density you
+   * cannot navigate out of.
+   */
   rail: (mode: "full" | "icons") => ReactNode;
   /**
    * The file tree, rendered as a column or inside the drawer.
@@ -191,16 +210,40 @@ export function AppFrame({
   const toggleExplorer = useCallback(() => {
     setState((current) => {
       const field = explorerToggleFor(densityFor(width));
-      return field === null ? current : { ...current, [field]: !current[field] };
+      if (field === null) return current;
+      // The two compact panels share a place on the screen and a scrim, so
+      // raising one puts the other away. `frame.ts` resolves a state carrying
+      // both, but a resolution nobody can reach is the point.
+      return { ...current, navOpen: false, [field]: !current[field] };
     });
   }, [width]);
 
   const toggleRail = useCallback(
-    () => setState((current) => ({ ...current, railCollapsed: !current.railCollapsed })),
-    [],
+    () =>
+      setState((current) => {
+        const field = railToggleFor(densityFor(width));
+        return field === "navOpen"
+          ? { ...current, drawerOpen: false, navOpen: !current.navOpen }
+          : { ...current, railCollapsed: !current.railCollapsed };
+      }),
+    [width],
   );
   const closeDrawer = useCallback(
     () => setState((current) => (current.drawerOpen ? { ...current, drawerOpen: false } : current)),
+    [],
+  );
+  const closeNav = useCallback(
+    () => setState((current) => (current.navOpen ? { ...current, navOpen: false } : current)),
+    [],
+  );
+  /** The scrim covers whichever panel is up, so it dismisses whichever panel is up. */
+  const closeOverlays = useCallback(
+    () =>
+      setState((current) =>
+        current.drawerOpen || current.navOpen
+          ? { ...current, drawerOpen: false, navOpen: false }
+          : current,
+      ),
     [],
   );
   const setExplorerWidth = useCallback(
@@ -217,10 +260,20 @@ export function AppFrame({
       toggleExplorer,
       toggleRail,
       closeDrawer,
+      closeNav,
       setExplorerWidth,
       closesOnSelect: closesOnSelect(density),
     }),
-    [density, regions, state, toggleExplorer, toggleRail, closeDrawer, setExplorerWidth],
+    [
+      density,
+      regions,
+      state,
+      toggleExplorer,
+      toggleRail,
+      closeDrawer,
+      closeNav,
+      setExplorerWidth,
+    ],
   );
 
   const compact = density === "compact";
@@ -248,7 +301,34 @@ export function AppFrame({
             />
           ) : null}
 
-          <View style={styles.topLead}>{switcher}</View>
+          {/*
+            The switcher is the way into the rail on a phone.
+
+            Not a second `☰` beside the tree's: two identical glyphs in a 390px
+            bar opening two different panels is a coin toss, and one of them
+            does not exist on Map or Connections. The chip already names the
+            scope you are in — "All contexts", "@seyi · personal" — which is
+            exactly what a workspace switcher says, so pressing it to change
+            that scope is the behaviour it was already advertising. Its own
+            text stays the accessible name; only `aria-expanded` is added, so a
+            screen reader still hears which context this is.
+          */}
+          {regions.navToggle ? (
+            <Pressable
+              onPress={toggleRail}
+              role="button"
+              aria-expanded={state.navOpen}
+              testID="frame-nav-toggle"
+              style={styles.topLead}
+            >
+              {switcher}
+              <Text style={styles.navChevron} aria-hidden>
+                {state.navOpen ? "\u2303" : "\u2304"}
+              </Text>
+            </Pressable>
+          ) : (
+            <View style={styles.topLead}>{switcher}</View>
+          )}
 
           {/*
             Search sits in the top bar where there is a pointer and in the
@@ -262,7 +342,7 @@ export function AppFrame({
         </View>
 
         <View style={styles.body}>
-          {regions.rail !== "hidden" ? (
+          {regions.rail === "full" || regions.rail === "icons" ? (
             <View
               style={[styles.rail, regions.rail === "icons" && styles.railIcons]}
               role="navigation"
@@ -290,8 +370,8 @@ export function AppFrame({
           {regions.scrim ? (
             <Pressable
               style={styles.scrim}
-              onPress={closeDrawer}
-              accessibilityLabel="Close the file tree"
+              onPress={closeOverlays}
+              accessibilityLabel="Close this panel"
               testID="frame-scrim"
             />
           ) : null}
@@ -299,6 +379,23 @@ export function AppFrame({
           {regions.explorer === "drawer" ? (
             <View style={styles.drawer} testID="frame-drawer">
               {explorer}
+            </View>
+          ) : null}
+
+          {/*
+            The rail, over the editor rather than beside it. Full labels, not
+            the icon rail: a sheet has the width, and a phone has no hover to
+            recover a glyph's meaning with. It carries the account block too,
+            which is why sign-out has been unreachable on a phone.
+          */}
+          {regions.rail === "sheet" ? (
+            <View
+              style={styles.navSheet}
+              role="navigation"
+              aria-label="Console"
+              testID="frame-nav-sheet"
+            >
+              {rail("full")}
             </View>
           ) : null}
         </View>
@@ -544,6 +641,24 @@ const styles = StyleSheet.create({
     left: 0,
     backgroundColor: "rgba(0,0,0,.55)",
   },
+  /**
+   * The rail as a panel. Same geometry as the tree's drawer — they are the same
+   * gesture from the same edge — but its own style, because the two are allowed
+   * to diverge and sharing one would make that a rename rather than an edit.
+   */
+  navSheet: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    width: "86%",
+    maxWidth: 300,
+    borderRightWidth: 1,
+    borderRightColor: colors.lineStrong,
+    backgroundColor: colors.surface,
+    boxShadow: "24px 0 60px -20px rgba(0,0,0,.9)",
+  },
+  navChevron: { color: colors.muted, fontSize: 11 },
   drawer: {
     position: "absolute",
     top: 0,

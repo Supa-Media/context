@@ -211,6 +211,75 @@ describe("a phone", () => {
     app.unmount();
   });
 
+  test("the switcher opens the rail as a sheet, over a scrim", () => {
+    // The bug: signing in lands on Map, which has no explorer, so the drawer
+    // button is absent — and the rail was never mounted at this width. The
+    // whole screen was one pane and no way off it.
+    const app = mountFrame(390);
+
+    expect(app.find("frame-nav-toggle")).not.toBeNull();
+    expect(app.find("rail-full")).toBeNull();
+
+    app.press("frame-nav-toggle");
+
+    expect(app.find("frame-nav-sheet")).not.toBeNull();
+    // `full`, not `icons`: a sheet has the width, and a phone has no hover to
+    // recover a glyph's meaning with.
+    expect(app.find("rail-full")).not.toBeNull();
+    expect(app.find("frame-scrim")).not.toBeNull();
+
+    app.unmount();
+  });
+
+  test("the sheet keeps the switcher's own text as its accessible name", () => {
+    const app = mountFrame(390);
+    const toggle = app.find("frame-nav-toggle")!;
+
+    // An `aria-label` here would replace "@seyi" with a generic word, so a
+    // screen reader would stop announcing which context you are in.
+    expect(toggle.getAttribute("aria-label")).toBeNull();
+    expect(toggle.textContent).toContain("@seyi");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    app.press("frame-nav-toggle");
+    expect(app.find("frame-nav-toggle")!.getAttribute("aria-expanded")).toBe("true");
+
+    app.unmount();
+  });
+
+  test("the scrim closes the sheet, and so does the switcher again", () => {
+    const app = mountFrame(390);
+
+    app.press("frame-nav-toggle");
+    app.press("frame-scrim");
+    expect(app.find("frame-nav-sheet")).toBeNull();
+    expect(app.find("frame-scrim")).toBeNull();
+
+    app.press("frame-nav-toggle");
+    expect(app.find("frame-nav-sheet")).not.toBeNull();
+    app.press("frame-nav-toggle");
+    expect(app.find("frame-nav-sheet")).toBeNull();
+
+    app.unmount();
+  });
+
+  test("raising one panel puts the other away", () => {
+    // They come in from the same edge under the same scrim. Two at once is a
+    // panel hidden behind a panel.
+    const app = mountFrame(390);
+
+    app.press("frame-nav-toggle");
+    app.press("frame-drawer-toggle");
+    expect(app.find("frame-drawer")).not.toBeNull();
+    expect(app.find("frame-nav-sheet")).toBeNull();
+
+    app.press("frame-nav-toggle");
+    expect(app.find("frame-nav-sheet")).not.toBeNull();
+    expect(app.find("frame-drawer")).toBeNull();
+
+    app.unmount();
+  });
+
   test("search is on the toolbar, not doubled into the top bar", () => {
     // The one screen with least room must not carry the same control twice.
     const app = mountFrame(390);
@@ -238,6 +307,15 @@ describe("a desktop", () => {
     expect(app.find("frame-scrim")).toBeNull();
     expect(app.find("bottom")).toBeNull();
     expect(app.find("frame-drawer-toggle")).toBeNull();
+
+    app.unmount();
+  });
+
+  test("has no sheet and no control to raise one — the rail is already there", () => {
+    const app = mountFrame(1440);
+
+    expect(app.find("frame-nav-toggle")).toBeNull();
+    expect(app.find("frame-nav-sheet")).toBeNull();
 
     app.unmount();
   });
@@ -500,6 +578,22 @@ describe("what toggling the explorer means", () => {
     app.press("probe-toggle-rail");
     expect(app.find("rail-icons")).not.toBeNull();
     expect(app.find("rail-full")).toBeNull();
+
+    app.unmount();
+  });
+
+  test("⌘B on a phone brings the rail in, because there is nothing to collapse", () => {
+    // It used to set `railCollapsed`, which no compact layout reads — so the
+    // one surface with no other way to navigate had a navigation chord that
+    // did nothing at all.
+    const app = mountFrame(390, createElement(RailProbe));
+
+    app.press("probe-toggle-rail");
+    expect(app.find("frame-nav-sheet")).not.toBeNull();
+    expect(app.find("rail-full")).not.toBeNull();
+
+    app.press("probe-toggle-rail");
+    expect(app.find("frame-nav-sheet")).toBeNull();
 
     app.unmount();
   });

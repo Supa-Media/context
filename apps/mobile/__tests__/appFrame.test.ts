@@ -21,6 +21,7 @@ import {
   densityFor,
   explorerToggleFor,
   initialFrame,
+  railToggleFor,
   regionsFor,
   type Density,
   type FrameState,
@@ -34,13 +35,15 @@ function everyFrame(): { density: Density; state: FrameState; hasExplorer: boole
   const frames: { density: Density; state: FrameState; hasExplorer: boolean }[] = [];
   for (const density of DENSITIES) {
     for (const drawerOpen of [false, true]) {
-      for (const railCollapsed of [false, true]) {
-        for (const hasExplorer of [false, true]) {
-          frames.push({
-            density,
-            hasExplorer,
-            state: { drawerOpen, railCollapsed, explorerWidth: layout.explorerWidth },
-          });
+      for (const navOpen of [false, true]) {
+        for (const railCollapsed of [false, true]) {
+          for (const hasExplorer of [false, true]) {
+            frames.push({
+              density,
+              hasExplorer,
+              state: { drawerOpen, navOpen, railCollapsed, explorerWidth: layout.explorerWidth },
+            });
+          }
         }
       }
     }
@@ -118,10 +121,33 @@ describe("regions", () => {
   /*  The two invariants. Both are one careless edit away, in either file.   */
   /* ---------------------------------------------------------------------- */
 
+  test("the scrim is there exactly when a panel is over the editor", () => {
+    for (const { density, state, hasExplorer } of everyFrame()) {
+      const regions = regionsFor(density, state, { hasExplorer });
+      expect(regions.scrim).toBe(regions.explorer === "drawer" || regions.rail === "sheet");
+    }
+  });
+
   test("the explorer is never a column and a drawer at once", () => {
     for (const { density, state, hasExplorer } of everyFrame()) {
       const regions = regionsFor(density, state, { hasExplorer });
-      expect(regions.scrim).toBe(regions.explorer === "drawer");
+      expect(regions.explorer === "column" && regions.scrim).toBe(false);
+    }
+  });
+
+  test("the rail sheet and the explorer drawer are never up together", () => {
+    // They come in from the same edge, over the same region, under the one
+    // scrim. Two of them is a panel you cannot see behind a panel you can.
+    for (const { density, state, hasExplorer } of everyFrame()) {
+      const regions = regionsFor(density, state, { hasExplorer });
+      expect(regions.rail === "sheet" && regions.explorer === "drawer").toBe(false);
+    }
+  });
+
+  test("the rail is a sheet only where it is not a column", () => {
+    for (const { density, state, hasExplorer } of everyFrame()) {
+      const regions = regionsFor(density, state, { hasExplorer });
+      if (regions.rail === "sheet") expect(density).toBe("compact");
     }
   });
 
@@ -135,6 +161,25 @@ describe("regions", () => {
   test("there is no density with nothing to read", () => {
     for (const { density, state, hasExplorer } of everyFrame()) {
       expect(regionsFor(density, state, { hasExplorer }).editor).toBe(true);
+    }
+  });
+
+  test("every density has a way to reach the rail", () => {
+    // The bug this pins: `compact` answered `rail: "hidden"` and offered
+    // nothing in its place, so a phone had the pane it landed on and no way to
+    // leave it — Map, Connections, every other context and sign-out all live
+    // in the rail. Either the rail is on the screen or there is a control that
+    // brings it in. Never neither.
+    for (const { density, state, hasExplorer } of everyFrame()) {
+      const regions = regionsFor(density, state, { hasExplorer });
+      expect(regions.rail !== "hidden" || regions.navToggle).toBe(true);
+    }
+  });
+
+  test("the nav control exists exactly where the rail is not already a column", () => {
+    for (const { density, state, hasExplorer } of everyFrame()) {
+      const regions = regionsFor(density, state, { hasExplorer });
+      expect(regions.navToggle).toBe(density === "compact");
     }
   });
 
@@ -191,6 +236,42 @@ describe("a route with no file tree", () => {
   });
 });
 
+describe("the rail on a phone", () => {
+  test("is reachable from the top bar even on a pane with no tree", () => {
+    // Map and Connections are exactly where signing in lands you, and they have
+    // no explorer — so the drawer button is absent and this control is the only
+    // navigation on the screen.
+    const regions = regionsFor("compact", initialFrame, { hasExplorer: false });
+    expect(regions.navToggle).toBe(true);
+    expect(regions.drawerToggle).toBe(false);
+    expect(regions.rail).toBe("hidden");
+  });
+
+  test("comes in as a sheet, over a scrim", () => {
+    const regions = regionsFor("compact", { ...initialFrame, navOpen: true });
+    expect(regions.rail).toBe("sheet");
+    expect(regions.scrim).toBe(true);
+    expect(regions.explorer).toBe("hidden");
+  });
+
+  test("wins over a drawer that state says is also open", () => {
+    // The toggles clear each other, so this state is unreachable through the
+    // UI. Resolving it anyway is what keeps the invariants above total.
+    const both: FrameState = { ...initialFrame, navOpen: true, drawerOpen: true };
+    const regions = regionsFor("compact", both);
+    expect(regions.rail).toBe("sheet");
+    expect(regions.explorer).toBe("hidden");
+    expect(regions.scrim).toBe(true);
+  });
+
+  test("a sheet left open does not leak into a layout that has a column", () => {
+    const stale: FrameState = { ...initialFrame, navOpen: true };
+    expect(regionsFor("medium", stale).rail).toBe("icons");
+    expect(regionsFor("wide", stale).rail).toBe("full");
+    expect(regionsFor("wide", stale).scrim).toBe(false);
+  });
+});
+
 describe("explorer width", () => {
   test("held between the floor and the ceiling", () => {
     expect(clampExplorerWidth(300)).toBe(300);
@@ -218,6 +299,16 @@ describe("toggling", () => {
     expect(explorerToggleFor("compact")).toBe("drawerOpen");
     expect(explorerToggleFor("medium")).toBeNull();
     expect(explorerToggleFor("wide")).toBeNull();
+  });
+
+  test("the rail command means bring it in on a phone and collapse it on a pointer", () => {
+    // Never null: every density has a rail, so ⌘B always means something. It
+    // used to toggle `railCollapsed` at compact, which is a preference no
+    // compact layout reads — the command was a no-op on the one surface with
+    // no other way to navigate.
+    expect(railToggleFor("compact")).toBe("navOpen");
+    expect(railToggleFor("medium")).toBe("railCollapsed");
+    expect(railToggleFor("wide")).toBe("railCollapsed");
   });
 
   test("choosing a note closes the drawer, and only the drawer", () => {

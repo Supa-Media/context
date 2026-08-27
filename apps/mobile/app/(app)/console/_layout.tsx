@@ -28,6 +28,7 @@ import {
   resolveContextRoute,
   routeForPath,
   sameRoute,
+  type ConsoleRoute,
 } from "../../../features/console/nav";
 import { selectedContext, type ConsoleData } from "../../../features/console/types";
 import { useKeymap } from "../../../features/design/useKeymap";
@@ -139,20 +140,7 @@ export default function ConsoleLayout() {
         }
         topTrailing={<StorageChip data={data} />}
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
-        rail={(mode) => (
-          <ConsoleRail
-            data={data}
-            route={route}
-            mode={mode}
-            onNavigate={(next) => {
-              // Pressing the rail entry you are already on should do nothing,
-              // not re-enter the route — which on a context would reset the
-              // file browser out from under an open note.
-              if (!sameRoute(next, route)) router.replace(hrefFor(next));
-            }}
-            account={<Account data={data} compact={mode === "icons"} />}
-          />
-        )}
+        rail={(mode) => <Rail data={data} route={route} mode={mode} />}
         explorer={
           insideContext ? (
             <Explorer
@@ -407,6 +395,48 @@ function Shortcuts({
 const NUMBERED_TABS = [
   "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8", "tab9",
 ] as const;
+
+/**
+ * The rail, wired to the router — and, on a phone, to the sheet it is inside.
+ *
+ * A component rather than an inline node in the slot, because it needs
+ * `useFrame`, and the slot is rendered *inside* `AppFrame`'s provider while the
+ * layout that passes it is above it.
+ *
+ * Choosing a destination dismisses the sheet, for the same reason choosing a
+ * note dismisses the tree drawer: on a phone the panel is covering the thing
+ * you just asked for. It dismisses even when the destination is the route you
+ * are already on — you asked for that pane, and a sheet that stays put because
+ * the router had nothing to do reads as a dead press.
+ */
+function Rail({
+  data,
+  route,
+  mode,
+}: {
+  data: ConsoleData;
+  route: ConsoleRoute;
+  mode: "full" | "icons";
+}) {
+  const frame = useFrame();
+  const router = useRouter();
+
+  return (
+    <ConsoleRail
+      data={data}
+      route={route}
+      mode={mode}
+      onNavigate={(next) => {
+        frame.closeNav();
+        // Pressing the rail entry you are already on should do nothing, not
+        // re-enter the route — which on a context would reset the file browser
+        // out from under an open note.
+        if (!sameRoute(next, route)) router.replace(hrefFor(next));
+      }}
+      account={<Account data={data} compact={mode === "icons"} />}
+    />
+  );
+}
 
 /**
  * The thumb's half of the console.
