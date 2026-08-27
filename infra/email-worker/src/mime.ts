@@ -575,15 +575,24 @@ function base64Decode(value: string): Uint8Array | null {
  * to get right, and to read, as a loop.
  */
 function quotedPrintableDecode(value: string, underscoreIsSpace = false): Uint8Array {
-  const out: number[] = [];
+  // Pre-sized, not a `number[]` grown by `push`.
+  //
+  // Output is never longer than input — every branch consumes at least one
+  // character and emits at most one byte — so one allocation of `value.length`
+  // is both sufficient and an upper bound. The array-of-numbers version cost
+  // roughly 147 MB of heap for a 5 MB body, in a 128 MB isolate that concurrent
+  // deliveries share. An OOM there is not the `parse_failed` this module
+  // promises: the isolate dies and takes its neighbours with it.
+  const out = new Uint8Array(value.length);
+  let outLength = 0;
   for (let index = 0; index < value.length; index += 1) {
     const char = value[index]!;
     if (char === "_" && underscoreIsSpace) {
-      out.push(0x20);
+      out[outLength++] = 0x20;
       continue;
     }
     if (char !== "=") {
-      out.push(char.charCodeAt(0) & 0xff);
+      out[outLength++] = char.charCodeAt(0) & 0xff;
       continue;
     }
     const next = value[index + 1];
@@ -597,15 +606,15 @@ function quotedPrintableDecode(value: string, underscoreIsSpace = false): Uint8A
     }
     const hex = value.slice(index + 1, index + 3);
     if (/^[0-9a-fA-F]{2}$/.test(hex)) {
-      out.push(parseInt(hex, 16));
+      out[outLength++] = parseInt(hex, 16);
       index += 2;
       continue;
     }
     // Not a valid escape. RFC 2045 says this is illegal; every real client
     // renders it literally, and so do we.
-    out.push(0x3d);
+    out[outLength++] = 0x3d;
   }
-  return Uint8Array.from(out);
+  return out.subarray(0, outLength);
 }
 
 function decodeTransfer(body: string, encoding: string): Uint8Array {
@@ -682,6 +691,17 @@ function decodeExtendedParam(value: string): string {
  * Parse a `Content-Type` / `Content-Disposition` value, resolving RFC 2231
  * continuations (`name*0`, `name*1`, …) and extended values (`name*`).
  */
+/**
+ * The bare token of a `Content-Disposition`, lowercased, or "".
+ *
+ * Separate from `parseContentType` because a disposition is not a media type:
+ * it has no `/`, so the media-type validator can only ever reject it.
+ */
+function dispositionToken(value: string): string {
+  const token = (splitParams(value)[0] || "").trim().toLowerCase();
+  return /^[a-z0-9!#$&^_.+-]+$/.test(token) ? token : "";
+}
+
 export function parseContentType(value: string): ContentType {
   const pieces = splitParams(value);
   const type = (pieces[0] || "").trim().toLowerCase();
@@ -850,7 +870,17 @@ function walkEntity(source: string, depth: number, state: WalkState): void {
   const headers = parseHeaders(head, state.limits, state.problems);
   const contentType = parseContentType(headerValue(headers, "content-type") || "text/plain");
   const dispositionRaw = parseContentType(headerValue(headers, "content-disposition"));
-  const disposition = dispositionRaw.type;
+  // The params come from `parseContentType`; the token does NOT.
+  //
+  // A disposition is a bare token — `attachment`, `inline` — with no slash, so
+  // `parseContentType`'s `type/subtype` validation rejected every one of them
+  // and `type` was always "". That made both `leaf.disposition !== "attachment"`
+  // tests below constant `true`, leaving only their `!leaf.filename` half doing
+  // any work. Nothing caught it because every attachment fixture supplies a
+  // filename; the case that escaped was an attached part with none, which won
+  // inline selection and became the note body while also being dropped from the
+  // attachment list.
+  const disposition = dispositionToken(headerValue(headers, "content-disposition"));
 
   if (contentType.type.startsWith("multipart/")) {
     const boundary = contentType.params.boundary;

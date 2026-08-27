@@ -486,3 +486,49 @@ describe("ARC headers carry their position and their foldedness", () => {
     expect(parsed.arcAuthenticationResults[0]!.value).toContain("dmarc=pass");
   });
 });
+
+describe("a Content-Disposition token is parsed as a token, not a media type", () => {
+  it("reads `attachment` even with no filename, so the guards that test it work", () => {
+    // The regression: `Content-Disposition` went through `parseContentType`,
+    // whose `type/subtype` validation no disposition can satisfy — a
+    // disposition is a bare token with no slash. So `disposition` was always
+    // "" and both `leaf.disposition !== "attachment"` guards were constant
+    // `true`, leaving only their `!leaf.filename` half doing any work.
+    //
+    // Nothing caught it because every attachment fixture supplies a filename.
+    // Without one, this attached part won inline selection and BECAME the note
+    // body, while also being dropped from the attachment list — so the real
+    // body never appeared and nothing recorded that a second part had existed.
+    const raw =
+      `From: alice@example.com\n` +
+      `Content-Type: multipart/mixed; boundary="bnd"\n\n` +
+      `--bnd\n` +
+      `Content-Type: text/plain\n` +
+      `Content-Disposition: attachment\n\n` +
+      `SECRET-ATTACHED-TEXT\n` +
+      `--bnd\n` +
+      `Content-Type: text/plain\n\n` +
+      `the real body\n` +
+      `--bnd--\n`;
+    const parsed = parse(raw);
+    expect(parsed.text).toBe("the real body");
+    expect(parsed.text).not.toContain("SECRET-ATTACHED-TEXT");
+  });
+
+  it("keeps the parameters, so a filename on an attachment still reaches the list", () => {
+    const raw =
+      `From: alice@example.com\n` +
+      `Content-Type: multipart/mixed; boundary="bnd"\n\n` +
+      `--bnd\n` +
+      `Content-Type: text/plain\n\n` +
+      `the real body\n` +
+      `--bnd\n` +
+      `Content-Type: application/pdf\n` +
+      `Content-Disposition: attachment; filename="report.pdf"\n\n` +
+      `%PDF-1.4\n` +
+      `--bnd--\n`;
+    const parsed = parse(raw);
+    expect(parsed.text).toBe("the real body");
+    expect(parsed.attachments.map((a) => a.filename)).toContain("report.pdf");
+  });
+});
