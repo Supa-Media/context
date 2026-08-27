@@ -12,6 +12,7 @@ import type * as auth from "../auth.js";
 import type * as crons from "../crons.js";
 import type * as functions_audit from "../functions/audit.js";
 import type * as functions_authorizations from "../functions/authorizations.js";
+import type * as functions_cloudflare from "../functions/cloudflare.js";
 import type * as functions_controlPlane from "../functions/controlPlane.js";
 import type * as functions_files from "../functions/files.js";
 import type * as functions_grants from "../functions/grants.js";
@@ -20,6 +21,7 @@ import type * as functions_ingestionGateway from "../functions/ingestionGateway.
 import type * as functions_invitationEmail from "../functions/invitationEmail.js";
 import type * as functions_invitations from "../functions/invitations.js";
 import type * as functions_lib_audit from "../functions/lib/audit.js";
+import type * as functions_lib_cloudflare from "../functions/lib/cloudflare.js";
 import type * as functions_lib_crypto from "../functions/lib/crypto.js";
 import type * as functions_lib_fileOps from "../functions/lib/fileOps.js";
 import type * as functions_lib_gatewayAuth from "../functions/lib/gatewayAuth.js";
@@ -51,6 +53,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   "functions/audit": typeof functions_audit;
   "functions/authorizations": typeof functions_authorizations;
+  "functions/cloudflare": typeof functions_cloudflare;
   "functions/controlPlane": typeof functions_controlPlane;
   "functions/files": typeof functions_files;
   "functions/grants": typeof functions_grants;
@@ -59,6 +62,7 @@ declare const fullApi: ApiFromModules<{
   "functions/invitationEmail": typeof functions_invitationEmail;
   "functions/invitations": typeof functions_invitations;
   "functions/lib/audit": typeof functions_lib_audit;
+  "functions/lib/cloudflare": typeof functions_lib_cloudflare;
   "functions/lib/crypto": typeof functions_lib_crypto;
   "functions/lib/fileOps": typeof functions_lib_fileOps;
   "functions/lib/gatewayAuth": typeof functions_lib_gatewayAuth;

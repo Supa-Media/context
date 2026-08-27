@@ -542,6 +542,26 @@ describe("no public function can reach a storage secret", () => {
       // Builds a real S3Store to probe the bucket a user just connected.
       // Reached only by a schedule edge from bindStorage.
       "functions.provisioning.verifyStorageBinding",
+      // THE SECOND KIND OF CREDENTIAL, AND THE ONLY FUNCTION THAT OPENS ONE.
+      //
+      // Everything else in this list decrypts a *storage* key — a credential
+      // scoped to one bucket. This one decrypts the customer's **Cloudflare
+      // account** credential, which is strictly more powerful: it can create
+      // buckets and mint further credentials. It is here because there is no
+      // way to create a bucket in somebody's account without briefly holding
+      // something that may act on that account, and the alternative is that
+      // the product only works for people who already know R2.
+      //
+      // What bounds it: the envelope exists for one attempt and one attempt
+      // only. `beginProvisioning` writes it, this opens it, and the row
+      // carrying it is deleted on success and stripped of it on failure — so
+      // unlike a storage binding there is no steady state in which the
+      // control plane holds an account-level Cloudflare credential at all.
+      // internalAction, reached only by a schedule edge from
+      // `beginProvisioning`, and `__tests__/cloudflare.test.ts` asserts
+      // behaviourally that the token appears in no table and in no public
+      // return value.
+      "functions.cloudflare.provisionCloudflareStorage",
       // THE FILE EDITOR'S CREDENTIAL BARRIER. Builds one S3Store for one
       // file operation and hands it to lib/fileOps.ts, which never sees the
       // credential. internalAction, and the only member of
@@ -680,7 +700,16 @@ describe("no public function can reach a storage secret", () => {
    * It reads the validator Convex will actually enforce, not the source.
    */
   test("no public function declares a credential field in its return validator", () => {
-    const forbidden = ["secretaccesskey", "encryptedsecretaccesskey"];
+    // `encryptedsetupcredential` is the Cloudflare provisioning envelope. It
+    // seals a credential that can create buckets and mint further credentials
+    // in a customer's cloud account, so it belongs here for the same reason the
+    // storage envelope does: an opaque value is still the credential, with an
+    // offline step in front of it.
+    const forbidden = [
+      "secretaccesskey",
+      "encryptedsecretaccesskey",
+      "encryptedsetupcredential",
+    ];
     for (const [globKey, module] of Object.entries(LIVE_MODULES)) {
       for (const [name, value] of Object.entries(module ?? {})) {
         const classification = classify(value);
