@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { act, createElement, useEffect, useRef, type ReactElement } from "react";
+import { act, createElement, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { ConvexProvider } from "convex/react";
 import type { Id } from "@context/convex/_generated/dataModel";

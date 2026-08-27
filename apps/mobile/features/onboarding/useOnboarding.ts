@@ -51,7 +51,6 @@ import {
   validateCustomFolders,
   type CustomFolderRow,
   type FolderErrors,
-  type StructureFolderSpec,
   type StructureStep,
   type StructureTemplate,
 } from "./structure";

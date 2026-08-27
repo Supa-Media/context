@@ -12,4 +12,14 @@ jobs:
     with:
       app-slug: "context"
       strictness: "standard"
+      # `ci / Lint` reported "skipping" on every PR for months. Nothing was
+      # filtered out by paths — the reusable workflow's lint job is guarded only
+      # by `if: inputs.lint-command != ''`, and this caller never passed one, so
+      # the job could not run at all. A check that is green because it did not
+      # execute is the failure this project keeps meeting.
+      lint-command: "pnpm --filter @context/mobile lint"
+      # And the second half of the same trap: `lint-continue-on-error` defaults
+      # to **true** upstream, so even once the job runs, a lint failure would be
+      # reported as a pass. It must block.
+      lint-continue-on-error: false
     secrets: inherit

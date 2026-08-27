@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
-import { Card, Grow, Row } from "../../design/components/Card";
+import { Card, Row } from "../../design/components/Card";
 import { Dot } from "../../design/components/Dot";
 import { Check, FieldGrid } from "../../design/components/Field";
 import { FormError, Notice } from "../../design/components/Input";
