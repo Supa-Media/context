@@ -18,6 +18,26 @@ describe("totalNotes", () => {
     expect(totalNotes([{}, {}])).toBeNull();
   });
 
+  /**
+   * The three inputs are three different facts and must stay that way.
+   *
+   * `undefined` is a context whose binding query has not landed or has errored.
+   * Read as `null` — "no bucket" — it silently vanished from the sum, so the
+   * first paint of a multi-context console printed an *exact* total that was
+   * missing a whole bucket, then corrected itself. An unknown makes the total a
+   * floor; only a genuine absence is worth zero.
+   */
+  test("a context still loading is an unknown, not an absence", () => {
+    expect(totalNotes([{ noteCount: 40 }, undefined])).toEqual({
+      notes: 40,
+      partial: true,
+    });
+    expect(totalNotes([{ noteCount: 40 }, null])).toEqual({
+      notes: 40,
+      partial: false,
+    });
+  });
+
   test("a counted, complete walk is exact", () => {
     expect(totalNotes([{ noteCount: 1284, noteCountTruncated: false }])).toEqual({
       notes: 1284,

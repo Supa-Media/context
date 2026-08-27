@@ -204,13 +204,17 @@ export function useLiveConsoleData(): ConsoleData {
     ),
   }));
 
-  // One entry per reachable context, `null` where there is no bucket at all —
-  // which `totalNotes` needs in order to tell "no notes" from "nobody looked".
+  // One entry per reachable context, and all three cases kept apart: the
+  // binding, `null` for a context with no bucket, `undefined` for one whose
+  // query has not landed or has errored. `?? null` here read every
+  // still-loading context as bucketless, so the first paint printed an exact
+  // total missing a whole bucket's notes. See `noteTotals.ts`.
   const notes = totalNotes(
-    (workspaces ?? []).map(
-      (workspace) =>
-        usable<StorageBinding | null>(results[`storage:${workspace.workspaceId}`]) ?? null,
-    ),
+    (workspaces ?? []).map((workspace) => {
+      const result = results[`storage:${workspace.workspaceId}`];
+      if (result === undefined || result instanceof Error) return undefined;
+      return (result as StorageBinding | null) ?? null;
+    }),
   );
 
   const activeGrants: GrantSummary[] = (workspaces ?? []).flatMap((workspace) =>
@@ -281,6 +285,9 @@ export function useLiveConsoleData(): ConsoleData {
           rootPrefix: binding.rootPrefix,
           accessKey: binding.maskedAccessKeyId,
           conditionalWrite: binding.capabilities.conditionalWrite,
+          noteCount: binding.noteCount,
+          noteCountedAt: binding.noteCountedAt,
+          noteCountTruncated: binding.noteCountTruncated,
           forcePathStyle: binding.forcePathStyle,
           // `objectCount`, `paraPresent` and `versioningOn` are deliberately
           // not set. Nothing has counted this bucket, looked for PARA folders,

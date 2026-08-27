@@ -84,6 +84,8 @@ export async function countNotes(
 
   let notes = 0;
   let pages = 0;
+  /** A folder the adapter refused. The total is a floor, not a failure. */
+  let unwalked = false;
   const folders: string[] = [];
 
   try {
@@ -111,26 +113,41 @@ export async function countNotes(
     // Then flat inside each real folder. Plumbing nested deeper — a `.trash/`
     // under a project — is still caught, because `isNoteKey` looks at every
     // segment rather than just the first.
+    //
+    // Each folder is walked inside its own `try`, and that is not tidiness. The
+    // prefix here is a **folder name the customer chose**, handed straight back
+    // to the adapter, where `assertSafePrefix` throws on a backslash, a control
+    // character or a `.`/`..` segment. Under one outer catch a single oddly
+    // named folder took the whole count down to `null` — permanently, and
+    // silently, for the one bucket most likely to be somebody's real vault. A
+    // folder we cannot walk makes the total a floor instead, which is exactly
+    // what a floor is for.
     for (const folder of folders) {
       let folderCursor: string | undefined = undefined;
-      for (;;) {
-        if (pages >= pageCap) return { notes, truncated: true };
-        const listing: Awaited<ReturnType<ScaffoldStore["list"]>> = await store.list({
-          prefix: folder,
-          cursor: folderCursor,
-          limit: pageSize,
-        });
-        pages += 1;
-        for (const object of listing.objects ?? []) {
-          if (isNoteKey(object.key)) notes += 1;
+      try {
+        for (;;) {
+          if (pages >= pageCap) return { notes, truncated: true };
+          const listing: Awaited<ReturnType<ScaffoldStore["list"]>> = await store.list({
+            prefix: folder,
+            cursor: folderCursor,
+            limit: pageSize,
+          });
+          pages += 1;
+          for (const object of listing.objects ?? []) {
+            if (isNoteKey(object.key)) notes += 1;
+          }
+          if (!listing.truncated || !listing.cursor) break;
+          folderCursor = listing.cursor;
         }
-        if (!listing.truncated || !listing.cursor) break;
-        folderCursor = listing.cursor;
+      } catch {
+        unwalked = true;
       }
     }
   } catch {
+    // The root itself would not list. Nothing here is worth reporting: a zero
+    // would say this context is empty on the strength of a network error.
     return null;
   }
 
-  return { notes, truncated: false };
+  return { notes, truncated: unwalked };
 }

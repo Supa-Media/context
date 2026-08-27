@@ -21,6 +21,15 @@
  * unknown: there is no bucket, so there are no notes, and counting it as
  * missing would mark every total on a half-connected account as a floor
  * forever.
+ *
+ * ## `null` and `undefined` mean different things here, and must
+ *
+ * `null` is "this context has no bucket" — a fact, worth zero. `undefined` is
+ * "we do not know what this context has": the query has not landed, or it
+ * errored. Collapsing them was a real bug on every first paint — a context
+ * still loading counted as bucketless, so the tile printed an *exact* total
+ * that was missing a whole bucket's notes, and then corrected itself a moment
+ * later. An unknown makes the total a floor, which is what a floor is for.
  */
 
 /** The fields of a storage binding this cares about. */
@@ -43,29 +52,45 @@ export interface NotesTotal {
  * kept inventing numbers for everyone else. A tile that can only ever say "we
  * do not know" is worse than one that is not there.
  *
- * Takes one entry per reachable context — `null` for a context with no storage
- * binding — so the difference between "no bucket" and "a bucket nobody has
- * walked" survives into the answer.
+ * Takes one entry per reachable context: the binding, `null` for a context with
+ * no storage binding, or `undefined` for one whose binding we cannot see yet.
+ * All three are distinct — see the header.
  */
 export function totalNotes(
   bindings: ReadonlyArray<CountedBinding | null | undefined>,
 ): NotesTotal | null {
   let notes = 0;
   let counted = 0;
-  let bound = 0;
+  /** Contexts whose notes are real and are not in `notes`. */
+  let missing = 0;
   let truncated = false;
 
   for (const binding of bindings) {
-    if (binding === null || binding === undefined) continue;
-    bound += 1;
-    if (binding.noteCount === undefined) continue;
+    // No bucket, so no notes. A real zero, and it must not make the sum a
+    // floor — otherwise anybody who skipped storage on one context wears a
+    // `+` forever.
+    if (binding === null) continue;
+
+    // Unknown: still loading, or the query errored. Not zero.
+    if (binding === undefined) {
+      missing += 1;
+      continue;
+    }
+
+    if (binding.noteCount === undefined) {
+      // A bucket nobody has walked — or somebody else's, whose census the
+      // control plane withholds from anyone but its owner.
+      missing += 1;
+      continue;
+    }
+
     counted += 1;
     notes += binding.noteCount;
     if (binding.noteCountTruncated === true) truncated = true;
   }
 
   if (counted === 0) return null;
-  return { notes, partial: truncated || counted < bound };
+  return { notes, partial: truncated || missing > 0 };
 }
 
 /** "1,284" — or "1,284+" when the total is a floor. */

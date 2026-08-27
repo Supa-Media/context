@@ -143,6 +143,32 @@ describe("countNotes", () => {
   });
 
   /**
+   * One folder the adapter will not walk must not cost the whole count.
+   *
+   * The prefix passed back to `store.list` is a folder name the *customer*
+   * chose, and `assertSafePrefix` in the adapter throws on a backslash, a
+   * control character, or a `.`/`..` segment. Under a single outer catch that
+   * returned `null` for the entire bucket — permanently, and silently, on
+   * exactly the buckets most likely to be somebody's real vault.
+   */
+  test("a folder the adapter refuses makes the total a floor, not a blank", async () => {
+    const store = memoryStore();
+    store.seed("1-projects/ship.md", "#");
+    store.seed("2-areas/health.md", "#");
+    store.seed("index.md", "#");
+
+    const refusing = {
+      ...store,
+      list: async (options?: { prefix?: string; delimiter?: string }) => {
+        if (options?.prefix === "2-areas/") throw new Error("unsafe prefix");
+        return await store.list(options);
+      },
+    };
+
+    expect(await countNotes(refusing)).toEqual({ notes: 2, truncated: true });
+  });
+
+  /**
    * A listing that throws mid-walk must not take the verification down with
    * it. The probe's job is to record a status; a count is the least important
    * thing it learns.
