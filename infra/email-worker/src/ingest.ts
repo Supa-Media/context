@@ -68,7 +68,7 @@ import { normalizeTargetFolder as controlPlaneFolderRules } from "../../../apps/
 // The same adapter-boundary prefix rules the gateway uses, rather than a second
 // opinion about what a safe key prefix is. See apps/mcp/src/store/index.js.
 import { assertSafePrefix } from "../../../apps/mcp/src/store/index.js";
-import { verifySender, type AuthFailure } from "./auth";
+import { describeArcShape, verifySender, type AuthFailure } from "./auth";
 import { htmlToText } from "./html";
 import { DEFAULT_MIME_LIMITS, parseEmail, safeFilename, singleLine, type MimeLimits } from "./mime";
 import type { IngestionPolicy, SenderMatcher } from "./policy";
@@ -208,7 +208,19 @@ export interface CaptureDecision {
   };
 }
 
-export type IngestDecision = CaptureDecision | { kind: "refuse"; reason: RefusalReason };
+export interface RefuseDecision {
+  kind: "refuse";
+  reason: RefusalReason;
+  /**
+   * A bounded description of the message's ARC shape — integers and one closed
+   * enum, never a sender string. Present only when the operator set
+   * `LOG_ARC_SHAPE`, and only on an authentication refusal. See
+   * `describeArcShape` in ./auth.ts for what it is for and why it is safe.
+   */
+  arc?: string;
+}
+
+export type IngestDecision = CaptureDecision | RefuseDecision;
 
 export interface IngestConfig {
   /**
@@ -227,6 +239,15 @@ export interface IngestConfig {
   limits: MimeLimits;
   /** The authserv-id whose `Authentication-Results` we will believe. */
   authServiceId: string;
+  /**
+   * Emit the bounded ARC shape alongside an authentication refusal.
+   *
+   * Off unless the operator turns it on. It exists because whether the ARC path
+   * in ./auth.ts can ever fire depends on header positions nobody has yet
+   * captured from a real Cloudflare delivery, and "mail is still refused" is
+   * not a diagnosis.
+   */
+  arcDiagnostics?: boolean;
 }
 
 export interface IngestInput {
@@ -367,12 +388,24 @@ export async function decideCapture(
   }
 
   // ── Authentication, before the allow-list, always. ────────────────────────
-  const verdict = verifySender({
+  const authInput = {
     authenticationResults: parsed.authenticationResults,
+    authenticationResultsFolded: parsed.authenticationResultsFolded,
+    arcAuthenticationResults: parsed.arcAuthenticationResults,
     fromAddress: parsed.fromAddress,
     authServiceId: config.authServiceId,
-  });
-  if (!verdict.ok) return { kind: "refuse", reason: `auth_${verdict.reason}` };
+  };
+  const verdict = verifySender(authInput);
+  if (!verdict.ok) {
+    return {
+      kind: "refuse",
+      reason: `auth_${verdict.reason}`,
+      // Only when an operator has asked for it. See `describeArcShape` and the
+      // `LOG_ARC_SHAPE` note in wrangler.jsonc: absent by default, so the
+      // refusal is the same value it has always been.
+      ...(config.arcDiagnostics ? { arc: describeArcShape(authInput) } : {}),
+    };
+  }
 
   // ── The allow-list, applied to the *proved* identity. ─────────────────────
   let allowed: boolean;
