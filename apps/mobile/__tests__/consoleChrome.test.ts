@@ -259,7 +259,41 @@ describe("on a phone", () => {
     // Not merely off-screen — not mounted until it is asked for.
     expect(app.find("explorer-tree")).toBeNull();
     expect(app.find("console-status")).toBeNull();
+    expect(app.find("bottom-bar")).not.toBeNull();
 
     app.unmount();
+  });
+
+  test("the toolbar is the only route to the commands with no gesture", () => {
+    // There is no keyboard here and no right-click. Creating and searching are
+    // not things you do *to* an existing note, so the row's long-press menu
+    // cannot reach them — this bar is it.
+    const app = mountConsole(390);
+    const text = app.container.textContent ?? "";
+
+    // Labels, not glyphs: the glyphs are aria-hidden, so what a screen reader
+    // gets is the whole affordance.
+    const labels = Array.from(app.container.querySelectorAll("[aria-label]")).map((node) =>
+      node.getAttribute("aria-label"),
+    );
+    expect(labels).toContain("Search notes");
+    expect(labels).toContain("New note");
+    expect(text).not.toBe("");
+
+    app.unmount();
+  });
+});
+
+describe("search", () => {
+  test("a pointer gets the ⌘K field; a phone gets the toolbar button", () => {
+    const desktop = mountConsole(1440);
+    expect(desktop.find("frame-search")).not.toBeNull();
+    desktop.unmount();
+
+    // Doubling the same control onto the screen with least room for it would
+    // be the obvious "consistency" fix and the wrong one.
+    const phone = mountConsole(390);
+    expect(phone.find("frame-search")).toBeNull();
+    phone.unmount();
   });
 });

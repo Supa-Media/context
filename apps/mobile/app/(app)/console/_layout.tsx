@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Slot, useRouter, usePathname } from "expo-router";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { useAuthActions } from "@convex-dev/auth/react";
@@ -6,13 +6,16 @@ import { Button } from "../../../features/design/components/Button";
 import { Dot } from "../../../features/design/components/Dot";
 import { FormError } from "../../../features/design/components/Input";
 import { Pill } from "../../../features/design/components/Pill";
+import { Palette } from "../../../features/design/components/Palette";
 import { StatusBar } from "../../../features/design/components/StatusBar";
 import { Text } from "../../../features/design/components/Text";
 import { colors, space } from "../../../features/design/tokens";
-import { AppFrame } from "../../../features/app/AppFrame";
+import { AppFrame, useFrame } from "../../../features/app/AppFrame";
+import { BottomBar } from "../../../features/console/BottomBar";
 import { AccountBlock, Avatar, ConsoleRail } from "../../../features/console/ConsoleRail";
 import { ConsoleDataProvider } from "../../../features/console/ConsoleDataContext";
 import { Explorer } from "../../../features/console/files/Explorer";
+import { itemsFromListings } from "../../../features/console/files/palette";
 import { statusSegments } from "../../../features/console/files/status";
 import { atName } from "../../../features/console/format";
 import {
@@ -22,6 +25,7 @@ import {
   sameRoute,
 } from "../../../features/console/nav";
 import { selectedContext, type ConsoleData } from "../../../features/console/types";
+import { useKeymap } from "../../../features/design/useKeymap";
 import { useLiveConsoleData } from "../../../features/console/useLiveConsoleData";
 import { canReload, reloadApp } from "../../../features/app/reload";
 
@@ -83,6 +87,7 @@ export default function ConsoleLayout() {
     selectContext,
   ]);
 
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const current = selectedContext(data);
   const insideContext = route.kind === "context";
   const contextLabel = atName(current?.slug ?? "your context");
@@ -113,6 +118,7 @@ export default function ConsoleLayout() {
           )
         }
         topTrailing={<StorageChip data={data} />}
+        onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
         rail={(mode) => (
           <ConsoleRail
             data={data}
@@ -131,7 +137,13 @@ export default function ConsoleLayout() {
           insideContext ? <Explorer files={data.files} contextLabel={contextLabel} /> : undefined
         }
         status={<Status data={data} />}
+        bottomBar={
+          insideContext ? (
+            <ConsoleBottomBar data={data} onSearch={() => setPaletteOpen(true)} />
+          ) : undefined
+        }
       >
+        <Shortcuts onSearch={() => setPaletteOpen(true)} paletteOpen={paletteOpen} />
         <ScrollView style={styles.pane} contentContainerStyle={styles.paneContent}>
           {/*
             The console's own subscription came back as an error rather than
@@ -157,12 +169,130 @@ export default function ConsoleLayout() {
 
           <Slot />
         </ScrollView>
+
+        {paletteOpen ? (
+          <Palette
+            items={itemsFromListings(data.files.listings)}
+            placeholder="Go to a note"
+            noMatchMessage={
+              "Nothing loaded matches that. Only folders you have opened are searched — " +
+              "the rest of this context has not been read yet."
+            }
+            onChoose={(item) => {
+              setPaletteOpen(false);
+              data.files.select(item.id);
+            }}
+            onDismiss={() => setPaletteOpen(false)}
+          />
+        ) : null}
       </AppFrame>
     </ConsoleDataProvider>
   );
 }
 
 /* -------------------------------------------------------------------------- */
+
+/**
+ * The keyboard, bound at the frame level.
+ *
+ * Mounted inside `AppFrame` rather than beside it, because `useFrame` is what
+ * knows whether ⌘⇧E means "slide the drawer in" or "collapse the rail" — the
+ * command is one thing and its meaning is per density, which is exactly the
+ * split `frame.ts` exists to own.
+ *
+ * The scope goes to `"overlay"` while the palette is open so nothing behind it
+ * fires; `keymap.ts` enforces that, and this is the one caller that has to say
+ * which state it is in.
+ */
+function Shortcuts({
+  onSearch,
+  paletteOpen,
+}: {
+  onSearch: () => void;
+  paletteOpen: boolean;
+}) {
+  const frame = useFrame();
+
+  useKeymap({
+    scope: paletteOpen ? "overlay" : "global",
+    onCommand: useCallback(
+      (command) => {
+        switch (command) {
+          case "palette":
+          case "quickSwitcher":
+            onSearch();
+            return true;
+          case "toggleExplorer":
+            frame.toggleExplorer();
+            return true;
+          case "toggleRail":
+            frame.toggleRail();
+            return true;
+          default:
+            // Everything else belongs to a region, not to the frame. Returning
+            // nothing leaves the browser's own behaviour alone, which is why
+            // `preventDefault` is conditional on a `true` in the first place.
+            return false;
+        }
+      },
+      [frame, onSearch],
+    ),
+  });
+
+  return null;
+}
+
+/**
+ * The thumb's half of the console.
+ *
+ * Only the verbs that have nowhere else to go on a phone. Creating and
+ * searching have no gesture of their own — a long press on a row raises what
+ * you can do *to a note*, and neither of these is about a note that already
+ * exists. The tree toggle is here as well as in the top bar because this is
+ * where a thumb is, and the top bar is a stretch on a tall phone.
+ */
+function ConsoleBottomBar({ data, onSearch }: { data: ConsoleData; onSearch: () => void }) {
+  const frame = useFrame();
+  const files = data.files;
+  const folder = files.selectedPath === null ? "" : parentFolderOf(files.selectedPath);
+
+  return (
+    <BottomBar
+      actions={[
+        {
+          id: "files",
+          label: frame.state.drawerOpen ? "Close the file tree" : "Open the file tree",
+          glyph: "\u2630",
+          onPress: frame.toggleExplorer,
+        },
+        { id: "search", label: "Search notes", glyph: "\u2315", onPress: onSearch },
+        {
+          id: "new",
+          label: "New note",
+          glyph: "\uff0b",
+          disabled: !files.canEdit,
+          onPress: () => files.createNote(folder, "Untitled"),
+        },
+        {
+          id: "save",
+          label: "Save this note",
+          glyph: "\u2713",
+          // Absent rather than dead would move every other button mid-reach,
+          // so it dims in place — see `BottomBar`.
+          disabled: files.editor.status !== "dirty",
+          marker: files.editor.status === "dirty",
+          onPress: files.save,
+        },
+      ]}
+    />
+  );
+}
+
+/** The folder a selected path sits in, for "new note here". */
+function parentFolderOf(path: string): string {
+  const index = path.lastIndexOf("/");
+  return index < 0 ? "" : path.slice(0, index);
+}
 
 /**
  * The bucket this context is bound to, in the top bar.
