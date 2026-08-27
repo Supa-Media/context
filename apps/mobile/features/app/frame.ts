@@ -45,6 +45,13 @@
  * how it is presented, and modelling the drawer as a separate thing is how you
  * end up with a tablet that opens the drawer, rotates, and shows you a column
  * scrolled somewhere else.
+ *
+ * `rail: "full" | "icons" | "sheet" | "hidden"` is one field for the same
+ * reason, and the `sheet` arm is the one this file was missing. `compact`
+ * answered `rail: "hidden"` and put nothing in its place, so a phone had the
+ * pane it landed on and no way to leave it: Map and Connections, every other
+ * context, and sign-out are all in the rail. Landing on the map after signing
+ * in was the end of the session.
  */
 
 import { layout } from "../design/tokens";
@@ -53,7 +60,8 @@ import { layout } from "../design/tokens";
  * How much room there is, in three named steps.
  *
  *  - `compact` — a phone, or a narrow window. One region owns the screen; the
- *    explorer is a drawer over it and the bottom bar carries the verbs.
+ *    rail and the explorer are sheets over it and the bottom bar carries the
+ *    verbs.
  *  - `medium` — a tablet, a split-screen laptop window. The explorer earns a
  *    permanent column, but the rail collapses to icons to pay for it.
  *  - `wide` — a real desktop window. Everything is visible at once.
@@ -78,6 +86,8 @@ export function densityFor(width: number): Density {
 export interface FrameState {
   /** Compact only: the explorer drawer is pulled in over the editor. */
   drawerOpen: boolean;
+  /** Compact only: the rail is pulled in over the editor as a sheet. */
+  navOpen: boolean;
   /** Wide only: the rail is reduced to its icons. */
   railCollapsed: boolean;
   /** Medium and wide: the explorer column's width, in points. */
@@ -86,18 +96,23 @@ export interface FrameState {
 
 export const initialFrame: FrameState = {
   drawerOpen: false,
+  navOpen: false,
   railCollapsed: false,
   explorerWidth: layout.explorerWidth,
 };
 
 export interface Regions {
-  /** `full` shows labels, `icons` shows only the marks, `hidden` is not rendered. */
-  rail: "full" | "icons" | "hidden";
+  /**
+   * `full` shows labels, `icons` shows only the marks, `sheet` is the same
+   * full-width rail pulled in over the editor on a phone, `hidden` is not
+   * rendered.
+   */
+  rail: "full" | "icons" | "sheet" | "hidden";
   /** `column` sits beside the editor; `drawer` slides over it. */
   explorer: "column" | "drawer" | "hidden";
   /** The editor is always rendered — there is no density with nothing to read. */
   editor: true;
-  /** The scrim that closes the drawer. Only ever with `explorer: "drawer"`. */
+  /** The scrim that dismisses whichever panel is over the editor. */
   scrim: boolean;
   /** Thumb-reach verbs. Compact only; a pointer has the menu and the keyboard. */
   bottomBar: boolean;
@@ -105,16 +120,27 @@ export interface Regions {
   statusBar: boolean;
   /** Compact only: the button that pulls the drawer in. */
   drawerToggle: boolean;
+  /**
+   * Compact only: the control that pulls the rail in.
+   *
+   * Unconditional at that density, unlike `drawerToggle`. There is always
+   * somewhere to go — the app-level panes, the other contexts, and the way to
+   * sign out all live in the rail and nowhere else — so a phone without this
+   * is a phone with no navigation at all.
+   */
+  navToggle: boolean;
 }
 
 /**
  * The whole responsive design, as a function.
  *
- * Two invariants hold for every input, and both are asserted in the tests
- * because both are one careless edit away:
+ * Three invariants hold for every input, and each is asserted in the tests
+ * because each is one careless edit away:
  *
- *  - the explorer is **never** a column and a drawer at once, and the scrim
- *    exists if and only if it is a drawer;
+ *  - nothing is ever a permanent region and a panel over the editor at once,
+ *    and the scrim exists if and only if some panel is over the editor;
+ *  - the rail sheet and the explorer drawer are **never** up together. They
+ *    occupy the same place on the screen and share the one scrim;
  *  - the bottom bar and the status bar are **never** both present. They are two
  *    answers to "what goes along the bottom edge", and a screen with both has
  *    28px of chrome saying nothing and a toolbar the thumb cannot reach.
@@ -136,15 +162,25 @@ export function regionsFor(
   const hasExplorer = options.hasExplorer ?? true;
 
   if (density === "compact") {
-    const open = hasExplorer && state.drawerOpen;
+    /*
+      Two panels can come in over the editor and only one of them may be up at
+      a time — they occupy the same place on the screen and share one scrim.
+      The toggles clear each other, so a state carrying both is already
+      impossible; this resolves it anyway rather than leaving the answer to
+      whichever `View` happens to be painted last. The rail wins because it is
+      the panel that can get you out of here.
+    */
+    const nav = state.navOpen;
+    const tree = hasExplorer && state.drawerOpen && !nav;
     return {
-      rail: "hidden",
-      explorer: open ? "drawer" : "hidden",
+      rail: nav ? "sheet" : "hidden",
+      explorer: tree ? "drawer" : "hidden",
       editor: true,
-      scrim: open,
+      scrim: nav || tree,
       bottomBar: true,
       statusBar: false,
       drawerToggle: hasExplorer,
+      navToggle: true,
     };
   }
 
@@ -159,6 +195,9 @@ export function regionsFor(
     bottomBar: false,
     statusBar: true,
     drawerToggle: false,
+    // The rail is a permanent column here. A control that pulls it in would be
+    // pulling in something already on the screen.
+    navToggle: false,
   };
 }
 
@@ -196,9 +235,75 @@ export function clampExplorerWidth(width: number): number {
  * The day somebody takes it, this is where it lands — one function, one
  * meaning, and every caller follows.
  */
-export function explorerToggleFor(density: Density): "drawerOpen" | null {
-  if (density === "compact") return "drawerOpen";
+export function explorerToggleFor(
+  density: Density,
+  /**
+   * Whether this route has a file tree, exactly as `regionsFor` takes it.
+   *
+   * Without this the command was answering `"drawerOpen"` on Map and
+   * Connections, where there is no tree: `regionsFor` discarded the flag, so
+   * the keystroke looked inert and was in fact writing state. That was
+   * harmless until the rail became a panel and raising one panel had to put
+   * the other away — then ⌘⇧E on the pane you sign in to *dismissed the only
+   * navigation on the screen and opened nothing in its place.* The command
+   * has to answer "nothing to toggle" here, not "toggle the drawer that
+   * cannot exist".
+   */
+  options: { hasExplorer?: boolean } = {},
+): "drawerOpen" | null {
+  if (density === "compact" && (options.hasExplorer ?? true)) return "drawerOpen";
   return null;
+}
+
+/**
+ * What toggling the *rail* means at this density.
+ *
+ * One command — ⌘B, and the switcher in the top bar — with two honest
+ * meanings, resolved here for the same reason `explorerToggleFor` exists: so
+ * neither the keymap nor the button has to know the density.
+ *
+ * On a pointer layout the rail is a permanent column and the command collapses
+ * it to its marks. On a phone there is no column to collapse: the rail is a
+ * sheet that is either over the editor or not, and the command is what brings
+ * it in. Toggling `railCollapsed` there — which is what happened before this
+ * existed — set a preference no compact layout reads, so ⌘B did nothing and
+ * the phone had no navigation at all.
+ *
+ * Unlike `explorerToggleFor` this never returns `null`: every density has a
+ * rail, so there is always a field to write. That is not the same as always
+ * being *visible* — a medium window with an explorer column renders the rail
+ * as icons whichever way `railCollapsed` points, so there the command changes
+ * a preference you only see later, on a pane with no tree. Pre-existing, and
+ * stated here rather than in a comment claiming otherwise.
+ */
+export function railToggleFor(density: Density): "navOpen" | "railCollapsed" {
+  return density === "compact" ? "navOpen" : "railCollapsed";
+}
+
+/**
+ * The panels, put away when the layout stops having anywhere to put them.
+ *
+ * `FrameState` above argues that a resize must not rewrite what somebody
+ * chose, and that argument is right — about `railCollapsed` and
+ * `explorerWidth`, which are *preferences*. `drawerOpen` and `navOpen` are
+ * not preferences. They are "a panel is currently over your editor", which is
+ * a thing that is either true of what is on the screen or is stale, and only
+ * `compact` has panels at all.
+ *
+ * Left uncleared they are write-once-and-stuck: at medium and wide there is no
+ * sheet, no scrim, no `navToggle`, and `railToggleFor` answers
+ * `"railCollapsed"` — so nothing can put them away, and they wait. Open the
+ * rail on an iPad in portrait (820pt is under `narrowBreakpoint`, so compact),
+ * rotate to landscape, work in the rail column, rotate back, and a sheet
+ * nobody asked for is sitting over the note behind a full-body scrim.
+ *
+ * Returns the same object when there is nothing to clear, so this is safe to
+ * call from a state updater on every density change.
+ */
+export function panelsClearedFor(density: Density, state: FrameState): FrameState {
+  if (density === "compact") return state;
+  if (!state.drawerOpen && !state.navOpen) return state;
+  return { ...state, drawerOpen: false, navOpen: false };
 }
 
 /**
