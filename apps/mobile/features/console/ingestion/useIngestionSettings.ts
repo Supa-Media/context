@@ -22,7 +22,6 @@ import { useCallback, useMemo } from "react";
 import { useConvex, useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
-import { EMPTY_QUERY_SPEC } from "../querySpec";
 import {
   shouldReadIngestionSettings,
   type IngestionAvailability,
