@@ -67,7 +67,12 @@ jest.mock("react-native-safe-area-context", () => ({
 }));
 
 // Imported after the mock, which `jest.mock` hoists above it anyway.
-const { Menu } = require("../features/design/components/Menu") as typeof import("../features/design/components/Menu");
+// The `.tsx` extension is explicit, and has to be: `jest.config.js` resolves
+// `.web.tsx` ahead of `.tsx` so the suite exercises the code that actually
+// ships to a browser. A bare `.../Menu` here would hand these sheet tests the
+// popover and quietly assert nothing about the sheet. The web half is required
+// separately, by its own name, further down.
+const { Menu } = require("../features/design/components/Menu.tsx") as typeof import("../features/design/components/Menu");
 const { itemsFor } = require("../features/console/files/menu") as typeof import("../features/console/files/menu");
 const { colors } = require("../features/design/tokens") as typeof import("../features/design/tokens");
 
