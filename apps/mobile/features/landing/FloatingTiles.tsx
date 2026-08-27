@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Animated, Easing, Platform, StyleSheet, View, type ViewStyle } from "react-native";
+import { Animated, Easing, Platform, StyleSheet, type ViewStyle } from "react-native";
 import { gradient } from "../design/css";
 import { radii } from "../design/tokens";
 import { useReducedMotion } from "../design/useReducedMotion";

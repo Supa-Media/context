@@ -38,6 +38,8 @@ function inputs(overrides: Partial<ConsentInputs> = {}): ConsentInputs {
     request: REQUEST,
     contexts: CONTEXTS,
     chosenContextId: null,
+    chosenScopes: null,
+    chosenTier: null,
     decision: { kind: "idle" },
     now: NOW,
     ...overrides,
@@ -165,7 +167,7 @@ describe("resolveConsentView — ready", () => {
     if (view.kind !== "ready") return;
     expect(view.clientName).toBe("Claude Desktop");
     expect(view.redirectHost).toBe("claude.ai");
-    expect(view.scopeLines.map((line) => line.sentence)).toEqual([
+    expect(view.scopeChoices.map((choice) => choice.line.sentence)).toEqual([
       "Read your notes",
       "Create and edit notes",
     ]);
@@ -175,7 +177,9 @@ describe("resolveConsentView — ready", () => {
     const view = resolveConsentView(
       inputs({ request: { ...REQUEST, scopes: undefined, scope: "context:read" } }),
     );
-    expect(view.kind === "ready" && view.scopeLines.map((l) => l.id)).toEqual(["read"]);
+    expect(view.kind === "ready" && view.scopeChoices.map((c) => c.line.id)).toEqual([
+      "read",
+    ]);
   });
 
   test("nothing is busy and approving is possible once a context is settled", () => {
@@ -244,21 +248,29 @@ describe("resolveConsentView — ready", () => {
    * both the same way would be lying to whichever half it did not describe —
    * which is what it did, always in the owner's direction.
    */
-  describe("the scope sentences follow the selected context's role", () => {
+  describe("the scope sentences follow the tier being granted", () => {
     const readDetail = (view: ReturnType<typeof resolveConsentView>) =>
-      (view.kind === "ready" && view.scopeLines.find((line) => line.id === "read")?.detail) || "";
+      (view.kind === "ready" &&
+        view.scopeChoices.find((choice) => choice.line.id === "read")?.line.detail) ||
+      "";
 
-    test("the owned context's read line does not promise an exclusion", () => {
+    test("the default is team, so an owner is told private notes are excluded", () => {
+      // The old screen could not say this to an owner without lying, because
+      // an owner's grant always carried the private tier. It can now, because
+      // the grant will carry `team` unless they say otherwise.
       const view = resolveConsentView(inputs({ chosenContextId: "w1" }));
-      expect(readDetail(view)).not.toMatch(/\bexcept\b/i);
-      expect(readDetail(view)).toMatch(/private/i);
+      expect(view.kind === "ready" && view.tier.selected).toBe("team");
+      expect(readDetail(view)).toMatch(/except/i);
     });
 
-    test("switching to the context you only edit changes what you are told", () => {
-      const owned = resolveConsentView(inputs({ chosenContextId: "w1" }));
-      const edited = resolveConsentView(inputs({ chosenContextId: "w2" }));
-      expect(readDetail(edited)).toMatch(/except/i);
-      expect(readDetail(edited)).not.toBe(readDetail(owned));
+    test("choosing private rewrites the read line rather than leaving a stale one", () => {
+      const team = resolveConsentView(inputs({ chosenContextId: "w1" }));
+      const priv = resolveConsentView(
+        inputs({ chosenContextId: "w1", chosenTier: "private" }),
+      );
+      expect(readDetail(priv)).not.toMatch(/\bexcept\b/i);
+      expect(readDetail(priv)).toMatch(/including/i);
+      expect(readDetail(priv)).not.toBe(readDetail(team));
     });
 
     test("with no context picked yet, it claims no exclusion rather than guessing", () => {
@@ -266,8 +278,129 @@ describe("resolveConsentView — ready", () => {
         inputs({ request: { ...REQUEST, workspaceSlug: null, requestedWorkspaceSlug: null } }),
       );
       expect(view.kind === "ready" && view.selectedContextId).toBe(null);
+      expect(view.kind === "ready" && view.tier.selected).toBe("unknown");
       expect(readDetail(view)).not.toMatch(/\bexcept\b/i);
     });
+  });
+});
+
+/**
+ * The controls this feature exists to add.
+ *
+ * None of these is a security boundary — the backend clamps whatever is
+ * submitted, and `apps/convex/__tests__/authorizations.test.ts` is where that is
+ * proved. What is proved here is that the screen offers a real choice, defaults
+ * to the narrow one, and submits exactly what it displayed.
+ */
+describe("resolveConsentView — narrowing what is granted", () => {
+  const ready = (overrides: Partial<ConsentInputs> = {}) => {
+    const view = resolveConsentView(inputs(overrides));
+    if (view.kind !== "ready") throw new Error(`expected ready, got ${view.kind}`);
+    return view;
+  };
+
+  test("arrives showing what the client asked for, all of it ticked", () => {
+    const view = ready({ chosenContextId: "w1" });
+    expect(view.scopeChoices.map((c) => [c.scope, c.granted])).toEqual([
+      ["context:read", true],
+      ["context:write", true],
+    ]);
+  });
+
+  test("unticking one narrows what will be submitted", () => {
+    const view = ready({ chosenContextId: "w1", chosenScopes: ["context:read"] });
+    expect(view.grantedScopes).toEqual(["context:read"]);
+    expect(view.scopeChoices.find((c) => c.scope === "context:write")?.granted).toBe(false);
+  });
+
+  test("unticking everything blocks Approve rather than granting nothing", () => {
+    const view = ready({ chosenContextId: "w1", chosenScopes: [] });
+    expect(view.grantedScopes).toEqual([]);
+    expect(view.canApprove).toBe(false);
+  });
+
+  /**
+   * The default an owner gets, and the reason the whole feature exists. Before
+   * this, connecting as an owner handed over every note marked private, with no
+   * way to say otherwise. The fix is not a switch next to the old default — it
+   * is a different default.
+   */
+  test("an owner is not handed private-tier by default; they opt in", () => {
+    const view = ready({ chosenContextId: "w1" });
+    expect(view.tier.selected).toBe("team");
+    expect(view.grantedScopes).toEqual(["context:read", "context:write"]);
+    expect(view.grantedScopes).not.toContain("context:private");
+  });
+
+  test("choosing private puts the tier scope into what is submitted", () => {
+    const view = ready({ chosenContextId: "w1", chosenTier: "private" });
+    expect(view.grantedScopes).toEqual([
+      "context:read",
+      "context:write",
+      "context:private",
+    ]);
+  });
+
+  test("an owner is offered both tiers; an editor is offered one", () => {
+    expect(ready({ chosenContextId: "w1" }).tier.isAChoice).toBe(true);
+    expect(ready({ chosenContextId: "w1" }).tier.options.map((o) => o.value)).toEqual([
+      "team",
+      "private",
+    ]);
+    expect(ready({ chosenContextId: "w2" }).tier.isAChoice).toBe(false);
+    expect(ready({ chosenContextId: "w2" }).tier.options.map((o) => o.value)).toEqual([
+      "team",
+    ]);
+  });
+
+  test("an editor asking for private-tier is given team, not their request", () => {
+    // Reachable by a stale choice surviving a picker move. The backend clamps
+    // too; this stops the screen displaying a promise it is about to break.
+    const view = ready({ chosenContextId: "w2", chosenTier: "private" });
+    expect(view.tier.selected).toBe("team");
+    expect(view.grantedScopes).not.toContain("context:private");
+  });
+
+  /**
+   * `w3` is a context this person can only read. The client asked to write.
+   * Silently dropping that from the screen would hide the reason their AI
+   * client half-works afterwards.
+   */
+  test("a scope the approver cannot grant is shown as withheld, never ticked", () => {
+    const view = ready({
+      contexts: [...CONTEXTS, { id: "w3", slug: "readonly-ctx", role: "member" }],
+      chosenContextId: "w3",
+    });
+    expect(view.scopeChoices.map((c) => c.scope)).toEqual(["context:read"]);
+    expect(view.withheldScopes.map((c) => c.scope)).toEqual(["context:write"]);
+    expect(view.grantedScopes).toEqual(["context:read"]);
+  });
+
+  test("a client that asks for the tier scope gets the tier control, not a tick box", () => {
+    // Listing it twice — once as a permission to tick, once as a privacy
+    // setting — would let a person tick one, clear the other, and have no idea
+    // which won.
+    const view = ready({
+      chosenContextId: "w1",
+      request: {
+        ...REQUEST,
+        scopes: ["context:read", "context:private"],
+        scope: "context:read context:private",
+      },
+    });
+    expect(view.scopeChoices.map((c) => c.scope)).toEqual(["context:read"]);
+    expect(view.withheldScopes).toEqual([]);
+    // And asking for it does not select it: the person still chooses.
+    expect(view.tier.selected).toBe("team");
+    expect(view.grantedScopes).toEqual(["context:read"]);
+  });
+
+  test("what is displayed is what is submitted, tick for tick", () => {
+    const view = ready({ chosenContextId: "w1", chosenTier: "private" });
+    expect(view.grantedScopes).toEqual([
+      ...view.scopeChoices.filter((c) => c.granted).map((c) => c.scope),
+      "context:private",
+    ]);
   });
 });
 

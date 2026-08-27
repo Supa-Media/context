@@ -24,6 +24,12 @@
  *    that carries it to the client and nowhere else, exactly like an access
  *    token — so a dump of `oauthAuthorizations` is not a pile of spendable
  *    codes.
+ *  - **The person decides how much, not just whether.** The client's `scope` is
+ *    a request. What `applyApproval` writes is the intersection of that request
+ *    with what the person ticked and what their role could hand over, and the
+ *    privacy tier — `context:private` or its absence — is recorded on the grant
+ *    rather than re-derived from the approver's role on every later request.
+ *    An owner who granted team-tier keeps team-tier forever.
  *  - **"No" is a real answer.** `denyAuthorization` consumes the request and
  *    redirects with `error=access_denied` (RFC 6749 §4.1.2.1). A refusal that
  *    left the request pending would let the same screen be presented again —
@@ -50,6 +56,14 @@ import { hashToken } from "./lib/crypto";
 import { AUTHORIZATION_TTL_MS, randomOpaqueToken } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
 import { getMembership, requireWorkspaceAccess } from "./lib/workspaceAuth";
+import {
+  SCOPE_PRIVATE,
+  clampScopes,
+  formatScopeList,
+  hasOperationScope,
+  parseScopeList,
+  visibilityTierOf,
+} from "./lib/consentScopes";
 
 /**
  * One error for "no such request", "already approved", "already refused", and
@@ -166,14 +180,56 @@ async function resolveConsentWorkspace(
 }
 
 /**
- * The scope string as a list.
+ * Nothing the approver ticked survived the two narrowing rules.
  *
- * OAuth scope is space-delimited (RFC 6749 §3.3). Splitting on any run of
- * whitespace and dropping empties means a client that sent a tab or a double
- * space does not produce an empty chip on the consent screen.
+ * Raised rather than stored, because the alternatives are both worse than an
+ * error: minting a grant with no operation scope produces a client that can
+ * authenticate and do nothing, and silently substituting the requested set
+ * would be the screen granting something the person just declined.
  */
-function scopeList(scope: string): string[] {
-  return scope.split(/\s+/).filter((entry) => entry.length > 0);
+function noScopesGranted(): ConvexError<{ code: string; message: string }> {
+  return new ConvexError({
+    code: "NO_SCOPES_GRANTED",
+    message:
+      "Approving with nothing ticked grants nothing. Choose at least one permission, or refuse the request.",
+  });
+}
+
+/**
+ * What this approval actually hands over.
+ *
+ * Two independent narrowings, in this order, and the order is the design:
+ *
+ *  1. **Against the request.** An operation the client did not ask for is not
+ *     on the screen and cannot be ticked, so it cannot appear here either. A
+ *     caller driving this function directly gets the same treatment — the
+ *     screen is a convenience, this is the authority.
+ *  2. **Against the approver's role.** `clampScopes` removes anything a
+ *     `member` or an `editor` may not hand over, whatever the request said and
+ *     whatever the caller ticked. A member cannot obtain private-tier by any
+ *     request shape, because there is no request shape that survives this line.
+ *
+ * `context:private` is exempt from (1) and only from (1). It is not an
+ * operation the client asked for; it is the person answering "how much of my
+ * context does this see", and no client can be relied on to ask the question.
+ * A client that *does* ask still only ever preselects — (2) still decides.
+ *
+ * `undefined` means the caller expressed no preference, and that resolves to
+ * the request clamped by role, which is the pre-existing behaviour **minus the
+ * tier**: an approval that does not name a tier gets `team`, never the
+ * approver's ceiling.
+ */
+function decideGrantedScopes(
+  requestScope: string,
+  chosen: readonly string[] | undefined,
+  role: string,
+): string[] {
+  const requested = parseScopeList(requestScope);
+  const asked = chosen ?? requested;
+  const withinRequest = asked.filter(
+    (scope) => scope === SCOPE_PRIVATE || requested.includes(scope),
+  );
+  return clampScopes(withinRequest, role);
 }
 
 /** What the consent screen needs, and nothing else. */
@@ -211,6 +267,21 @@ export const getAuthorizationRequest = query({
       workspaceId: v.id("workspaces"),
       workspaceSlug: v.string(),
       workspaceName: v.string(),
+      /**
+       * The caller's role in **the context this payload names**, so the screen
+       * can say which of its sentences are true for this approver without
+       * guessing. Guessing is how the read line once promised owners that their
+       * private notes were excluded when they were not.
+       *
+       * The screen re-derives this from the context the person actually picks —
+       * the picker can move after this payload was built — so this is the
+       * answer for the default resolution and nothing more. It is deliberately
+       * the *role* and not a list of grantable scopes: a role stays true as long
+       * as the workspace it names does, where a precomputed permission list
+       * would go stale the moment somebody used the picker, and a field that is
+       * only sometimes right is worse than one that is not there.
+       */
+      workspaceRole: v.string(),
       expiresAt: v.number(),
     }),
   ),
@@ -245,12 +316,18 @@ export const getAuthorizationRequest = query({
     // the one screen a person cannot route around.
     if (workspace === null) return null;
 
+    // Same reasoning: `resolveConsentWorkspace` only ever returns a context this
+    // caller belongs to, so the membership is there. Fail closed rather than
+    // assume, because everything below is a claim about what they may grant.
+    const membership = await getMembership(ctx, workspace._id, userId);
+    if (membership === null) return null;
+
     return {
       requestId: request.requestId,
       clientName: client.clientName,
       redirectUri: request.redirectUri,
       scope: request.scope,
-      scopes: scopeList(request.scope),
+      scopes: parseScopeList(request.scope),
       requestedWorkspaceSlug:
         request.requestedWorkspaceSlug !== null &&
         request.requestedWorkspaceSlug === workspace.slug
@@ -259,6 +336,7 @@ export const getAuthorizationRequest = query({
       workspaceId: workspace._id,
       workspaceSlug: workspace.slug,
       workspaceName: workspace.displayName,
+      workspaceRole: membership.role,
       expiresAt: request.expiresAt,
     };
   },
@@ -292,6 +370,15 @@ export const approveAuthorization = action({
   args: {
     requestId: v.string(),
     workspaceId: v.optional(v.id("workspaces")),
+    /**
+     * Exactly what the person ticked, including the tier scope when they chose
+     * private. Omitted means "no preference", which resolves to the request
+     * clamped by role — never to the approver's ceiling.
+     *
+     * Whatever arrives here is narrowed twice in `applyApproval` before it is
+     * stored. This argument can only ever ask for less.
+     */
+    grantedScopes: v.optional(v.array(v.string())),
   },
   returns: v.object({ redirectTo: v.string() }),
   // Annotated rather than inferred: this handler calls back into its own
@@ -311,6 +398,7 @@ export const approveAuthorization = action({
         actorUserId: userId as Id<"users">,
         requestId: args.requestId,
         workspaceId: args.workspaceId,
+        grantedScopes: args.grantedScopes,
         hashedCode: await hashToken(code),
       });
 
@@ -335,6 +423,7 @@ export const applyApproval = internalMutation({
     actorUserId: v.id("users"),
     requestId: v.string(),
     workspaceId: v.optional(v.id("workspaces")),
+    grantedScopes: v.optional(v.array(v.string())),
     hashedCode: v.string(),
   },
   returns: v.object({
@@ -391,7 +480,23 @@ export const applyApproval = internalMutation({
     // only membership check that runs against the workspace actually being
     // granted. `requireWorkspaceAccess` is the single place the tenant boundary
     // is expressed, so the grant goes through it whichever way it was chosen.
-    await requireWorkspaceAccess(ctx, workspaceId, args.actorUserId);
+    const { membership } = await requireWorkspaceAccess(
+      ctx,
+      workspaceId,
+      args.actorUserId,
+    );
+
+    // The role that clamps this grant is the caller's role **in the workspace
+    // actually being granted**, read in this transaction. Not the role the
+    // screen rendered against, and not their role somewhere else: a person who
+    // owns one context and is a member of another must not be able to approve
+    // private-tier for the second by having the first on screen.
+    const granted = decideGrantedScopes(
+      request.scope,
+      args.grantedScopes,
+      membership.role,
+    );
+    if (!hasOperationScope(granted)) throw noScopesGranted();
 
     const now = Date.now();
     await ctx.db.patch(request._id, {
@@ -399,6 +504,10 @@ export const applyApproval = internalMutation({
       hashedCode: args.hashedCode,
       workspaceId,
       userId: args.actorUserId,
+      // What the person approved, which is what the token exchange will read.
+      // The requested `scope` is left as it was: the row keeps both halves of
+      // "asked for X, got Y".
+      grantedScope: formatScopeList(granted),
       approvedAt: now,
       // The code gets its own fresh ten minutes from the moment of approval,
       // rather than inheriting whatever is left of the request's window.
@@ -410,7 +519,12 @@ export const applyApproval = internalMutation({
       actorUserId: args.actorUserId,
       actorClientId: request.clientId,
       action: "oauth.authorized",
-      details: { scope: request.scope },
+      details: {
+        scope: request.scope,
+        // Both, so the trail shows a narrowing rather than only its result.
+        grantedScope: formatScopeList(granted),
+        tier: visibilityTierOf(granted),
+      },
     });
 
     return { redirectUri: request.redirectUri, state: request.state };

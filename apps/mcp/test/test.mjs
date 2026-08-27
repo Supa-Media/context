@@ -1,5 +1,6 @@
 import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
+import { SUPPORTED_SCOPES, visibilityTierForGrant } from "../src/session.js";
 import { runStoreChecks } from "./store.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
 import {
@@ -80,19 +81,53 @@ const ACCESS_TOKENS = {
   "pub-token": "cat_test_member_alias_00000000000000",
   "inbox-token": "cat_test_capture_only_00000000000000",
   "readonly-token": "cat_test_owner_readonly_000000000000",
+  // The tier is a property of the grant now, so "an owner" is no longer one
+  // fixture. These two differ in exactly one scope and in nothing else.
+  "owner-team-token": "cat_test_owner_team_tier_00000000000",
+  "member-asked-private-token": "cat_test_member_asked_private_000000",
 };
 function accessTokenFor(label) {
   return ACCESS_TOKENS[label] || label;
 }
 
-// An owner: privacy tier `private`, full write.
+// An owner who granted private-tier: sees every note, including their own
+// private ones. Note that this now takes THREE scopes. The tier is something
+// the person chose on the consent screen and the grant records — being the
+// owner is necessary and no longer sufficient, which is the entire point of
+// this change and the reason ~200 privacy checks below still read the same.
 await controlPlane.addGrant({
   accessToken: ACCESS_TOKENS["priv-token"],
   workspaceId: WORKSPACE_ID,
   role: "owner",
-  scopes: ["context:read", "context:write"],
+  scopes: ["context:read", "context:write", "context:private"],
   clientId: "mcp_client_owner",
   userId: "user_owner",
+});
+// The same owner, connecting a different client at team level — the thing that
+// was impossible before and the thing they asked for. Identical in every
+// respect except the missing `context:private`.
+//
+// It is also what every grant issued before the tier existed looks like, so the
+// checks against this token are simultaneously the migration test: an unmarked
+// legacy grant reads as `team`, not as the owner's ceiling.
+await controlPlane.addGrant({
+  accessToken: ACCESS_TOKENS["owner-team-token"],
+  workspaceId: WORKSPACE_ID,
+  role: "owner",
+  scopes: ["context:read", "context:write"],
+  clientId: "mcp_client_owner_team",
+  userId: "user_owner",
+});
+// A member whose grant somehow carries the tier scope anyway — the control
+// plane refuses to write this, twice, so reaching it takes a compromised
+// control plane. The gateway must still refuse to honour it.
+await controlPlane.addGrant({
+  accessToken: ACCESS_TOKENS["member-asked-private-token"],
+  workspaceId: WORKSPACE_ID,
+  role: "member",
+  scopes: ["context:read", "context:write", "context:private"],
+  clientId: "mcp_client_member_private",
+  userId: "user_member",
 });
 // Editors: privacy tier `team`, may write team content. Two of them, because
 // `pub-token` used to be a second static credential and the checks that used it
@@ -1031,7 +1066,9 @@ check(
 );
 check(
   "a 401 with no grant at all still advertises the full scope menu",
-  /scope="context:read context:write context:capture"/.test(
+  // Derived from the module rather than restated, so adding a scope and
+  // forgetting the challenge header cannot pass here.
+  new RegExp(`scope="${SUPPORTED_SCOPES.join(" ")}"`).test(
     (
       await worker.fetch(new Request("https://x/mcp", { method: "POST", body: "{}" }), env, {
         waitUntil() {},
@@ -1050,6 +1087,101 @@ check("team orient lacks secret project", !oPub.includes("secret-thing"));
 check("team orient shows team project", oPub.includes("1-projects/togather"));
 check("team orient hides 1:1 subfolder", !oPub.includes("one-on-ones"));
 check("orient hides .obsidian", !oPub.includes(".obsidian") && !oPriv.includes(".obsidian"));
+
+// -- the privacy tier is a property of the grant, not of the approver's role
+//
+// `owner-team-token` and `priv-token` are the SAME PERSON, the same role, the
+// same workspace and the same bucket. They differ in one scope. Everything
+// below is that one scope doing its job, in both directions — because a control
+// that only ever narrows for the wrong reason (a broken token, a missing
+// binding) is not a control, it is an outage.
+//
+// This is also the migration test. A grant issued before the tier existed looks
+// exactly like `owner-team-token`: an owner, read and write, no
+// `context:private`. It must read as `team`, because the alternative — reading
+// an unmarked grant as private — leaves every grant that predates this feature
+// at full access forever, on exactly the grants nobody was ever asked about.
+const ownerTeamPrivateRead = await call("owner-team-token", "read_note", {
+  path: "1-projects/secret-thing/status.md",
+});
+check(
+  "an owner who granted team-tier cannot read their own private note",
+  ownerTeamPrivateRead.isError === true &&
+    ownerTeamPrivateRead.content[0].text === "not found" &&
+    !JSON.stringify(ownerTeamPrivateRead).includes("PRIVATEWORD")
+);
+const ownerTeamSearch = await call("owner-team-token", "search_notes", { query: "PRIVATEWORD" });
+check(
+  "and cannot find it by searching for its contents",
+  !JSON.stringify(ownerTeamSearch).includes("secret-thing")
+);
+const ownerTeamOrient = (await call("owner-team-token", "orient")).content[0].text;
+check(
+  "and is not shown the private manifest their private-tier client sees",
+  !ownerTeamOrient.includes("PRIVATE manifest") && !ownerTeamOrient.includes("secret-thing")
+);
+// The other direction, so the three checks above are proving a tier and not a
+// broken grant: the same token reads team content perfectly well, and the same
+// note is readable by the same person's private-tier client.
+const ownerTeamTeamRead = await call("owner-team-token", "read_note", {
+  path: "1-projects/togather/status.md",
+});
+check(
+  "the same team-tier grant still reads team notes normally",
+  !ownerTeamTeamRead.isError && ownerTeamTeamRead.content[0].text.includes("togather status")
+);
+const ownerPrivateRead = await call("priv-token", "read_note", {
+  path: "1-projects/secret-thing/status.md",
+});
+check(
+  "and their private-tier client reads the very note the team-tier one cannot",
+  !ownerPrivateRead.isError && ownerPrivateRead.content[0].text.includes("PRIVATEWORD")
+);
+
+// The role clamp, from the other side. This grant carries `context:private`
+// because the control plane was compromised or confused — it refuses to write
+// one, in two independent places — and the gateway still will not honour it.
+const memberAskedPrivate = await call("member-asked-private-token", "read_note", {
+  path: "1-projects/secret-thing/status.md",
+});
+check(
+  "a member's grant carrying the tier scope is still refused private notes",
+  memberAskedPrivate.isError === true && memberAskedPrivate.content[0].text === "not found"
+);
+// Same grant, same request, `context:write` in its scopes: a member is
+// read-only in the workspace model, so the grant cannot confer writing either.
+const memberAskedWrite = await call("member-asked-private-token", "write_note", {
+  path: "1-projects/member-should-not-write.md",
+  content: "no",
+});
+check(
+  "and is still refused writing, whatever its scopes say",
+  memberAskedWrite.isError === true &&
+    memberAskedWrite.content[0].text.includes("permission denied") &&
+    objects.has("1-projects/member-should-not-write.md") === false
+);
+
+// A narrowed scope set is enforced where it counts, not merely displayed. This
+// owner ticked read and left write unticked; being the owner does not put it
+// back.
+const readonlyWrite = await call("readonly-token", "write_note", {
+  path: "1-projects/readonly-should-not-write.md",
+  content: "no",
+});
+check(
+  "an owner's read-only grant cannot write, on the legacy path too",
+  readonlyWrite.isError === true &&
+    readonlyWrite.content[0].text.includes("permission denied") &&
+    objects.has("1-projects/readonly-should-not-write.md") === false
+);
+check(
+  "the tier is read off the grant and clamped by role, in one function",
+  visibilityTierForGrant(["context:read", "context:private"], "owner") === "private" &&
+    visibilityTierForGrant(["context:read"], "owner") === "team" &&
+    visibilityTierForGrant([], "owner") === "team" &&
+    visibilityTierForGrant(["context:read", "context:private"], "editor") === "team" &&
+    visibilityTierForGrant(["context:read", "context:private"], "member") === "team"
+);
 check("orient exposes team write surface", oPub.includes("Team-writable folder defaults") && oPub.includes("2-areas"));
 check(
   "orient identifies shared credentials as team access",

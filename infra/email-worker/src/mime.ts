@@ -37,13 +37,17 @@
  *
  * ── Deliberate omissions ────────────────────────────────────────────────────
  *
- * - **`Authentication-Results` is not read.** It is tempting: Cloudflare
- *   prepends its own SPF/DKIM/DMARC verdict and it would be nice to surface it.
- *   But the header is trivially forgeable by the sender, and telling the two
- *   apart depends on "ours is the topmost one", which is an assumption about
- *   another system's behaviour, not a guarantee. A capture that displayed
- *   `dkim=pass` because the attacker typed it would be worse than one that
- *   shows nothing. See ./note.ts: every capture is marked unverified instead.
+ * - **`Authentication-Results` is collected but never interpreted here.** The
+ *   values, their order, and whether each arrived folded are handed to
+ *   ./auth.ts, which is the one place allowed to decide what they mean —
+ *   because every one of them is forgeable by the sender and telling ours apart
+ *   from theirs rests entirely on position. The same goes for
+ *   `ARC-Authentication-Results`, which additionally records *where* it sat
+ *   relative to the topmost `Authentication-Results`; see `ArcHeader`.
+ *   Nothing from either header is rendered into a capture: a note that
+ *   displayed `dkim=pass` because the attacker typed it would be worse than one
+ *   that shows nothing, so ./note.ts records only the verdict ./auth.ts
+ *   reached, and marks every capture unverified besides.
  * - **The `From:` display name is parsed but never rendered as the sender.**
  *   `From: Seyi <attacker@example.net>` is free to claim anything. Only the
  *   addr-spec is authoritative, and the caller compares it to the envelope.
@@ -127,11 +131,55 @@ export interface ParsedEmail {
    */
   authenticationResults: string[];
   /**
+   * Parallel to `authenticationResults`: whether each value was assembled from
+   * folded continuation lines. See `headerValuesFolded` — a folded verdict is
+   * one the sender may have written into.
+   */
+  authenticationResultsFolded: boolean[];
+  /**
+   * Every `ARC-Authentication-Results` header (RFC 8617 §4.1.1), in order.
+   *
+   * This is how the *original* authentication verdict survives a forwarding
+   * hop: `From:` stays the same while the delivering hop's DKIM signature
+   * belongs to the forwarder, so ordinary alignment fails and only the chain
+   * still carries what the first receiver saw. `./auth.ts` decides, very
+   * carefully, when any of it may be believed.
+   */
+  arcAuthenticationResults: ArcHeader[];
+  /**
    * Machine-readable tags for structured logs: which caps bit, what was
    * malformed. **Never carries message content** — these strings are safe to
    * log, and nothing else in this type is.
    */
   problems: string[];
+}
+
+/**
+ * One `ARC-Authentication-Results` header, with the two facts about it that
+ * cannot be recovered from its text.
+ */
+export interface ArcHeader {
+  /** The header value, unfolded. Begins with the ARC instance tag, `i=N;`. */
+  value: string;
+  /** Assembled from folded continuation lines — i.e. sender-extendable. */
+  folded: boolean;
+  /**
+   * It appears strictly **above** the topmost `Authentication-Results`.
+   *
+   * That is the only evidence in a message that separates a header our MTA
+   * wrote from one the sender did. The receiving MTA prepends its trace block
+   * as a unit at the very top, so everything the sender wrote — including any
+   * `ARC-Authentication-Results` they invented, with any authserv-id and any
+   * instance number they liked — necessarily sits *below* it. This Worker
+   * already stakes everything on "the topmost `Authentication-Results` is
+   * ours"; anything above that header is inside the same block and is ours by
+   * the same argument, and nothing below it is trustworthy on position alone.
+   *
+   * `false` when there is no `Authentication-Results` at all: with no anchor
+   * there is no block boundary to be inside, and the conservative reading is
+   * the only safe one.
+   */
+  abovePrimary: boolean;
 }
 
 /* ------------------------------ byte helpers ------------------------------ */
@@ -241,6 +289,12 @@ export function singleLine(value: string): string {
 interface Header {
   name: string;
   value: string;
+  /**
+   * Whether this value was assembled from one or more folded continuation
+   * lines. Load-bearing for the authentication headers: see
+   * `headerValuesFolded`.
+   */
+  folded: boolean;
 }
 
 /**
@@ -272,6 +326,7 @@ function parseHeaders(head: string, limits: MimeLimits, problems: Set<string>): 
 
   const headers: Header[] = [];
   let current: string | null = null;
+  let folded = false;
 
   const flush = () => {
     if (current === null) return;
@@ -285,12 +340,13 @@ function parseHeaders(head: string, limits: MimeLimits, problems: Set<string>): 
       }
       // A header name is `printable US-ASCII except colon`. Anything else is a
       // continuation line the folding rules did not cover, or garbage.
-      if (/^[\x21-\x39\x3b-\x7e]+$/.test(name)) headers.push({ name, value });
+      if (/^[\x21-\x39\x3b-\x7e]+$/.test(name)) headers.push({ name, value, folded });
       else problems.add("malformed_header");
     } else if (current.trim()) {
       problems.add("malformed_header");
     }
     current = null;
+    folded = false;
   };
 
   for (const line of block.split("\n")) {
@@ -303,7 +359,10 @@ function parseHeaders(head: string, limits: MimeLimits, problems: Set<string>): 
       // A folded continuation. RFC 5322 §2.2.3: the CRLF is removed and the
       // leading whitespace is retained as a single space.
       if (current === null) problems.add("malformed_header");
-      else current += ` ${stripped.trim()}`;
+      else {
+        current += ` ${stripped.trim()}`;
+        folded = true;
+      }
       continue;
     }
     flush();
@@ -325,6 +384,59 @@ function headerValues(headers: Header[], name: string, limit: number): string[] 
     if (header.name !== name) continue;
     out.push(header.value);
     if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * Which of those values were assembled from folded continuation lines.
+ *
+ * Only the authentication headers care, and they care a great deal. The
+ * sender's own headers begin immediately below the ones the MTA prepended, so a
+ * message whose *first* header line starts with SP or HTAB has that line
+ * appended — by correct RFC 5322 unfolding — to the last header the MTA wrote.
+ * If that header is an authentication verdict, the sender has just written
+ * into it.
+ *
+ * The result is one header, not two, so `verifySender`'s rule that a second
+ * header bearing our authserv-id is fatal never fires: the attacker did not add
+ * a header, they extended ours. Nor does a duplicate-clause check help, because
+ * the attack works precisely when the MTA *omits* the method being forged —
+ * there is no duplicate to notice. Refusing the fold is what closes it.
+ */
+function headerValuesFolded(headers: Header[], name: string, limit: number): boolean[] {
+  const out: boolean[] = [];
+  for (const header of headers) {
+    if (header.name !== name) continue;
+    out.push(header.folded);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * Collect the `ARC-Authentication-Results` headers, each with the two facts
+ * `./auth.ts` needs about it that its own text cannot tell you.
+ *
+ * `abovePrimary` is the important one and it is the whole reason this is not
+ * just another `headerValues` call. See `ArcHeader.abovePrimary`.
+ *
+ * Unbounded on purpose — or rather, bounded by `limits.maxHeaderCount`, which
+ * already applies. A cap here would create a truncation blind spot: a forged
+ * duplicate pushed past the cap would vanish from the list `verifySender`
+ * checks for ambiguity, and a check that cannot see the forgery is not a check.
+ */
+function collectArcHeaders(headers: Header[]): ArcHeader[] {
+  const primary = headers.findIndex((header) => header.name === "authentication-results");
+  const out: ArcHeader[] = [];
+  for (let index = 0; index < headers.length; index += 1) {
+    const header = headers[index]!;
+    if (header.name !== "arc-authentication-results") continue;
+    out.push({
+      value: header.value,
+      folded: header.folded,
+      abovePrimary: primary >= 0 && index < primary,
+    });
   }
   return out;
 }
@@ -757,6 +869,8 @@ export function parseEmail(
     textSource: "none",
     attachments: [],
     authenticationResults: [],
+    authenticationResultsFolded: [],
+    arcAuthenticationResults: [],
     problems: [],
   };
 
@@ -841,6 +955,8 @@ export function parseEmail(
       textSource,
       attachments,
       authenticationResults: headerValues(topHeaders, "authentication-results", 10),
+      authenticationResultsFolded: headerValuesFolded(topHeaders, "authentication-results", 10),
+      arcAuthenticationResults: collectArcHeaders(topHeaders),
       problems: [...problems].sort(),
     };
   } catch {

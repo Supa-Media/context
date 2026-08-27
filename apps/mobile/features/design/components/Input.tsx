@@ -217,6 +217,130 @@ function ChoiceRow<T extends string>({
   );
 }
 
+export interface ToggleOption {
+  value: string;
+  label: string;
+  /** One line under the label. This is where the trade-off gets explained. */
+  detail?: string;
+  /** Whether this one is on. Each row is independent of the others. */
+  on: boolean;
+  /**
+   * Shown, greyed, and not answerable.
+   *
+   * For a permission that was asked for and cannot be handed over. It stays on
+   * the list because a screen that silently dropped part of the request would
+   * be hiding the reason somebody's AI client half-works afterwards.
+   */
+  locked?: boolean;
+}
+
+/**
+ * Independent tick boxes, drawn in `ChoiceGroup`'s visual language.
+ *
+ * A checkbox group and not a radio group, because these answers genuinely are
+ * independent: "read" and "write" are not two answers to one question, and a
+ * person narrowing an OAuth request is turning individual permissions off, not
+ * picking a preset. RFC 6749 §3.3 lets an authorization server grant less than
+ * was asked for, and this is what that looks like on a screen.
+ *
+ * Rows arrive ticked, because they show what the client requested — the
+ * starting point is the request, and unticking is the narrowing. Nothing here
+ * decides anything: the backend clamps whatever is submitted, so a locked row
+ * is a courtesy rather than a control.
+ */
+export function ToggleGroup({
+  label,
+  hint,
+  options,
+  onToggle,
+  disabled = false,
+  testID,
+  style,
+}: {
+  label: string;
+  hint?: string;
+  options: ReadonlyArray<ToggleOption>;
+  onToggle: (value: string, next: boolean) => void;
+  disabled?: boolean;
+  testID?: string;
+  style?: ViewStyle;
+}) {
+  return (
+    <View style={style} role="group" aria-label={label}>
+      <Text variant="eyebrow">{label}</Text>
+      {hint ? (
+        <Text variant="rowSub" style={styles.groupHint}>
+          {hint}
+        </Text>
+      ) : null}
+      <View style={styles.options}>
+        {options.map((option) => (
+          <ToggleRow
+            key={option.value}
+            option={option}
+            disabled={disabled || option.locked === true}
+            onPress={() => onToggle(option.value, !option.on)}
+            testID={testID ? `${testID}-${option.value}` : undefined}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function ToggleRow({
+  option,
+  disabled,
+  onPress,
+  testID,
+}: {
+  option: ToggleOption;
+  disabled: boolean;
+  onPress: () => void;
+  testID?: string;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const on = option.on;
+
+  return (
+    <Pressable
+      role="checkbox"
+      accessibilityState={{ checked: on, disabled }}
+      aria-checked={on}
+      accessibilityLabel={option.detail ? `${option.label}. ${option.detail}` : option.label}
+      disabled={disabled}
+      onPress={onPress}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      testID={testID}
+      style={[
+        styles.choice,
+        hovered && !on && styles.choiceHover,
+        on && styles.choiceOn,
+        disabled && styles.choiceDisabled,
+      ]}
+    >
+      <View style={[styles.tick, on && styles.tickOn]} aria-hidden>
+        {on ? <View style={styles.tickMark} /> : null}
+      </View>
+      <View style={styles.choiceText}>
+        <Text variant="rowTitle" style={on ? styles.choiceLabelOn : undefined}>
+          {option.label}
+        </Text>
+        {option.detail ? (
+          <Text variant="rowSub" style={styles.choiceDetail}>
+            {option.detail}
+          </Text>
+        ) : null}
+      </View>
+      <FocusRing visible={focused && !disabled} radius={radii.xl} />
+    </Pressable>
+  );
+}
+
 /** A form-level failure: what went wrong on the first line, what to do on the second. */
 export function FormError({
   headline,
@@ -316,6 +440,26 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: colors.accent,
+  },
+
+  // Square where the radio is round, so "one of these" and "any of these" are
+  // distinguishable at a glance rather than only by behaviour.
+  tick: {
+    width: 16,
+    height: 16,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  tickOn: { borderColor: colors.accent, backgroundColor: colors.accent },
+  tickMark: {
+    width: 8,
+    height: 8,
+    borderRadius: 2,
+    backgroundColor: colors.ground,
   },
 
   formError: {

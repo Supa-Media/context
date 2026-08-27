@@ -75,6 +75,7 @@ export function describeNameProblem(name: string): string | null {
   }
   // Control characters and the backslash some backends silently fold to "/" —
   // the same set `apps/mcp/src/store/index.js` refuses at the adapter boundary.
+  // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f\\]/.test(trimmed)) {
     return "That name contains a character a bucket cannot store.";
   }

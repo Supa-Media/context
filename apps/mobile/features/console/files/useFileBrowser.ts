@@ -41,11 +41,47 @@ import {
   joinPath,
   parentPath,
 } from "./paths";
+import { raceTimeout } from "../storage/timeout";
 import { findEntry, foldersToRefresh, namesIn } from "./tree";
 import type { FileError, FolderListing, OpenNote, Visibility } from "./types";
 
 /** The literal the backend requires before it will delete anything. */
 const DELETE_CONFIRMATION = "permanently delete";
+
+/**
+ * How long to wait for one file operation before giving the toolbar back.
+ *
+ * Longer than `SAVE_TIMEOUT_MS` (30s), and for the same reason
+ * `CONNECT_TIMEOUT_MS` is: a save is one conditional PUT, while the operations
+ * behind `run` are whole-tree jobs. A folder move, copy, delete or visibility
+ * cascade walks the prefix and issues a bucket round trip per object, each with
+ * its own 10s deadline in `functions/files.ts`, so a directory of any size is
+ * legitimately many seconds of sequential I/O. 45s is generous enough that a
+ * real folder operation over a slow provider is not cut off, and short enough
+ * that nobody sits in front of a dead toolbar wondering.
+ */
+export const OPERATION_TIMEOUT_MS = 45_000;
+
+/**
+ * What to say when we stopped waiting.
+ *
+ * It does not claim the operation failed, because we do not know: the request
+ * may have landed and only the answer was lost. Saying "try again" here is how
+ * somebody retries a rename that already succeeded and gets told the name is
+ * taken — so the sentence points at the list instead.
+ */
+const TIMED_OUT_MESSAGE =
+  "That is taking too long, so we stopped waiting. It may still have gone through — check the list before trying it again.";
+
+/**
+ * The mutation worked; reloading the listing afterwards did not.
+ *
+ * Reported separately from a failure because they are opposite facts. Folding
+ * the two together is what told somebody a successful rename "did not work",
+ * and the retry they were invited to make then failed on the duplicate name.
+ */
+const STALE_LISTING_MESSAGE =
+  "That worked, but the file list did not reload. What you see may be out of date.";
 
 type Listings = Record<string, FolderListing | undefined>;
 
@@ -116,6 +152,15 @@ export function useFileBrowser(options: {
    */
   const saveRun = useRef(0);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * The generation of the toolbar operation in flight.
+   *
+   * Same job as `saveRun`: an operation that answers after its own attempt was
+   * abandoned must not be able to touch `busy` or `notice`, because by then
+   * those belong to whatever the person did next.
+   */
+  const operationRun = useRef(0);
 
   useEffect(
     () => () => {
@@ -227,30 +272,78 @@ export function useFileBrowser(options: {
    * The shape is the same every time — refuse if this console cannot edit,
    * mark busy, do it, refresh what it touched, report what happened — so
    * getting it right once is better than getting it nearly right eleven times.
+   *
+   * Two things it is careful about, both learned the hard way:
+   *
+   *  - **The work is raced against a timer.** Every `work()` here awaits a
+   *    Convex action, and `ConvexReactClient.action()` has no client-side
+   *    timeout: the promise settles only when the socket replies. A connection
+   *    that drops mid-operation used to leave `busy` true forever — and `busy`
+   *    is what disables rename, move, duplicate, archive, delete, paste and
+   *    the visibility controls — with no way back but a reload. Same fix as the
+   *    save above and `storage/reverify.ts`: an injected timer and a generation
+   *    counter, so a reply from an abandoned attempt cannot settle the current
+   *    one.
+   *  - **A failed refresh is not a failed operation.** These were once in the
+   *    same `try`, so a rename that succeeded and then failed to reload its
+   *    folder was reported as "That did not work. Try again." — and the retry
+   *    it invited failed on the duplicate name the first one had created.
    */
   const run = useCallback(
     async (
       work: () => Promise<{ touched: string[]; cascadeFrom?: string; message?: string }>,
     ): Promise<boolean> => {
       if (!options.canEdit || workspaceId === null) return false;
+      operationRun.current += 1;
+      const mine = operationRun.current;
       setBusy(true);
       setNotice(null);
+
+      const settled = await raceTimeout(
+        // Called inside the race so a `work()` that throws synchronously is a
+        // rejected promise here rather than an exception out of `run`.
+        (async () => await work())(),
+        {
+          ms: OPERATION_TIMEOUT_MS,
+          schedule: (fn, ms) => setTimeout(fn, ms),
+          cancel: (handle) => clearTimeout(handle),
+        },
+      );
+
+      // Superseded: something newer owns the toolbar now. Leave it alone.
+      if (operationRun.current !== mine) return false;
+
+      if (settled.kind === "timeout") {
+        setBusy(false);
+        setNotice(TIMED_OUT_MESSAGE);
+        return false;
+      }
+      if (settled.kind === "failed") {
+        setBusy(false);
+        setNotice(toFileError(settled.error).message);
+        return false;
+      }
+
+      // From here the mutation has already happened. Nothing below may report
+      // it as a failure.
+      const result = settled.value;
+      let listingReloaded = true;
       try {
-        const result = await work();
         await refresh(
           foldersToRefresh(result.touched, {
             cascadeFrom: result.cascadeFrom,
             loaded: Object.keys(listings),
           }),
         );
-        if (result.message !== undefined) setNotice(result.message);
-        return true;
-      } catch (error) {
-        setNotice(toFileError(error).message);
-        return false;
-      } finally {
-        setBusy(false);
+      } catch {
+        listingReloaded = false;
       }
+
+      if (operationRun.current !== mine) return true;
+      setBusy(false);
+      if (!listingReloaded) setNotice(STALE_LISTING_MESSAGE);
+      else if (result.message !== undefined) setNotice(result.message);
+      return true;
     },
     [listings, options.canEdit, refresh, workspaceId],
   );

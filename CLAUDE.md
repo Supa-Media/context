@@ -81,7 +81,7 @@ Zero npm dependencies — keep it that way. It runs on the Workers runtime, so
 use Web Crypto and `fetch`, not Node APIs.
 
 `pnpm test` in `apps/mcp` runs the suite against an in-memory store stub. It is
-fast, offline, and currently 408 checks. **Do not let it regress.** If you
+fast, offline, and currently 442 checks. **Do not let it regress.** If you
 change behavior, change the test in the same commit and say why.
 
 The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,
@@ -315,6 +315,50 @@ someone tidying up, and each fix is a different disaster:
 Matching is exact — scheme, host, port, no wildcards — for the same reason
 `redirectUriMatches` is. Unset `ALLOWED_ORIGINS` means non-browser clients only,
 which is fail-closed and breaks nothing already deployed. See `src/origin.js`.
+### The privacy tier is a scope on the grant, never an inference from a role
+
+`visibilityTierForRole(role) => role === "owner" ? "private" : "team"` used to
+decide, per request, how much of a context an AI client could see. It meant an
+owner could not connect a client at team level: whatever they connected saw
+every note they had ever marked private, and no setting, scope, or screen
+changed that, because there was nothing to change. The owner of this product
+asked for exactly this and there was no answer.
+
+The tier is `context:private`, an ordinary member of `SUPPORTED_SCOPES`,
+recorded on the grant and read back by `visibilityTierForGrant(scopes, role)`.
+Four things about that are load-bearing:
+
+- **It is the only representation of itself.** No `visibilityTier` column
+  beside it. A tier stored twice is a tier that can disagree with itself, and
+  the direction that disagreement fails is "an AI client reads more than the
+  person allowed".
+- **Absence means `team`, and that is the migration.** A grant issued before
+  the tier existed carries no `context:private`, so it narrows. Reading an
+  unmarked grant as private would leave every pre-feature grant at full access
+  forever — on exactly the grants nobody was ever asked about.
+- **The role still clamps, and the clamp is not the tier.** Reading the grant
+  says what a person chose; the clamp says what their membership can still back
+  up. Collapsing the two in either direction restores the old bug or invents a
+  new one.
+- **The consent screen defaults to `team` for everybody, owners included.** The
+  old behaviour was private-by-default with no way out; a switch next to the old
+  default would have changed nothing. Approving is opting in.
+
+There are three clamps, at three moments, and they are not redundant:
+`applyApproval` decides what may be *written* (a person, in a browser),
+`createGrant` re-clamps what the gateway *relays* (a Worker, which may be
+compromised or newer than this deployment), and `effectiveScopes` decides what a
+*live request* may do (membership can change after both). `functions/lib/consentScopes.ts`
+is the control plane's copy of the vocabulary; `apps/mcp/src/session.js` keeps
+its own because the gateway is dependency-free, and the mobile screen's mirror
+is asserted against the control plane's in `__tests__/consentScopes.test.ts`
+rather than claimed in a comment.
+
+Adding a scope means adding it to `SUPPORTED_SCOPES` in `session.js` — which
+`oauth.js` imports, so discovery and `/oauth/authorize` validation cannot learn
+about it separately. A client that follows discovery to a scope the
+authorization endpoint then rejects is a client that concludes the server lied.
+
 ### An invitation is addressed to a string, and its token is stored in the clear
 
 Two things about `functions/invitations.ts` look like oversights and are not.

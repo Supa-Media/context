@@ -595,7 +595,31 @@ const schema = defineSchema({
     codeChallenge: v.string(),
     /** S256 only. `plain` makes the challenge the verifier, which is no PKCE at all. */
     codeChallengeMethod: v.literal("S256"),
+    /**
+     * What the client **asked for**. A request, never a grant.
+     *
+     * Kept after approval rather than overwritten, because "what was asked" and
+     * "what was given" are different facts, and an audit trail that cannot tell
+     * them apart cannot show that a person narrowed anything.
+     */
     scope: v.string(),
+    /**
+     * What the person **actually approved**, space-delimited.
+     *
+     * Written by `applyApproval` and by nothing else, already narrowed to the
+     * request and already clamped to what the approver's role could hand over.
+     * This is the field the token exchange reads, so a scope the person
+     * unticked is a scope no grant ever carries.
+     *
+     * Optional only because a row that has not been approved yet has no answer.
+     * An `approved` row without it can only be one parked before this field
+     * existed — at most one authorization window old, since a request lives ten
+     * minutes — and `consumeAuthorizationCode` falls back to `scope` for those.
+     * That fallback cannot widen anything: `context:private` was not a grantable
+     * scope when such a row was written, so the widest thing it reconstructs is
+     * the old read/write pair, at `team` tier.
+     */
+    grantedScope: v.optional(v.string()),
     resource: v.union(v.string(), v.null()),
     /** A preselection hint for the consent screen. The person still chooses. */
     requestedWorkspaceSlug: v.union(v.string(), v.null()),
@@ -651,6 +675,22 @@ const schema = defineSchema({
     workspaceId: v.id("workspaces"),
     userId: v.id("users"),
     clientId: v.string(),
+    /**
+     * Exactly what the person approved — **including the privacy tier**.
+     *
+     * `context:private` here is the only record that this client may reach
+     * notes marked private, and its absence is the only record that it may not.
+     * There is deliberately no separate `visibilityTier` column: a tier stored
+     * twice is a tier that can disagree with itself, and the direction that
+     * disagreement fails is "an AI client reads more than the person allowed".
+     * The gateway derives the tier from this array on every request rather than
+     * from the approver's role, so an owner who granted `team` keeps `team`
+     * forever. See `functions/lib/consentScopes.ts`.
+     *
+     * A grant written before the tier was grantable carries no
+     * `context:private`, and therefore resolves to `team`. Fail-closed: a
+     * legacy row narrows rather than keeping the widest tier by default.
+     */
     scopes: v.array(v.string()),
     /** Hash only. A raw refresh token never touches this database. */
     hashedRefreshToken: v.string(),
