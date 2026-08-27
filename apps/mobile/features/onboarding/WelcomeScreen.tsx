@@ -35,7 +35,7 @@ export function WelcomeScreen() {
   const controller = useOnboarding();
 
   const decision = resolveWelcomeRoute({
-    contextCount: controller.contextCount,
+    owned: controller.owned,
     claimed: controller.claimed !== null,
   });
 

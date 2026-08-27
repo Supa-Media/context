@@ -43,6 +43,7 @@ import { toBindStorageArgs, type ConnectFormValues, type Provider } from "../con
 import { describeCreateFailure, describeStructureFailure, type CreateFailure } from "./errors";
 import { afterStorage, type FlowShape, type StepKey, type StorageOutcome } from "./flow";
 import { canClaim, nameStatus, normalizedName, shouldCheckAvailability, type NameAvailability, type NameStatus } from "./name";
+import { ownedContexts } from "./route";
 import {
   canApplyStructure,
   emptyCustomFolders,
@@ -86,8 +87,15 @@ export interface ClaimedContext {
 export interface OnboardingController {
   step: StepKey;
   shape: FlowShape;
-  /** `undefined` until `listMyWorkspaces` resolves. Never read as zero. */
-  contextCount: number | undefined;
+  /**
+   * Personal contexts this account **owns**, or `undefined` until
+   * `listMyWorkspaces` resolves. Never read as zero.
+   *
+   * Owned rather than reachable, because this is the number that decides
+   * whether the flow has already run — and somebody who was given access to
+   * another person's context has not run it. See `resolveWelcomeRoute`.
+   */
+  owned: number | undefined;
   claimed: ClaimedContext | null;
   /**
    * Whether anything is receiving mail at the claimed context's capture
@@ -143,7 +151,7 @@ export interface OnboardingController {
 
 export function useOnboarding(): OnboardingController {
   const workspaces = useQuery(api.functions.workspaces.listMyWorkspaces) as
-    | Array<{ workspaceId: Id<"workspaces">; slug: string }>
+    | Array<{ workspaceId: Id<"workspaces">; slug: string; kind: string; role: string }>
     | undefined;
 
   const [step, setStep] = useState<StepKey>("name");
@@ -369,7 +377,7 @@ export function useOnboarding(): OnboardingController {
   return {
     step,
     shape: { storage },
-    contextCount: workspaces === undefined ? undefined : workspaces.length,
+    owned: ownedContexts(workspaces),
     claimed,
     captureReceivesMail: receivesMail(ingestion),
 
