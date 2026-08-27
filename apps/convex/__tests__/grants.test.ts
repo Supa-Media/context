@@ -9,6 +9,7 @@
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
 import {
+  addMember,
   asUser,
   captureError,
   createUser,
@@ -290,6 +291,70 @@ describe("createGrant (internal)", () => {
       }),
     );
     expect(errorCode(error)).toBe("CLIENT_NOT_REGISTERED");
+  });
+
+  /**
+   * The clamp `createGrant` performs is not the same clamp `applyApproval`
+   * performs, and the difference is the whole reason both exist.
+   *
+   * `applyApproval` is driven by a signed-in person in a browser. This is
+   * driven by the gateway, relaying a value that made a round trip through a
+   * Cloudflare Worker. If only the approval clamped, then "the gateway sends
+   * `context:private` for a member's grant" — a compromise, a bug, or simply a
+   * Worker newer than this deployment — would write private-tier onto a grant
+   * no person could have issued.
+   */
+  test("clamps a relayed scope set to what the grant's own role could hand over", async () => {
+    const { t, workspaceId } = await registeredWorkspace();
+    const member = await createUser(t, "member@example.invalid");
+    await addMember(t, workspaceId, member, "member");
+
+    const grantId = await t.mutation(internal.functions.grants.createGrant, {
+      workspaceId,
+      userId: member,
+      clientId: "claude",
+      scopes: ["context:read", "context:write", "context:private"],
+      hashedRefreshToken: VALID_HASH,
+    });
+
+    const grant = await t.run((ctx) => ctx.db.get(grantId));
+    expect(grant?.scopes).toEqual(["context:read"]);
+  });
+
+  test("clamps private-tier off an editor's grant and leaves write alone", async () => {
+    const { t, workspaceId } = await registeredWorkspace();
+    const editor = await createUser(t, "editor@example.invalid");
+    await addMember(t, workspaceId, editor, "editor");
+
+    const grantId = await t.mutation(internal.functions.grants.createGrant, {
+      workspaceId,
+      userId: editor,
+      clientId: "claude",
+      scopes: ["context:read", "context:write", "context:private"],
+      hashedRefreshToken: VALID_HASH,
+    });
+
+    expect((await t.run((ctx) => ctx.db.get(grantId)))?.scopes).toEqual([
+      "context:read",
+      "context:write",
+    ]);
+  });
+
+  test("leaves an owner's private-tier grant exactly as approved", async () => {
+    const { t, user, workspaceId } = await registeredWorkspace();
+
+    const grantId = await t.mutation(internal.functions.grants.createGrant, {
+      workspaceId,
+      userId: user,
+      clientId: "claude",
+      scopes: ["context:read", "context:private"],
+      hashedRefreshToken: VALID_HASH,
+    });
+
+    expect((await t.run((ctx) => ctx.db.get(grantId)))?.scopes).toEqual([
+      "context:read",
+      "context:private",
+    ]);
   });
 
   test("answers the authorization question before the validation ones", async () => {

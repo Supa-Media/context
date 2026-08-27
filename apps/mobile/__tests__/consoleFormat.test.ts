@@ -64,9 +64,39 @@ describe("describeScopes", () => {
     expect(describeScopes(["context:team"])).toBe("Team access only");
   });
 
+  /**
+   * The line has to answer both questions somebody has about a client they
+   * connected last month: how much can it see, and can it change anything.
+   * Either fact alone leaves the other unanswered, and "is this read only?" was
+   * one of the three things the screen could not say.
+   */
+  test("a narrowed grant reads as narrowed, tier and operations both", () => {
+    expect(describeScopes(["context:read"])).toBe("Team access only · read-only");
+    expect(describeScopes(["context:read", "context:write"])).toBe(
+      "Team access only · read & write",
+    );
+    expect(describeScopes(["context:capture"])).toBe("Team access only · capture only");
+  });
+
+  test("the tier scope on the same grant changes the first half and only that", () => {
+    expect(describeScopes(["context:read", "context:private"])).toBe(
+      "Full access · read-only",
+    );
+    expect(describeScopes(["context:read", "context:write", "context:private"])).toBe(
+      "Full access · read & write",
+    );
+  });
+
   test("an unrecognised scope set is shown rather than summarised away", () => {
-    expect(describeScopes(["notes:write"])).toBe("notes:write");
     expect(describeScopes(["a", "b"])).toBe("a · b");
+  });
+
+  test("an unrecognised scope beside recognised ones is still said out loud", () => {
+    // Never omit a scope: a grant carrying something this version cannot
+    // describe must not be able to look narrower than it is.
+    expect(describeScopes(["context:read", "wat:huh"])).toBe(
+      "Team access only · read-only · wat:huh",
+    );
   });
 
   test("no scopes is not the same as full access", () => {

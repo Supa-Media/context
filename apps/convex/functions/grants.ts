@@ -28,6 +28,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { TOKEN_HASH_PATTERN } from "./lib/crypto";
 import { recordAudit } from "./lib/audit";
 import { getMembership, roleAtLeast, workspaceNotFound } from "./lib/workspaceAuth";
+import { clampScopes, visibilityTierOf } from "./lib/consentScopes";
 
 /**
  * The most grants one response carries.
@@ -382,11 +383,28 @@ export const createGrant = internalMutation({
       });
     }
 
+    /**
+     * The second, independent clamp.
+     *
+     * `applyApproval` already narrowed this set against the approver's role.
+     * This runs it again, here, because the two are reached by different
+     * callers: the approval is driven by a signed-in person, and *this* is
+     * driven by the gateway relaying a value that made a round trip through a
+     * Worker. A gateway that is compromised, confused, or simply newer than
+     * this deployment must not be able to write `context:private` onto a
+     * member's grant by sending it — and the difference between the two clamps
+     * is exactly that scenario.
+     *
+     * Subtractive only, so a caller that sends a vocabulary this deployment has
+     * no opinion about keeps it. Nothing here can widen a grant.
+     */
+    const scopes = clampScopes(args.scopes, membership.role);
+
     const grantId = await ctx.db.insert("oauthGrants", {
       workspaceId,
       userId,
       clientId: args.clientId,
-      scopes: args.scopes,
+      scopes,
       hashedRefreshToken: args.hashedRefreshToken,
       hashedAccessToken: args.hashedAccessToken,
       accessTokenExpiresAt: args.accessTokenExpiresAt,
@@ -399,7 +417,7 @@ export const createGrant = internalMutation({
       actorUserId: userId,
       actorClientId: args.clientId,
       action: "grant.created",
-      details: { scopes: args.scopes.join(" ") },
+      details: { scopes: scopes.join(" "), tier: visibilityTierOf(scopes) },
     });
 
     return grantId;

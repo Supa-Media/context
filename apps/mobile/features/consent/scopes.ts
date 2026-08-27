@@ -1,5 +1,6 @@
 /**
- * Scopes, rendered as sentences a person can actually weigh.
+ * Scopes, rendered as sentences a person can actually weigh — and as the set of
+ * choices they get to make.
  *
  * `context:read context:write` is a fact about our API. It is not an answer to
  * the question the consent screen exists to ask, which is "what will this thing
@@ -7,24 +8,40 @@
  * the second person, and every scope we do not recognise gets said out loud as
  * unrecognised rather than quietly dropped or folded into a reassuring summary.
  *
- * Three rules this file exists to hold:
+ * Four rules this file exists to hold:
  *
  *  - **Never omit a scope.** A grant the screen did not mention is a grant the
  *    person did not consent to. An unknown scope renders as a line of its own,
  *    in the elevated tone, with the raw string visible.
  *  - **Never soften a wildcard.** `*` is not "read and write"; it is everything,
  *    including whatever we add next year. It says so.
- *  - **Never describe a grant as narrower than the approver's own role makes
- *    it.** `context:read` does not reach the same notes for everybody — the
- *    gateway derives the privacy tier from the approver's membership role, not
- *    from the scope string (`visibilityTierForRole`). This one shipped wrong:
- *    the read line promised "except notes you marked private" to *everybody*,
- *    which is exactly backwards for an owner — the default case, and the only
- *    person with private notes of their own to hand over.
+ *  - **Never describe a grant as narrower than it is.** This one shipped wrong
+ *    once: the read line promised "except notes you marked private" to
+ *    *everybody*, which was exactly backwards for an owner — the default case,
+ *    and the only person with private notes of their own to hand over.
+ *  - **Never offer a control the backend will not honour.** A tick box that
+ *    produces a refusal is worse than no tick box, so the options here are
+ *    derived from the approver's role by the same rule
+ *    `functions/lib/consentScopes.ts` clamps by. `__tests__/consentScopes.test.ts`
+ *    imports that module and asserts the two agree, so the mirror is checked
+ *    rather than asserted.
+ *
+ * ## What changed, and why the sentences can be honest now
+ *
+ * The privacy tier used to be derived from the approver's *role*, at request
+ * time, in the gateway — so an owner always granted `private` and the screen
+ * could only ever describe that, whatever it said. The tier is now a scope the
+ * person chooses (`context:private`) and the grant records, which is what makes
+ * "everything except notes marked private" a sentence we can put in front of an
+ * owner without lying: if they picked team, that is what the grant carries and
+ * what the gateway will enforce, forever.
  *
  * Pure and free of React so the vocabulary is pinned by tests rather than
  * discovered by reading a screenshot.
  */
+
+/** The scope that carries the privacy tier. Canonical spelling. */
+export const SCOPE_PRIVATE = "context:private";
 
 /** How loudly a line should read. */
 export type ScopeTone =
@@ -46,7 +63,7 @@ export interface ScopeLine {
 }
 
 /**
- * How much of a context a grant reaches, as the gateway decides it.
+ * How much of a context a grant reaches.
  *
  * `unknown` is not a tier the gateway has; it is this screen admitting it does
  * not yet know which context is being granted — which happens for real, when
@@ -56,30 +73,80 @@ export interface ScopeLine {
  */
 export type VisibilityTier = "private" | "team" | "unknown";
 
+/** A tier a person can actually pick. `unknown` is a state, not a choice. */
+export type GrantableTier = "private" | "team";
+
 /**
- * Membership role → privacy tier.
+ * The widest tier this role could hand over.
  *
- * A mirror of `visibilityTierForRole` in `apps/mcp/src/session.js`, which is
- * what actually runs: `owner` resolves to the `private` tier, and
- * `privacy.ts`'s `canSee` returns `true` for every note at that tier —
- * exceptions included. An `editor` can write and a `member` cannot, but neither
- * of them is the person whose private notes these are, so both resolve to
- * `team` and genuinely cannot read a private note.
+ * Only an `owner` may grant `private`. An `editor` can write and a `member`
+ * cannot, but neither of them is the person whose private notes these are —
+ * they cannot read one themselves, so they certainly cannot delegate reading
+ * one. A role we do not recognise yields `unknown`, which offers nothing.
  *
- * Duplicating the mapping in the UI is deliberate. The alternative is a
- * consent screen that cannot say what it is granting without another round
- * trip, and a screen that guesses is the bug this exists to prevent. If the
- * gateway's mapping changes, this must change with it — the sentences below
- * are the user-facing statement of that one function.
+ * Note what this is *not*: it is no longer "the tier this approver's grant
+ * gets". That used to be the same function, and it was the bug. This only says
+ * what may be offered; what is granted is what the person picked.
  */
-export function visibilityTierForRole(role: string | null | undefined): VisibilityTier {
+export function tierCeilingForRole(role: string | null | undefined): VisibilityTier {
   if (role === "owner") return "private";
   if (role === "editor" || role === "member") return "team";
   return "unknown";
 }
 
 /**
- * "Read your notes", said honestly for whoever is approving.
+ * Which tiers to draw as choices, widest last.
+ *
+ * A single-entry list means there is no decision to make — the screen states
+ * the tier rather than asking about it, because a radio group with one option
+ * is a control that pretends the person chose.
+ */
+export function grantableTiers(role: string | null | undefined): GrantableTier[] {
+  return tierCeilingForRole(role) === "private" ? ["team", "private"] : ["team"];
+}
+
+/**
+ * Whether this role could hand over the operation named by a scope.
+ *
+ * Mirrors `clampScopes` in `functions/lib/consentScopes.ts`: `member` is
+ * read-only, `editor` and `owner` may write, and the tier scope is the owner's
+ * alone. Anything this file has no opinion about is left to the backend — the
+ * screen shows it, the person may tick it, and the clamp there decides.
+ */
+export function roleCanGrantScope(role: string | null | undefined, scope: string): boolean {
+  if (WRITE_SCOPES.has(scope)) return role === "owner" || role === "editor";
+  if (PRIVATE_TIER_SCOPES.has(scope)) return role === "owner";
+  return true;
+}
+
+/** Canonical spellings the gateway honours as authority to change notes. */
+const WRITE_SCOPES: ReadonlySet<string> = new Set(["context:write", "context:capture"]);
+
+/** Every spelling anything here reads as "reaches private notes". */
+const PRIVATE_TIER_SCOPES: ReadonlySet<string> = new Set([
+  SCOPE_PRIVATE,
+  "context.private",
+  "private",
+  "*",
+  "context:*",
+  "context.*",
+  "all",
+]);
+
+/**
+ * Is this scope the tier rather than an operation?
+ *
+ * The screen splits the request in two: operations get tick boxes, the tier
+ * gets its own control. Folding the tier into the tick boxes would put "how
+ * much of my context does this see" in a list of things a client can *do*,
+ * which is the framing that made it invisible in the first place.
+ */
+export function isTierScope(scope: string): boolean {
+  return PRIVATE_TIER_SCOPES.has(scope);
+}
+
+/**
+ * "Read your notes", said honestly for the tier actually being granted.
  *
  * The three sentences are the whole point of this file, so they are here
  * together where they can be compared rather than scattered through a
@@ -88,14 +155,14 @@ export function visibilityTierForRole(role: string | null | undefined): Visibili
 function readLine(tier: VisibilityTier): ScopeLine {
   switch (tier) {
     case "private":
-      // The owner case, and the default one. Saying "except notes you marked
-      // private" here would be false: an owner's grant carries the owner's own
-      // tier, and every private note comes with it.
+      // Not "the owner case" any more — the case where the person chose to hand
+      // over their private notes. Saying "except notes you marked private" here
+      // would be false.
       return {
         id: "read",
         sentence: "Read your notes",
         detail:
-          "Every note in this context, including the ones you marked private — you own it, so this client reads it exactly as you do.",
+          "Every note in this context, including the ones you marked private — this client reads it exactly as you do.",
         tone: "elevated",
       };
     case "team":
@@ -110,7 +177,7 @@ function readLine(tier: VisibilityTier): ScopeLine {
         id: "read",
         sentence: "Read your notes",
         detail:
-          "Everything in this context. If you own it, that includes the notes you marked private.",
+          "Everything this connection's privacy setting reaches. Pick a context to see which notes that is.",
         tone: "elevated",
       };
   }
@@ -124,8 +191,9 @@ function readLine(tier: VisibilityTier): ScopeLine {
  * because different parts of the system arrived at different separators. Rather
  * than pick a winner the UI cannot enforce, every alias maps to one entry here.
  *
- * An entry is either a fixed line or a function of the approver's tier, for the
- * scopes whose meaning genuinely depends on who is approving.
+ * An entry is either a fixed line or a function of the tier being granted, for
+ * the scopes whose meaning genuinely depends on how much of the context is on
+ * the table.
  */
 type ScopeEntry = ScopeLine | ((tier: VisibilityTier) => ScopeLine);
 
@@ -154,6 +222,15 @@ const SCOPE_ALIASES: ReadonlyArray<[readonly string[], ScopeEntry]> = [
       id: "write",
       sentence: "Create and edit notes",
       detail: "New files, and changes to existing ones, written into your bucket.",
+      tone: "elevated",
+    },
+  ],
+  [
+    ["capture", "context:capture", "context.capture"],
+    {
+      id: "capture",
+      sentence: "Drop things into your inbox",
+      detail: "New notes in 0-inbox, and nothing else touched.",
       tone: "elevated",
     },
   ],
@@ -265,6 +342,28 @@ export function normalizeScopes(scopes: string | readonly string[] | null | unde
 }
 
 /**
+ * One scope's sentence, at the tier being granted.
+ *
+ * Exported because the screen draws a tick box per requested scope and needs
+ * the line for exactly that scope, keyed by the raw string. An unrecognised
+ * scope still gets a line saying so — the tick box is drawn, and it says we
+ * cannot describe what ticking it means.
+ */
+export function scopeLine(scope: string, tier: VisibilityTier): ScopeLine {
+  if (WILDCARDS.has(scope)) return WILDCARD_LINE;
+  const entry = BY_ALIAS.get(scope);
+  if (entry === undefined) {
+    return {
+      id: `unknown:${scope}`,
+      sentence: `Something this version of Context can't describe: ${scope}`,
+      detail: "Approve only if you know what this client is asking for.",
+      tone: "unknown",
+    };
+  }
+  return typeof entry === "function" ? entry(tier) : entry;
+}
+
+/**
  * The sentences to show, in the order they should be read.
  *
  * A wildcard collapses the list, because enumerating six lines under a grant
@@ -272,32 +371,24 @@ export function normalizeScopes(scopes: string | readonly string[] | null | unde
  * lines keep the order the scopes arrived in, deduplicated by meaning — asking
  * for both `read` and `context:read` should not print the same sentence twice.
  *
- * `role` is the approver's membership role **in the context they are about to
- * grant**, not in some other one. It is required rather than optional: the
+ * `tier` is how much of the context this approval would hand over — the
+ * person's own choice, not their role. It is required rather than optional: the
  * sentences are claims about what this approval exposes, and a caller that has
- * not thought about whose approval it is should be made to pass `null` and get
- * the sentence that says so.
+ * not thought about which tier is being granted should be made to pass
+ * `"unknown"` and get the sentence that says so.
  */
 export function scopeSentences(
   scopes: string | readonly string[] | null | undefined,
-  role: string | null | undefined,
+  tier: VisibilityTier,
 ): ScopeLine[] {
   const normalized = normalizeScopes(scopes);
   if (normalized.length === 0) return [];
   if (normalized.some((scope) => WILDCARDS.has(scope))) return [WILDCARD_LINE];
 
-  const tier = visibilityTierForRole(role);
   const lines: ScopeLine[] = [];
   const seen = new Set<string>();
   for (const scope of normalized) {
-    const entry = BY_ALIAS.get(scope);
-    const known = typeof entry === "function" ? entry(tier) : entry;
-    const line: ScopeLine = known ?? {
-      id: `unknown:${scope}`,
-      sentence: `Something this version of Context can't describe: ${scope}`,
-      detail: "Approve only if you know what this client is asking for.",
-      tone: "unknown",
-    };
+    const line = scopeLine(scope, tier);
     if (seen.has(line.id)) continue;
     seen.add(line.id);
     lines.push(line);
@@ -313,4 +404,19 @@ export function scopeSentences(
  */
 export function hasElevatedScope(lines: readonly ScopeLine[]): boolean {
   return lines.some((line) => line.tone !== "plain");
+}
+
+/** The tier control's two options, as the screen renders them. */
+export function tierOption(tier: GrantableTier): { label: string; detail: string } {
+  return tier === "private"
+    ? {
+        label: "Everything, including private notes",
+        detail:
+          "This client reads your context exactly as you do — every note, including the ones you marked private.",
+      }
+    : {
+        label: "Team notes only",
+        detail:
+          "Anything you marked private stays invisible to this client. Notes shared with people you named are readable.",
+      };
 }

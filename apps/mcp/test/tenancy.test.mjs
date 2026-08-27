@@ -663,6 +663,26 @@ export async function runTenancyChecks(check) {
   check("it advertises a registration endpoint", typeof asmBody.registration_endpoint === "string");
   check("it advertises a revocation endpoint", typeof asmBody.revocation_endpoint === "string");
 
+  // Discovery and validation have to learn a new scope together. A client that
+  // follows discovery faithfully and then gets `invalid_scope` from the
+  // endpoint discovery pointed it at is the client that breaks, and it breaks
+  // in a way that looks like our server lying about what it supports.
+  check(
+    "the tier scope is advertised in the authorization server metadata",
+    asmBody.scopes_supported.includes("context:private")
+  );
+  const prmScopes = await (
+    await worker.fetch(
+      new Request("https://mcp.context.test/.well-known/oauth-protected-resource/mcp"),
+      env,
+      { waitUntil() {} }
+    )
+  ).json();
+  check(
+    "and in the protected resource metadata, identically",
+    JSON.stringify(prmScopes.scopes_supported) === JSON.stringify(asmBody.scopes_supported)
+  );
+
   check(
     "an unknown path is a 404, not a 200 that breaks discovery",
     (await worker.fetch(new Request("https://mcp.context.test/anything"), env, { waitUntil() {} }))
@@ -800,6 +820,30 @@ export async function runTenancyChecks(check) {
   check(
     "consent is hosted by the control plane, not the gateway",
     (authorized.headers.get("Location") || "").startsWith(CONTROL_PLANE_ORIGIN)
+  );
+
+  // The other half of the pair above: what discovery advertises, `/authorize`
+  // must accept. A client may legitimately ask for the tier — it only ever
+  // preselects, since the person's choice on the consent screen is what gets
+  // recorded — but a request naming it must not be refused outright.
+  const withTierScope = await worker.fetch(
+    new Request(authorizeUrl({ scope: "context:read context:write context:private" })),
+    env,
+    { waitUntil() {} }
+  );
+  check(
+    "an authorization request may name the tier scope discovery advertises",
+    withTierScope.status === 302 &&
+      (withTierScope.headers.get("Location") || "").startsWith(CONTROL_PLANE_ORIGIN)
+  );
+  const withUnknownScope = await worker.fetch(
+    new Request(authorizeUrl({ scope: "context:read context:everything" })),
+    env,
+    { waitUntil() {} }
+  );
+  check(
+    "and a scope outside the advertised menu is still invalid_scope",
+    (withUnknownScope.headers.get("Location") || "").includes("error=invalid_scope")
   );
 
   const plainPkce = await worker.fetch(
