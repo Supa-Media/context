@@ -41,11 +41,16 @@ import { modules } from "../test.setup";
 import { SIGNIN_CODE_TTL_MS, signInCodeExpiry } from "../functions/lib/invitationEmail";
 import { randomOpaqueToken } from "../functions/lib/gatewayAuth";
 import { hashToken } from "../functions/lib/crypto";
+import { MAGIC_LINK_PROVIDER_ID } from "@supa-media/convex/auth";
 
 /** Mirrors SIGNIN_CODE_BYTES in functions/invitationEmail.ts, which is not exported. */
 const SIGNIN_CODE_BYTES = 32;
-/** Mirrors SIGNIN_PROVIDER, likewise not exported. */
-const SIGNIN_PROVIDER = "magic-link";
+/**
+ * The same constant the module under test uses, imported rather than mirrored.
+ * A hand-copied id that quietly stopped matching would not fail — it would make
+ * every "the row is under the link-only provider" assertion vacuous instead.
+ */
+const SIGNIN_PROVIDER = MAGIC_LINK_PROVIDER_ID;
 /** Mirrors RECIPIENT_MAIL_LIMIT. */
 const RECIPIENT_MAIL_LIMIT = 10;
 import {
@@ -198,6 +203,24 @@ const brokenAuthStore = internalMutation({
   returns: v.null(),
   handler: async () => {
     throw new Error("expirationTime is not a valid timestamp");
+  },
+});
+
+/**
+ * A deployment whose `auth.ts` does not register the link-only provider.
+ *
+ * This was the shipping state until `@supa-media/convex@1.2.0`, and it is now
+ * the regression: drop `magicLink` from `createSupaAuth` and every invitation
+ * quietly goes back to a plain link. The message is the one
+ * `getProviderOrThrow` raises for an id nothing declares, spelled through
+ * `SIGNIN_PROVIDER` so it cannot drift from the marker
+ * `classifyMintFailure` matches on.
+ */
+const unregisteredAuthStore = internalMutation({
+  args: { args: v.any() },
+  returns: v.null(),
+  handler: async () => {
+    throw new Error(`Provider \`${SIGNIN_PROVIDER}\` is not configured`);
   },
 });
 
@@ -516,30 +539,26 @@ describe("what the email is allowed to say", () => {
 
 describe("the magic link", () => {
   /**
-   * ## Auto sign-in is minted but not yet redeemable, and that is on purpose
+   * ## Auto sign-in works, against the real provider
    *
-   * The link should sign its recipient in on click. It cannot yet, and the
-   * reason is upstream: `@convex-dev/auth`'s `Email()` hardcodes an `authorize`
-   * that refuses any verification without a matching `params.email`, so a code
-   * minted under the OTP provider is stored and expires correctly and then
-   * throws the moment anybody clicks it. The fix is a second, link-only
-   * provider — committed to supa-framework, not yet released — so
-   * `@supa-media/convex@0.2.0` cannot register one.
+   * These three tests used to assert the opposite. `@convex-dev/auth`'s
+   * `Email()` hardcodes an `authorize` that refuses any verification without a
+   * matching `params.email` — right for a code typed off a screen, fatal for a
+   * link whose whole premise is that the URL carries everything. The fix is a
+   * second, link-only provider, which lived upstream unreleased, so
+   * `@supa-media/convex@0.2.0` could not register one: the mint threw, the send
+   * caught it, and a plain link went out. That degraded state was asserted
+   * deliberately, as the state that shipped, and designed to fail the day the
+   * provider appeared.
    *
-   * `SIGNIN_PROVIDER` therefore names a provider this deployment does not
-   * have, minting throws, and `sendInvitationEmail` catches it and mails a
-   * plain link. **The invitation still arrives and still works**; what the
-   * recipient loses is one screen.
-   *
-   * These tests assert the degraded state deliberately rather than being
-   * deleted or skipped, because it is the state that ships. When the framework
-   * release lands and `auth.ts` registers the provider, they fail — which is
-   * exactly the notification wanted, and the block comment on `SIGNIN_PROVIDER`
-   * says what to change. The properties that outlive the blocker — the token's
-   * shape and its expiry — are asserted on the pure functions instead, below
-   * and in `invitationEmailText.test.ts`, so they are not lost in the meantime.
+   * It did. `@supa-media/convex@1.2.0` exports `MAGIC_LINK_PROVIDER_ID` and
+   * `auth.ts` passes `magicLink`, so this is now the real path and these assert
+   * it end to end — claim, mint, render, send — against the deployment's own
+   * `auth:store` rather than a substitute. The stubbed `mintingAuthStore` tests
+   * further down are kept: they prove the same shape while isolating the send
+   * from auth's storage, which is what makes a failure in either one legible.
    */
-  test("degrades to a plain link while no link-only provider is registered", async () => {
+  test("carries a sign-in code, minted under the link-only provider", async () => {
     const { t, inviter, workspaceId } = await scenario();
     await invite(t, inviter, workspaceId, "newcomer@example.invalid");
     await drainScheduled(t);
@@ -549,16 +568,54 @@ describe("the magic link", () => {
     // the shortcut.
     expect(captured).toHaveLength(1);
     const link = linkFrom(captured[0]);
-    expect(link.searchParams.get("code")).toBeNull();
-    // And the invitation token — the thing the link is actually for — is there.
+    const code = link.searchParams.get("code");
+    expect(code).toMatch(/^[0-9a-f]{64}$/);
+
+    // And the invitation token — the thing the link is actually for — is still
+    // in the path, and is emphatically not the secret that signs anybody in.
     const row = await invitationRow(t, workspaceId);
     expect(link.pathname).toContain(row!.token);
+    expect(code).not.toBe(row!.token);
 
-    // Nothing half-minted: no orphan row waiting to authenticate somebody.
+    // Exactly one verification row, under the link-only provider, holding the
+    // digest rather than the code. Under `"email"` the link would be inert.
     const codes = await t.run((ctx) =>
       ctx.db.query("authVerificationCodes").collect(),
     );
-    expect(codes).toEqual([]);
+    expect(codes).toHaveLength(1);
+    expect(codes[0].provider).toBe(SIGNIN_PROVIDER);
+    expect(codes[0].code).toBe(await hashToken(code!));
+    expect(codes[0].code).not.toBe(code);
+  });
+
+  /**
+   * `auth.ts` sets `magicLink.maxAge` to an hour, and the link lives for the
+   * invitation's seven days. Both are true at once, and the reason is not
+   * obvious enough to leave to a reading: `maxAge` is consulted only where the
+   * *library* generates a code (`signIn.js`), while redemption checks the
+   * stored row (`verifyCodeAndSignIn.js`). This module mints its own code and
+   * passes its own `expirationTime`, so `maxAge` never touches it.
+   *
+   * Without this test, someone "aligning" `maxAge` with SIGNIN_CODE_TTL_MS —
+   * or shortening the link by editing `maxAge` — would be changing a value
+   * that does nothing here, and would believe they had changed the link.
+   */
+  test("a seven-day link outlives this provider's maxAge, because the app sets its own expiry", async () => {
+    const { t, inviter, workspaceId } = await scenario();
+    const before = Date.now();
+    await invite(t, inviter, workspaceId, "newcomer@example.invalid");
+    await drainScheduled(t);
+
+    const codes = await t.run((ctx) =>
+      ctx.db.query("authVerificationCodes").collect(),
+    );
+    expect(codes).toHaveLength(1);
+    // Well past the one hour `magicLink.maxAge` would have imposed had it
+    // applied, and inside the app's own TTL.
+    expect(codes[0].expirationTime).toBeGreaterThan(before + 60 * 60 * 1000);
+    expect(codes[0].expirationTime).toBeLessThanOrEqual(
+      before + SIGNIN_CODE_TTL_MS,
+    );
   });
 
   test("the token it would carry is not guessable, and is not a six-digit code", () => {
@@ -595,12 +652,13 @@ describe("the magic link", () => {
     expect(codes).toEqual([]);
   });
 
-  test("its expiry is capped at a day and inside the invitation it travels with", () => {
-    // The other property that outlives the blocker, asserted on the pure
-    // function. A link sits in a mailbox and gets forwarded in a way a typed
-    // code does not, so it must not stay live for the invitation's whole week
-    // — and it must never outlive the invitation itself, which would leave a
-    // credential working after the thing it was minted for had expired.
+  test("its expiry is capped at SIGNIN_CODE_TTL_MS and inside the invitation it travels with", () => {
+    // Asserted on the pure function rather than through a send, so the cap is
+    // proved independently of how the code gets minted. #57 made the cap the
+    // invitation's own seven days — single use, not the clock, is what bounds
+    // the link — so what remains load-bearing is the second half: the code must
+    // never outlive the invitation itself, which would leave a credential
+    // working after the thing it was minted for had expired.
     const now = Date.UTC(2026, 0, 1);
     const invitationExpiry = now + 7 * 24 * 60 * 60 * 1000;
     const expiry = signInCodeExpiry(now, invitationExpiry);
@@ -629,14 +687,14 @@ describe("what minting a sign-in code does to the users table", () => {
    * already does. When the real person signs in later they land on that row and
    * their invitation is waiting, which is the behaviour you want.
    *
-   * **It does not happen yet**, because no code is minted at all: the link-only
-   * provider is not registered on this deployment (see "the magic link" above),
-   * so the mint throws before `auth:store` is reached. So the assertion below
-   * is the *current* truth, and it flips the day the framework release lands —
-   * at which point this test fails and the paragraph above becomes the one to
-   * assert. That is the notification wanted, not a gap.
+   * This is the paragraph the previous version of this test said would become
+   * the one to assert. It has: the provider registers, the mint reaches
+   * `auth:store`, and the row appears. What is asserted is not just that it
+   * exists but that it is *inert* — because "an account was created for
+   * somebody who has not clicked anything" is only acceptable while that
+   * remains true.
    */
-  test("no account is invented for the invitee while no code is minted", async () => {
+  test("an account appears for the invitee, and it owns nothing", async () => {
     const { t, inviter, workspaceId } = await scenario();
     await invite(t, inviter, workspaceId, "newcomer@example.invalid");
     await drainScheduled(t);
@@ -650,7 +708,27 @@ describe("what minting a sign-in code does to the users table", () => {
         .withIndex("by_email", (q) => q.eq("email", "newcomer@example.invalid"))
         .collect(),
     );
-    expect(created).toEqual([]);
+    expect(created).toHaveLength(1);
+
+    // Inert, and that is the whole justification for creating it early. It
+    // owns no context, holds no session, and claims no name; the only thing
+    // that reaches it is whoever can read that mailbox.
+    const userId = created[0]._id;
+    const owned = await t.run((ctx) =>
+      ctx.db
+        .query("workspaceMembers")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .collect(),
+    );
+    expect(owned).toEqual([]);
+
+    const sessions = await t.run((ctx) =>
+      ctx.db.query("authSessions").collect(),
+    );
+    expect(sessions.some((s) => s.userId === userId)).toBe(false);
+
+    const names = await t.run((ctx) => ctx.db.query("names").collect());
+    expect(names.some((n) => String(n.userId) === String(userId))).toBe(false);
   });
 
   test("no account is invented for an address that was never mailed", async () => {
@@ -880,15 +958,84 @@ describe("telling the expected degradation from a broken mint", () => {
    * so an operator watching for the framework release could not tell "still
    * waiting on upstream" from "the provider is registered and minting is
    * broken". The catch did not even bind the error.
+   *
+   * The release landed, so the expected condition is now *no* degradation at
+   * all — asserted here against the real `auth:store`, which is the one that
+   * would actually stop minting if `auth.ts` lost `magicLink`. The
+   * `provider_not_configured` detail is still classified and still tested, by
+   * the test below that provokes it, because it is what an operator would see
+   * if that happened.
    */
-  test("the expected condition names itself", async () => {
+  test("the happy path degrades not at all", async () => {
     const { t, inviter, workspaceId } = await scenario();
+    await invite(t, inviter, workspaceId, "newcomer@example.invalid");
+    await drainScheduled(t);
+
+    expect(captured).toHaveLength(1);
+    expect(linesFor("signin_code_unavailable")).toEqual([]);
+  });
+
+  /**
+   * The regression this file exists to catch, stated directly: if `auth.ts`
+   * stops registering the provider, minting throws with the marker
+   * `classifyMintFailure` looks for, and every invitation silently goes back to
+   * a plain link. `unregisteredAuthStore` reproduces exactly that failure —
+   * the message `getProviderOrThrow` raises for an id nothing declares.
+   */
+  test("losing the provider is reported as provider_not_configured, not as a defect", async () => {
+    const t = setupTestWithAuthStore(unregisteredAuthStore);
+    const { inviter, workspaceId } = await scenario(t);
     await invite(t, inviter, workspaceId, "newcomer@example.invalid");
     await drainScheduled(t);
 
     const lines = linesFor("signin_code_unavailable");
     expect(lines).toHaveLength(1);
     expect(lines[0].detail).toBe("provider_not_configured");
+
+    // And the invitation still arrives, which is the point of degrading.
+    expect(captured).toHaveLength(1);
+    expect(linkFrom(captured[0]).searchParams.get("code")).toBeNull();
+  });
+
+  /**
+   * The guard above is weaker than it looks on its own, and this is the half
+   * that fixes it.
+   *
+   * `classifyMintFailure` recognises the expected condition by matching
+   * `@convex-dev/auth`'s prose. `unregisteredAuthStore` reproduces that prose
+   * from the same constant the matcher uses — so if the *library* reworded it,
+   * the stub and the matcher would agree with each other and disagree with
+   * reality, the test would stay green, and a genuinely unregistered provider
+   * would start classifying as `mint_threw_Error`: a real defect reported as
+   * one, but the expected condition reported as a defect too, which is the
+   * exact confusion the discriminator exists to prevent.
+   *
+   * So this asks the real library, with no stub anywhere, what it actually says
+   * about a provider nothing declares.
+   */
+  test("the library still says what classifyMintFailure matches on", async () => {
+    const t = setupTest();
+    const thrown = await t
+      .mutation(internal.auth.store, {
+        args: {
+          type: "createVerificationCode",
+          provider: "no-such-provider",
+          email: "newcomer@example.invalid",
+          code: "irrelevant",
+          expirationTime: Date.now() + 60_000,
+          allowExtraProviders: false,
+        },
+      })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+
+    expect(thrown).toBeInstanceOf(Error);
+    // The marker `classifyMintFailure` builds, for the id it was asked about.
+    expect((thrown as Error).message).toContain(
+      "Provider `no-such-provider` is not configured",
+    );
   });
 
   test("a mint that breaks for another reason does not claim to be it", async () => {
@@ -976,7 +1123,7 @@ describe("the magic link, once a provider can mint one", () => {
     expect(codes[0].code).not.toBe(code);
   });
 
-  test("its expiry is inside a day and inside the invitation, on the wire", async () => {
+  test("its expiry is inside SIGNIN_CODE_TTL_MS and inside the invitation, on the wire", async () => {
     const t = setupTestWithAuthStore(mintingAuthStore);
     const { inviter, workspaceId } = await scenario(t);
     const before = Date.now();
@@ -995,7 +1142,7 @@ describe("the magic link, once a provider can mint one", () => {
     expect(codes[0].expirationTime).toBeLessThanOrEqual(
       after + SIGNIN_CODE_TTL_MS,
     );
-    // The cap that matters: a day, not the invitation's week.
+    // The cap that matters, which #57 set to the invitation's own week.
     expect(codes[0].expirationTime - before).toBeLessThanOrEqual(
       SIGNIN_CODE_TTL_MS + (after - before),
     );

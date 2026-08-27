@@ -93,6 +93,7 @@
  */
 
 import { v } from "convex/values";
+import { MAGIC_LINK_PROVIDER_ID } from "@supa-media/convex/auth";
 import { internal } from "../_generated/api";
 import {
   internalAction,
@@ -150,33 +151,19 @@ const RESEND_API_KEY_ENV_VAR = "RESEND_API_KEY";
  * has no email check and no rate limit; the token's own entropy is the only
  * thing between a guess and a session.
  */
-const SIGNIN_PROVIDER = "magic-link";
+const SIGNIN_PROVIDER = MAGIC_LINK_PROVIDER_ID;
 
 /**
- * The literal above is `MAGIC_LINK_PROVIDER_ID` from `@supa-media/convex/auth`,
- * written out rather than imported because **this deployment cannot register
- * that provider yet**. The framework change adding it is committed upstream and
- * not released, so `@supa-media/convex@0.2.0` — what is installed — has neither
- * the export nor the `magicLink` option `auth.ts` would pass.
+ * Imported rather than spelled, since `@supa-media/convex@1.2.0` exports it and
+ * `auth.ts` registers the provider. It was a literal for as long as this
+ * deployment could not register one; the id has to match the provider on the
+ * row exactly, and two copies of a string that must agree is a class of bug
+ * worth not having.
  *
- * The consequence is deliberate and visible rather than hidden: with no such
- * provider registered, minting the code throws, `mintSignInCode` below catches
- * it, and the invitation is mailed with a plain link. The recipient signs in
- * with a code, exactly as they did before this module existed, and the
- * invitation still works. Nothing is broken and nothing silently half-works.
- *
- * When the framework release lands, two lines finish it: add
- * `magicLink: { maxAge: 24 * 60 * 60 }` to `createSupaAuth` in `auth.ts`, and
- * import this constant instead of spelling it.
- *
- * Both states are covered, and by different tests. The degraded one is asserted
- * as it ships — a plain link, no `?code=`, no orphan verification row — and
- * fails loudly the day the provider appears, which is the notification wanted.
- * The state *after* the release is covered by driving the send against a
- * substituted `auth:store` that mints successfully, and asserting the `?code=`
- * on the mail that comes out. Without that second test the release would land
- * on a green suite whether the mint worked or not, and the three degraded-state
- * assertions would be recording an absence rather than guarding a behaviour.
+ * The degradation below is no longer the expected path, but it is still the
+ * right answer to *any* mint failure, and the `provider_not_configured` detail
+ * still earns its place: it is what an operator sees if `auth.ts` ever loses
+ * the `magicLink` option again.
  */
 
 /** 32 bytes, hex — 64 characters. Not a six-digit OTP; see `sendInvitationEmail`. */
