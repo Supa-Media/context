@@ -70,7 +70,15 @@ import { normalizeTargetFolder as controlPlaneFolderRules } from "../../../apps/
 import { assertSafePrefix } from "../../../apps/mcp/src/store/index.js";
 import { verifySender, type AuthFailure } from "./auth";
 import { htmlToText } from "./html";
-import { DEFAULT_MIME_LIMITS, parseEmail, safeFilename, singleLine, type MimeLimits } from "./mime";
+import {
+  DEFAULT_MIME_LIMITS,
+  IMAGE_STORE_PREFIX,
+  parseEmail,
+  safeFilename,
+  singleLine,
+  storableImageExtension,
+  type MimeLimits,
+} from "./mime";
 import type { IngestionPolicy, SenderMatcher } from "./policy";
 import { renderCaptureNote, type AttachmentPolicy, type RenderedAttachment } from "./note";
 
@@ -396,20 +404,27 @@ export async function decideCapture(
   const rendered: RenderedAttachment[] = [];
   for (const attachment of parsed.attachments) {
     let storedPath: string | null = null;
-    if (config.attachmentPolicy === "store" && attachment.bytes) {
-      // Content-addressed, so a name a sender chose can neither collide with
-      // an existing object nor decide where the bytes land.
+    // `store` means "store what Context can hand back", not "keep everything".
+    // The gateway serves an image only through `read_image` and only for an
+    // allowlist of types; everything else it reads is gated on `.md`. So bytes
+    // outside that allowlist have no way back out of the bucket, and writing
+    // them would put a stranger's files in the customer's storage to produce a
+    // link nothing can follow. Those stay described-only, exactly as under
+    // `list`.
+    const extension = attachment.bytes
+      ? storableImageExtension(attachment.contentType)
+      : null;
+    if (config.attachmentPolicy === "store" && attachment.bytes && extension) {
+      // The key is the full sha256 of the bytes and nothing else.
       //
-      // `safeFilename` runs a second time here. `parseEmail` already applied it
-      // — that is the layer with its own tests ("reduces a hostile filename..."
-      // and "keeps a traversal attempt out of the parsed filename too" in
-      // ./mime.test.ts) — so this call changes nothing today and no test catches
-      // its removal. It stays because key construction should not depend on a
-      // promise made in another module: this is the line that decides where
-      // bytes land, and it should be able to be read on its own.
-      const digest = (await sha256HexBytes(attachment.bytes)).slice(0, 12);
-      const leaf = safeFilename(attachment.filename) || `${digest}.bin`;
-      storedPath = `${targetFolder}email/attachments/${digest}-${leaf}`;
+      // Two things follow, and both are the point. The same screenshot arriving
+      // twice under two different names is **one** object — the previous key
+      // carried the sender's filename, so it was two, and the dedup this design
+      // is for never happened. And there is no longer any place in the key for
+      // a sender-chosen string, which makes a traversal or an overwrite
+      // structurally impossible rather than merely sanitized.
+      const digest = await sha256HexBytes(attachment.bytes);
+      storedPath = `${IMAGE_STORE_PREFIX}${digest}.${extension}`;
       writes.push({
         key: storedPath,
         bytes: attachment.bytes,

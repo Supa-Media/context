@@ -96,6 +96,44 @@ export interface MimeLimits {
  */
 export const MAX_ATTACHMENT_BYTES_HARD_CAP = 5_000_000;
 
+/**
+ * The attachment types `attachmentPolicy: "store"` will actually write, and the
+ * extension each one lands under.
+ *
+ * Storing is not "keep everything". The MCP gateway hands an image back only
+ * through `read_image`, which serves an allowlist of image types; every other
+ * read path there is gated on `.md`. So an attachment outside this map has no
+ * way back out of the bucket, and writing one would put a stranger's bytes in
+ * the customer's storage to produce a link nothing in Context can follow. Those
+ * attachments stay described-only, exactly as they are under `list`.
+ *
+ * `image/jpeg` canonicalizes to `jpg`; the gateway accepts both spellings on the
+ * way back. SVG is deliberately absent on both sides — it is a script container
+ * and the client renders what the gateway returns.
+ *
+ * A check in ./ingest.test.ts reads the gateway's own map and fails if an
+ * extension here stops being servable. The two cannot share a module: the
+ * gateway is dependency-free on purpose.
+ */
+export const STORABLE_IMAGE_TYPES: ReadonlyMap<string, string> = new Map([
+  ["image/png", "png"],
+  ["image/jpeg", "jpg"],
+  ["image/gif", "gif"],
+  ["image/webp", "webp"],
+  ["image/heic", "heic"],
+  ["image/heif", "heif"],
+]);
+
+/** The opaque, unlistable store images are written into. */
+export const IMAGE_STORE_PREFIX = ".images/";
+
+/** The extension for a content type we will store, or null for one we will not. */
+export function storableImageExtension(contentType: string): string | null {
+  // `image/png; charset=binary` and casing both occur in the wild.
+  const bare = contentType.split(";")[0]!.trim().toLowerCase();
+  return STORABLE_IMAGE_TYPES.get(bare) ?? null;
+}
+
 export const DEFAULT_MIME_LIMITS: MimeLimits = {
   maxRawBytes: 5_000_000,
   maxHeaderBytes: 128_000,

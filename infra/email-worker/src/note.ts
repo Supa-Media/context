@@ -321,22 +321,40 @@ export function renderCaptureNote(input: CaptureNoteInput): string {
   body.push("", `<!-- ${FENCE_MARKER} end ${nonce} -->`, "");
 
   if (listed.length) {
-    const stored = input.attachmentPolicy === "store";
+    // Derived from what actually happened, not from the policy that was asked
+    // for. Under `store` an attachment the gateway could not hand back — a PDF,
+    // a zip, anything outside the image allowlist — is described and not
+    // written, so a heading taken from the policy would tell an owner their
+    // file is in the bucket when it is not. Same failure as a console asserting
+    // facts about a bucket nobody looked at, in a file they read instead of a
+    // screen.
+    const storedCount = listed.filter((a) => a.storedPath).length;
+    const describedCount = listed.length - storedCount;
     body.push(
-      stored ? "## Attachments" : "## Attachments (described only — not stored)",
+      storedCount === 0
+        ? "## Attachments (described only — not stored)"
+        : describedCount === 0
+          ? "## Attachments"
+          : "## Attachments (some described only — not stored)",
       "",
     );
     for (const attachment of listed) {
       const name = attachment.filename || "(unnamed)";
       const detail = `${attachment.contentType}, ${formatBytes(attachment.size)}`;
       body.push(
+        // An image embed, not a bare link: a stored attachment is always an
+        // image (nothing else is storable), so the note should read as the
+        // screenshot it is. The leaf appearing in the note is also what makes
+        // the image reachable at all — `read_image` resolves one only through a
+        // note that names it, so a note that stopped naming it would leave the
+        // bytes in the bucket and unreachable forever.
         attachment.storedPath
-          ? `- [\`${name}\`](${attachment.storedPath}) — ${detail}`
+          ? `- ![${name}](${attachment.storedPath}) — ${detail}`
           : `- \`${name}\` — ${detail}`,
       );
     }
     body.push("");
-    if (stored) {
+    if (storedCount > 0) {
       body.push(
         "_Attachment files came from the same untrusted sender as the text above._",
         "",
