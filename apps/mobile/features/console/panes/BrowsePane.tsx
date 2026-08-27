@@ -5,15 +5,17 @@ import { colors, radii, space } from "../../design/tokens";
 import { Breadcrumb } from "../files/Breadcrumb";
 import type { FileBrowser } from "../files/browser";
 import { NoteEditor } from "../files/NoteEditor";
-import { TabStrip } from "../files/TabStrip";
 import { findEntry } from "../files/tree";
-import { useTabs } from "../files/useTabs";
 import type { FileEntry, Visibility } from "../files/types";
 import { atName } from "../format";
 import { selectedContext, type ConsoleData } from "../types";
 
 /**
  * Browse — the note, and nothing between you and it.
+ *
+ * The tab strip is *not* here. It is chrome belonging to the editor region, so
+ * the layout draws it above this pane — which also keeps one tab state in the
+ * app rather than one per pane that mounts.
  *
  * ## What this pane used to be
  *
@@ -51,7 +53,6 @@ export function BrowsePane({
   const files = data.files;
   const current = selectedContext(data);
   const contextLabel = atName(current?.slug ?? "your context");
-  const tabs = useTabs(files);
 
   const selected =
     files.selectedPath === null ? null : findEntry(files.listings, files.selectedPath);
@@ -66,21 +67,6 @@ export function BrowsePane({
 
   return (
     <View style={styles.region}>
-      {/*
-        The strip is rendered whenever anything is open, at the very top edge of
-        the region — not inside the document's padding. A tab strip that is
-        inset reads as a control belonging to the note rather than the frame.
-      */}
-      {tabs.state.tabs.length > 0 ? (
-        <TabStrip
-          state={tabs.state}
-          onActivate={tabs.activate}
-          onClose={tabs.close}
-          onCloseOthers={tabs.closeOthers}
-          onReopen={tabs.reopen}
-        />
-      ) : null}
-
       {selected !== null && selected.kind === "file" ? (
         <Breadcrumb
           path={selected.path}

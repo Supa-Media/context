@@ -112,6 +112,7 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       copy: noop,
       cut: noop,
       paste: noop,
+      copyTo: noop,
       createNote: noop,
       createFolder: noop,
       rename: noop,

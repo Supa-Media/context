@@ -378,6 +378,19 @@ describe("asking to close", () => {
  * `./Menu` gives the touch sheet. This is the same `Menu` the web bundle gets.
  */
 const web = require("../features/design/components/Menu.web") as typeof import("../features/design/components/Menu.web");
+const { layout } = require("../features/design/tokens") as typeof import("../features/design/tokens");
+
+/**
+ * The two windows the web build has to answer, named against the token rather
+ * than typed as numbers.
+ *
+ * `layout.narrowBreakpoint` is the same threshold `frame.ts` calls `compact`
+ * and therefore the same one that makes `Explorer` ask `menu.ts` for the touch
+ * item list — so a literal here would be a second breakpoint that agreed with
+ * the first only until somebody moved one of them.
+ */
+const DESKTOP = { width: 1200, height: 800 };
+const PHONE = { width: layout.narrowBreakpoint - 1, height: 844 };
 
 interface Popover {
   selected: MenuActionId[];
@@ -390,7 +403,7 @@ interface Popover {
 
 function mountPopover(
   anchor: { x: number; y: number },
-  view: { width: number; height: number } = { width: 1200, height: 800 },
+  view: { width: number; height: number } = DESKTOP,
 ): Popover {
   Object.defineProperty(document.documentElement, "clientWidth", {
     value: view.width,
@@ -624,5 +637,173 @@ describe("the popover's pointer and keyboard", () => {
       document.body.dispatchEvent(new Event("scroll", { bubbles: true }));
     });
     expect(menu.dismissals).toBe(1);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                     the web build serves both devices                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The bug this section exists for.
+ *
+ * `Menu.tsx`'s sheet is reachable only from a native build, and this product
+ * reaches phones as a **web** build. So for the whole of this branch a long
+ * press on a phone browser — which does raise `contextmenu`, correctly — opened
+ * the 28px pointer popover: the exact mis-tap beside "Delete forever…" that the
+ * sheet was written to prevent. `Explorer` was already passing
+ * `platform: "touch"` at that width, so the *items* were right and only the
+ * chrome was wrong, which is the kind of half-correct that survives review.
+ *
+ * The rule is `Palette`'s, deliberately: native is always the sheet (module
+ * resolution decides that), and the browser asks the window.
+ */
+function mountWeb(
+  view: { width: number; height: number },
+  platform: "web" | "touch",
+): {
+  find: (testID: string) => HTMLElement | null;
+  labels: () => string[];
+  text: () => string;
+} {
+  Object.defineProperty(document.documentElement, "clientWidth", {
+    value: view.width,
+    configurable: true,
+  });
+  Object.defineProperty(document.documentElement, "clientHeight", {
+    value: view.height,
+    configurable: true,
+  });
+  window.dispatchEvent(new Event("resize"));
+
+  const items = itemsFor({
+    target: { kind: "row", row: note("1-projects/plan.md") },
+    canEdit: true,
+    clipboard: null,
+    platform,
+  });
+
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+  mounted.push(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  act(() => {
+    root.render(
+      createElement(web.Menu, {
+        items,
+        anchor: { x: 40, y: 60 },
+        title: "plan.md",
+        onSelect: () => {},
+        onDismiss: () => {},
+      }),
+    );
+  });
+
+  return {
+    // `Modal` portals into `document.body`, so the sheet is not inside
+    // `container` and neither query may be scoped to it.
+    find: (testID: string) =>
+      document.body.querySelector<HTMLElement>(`[data-testid="${testID}"]`),
+    labels: () =>
+      Array.from(document.body.querySelectorAll<HTMLElement>('[data-testid^="menu-label-"]')).map(
+        (node) => node.textContent ?? "",
+      ),
+    text: () => document.body.textContent ?? "",
+  };
+}
+
+describe("the web build picks its presentation on the window, not the bundle", () => {
+  test("a phone-width viewport gets the sheet, not the popover", () => {
+    const menu = mountWeb(PHONE, "touch");
+
+    expect(menu.find("menu-sheet")).not.toBeNull();
+    expect(menu.find("menu-root")).toBeNull();
+    // The visible way out, on a sheet whose last row is destructive.
+    expect(menu.find("menu-item-cancel")).not.toBeNull();
+    expect(menu.find("menu-title")?.textContent).toBe("plan.md");
+  });
+
+  test("its rows are thumb targets — 44pt, from the web bundle", () => {
+    const menu = mountWeb(PHONE, "touch");
+
+    // The row that must not be mis-tapped, and the one directly under it.
+    expect(styleOf(menu.find("menu-item-delete")!, "min-height")).toBe("44px");
+    expect(styleOf(menu.find("menu-item-cancel")!, "min-height")).toBe("44px");
+    // And nothing is pinned to the pointer height that caused this.
+    expect(styleOf(menu.find("menu-item-delete")!, "height")).not.toBe("28px");
+  });
+
+  test("a desktop-width viewport gets the compact popover, with its chords", () => {
+    const menu = mountWeb(DESKTOP, "web");
+
+    expect(menu.find("menu-root")).not.toBeNull();
+    expect(menu.find("menu-sheet")).toBeNull();
+    expect(styleOf(menu.find("menu-item-delete")!, "height")).toBe("28px");
+    expect(menu.text()).toContain("⌘D");
+  });
+
+  test("the switch is the layout token, not a number typed into the component", () => {
+    const narrow = mountWeb({ width: layout.narrowBreakpoint - 1, height: 844 }, "touch");
+    expect(narrow.find("menu-sheet")).not.toBeNull();
+    while (mounted.length > 0) mounted.pop()?.();
+
+    const wide = mountWeb({ width: layout.narrowBreakpoint, height: 844 }, "web");
+    expect(wide.find("menu-root")).not.toBeNull();
+  });
+
+  /**
+   * `menu.ts` omits `shortcut` at compact density, so normally there is nothing
+   * to draw. This is the other end of that promise: handed the *pointer* list
+   * at a phone width — which is what a mismatch between the two breakpoints
+   * would produce — the sheet still prints no chord, because a column of chords
+   * nobody can type costs a fifth of the width of a phone.
+   */
+  test("the sheet prints no chords even when handed some", () => {
+    const menu = mountWeb(PHONE, "web");
+
+    expect(menu.find("menu-sheet")).not.toBeNull();
+    for (const glyph of ["⌘", "⇧", "⌫", "Ctrl+"]) expect(menu.text()).not.toContain(glyph);
+  });
+
+  /**
+   * A submenu on a phone is a second page, not a popover hanging off the side
+   * of another popover: there is nowhere to hang one and no hover to open it.
+   */
+  test("a submenu on the sheet pushes a page rather than a second panel", () => {
+    const menu = mountWeb(PHONE, "touch");
+
+    const parent = menu.find("menu-item-visibility");
+    expect(parent).not.toBeNull();
+    act(() => {
+      parent!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      parent!.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      parent!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(menu.find("menu-sub")).toBeNull();
+    expect(menu.find("menu-item-back")).not.toBeNull();
+    expect(menu.labels()).toEqual([
+      "‹  Visibility",
+      "Private",
+      "Team",
+      "Follow folder",
+      "Cancel",
+    ]);
+  });
+
+  /** The same danger promise the native sheet makes, from the web bundle. */
+  test("a destructive row on the web sheet keeps the critical colour", () => {
+    const menu = mountWeb(PHONE, "touch");
+    const danger = menu.find("menu-label-delete");
+    const ordinary = menu.find("menu-label-open");
+
+    expect(styleOf(danger!, "color")).not.toBe(styleOf(ordinary!, "color"));
+    expect(styleOf(danger!, "color").replace(/\s/g, "")).toBe(
+      `rgb(${[1, 3, 5].map((at) => parseInt(colors.critText.slice(at, at + 2), 16)).join(",")})`,
+    );
   });
 });

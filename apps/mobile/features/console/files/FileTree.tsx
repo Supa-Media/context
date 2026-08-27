@@ -134,7 +134,11 @@ function FileRow({
 }) {
   const interactions = useRowInteractions({
     path: row.path,
-    onMenu: (anchor) => onMenu?.(row, anchor),
+    // Passed through as absent rather than wrapped in a no-op, because
+    // "there is no menu here" is a fact the hook has to be able to see: it is
+    // what stops a right-click being swallowed by a row that has nothing to
+    // put in the browser menu's place.
+    onMenu: onMenu === undefined ? undefined : (anchor) => onMenu(row, anchor),
     canDrag: drag !== undefined && drag.canDrag(row),
     canDrop: drag !== undefined && drag.canDrop(row),
     onDragStart: drag?.onDragStart ?? noopPath,
@@ -158,9 +162,10 @@ function FileRow({
         ])}
         hoverStyle={styles.nodeHover}
         selectedStyle={styles.nodeSelected}
-        // A long press with nowhere to send it would open nothing and swallow
-        // the tap that was meant to select the row.
-        {...(onMenu !== undefined ? interactions.pressableProps : {})}
+        // Unconditional: `useRowInteractions` already returns nothing to
+        // spread when there is no menu, and one copy of that rule is the point
+        // — a second one here is the copy that would drift.
+        {...interactions.pressableProps}
       >
         <Text variant="treeMeta" style={styles.chevron} aria-hidden>
           {row.kind === "folder" ? (row.expanded ? "\u25be" : "\u25b8") : " "}

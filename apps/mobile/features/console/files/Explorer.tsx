@@ -1,9 +1,10 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Menu } from "../../design/components/Menu";
 import { Text } from "../../design/components/Text";
 import { writeClipboard } from "../../design/clipboard";
+import { isApplePlatform } from "../../design/applePlatform";
 import { colors, radii, space } from "../../design/tokens";
 import { useFrame } from "../../app/AppFrame";
 import { loadedFolders, type FileBrowser } from "./browser";
@@ -11,9 +12,9 @@ import { Confirm, DeleteForever, MovePicker, NamePrompt } from "./Dialogs";
 import { canDrop as verdictFor, type DragModifier, type DragSource } from "./dnd";
 import { FileTree, type TreeDragHandlers } from "./FileTree";
 import { itemsFor, type MenuActionId } from "./menu";
-import { baseName, parentPath } from "./paths";
+import { baseName, parentPath, restoreTargetFor } from "./paths";
 import { itemsFromListings, rank } from "./palette";
-import { buildTreeRows, findEntry, type TreeRow } from "./tree";
+import { buildTreeRows, findEntry, targetFolder, type TreeRow } from "./tree";
 import type { Visibility } from "./types";
 
 /**
@@ -48,10 +49,24 @@ import type { Visibility } from "./types";
 export function Explorer({
   files,
   contextLabel,
+  onOpenPinned,
+  onOverlayChange,
 }: {
   files: FileBrowser;
   /** "@seyi" — named in the empty state so it is obvious whose tree this is. */
   contextLabel: string;
+  /**
+   * "Open in new tab" — opens the note *pinned*, where a plain open leaves a
+   * preview tab the next click replaces. Absent where there are no tabs, and
+   * `menu.ts` is then the thing that must not offer the item.
+   */
+  onOpenPinned?: (path: string) => void;
+  /**
+   * Raised while this region owns a menu or a dialog, so the frame can put the
+   * keyboard into `overlay` scope. Without it, ⌘K opens the palette *behind* an
+   * open context menu.
+   */
+  onOverlayChange?: (open: boolean) => void;
 }) {
   const frame = useFrame();
   const [query, setQuery] = useState("");
@@ -60,6 +75,16 @@ export function Explorer({
   const [drag, setDrag] = useState<DragSource | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
+
+  /*
+    Tell the frame while this region owns something modal, so the keyboard goes
+    to `overlay` scope and nothing behind it fires. Without it, ⌘K opens the
+    palette behind an open context menu.
+  */
+  const overlayOpen = menu !== null || dialog !== null;
+  useEffect(() => {
+    onOverlayChange?.(overlayOpen);
+  }, [overlayOpen, onOverlayChange]);
 
   const rows = useMemo(
     () =>
@@ -77,8 +102,7 @@ export function Explorer({
   }, [query, files.listings]);
 
   const selectedRow = rows.find((row) => row.path === files.selectedPath) ?? null;
-  const selectedFolder =
-    selectedRow?.kind === "folder" ? selectedRow.path : parentPath(files.selectedPath ?? "");
+  const selectedFolder = targetFolder(files.listings, files.selectedPath);
 
   /** Choosing a note on a phone has to get the drawer out of the way. */
   const select = (path: string) => {
@@ -103,6 +127,9 @@ export function Explorer({
         canEdit: files.canEdit,
         clipboard: files.clipboard,
         platform,
+        // Read, never assumed. `menu.ts` defaults this to Apple, which prints
+        // `⌘⇧M` on Windows beside a row whose chord is actually `Ctrl+Shift+M`.
+        apple: isApplePlatform(),
       });
       // An empty menu is not an empty menu — it is no menu. Opening a bordered
       // rectangle with nothing in it reads as a bug.
@@ -120,8 +147,14 @@ export function Explorer({
 
       switch (id) {
         case "open":
-        case "openInNewTab":
           select(path);
+          return;
+        case "openInNewTab":
+          // A plain open leaves a preview tab that the next click replaces;
+          // this is the one that keeps it. Falls back to a plain open where
+          // there are no tabs rather than doing nothing.
+          if (onOpenPinned !== undefined) onOpenPinned(path);
+          else select(path);
           return;
         case "newNote":
           setDialog({ kind: "newNote", folder });
@@ -154,8 +187,11 @@ export function Explorer({
           files.paste(folder);
           return;
         case "restore": {
-          const target = restoreFolderFor(path);
-          if (target !== null) files.move(path, target);
+          // `paths.ts` owns the archive-path arithmetic; `menu.ts` uses the
+          // same function to decide whether to offer this at all, so the two
+          // cannot disagree about what is restorable.
+          const original = restoreTargetFor(path);
+          if (original !== null) files.move(path, parentPath(original));
           return;
         }
         case "copyPath":
@@ -186,7 +222,7 @@ export function Explorer({
           return;
       }
     },
-    [files, contextLabel, select],
+    [files, contextLabel, select, onOpenPinned],
   );
 
   /* ---------------------------------------------------------------------- */
@@ -226,12 +262,12 @@ export function Explorer({
         for (const move of verdict.moves) {
           const destination = parentPath(move.to);
           if (verdict.action === "copy") {
-            // A copy-drop is copy-then-paste, not a move: `files.copy` only
-            // loads the clipboard, and `paste` is what performs `copyEntry`.
-            // Calling `move` after `copy` would relocate the original and
-            // leave the clipboard pointing at a path that no longer exists.
-            files.copy(move.from);
-            files.paste(destination);
+            // `copyTo`, not `copy` + `paste`. Those two are a state setter and
+            // a callback closing over that state, so back to back in one tick
+            // the paste reads the *previous* clipboard: with a cut pending it
+            // moved a file the user had never touched. `copyTo` takes the
+            // source as an argument and cannot be wrong about it.
+            files.copyTo(move.from, destination);
           } else {
             files.move(move.from, destination);
           }
@@ -386,20 +422,6 @@ interface MenuOpen {
 }
 type MenuState = MenuOpen | null;
 
-/**
- * Where "Restore" puts an archived note back.
- *
- * `4-archive/<stamp>/1-projects/foo.md` keeps the original path inside the
- * timestamped folder precisely so this is a string operation rather than a
- * guess, and returns null for anything that is not an archive path.
- */
-function restoreFolderFor(archivedPath: string): string | null {
-  const match = archivedPath.match(/^4-archive\/[^/]+\/(.+)$/);
-  return match === null ? null : parentPath(match[1]);
-}
-
-/* -------------------------------------------------------------------------- */
-
 export type Dialog =
   | { kind: "newNote"; folder: string }
   | { kind: "newFolder"; folder: string }
@@ -412,9 +434,9 @@ export type Dialog =
 /**
  * The dialogs the tree can raise.
  *
- * Separated so both the tree and the editor's own menu can drive the same set
- * without either owning it — and so the one dialog that must never become a
- * boolean on another, `DeleteForever`, stays visibly its own thing.
+ * Separated so the tree and the editor can drive the same set without either
+ * owning it — and so the one dialog that must never become a boolean on
+ * another, `DeleteForever`, stays visibly its own thing.
  */
 export function ExplorerDialogs({
   files,

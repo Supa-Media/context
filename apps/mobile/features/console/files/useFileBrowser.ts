@@ -462,6 +462,45 @@ export function useFileBrowser(options: {
     [clipboard, copyEntry, listings, moveEntry, run, workspaceId],
   );
 
+  /**
+   * A copy whose source is an argument, for the ⌥-drop on the tree.
+   *
+   * `paste` above is right for the toolbar and the menu, where the clipboard
+   * *is* what the person chose. A drop is not that: what is being copied is
+   * what is under the cursor, and the clipboard is somebody else's business.
+   * The call site used to bridge the two with `copy(from)` then `paste(to)`,
+   * which cannot work — `copy` sets state and `paste` reads the clipboard from
+   * the render that created it, so in one tick the paste sees the clipboard as
+   * it was *before* the drag. On an empty clipboard that refused and threw the
+   * person's clipboard away; on a pending cut it moved an unrelated file into
+   * the drop folder.
+   *
+   * So the source is passed in and a `Clipboard` value is built here to hand to
+   * `planPaste` — the naming and collision rules stay in one place, because a
+   * drop and a paste disagreeing about which "… copy" name something lands
+   * under would be its own small betrayal. Nothing here reads or writes
+   * `clipboard`, which is also why this callback does not depend on it.
+   *
+   * The plan is always a copy (the mode says so), so there is no `move` branch
+   * to get wrong — but it can still be refused, by a folder dropped inside
+   * itself, and that refusal is worth showing.
+   */
+  const copyTo = useCallback(
+    (from: string, destinationFolder: string) => {
+      const plan = planPaste(
+        put("copy", from),
+        destinationFolder,
+        namesIn(listings, destinationFolder),
+      );
+      if (!plan.ok) return setNotice(plan.reason);
+      void run(async () => {
+        await copyEntry({ workspaceId: workspaceId!, from: plan.from, to: plan.to });
+        return { touched: [plan.from, plan.to] };
+      });
+    },
+    [copyEntry, listings, run, workspaceId],
+  );
+
   const setVisibility = useCallback(
     (path: string, kind: "file" | "folder", visibility: Visibility) => {
       void run(async () => {
@@ -509,6 +548,7 @@ export function useFileBrowser(options: {
       copy: (path: string) => setClipboard(put("copy", path)),
       cut: (path: string) => setClipboard(put("cut", path)),
       paste,
+      copyTo,
       createNote,
       createFolder,
       rename,
@@ -522,6 +562,7 @@ export function useFileBrowser(options: {
       archive,
       busy,
       clipboard,
+      copyTo,
       createFolder,
       createNote,
       destroy,

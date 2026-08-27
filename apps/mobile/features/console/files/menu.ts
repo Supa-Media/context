@@ -12,10 +12,17 @@
  * checkable the moment they are expressed as `{canEdit && <Item …/>}`:
  *
  *  - **Read-only means absent, not disabled.** The landing-page demo and a
- *    workspace `member` both have `canEdit: false`, and `FileBrowser` does not
- *    even carry the mutating methods for them. A menu of greyed-out rows tells
- *    someone their context is broken; a short menu tells them the truth. That
- *    is one `if` in a component and one impossible-to-forget branch here.
+ *    workspace `member` both have `canEdit: false`. A menu of greyed-out rows
+ *    tells someone their context is broken; a short menu tells them the truth.
+ *    That is one `if` in a component and one impossible-to-forget branch here.
+ *
+ *    This carried a reassuring claim that was simply untrue: that `FileBrowser`
+ *    "does not even carry the mutating methods" for a read-only console. It
+ *    does — they are required members of the interface, and `useDemoFileBrowser`
+ *    sets all fourteen to no-ops. So a mutating call that slips through does
+ *    **not** throw; it silently does nothing, which is the harder failure to
+ *    notice. Nothing here may lean on a crash to catch a mistake, and `canEdit`
+ *    is the only thing that decides.
  *  - **Multi-select is a different menu, not the same menu applied N times.**
  *    Rename and duplicate are single-target operations and simply are not
  *    offered; everything else has to say how many things it will touch.

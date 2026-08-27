@@ -39,7 +39,8 @@ jest.mock("react-native-safe-area-context", () => ({
 }));
 
 // Imported after the mock, which `jest.mock` hoists above it anyway.
-const { AppFrame } = require("../features/app/AppFrame") as typeof import("../features/app/AppFrame");
+const { AppFrame, useFrame } =
+  require("../features/app/AppFrame") as typeof import("../features/app/AppFrame");
 const { layout } = require("../features/design/tokens") as typeof import("../features/design/tokens");
 const { viewportHeight } = require("../features/design/css") as typeof import("../features/design/css");
 
@@ -277,5 +278,229 @@ describe("a tablet", () => {
     const desktop = mountFrame(layout.wideBreakpoint);
     expect(desktop.find("rail-full")).not.toBeNull();
     desktop.unmount();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A real pointer, driven over a node through react-native-web's own responder
+ * system.
+ *
+ * Not a synthetic call of a component's handlers: the events go to the DOM
+ * node, react-native-web's `ResponderSystem` grants the responder, builds the
+ * touch history and derives `gestureState.dx` from it, and the component's
+ * `PanResponder` config runs exactly as it does in a browser. That is what this
+ * has to be, because the bug it covers was never in a handler body — it was a
+ * `useMemo` rebuilding the responder mid-gesture, which only a real drag
+ * against a real re-rendering component can see.
+ *
+ * Two jsdom details make it work, and both fail silently rather than loudly:
+ *
+ *  - **jsdom's `MouseEvent` has no `pageX`/`pageY`**, and the touch history is
+ *    built from exactly those. Without them every `dx` comes out as nothing,
+ *    the column never moves, and a drag test passes while testing no drag at
+ *    all. They are defined on each event by hand.
+ *  - a `mousemove` is discarded unless `buttons` still says a button is down.
+ */
+function pointerOn(node: HTMLElement) {
+  const fire = (type: string, x: number, buttons: number) => {
+    const event = new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      buttons,
+      clientX: x,
+      clientY: 10,
+    });
+    Object.defineProperty(event, "pageX", { value: x });
+    Object.defineProperty(event, "pageY", { value: 10 });
+    act(() => {
+      node.dispatchEvent(event);
+    });
+  };
+
+  return {
+    down: (x: number) => fire("mousedown", x, 1),
+    move: (x: number) => fire("mousemove", x, 1),
+    up: (x: number) => fire("mouseup", x, 0),
+  };
+}
+
+describe("dragging the explorer's edge", () => {
+  /** The width react-native-web actually wrote onto the explorer column. */
+  function columnWidth(app: Mounted): number {
+    const column = app.find("explorer")?.parentElement;
+    if (column == null) throw new Error("no explorer column");
+    return Number.parseFloat(column.style.width);
+  }
+
+  /** One press, a run of moves, one release. Returns the width after each move. */
+  function drag(app: Mounted, from: number, through: number[]): number[] {
+    const handle = app.find("explorer-resizer");
+    if (handle === null) throw new Error("no resize handle");
+    const pointer = pointerOn(handle);
+    const widths: number[] = [];
+
+    pointer.down(from);
+    for (const x of through) {
+      pointer.move(x);
+      widths.push(columnWidth(app));
+    }
+    pointer.up(through.length === 0 ? from : through[through.length - 1]!);
+    return widths;
+  }
+
+  test("the column follows the whole gesture, not its last frame", () => {
+    const app = mountFrame(1440);
+    expect(columnWidth(app)).toBe(layout.explorerWidth);
+
+    // Press at 100, then move to 150, 200, 250 — +50, +100, +150 from where the
+    // pointer went down. Sampling after every move is the point: the failure
+    // this guards is *stuttering*, and a test that only read the end could be
+    // satisfied by a drag that crawled there.
+    //
+    // Rebuilding the responder on each move — which is what listing `width` in
+    // its `useMemo` deps does — gives 310, 310, 360 instead: react-native-web
+    // allocates a fresh `gestureState` with `dx: 0` per instance while
+    // `startWidth` still holds the grant-time width, so all but the last
+    // increment is thrown away and the drag ends about a third short.
+    expect(drag(app, 100, [150, 200, 250])).toEqual([310, 360, 410]);
+
+    // The same claim in one line: where the pointer put it is where it is.
+    expect(columnWidth(app)).toBe(layout.explorerWidth + 150);
+
+    app.unmount();
+  });
+
+  test("the next drag starts from where the last one finished", () => {
+    // The gesture's starting width is read through a ref at grant time. A ref
+    // initialised once and never refreshed would send every later drag back to
+    // the resting width — the other half of the same bug, and the reason the
+    // ref is kept current by a commit rather than only by `useRef`'s initial
+    // value.
+    const app = mountFrame(1440);
+
+    drag(app, 100, [250]);
+    expect(columnWidth(app)).toBe(layout.explorerWidth + 150);
+
+    drag(app, 400, [340]);
+    expect(columnWidth(app)).toBe(layout.explorerWidth + 150 - 60);
+
+    app.unmount();
+  });
+
+  test("the clamp still holds at both ends of a long drag", () => {
+    const app = mountFrame(1440);
+
+    drag(app, 100, [1400]);
+    expect(columnWidth(app)).toBe(layout.explorerMaxWidth);
+
+    drag(app, 400, [-900]);
+    expect(columnWidth(app)).toBe(layout.explorerMinWidth);
+
+    app.unmount();
+  });
+
+  test("the handle highlights for the length of the gesture and no longer", () => {
+    const app = mountFrame(1440);
+    const handle = app.find("explorer-resizer")!;
+    const pointer = pointerOn(handle);
+    const idle = styleOf(handle, "background-color");
+
+    pointer.down(100);
+    const held = styleOf(handle, "background-color");
+    pointer.move(150);
+    expect(styleOf(handle, "background-color")).toBe(held);
+    pointer.up(150);
+
+    expect(idle).toBe("rgba(0, 0, 0, 0)");
+    expect(held).not.toBe(idle);
+    expect(styleOf(handle, "background-color")).toBe(idle);
+
+    app.unmount();
+  });
+});
+
+describe("what toggling the explorer means", () => {
+  /**
+   * ⌘⇧E, reached through the frame's own API.
+   *
+   * On a phone the drawer button is on screen and the tests above press it. At
+   * every other density there is no control for this at all — the keymap is the
+   * only caller — so the command is invoked the way `console/_layout.tsx`
+   * invokes it, through `useFrame()`.
+   */
+  function CommandProbe() {
+    const frame = useFrame();
+    return createElement(
+      "button",
+      { "data-testid": "probe-toggle-explorer", onClick: frame.toggleExplorer },
+      "toggle the explorer",
+    );
+  }
+
+  function RailProbe() {
+    const frame = useFrame();
+    return createElement(
+      "button",
+      { "data-testid": "probe-toggle-rail", onClick: frame.toggleRail },
+      "toggle the rail",
+    );
+  }
+
+  test("on a phone it pulls the drawer in, and puts it back", () => {
+    const app = mountFrame(390, createElement(CommandProbe));
+
+    app.press("probe-toggle-explorer");
+    expect(app.find("frame-drawer")).not.toBeNull();
+    expect(app.find("frame-scrim")).not.toBeNull();
+
+    app.press("probe-toggle-explorer");
+    expect(app.find("frame-drawer")).toBeNull();
+
+    app.unmount();
+  });
+
+  test("on a desktop it does nothing at all, rather than something else", () => {
+    // `explorerToggleFor` answers `null` wherever the explorer is a permanent
+    // column, and `null` has to mean nothing happened. This used to collapse
+    // the rail, which made ⌘⇧E a second ⌘B — a command named after the one
+    // region it never touched.
+    const app = mountFrame(1440, createElement(CommandProbe));
+
+    app.press("probe-toggle-explorer");
+
+    expect(app.find("rail-full")).not.toBeNull();
+    expect(app.find("rail-icons")).toBeNull();
+    expect(app.find("explorer")).not.toBeNull();
+    expect(app.find("frame-drawer")).toBeNull();
+    expect(app.find("frame-scrim")).toBeNull();
+
+    app.unmount();
+  });
+
+  test("on a tablet it does nothing either, and cannot summon a drawer", () => {
+    const app = mountFrame(1024, createElement(CommandProbe));
+
+    app.press("probe-toggle-explorer");
+
+    expect(app.find("rail-icons")).not.toBeNull();
+    expect(app.find("rail-full")).toBeNull();
+    expect(app.find("explorer")).not.toBeNull();
+    expect(app.find("frame-drawer")).toBeNull();
+    expect(app.find("frame-scrim")).toBeNull();
+
+    app.unmount();
+  });
+
+  test("⌘B still collapses the rail, so the two commands stay distinct", () => {
+    const app = mountFrame(1440, createElement(RailProbe));
+
+    app.press("probe-toggle-rail");
+    expect(app.find("rail-icons")).not.toBeNull();
+    expect(app.find("rail-full")).toBeNull();
+
+    app.unmount();
   });
 });

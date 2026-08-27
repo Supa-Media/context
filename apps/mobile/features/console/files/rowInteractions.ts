@@ -22,8 +22,17 @@ import type { DragModifier } from "./dnd";
  */
 export interface RowInteractionOptions {
   path: string;
-  /** Raise the menu. The anchor is where the pointer was; touch ignores it. */
-  onMenu: (anchor: { x: number; y: number }) => void;
+  /**
+   * Raise the menu. The anchor is where the pointer was; touch ignores it.
+   *
+   * Optional, and its absence is the whole answer: a row with no menu — the
+   * read-only landing demo, a surface with nothing to offer this row — gets no
+   * gesture wired for one, rather than a gesture that fires into nothing. Both
+   * halves honour that, and each in the way its platform needs: this one
+   * offers no `onLongPress`, and the web half leaves `contextmenu`
+   * un-suppressed so the browser's own menu still opens.
+   */
+  onMenu?: (anchor: { x: number; y: number }) => void;
   /** False for `privacy.md`, and for a read-only console. */
   canDrag: boolean;
   canDrop: boolean;
@@ -54,9 +63,14 @@ export interface RowInteractions {
 export const LONG_PRESS_MS = 400;
 
 export function useRowInteractions(options: RowInteractionOptions): RowInteractions {
+  const onMenu = options.onMenu;
+  // A long press with nowhere to send it would open nothing *and* swallow the
+  // tap that was meant to select the row.
+  if (onMenu === undefined) return { pressableProps: {} };
+
   return {
     pressableProps: {
-      onLongPress: () => options.onMenu({ x: 0, y: 0 }),
+      onLongPress: () => onMenu({ x: 0, y: 0 }),
       delayLongPress: LONG_PRESS_MS,
     },
   };

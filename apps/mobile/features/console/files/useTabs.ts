@@ -39,6 +39,8 @@ import { emptyTabs, tabsReducer, type TabsState } from "./tabs";
 export function useTabs(files: FileBrowser): {
   state: TabsState;
   activate: (path: string) => void;
+  /** Keep this tab: what "Open in new tab" means when the default is a preview. */
+  pin: (path: string) => void;
   close: (path: string) => void;
   closeOthers: (path: string) => void;
   reopen: () => void;
@@ -118,6 +120,20 @@ export function useTabs(files: FileBrowser): {
   const reopen = useCallback(() => dispatch({ type: "reopened" }), []);
 
   /**
+   * "Open in new tab".
+   *
+   * The selection effect above will open this path as a *preview* tab, which
+   * the next click would replace — so pinning is what makes the menu item mean
+   * anything different from a plain open. Dispatched after the open rather than
+   * instead of it, because the reducer treats a pin of an unopened path as a
+   * no-op by design.
+   */
+  const pin = useCallback((path: string) => {
+    dispatch({ type: "opened", path, mode: "pinned" });
+    dispatch({ type: "pinned", path });
+  }, []);
+
+  /**
    * Closing the active tab has to move the editor, not just the strip.
    *
    * The reducer already picks the neighbour; this follows it. Without it the
@@ -132,5 +148,5 @@ export function useTabs(files: FileBrowser): {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
-  return { state, activate, close, closeOthers, reopen };
+  return { state, activate, pin, close, closeOthers, reopen };
 }

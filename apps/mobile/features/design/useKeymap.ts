@@ -24,7 +24,18 @@ import type { Command, Scope } from "./keymap";
  * on both and a mistake shows up in the first place it is made.
  */
 export interface KeymapOptions {
-  scope: Scope;
+  /**
+   * Which scope the keystroke lands in.
+   *
+   * A function rather than only a value, because scope is a property of *where
+   * the caret is at the moment a key is pressed*, not of the last render. The
+   * tree and the editor are two regions of one screen with one listener between
+   * them, and re-rendering the whole console on every focus change to keep a
+   * `scope` prop current would be both wasteful and racy — focus moves before
+   * React hears about it. Passing a thunk lets the binder ask at the only
+   * moment the answer is knowable.
+   */
+  scope: Scope | (() => Scope);
   /** Fired when a chord resolves. Return true if handled (suppresses default). */
   onCommand: (command: Command) => boolean | void;
   enabled?: boolean;

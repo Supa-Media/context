@@ -179,12 +179,24 @@ export function clampExplorerWidth(width: number): number {
 /**
  * What toggling the explorer means at this density.
  *
- * One command (`toggleExplorer`, ⌘⇧E on web, the drawer button on a phone) with
- * two implementations, resolved here so neither the keymap nor the button has
- * to know the density. Returning the *field to change* rather than mutating
- * keeps this callable from a reducer.
+ * One command (`toggleExplorer`, ⌘⇧E on web, the drawer button on a phone)
+ * resolved here so neither the keymap nor the button has to know the density.
+ * Returning the *field to change* rather than mutating keeps this callable from
+ * a reducer.
+ *
+ * This is the single owner of that meaning, and `AppFrame.toggleExplorer` is
+ * its only caller: for a while the frame implemented a different rule of its
+ * own, this function was imported by nothing but its own test, and ⌘⇧E toggled
+ * the *rail* on any layout with an explorer column — a duplicate of ⌘B that
+ * never touched the region it is named after.
+ *
+ * `null` means the command does nothing here, and nothing is what it must do.
+ * Medium and wide have a permanent explorer column: there is no drawer to pull
+ * in, and hiding the column outright is a product decision nobody has taken.
+ * The day somebody takes it, this is where it lands — one function, one
+ * meaning, and every caller follows.
  */
-export function explorerToggleFor(density: Density): "drawerOpen" | "railCollapsed" | null {
+export function explorerToggleFor(density: Density): "drawerOpen" | null {
   if (density === "compact") return "drawerOpen";
   return null;
 }

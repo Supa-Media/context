@@ -124,6 +124,17 @@ export function useKeymap(options: KeymapOptions): void {
   const handlerRef = useRef(onCommand);
   handlerRef.current = onCommand;
 
+  /**
+   * The scope goes through a ref for the same reason, and it matters more.
+   *
+   * A caller passing a thunk is passing "ask me when it happens" — so reading a
+   * `scope` captured at registration time would answer with where the caret was
+   * when the listener was attached, which is precisely the question a thunk
+   * exists to avoid asking.
+   */
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+
   useEffect(() => {
     if (!enabled) return;
     if (typeof document === "undefined") return;
@@ -153,7 +164,7 @@ export function useKeymap(options: KeymapOptions): void {
           altKey: event.altKey,
           inTextField: isTextField(event.target),
         },
-        scope,
+        currentScope(scopeRef.current),
         apple,
       );
       if (command === null) return;
@@ -169,5 +180,15 @@ export function useKeymap(options: KeymapOptions): void {
 
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [scope, enabled]);
+    // A thunk's identity is not a reason to tear the listener down and rebuild
+    // it — it is read through `scopeRef`, like the handler. Only a literal
+    // scope changing, or the binder being switched off, warrants that.
+  }, [typeof scope === "function" ? FUNCTION_SCOPE : scope, enabled]);
+}
+
+/** The sentinel that keeps every thunk identity looking like one dependency. */
+const FUNCTION_SCOPE = Symbol.for("keymap.scope.fn");
+
+function currentScope(scope: Scope | (() => Scope)): Scope {
+  return typeof scope === "function" ? scope() : scope;
 }

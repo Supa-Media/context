@@ -1,4 +1,13 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   PanResponder,
   Platform,
@@ -16,6 +25,7 @@ import {
   clampExplorerWidth,
   closesOnSelect,
   densityFor,
+  explorerToggleFor,
   initialFrame,
   regionsFor,
   type Density,
@@ -76,7 +86,15 @@ export interface FrameApi {
   density: Density;
   regions: Regions;
   state: FrameState;
-  /** The drawer button, and ⌘⇧E on web. A no-op where there is no drawer. */
+  /**
+   * The drawer button, and ⌘⇧E on web.
+   *
+   * What toggling the explorer *means* is `explorerToggleFor`'s to decide, and
+   * at a density where it answers `null` — medium and wide, where the explorer
+   * is a permanent column and there is nothing to pull in — this genuinely
+   * does nothing. It used to toggle `railCollapsed` there, which made ⌘⇧E a
+   * second ⌘B that never once touched the explorer.
+   */
   toggleExplorer: () => void;
   /** ⌘B. Collapses the rail to its marks on a wide window. */
   toggleRail: () => void;
@@ -166,12 +184,15 @@ export function AppFrame({
   const density = densityFor(width);
   const regions = regionsFor(density, state, { hasExplorer: explorer != null });
 
+  // One command with one meaning per density, and `frame.ts` owns which. The
+  // field it names is toggled; a `null` is a real no-op, not a licence to do
+  // something else — toggling the rail here is what made ⌘⇧E a duplicate of
+  // ⌘B on every layout that has an explorer column.
   const toggleExplorer = useCallback(() => {
-    setState((current) =>
-      densityFor(width) === "compact"
-        ? { ...current, drawerOpen: !current.drawerOpen }
-        : { ...current, railCollapsed: !current.railCollapsed },
-    );
+    setState((current) => {
+      const field = explorerToggleFor(densityFor(width));
+      return field === null ? current : { ...current, [field]: !current[field] };
+    });
   }, [width]);
 
   const toggleRail = useCallback(
@@ -368,8 +389,33 @@ function ExplorerResizer({
   width: number;
   onResize: (next: number) => void;
 }) {
-  const startWidth = useRef(width);
   const [active, setActive] = useState(false);
+
+  /**
+   * The live width, and the width this drag started from.
+   *
+   * `liveWidth` is a ref rather than the `width` prop read straight out of the
+   * closure below, and that is the whole point of this component's shape.
+   *
+   * **Do not add `width` to the responder's dependency list.** Putting the
+   * value a memo closes over into its deps is the correct instinct almost
+   * everywhere and is a bug here, because `width` is the value
+   * `onPanResponderMove` itself changes: listing it rebuilds the responder on
+   * every move event of a drag. `onPanResponderGrant` does *not* run again —
+   * the gesture is already granted — but react-native-web's `PanResponder`
+   * gives each instance a fresh `gestureState` with `dx: 0`, so every move
+   * applies only the increment since the last rebuild while `startWidth` still
+   * holds the grant-time width. A 150px drag from 260 then lands on 360
+   * instead of 410, in stuttering jumps.
+   *
+   * So the responder depends on nothing a drag can change, and the one value
+   * it needs at grant time arrives through a ref that a commit keeps current.
+   */
+  const liveWidth = useRef(width);
+  useEffect(() => {
+    liveWidth.current = width;
+  }, [width]);
+  const startWidth = useRef(width);
 
   const responder = useMemo(
     () =>
@@ -377,14 +423,14 @@ function ExplorerResizer({
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: () => true,
         onPanResponderGrant: () => {
-          startWidth.current = width;
+          startWidth.current = liveWidth.current;
           setActive(true);
         },
         onPanResponderMove: (_event, gesture) => onResize(startWidth.current + gesture.dx),
         onPanResponderRelease: () => setActive(false),
         onPanResponderTerminate: () => setActive(false),
       }),
-    [width, onResize],
+    [onResize],
   );
 
   return (

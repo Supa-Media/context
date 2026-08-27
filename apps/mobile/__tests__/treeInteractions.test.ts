@@ -205,3 +205,141 @@ describe("what may be picked up", () => {
     expect(seen).toEqual([]);
   });
 });
+
+/**
+ * The other half of "the browser's own menu is suppressed".
+ *
+ * Suppression is not free and it is not symmetric: `preventDefault` on
+ * `contextmenu` is a promise to put something in the browser menu's place, and
+ * a row with no `onMenu` cannot keep it. The landing-page demo mounts exactly
+ * this configuration, so before this test a right-click on the marketing
+ * console destroyed the browser's menu and opened nothing — the worst of both,
+ * and invisible to the assertion above, which only ever checked that *ours*
+ * stayed shut.
+ */
+describe("a menu that will not open does not eat the browser's", () => {
+  test("with no onMenu, contextmenu is left alone", () => {
+    const tree = mountTree({ canEdit: false, drag: undefined });
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+
+    act(() => {
+      tree.rowFor("plan.md").dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  /**
+   * …and the row is still a row. A read-only console has drag handlers absent
+   * rather than refusing, so this also pins that dropping the `contextmenu`
+   * listener did not take the rest of the wiring with it.
+   */
+  test("the row keeps its other answers", () => {
+    const tree = mountTree({ canEdit: false, drag: undefined });
+    expect(tree.rowFor("plan.md").getAttribute("draggable")).toBe("false");
+  });
+
+  test("a writable console with a menu still suppresses", () => {
+    const tree = mountTree({ onMenu: () => {}, drag: DRAG });
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+
+    act(() => {
+      tree.rowFor("plan.md").dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(true);
+  });
+});
+
+/**
+ * Listeners are removed again.
+ *
+ * Today the ref callback's identity is stable and nothing mounts this under
+ * `<StrictMode>`, so a leak does not fire twice *yet* — which is exactly why it
+ * needs a test rather than a reading. The day a dependency is added to that
+ * callback, or the day StrictMode goes on, a leaked `drop` listener is a
+ * doubled move: a file operation performed twice against a bucket, not a
+ * cosmetic glitch.
+ *
+ * React 19's ref-cleanup contract is what does the removing, and it is also
+ * what makes this checkable: re-attaching by hand to the same node and counting
+ * the calls is the only way to see the listener from outside.
+ */
+describe("the row's listeners are removed when it lets go of a node", () => {
+  const { useRowInteractions } =
+    require("../features/console/files/rowInteractions.web") as typeof import("../features/console/files/rowInteractions.web");
+
+  /** Drives the hook directly: the node it attaches to is the thing under test. */
+  function attach(node: HTMLElement, options: { onMenu: () => void; canDrag: boolean }) {
+    let detach: (() => void) | void;
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+    roots.push(() => {
+      act(() => root.unmount());
+      container.remove();
+    });
+
+    const Probe = ({ canDrag }: { canDrag: boolean }) => {
+      const interactions = useRowInteractions({
+        path: "1-projects/plan.md",
+        onMenu: options.onMenu,
+        canDrag,
+        canDrop: false,
+        onDragStart: () => {},
+        onDragOver: () => {},
+        onDragLeave: () => {},
+        onDrop: () => {},
+        onDragEnd: () => {},
+      });
+      // The ref is called by hand rather than rendered onto a node, because
+      // what is being tested is the contract between the hook and React —
+      // "hand it a node, get a cleanup back".
+      if (detach === undefined) detach = interactions.ref?.(node) as (() => void) | void;
+      return null;
+    };
+
+    const rerender = (canDrag: boolean) => {
+      act(() => {
+        root.render(createElement(Probe, { canDrag }));
+      });
+    };
+    rerender(options.canDrag);
+    return { detach: () => (detach as (() => void) | undefined)?.(), rerender };
+  }
+
+  test("the ref hands back a cleanup, and it detaches every listener", () => {
+    const node = document.createElement("div");
+    document.body.appendChild(node);
+    let menus = 0;
+    const probe = attach(node, { onMenu: () => (menus += 1), canDrag: true });
+
+    node.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    expect(menus).toBe(1);
+
+    probe.detach();
+    node.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    expect(menus).toBe(1);
+
+    node.remove();
+  });
+
+  /**
+   * `draggable` is an attribute, not a listener, so it cannot be read through
+   * the options ref at event time the way every other option is. Written once
+   * at attach, a row that goes read-only while mounted stays pickable.
+   */
+  test("draggable follows canDrag while the row stays mounted", () => {
+    const node = document.createElement("div");
+    document.body.appendChild(node);
+    const probe = attach(node, { onMenu: () => {}, canDrag: true });
+
+    expect(node.getAttribute("draggable")).toBe("true");
+    probe.rerender(false);
+    expect(node.getAttribute("draggable")).toBe("false");
+    probe.rerender(true);
+    expect(node.getAttribute("draggable")).toBe("true");
+
+    node.remove();
+  });
+});

@@ -16,6 +16,11 @@ import { AccountBlock, Avatar, ConsoleRail } from "../../../features/console/Con
 import { ConsoleDataProvider } from "../../../features/console/ConsoleDataContext";
 import { Explorer } from "../../../features/console/files/Explorer";
 import { itemsFromListings } from "../../../features/console/files/palette";
+import { useTabs } from "../../../features/console/files/useTabs";
+import { readFocus, scopeForFocus } from "../../../features/console/keyboardScope";
+import { tabAt } from "../../../features/console/files/tabs";
+import { targetFolder } from "../../../features/console/files/tree";
+import { TabStrip } from "../../../features/console/files/TabStrip";
 import { statusSegments } from "../../../features/console/files/status";
 import { atName } from "../../../features/console/format";
 import {
@@ -26,6 +31,7 @@ import {
 } from "../../../features/console/nav";
 import { selectedContext, type ConsoleData } from "../../../features/console/types";
 import { useKeymap } from "../../../features/design/useKeymap";
+import type { FileBrowser } from "../../../features/console/files/browser";
 import { useLiveConsoleData } from "../../../features/console/useLiveConsoleData";
 import { canReload, reloadApp } from "../../../features/app/reload";
 
@@ -88,6 +94,19 @@ export default function ConsoleLayout() {
   ]);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
+  /*
+    A menu or a dialog raised by the tree is an overlay too, not just the
+    palette. Without this, ⌘K opens the palette *behind* an open context menu:
+    `keymap.ts` enforces "nothing behind an overlay fires", but only for the
+    scope it is told about.
+  */
+  const [treeOverlay, setTreeOverlay] = useState(false);
+  /*
+    Tabs are owned here rather than inside Browse because the keyboard is owned
+    here: ⌘W, ⌘⇧T and ⌘1–9 are frame-level chords, and a tab model living one
+    level down would have to be reached through a ref or duplicated.
+  */
+  const tabs = useTabs(data.files);
   const current = selectedContext(data);
   const insideContext = route.kind === "context";
   const browsing = route.kind === "context" && route.view === "browse";
@@ -135,7 +154,17 @@ export default function ConsoleLayout() {
           />
         )}
         explorer={
-          insideContext ? <Explorer files={data.files} contextLabel={contextLabel} /> : undefined
+          insideContext ? (
+            <Explorer
+              files={data.files}
+              contextLabel={contextLabel}
+              onOpenPinned={(path) => {
+                data.files.select(path);
+                tabs.pin(path);
+              }}
+              onOverlayChange={setTreeOverlay}
+            />
+          ) : undefined
         }
         status={<Status data={data} />}
         bottomBar={
@@ -144,8 +173,17 @@ export default function ConsoleLayout() {
           ) : undefined
         }
       >
-        <Shortcuts onSearch={() => setPaletteOpen(true)} paletteOpen={paletteOpen} />
-        <EditorRegion browse={browsing} failure={data.failure}>
+        <Shortcuts
+          files={data.files}
+          tabs={tabs}
+          onSearch={() => setPaletteOpen(true)}
+          paletteOpen={paletteOpen || treeOverlay}
+        />
+        <EditorRegion
+          browse={browsing}
+          failure={data.failure}
+          tabs={browsing ? tabs : null}
+        >
           <Slot />
         </EditorRegion>
 
@@ -187,10 +225,13 @@ export default function ConsoleLayout() {
 function EditorRegion({
   browse,
   failure,
+  tabs,
   children,
 }: {
   browse: boolean;
   failure: ConsoleData["failure"];
+  /** Absent on a route with no notes open, and on every non-Browse pane. */
+  tabs: ReturnType<typeof useTabs> | null;
   children: ReactNode;
 }) {
   /*
@@ -218,6 +259,20 @@ function EditorRegion({
   if (browse) {
     return (
       <View style={styles.browseRegion}>
+        {/*
+          At the very top edge of the region, not inside the document's
+          padding: an inset tab strip reads as a control belonging to the note
+          rather than to the frame.
+        */}
+        {tabs !== null && tabs.state.tabs.length > 0 ? (
+          <TabStrip
+            state={tabs.state}
+            onActivate={tabs.activate}
+            onClose={tabs.close}
+            onCloseOthers={tabs.closeOthers}
+            onReopen={tabs.reopen}
+          />
+        ) : null}
         {banner === null ? null : <View style={styles.bannerInset}>{banner}</View>}
         {children}
       </View>
@@ -233,31 +288,47 @@ function EditorRegion({
 }
 
 /**
- * The keyboard, bound at the frame level.
+ * The keyboard.
  *
- * Mounted inside `AppFrame` rather than beside it, because `useFrame` is what
- * knows whether ⌘⇧E means "slide the drawer in" or "collapse the rail" — the
- * command is one thing and its meaning is per density, which is exactly the
- * split `frame.ts` exists to own.
+ * One listener for the whole console, with the scope resolved **at the moment
+ * a key arrives** rather than at render — see `keyboardScope.ts` for why a
+ * `focusedRegion` state cannot work here.
  *
- * The scope goes to `"overlay"` while the palette is open so nothing behind it
- * fires; `keymap.ts` enforces that, and this is the one caller that has to say
- * which state it is in.
+ * ## Every chord the menu prints, this answers
+ *
+ * That is the contract, and it was broken before this: the tree and editor
+ * scopes were never passed, so thirty-three of the thirty-seven commands
+ * resolved to nothing while the context menu cheerfully printed `F2`, `⌘D`,
+ * `⌘⇧M`, `⌘C`, `⌘X`, `⌘⌫` and `⌘⇧⌫` beside its rows — and **⌘S did not save.**
+ * `menu.ts`'s doc argues that routing shortcuts through `describeBinding` means
+ * a printed chord is a real one; that guarantees the chord is in the table, not
+ * that anything is listening. This is the listener.
+ *
+ * A command that lands somewhere with nothing to do returns `false`, which
+ * leaves the browser's own behaviour alone — that is why `preventDefault` is
+ * conditional on a `true` in the first place.
  */
 function Shortcuts({
+  files,
+  tabs,
   onSearch,
   paletteOpen,
 }: {
+  files: FileBrowser;
+  tabs: ReturnType<typeof useTabs>;
   onSearch: () => void;
   paletteOpen: boolean;
 }) {
   const frame = useFrame();
 
   useKeymap({
-    scope: paletteOpen ? "overlay" : "global",
+    scope: useCallback(() => scopeForFocus(readFocus(paletteOpen)), [paletteOpen]),
     onCommand: useCallback(
       (command) => {
+        const path = files.editor.path;
+
         switch (command) {
+          /* ---- frame ---------------------------------------------------- */
           case "palette":
           case "quickSwitcher":
             onSearch();
@@ -268,19 +339,76 @@ function Shortcuts({
           case "toggleRail":
             frame.toggleRail();
             return true;
-          default:
-            // Everything else belongs to a region, not to the frame. Returning
-            // nothing leaves the browser's own behaviour alone, which is why
-            // `preventDefault` is conditional on a `true` in the first place.
+
+          /* ---- the note ------------------------------------------------- */
+          case "save":
+            // The one people try first. It is `editor`-scoped, so it fires from
+            // inside the textarea and nowhere else.
+            if (!files.canEdit || files.editor.status !== "dirty") return false;
+            files.save();
+            return true;
+
+          /* ---- tabs ----------------------------------------------------- */
+          case "closeTab":
+            if (tabs.state.activePath === null) return false;
+            tabs.close(tabs.state.activePath);
+            return true;
+          case "reopenTab":
+            if (tabs.state.closed.length === 0) return false;
+            tabs.reopen();
+            return true;
+          case "nextTab":
+          case "prevTab": {
+            const { tabs: open, activePath } = tabs.state;
+            if (open.length < 2 || activePath === null) return false;
+            const index = open.findIndex((tab) => tab.path === activePath);
+            const step = command === "nextTab" ? 1 : -1;
+            // Wraps, because a strip you can only walk to the end of makes you
+            // reverse direction to reach the tab one place behind you.
+            const next = open[(index + step + open.length) % open.length];
+            tabs.activate(next.path);
+            return true;
+          }
+
+          /* ---- the tree ------------------------------------------------- */
+          case "newNote":
+          case "newFolder":
+          case "rename":
+          case "duplicate":
+          case "moveTo":
+          case "copy":
+          case "cut":
+          case "paste":
+          case "archive":
+          case "deleteForever":
+            // These act on a tree row and are raised from the tree's own menu,
+            // which owns the dialogs they need. Reaching them from here would
+            // mean a second copy of that dialog state living in the frame.
+            // Deliberately unhandled *here*; `Explorer` binds them itself.
             return false;
+
+          default: {
+            // ⌘1–⌘9. Written as a fall-through rather than nine cases.
+            const index = (NUMBERED_TABS as readonly string[]).indexOf(command);
+            if (index < 0) return false;
+            const target = tabAt(tabs.state, index);
+            if (target === null) return false;
+            tabs.activate(target);
+            return true;
+          }
         }
       },
-      [frame, onSearch],
+      [files, tabs, frame, onSearch],
     ),
   });
 
   return null;
 }
+
+/** ⌘1 … ⌘9, in order, so `tabAt` can be indexed straight off the command. */
+const NUMBERED_TABS = [
+  "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8", "tab9",
+] as const;
 
 /**
  * The thumb's half of the console.
@@ -294,7 +422,9 @@ function Shortcuts({
 function ConsoleBottomBar({ data, onSearch }: { data: ConsoleData; onSearch: () => void }) {
   const frame = useFrame();
   const files = data.files;
-  const folder = files.selectedPath === null ? "" : parentFolderOf(files.selectedPath);
+  // The same rule the explorer's own `+` uses, from the same function: a
+  // selected *folder* is the destination, anything else means its parent.
+  const folder = targetFolder(files.listings, files.selectedPath);
 
   return (
     <BottomBar
@@ -307,14 +437,25 @@ function ConsoleBottomBar({ data, onSearch }: { data: ConsoleData; onSearch: () 
           onPress: frame.toggleExplorer,
         },
         { id: "search", label: "Search notes", glyph: "\u2315", title: "Search", onPress: onSearch },
-        {
-          id: "new",
-          label: "New note",
-          glyph: "\uff0b",
-          title: "New",
-          disabled: !files.canEdit,
-          onPress: () => files.createNote(folder, "Untitled"),
-        },
+        /*
+          Absent, not dimmed. `BottomBar` argues that a fixed strip must not
+          move items out from under a thumb, and that is right for Save, which
+          is unavailable for a moment. `canEdit` is not a moment — it is the
+          whole console, for the whole session — and `menu.ts` states the rule
+          for exactly this case: read-only means the control is **gone**, not
+          present and refusing.
+        */
+        ...(files.canEdit
+          ? [
+              {
+                id: "new",
+                label: "New note",
+                glyph: "\uff0b",
+                title: "New",
+                onPress: () => files.createNote(folder, "Untitled"),
+              },
+            ]
+          : []),
         {
           id: "save",
           label: "Save this note",
@@ -329,12 +470,6 @@ function ConsoleBottomBar({ data, onSearch }: { data: ConsoleData; onSearch: () 
       ]}
     />
   );
-}
-
-/** The folder a selected path sits in, for "new note here". */
-function parentFolderOf(path: string): string {
-  const index = path.lastIndexOf("/");
-  return index < 0 ? "" : path.slice(0, index);
 }
 
 /**

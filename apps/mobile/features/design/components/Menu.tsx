@@ -7,24 +7,33 @@ import { PressRow } from "./Button";
 import { Text } from "./Text";
 
 /**
- * The action menu — **touch**.
+ * The action menu — **native**, which is always a thumb.
  *
  * `features/console/files/menu.ts` decides *what* to offer; this file and its
- * `.web.tsx` sibling decide what that looks like under a thumb and under a
- * pointer. The split is the same one `clipboard.ts` / `clipboard.web.ts` uses,
- * and for the same reason: these are not one component with a branch in it,
- * they are two different interactions that happen to answer the same question.
+ * `.web.tsx` sibling decide what that looks like. The split is the same one
+ * `clipboard.ts` / `clipboard.web.ts` uses, but note carefully what it does and
+ * does not decide:
  *
- *  - A pointer **right-clicks**, and gets a popover at the pointer.
  *  - A finger has no right button. The gesture is a **long press**, and the
  *    answer is a sheet from the bottom edge — what iOS and Android already do
  *    everywhere else, and what Obsidian mobile does for exactly this menu.
+ *    That is this file, and it is unconditional: an iOS or Android build has
+ *    no other input device to serve.
+ *  - **A browser is not a device.** `Menu.web.tsx` therefore does *not* mean
+ *    "pointer": it means "the browser", and it picks between a popover at the
+ *    pointer and this same sheet on `layout.narrowBreakpoint`, exactly as
+ *    `Palette.tsx` does. The web build is how this product reaches phones, so
+ *    a `.web.tsx` that only knew how to draw a popover put a 28px row under a
+ *    thumb — see its header.
  *
  * Neither file imports the other. A platform module cannot: on web, `./Menu`
  * resolves to `Menu.web.tsx`, so a `.web` file importing `./Menu` would import
- * itself. `MenuProps` is therefore declared identically in both, and the two
- * are held together by `MenuActionId` and `MenuItem`, which they share and
- * neither owns.
+ * itself. `MenuProps` is therefore declared identically in both, the sheet's
+ * chrome is written out in both, and the two are held together by
+ * `MenuActionId` and `MenuItem`, which they share and neither owns. Within
+ * each file there is exactly one row component, which is the duplication that
+ * would actually hurt: geometry is obvious when it is wrong, and a missing
+ * danger colour is not.
  *
  * ## What is deliberately different here, not merely rescaled
  *

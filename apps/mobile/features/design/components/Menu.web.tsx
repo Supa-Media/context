@@ -1,27 +1,75 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   View,
   useWindowDimensions,
   type ViewStyle,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { MenuActionId, MenuItem } from "../../console/files/menu";
-import { colors, radii, space } from "../tokens";
+import { colors, layout, radii, space } from "../tokens";
 import { Text } from "./Text";
 
 /**
- * The action menu — **pointer**.
+ * The action menu — **the browser**, which is both a desktop and a phone.
  *
- * The touch sheet lives in `Menu.tsx`; this is the same list of items as a
- * context-menu popover, and the two are separate files rather than one
- * component with a branch because they are two different interactions. See the
- * comment at the top of `Menu.tsx` for the split, including why neither file
- * can import the other and why `MenuProps` is therefore written out twice.
+ * `features/console/files/menu.ts` decides *what* to offer; this file decides
+ * what that looks like. `Menu.tsx` is the native sheet and is untouched by any
+ * of this; see the comment at the top of it for why the two files exist, why
+ * neither can import the other, and why `MenuProps` is therefore written out
+ * twice.
  *
- * ## The geometry is a model, not a measurement
+ * ## Why the web half has to render both presentations
  *
- * Every dimension this file positions with is one it also *imposes*:
+ * The platform split alone gets this wrong, and it got it wrong here for the
+ * whole of this branch. `./Menu` under web resolution is *always* this file, so
+ * `Menu.tsx`'s 44pt sheet is reachable only from a native build — and this
+ * product ships to phones as a web build. A phone browser long-press raises
+ * `contextmenu` (see `rowInteractions.web.ts`), the gesture arrived correctly,
+ * and what it opened was the 28px pointer popover: exactly the mis-tap next to
+ * "Delete forever…" that `Menu.tsx` was written to avoid.
+ *
+ * So the *device* question is not answered by the file extension. The file
+ * extension answers "is this a browser"; the window answers "is this a thumb".
+ *
+ * ## One rule, the same one `Palette.tsx` uses
+ *
+ * `Palette` picks its presentation with
+ * `Platform.OS !== "web" || width < layout.narrowBreakpoint`. This file is the
+ * same rule with its first term already decided: it only ever runs on web —
+ * native resolves to `Menu.tsx`, which is the sheet unconditionally — so what
+ * is left to ask is the width.
+ *
+ * `layout.narrowBreakpoint` and not a number, and not a *different* number:
+ * `frame.ts`'s `densityFor` calls the same threshold `compact`, and `Explorer`
+ * passes `platform: "touch"` to `menu.ts` at exactly that density. One
+ * breakpoint therefore decides both halves of the same menu — which items
+ * exist, and how big they are drawn — so there is no window width where the
+ * items say "phone" and the chrome says "desktop".
+ *
+ * A desktop window dragged narrow gets the sheet, which is right for the same
+ * reason it is right in `Palette`: the constraint is the room, not the device.
+ *
+ * ## The row is shared, the chrome is not
+ *
+ * There is exactly one `Row` here, taking a `touch` flag that changes its
+ * density and nothing else — the same shape as `Palette`'s single
+ * `PaletteRow`. Two row components would drift, and the drift would be silent:
+ * a danger colour that stopped rendering on one presentation looks like a
+ * design choice rather than a bug.
+ *
+ * What is genuinely different is the chrome around it, and it is different in
+ * the ways `Menu.tsx` sets out: a submenu **pushes a page** rather than hanging
+ * a second popover off the side of the first (a phone has nowhere to hang one
+ * and no hover to open it), and there is a **Cancel** row (a scrim tap is not
+ * discoverable, and the last item is destructive).
+ *
+ * ## The pointer geometry is a model, not a measurement
+ *
+ * Every dimension the popover positions with is one it also *imposes*:
  * `ROW_HEIGHT` is the row's `height`, `SEPARATOR_BLOCK` is the rule plus its
  * margins, `PADDING` and `BORDER` are the box's own. The width is chosen here
  * and set explicitly rather than left to the content. So the size used to
@@ -58,6 +106,11 @@ export interface MenuProps {
 
 /** Compact: this is a pointer target, and 44pt rows would make it a list. */
 const ROW_HEIGHT = 28;
+/**
+ * The thumb target, and the floor rather than the aim: the padding takes an
+ * ordinary single-line row past it, and this keeps a short label honest.
+ */
+const TOUCH_ROW_MIN_HEIGHT = 44;
 /** The hairline plus the air above and below it. */
 const SEPARATOR_BLOCK = 1 + space.x1 * 2;
 const PADDING = 6;
@@ -156,19 +209,54 @@ function fixedAt(box: Box): ViewStyle {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                                    rows                                    */
+/*                                  the row                                   */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * One row, both presentations.
+ *
+ * It takes flat fields rather than a `MenuItem` because two of the rows on a
+ * sheet — the back row and Cancel — are chrome rather than menu items, and
+ * giving them a synthetic `MenuItem` with an id that is not a `MenuActionId`
+ * would be a lie in the one type that keeps the model and its drawings
+ * together.
+ *
+ * `touch` changes density and nothing else:
+ *
+ *  - **height** — a fixed 28px, because the popover's placement arithmetic
+ *    imposes it, against a 44pt *minimum* that the label is allowed to exceed.
+ *  - **no chord column.** `menu.ts` omits `shortcut` entirely at compact
+ *    density, so on a phone there is normally nothing to draw; this is the
+ *    other end of that promise — nothing here puts a chord back on a device
+ *    with no keyboard, whatever it was handed.
+ *  - **danger stays danger under a thumb.** A lit pointer row recolours its
+ *    label to the accent, which is fine when the highlight follows a cursor.
+ *    On a sheet the highlight is a press, and a "Delete forever…" that turns
+ *    blue under the finger about to release on it is the sheet lying about
+ *    what it is offering. Touch lights the background instead.
+ */
 function Row({
-  item,
-  focused,
+  id,
+  label,
+  touch,
+  danger = false,
+  shortcut,
+  submenu = false,
+  align = "left",
+  focused = false,
   onActivate,
   onHover,
 }: {
-  item: MenuItem;
-  focused: boolean;
+  id: string;
+  label: string;
+  touch: boolean;
+  danger?: boolean;
+  shortcut?: string;
+  submenu?: boolean;
+  align?: "left" | "center";
+  focused?: boolean;
   onActivate: () => void;
-  onHover: () => void;
+  onHover?: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const lit = hovered || focused;
@@ -176,37 +264,182 @@ function Row({
   return (
     <Pressable
       role="menuitem"
-      accessibilityLabel={item.label}
-      testID={`menu-item-${item.id}`}
+      accessibilityLabel={label}
+      testID={`menu-item-${id}`}
       onPress={onActivate}
       onHoverIn={() => {
         setHovered(true);
-        onHover();
+        onHover?.();
       }}
       onHoverOut={() => setHovered(false)}
-      style={[styles.row, lit && styles.rowLit]}
+      style={[
+        styles.row,
+        touch ? styles.rowTouch : styles.rowPointer,
+        align === "center" && styles.rowCentered,
+        lit && (touch ? styles.rowHover : styles.rowLit),
+      ]}
     >
       <Text
-        variant="tree"
+        variant={touch ? "body" : "tree"}
         numberOfLines={1}
-        testID={`menu-label-${item.id}`}
-        style={[styles.label, item.danger === true && styles.dangerLabel, lit && styles.labelLit]}
+        testID={`menu-label-${id}`}
+        style={[styles.label, danger && styles.dangerLabel, lit && !touch && styles.labelLit]}
       >
-        {item.label}
+        {label}
       </Text>
-      {item.shortcut === undefined ? null : (
+      {touch || shortcut === undefined ? null : (
         <Text variant="treeMeta" style={styles.shortcut}>
-          {item.shortcut}
+          {shortcut}
         </Text>
       )}
-      {item.items === undefined ? null : (
-        <Text variant="treeMeta" aria-hidden style={styles.chevron}>
+      {!submenu ? null : (
+        <Text variant={touch ? "tree" : "treeMeta"} aria-hidden style={styles.chevron}>
           ›
         </Text>
       )}
     </Pressable>
   );
 }
+
+/** `separatorBefore` — a hairline with air around it, never a heavy rule. */
+function Separator({ touch }: { touch: boolean }) {
+  return <View aria-hidden style={[styles.separator, touch && styles.separatorTouch]} />;
+}
+
+function ItemRow({
+  item,
+  touch,
+  focused,
+  onActivate,
+  onHover,
+}: {
+  item: MenuItem;
+  touch: boolean;
+  focused?: boolean;
+  onActivate: () => void;
+  onHover?: () => void;
+}) {
+  return (
+    <Row
+      id={item.id}
+      label={item.label}
+      touch={touch}
+      danger={item.danger === true}
+      shortcut={item.shortcut}
+      submenu={item.items !== undefined}
+      focused={focused}
+      onActivate={onActivate}
+      onHover={onHover}
+    />
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                  the sheet                                 */
+/* -------------------------------------------------------------------------- */
+
+function Sheet({ items, title, onSelect, onDismiss }: MenuProps) {
+  /**
+   * Which submenu is open, by the id of its **parent** item.
+   *
+   * Held as an id rather than as the item itself so that a re-render with new
+   * items (a clipboard filled while the sheet is open) cannot leave a stale
+   * copy of a page on screen: the parent is looked up again every render, and
+   * an id that no longer exists collapses back to the first page.
+   */
+  const [openId, setOpenId] = useState<MenuActionId | null>(null);
+  const insets = useSafeAreaInsets();
+
+  const parent = items.find((item) => item.id === openId && item.items !== undefined) ?? null;
+  const page = parent?.items ?? items;
+
+  return (
+    <Modal
+      transparent
+      animationType="slide"
+      visible
+      // Android's back button and, in the browser, Escape. Both mean "I am done
+      // with this sheet", so both are the same callback.
+      onRequestClose={onDismiss}
+    >
+      <Pressable style={styles.scrim} accessibilityLabel="Close menu" onPress={onDismiss}>
+        {/* Swallow presses inside the sheet, so only the scrim dismisses. */}
+        <Pressable
+          style={[styles.sheet, { paddingBottom: insets.bottom + space.x2 }]}
+          onPress={() => {}}
+          accessibilityLabel={title ?? "Actions"}
+          testID="menu-sheet"
+        >
+          <View aria-hidden style={styles.handle} />
+
+          {parent === null ? (
+            title === undefined ? null : (
+              <Text
+                variant="rowSub"
+                numberOfLines={1}
+                role="heading"
+                aria-level={2}
+                testID="menu-title"
+                style={styles.title}
+              >
+                {title}
+              </Text>
+            )
+          ) : (
+            /**
+             * The back row is the *only* way out of a submenu that does not
+             * also close the sheet, so it is a full-height row of its own
+             * rather than a chevron in the heading — a 44pt target, in the same
+             * place every time.
+             */
+            <>
+              <Row id="back" label={`‹  ${parent.label}`} touch onActivate={() => setOpenId(null)} />
+              <Separator touch />
+            </>
+          )}
+
+          <ScrollView
+            style={styles.list}
+            contentContainerStyle={styles.listContent}
+            testID="menu-list"
+          >
+            {page.map((item) => (
+              <View key={item.id}>
+                {item.separatorBefore === true ? <Separator touch /> : null}
+                <ItemRow
+                  item={item}
+                  touch
+                  onActivate={() => {
+                    /**
+                     * A parent is never dispatched. `menu.ts` gives the
+                     * Visibility item the id `"visibility"`, which has no
+                     * handler precisely so that a mistake here is a no-op
+                     * rather than a privacy change — but the check is what
+                     * keeps it from being one at all.
+                     */
+                    if (item.items !== undefined) {
+                      setOpenId(item.id);
+                      return;
+                    }
+                    onSelect(item.id);
+                    onDismiss();
+                  }}
+                />
+              </View>
+            ))}
+          </ScrollView>
+
+          <Separator touch />
+          <Row id="cancel" label="Cancel" touch align="center" onActivate={onDismiss} />
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                 the popover                                */
+/* -------------------------------------------------------------------------- */
 
 function Panel({
   items,
@@ -229,9 +462,10 @@ function Panel({
     <View ref={nodeRef} role="menu" testID={testID} style={[styles.panel, fixedAt(box)]}>
       {items.map((item, index) => (
         <View key={item.id}>
-          {item.separatorBefore === true ? <View aria-hidden style={styles.separator} /> : null}
-          <Row
+          {item.separatorBefore === true ? <Separator touch={false} /> : null}
+          <ItemRow
             item={item}
+            touch={false}
             focused={focus === index}
             onActivate={() => onActivate(item, index)}
             onHover={() => onHover(item, index)}
@@ -242,9 +476,7 @@ function Panel({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-
-export function Menu({ items, anchor, onSelect, onDismiss }: MenuProps) {
+function Popover({ items, anchor, onSelect, onDismiss }: MenuProps) {
   const view = useWindowDimensions();
   const rootNode = useRef<HTMLElement | null>(null);
   const subNode = useRef<HTMLElement | null>(null);
@@ -429,7 +661,23 @@ export function Menu({ items, anchor, onSelect, onDismiss }: MenuProps) {
   );
 }
 
+/* -------------------------------------------------------------------------- */
+
+export function Menu(props: MenuProps) {
+  const { width } = useWindowDimensions();
+
+  /**
+   * The room decides, not the device — see the header. Two components rather
+   * than one with branches inside it, so switching presentations remounts
+   * instead of carrying a popover's keyboard state into a sheet that has no
+   * keyboard.
+   */
+  return width < 0 ? <Sheet {...props} /> : <Popover {...props} />;
+}
+
 const styles = StyleSheet.create({
+  /* ------------------------------- popover ------------------------------- */
+
   panel: {
     paddingVertical: PADDING,
     borderWidth: BORDER,
@@ -440,17 +688,66 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     zIndex: 1000,
   },
+
+  /* -------------------------------- sheet -------------------------------- */
+
+  scrim: {
+    flex: 1,
+    backgroundColor: "rgba(3,3,4,.72)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    borderTopLeftRadius: radii.console,
+    borderTopRightRadius: radii.console,
+    borderTopWidth: 1,
+    borderColor: colors.lineStrong,
+    backgroundColor: colors.surface2,
+    paddingTop: space.x2,
+    // A sheet that grows past this stops looking like a sheet and starts
+    // looking like a screen you cannot leave; the list scrolls instead.
+    maxHeight: "80%",
+    boxShadow: "0 -30px 80px -30px rgba(0,0,0,1)",
+  },
+  handle: {
+    alignSelf: "center",
+    width: 38,
+    height: 4,
+    borderRadius: radii.pill,
+    backgroundColor: colors.lineStrong,
+    marginBottom: space.x2,
+  },
+  title: {
+    paddingHorizontal: space.x5,
+    paddingBottom: space.x2,
+    color: colors.muted,
+  },
+  list: { flexGrow: 0 },
+  listContent: { paddingVertical: space.x1 },
+
+  /* --------------------------------- row --------------------------------- */
+
   row: {
     flexDirection: "row",
     alignItems: "center",
+  },
+  rowPointer: {
     gap: space.x3,
     height: ROW_HEIGHT,
     paddingHorizontal: 10,
     borderRadius: radii.sm,
   },
+  rowTouch: {
+    gap: space.x3,
+    minHeight: TOUCH_ROW_MIN_HEIGHT,
+    paddingVertical: space.x3,
+    paddingHorizontal: space.x5,
+    borderRadius: radii.md,
+  },
+  rowCentered: { justifyContent: "center" },
   /** Hover and keyboard focus are the same visual state, on purpose: there is
    * one highlighted row at a time whichever device moved it. */
   rowLit: { backgroundColor: colors.accentDim },
+  rowHover: { backgroundColor: colors.surface3 },
   label: { flexShrink: 1 },
   labelLit: { color: colors.accentText },
   dangerLabel: { color: colors.critText },
@@ -461,4 +758,5 @@ const styles = StyleSheet.create({
     backgroundColor: colors.line,
     marginVertical: space.x1,
   },
+  separatorTouch: { marginVertical: space.x2 },
 });
