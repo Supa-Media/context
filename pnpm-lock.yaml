@@ -27,8 +27,8 @@ importers:
         specifier: ^0.0.90
         version: 0.0.90(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)
       '@supa-media/convex':
-        specifier: ^0.2.0
-        version: 0.2.0(@convex-dev/auth@0.0.90(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))
+        specifier: ^1.2.0
+        version: 1.2.0(@convex-dev/auth@0.0.90(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))
       convex:
         specifier: ^1.31.3
         version: 1.45.0(react@19.1.0)
@@ -2269,8 +2269,8 @@ packages:
   '@speed-highlight/core@1.2.24':
     resolution: {integrity: sha512-qeW2e1l78afw8VhRPfPQ1Gjj+KU5XFQ/OFV5ti6eTa9bruO7mJyZtA4vw0ofqmA3tKCkROE9xLk3VZoeRc98nw==}
 
-  '@supa-media/convex@0.2.0':
-    resolution: {integrity: sha512-1x/7DefNpxMiCtOwyQyBujMQBxg6kng6RYcJJHP79BSq3CnJenKMjj+biMWQPXVms4Gja5OVAknYo8G8dCYW7A==, tarball: https://npm.pkg.github.com/download/@supa-media/convex/0.2.0/75b1303cb4db00cc4d163f5bedac5e5d62c7b22b}
+  '@supa-media/convex@1.2.0':
+    resolution: {integrity: sha512-3/ZUfO6X7h1VGCZVzfFJ0b4/Y2p8UPns7W3gPMGyAPzkLH9oPlWG3/Te1CEaek+uqWnW46DyvcXYA5iZe2OkJA==, tarball: https://npm.pkg.github.com/download/@supa-media/convex/1.2.0/9958b12a26d89245f825bf90427a666c44bdfe89}
     peerDependencies:
       '@convex-dev/auth': '>=0.0.90'
       convex: '>=1.31.0'
@@ -2289,6 +2289,17 @@ packages:
       react-native: '>=0.81.0'
       react-native-keyboard-controller: '>=1.20.0'
       react-native-safe-area-context: '>=5.6.0'
+    peerDependenciesMeta:
+      '@react-native-community/netinfo':
+        optional: true
+      '@react-navigation/bottom-tabs':
+        optional: true
+      expo-secure-store:
+        optional: true
+      expo-updates:
+        optional: true
+      react-native-keyboard-controller:
+        optional: true
 
   '@supa-media/linter@0.2.0':
     resolution: {integrity: sha512-0nKpUPkNs7TrC5UWWqV4t/mailVodUPMXgEREY9wAvKTdJ1OZn19K/gbrzVkprlMkQFlnORORPLhdzIF6kvJ5g==, tarball: https://npm.pkg.github.com/download/@supa-media/linter/0.2.0/2972f77440f924be0871184698b545340686d943}
@@ -2299,6 +2310,13 @@ packages:
     resolution: {integrity: sha512-dZHHjq8L71wm3P0vNj6vAr/v8B1Zf9x36G+7LMMw9vz2a6wMjgOn98e9C6BnmBEbVOeocncddqfxEJFmQ3OOxA==, tarball: https://npm.pkg.github.com/download/@supa-media/metro/0.2.0/7379e93b0f857c8e3b063323bbaecb5ed600e0fc}
     peerDependencies:
       '@expo/metro-config': '*'
+      '@sentry/react-native': '*'
+      nativewind: '*'
+    peerDependenciesMeta:
+      '@sentry/react-native':
+        optional: true
+      nativewind:
+        optional: true
 
   '@supa-media/testing@0.2.0':
     resolution: {integrity: sha512-pOC0DdIX7Tpk2aZhWzMUqlzHoIZwSyE1FHB0ZEzHbQ7EAm7L3xGIqG3nkTiobXLvnMPJYNWQTWgNhN3oPBnfrw==, tarball: https://npm.pkg.github.com/download/@supa-media/testing/0.2.0/e91d172afe91d0eb0470c00d5359ca961fa06673}
@@ -7856,7 +7874,7 @@ snapshots:
 
   '@speed-highlight/core@1.2.24': {}
 
-  '@supa-media/convex@0.2.0(@convex-dev/auth@0.0.90(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))':
+  '@supa-media/convex@1.2.0(@convex-dev/auth@0.0.90(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))':
     dependencies:
       '@convex-dev/auth': 0.0.90(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)
       convex: 1.45.0(react@19.1.0)
@@ -7864,16 +7882,17 @@ snapshots:
   '@supa-media/core@0.2.0(kbuhelvvafjwuegqqbsvdkp2hi)':
     dependencies:
       '@convex-dev/auth': 0.0.90(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)
-      '@react-native-community/netinfo': 11.4.1(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))
-      '@react-navigation/bottom-tabs': 7.18.17(@react-navigation/native@7.3.17(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native-safe-area-context@5.6.2(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native-screens@4.16.0(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
       convex: 1.45.0(react@19.1.0)
       expo: 54.0.37(@babel/core@7.29.7)(@expo/metro-runtime@6.1.2)(expo-router@6.0.24)(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(typescript@5.9.3)
-      expo-secure-store: 15.0.8(expo@54.0.37)
-      expo-updates: 29.0.20(expo@54.0.37)(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
       react: 19.1.0
       react-native: 0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0)
-      react-native-keyboard-controller: 1.22.4(react-native-reanimated@4.6.0(react-native-worklets@0.12.1(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
       react-native-safe-area-context: 5.6.2(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
+    optionalDependencies:
+      '@react-native-community/netinfo': 11.4.1(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))
+      '@react-navigation/bottom-tabs': 7.18.17(@react-navigation/native@7.3.17(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native-safe-area-context@5.6.2(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native-screens@4.16.0(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
+      expo-secure-store: 15.0.8(expo@54.0.37)
+      expo-updates: 29.0.20(expo@54.0.37)(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
+      react-native-keyboard-controller: 1.22.4(react-native-reanimated@4.6.0(react-native-worklets@0.12.1(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
 
   '@supa-media/linter@0.2.0(eslint@8.57.1)':
     dependencies:
