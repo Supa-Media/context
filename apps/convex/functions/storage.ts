@@ -608,6 +608,17 @@ export const recordVerification = internalMutation({
      * a re-verification wandered past would strand the owner.
      */
     scaffoldMissing: v.optional(v.array(v.string())),
+    /**
+     * How many notes the prober counted, and whether it got to the end.
+     *
+     * Omitted together, and omission leaves the row alone — the same rule as
+     * `scaffolded`, for a sharper reason. A probe that failed before it could
+     * list, or one whose listing broke partway, knows nothing about the
+     * contents; recording a `0` there would tell the console this context is
+     * empty on the strength of a network error.
+     */
+    noteCount: v.optional(v.number()),
+    noteCountTruncated: v.optional(v.boolean()),
     actorUserId: v.optional(v.id("users")),
   },
   returns: v.null(),
@@ -637,6 +648,13 @@ export const recordVerification = internalMutation({
       scaffolded: args.scaffolded ?? binding.scaffolded,
       scaffoldReason: args.scaffoldReason ?? binding.scaffoldReason,
       scaffoldMissing: args.scaffoldMissing ?? binding.scaffoldMissing,
+      // Stamped only when a count actually arrived, so the tile can date the
+      // number from the walk that produced it rather than from the last
+      // verification that happened to succeed.
+      noteCount: args.noteCount ?? binding.noteCount,
+      noteCountedAt: args.noteCount === undefined ? binding.noteCountedAt : now,
+      noteCountTruncated:
+        args.noteCount === undefined ? binding.noteCountTruncated : args.noteCountTruncated === true,
       updatedAt: now,
     });
 
@@ -981,6 +999,17 @@ export const getStorageBinding = query({
        * absent means nothing is outstanding.
        */
       scaffoldMissing: v.optional(v.array(v.string())),
+      /**
+       * HOW MANY NOTES, AND WHEN SOMETHING LAST LOOKED.
+       *
+       * All three absent until a verification has walked the bucket. A client
+       * must render nothing rather than a zero in that case — see the schema.
+       * `noteCountTruncated` means `noteCount` is a floor; say "40,000+", never
+       * "40,000".
+       */
+      noteCount: v.optional(v.number()),
+      noteCountedAt: v.optional(v.number()),
+      noteCountTruncated: v.optional(v.boolean()),
       updatedAt: v.number(),
     }),
   ),
@@ -1010,6 +1039,9 @@ export const getStorageBinding = query({
       scaffolded: binding.scaffolded,
       scaffoldReason: binding.scaffoldReason,
       scaffoldMissing: binding.scaffoldMissing,
+      noteCount: binding.noteCount,
+      noteCountedAt: binding.noteCountedAt,
+      noteCountTruncated: binding.noteCountTruncated,
       updatedAt: binding.updatedAt,
     };
   },

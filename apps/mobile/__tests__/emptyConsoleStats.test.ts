@@ -73,10 +73,14 @@ describe("an account with no contexts is told nothing it cannot verify", () => {
 
     // These were an em dash here and the mockup's numbers for anybody who had
     // a context — half a fix, and the half that shipped kept lying to every
-    // real user. Nothing can answer either honestly, so the tiles are gone from
-    // the signed-in console rather than standing empty forever.
-    // `liveConsoleFacts.test.ts` holds the same line for an account that has
-    // connected a bucket.
+    // real user.
+    //
+    // "notes across all" is a measured number now, and this account is exactly
+    // why it must still be absent here: no context, no bucket, nothing walked,
+    // so there is nothing to total. A `0` would be a claim about storage that
+    // does not exist. Bytes are still measured by nothing at all, so that tile
+    // is gone outright. `liveConsoleFacts.test.ts` holds the other end — a
+    // connected bucket, counted and uncounted.
     expect(notes).toBeUndefined();
     expect(bytes).toBeUndefined();
 

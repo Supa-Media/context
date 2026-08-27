@@ -45,6 +45,7 @@ import {
   hasExistingContext,
   scaffoldContext,
 } from "./lib/scaffold";
+import { countNotes } from "./lib/noteCount";
 import {
   type ProbeResult,
   redactSecrets,
@@ -165,6 +166,16 @@ export interface VerificationOutcome {
    * These are key names this module generated, never provider text.
    */
   scaffoldMissing?: string[];
+  /**
+   * Notes counted in the bucket, and whether the walk reached the end.
+   *
+   * Absent whenever nothing looked — a probe that never reached the bucket, or
+   * a listing that broke partway. Absent is not zero: `recordVerification`
+   * leaves the previous count standing rather than recording "this context is
+   * empty" on the strength of a network error.
+   */
+  noteCount?: number;
+  noteCountTruncated?: boolean;
   error?: string;
   /** Absent when `verified`, and absent when the failure has no useful code. */
   errorCode?: VerificationErrorCode;
@@ -258,6 +269,8 @@ export const verifyStorageBinding = internalAction({
     scaffolded: v.boolean(),
     scaffoldReason: v.string(),
     scaffoldMissing: v.optional(v.array(v.string())),
+    noteCount: v.optional(v.number()),
+    noteCountTruncated: v.optional(v.boolean()),
     error: v.optional(v.string()),
     errorCode: v.optional(v.string()),
   }),
@@ -415,11 +428,20 @@ export const verifyStorageBinding = internalAction({
       if (result.reason !== "existing-context") scaffoldMissing = result.missing;
     }
 
+    // Last, and deliberately after the scaffold: a bucket we just laid a
+    // layout into should be counted as it now stands, not as we found it.
+    // `countNotes` returns `null` rather than throwing, so a bucket that stops
+    // answering here costs the count and not the verification — the binding is
+    // connected either way, and that is the answer the owner is waiting on.
+    const counted = await countNotes(store);
+
     return await record(ctx, args, {
       // A bucket we could not lay a context into is still connected: the
       // failure is a write we did not need to make, and the owner's existing
       // brain is exactly as it was.
       verified: true,
+      noteCount: counted?.notes,
+      noteCountTruncated: counted?.truncated,
       reachable: true,
       writable: true,
       conditionalWrite: summary.capabilities.conditionalWrite,
@@ -462,6 +484,10 @@ async function record(
         outcome.scaffoldReason === "not-attempted" ? undefined : outcome.scaffoldReason,
       // Already narrowed by the caller: present only when a scaffold ran.
       scaffoldMissing: outcome.scaffoldMissing,
+      // Present only when the walk produced one. Every failure path above
+      // omits it, which leaves the last real count on the row.
+      noteCount: outcome.noteCount,
+      noteCountTruncated: outcome.noteCountTruncated,
       actorUserId: args.actorUserId,
     });
   } catch {

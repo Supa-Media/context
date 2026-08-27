@@ -16,6 +16,7 @@ import { useIngestionSettings } from "./ingestion/useIngestionSettings";
 import { useMembers } from "./members/useMembers";
 import { toBindStorageArgs, type Provider } from "./storage/connect";
 import { atName, contextTone, describeScopes, formatCount, grantTone, lastUsedLabel } from "./format";
+import { formatNotesTotal, totalNotes } from "./noteTotals";
 import {
   buildConstellation,
   contextKindFor,
@@ -41,10 +42,15 @@ import type {
  * That is the fix for #20 and #25, which were the same bug on two surfaces —
  * a bucket's object count, its PARA structure, its versioning state, and the
  * note and byte totals were all constants from `placeholderData.ts`, drawn as
- * verified facts about somebody's own storage. Nothing in the control plane
- * counts a bucket, so those cannot be made true here; they can only stop being
- * asserted. When the connect-time probe in `functions/storage.bindStorage`
- * starts persisting what it saw, they come back as fields on the binding.
+ * verified facts about somebody's own storage. They could not be made true
+ * here; they could only stop being asserted, until something actually looked.
+ *
+ * **"notes across all" is the first of them to come back**, on exactly the terms
+ * that file described: the verification probe now walks the bucket and persists
+ * what it counted, so the tile reads a field on the binding rather than a
+ * constant. Everything the probe still does not measure — bytes, PARA presence,
+ * versioning — stays absent. See `functions/lib/noteCount.ts` for the walk and
+ * `./noteTotals.ts` for why the total can be a floor.
  *
  * The folder tree and the note itself were never placeholders: they come from
  * `useFileBrowser`, which reads the customer's bucket through the actions in
@@ -75,6 +81,16 @@ interface StorageBinding {
   lastError?: string;
   /** From the closed set in `functions/provisioning.ts`. See `storage/errors.ts`. */
   errorCode?: string;
+  /**
+   * What the last walk of this bucket counted, and whether it reached the end.
+   *
+   * All absent until a verification has looked — which is the state a brand-new
+   * binding is in, and the state a binding whose probe failed stays in. Absent
+   * is not zero, and `noteTotals.ts` is where that distinction is kept.
+   */
+  noteCount?: number;
+  noteCountedAt?: number;
+  noteCountTruncated?: boolean;
   /**
    * Load-bearing for Re-verify: the probe is queued, not awaited, so the pane
    * watches this field to know its outcome landed. See `storage/reverify.ts`.
@@ -187,6 +203,15 @@ export function useLiveConsoleData(): ConsoleData {
       usable<StorageBinding | null>(results[`storage:${workspace.workspaceId}`])?.status,
     ),
   }));
+
+  // One entry per reachable context, `null` where there is no bucket at all —
+  // which `totalNotes` needs in order to tell "no notes" from "nobody looked".
+  const notes = totalNotes(
+    (workspaces ?? []).map(
+      (workspace) =>
+        usable<StorageBinding | null>(results[`storage:${workspace.workspaceId}`]) ?? null,
+    ),
+  );
 
   const activeGrants: GrantSummary[] = (workspaces ?? []).flatMap((workspace) =>
     (usable<GrantSummary[]>(results[`grants:${workspace.workspaceId}`]) ?? []).filter(
@@ -325,17 +350,21 @@ export function useLiveConsoleData(): ConsoleData {
     selectedContextId,
     selectContext,
     graph,
-    // Two tiles, not the mockup's four. "notes across all" and "in your own
-    // bucket" are gone from the signed-in console entirely, because nothing
-    // counts a whole bucket and there is no honest value to put in them.
+    // Three tiles, not the mockup's four. "in your own bucket" is still gone:
+    // nothing measures a bucket's size, so there is no honest value to put in
+    // it, and #20's fix — delete the tile rather than print a constant or a
+    // permanent em dash — still stands for everything unmeasured.
     //
-    // #20 got half of this: it showed an em dash to an account with *no*
-    // contexts and kept "1,284 / 2.4 GB" for everyone else — so the moment
-    // somebody connected their first bucket the console started inventing
-    // numbers about it again. A permanent em dash would be honest but useless,
-    // and the grid reflows cleanly at two, so the tiles are simply not there.
-    // They come back when a stats call can fill them.
+    // "notes across all" is back because it is measured now. It is app level
+    // like the other two, summing every context this person can reach, which
+    // costs nothing: the hook already subscribes to every workspace's binding
+    // for the rail's status pips. The tile is absent, not zero, until something
+    // has walked at least one bucket, and carries a `+` when the total is a
+    // floor — see `noteTotals.ts`.
     stats: [
+      ...(notes === null
+        ? []
+        : [{ value: formatNotesTotal(notes), label: "notes across all" }]),
       { value: formatCount(contexts.length), label: "contexts reachable" },
       { value: formatCount(activeGrants.length), label: "AI clients connected" },
     ],

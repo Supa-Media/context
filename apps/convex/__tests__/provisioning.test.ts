@@ -494,6 +494,87 @@ describe("verification classifies the bucket without touching it", () => {
     ).toMatchObject({ scaffoldReason: "existing-context" });
   });
 
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * The note count, end to end through the real S3 adapter.
+   *
+   * `noteCount.test.ts` proves the walk. These prove it reaches the row a
+   * console reads — a separate failure, and the one that would leave the tile
+   * blank forever with a perfectly correct counter sitting behind it.
+   */
+  test("a verified bucket carries a note count and the moment it was taken", async () => {
+    const { t, owner, backend, workspaceId } = await connecting();
+    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    backend.seed("1-projects/ship-it/notes.md", "# Notes\n");
+    backend.seed("2-areas/health.md", "# Health\n");
+    backend.seed("1-projects/diagram.png", "binary");
+
+    await t.action(internal.functions.provisioning.verifyStorageBinding, {
+      workspaceId,
+    });
+
+    const row = await binding(t, owner, workspaceId);
+    expect(row).toMatchObject({ noteCount: 3, noteCountTruncated: false });
+    expect(row?.noteCountedAt).toBeTypeOf("number");
+  });
+
+  /** The `.history/` trap, at the layer that actually talks to a bucket. */
+  test("history revisions are not counted as notes", async () => {
+    const { t, owner, backend, workspaceId } = await connecting();
+    for (let index = 0; index < 1500; index += 1) {
+      backend.seed(`.history/1-projects/ship-it.${index}.md`, "old");
+    }
+    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+
+    await t.action(internal.functions.provisioning.verifyStorageBinding, {
+      workspaceId,
+    });
+
+    expect(await binding(t, owner, workspaceId)).toMatchObject({ noteCount: 1 });
+  });
+
+  /**
+   * Absent is not zero. A probe that never reached the bucket must leave the
+   * last real count standing — recording a `0` would tell the console this
+   * context is empty on the strength of a network error, which is the shape of
+   * #25 that this whole feature exists to avoid repeating.
+   */
+  test("a later failed probe does not erase the count", async () => {
+    const { t, owner, backend, workspaceId } = await connecting();
+    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    await t.action(internal.functions.provisioning.verifyStorageBinding, {
+      workspaceId,
+    });
+    const countedAt = (await binding(t, owner, workspaceId))?.noteCountedAt;
+    expect(countedAt).toBeTypeOf("number");
+
+    const broken = memoryS3(FAKE_STORAGE.bucket, { unreachable: true });
+    vi.stubGlobal("fetch", broken.fetchImpl);
+    await t.action(internal.functions.provisioning.verifyStorageBinding, {
+      workspaceId,
+    });
+
+    expect(await binding(t, owner, workspaceId)).toMatchObject({
+      status: "error",
+      noteCount: 1,
+      noteCountedAt: countedAt,
+    });
+  });
+
+  /** A freshly scaffolded bucket is counted as it now stands, not as found. */
+  test("a scaffold is counted after it lands, not before", async () => {
+    const { t, owner, workspaceId } = await connecting();
+
+    await t.action(internal.functions.provisioning.verifyStorageBinding, {
+      workspaceId,
+      structure: { template: "para", folders: [] },
+    });
+
+    const row = await binding(t, owner, workspaceId);
+    expect(row?.noteCount).toBeGreaterThan(0);
+  });
+
   test("a bucket holding only plumbing is empty, and is left that way", async () => {
     const { t, backend, workspaceId } = await connecting();
     backend.seed(".obsidian/app.json", "{}");
