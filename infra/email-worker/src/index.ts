@@ -438,7 +438,12 @@ export async function handleEmail(
       policy: resolution.policy as IngestionPolicy,
       attachmentPolicy: attachmentPolicyOf(resolution.attachmentPolicy),
       maxMessageBytes: Math.min(hardCap, resolution.maxMessageBytes || hardCap),
-      limits: DEFAULT_MIME_LIMITS,
+      // The owner's per-attachment cap. Already clamped to
+      // `MAX_ATTACHMENT_BYTES_HARD_CAP` when it was parsed, and already floored
+      // to this worker's own fallback when the control plane said nothing
+      // usable — so this is a value that has been bounded, not one taken on
+      // faith from the answer.
+      limits: { ...DEFAULT_MIME_LIMITS, maxAttachmentBytes: resolution.maxAttachmentBytes },
       authServiceId: env.AUTH_SERVICE_ID || "",
     },
     senderIsAllowed,

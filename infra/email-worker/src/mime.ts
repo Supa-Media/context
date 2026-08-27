@@ -78,6 +78,24 @@ export interface MimeLimits {
  * of the caps is that the common case fits easily and the abusive case is
  * refused cheaply.
  */
+/**
+ * The largest per-attachment buffer this worker will ever allocate, whatever
+ * the control plane asks for.
+ *
+ * Distinct from `DEFAULT_MIME_LIMITS.maxAttachmentBytes`, and the difference is
+ * load-bearing: that one is the **fallback** used when nobody has configured
+ * anything, and an owner is allowed to raise their cap above it. This one is a
+ * ceiling nobody can raise. Clamping an owner's value to the fallback instead
+ * would make the setting able only to lower, so a console offering 5 MB would
+ * quietly deliver 2.
+ *
+ * It matches `MAX_ATTACHMENT_BYTES_CEILING` in the control plane, which is in
+ * turn bounded by what the MCP gateway will serve back — storing an attachment
+ * larger than `read_image` returns writes bytes into the customer's bucket that
+ * nothing in Context can ever read.
+ */
+export const MAX_ATTACHMENT_BYTES_HARD_CAP = 5_000_000;
+
 export const DEFAULT_MIME_LIMITS: MimeLimits = {
   maxRawBytes: 5_000_000,
   maxHeaderBytes: 128_000,
