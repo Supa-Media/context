@@ -13,7 +13,7 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { Button } from "../design/components/Button";
 import { Card } from "../design/components/Card";
 import { CenteredScroll } from "../design/components/CenteredScroll";
-import { ChoiceGroup, FormError } from "../design/components/Input";
+import { ChoiceGroup, FormError, ToggleGroup } from "../design/components/Input";
 import { Pill } from "../design/components/Pill";
 import { StageBackdrop } from "../design/components/StageBackdrop";
 import { Text } from "../design/components/Text";
@@ -23,15 +23,17 @@ import { EMPTY_QUERY_SPEC } from "../console/querySpec";
 import { CONSOLE_ROUTE, LANDING_ROUTE } from "../auth/redirect";
 import { leaveTo } from "./leave";
 import { isSafeRedirect } from "./redirectSafety";
-import type { ScopeLine } from "./scopes";
+import type { GrantableTier, ScopeLine } from "./scopes";
 import {
   describeDecisionFailure,
   resolveConsentView,
+  toggleScopeSelection,
   type AuthorizationRequest,
   type ConsentContext,
   type ConsentDecision,
   type ConsentView,
   type RequestResult,
+  type ScopeChoice,
 } from "./state";
 
 /**
@@ -62,6 +64,11 @@ export function ConsentScreen() {
   const router = useRouter();
 
   const [chosenContextId, setChosenContextId] = useState<string | null>(null);
+  // `null` until the person touches the list: untouched means "whatever the
+  // client asked for that I can hand over", which is not the same as an empty
+  // selection. `resolveConsentView` is where that distinction is spelled out.
+  const [chosenScopes, setChosenScopes] = useState<readonly string[] | null>(null);
+  const [chosenTier, setChosenTier] = useState<GrantableTier | null>(null);
   const [decision, setDecision] = useState<ConsentDecision>({ kind: "idle" });
 
   // `useQueries` rather than `useQuery` on purpose. `useQuery` re-throws a
@@ -110,7 +117,11 @@ export function ConsentScreen() {
   const deny = useAction(api.functions.authorizations.denyAuthorization);
 
   const decide = useCallback(
-    async (choice: "approve" | "deny", workspaceId: string | null) => {
+    async (
+      choice: "approve" | "deny",
+      workspaceId: string | null,
+      grantedScopes: string[],
+    ) => {
       if (requestId === null) return;
       setDecision({ kind: "submitting", choice });
       try {
@@ -124,6 +135,12 @@ export function ConsentScreen() {
                 ...(workspaceId === null
                   ? {}
                   : { workspaceId: workspaceId as Id<"workspaces"> }),
+                // Sent always, including when nothing was narrowed. Omitting it
+                // for the untouched case would mean the one path most people
+                // take is the one path that does not say what it granted, and
+                // "the default is whatever the backend decides" is how a
+                // default quietly becomes the widest thing again.
+                grantedScopes,
               })
             : await deny({ requestId });
 
@@ -160,9 +177,22 @@ export function ConsentScreen() {
     request,
     contexts,
     chosenContextId,
+    chosenScopes,
+    chosenTier,
     decision,
     now: Date.now(),
   });
+
+  // Toggling one row rewrites the whole list, because the first toggle is also
+  // what turns "untouched" into an explicit set. The derivation lives in
+  // `state.ts` so it is reachable from a test without a Convex client.
+  const toggleScope = useCallback(
+    (scope: string, next: boolean) => {
+      if (view.kind !== "ready") return;
+      setChosenScopes(toggleScopeSelection(view.scopeChoices, scope, next));
+    },
+    [view],
+  );
 
   if (view.kind === "wait") return <View style={styles.ground} />;
   if (view.kind === "signIn") return <Redirect href={view.href} />;
@@ -188,7 +218,19 @@ export function ConsentScreen() {
           </Text>
           <ConsentBody
             view={view}
-            onChooseContext={setChosenContextId}
+            onChooseContext={(id) => {
+              // A different context can mean a different role, so the tier and
+              // the tick list stop meaning what they meant. Clearing them
+              // re-derives both from the new context instead of carrying a
+              // stale choice across — the backend would clamp it anyway, and a
+              // screen showing a promise the backend is about to break is the
+              // failure this whole feature exists to fix.
+              setChosenContextId(id);
+              setChosenScopes(null);
+              setChosenTier(null);
+            }}
+            onToggleScope={toggleScope}
+            onChooseTier={setChosenTier}
             onDecide={decide}
             onLeaveForConsole={() => router.replace(CONSOLE_ROUTE)}
             onLeaveForHome={() => router.replace(LANDING_ROUTE)}
@@ -210,13 +252,21 @@ export function ConsentScreen() {
 export function ConsentBody({
   view,
   onChooseContext,
+  onToggleScope,
+  onChooseTier,
   onDecide,
   onLeaveForConsole,
   onLeaveForHome,
 }: {
   view: ConsentView;
   onChooseContext: (id: string) => void;
-  onDecide: (choice: "approve" | "deny", workspaceId: string | null) => void;
+  onToggleScope: (scope: string, next: boolean) => void;
+  onChooseTier: (tier: GrantableTier) => void;
+  onDecide: (
+    choice: "approve" | "deny",
+    workspaceId: string | null,
+    grantedScopes: string[],
+  ) => void;
   onLeaveForConsole: () => void;
   onLeaveForHome: () => void;
 }) {
@@ -302,6 +352,8 @@ export function ConsentBody({
           view={view}
           titleSize={titleSize}
           onChooseContext={onChooseContext}
+          onToggleScope={onToggleScope}
+          onChooseTier={onChooseTier}
           onDecide={onDecide}
         />
       );
@@ -312,12 +364,20 @@ function ReadyBody({
   view,
   titleSize,
   onChooseContext,
+  onToggleScope,
+  onChooseTier,
   onDecide,
 }: {
   view: Extract<ConsentView, { kind: "ready" }>;
   titleSize: number;
   onChooseContext: (id: string) => void;
-  onDecide: (choice: "approve" | "deny", workspaceId: string | null) => void;
+  onToggleScope: (scope: string, next: boolean) => void;
+  onChooseTier: (tier: GrantableTier) => void;
+  onDecide: (
+    choice: "approve" | "deny",
+    workspaceId: string | null,
+    grantedScopes: string[],
+  ) => void;
 }) {
   const selected = view.contexts.find((context) => context.id === view.selectedContextId) ?? null;
 
@@ -371,17 +431,70 @@ function ReadyBody({
 
         <View style={styles.rule} aria-hidden />
 
-        <Text variant="eyebrow">What it would be able to do</Text>
-        <View style={styles.scopes} role="list">
-          {view.scopeLines.length === 0 ? (
-            <Text variant="rowSub">
-              This client asked for no particular access. Approving grants it nothing beyond
-              knowing the connection exists.
+        {view.scopeChoices.length === 0 ? (
+          <View>
+            <Text variant="eyebrow">What it would be able to do</Text>
+            <Text variant="rowSub" style={styles.emptyScopes}>
+              {view.withheldScopes.length === 0
+                ? "This client asked for no particular access. Approving grants it nothing beyond knowing the connection exists."
+                : "Nothing this client asked for is yours to hand over in this context. Pick one you own, or ask its owner."}
             </Text>
-          ) : (
-            view.scopeLines.map((line) => <ScopeRow key={line.id} line={line} />)
-          )}
-        </View>
+          </View>
+        ) : (
+          <ToggleGroup
+            label="What it would be able to do"
+            hint="Untick anything you would rather not hand over. Only what is ticked is granted."
+            options={view.scopeChoices.map((choice) => ({
+              value: choice.scope,
+              label: choice.line.sentence,
+              detail: choice.line.detail,
+              on: choice.granted,
+            }))}
+            onToggle={onToggleScope}
+            disabled={view.busy !== null}
+            testID="consent-scope"
+          />
+        )}
+
+        {view.withheldScopes.length > 0 ? (
+          <View style={styles.withheld}>
+            <Text variant="rowSub">
+              {view.withheldScopes.length === 1
+                ? "This client also asked for something you cannot grant here, so it will not be:"
+                : "This client also asked for things you cannot grant here, so they will not be:"}
+            </Text>
+            <View style={styles.withheldList} role="list">
+              {view.withheldScopes.map((choice) => (
+                <WithheldRow key={choice.scope} line={choice.line} />
+              ))}
+            </View>
+          </View>
+        ) : null}
+
+        <View style={styles.rule} aria-hidden />
+
+        {view.tier.isAChoice ? (
+          <ChoiceGroup
+            label="How much of this context it sees"
+            hint="You can hand over the whole context, or keep anything you marked private out of it."
+            options={view.tier.options.map((option) => ({
+              value: option.value,
+              label: option.label,
+              detail: option.detail,
+            }))}
+            value={view.tier.selected === "unknown" ? null : view.tier.selected}
+            onChange={onChooseTier}
+            disabled={view.busy !== null}
+            testID="consent-tier"
+          />
+        ) : (
+          <View>
+            <Text variant="eyebrow">How much of this context it sees</Text>
+            <Text variant="rowSub" style={styles.tierStatement} testID="consent-tier-single">
+              {tierStatement(view)}
+            </Text>
+          </View>
+        )}
 
         <Text variant="foot" style={styles.storageNote}>
           Your notes stay in your own bucket. This grants an app the right to read and write
@@ -400,7 +513,7 @@ function ReadyBody({
           style={styles.decision}
           disabled={view.busy !== null}
           accessibilityLabel={`Deny ${view.clientName} access`}
-          onPress={() => onDecide("deny", null)}
+          onPress={() => onDecide("deny", null, [])}
           trailing={
             view.busy === "deny" ? <ActivityIndicator color={colors.text} size="small" /> : null
           }
@@ -414,7 +527,9 @@ function ReadyBody({
           accessibilityLabel={`Approve ${view.clientName} access${
             selected ? ` to ${atName(selected.slug)}` : ""
           }`}
-          onPress={() => onDecide("approve", view.selectedContextId)}
+          onPress={() =>
+            onDecide("approve", view.selectedContextId, view.grantedScopes)
+          }
           trailing={
             view.busy === "approve" ? (
               <ActivityIndicator color={colors.text} size="small" />
@@ -428,8 +543,41 @@ function ReadyBody({
         <Text variant="rowSub" style={styles.pickFirst} role="status">
           Pick a context above before approving.
         </Text>
+      ) : view.scopeChoices.length > 0 && !view.canApprove && view.busy === null ? (
+        <Text variant="rowSub" style={styles.pickFirst} role="status">
+          Nothing is ticked, so approving would grant nothing. Tick at least one, or refuse.
+        </Text>
       ) : null}
     </>
+  );
+}
+
+/**
+ * The tier, stated rather than asked, when there is only one on offer.
+ *
+ * Two different facts share this line and they must not be blurred: a person
+ * who has not picked a context yet is told we do not know, and a person whose
+ * role cannot reach private notes is told the tier *and* why it is not a
+ * question. Neither of them is "team access, as chosen".
+ */
+function tierStatement(view: Extract<ConsentView, { kind: "ready" }>): string {
+  if (view.tier.selected === "unknown") {
+    return "Pick a context above and this will say exactly which notes are included.";
+  }
+  return (
+    "Team notes only — anything marked private stays invisible to this client. " +
+    "Only a context's owner can hand over private notes, and this context is not yours to that extent."
+  );
+}
+
+function WithheldRow({ line }: { line: ScopeLine }) {
+  return (
+    <View style={styles.scope} role="listitem">
+      <View style={styles.scopeGlyph} aria-hidden />
+      <View style={styles.scopeText}>
+        <Text variant="rowSub">{line.sentence}</Text>
+      </View>
+    </View>
   );
 }
 
@@ -527,6 +675,11 @@ const styles = StyleSheet.create({
   },
 
   rule: { marginVertical: 18, height: 1, backgroundColor: colors.line },
+
+  emptyScopes: { marginTop: 9 },
+  tierStatement: { marginTop: 9 },
+  withheld: { marginTop: 16 },
+  withheldList: { marginTop: 8, gap: 8, opacity: 0.6 },
 
   scopes: { marginTop: 12, gap: 12 },
   scope: { flexDirection: "row", alignItems: "flex-start", gap: 11 },

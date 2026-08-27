@@ -42,24 +42,78 @@ export function lastUsedLabel(lastUsedAt: number | undefined, now: number): stri
 }
 
 /**
- * Scopes → the access phrase in the mockup.
+ * Scopes → the access phrase beside a connected client.
  *
- * The gateway's scope vocabulary is not frozen yet, so this maps what it can
- * and otherwise shows the raw scopes rather than inventing a reassuring
- * summary. Reaching private notes is the distinction that matters: `team` is
- * named people, and a client holding only that cannot see anything the owner
- * marked private.
+ * This is where a narrowed grant becomes visible after the fact, and it has to
+ * answer the two questions somebody actually has about a client they connected
+ * last month: **how much of my context can it see**, and **can it change
+ * anything**. So the phrase carries both — "Team access only · read-only" is
+ * two facts, and either one alone leaves the other unanswered.
+ *
+ * Reaching private notes is the distinction that matters most: `team` is named
+ * people, never the public, and a client without the tier scope cannot see
+ * anything the owner marked private. That is now a real per-grant fact rather
+ * than a consequence of who approved, which is what makes this line worth
+ * reading at all — it used to say "Full access" for every owner's client
+ * because that was the only thing an owner's client could be.
+ *
+ * The vocabulary is not frozen, so anything unrecognised is printed raw rather
+ * than folded into a reassuring summary. A scope this function cannot describe
+ * is a scope it must not hide.
  */
-const PRIVATE_SCOPES = new Set(["private", "context:private", "context.private", "*"]);
+const PRIVATE_SCOPES = new Set([
+  "private",
+  "context:private",
+  "context.private",
+  "*",
+  "context:*",
+  "context.*",
+  "all",
+]);
 const TEAM_SCOPES = new Set(["team", "context:team", "context.team"]);
+const READ_SCOPES = new Set(["read", "context:read", "context.read", "notes:read"]);
+const WRITE_SCOPES = new Set(["write", "context:write", "context.write", "notes:write"]);
+const CAPTURE_SCOPES = new Set(["capture", "context:capture", "context.capture"]);
+
+/** What a client can do, in one phrase, or `null` if it asked for no operation. */
+function describeOperations(scopes: readonly string[]): string | null {
+  const canRead = scopes.some((scope) => READ_SCOPES.has(scope));
+  const canWrite = scopes.some((scope) => WRITE_SCOPES.has(scope));
+  const canCapture = scopes.some((scope) => CAPTURE_SCOPES.has(scope));
+  if (canWrite) return canRead ? "read & write" : "write only";
+  if (canRead) return canCapture ? "read & capture" : "read-only";
+  if (canCapture) return "capture only";
+  return null;
+}
 
 export function describeScopes(scopes: readonly string[]): string {
-  if (scopes.some((scope) => PRIVATE_SCOPES.has(scope))) return "Full access";
-  if (scopes.length > 0 && scopes.every((scope) => TEAM_SCOPES.has(scope))) {
-    return "Team access only";
-  }
   if (scopes.length === 0) return "No scopes";
-  return scopes.join(" · ");
+
+  const operations = describeOperations(scopes);
+  const namesATier = scopes.some(
+    (scope) => PRIVATE_SCOPES.has(scope) || TEAM_SCOPES.has(scope),
+  );
+  // Nothing here is vocabulary we own. Summarising it as a tier would be
+  // inventing the one fact this line exists to report, so the raw strings go
+  // out unchanged — exactly as they did before.
+  if (operations === null && !namesATier) return scopes.join(" · ");
+
+  const tier = scopes.some((scope) => PRIVATE_SCOPES.has(scope))
+    ? "Full access"
+    : "Team access only";
+
+  // Every scope that reached none of the buckets above still gets said, so a
+  // grant carrying something we cannot describe cannot look narrower than it is.
+  const undescribed = scopes.filter(
+    (scope) =>
+      !PRIVATE_SCOPES.has(scope) &&
+      !TEAM_SCOPES.has(scope) &&
+      !READ_SCOPES.has(scope) &&
+      !WRITE_SCOPES.has(scope) &&
+      !CAPTURE_SCOPES.has(scope),
+  );
+
+  return [tier, operations, ...undescribed].filter((part) => part !== null).join(" · ");
 }
 
 /**
