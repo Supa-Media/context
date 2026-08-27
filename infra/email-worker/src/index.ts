@@ -51,7 +51,6 @@
  *   - the person exists but you are not an allowed sender,
  *   - the person exists and is over quota,
  *   - the person exists and their storage is broken,
- *   - your message failed authentication,
  *
  * would be a username enumeration oracle drivable from any mail client on
  * earth: send to `alice@`, send to `bob@`, read the bounces, learn who has an
@@ -151,7 +150,7 @@ export interface Env {
   /** Allow-list of native R2 binding names, for self-hosters. See ./index.ts. */
   NATIVE_BINDINGS?: string;
   /**
-   * `"1"` to log the bounded ARC shape beside an authentication refusal.
+   * `"1"` to log the bounded ARC shape beside an **unverified capture**.
    * Diagnostic only, off by default. See `describeArcShape` in ./auth.ts for
    * what it emits — integers and one closed enum, never a sender string.
    */
@@ -171,7 +170,18 @@ interface LogFields {
   reason?: RefusalReason | string;
   bytes?: number;
   attachments?: number;
+  /** The method that proved the sender's domain, or the literal `none`. */
   authMethod?: string;
+  /**
+   * Why nothing proved it — a fixed `AuthFailure` member, never sender text.
+   *
+   * This is where the old `auth_*` refusal reasons went. Authentication no
+   * longer refuses anything (see ./auth.ts), so without this field an operator
+   * would have no way to notice that every message on the deployment is being
+   * captured unverified — which is a real operational fact, just not a reason
+   * to bounce somebody's mail.
+   */
+  authFailure?: string;
   /**
    * A bounded description of the message's ARC header shape, e.g.
    * `chain=pass headers=2 readable=2 above=1 ours=1 top=2`.
@@ -181,9 +191,10 @@ interface LogFields {
    * value fragment in it — nothing a sender writes can reach a log through it.
    * It is here because whether the ARC path in ./auth.ts can ever fire depends
    * on where Cloudflare puts headers nobody has yet captured from a real
-   * delivery, and without this the operator's only signal is that mail is still
-   * refused. Emitted only when `LOG_ARC_SHAPE` is set. Remove it, and the
-   * `LOG_ARC_SHAPE` variable with it, once a real delivery has settled that.
+   * delivery, and without this the operator's only signal is that every capture
+   * is unverified. Emitted only when `LOG_ARC_SHAPE` is set, and only on an
+   * unverified capture. Remove it, and the `LOG_ARC_SHAPE` variable with it,
+   * once a real delivery has settled that.
    */
   arc?: string;
   problems?: string[];
@@ -361,8 +372,8 @@ export async function handleEmail(
    * The only `setReject` in this Worker. One constant, no interpolation, and
    * the reason goes to the log rather than to the sender.
    */
-  const refuse = (reason: RefusalReason, username?: string, arc?: string) => {
-    log({ event: "refused", reason, ...(username ? { username } : {}), ...(arc ? { arc } : {}) });
+  const refuse = (reason: RefusalReason, username?: string) => {
+    log({ event: "refused", reason, ...(username ? { username } : {}) });
     message.setReject(REFUSAL);
   };
 
@@ -465,9 +476,9 @@ export async function handleEmail(
     senderIsAllowed,
   );
 
-  if (decision.kind === "refuse") return refuse(decision.reason, username, decision.arc);
+  if (decision.kind === "refuse") return refuse(decision.reason, username);
 
-  // ── Credentials, fetched only now: after size, authentication and policy. ──
+  // ── Credentials, fetched only now: after size, parsing and policy. ────────
   let binding: Record<string, unknown> | null;
   try {
     binding = await controlPlane.getBinding(resolution.ticket);
@@ -504,7 +515,12 @@ export async function handleEmail(
     await recordAudit(store, now, [decision.key, ...decision.attachments.map((a) => a.key)], {
       source: "email",
       sender: decision.log.sender,
+      // `none` when nothing passed, plus the reason. The audit trail is read
+      // after the fact by someone asking "where did this come from?", and an
+      // `auth_method` that could only ever hold a passing method taught them to
+      // read its presence as proof. It can now hold `none`, so it says which.
       auth_method: decision.log.authMethod,
+      auth_failure: decision.log.authFailure ?? null,
     });
   } catch {
     // A storage failure for a real, allowed sender. Permanent rejection and a
@@ -520,6 +536,8 @@ export async function handleEmail(
     bytes: decision.bytes,
     attachments: decision.log.attachmentCount,
     authMethod: decision.log.authMethod,
+    ...(decision.log.authFailure ? { authFailure: decision.log.authFailure } : {}),
+    ...(decision.log.arc ? { arc: decision.log.arc } : {}),
     problems: decision.log.problems,
   });
   await controlPlane.record(resolution.ticket, "captured", decision.bytes).catch(() => {});

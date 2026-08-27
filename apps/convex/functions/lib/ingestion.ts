@@ -49,22 +49,32 @@
  * ## What this does NOT do
  *
  * It does not authenticate the sender. A `From:` header is asserted, not
- * proven; SPF/DKIM/DMARC is what makes it worth anything, and that check
- * belongs in the receiver, before it ever calls this. An allowlist over an
- * unauthenticated header stops casual and accidental posting, not a determined
- * forger.
+ * proven; SPF/DKIM/DMARC is what makes it worth anything, and that check lives
+ * in the receiver. **An allowlist over an unauthenticated header stops casual
+ * and accidental posting, not a determined forger** — and on the deployed
+ * receiver, that is exactly what it is: an allowlist over an unauthenticated
+ * header.
  *
- * **The receiver must reject on DMARC failure first and consult this second**,
- * and it does: `decideCapture` in `infra/email-worker/src/ingest.ts` calls
- * `verifySender` and only then the matcher, and hands it `verdict.address`
- * rather than the raw header. The ordering is the whole security value, so it
- * is not left to a comment — "never consults the matcher for a message that
- * failed authentication" in that package's `ingest.test.ts` fails if the two
- * are swapped, even though a swapped version still refuses the message.
+ * This block used to go on to say the receiver rejects on a failed verdict
+ * first and consults this second, so the address reaching here was always one
+ * the sender had proved. That is no longer true. `decideCapture` in
+ * `infra/email-worker/src/ingest.ts` still evaluates the verdict first, but it
+ * now writes the result into the capture note as a label — `verified`,
+ * `sender-authenticated-by`, `authentication-result` — rather than refusing the
+ * message, and hands this matcher the claimed `From:` addr-spec when nothing
+ * authenticated. See the "authentication is a label, not a gate" block at the
+ * top of `infra/email-worker/src/auth.ts` for the two real deliveries that
+ * settled it: ordinary forwarded mail cannot align, and Cloudflare folds its
+ * own `Authentication-Results`, so the gate refused essentially everything.
  *
- * Note what that means for `allowAnySender`: it never bypasses authentication.
- * An address that failed alignment is refused under that flag exactly as under
- * a list, because it never reaches this function at all.
+ * So for `allowAnySender`: it now means literally any sender, and a message
+ * that failed alignment reaches this function exactly as one that passed does.
+ * The one thing that has not changed is that `senderIsAllowed` returns false
+ * for an address it cannot parse *before* it consults that flag.
+ *
+ * If you are here because you want the guarantee back, the guarantee has moved
+ * rather than gone: it is the note, which says per message what was and was not
+ * established. Do not restore the refusal without reading why it went.
  */
 
 /**

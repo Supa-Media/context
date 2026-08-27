@@ -1,24 +1,54 @@
 /**
- * Establishing *who actually sent this*, before any allow-list is consulted.
+ * Establishing *who actually sent this* — and saying so honestly when we cannot.
  *
  * ============================================================================
  * WHY THIS FILE EXISTS
  * ============================================================================
  *
  * A `From:` header is a claim, not a fact. Anyone with an SMTP client can send
- * mail that says `From: seyi@supa.media`. So an ingestion allow-list that
- * matches on the `From:` header alone is not a control — it is a control-shaped
- * hole: the one identity an attacker most wants to present is exactly the one
- * the allow-list invites them to type.
+ * mail that says `From: seyi@supa.media`. This file is the only thing in the
+ * Worker that can tell the difference between a claim and a proof.
  *
- * That makes the order non-negotiable:
+ * ============================================================================
+ * AUTHENTICATION IS A LABEL, NOT A GATE — READ THIS BEFORE CHANGING ANYTHING
+ * ============================================================================
  *
- *   1. establish an identity the sender **proved** (this file),
- *   2. *then* ask the recipient's own policy whether that identity is allowed.
+ * This file used to be a gate: `verifySender` said no, and ./ingest.ts refused
+ * the message. It is not any more, and the change was a deliberate product
+ * decision rather than a bug fix. Two real deliveries settled it:
  *
- * A message that fails authentication is refused **even when its claimed
- * `From:` is on the allow-list**. There is no branch in which a passing
- * allow-list check rescues a failing authentication check.
+ *   1. An ordinary Gmail forward was refused `auth_unaligned` — the `From:`
+ *      stays the original sender's while the delivering hop's DKIM belongs to
+ *      the forwarder. "Forward anything here and it lands in your context" is
+ *      the product, so that is not a corner case; it is the case.
+ *   2. The retry was refused `auth_folded_authentication_results`, because
+ *      Cloudflare folds its *own* long `Authentication-Results` header and the
+ *      anti-forgery rule below refuses every folded one.
+ *
+ * The owner's decision: an inbox is expected to contain unverified mail. People
+ * connect mailboxes that already hold spam and mail spoofed to look like it came
+ * from themselves. A bar that demands the sender's domain be DKIM-aligned is a
+ * bar almost nobody clears, and clearing it is not what makes a capture safe —
+ * every note is fenced as untrusted input regardless.
+ *
+ * So `verifySender` still answers the same question, with the same rigour, and
+ * ./ingest.ts now writes the answer into the note instead of acting on it.
+ * `describeSender` is the seam: it turns a verdict into a **label**, and the
+ * label never names a method that did not actually pass.
+ *
+ * **What that costs, stated plainly:** the allow-list is now applied to an
+ * address the sender may simply have typed. Someone who knows a person's
+ * capture address and one address on their allow-list can put a note in their
+ * context. The defence is no longer refusal; it is that the note says, in the
+ * frontmatter and in prose, that nothing about the sender was verified and the
+ * address may be spoofed. Every surface that describes the allow-list has to say
+ * the same thing — see the header of ./policy.ts and
+ * `apps/mobile/features/console/ingestion/`.
+ *
+ * Everything below this line still matters, because a *verified* label has to
+ * mean something. A forged `dmarc=pass` that this file believed would put
+ * `verified: true` on a stranger's note, which is worse than putting
+ * `verified: false` on everybody's.
  *
  * ============================================================================
  * WHAT WE CAN ACTUALLY PROVE, AND WHAT WE CANNOT
@@ -33,32 +63,36 @@
  * 1. **Only the topmost `Authentication-Results` is read.** A receiving MTA
  *    prepends its trace headers, so anything the sender wrote sits below.
  * 2. **Its authserv-id must equal a value the operator configured.** A sender
- *    who forges a header with someone else's authserv-id gets a refusal, not a
- *    pass. This is `AUTH_SERVICE_ID` in wrangler.jsonc; there is no default,
- *    and with it unset the Worker refuses everything.
+ *    who forges a header with someone else's authserv-id gets a `false`
+ *    verdict, not a pass. This is `AUTH_SERVICE_ID` in wrangler.jsonc; there is
+ *    no default, and with it unset nothing is ever labelled verified.
  * 3. **A second header bearing our authserv-id is fatal.** Two verdicts from
  *    the same authority mean one of them is forged, and we do not get to pick.
  *
  * 4. **A folded topmost header is fatal.** RFC 5322 unfolding appends a first
  *    sender line beginning with SP or HTAB to the last header the MTA wrote.
  *    That is still *one* header, so rule 3 cannot see it. See rule 1a in
- *    `verifySender`.
+ *    `verifySender`. Cloudflare really does fold its own header, so in practice
+ *    this rule is why most real mail is labelled unverified rather than why any
+ *    forgery is caught — but it is kept, because the alternative is believing a
+ *    verdict a sender may have written the tail of.
  *
  * The residual assumption — that our MTA's header really is topmost — is an
  * assumption about another system's behaviour, and this repository's rule is
  * that a guard nobody has checked is not a guard. It must be checked against a
- * real delivery before this Worker is enabled; see the deployment note in
- * wrangler.jsonc. `parseAuthenticationResults` and `verifySender` are pure so
- * that check can be a fixture, not a ritual.
+ * real delivery before any `verified: true` label is worth anything; see the
+ * deployment note in wrangler.jsonc. `parseAuthenticationResults` and
+ * `verifySender` are pure so that check can be a fixture, not a ritual.
  *
  * ============================================================================
  * FORWARDING, AND THE CHAIN
  * ============================================================================
  *
- * Alignment, below, refuses forwarded mail by construction: the `From:` stays
+ * Alignment, below, fails on forwarded mail by construction: the `From:` stays
  * the original sender's while the delivering hop's DKIM signature belongs to
  * the forwarder. Since "forward anything here and it lands in your context" is
- * the product, that is not a corner case — it is the case.
+ * the product, that is not a corner case — it is the case, and it is why
+ * authentication is a label rather than a gate.
  *
  * ARC (RFC 8617) is the mechanism designed to carry the first receiver's
  * verdict across that hop, and `verifyViaArc` reads it — under five conditions
@@ -617,8 +651,11 @@ export function describeArcShape(input: VerifySenderInput): string {
 /**
  * Decide whether the `From:` address is one the sender proved they may use.
  *
- * Pure and total: every path returns a verdict, and a `false` verdict is the
- * only thing a caller may act on other than a full pass.
+ * Pure and total: every path returns a verdict. **No caller may refuse a
+ * message on a `false` verdict** — see `describeSender` below and the
+ * "authentication is a label" block at the top of this file. What a `false`
+ * verdict means is "we could not prove this", and the honest thing to do with
+ * that is write it down.
  */
 export function verifySender(input: VerifySenderInput): SenderVerdict {
   const authServiceId = input.authServiceId.trim().toLowerCase();
@@ -699,4 +736,79 @@ export function verifySender(input: VerifySenderInput): SenderVerdict {
   if (arc.kind === "refuse") return { ok: false, reason: arc.reason };
 
   return { ok: false, reason: direct.reason };
+}
+
+/* --------------------------------- the label ------------------------------- */
+
+/**
+ * What the message's sender is, and what was actually established about it.
+ *
+ * The one type ./ingest.ts and ./note.ts read. It is deliberately not a
+ * discriminated union: there is always an address and always a domain, because
+ * an unverified capture still has to say who the message *claims* to be from.
+ * What changes is whether that claim was backed by anything.
+ */
+export interface SenderIdentity {
+  /**
+   * The `From:` addr-spec.
+   *
+   * **Proved only when `verified` is true.** When it is false this is a string
+   * the sender typed, and every surface that shows it has to treat it as one.
+   */
+  address: string;
+  /** Its domain, lowercased. Same caveat. */
+  domain: string;
+  /** True only when an aligned method actually passed. */
+  verified: boolean;
+  /**
+   * The method that passed. `null` when none did — **never** a method name
+   * standing in for "we did not check". A note that said
+   * `sender-authenticated-by: dmarc` about a message no DMARC verdict covered
+   * would be a worse lie than the refusal this replaced.
+   */
+  method: AuthMethodName | null;
+  /**
+   * Why nothing passed, as a fixed enum member. `null` when something did.
+   *
+   * Kept — rather than collapsed into the boolean — because the reasons are not
+   * equally reassuring. A message whose verdict our own MTA folded is a
+   * different thing from one carrying no verdict at all, and from one carrying
+   * a perfect verdict for somebody else's domain. The note says which.
+   */
+  failure: AuthFailure | null;
+}
+
+/**
+ * Turn a verdict into a label. The only function ./ingest.ts calls.
+ *
+ * This is the whole of the "capture instead of refuse" change: `verifySender`
+ * is unchanged and still refuses everything it ever refused, and this wraps its
+ * answer in something a note can state rather than something a mail server can
+ * act on.
+ *
+ * Note the fallback. When authentication did not pass there is no proved
+ * address, so the claimed `From:` addr-spec is used — which is exactly the
+ * unproved claim the allow-list is then applied to. That is the accepted cost
+ * of the decision, and it is why `verified` is carried alongside rather than
+ * inferred by a caller from the presence of an address.
+ */
+export function describeSender(input: VerifySenderInput): SenderIdentity {
+  const verdict = verifySender(input);
+  if (verdict.ok) {
+    return {
+      address: verdict.address,
+      domain: verdict.domain,
+      verified: true,
+      method: verdict.method,
+      failure: null,
+    };
+  }
+  const claimed = input.fromAddress.trim();
+  return {
+    address: claimed,
+    domain: domainOf(claimed),
+    verified: false,
+    method: null,
+    failure: verdict.reason,
+  };
 }

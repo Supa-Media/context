@@ -28,44 +28,63 @@
   //    every address on the domain reaches the same code and gets the same
   //    answer.
   //
-  // 2. FORWARDED MAIL IS THE OPEN BLOCKER. READ BEFORE ANNOUNCING THE FEATURE.
+  // 2. AUTHENTICATION IS A LABEL HERE, NOT A GATE. READ BEFORE "FIXING" IT.
   //
-  //    src/auth.ts refuses any message whose topmost `Authentication-Results`
-  //    header does not carry this exact authserv-id. That is what stops a
-  //    sender forging their own SPF/DKIM/DMARC verdict — and it depends on our
-  //    MX prepending its header above anything the sender wrote.
+  //    src/auth.ts believes a message's SPF/DKIM/DMARC verdict only when the
+  //    topmost `Authentication-Results` carries this exact authserv-id, is not
+  //    folded, is unambiguous, and aligns with `From:`. All of that is intact.
+  //    What changed is what happens when it does not hold: the message is
+  //    CAPTURED and the note says it was not verified. It is no longer refused.
   //
-  //    ── What a real delivery has now settled ─────────────────────────────
+  //    ── Why, from two real deliveries ────────────────────────────────────
   //
-  //    This note used to say Cloudflare sends no such header. It does. A live
-  //    message logged `reason: "auth_unaligned"`, which is reachable only after
-  //    the topmost `Authentication-Results` has parsed AND matched the
-  //    authserv-id below. So: the header arrives, it is topmost, it parses as
-  //    RFC 8601 with no ARC instance tag, and `mx.cloudflare.net` is right.
-  //    (cloudflare/workerd#6740, which reports none arriving, does not describe
-  //    this deployment.) The remaining half of the check — that it appears
-  //    above any header the sender supplied — is still an assumption about
-  //    another system, and still the thing to confirm from raw headers.
+  //    The first was refused `auth_unaligned`. It was an ordinary forward:
+  //    `From:` unchanged, the delivering hop's DKIM belonging to the forwarder,
+  //    so alignment fails. Cloudflare's activity log read SPF none, DKIM pass,
+  //    DMARC none, ARC pass. Forwarding is the product, so that is not a corner
+  //    case.
   //
-  //    ── What is still broken: forwarding, which is the product ───────────
+  //    The second, after the sender had configured DKIM for their own domain,
+  //    was refused `auth_folded_authentication_results` — because CLOUDFLARE
+  //    FOLDS ITS OWN long `Authentication-Results` header, and the anti-forgery
+  //    rule refuses every folded one. Worth writing down twice: on this
+  //    deployment, the folding rule fires on ordinary mail.
   //
-  //    That same message was refused. It was an ordinary forward: `From:`
-  //    unchanged, the delivering hop's DKIM belonging to the forwarder, so
-  //    alignment fails. Cloudflare's activity log read SPF none, DKIM pass,
-  //    DMARC none, ARC pass.
+  //    An inbox is expected to contain unverified mail. Refusing it turned a
+  //    capture address into something only a sender who had set up DKIM for
+  //    their own domain could use, which is almost nobody. So the verdict goes
+  //    into the note — `verified`, `sender-authenticated-by`,
+  //    `authentication-result`, plus a prose warning that the sender address may
+  //    be spoofed — and the message lands.
   //
-  //    src/auth.ts now reads `ARC-Authentication-Results` (RFC 8617) — under
-  //    five conditions documented in `verifyViaArc`, of which the load-bearing
-  //    one is POSITION: an ARC set is ours only if it sits above the topmost
+  //    ── What that settled about the header, which still matters ──────────
+  //
+  //    This note used to say Cloudflare sends no `Authentication-Results` at
+  //    all. It does. `auth_unaligned` was reachable only after the topmost one
+  //    had parsed AND matched the authserv-id below. So: the header arrives, it
+  //    is topmost, it parses as RFC 8601 with no ARC instance tag, and
+  //    `mx.cloudflare.net` is right. (cloudflare/workerd#6740, which reports
+  //    none arriving, does not describe this deployment.) The remaining half —
+  //    that it appears above any header the SENDER supplied — is still an
+  //    assumption about another system, and still the thing to confirm from raw
+  //    headers before any `verified: true` label is worth trusting.
+  //
+  //    ── ARC stays, and still only informs the label ──────────────────────
+  //
+  //    src/auth.ts reads `ARC-Authentication-Results` (RFC 8617) under five
+  //    conditions documented in `verifyViaArc`, of which the load-bearing one
+  //    is POSITION: an ARC set is ours only if it sits above the topmost
   //    `Authentication-Results`, inside the block our MX prepended, where a
   //    sender cannot write. DO NOT relax that. An ARC header is plain text with
   //    no signature of its own; without the position rule, trusting one hands
-  //    every sender a `dmarc=pass` for anybody they like.
+  //    every sender a `verified: true` note for anybody they like.
   //
-  //    Whether that fires in production depends on two things nobody has
-  //    captured: whether Cloudflare stamps an ARC set of its OWN before Worker
-  //    delivery, and where it puts it. Set `LOG_ARC_SHAPE` to "1", send one
-  //    message, and read `arc=` in the refusal line from `wrangler tail`.
+  //    Whether it ever fires depends on two things nobody has captured: whether
+  //    Cloudflare stamps an ARC set of its OWN before Worker delivery, and where
+  //    it puts it. To find out, set `LOG_ARC_SHAPE` to "1", send one message,
+  //    and read `arc=` on the `captured` line from `wrangler tail` — it rides on
+  //    an unverified capture now, there being no authentication refusal left for
+  //    it to ride on.
   //
   //      ours=0  — no ARC set of ours reached the Worker. Expected, and the
   //                known limitation: in a real forward the verdict worth having
@@ -74,11 +93,11 @@
   //                sealing domains read from `ARC-Seal: i=1; d=…` under
   //                `cv=pass` — a product decision, not a parser change. See the
   //                comment above `verifyViaArc`.
-  //      ours=1  — the ARC path is live and forwarded mail from a chain we
-  //                re-sealed is captured.
+  //      ours=1  — the ARC path is live, and a forwarded message from a chain we
+  //                re-sealed is captured as VERIFIED rather than unverified.
   //
-  //    Until one of those is confirmed, ingestion still fails CLOSED for
-  //    forwarded mail, which is the correct direction to be wrong in.
+  //    What is NOT true any more: forwarded mail is no longer refused while
+  //    that is unsettled. It is captured, unverified, and honestly labelled.
   //
   // 3. VERIFY `OPERATIONS_MAILBOX` AS AN EMAIL ROUTING DESTINATION.
   //
@@ -114,11 +133,14 @@
     // Confirmed against a real delivery — see note 2 above.
     "AUTH_SERVICE_ID": "mx.cloudflare.net",
 
-    // "1" to log the bounded ARC shape beside an authentication refusal. See
-    // note 2: it is how an operator finds out whether the ARC path can fire at
-    // all. Integers and one closed enum, never a sender string — but it is a
-    // diagnostic, so turn it off again, and delete it once note 2 is settled.
-    "LOG_ARC_SHAPE": "1",
+    // "1" to log the bounded ARC shape beside an unverified capture. See note
+    // 2: it is how an operator finds out whether the ARC path can fire at all.
+    // Integers and one closed enum, never a sender string — but it is a
+    // diagnostic, and OFF is its resting state. It was switched on for one
+    // question, which the two deliveries in note 2 have now answered well
+    // enough to act on; delete it entirely once the `ours=` question is
+    // settled from raw headers.
+    "LOG_ARC_SHAPE": "",
 
     // DELIBERATELY EMPTY. postmaster@ and abuse@ are forwarded here; with it
     // unset they are refused and a loud `operations_mailbox_unset` is logged.

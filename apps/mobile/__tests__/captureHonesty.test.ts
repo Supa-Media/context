@@ -108,6 +108,53 @@ function claimsFound(text: string): string[] {
   );
 }
 
+/**
+ * Every way the allow-list copy can imply it is a boundary.
+ *
+ * ## The bug this pins
+ *
+ * The receiver used to refuse any message whose sender's domain it could not
+ * verify, and the console described the list as "the security control", with a
+ * summary ending "Nobody else." Both were fair while a gate existed. The gate
+ * refused two real deliveries — an ordinary Gmail forward, and then a message
+ * whose `Authentication-Results` *Cloudflare itself* had folded — so it was
+ * removed, and mail is captured and labelled instead. See the block at the top
+ * of `infra/email-worker/src/auth.ts`.
+ *
+ * That leaves the list doing something narrower than it said. It decides
+ * whether a message is captured, and a sender who knows one address on it can
+ * put that address in `From:` and pass. It still keeps the ordinary internet
+ * out, which is worth having and worth configuring. It is not an assurance
+ * about who wrote a note, and no screen may read like one.
+ *
+ * ## Why a vocabulary ban rather than pinned sentences
+ *
+ * Same reason as `PRESENT_TENSE_CLAIMS` above: pinning the new sentences would
+ * pass forever while somebody added a reassuring sixth one beside them. These
+ * are the specific words that turn a filter into a promise, and they are chosen
+ * so that no honest sentence trips them — "it does not prove who sent it"
+ * contains none of them.
+ */
+const FALSE_ASSURANCES: ReadonlyArray<{ what: string; pattern: RegExp }> = [
+  { what: "the list is a closed set", pattern: /\bnobody else\b/i },
+  { what: "the list is a closed set", pattern: /\bno one else\b/i },
+  { what: "the list is a security boundary", pattern: /\bsecurity control\b/i },
+  { what: "senders are verified", pattern: /\bverified sender/i },
+  { what: "we check who sent it", pattern: /\bwe\s+(check|verify|confirm)\b/i },
+  {
+    what: "the address cannot be forged",
+    pattern: /\bcan(not|'t| not)\s+be\s+(spoofed|forged|faked)\b/i,
+  },
+  { what: "something is guaranteed", pattern: /\bguarantee/i },
+];
+
+/** Every banned assurance the copy makes, named, so a failure says which. */
+function assurancesFound(text: string): string[] {
+  return FALSE_ASSURANCES.filter(({ pattern }) => pattern.test(text)).map(
+    ({ what, pattern }) => `${what} (${pattern})`,
+  );
+}
+
 function settings(overrides: Partial<IngestionSettings> = {}): IngestionSettings {
   return {
     address: "seyi@context.lc",
@@ -269,6 +316,115 @@ describe("no surface claims mail currently lands anywhere", () => {
     for (const summary of summaries) {
       expect(claimsFound(summary.text)).toEqual([]);
     }
+  });
+});
+
+describe("no surface describes the allow-list as a boundary", () => {
+  /**
+   * Every state that draws the list, including the one where the list is real
+   * and configured — which is the state an owner will actually be looking at
+   * when they decide how much to trust a capture.
+   */
+  const drawn: ReadonlyArray<{ name: string; state: IngestionState }> = [
+    {
+      name: "a configured policy an owner can edit",
+      state: {
+        settings: settings(),
+        loading: false,
+        availability: "available",
+        save: async () => {},
+      },
+    },
+    {
+      name: "a configured policy, read-only",
+      state: { settings: settings(), loading: false, availability: "available" },
+    },
+    {
+      name: "a configured policy behind a live receiver",
+      state: {
+        settings: settings({ receiving: true }),
+        loading: false,
+        availability: "available",
+        save: async () => {},
+      },
+    },
+    {
+      name: "an open drop-box",
+      state: {
+        settings: settings({ allowAnySender: true, allowedSenders: [] }),
+        loading: false,
+        availability: "available",
+        save: async () => {},
+      },
+    },
+    {
+      name: "a list nobody has added to yet",
+      state: {
+        settings: settings({ allowedSenders: [], allowedDomains: [] }),
+        loading: false,
+        availability: "available",
+        save: async () => {},
+      },
+    },
+  ];
+
+  for (const { name, state } of drawn) {
+    test(`the ingestion card promises nothing the list cannot keep: ${name}`, () => {
+      expect(assurancesFound(card(state).text)).toEqual([]);
+    });
+  }
+
+  test("the one-line policy summaries promise nothing either", () => {
+    const summaries = [
+      describeSenderPolicy(emptyDraft()),
+      describeSenderPolicy({ ...emptyDraft(), allowAnySender: true }),
+      describeSenderPolicy({
+        ...emptyDraft(),
+        allowedSenders: ["seyi@publicworship.life"],
+        allowedDomains: ["globalecho.org"],
+      }),
+    ];
+    for (const summary of summaries) {
+      expect(assurancesFound(summary.text)).toEqual([]);
+    }
+  });
+
+  /**
+   * And the other half, which the ban alone cannot get: silence is not honesty
+   * either. An owner reading the card must be told, in words, that an email can
+   * claim any address — otherwise the list reads as an assurance simply because
+   * nothing said it was not one.
+   *
+   * Sabotage: delete the second clause of the `hint` and this fails while every
+   * ban above still passes.
+   */
+  test("the card says out loud that a From: line is a claim", () => {
+    const rendered = card({
+      settings: settings(),
+      loading: false,
+      availability: "available",
+      save: async () => {},
+    }).text;
+    expect(rendered).toMatch(/can claim to be from any address/i);
+    expect(rendered).toMatch(/filters/i);
+    expect(rendered).toMatch(/does not prove who sent it/i);
+  });
+
+  /**
+   * The summary is read straight out of the pure module by anything wanting a
+   * one-line description, so it carries the caveat itself rather than relying
+   * on sitting next to the hint.
+   */
+  test("the configured-list summary carries the caveat on its own", () => {
+    const summary = describeSenderPolicy({
+      ...emptyDraft(),
+      allowedSenders: ["seyi@publicworship.life"],
+    });
+    expect(summary.text).toMatch(/does not prove who sent it/i);
+    expect(summary.text).toMatch(/From:/);
+    // Still `ok`. Accurate, not alarming: a permanent warning on the correct
+    // configuration teaches an owner to ignore warnings.
+    expect(summary.tone).toBe("ok");
   });
 });
 
