@@ -251,3 +251,55 @@ export function describeMembersFailure(error: unknown): MembersFailure {
       };
   }
 }
+
+/**
+ * The people who have shared a context with you, as `@name` handles.
+ *
+ * This is the reciprocity list — the highest-converting invitation there is,
+ * and the only one that needs no contact upload, no address book permission
+ * and no directory. Somebody who was let into Seyi's context and then builds
+ * their own has exactly one person they already know is here.
+ *
+ * Derived from the context list the console already holds, with no new query,
+ * because a personal context's slug *is* its owner's handle. That is not a
+ * convenience — `createWorkspace` writes exactly one `owner` and neither
+ * `inviteMember` nor `setMemberRole` can mint another, which is what makes
+ * `@name` address a person at all. If ownership ever became transferable this
+ * derivation would stop being sound, and so would `@name`.
+ *
+ * A `shared` context is excluded for the same reason: it has no single
+ * personal owner, so its slug names a place rather than somebody you could
+ * share back with.
+ */
+export function sharedWithYou(
+  contexts: readonly { slug: string; role: string; kind: string }[],
+): string[] {
+  return contexts
+    .filter((context) => context.kind === "personal" && context.role !== "owner")
+    .map((context) => context.slug);
+}
+
+/**
+ * Which of those you have not already let into this context.
+ *
+ * Inviting somebody who is already a member is a no-op in the control plane
+ * rather than an error, so suggesting them would not break anything — it would
+ * just offer a button that does nothing visible, which is worse than not
+ * offering it. Comparison is on the handle, lowercased, because that is what
+ * `inviteMember` is addressed with.
+ */
+export function shareBackSuggestions(
+  contexts: readonly { slug: string; role: string; kind: string }[],
+  view: MembersView,
+): string[] {
+  const already = new Set<string>();
+  for (const member of view.members) {
+    // `name` is optional — a member who has not claimed a handle is identified
+    // by email, which can never collide with a handle suggestion.
+    if (member.name !== undefined) already.add(member.name.replace(/^@/, "").toLowerCase());
+  }
+  for (const invitation of view.invitations) already.add(invitation.invitee.replace(/^@/, "").toLowerCase());
+  return sharedWithYou(contexts).filter(
+    (slug) => !already.has(slug.replace(/^@/, "").toLowerCase()),
+  );
+}

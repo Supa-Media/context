@@ -8,6 +8,7 @@ import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { colors } from "../../design/tokens";
 import { MembersSection } from "../members/MembersSection";
+import { shareBackSuggestions } from "../members/members";
 import { PaneHead } from "../ConsoleShell";
 import { selectedContext, type ConsoleClient, type ConsoleData } from "../types";
 
@@ -97,7 +98,11 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
       </Card>
 
       <View style={styles.members}>
-        <MembersSection view={data.members} viewerRole={viewerRole} />
+        <MembersSection
+          view={data.members}
+          viewerRole={viewerRole}
+          shareBackWith={shareBackSuggestions(data.contexts, data.members)}
+        />
       </View>
     </View>
   );

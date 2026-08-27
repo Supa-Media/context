@@ -57,10 +57,20 @@ import { memberReachSentence } from "../visibility";
 export function MembersSection({
   view,
   viewerRole,
+  shareBackWith,
 }: {
   view: MembersView;
   /** The caller's role in this context. Absent until the context list lands. */
   viewerRole?: string;
+  /**
+   * Handles of people who shared a context with *you* and are not already in
+   * this one — offered as one-tap invitees.
+   *
+   * Optional and empty-by-default so the demo console and any future mounting
+   * of this card get the plain invite box rather than a suggestion list built
+   * from nothing. See `shareBackSuggestions` in `members.ts`.
+   */
+  shareBackWith?: readonly string[];
 }) {
   const { actions } = view;
   const now = Date.now();
@@ -154,7 +164,7 @@ export function MembersSection({
       </Card>
 
       {actions !== undefined ? (
-        <InviteForm invite={actions.invite} />
+        <InviteForm invite={actions.invite} shareBackWith={shareBackWith ?? []} />
       ) : view.readOnlyReason !== undefined ? (
         <Text variant="foot" style={styles.readOnly}>
           {view.readOnlyReason}
@@ -321,8 +331,10 @@ function InvitationRow({
  */
 function InviteForm({
   invite,
+  shareBackWith,
 }: {
   invite: (invitee: string, role: AssignableRole) => Promise<void>;
+  shareBackWith: readonly string[];
 }) {
   const [invitee, setInvitee] = useState("");
   const [role, setRole] = useState<AssignableRole>("member");
@@ -350,6 +362,35 @@ function InviteForm({
       <Text variant="eyebrow" style={styles.eyebrow}>
         Invite somebody
       </Text>
+
+      {/*
+        The people who shared with you first. Reciprocity is the highest-
+        converting invitation there is and it needs no address book — somebody
+        who arrived through an invitation already knows exactly one person who
+        is here. These fill the field rather than sending, because who they can
+        write is still a choice and sending on one tap would make it silently.
+      */}
+      {shareBackWith.length > 0 ? (
+        <View style={styles.shareBack} testID="invite-share-back">
+          <Text variant="foot">Shared their context with you:</Text>
+          <View style={styles.shareBackRow}>
+            {shareBackWith.map((handle) => (
+              <Button
+                key={handle}
+                label={`@${handle}`}
+                variant="mini"
+                disabled={busy}
+                accessibilityLabel={`Invite @${handle} to this context`}
+                testID={`invite-share-back-${handle}`}
+                onPress={() => {
+                  setInvitee(`@${handle}`);
+                  setSent(false);
+                }}
+              />
+            ))}
+          </View>
+        </View>
+      ) : null}
 
       <TextField
         label="@name or email"
@@ -417,6 +458,8 @@ const styles = StyleSheet.create({
   rowSub: { marginTop: 2 },
   rowError: { marginTop: 8 },
   wrapRow: { flexWrap: "wrap" },
+  shareBack: { gap: 8, marginBottom: 4 },
+  shareBackRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   roles: { marginTop: 13 },
   send: { marginTop: 13, alignSelf: "flex-start" },
   readOnly: { marginTop: 13 },
