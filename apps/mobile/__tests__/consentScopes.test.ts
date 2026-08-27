@@ -297,7 +297,10 @@ describe("every advertised scope is described", () => {
 
   for (const scope of ADVERTISED) {
     test(`${scope} is not shown as undescribable`, () => {
-      const [line] = scopeSentences([scope], "owner");
+      // The second argument is the visibility TIER, not the approver's role —
+      // it changed with the tier-as-scope work, and passing "owner" here made
+      // `scopeLine` return undefined rather than fail loudly.
+      const [line] = scopeSentences([scope], "private");
       expect(line.sentence).not.toMatch(/can't describe|cannot describe/i);
       expect(line.sentence.length).toBeGreaterThan(0);
     });
