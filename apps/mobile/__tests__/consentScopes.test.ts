@@ -212,3 +212,31 @@ describe("the read line tells the truth about who is approving", () => {
     expect(visibilityTierForRole("something-new")).toBe("unknown");
   });
 });
+
+/**
+ * Every scope the server advertises must have a description.
+ *
+ * `context:capture` is in `SUPPORTED_SCOPES`, is published in both discovery
+ * documents, and `/oauth/authorize` rejects anything outside that set — so it
+ * is a scope a client is *expected* to ask for. It had no entry here, so it
+ * fell to the unknown-scope fallback and the consent screen told the owner:
+ *
+ *   "Something this version of Context can't describe: context:capture
+ *    Approve only if you know what this client is asking for."
+ *
+ * A red flag on the one thing guaranteed to appear teaches people to click
+ * through warnings, which is the opposite of what a consent screen is for.
+ */
+describe("every advertised scope is described", () => {
+  // Mirrors SUPPORTED_SCOPES in apps/mcp/src/session.js. If the gateway grows
+  // a scope, this list and SCOPE_ALIASES must both grow with it.
+  const ADVERTISED = ["context:read", "context:write", "context:capture"];
+
+  for (const scope of ADVERTISED) {
+    test(`${scope} is not shown as undescribable`, () => {
+      const [line] = scopeSentences([scope], "owner");
+      expect(line.sentence).not.toMatch(/can't describe|cannot describe/i);
+      expect(line.sentence.length).toBeGreaterThan(0);
+    });
+  }
+});
