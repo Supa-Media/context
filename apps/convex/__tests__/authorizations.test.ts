@@ -214,11 +214,10 @@ describe("the consent screen tells the right person the right thing", () => {
       workspaceId: aliceWs,
       workspaceSlug: "alpha",
       workspaceName: "Alice's Context",
-      // Alice owns this context, so the screen may offer her both tiers and
-      // every operation the client asked for.
+      // Alice owns this context, so her screen may offer private-tier. The
+      // screen derives that from the role rather than being handed a list, so
+      // it stays right when the context picker moves.
       workspaceRole: "owner",
-      grantableScopes: ["context:read", "context:write"],
-      grantableTiers: ["team", "private"],
       expiresAt: expect.any(Number),
     });
   });
@@ -969,28 +968,17 @@ describe("nobody can grant more than their own role could", () => {
     expect(await grantedScopeOf(t, requestId)).toBe("context:read");
   });
 
-  test("the screen is only offered controls its approver can honour", async () => {
+  test("the screen is told the role of the context at stake, not the widest one", async () => {
     const { t, alice, bob, aliceWs } = await twoPeople();
     await addMember(t, aliceWs, bob, "member", alice);
     const requestId = await park(t);
 
-    const view = await read(t, bob, requestId);
-    expect(view).toMatchObject({
+    // The screen is told Bob's role in the context at stake, which is what its
+    // sentences and its controls are derived from — and it is `member`, not the
+    // `owner` he is in a context that is not this one.
+    expect(await read(t, bob, requestId)).toMatchObject({
       workspaceRole: "member",
-      // The client asked for write. Bob cannot grant it, so it is not drawn.
-      grantableScopes: ["context:read"],
-      grantableTiers: ["team"],
+      workspaceSlug: "alpha",
     });
-
-    // And the offer matches the enforcement: ticking everything on that screen
-    // still produces exactly the offered set.
-    await approveWith(
-      t,
-      bob,
-      requestId,
-      [...(view as { grantableScopes: string[] }).grantableScopes],
-      aliceWs,
-    );
-    expect(await grantedScopeOf(t, requestId)).toBe("context:read");
   });
 });

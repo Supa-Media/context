@@ -60,8 +60,6 @@ import {
   SCOPE_PRIVATE,
   clampScopes,
   formatScopeList,
-  grantableScopes,
-  grantableTiers,
   hasOperationScope,
   parseScopeList,
   visibilityTierOf,
@@ -270,23 +268,20 @@ export const getAuthorizationRequest = query({
       workspaceSlug: v.string(),
       workspaceName: v.string(),
       /**
-       * The caller's role in the context above — not in some other one.
+       * The caller's role in **the context this payload names**, so the screen
+       * can say which of its sentences are true for this approver without
+       * guessing. Guessing is how the read line once promised owners that their
+       * private notes were excluded when they were not.
        *
-       * Their own membership in their own context, so it discloses nothing, and
-       * without it the screen would have to guess which of its sentences are
-       * true for this approver. Guessing is how the read line once promised
-       * owners that their private notes were excluded when they were not.
+       * The screen re-derives this from the context the person actually picks —
+       * the picker can move after this payload was built — so this is the
+       * answer for the default resolution and nothing more. It is deliberately
+       * the *role* and not a list of grantable scopes: a role stays true as long
+       * as the workspace it names does, where a precomputed permission list
+       * would go stale the moment somebody used the picker, and a field that is
+       * only sometimes right is worse than one that is not there.
        */
       workspaceRole: v.string(),
-      /**
-       * The permissions this person could actually hand over here: the request
-       * narrowed to what their role allows, plus the tier scope when they may
-       * grant it. The screen renders exactly this list, so a control that
-       * cannot be honoured is never drawn.
-       */
-      grantableScopes: v.array(v.string()),
-      /** Tiers this approver may choose between. `["team"]` for a non-owner. */
-      grantableTiers: v.array(v.string()),
       expiresAt: v.number(),
     }),
   ),
@@ -327,15 +322,12 @@ export const getAuthorizationRequest = query({
     const membership = await getMembership(ctx, workspace._id, userId);
     if (membership === null) return null;
 
-    const requestedScopes = parseScopeList(request.scope);
-    const allowed = new Set(grantableScopes(membership.role));
-
     return {
       requestId: request.requestId,
       clientName: client.clientName,
       redirectUri: request.redirectUri,
       scope: request.scope,
-      scopes: requestedScopes,
+      scopes: parseScopeList(request.scope),
       requestedWorkspaceSlug:
         request.requestedWorkspaceSlug !== null &&
         request.requestedWorkspaceSlug === workspace.slug
@@ -345,11 +337,6 @@ export const getAuthorizationRequest = query({
       workspaceSlug: workspace.slug,
       workspaceName: workspace.displayName,
       workspaceRole: membership.role,
-      // The request narrowed to this role, in the request's own order — the
-      // same subsequence rule `clampScopes` follows, so what the screen offers
-      // and what `applyApproval` will accept cannot come apart.
-      grantableScopes: requestedScopes.filter((scope) => allowed.has(scope)),
-      grantableTiers: grantableTiers(membership.role),
       expiresAt: request.expiresAt,
     };
   },
