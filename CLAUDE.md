@@ -427,14 +427,30 @@ once per row, and may simply not arrive.
 
 **The emailed link is not the invitation token being used as a credential.** The
 token still only addresses the invitation; what signs a recipient in is a
-separate `authVerificationCodes` row, minted through `auth:store`, stored as
-`sha256(code)`, single-use, and capped at **24 hours** rather than seven days —
-a link sits in an inbox and gets forwarded in a way a typed code does not.
-Making the token itself authenticate would invert the unhashed-token decision in
-one step: a forwarded email would hand over an account. No code is minted for an
-address that already owns a personal context; auto-authentication serves the
-referral path, and the blast radius of a standing credential in a stranger's
-empty account is not that of one in an established owner's.
+separate `authVerificationCodes` row, minted through `auth:store` and stored as
+`sha256(code)`. Making the token itself authenticate would invert the
+unhashed-token decision in one step: a forwarded email would hand over an
+account. No code is minted for an address whose account already has any
+membership; auto-authentication serves the referral path, and the blast radius
+of a standing credential in a stranger's empty account is not that of one in an
+established member's.
+
+**What bounds that code is single use, not a short clock.** It lives as long as
+the invitation it travelled with — seven days — and dies on first claim:
+`verifyCodeOnly` deletes the row before validating anything else, and answering
+the invitation at all (accept, decline, or the owner revoking it) deletes it too.
+So the window is seven days of *unclaimed* link, never seven days of usable
+credential.
+
+This was 24 hours, on the reasoning that a link is replayable and forwardable in
+a way a typed code is not, so a week of it is a week of a live credential in
+other people's archives. That risk is real and was overruled deliberately: at 24
+hours the common case is somebody opening on Tuesday an invitation sent on
+Sunday, and being asked for a code anyway. A link that expires before its
+invitation does is a link that mostly expires, and an invitation that half-works
+is the thing this flow exists to remove. Shortening it again without also
+changing what "expires on first claim" means would be re-taking a decision
+somebody already made with the trade in front of them.
 
 `emailSentAt` is claimed in a transaction *before* the HTTP call, so one row is
 one message. At-most-once over at-least-once deliberately: Context mailing the

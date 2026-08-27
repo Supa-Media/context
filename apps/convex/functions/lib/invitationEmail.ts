@@ -43,19 +43,32 @@ import { APP_ORIGIN_ENV_VAR } from "./gatewayAuth";
 /**
  * How long the sign-in code that travels in the link stays usable.
  *
- * Deliberately much shorter than the invitation's week (`INVITATION_TTL_MS`),
- * and the difference is not tidiness. The proof a magic link rests on is the
- * same one the ordinary sign-in OTP rests on — possession of the mailbox — but
- * a link is *replayable and forwardable* in a way a ten-minute code typed into
- * a form is not. It sits in an inbox, gets forwarded into a thread, ends up in
- * a backup. A week of that is a week of a live credential in other people's
- * archives.
+ * **The whole life of the invitation, and no longer** — the link works for as
+ * long as the offer it was mailed with, and stops the moment either the offer
+ * expires or somebody claims it.
  *
- * Past 24 hours the link still works as an **invitation**; it just stops
- * signing anybody in and lands on the ordinary sign-in screen instead. Nothing
- * is lost but the shortcut.
+ * This was 24 hours, on the reasoning that a link is replayable and forwardable
+ * in a way a typed code is not, so a week of it is a week of a live credential
+ * sitting in other people's archives. That risk is real and unchanged. It was
+ * overruled deliberately, and the trade is worth writing down rather than
+ * rediscovering: at 24 hours the common case is somebody opening an invitation
+ * on Tuesday that was sent on Sunday and being asked for a code anyway — an
+ * invitation that half-works, which is the thing this whole flow exists to
+ * remove. A link that expires before the invitation does is a link that mostly
+ * expires.
+ *
+ * What carries the risk instead is **single use**. The code is spent by the
+ * first claim: `verifyCodeOnly` deletes the `authVerificationCodes` row before
+ * it validates anything else, so a forwarded copy of an opened link is inert,
+ * and answering the invitation — accept, decline, or the owner revoking it —
+ * deletes the row too (`invalidateInvitationSignInCode`). The window is seven
+ * days of *unclaimed* link, not seven days of usable credential.
+ *
+ * Two limits still stand behind it: no code is minted for an address that
+ * already has an account with any membership, so this is only ever a credential
+ * into a brand-new empty account; and the code is ~190 bits.
  */
-export const SIGNIN_CODE_TTL_MS = 24 * 60 * 60 * 1000;
+export const SIGNIN_CODE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * The most header text one interpolated value may contribute.
@@ -151,11 +164,15 @@ export function formatExpiryDate(expiresAt: number): string {
  * When the emailed sign-in code should stop working, or `null` for "do not
  * mint one".
  *
- * Bounded twice, and both bounds matter. Twenty-four hours is the rule above.
- * Strictly inside the invitation's own expiry is the second: a code that
- * outlived the offer it was mailed with would be a bare credential with nothing
- * left to accept, which is exactly the thing this design refuses to make the
- * invitation token into.
+ * Bounded twice, and the second bound is now the one that binds. The seven-day
+ * rule above matches `INVITATION_TTL_MS`, so for an invitation issued now the
+ * two are equal and the `- 1` is what keeps the code strictly inside the offer
+ * it was mailed with. That strictness is not decoration: a code outliving its
+ * invitation would be a bare credential with nothing left to accept, which is
+ * exactly what this design refuses to turn the invitation token into.
+ *
+ * It still binds on a *superseded* invitation, whose expiry is inherited from
+ * the row it replaced and can be much closer than a week away.
  */
 export function signInCodeExpiry(
   now: number,

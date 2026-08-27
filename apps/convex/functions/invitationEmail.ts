@@ -53,7 +53,8 @@
  *
  * Two limits on that code, both in `lib/invitationEmail.ts`:
  *
- *  - **24 hours**, not the invitation's seven days. See `SIGNIN_CODE_TTL_MS`.
+ *  - **The invitation's own seven days**, and dead on first claim. See
+ *    `SIGNIN_CODE_TTL_MS` for why the clock is not the thing bounding it.
  *  - **Never for an address that already owns a personal context.** A magic
  *    link is a credential sitting in an inbox, and the blast radius of one
  *    addressed to a brand-new account with nothing in it is not the blast
@@ -415,8 +416,8 @@ async function handleFor(
  *
  * Called when an invitation stops being open — accepted, declined, or withdrawn
  * by its owner. Without it, withdrawing an invitation withdrew the *offer* and
- * left the *credential* live for up to 24 hours, which is not what an owner who
- * clicks "revoke" believes they did. Accepting and declining are the same
+ * left the *credential* live for the rest of the invitation's week, which is not
+ * what an owner who clicks "revoke" believes they did. Accepting and declining are the same
  * story from the invitee's side: the link in the mailbox has been answered and
  * should stop being a way into an account.
  *

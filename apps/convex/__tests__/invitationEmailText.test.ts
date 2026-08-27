@@ -13,7 +13,7 @@
  *     characters are stripped before they can become a second header.
  *  2. **The link is built from a validated https origin**, never guessed —
  *     `consentUrlFor` refuses to invent one and so does this.
- *  3. **The sign-in code's life is bounded twice**: to 24 hours, and to
+ *  3. **The sign-in code's life is bounded twice**: to its own TTL, and to
  *     strictly inside the invitation it travels with.
  */
 
@@ -142,14 +142,32 @@ describe("the link", () => {
 });
 
 describe("the sign-in code's expiry", () => {
-  test("is 24 hours, and 24 hours is less than the invitation's week", () => {
-    expect(SIGNIN_CODE_TTL_MS).toBe(24 * 60 * 60 * 1000);
+  test("matches the invitation's week, and still lands strictly inside it", () => {
+    // The link is meant to work for as long as the offer it travelled with —
+    // one that expires first is a link that mostly expires. What bounds it is
+    // single use, not the clock: the row is deleted on first claim and when the
+    // invitation is answered at all. See `SIGNIN_CODE_TTL_MS`.
+    expect(SIGNIN_CODE_TTL_MS).toBe(7 * 24 * 60 * 60 * 1000);
+
     const now = 1_800_000_000_000;
     const invitationExpiry = now + 7 * 24 * 60 * 60 * 1000;
     const expiry = signInCodeExpiry(now, invitationExpiry);
-    expect(expiry).toBe(now + SIGNIN_CODE_TTL_MS);
+
+    // Equal TTLs, so the `- 1` is now the thing keeping the code inside the
+    // offer rather than exactly coterminous with it. A code outliving its
+    // invitation would be a bare credential with nothing left to accept.
+    expect(expiry).toBe(invitationExpiry - 1);
     expect(expiry! - now).toBeLessThanOrEqual(SIGNIN_CODE_TTL_MS);
     expect(expiry!).toBeLessThan(invitationExpiry);
+  });
+
+  test("a superseded invitation drags the code down to its inherited expiry", () => {
+    // The TTL and the invitation are equal for a fresh offer, so this is the
+    // case where the second bound still does work: a superseded row keeps the
+    // expiry of the one it replaced, which can be much closer than a week.
+    const now = 1_800_000_000_000;
+    const inherited = now + 2 * 60 * 60 * 1000;
+    expect(signInCodeExpiry(now, inherited)).toBe(inherited - 1);
   });
 
   /**
