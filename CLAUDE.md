@@ -666,6 +666,31 @@ segment. Under one outer catch, a single oddly named folder silently suppressed
 the count for that whole bucket forever. Each folder is walked in its own `try`
 now, and one that will not walk makes the total a floor.
 
+### The sign-in link's life is `SIGNIN_CODE_TTL_MS`, and never `magicLink.maxAge`
+
+`auth.ts` sets `magicLink: { maxAge: 60 * 60 }` while the link is good for the
+invitation's seven days. Both are correct, and the obvious reading — that the
+provider's `maxAge` is the link's expiry, so the two contradict each other — is
+wrong. An earlier comment in `auth.ts` believed it, and "aligning" them is the
+tidy-up to expect.
+
+`@convex-dev/auth` reads `maxAge` in exactly one place, `signIn.js`, and only
+where the **library** generates the code. Redemption checks the row instead
+(`verifyCodeAndSignIn.js`: `verificationCode.expirationTime < Date.now()`).
+`functions/invitationEmail.ts` mints its own code and passes its own
+`expirationTime`, so `maxAge` never touches the invitation link at all.
+Verified rather than argued: with `maxAge` set to **one second** the whole suite
+still passes, including the seven-day expiry assertion. A test pins this.
+
+What `maxAge` does bound is the one path that reaches this provider without
+going through us. `api.auth.signIn` is public, so anybody can call
+`signIn("magic-link", { email })` for an address they do not own. Nothing
+reaches them — no `sendVerificationRequest` is configured, and a configured one
+would mail the address that was named — but the code it mints is real, and this
+is the provider with no email check and no rate limit. An hour is the shortest
+useful life for it. **Setting it to seven days to "match" the invitation
+lengthens only that code and buys the link nothing.**
+
 ### A guard nobody has checked is not a guard
 
 Three times now a protection has been weaker than it looked: a credential check
