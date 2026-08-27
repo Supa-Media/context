@@ -1560,6 +1560,25 @@ describe("/gateway/grants/rotate", () => {
     expect((widened.grant as { scopes: string[] }).scopes).toEqual(["context:read"]);
   });
 
+  /**
+   * Refresh is the one door into an existing grant that a client drives alone,
+   * with no person present. If it could add `context:private`, every read-only
+   * team-tier grant would be one token request away from full access.
+   */
+  test("a refresh cannot raise the privacy tier", async () => {
+    const { t } = await twoConnectedTenants();
+    const body = await bodyOf(
+      await rotate(t, {
+        scopes: ["context:read", "context:write", "context:private"],
+      }),
+    );
+    // Intersected with what is held, which never included the tier scope.
+    expect((body.grant as { scopes: string[] }).scopes).toEqual([
+      "context:read",
+      "context:write",
+    ]);
+  });
+
   test("a narrowing request is honoured", async () => {
     const { t } = await twoConnectedTenants();
     const body = await bodyOf(await rotate(t, { scopes: ["context:read"] }));

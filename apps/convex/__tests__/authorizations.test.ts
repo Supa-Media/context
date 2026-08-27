@@ -24,6 +24,9 @@
  *  6. **Refusal is real**: it redirects with `access_denied` and consumes the
  *     request, so the same screen cannot be answered twice.
  *  7. **The screen and the approval agree** about which context is at stake.
+ *  8. **The grant records what the person chose**, not what the client asked
+ *     for — including the privacy tier — and no request shape lets an approver
+ *     hand over more than their own role could.
  *
  * Every token, client and credential here is obviously fake. This repository is
  * public.
@@ -149,6 +152,37 @@ function deny(t: TestConvex, userId: Id<"users">, requestId: string) {
   );
 }
 
+/** Approve while narrowing, the way the consent screen's tick boxes do. */
+function approveWith(
+  t: TestConvex,
+  userId: Id<"users">,
+  requestId: string,
+  grantedScopes: string[],
+  workspaceId?: Id<"workspaces">,
+) {
+  return asUser(t, userId).action(
+    api.functions.authorizations.approveAuthorization,
+    workspaceId === undefined
+      ? { requestId, grantedScopes }
+      : { requestId, workspaceId, grantedScopes },
+  );
+}
+
+/** What the row records as approved — the field the token exchange reads. */
+async function grantedScopeOf(
+  t: TestConvex,
+  requestId: string,
+): Promise<string | undefined> {
+  return await t.run(async (ctx) => {
+    const row = await ctx.db
+      .query("oauthAuthorizations")
+      .withIndex("by_requestId", (q) => q.eq("requestId", requestId))
+      .unique();
+    if (row === null) throw new Error("no such request");
+    return row.grantedScope;
+  });
+}
+
 /** Push a parked request past its window without waiting ten minutes. */
 async function expire(t: TestConvex, requestId: string): Promise<void> {
   await t.run(async (ctx) => {
@@ -180,6 +214,11 @@ describe("the consent screen tells the right person the right thing", () => {
       workspaceId: aliceWs,
       workspaceSlug: "alpha",
       workspaceName: "Alice's Context",
+      // Alice owns this context, so the screen may offer her both tiers and
+      // every operation the client asked for.
+      workspaceRole: "owner",
+      grantableScopes: ["context:read", "context:write"],
+      grantableTiers: ["team", "private"],
       expiresAt: expect.any(Number),
     });
   });
@@ -670,5 +709,288 @@ describe("expired authorization rows are swept", () => {
       await t.run((ctx) => ctx.db.query("oauthAuthorizations").collect()),
     ).toEqual([]);
     expect(parked).toHaveLength(3);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* 7. What the approval actually grants                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The consent screen is a convenience; this layer is the authority.
+ *
+ * Every test here drives `approveAuthorization` directly, with the argument
+ * shapes a hostile client would send rather than the ones the screen produces.
+ * That is the point: unticking a box in a browser is not a security control,
+ * and a narrowing that only the UI performs is a narrowing an attacker skips by
+ * calling the action.
+ */
+describe("an approval grants what the person chose, never what the client asked", () => {
+  test("the row records what was approved, and keeps what was asked separately", async () => {
+    const { t, alice, aliceWs } = await twoPeople();
+    const requestId = await park(t);
+
+    await approveWith(t, alice, requestId, ["context:read"], aliceWs);
+
+    expect(await grantedScopeOf(t, requestId)).toBe("context:read");
+    // The request is not rewritten. "Asked for read+write, was given read" is
+    // two facts, and an audit trail that keeps only the second cannot show that
+    // anybody narrowed anything.
+    const row = await t.run(async (ctx) =>
+      ctx.db
+        .query("oauthAuthorizations")
+        .withIndex("by_requestId", (q) => q.eq("requestId", requestId))
+        .unique(),
+    );
+    expect(row?.scope).toBe(SCOPE);
+  });
+
+  test("an owner who says nothing about the tier gets team, not their ceiling", async () => {
+    const { t, alice, aliceWs } = await twoPeople();
+    const requestId = await park(t);
+
+    await approve(t, alice, requestId, aliceWs);
+
+    // The owner's role has not changed and never will. What changed is that the
+    // tier is now something the grant records rather than something the
+    // gateway re-derives, and an approval that named no tier named `team`.
+    expect(await grantedScopeOf(t, requestId)).toBe("context:read context:write");
+  });
+
+  test("an owner who chooses private-tier gets it recorded on the grant", async () => {
+    const { t, alice, aliceWs } = await twoPeople();
+    const requestId = await park(t);
+
+    await approveWith(
+      t,
+      alice,
+      requestId,
+      ["context:read", "context:write", "context:private"],
+      aliceWs,
+    );
+
+    expect(await grantedScopeOf(t, requestId)).toBe(
+      "context:read context:write context:private",
+    );
+  });
+
+  test("the tier survives a client that never asked for it", async () => {
+    const { t, alice, aliceWs } = await twoPeople();
+    // The client asked for read only. `context:private` is not an operation the
+    // client requests — it is the person answering "how much of my context does
+    // this see" — so it is the one scope an approval may add.
+    const requestId = await park(t, { scope: "context:read" });
+
+    await approveWith(
+      t,
+      alice,
+      requestId,
+      ["context:read", "context:private"],
+      aliceWs,
+    );
+
+    expect(await grantedScopeOf(t, requestId)).toBe("context:read context:private");
+  });
+
+  test("an approval cannot add an operation the client never asked for", async () => {
+    const { t, alice, aliceWs } = await twoPeople();
+    const requestId = await park(t, { scope: "context:read" });
+
+    await approveWith(
+      t,
+      alice,
+      requestId,
+      ["context:read", "context:write", "context:capture"],
+      aliceWs,
+    );
+
+    expect(await grantedScopeOf(t, requestId)).toBe("context:read");
+  });
+
+  test("approving with nothing ticked grants nothing and is refused", async () => {
+    const { t, alice, aliceWs } = await twoPeople();
+    const requestId = await park(t);
+
+    expect(
+      errorCode(
+        await captureError(() => approveWith(t, alice, requestId, [], aliceWs)),
+      ),
+    ).toBe("NO_SCOPES_GRANTED");
+
+    // And the request is still pending: a refused approval must not consume the
+    // capability, or a mis-click would strand the flow.
+    const row = await t.run(async (ctx) =>
+      ctx.db
+        .query("oauthAuthorizations")
+        .withIndex("by_requestId", (q) => q.eq("requestId", requestId))
+        .unique(),
+    );
+    expect(row?.status).toBe("pending");
+    expect(row?.hashedCode).toBeUndefined();
+  });
+
+  test("a tier scope with no operation behind it is refused too", async () => {
+    const { t, alice, aliceWs } = await twoPeople();
+    const requestId = await park(t);
+
+    // `["context:private"]` would mint a token allowed to reach every private
+    // note and with no way to read one. Incoherent, not narrow.
+    expect(
+      errorCode(
+        await captureError(() =>
+          approveWith(t, alice, requestId, ["context:private"], aliceWs),
+        ),
+      ),
+    ).toBe("NO_SCOPES_GRANTED");
+  });
+
+  test("the audit trail records the request and the grant, and the tier", async () => {
+    const { t, alice, aliceWs } = await twoPeople();
+    const requestId = await park(t);
+
+    await approveWith(t, alice, requestId, ["context:read"], aliceWs);
+
+    const event = await t.run(async (ctx) => {
+      const events = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", aliceWs))
+        .collect();
+      return events.find((row) => row.action === "oauth.authorized");
+    });
+    expect(event?.details).toMatchObject({
+      scope: SCOPE,
+      grantedScope: "context:read",
+      tier: "team",
+    });
+  });
+});
+
+/**
+ * The ceiling, from below.
+ *
+ * "A grant may never exceed what the approver could do" is the rule; these are
+ * the request shapes that try to break it. None of them go through the screen,
+ * because the screen is not what stops them.
+ */
+describe("nobody can grant more than their own role could", () => {
+  test("a member cannot obtain private-tier by asking for it", async () => {
+    const { t, alice, bob, aliceWs } = await twoPeople();
+    await addMember(t, aliceWs, bob, "member", alice);
+    const requestId = await park(t);
+
+    await approveWith(
+      t,
+      bob,
+      requestId,
+      ["context:read", "context:private"],
+      aliceWs,
+    );
+
+    expect(await grantedScopeOf(t, requestId)).toBe("context:read");
+  });
+
+  test("a member cannot obtain private-tier by having the client request it", async () => {
+    const { t, alice, bob, aliceWs } = await twoPeople();
+    await addMember(t, aliceWs, bob, "member", alice);
+    // A client that asks for everything, and a person who ticks everything.
+    const requestId = await park(t, {
+      scope: "context:read context:write context:capture context:private",
+    });
+
+    await approveWith(
+      t,
+      bob,
+      requestId,
+      ["context:read", "context:write", "context:capture", "context:private"],
+      aliceWs,
+    );
+
+    // Read-only, team tier. A `member` is read-only in the workspace model, so
+    // a grant they issue cannot write either.
+    expect(await grantedScopeOf(t, requestId)).toBe("context:read");
+  });
+
+  test("a member cannot obtain private-tier by spelling it differently", async () => {
+    const { t, alice, bob, aliceWs } = await twoPeople();
+    await addMember(t, aliceWs, bob, "member", alice);
+    const requestId = await park(t, {
+      scope: "context:read private context.private *",
+    });
+
+    await approveWith(
+      t,
+      bob,
+      requestId,
+      ["context:read", "private", "context.private", "*"],
+      aliceWs,
+    );
+
+    // None of the alternative spellings survive. The gateway only honours the
+    // canonical name, but the console renders any of them as "Full access", and
+    // a grant that makes the console say private for somebody who has not got
+    // it is a lie on the one screen a person checks.
+    expect(await grantedScopeOf(t, requestId)).toBe("context:read");
+  });
+
+  test("an editor cannot grant private-tier either", async () => {
+    const { t, alice, bob, aliceWs } = await twoPeople();
+    await addMember(t, aliceWs, bob, "editor", alice);
+    const requestId = await park(t);
+
+    await approveWith(
+      t,
+      bob,
+      requestId,
+      ["context:read", "context:write", "context:private"],
+      aliceWs,
+    );
+
+    // An editor writes, so `context:write` stays. They are not the person whose
+    // private notes these are, so `context:private` does not.
+    expect(await grantedScopeOf(t, requestId)).toBe("context:read context:write");
+  });
+
+  test("owning one context does not raise the ceiling in another", async () => {
+    const { t, alice, bob, aliceWs } = await twoPeople();
+    // Bob owns `alphabet` outright and is only a member of Alice's `alpha`.
+    await addMember(t, aliceWs, bob, "member", alice);
+    const requestId = await park(t);
+
+    await approveWith(
+      t,
+      bob,
+      requestId,
+      ["context:read", "context:write", "context:private"],
+      aliceWs,
+    );
+
+    // Clamped by his role in the workspace being granted, read in the approving
+    // transaction — not by the widest role he holds anywhere.
+    expect(await grantedScopeOf(t, requestId)).toBe("context:read");
+  });
+
+  test("the screen is only offered controls its approver can honour", async () => {
+    const { t, alice, bob, aliceWs } = await twoPeople();
+    await addMember(t, aliceWs, bob, "member", alice);
+    const requestId = await park(t);
+
+    const view = await read(t, bob, requestId);
+    expect(view).toMatchObject({
+      workspaceRole: "member",
+      // The client asked for write. Bob cannot grant it, so it is not drawn.
+      grantableScopes: ["context:read"],
+      grantableTiers: ["team"],
+    });
+
+    // And the offer matches the enforcement: ticking everything on that screen
+    // still produces exactly the offered set.
+    await approveWith(
+      t,
+      bob,
+      requestId,
+      [...(view as { grantableScopes: string[] }).grantableScopes],
+      aliceWs,
+    );
+    expect(await grantedScopeOf(t, requestId)).toBe("context:read");
   });
 });

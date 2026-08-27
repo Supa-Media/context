@@ -275,7 +275,21 @@ export const consumeAuthorizationCode = internalMutation({
       redirectUri: record.redirectUri,
       codeChallenge: record.codeChallenge,
       codeChallengeMethod: record.codeChallengeMethod,
-      scope: record.scope,
+      /**
+       * **What the person approved**, not what the client asked for.
+       *
+       * `applyApproval` already narrowed the request to what was ticked and
+       * clamped it to what the approver's role could hand over, so this is the
+       * set the grant must carry — a scope the person unticked must not
+       * reappear here and become a grant.
+       *
+       * The fallback exists for a row approved before `grantedScope` was a
+       * field, which can be at most one ten-minute window old. It cannot widen
+       * anything: `context:private` was not grantable when such a row was
+       * written, so the widest set it reconstructs is the old read/write pair
+       * at `team` tier.
+       */
+      scope: record.grantedScope ?? record.scope,
       resource: record.resource,
       workspaceId: record.workspaceId,
       userId: record.userId,
@@ -367,6 +381,12 @@ export const rotateGrant = internalMutation({
 
     // Narrowing only. A refresh may drop scopes; it may never add one the
     // person never granted, so the request is intersected with what is held.
+    //
+    // That intersection is also what stops a refresh from being a way to change
+    // the privacy tier. `context:private` is an ordinary member of this array,
+    // so a client asking for it on refresh gets it only if the grant already
+    // had it — which means only if a person ticked it on the consent screen.
+    // There is no other door into private-tier.
     const narrowed =
       args.scopes !== null && args.scopes.length > 0
         ? args.scopes.filter((scope) => grant.scopes.includes(scope))
