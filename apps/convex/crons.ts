@@ -72,4 +72,25 @@ crons.interval(
   {},
 );
 
+/**
+ * Retire abandoned bucket-provisioning attempts.
+ *
+ * The only sweep here that is not housekeeping. A `cloudflareProvisioning` row
+ * carries the customer's **account-level** Cloudflare credential, sealed, for
+ * the length of one attempt — and the two paths that destroy it both require
+ * the scheduled provisioning action to reach them. When it does not (a deploy
+ * that loses the job, an eviction, a failure while recording a failure) the row
+ * sits `pending` forever, holding a credential that CLAUDE.md says has no
+ * steady state, and blocking every further attempt by the same owner.
+ *
+ * Hourly, because the attempt's own deadline is fifteen minutes and a
+ * credential nobody is using should not wait a day to stop existing.
+ */
+crons.interval(
+  "sweep abandoned bucket provisioning",
+  { hours: 1 },
+  internal.functions.cloudflare.purgeExpiredProvisioning,
+  {},
+);
+
 export default crons;

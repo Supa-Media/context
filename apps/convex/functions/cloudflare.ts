@@ -66,7 +66,8 @@ import {
   mutation,
   query,
 } from "../_generated/server";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
+import type { MutationCtx } from "../_generated/server";
 import { decryptSecret, encryptSecret, requireKeyset } from "./lib/crypto";
 import { recordAudit } from "./lib/audit";
 import { consumeRateLimit } from "./lib/rateLimit";
@@ -150,6 +151,17 @@ const FAILED_ATTEMPT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Rows per sweep run. A backlog drains over several runs, like the others. */
 const SWEEP_BATCH_SIZE = 200;
+
+/** `" (Cloudflare: )"` — the wrapper around provider detail, as a length. */
+const DETAIL_WRAPPER_LENGTH = 15;
+
+/** Below this, provider detail is a fragment rather than a clue. Drop it. */
+const MIN_DETAIL_LENGTH = 24;
+
+/** Truncation with an ellipsis, used on recorded text and nothing else. */
+function truncated(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
 
 /** What the provisioning action reports. Deliberately free of any credential. */
 export interface ProvisionOutcome {
@@ -737,6 +749,13 @@ export const completeProvisioning = internalMutation({
     accessKeyId: v.string(),
     encryptedSecretAccessKey: v.string(),
     forcePathStyle: v.optional(v.boolean()),
+    /**
+     * True when the bucket was created by an earlier run of this same attempt
+     * rather than by this one. Recorded because "Context created a bucket in
+     * your account" and "Context used a bucket it had already created" are
+     * different facts, and the audit trail is where somebody checks which.
+     */
+    reusedExistingBucket: v.optional(v.boolean()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -766,7 +785,12 @@ export const completeProvisioning = internalMutation({
       workspaceId: args.workspaceId,
       actorUserId: args.actorUserId,
       action: "storage.provisioned",
-      details: { provider: "r2", bucket: args.bucket, endpoint: args.endpoint },
+      details: {
+        provider: "r2",
+        bucket: args.bucket,
+        endpoint: args.endpoint,
+        reusedExistingBucket: args.reusedExistingBucket ?? false,
+      },
     });
     return null;
   },
@@ -796,25 +820,117 @@ export const failProvisioning = internalMutation({
       .unique();
     if (job === null) return null;
 
-    await ctx.db.patch(job._id, {
-      status: "failed",
-      errorCode: args.errorCode,
-      error: args.error,
-      // Setting it to `undefined` removes the field. This is the line that
-      // makes the credential's lifetime the length of one attempt.
-      encryptedSetupCredential: undefined,
-      updatedAt: Date.now(),
-    });
-
-    await recordAudit(ctx, {
-      workspaceId: args.workspaceId,
-      actorUserId: job.requestedBy,
-      action: "storage.provision_failed",
-      // The code only. `error` may carry provider prose and belongs on the row
-      // the owner reads, not in an event stream several people can read.
-      details: { provider: "r2", bucket: job.bucket, errorCode: args.errorCode },
-    });
+    await markAttemptFailed(ctx, job, args.errorCode, args.error);
     return null;
+  },
+});
+
+/**
+ * Record a failure on one row: the reason stays, the credential goes.
+ *
+ * Shared by `failProvisioning` and by the sweep, because they are the same
+ * event arriving two ways — an attempt that answered and an attempt that never
+ * did — and the half that must not fork is the one that destroys the envelope.
+ */
+async function markAttemptFailed(
+  ctx: MutationCtx,
+  job: Doc<"cloudflareProvisioning">,
+  errorCode: string,
+  error: string,
+): Promise<void> {
+  await ctx.db.patch(job._id, {
+    status: "failed",
+    errorCode,
+    error,
+    // Setting it to `undefined` removes the field. This is the line that
+    // makes the credential's lifetime the length of one attempt.
+    encryptedSetupCredential: undefined,
+    updatedAt: Date.now(),
+    // The row's next deadline is the record's, not the credential's: there is
+    // no credential on it any more. Moving it forward is also what takes the
+    // row out of the sweep's range, so a failed row is not re-read every hour.
+    expiresAt: Date.now() + FAILED_ATTEMPT_RETENTION_MS,
+  });
+
+  await recordAudit(ctx, {
+    workspaceId: job.workspaceId,
+    actorUserId: job.requestedBy,
+    action: "storage.provision_failed",
+    // The code only. `error` may carry provider prose and belongs on the row
+    // the owner reads, not in an event stream several people can read.
+    details: { provider: "r2", bucket: job.bucket, errorCode },
+  });
+}
+
+/**
+ * Retire attempts that stopped without saying so, and delete dead records.
+ *
+ * **The first half is a credential control.** `completeProvisioning` and
+ * `failProvisioning` both need the scheduled action to reach them, and it may
+ * not: the job can be lost to a deploy, the action can be evicted after minting,
+ * the very call that records a failure can itself throw. Every one of those
+ * leaves a `pending` row with the customer's sealed Cloudflare account
+ * credential on it — the one thing CLAUDE.md says has no steady state — and,
+ * because `beginProvisioning` refuses to start alongside a pending row, leaves
+ * the owner unable to try again. Nothing else in this file collects them:
+ * `dismissProvisioning` is owner-initiated, and the console does not call it.
+ *
+ * So an unfinished attempt expires. It is marked failed, the envelope is
+ * removed, and the message says what an abandoned attempt honestly leaves
+ * behind — a bucket that may or may not have been created, and a name the retry
+ * will reuse if it turns out we made it.
+ *
+ * The second half is ordinary housekeeping: a failed row's deadline is when its
+ * explanation stops being worth keeping, and then it is deleted. One index
+ * serves both because a row only ever has one deadline, and every row this
+ * touches either leaves the range or moves forward in it — so a backlog of
+ * failed rows can never crowd out the pending ones that matter.
+ */
+export const purgeExpiredProvisioning = internalMutation({
+  args: { limit: v.optional(v.number()) },
+  returns: v.object({
+    expired: v.number(),
+    deleted: v.number(),
+    moreRemaining: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(args.limit ?? SWEEP_BATCH_SIZE, 1), 1000);
+    const now = Date.now();
+
+    // A row with no `expiresAt` predates this sweep. It sorts below every
+    // number, so the range picks it up, which is the point: a stuck pending row
+    // from before the field existed is exactly what this was written for.
+    const due = await ctx.db
+      .query("cloudflareProvisioning")
+      .withIndex("by_expiresAt", (q) => q.lte("expiresAt", now))
+      .take(limit);
+
+    let expired = 0;
+    let deleted = 0;
+    for (const row of due) {
+      if (row.status === "pending") {
+        await markAttemptFailed(
+          ctx,
+          row,
+          "PROVISION_EXPIRED",
+          `Setting up storage did not finish, so Context stopped holding the Cloudflare credential you gave it. ${residueSentence("possible-bucket", { bucket: row.bucket })}`,
+        );
+        expired += 1;
+        continue;
+      }
+      if (row.expiresAt === undefined) {
+        // A failed row from before the field existed: give it a deadline rather
+        // than deleting an explanation somebody may still be reading.
+        await ctx.db.patch(row._id, {
+          expiresAt: now + FAILED_ATTEMPT_RETENTION_MS,
+        });
+        continue;
+      }
+      await ctx.db.delete(row._id);
+      deleted += 1;
+    }
+
+    return { expired, deleted, moreRemaining: due.length === limit };
   },
 });
 
