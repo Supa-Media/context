@@ -88,6 +88,19 @@ export interface BottomBarAction {
    */
   label: string;
   glyph: string;
+  /**
+   * A short visible caption under the glyph — "Files", "Search".
+   *
+   * Distinct from `label`, which is the full accessible name ("Open the file
+   * tree") and is often too long to draw. Optional, but strongly preferred:
+   * this app ships no icon font, so the glyphs are Unicode characters whose
+   * optical sizes are wildly inconsistent — measured in Chromium at 19px,
+   * `☰` is 17px wide, `＋` is 19, and `⌕` is **10.6**, so a bare-glyph toolbar
+   * reads as three buttons and a smudge. A caption normalises the visual
+   * weight of the whole row, and it is what a tab bar on either platform does
+   * anyway.
+   */
+  title?: string;
   onPress: () => void;
   /** A count badge, e.g. open tabs. `0` draws nothing, rather than "0". */
   badge?: number;
@@ -116,7 +129,7 @@ export function BottomBar({ actions }: { actions: BottomBarAction[] }): JSX.Elem
  * targets is an invisible one.
  */
 function BottomBarButton({ action }: { action: BottomBarAction }): JSX.Element {
-  const { label, glyph, onPress, badge, marker, disabled = false } = action;
+  const { label, glyph, title, onPress, badge, marker, disabled = false } = action;
   const [focused, setFocused] = useState(false);
   const showBadge = badge !== undefined && badge > 0;
 
@@ -146,7 +159,7 @@ function BottomBarButton({ action }: { action: BottomBarAction }): JSX.Element {
       testID={`bottom-bar-${action.id}`}
     >
       <View style={styles.mark}>
-        <Text style={styles.glyph} aria-hidden>
+        <Text style={[styles.glyph, title !== undefined && styles.glyphWithTitle]} aria-hidden>
           {glyph}
         </Text>
 
@@ -166,6 +179,22 @@ function BottomBarButton({ action }: { action: BottomBarAction }): JSX.Element {
           <View style={styles.marker} aria-hidden testID={`bottom-bar-${action.id}-marker`} />
         ) : null}
       </View>
+
+      {/*
+        `aria-hidden`, like the glyph: `label` is already the accessible name,
+        and announcing "Search, Search notes" is worse than announcing neither.
+        This caption is for eyes.
+      */}
+      {title !== undefined ? (
+        <Text
+          style={styles.title}
+          numberOfLines={1}
+          aria-hidden
+          testID={`bottom-bar-${action.id}-title`}
+        >
+          {title}
+        </Text>
+      ) : null}
 
       {/* Web is a first-class surface: this bar is reachable by Tab there. */}
       <FocusRing visible={focused && !disabled} radius={radii.md} />
@@ -216,6 +245,15 @@ const styles = StyleSheet.create({
     fontSize: 19,
     lineHeight: 22,
     color: colors.text2,
+  },
+  /** A caption underneath needs the glyph to give up a little height. */
+  glyphWithTitle: { fontSize: 17, lineHeight: 19 },
+  title: {
+    fontSize: 10,
+    lineHeight: 13,
+    marginTop: 1,
+    color: colors.muted,
+    textAlign: "center",
   },
 
   badge: {

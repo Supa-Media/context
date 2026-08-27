@@ -336,3 +336,31 @@ describe("badges and markers", () => {
     expect(bar.find("bottom-bar-tabs-marker")).toBeNull();
   });
 });
+
+describe("captions", () => {
+  test("a title is drawn under the glyph, and hidden from assistive tech", () => {
+    // The glyphs are Unicode characters with wildly different optical sizes —
+    // measured in Chromium at 19px, `☰` is 17px wide and `⌕` is 10.6 — so a
+    // bare-glyph row reads as buttons and a smudge. The caption normalises it.
+    // It is aria-hidden because `label` is already the accessible name, and
+    // "Search, Search notes" is worse than either alone.
+    const bar = mountBar([
+      { id: "search", label: "Search notes", title: "Search", glyph: "\u2315", onPress: () => {} },
+    ]);
+
+    const caption = bar.find("bottom-bar-search-title");
+    expect(caption).not.toBeNull();
+    expect(caption!.textContent).toBe("Search");
+    expect(caption!.closest("[aria-hidden]")).not.toBeNull();
+
+    // The accessible name is still the long one.
+    expect(bar.container.querySelector('[aria-label="Search notes"]')).not.toBeNull();
+  });
+
+  test("an action with no title renders none rather than an empty line", () => {
+    const bar = mountBar([
+      { id: "files", label: "Open the file tree", glyph: "\u2630", onPress: () => {} },
+    ]);
+    expect(bar.find("bottom-bar-files-title")).toBeNull();
+  });
+});

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Slot, useRouter, usePathname } from "expo-router";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { useAuthActions } from "@convex-dev/auth/react";
@@ -90,6 +90,7 @@ export default function ConsoleLayout() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const current = selectedContext(data);
   const insideContext = route.kind === "context";
+  const browsing = route.kind === "context" && route.view === "browse";
   const contextLabel = atName(current?.slug ?? "your context");
 
   return (
@@ -144,31 +145,9 @@ export default function ConsoleLayout() {
         }
       >
         <Shortcuts onSearch={() => setPaletteOpen(true)} paletteOpen={paletteOpen} />
-        <ScrollView style={styles.pane} contentContainerStyle={styles.paneContent}>
-          {/*
-            The console's own subscription came back as an error rather than
-            data. It reaches here as a value — `useLiveConsoleData` reads it
-            with `useQueries` — where a `useQuery` would have re-thrown it
-            during render and blanked the page. So: say what happened, offer
-            the one thing that actually helps, and keep the chrome around it
-            so there is still a way out.
-          */}
-          {data.failure !== null ? (
-            <View style={styles.failure} testID="console-failure">
-              <FormError
-                headline={data.failure.headline}
-                next={[data.failure.next, data.failure.detail].filter(Boolean).join(" ")}
-              />
-              {canReload ? (
-                <View style={styles.failureActions}>
-                  <Button label="Reload" variant="white" onPress={reloadApp} />
-                </View>
-              ) : null}
-            </View>
-          ) : null}
-
+        <EditorRegion browse={browsing} failure={data.failure}>
           <Slot />
-        </ScrollView>
+        </EditorRegion>
 
         {paletteOpen ? (
           <Palette
@@ -191,6 +170,67 @@ export default function ConsoleLayout() {
 }
 
 /* -------------------------------------------------------------------------- */
+
+/**
+ * The editor region's scrolling, which is not one answer.
+ *
+ * **Browse owns its own.** It is a tab strip and a breadcrumb pinned to the top
+ * edge with a document filling the rest, and the document is a textarea that
+ * scrolls itself. Wrapping that in a page scroller puts a second scrollbar
+ * around the first and lets the strip slide out of view — which is the shape
+ * this whole rebuild exists to remove.
+ *
+ * **Everything else scrolls as a page.** Map, Connections and Settings are
+ * documents of stacked cards with no internal scroller of their own, and they
+ * are routinely taller than the viewport.
+ */
+function EditorRegion({
+  browse,
+  failure,
+  children,
+}: {
+  browse: boolean;
+  failure: ConsoleData["failure"];
+  children: ReactNode;
+}) {
+  /*
+    The console's own subscription came back as an error rather than data. It
+    reaches here as a value — `useLiveConsoleData` reads it with `useQueries` —
+    where a `useQuery` would have re-thrown during render and blanked the page.
+    So: say what happened, offer the one thing that helps, and keep the chrome
+    around it so there is still a way out.
+  */
+  const banner =
+    failure === null ? null : (
+      <View style={styles.failure} testID="console-failure">
+        <FormError
+          headline={failure.headline}
+          next={[failure.next, failure.detail].filter(Boolean).join(" ")}
+        />
+        {canReload ? (
+          <View style={styles.failureActions}>
+            <Button label="Reload" variant="white" onPress={reloadApp} />
+          </View>
+        ) : null}
+      </View>
+    );
+
+  if (browse) {
+    return (
+      <View style={styles.browseRegion}>
+        {banner === null ? null : <View style={styles.bannerInset}>{banner}</View>}
+        {children}
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView style={styles.pane} contentContainerStyle={styles.paneContent}>
+      {banner}
+      {children}
+    </ScrollView>
+  );
+}
 
 /**
  * The keyboard, bound at the frame level.
@@ -263,13 +303,15 @@ function ConsoleBottomBar({ data, onSearch }: { data: ConsoleData; onSearch: () 
           id: "files",
           label: frame.state.drawerOpen ? "Close the file tree" : "Open the file tree",
           glyph: "\u2630",
+          title: "Files",
           onPress: frame.toggleExplorer,
         },
-        { id: "search", label: "Search notes", glyph: "\u2315", onPress: onSearch },
+        { id: "search", label: "Search notes", glyph: "\u2315", title: "Search", onPress: onSearch },
         {
           id: "new",
           label: "New note",
           glyph: "\uff0b",
+          title: "New",
           disabled: !files.canEdit,
           onPress: () => files.createNote(folder, "Untitled"),
         },
@@ -277,6 +319,7 @@ function ConsoleBottomBar({ data, onSearch }: { data: ConsoleData; onSearch: () 
           id: "save",
           label: "Save this note",
           glyph: "\u2713",
+          title: "Save",
           // Absent rather than dead would move every other button mid-reach,
           // so it dims in place — see `BottomBar`.
           disabled: files.editor.status !== "dirty",
@@ -387,7 +430,10 @@ const styles = StyleSheet.create({
   },
   switcherKind: { color: colors.muted },
 
-  /** The editor region. It scrolls; the frame around it does not. */
+  /** Browse fills its region and scrolls inside itself. */
+  browseRegion: { flex: 1, minHeight: 0 },
+  bannerInset: { paddingHorizontal: space.x7, paddingTop: space.x5 },
+  /** Every other pane scrolls as a page inside the region. */
   pane: { flex: 1, minHeight: 0 },
   paneContent: {
     paddingTop: space.x6,

@@ -1,222 +1,190 @@
-import { useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { Button, PressRow } from "../../design/components/Button";
-import { Pill } from "../../design/components/Pill";
+import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { colors, radii } from "../../design/tokens";
-import { PaneHead } from "../ConsoleShell";
-import { atName } from "../format";
+import { colors, radii, space } from "../../design/tokens";
+import { Breadcrumb } from "../files/Breadcrumb";
 import type { FileBrowser } from "../files/browser";
-import { ExplorerDialogs, type Dialog } from "../files/Explorer";
 import { NoteEditor } from "../files/NoteEditor";
-import { baseName, formatBytes, parentPath, restoreTargetFor } from "../files/paths";
+import { TabStrip } from "../files/TabStrip";
 import { findEntry } from "../files/tree";
+import { useTabs } from "../files/useTabs";
 import type { FileEntry, Visibility } from "../files/types";
+import { atName } from "../format";
 import { selectedContext, type ConsoleData } from "../types";
 
 /**
- * Browse — the note.
+ * Browse — the note, and nothing between you and it.
  *
- * This pane used to be the whole file editor: a 246px tree beside the note,
- * a "New note / New folder" toolbar above the tree, and a row of seven buttons
- * — Rename, Move, Duplicate, Copy, Cut, Archive, Delete… — permanently
- * occupying the top of every document.
+ * ## What this pane used to be
  *
- * The tree has moved out, to `files/Explorer.tsx`, because it is a region of
- * the application frame rather than content inside a pane: that is what lets it
- * be a resizable column on a desktop and a drawer on a phone, and what lets it
- * fill the height instead of scrolling inside a fixed box inside a scrolling
- * page.
+ * The whole file editor: a 246px tree beside the note, a "New note / New
+ * folder" toolbar above the tree, a pane heading with a paragraph explaining
+ * what markdown is, and — above every document — a card header carrying the
+ * file name, two chips and a byte count, and beneath *that* a row of seven
+ * buttons: Rename, Move, Duplicate, Copy, Cut, Archive, Delete…
  *
- * What is left is the note itself, which is what this pane was always for.
- * The actions remain for now — they are replaced by the row's own context menu
- * and its long-press action sheet — but they are down here beside the thing
- * they act on rather than above it, and the storage chip has moved to the top
- * bar where it describes the context rather than this one view of it.
+ * All of it is gone, and every operation still exists. The tree became a region
+ * of the frame (`files/Explorer.tsx`); the buttons became the row's own
+ * right-click menu and long-press sheet; the card header became a one-line
+ * breadcrumb at the top of the region. What is left is a tab strip, a
+ * breadcrumb, and the document — which is what the editor was always for.
+ *
+ * ## Why the note is no longer in a card
+ *
+ * A bordered, rounded, inset card is right for a *widget on a page* and wrong
+ * for the primary surface of an application. It cost 16px of padding, a border
+ * and a radius on all four sides of the thing people actually came to read, and
+ * it drew a boundary around the one element that should extend to the edges of
+ * its region. The editor now fills what it is given.
  */
 export function BrowsePane({
   data,
   /**
-   * Opens this context's settings — the storage binding and the ingestion
-   * rules. Absent where there is nowhere to go, and the gear is then not
-   * rendered rather than rendered dead.
+   * Opens this context's settings. Absent where there is nowhere to go, and the
+   * control is then not rendered rather than rendered dead.
    */
   onOpenSettings,
 }: {
   data: ConsoleData;
   onOpenSettings?: () => void;
 }) {
-  const current = selectedContext(data);
   const files = data.files;
-  const [dialog, setDialog] = useState<Dialog>(null);
+  const current = selectedContext(data);
+  const contextLabel = atName(current?.slug ?? "your context");
+  const tabs = useTabs(files);
 
   const selected =
     files.selectedPath === null ? null : findEntry(files.listings, files.selectedPath);
 
   const noBucket = data.storage === null && !data.loading;
   const manifestBroken = files.listings[""]?.manifestUsable === false;
+  const hasNotice =
+    noBucket ||
+    manifestBroken ||
+    files.notice !== null ||
+    (files.readOnlyReason !== undefined && !files.canEdit);
 
   return (
-    <View>
-      <PaneHead
-        title={`Browse ${atName(current?.slug ?? "your context")}`}
-        description="Plain markdown, exactly as it sits in your bucket. Edit it here or in Obsidian — it is the same file either way."
-        trailing={
-          onOpenSettings ? (
-            <PressRow
-              accessibilityLabel={`Settings for ${atName(current?.slug ?? "this context")}`}
-              onPress={onOpenSettings}
-              radius={radii.md}
-              style={styles.gear}
-              hoverStyle={styles.gearHover}
-              testID="browse-settings"
-            >
-              <Text style={styles.gearGlyph} aria-hidden>
-                ⚙
-              </Text>
-            </PressRow>
-          ) : null
-        }
-      />
-
-      {files.readOnlyReason !== undefined && !files.canEdit ? (
-        <View style={styles.notice}>
-          <Text variant="hint">{files.readOnlyReason}</Text>
-        </View>
+    <View style={styles.region}>
+      {/*
+        The strip is rendered whenever anything is open, at the very top edge of
+        the region — not inside the document's padding. A tab strip that is
+        inset reads as a control belonging to the note rather than the frame.
+      */}
+      {tabs.state.tabs.length > 0 ? (
+        <TabStrip
+          state={tabs.state}
+          onActivate={tabs.activate}
+          onClose={tabs.close}
+          onCloseOthers={tabs.closeOthers}
+          onReopen={tabs.reopen}
+        />
       ) : null}
 
-      {noBucket ? (
-        <View style={[styles.notice, styles.noticeWarn]}>
-          <Text variant="hint" style={styles.noticeWarnText}>
-            No bucket is connected to this context yet, so there is nowhere to keep notes.
-            Point it at an S3-compatible bucket you own and everything here starts working —
-            your name and your capture address are already yours.
-          </Text>
-          {onOpenSettings ? (
-            <Button
-              label="Connect a bucket"
-              onPress={onOpenSettings}
-              style={styles.dismiss}
-              testID="browse-connect-storage"
-            />
+      {selected !== null && selected.kind === "file" ? (
+        <Breadcrumb
+          path={selected.path}
+          contextLabel={contextLabel}
+          visibility={selected.visibility}
+          inherited={selected.inherited}
+          exception={selected.exception}
+          readOnly={selected.readOnly}
+          onSelectFolder={files.select}
+        />
+      ) : null}
+
+      {hasNotice ? (
+        <View style={styles.notices}>
+          {files.readOnlyReason !== undefined && !files.canEdit ? (
+            <View style={styles.notice}>
+              <Text variant="hint">{files.readOnlyReason}</Text>
+            </View>
+          ) : null}
+
+          {noBucket ? (
+            <View style={[styles.notice, styles.noticeWarn]}>
+              <Text variant="hint" style={styles.noticeWarnText}>
+                No bucket is connected to this context yet, so there is nowhere to keep notes.
+                Point it at an S3-compatible bucket you own and everything here starts working
+                — your name and your capture address are already yours.
+              </Text>
+              {onOpenSettings ? (
+                <Button
+                  label="Connect a bucket"
+                  onPress={onOpenSettings}
+                  style={styles.dismiss}
+                  testID="browse-connect-storage"
+                />
+              ) : null}
+            </View>
+          ) : null}
+
+          {manifestBroken ? (
+            <View style={[styles.notice, styles.noticeWarn]}>
+              <Text variant="hint" style={styles.noticeWarnText}>
+                privacy.md is missing or could not be read, so everything is treated as private
+                and nothing can be shared until it is fixed. Nothing is exposed by this — it
+                fails closed. Write a valid privacy.md at the root of the bucket, or ask a
+                connected AI client to, and sharing works again.
+              </Text>
+            </View>
+          ) : null}
+
+          {files.notice !== null ? (
+            <View style={[styles.notice, styles.noticeWarn]}>
+              <Text variant="hint" style={styles.noticeWarnText}>
+                {files.notice}
+              </Text>
+              <Button label="Dismiss" onPress={files.dismissNotice} style={styles.dismiss} />
+            </View>
           ) : null}
         </View>
       ) : null}
 
-      {manifestBroken ? (
-        <View style={[styles.notice, styles.noticeWarn]}>
-          <Text variant="hint" style={styles.noticeWarnText}>
-            privacy.md is missing or could not be read, so everything is treated as
-            private and nothing can be shared until it is fixed. Nothing is exposed by
-            this — it fails closed. Write a valid privacy.md at the root of the bucket,
-            or ask a connected AI client to, and sharing works again.
-          </Text>
-        </View>
-      ) : null}
-
-      {files.notice !== null ? (
-        <View style={[styles.notice, styles.noticeWarn]}>
-          <Text variant="hint" style={styles.noticeWarnText}>
-            {files.notice}
-          </Text>
-          <Button label="Dismiss" onPress={files.dismissNotice} style={styles.dismiss} />
-        </View>
-      ) : null}
-
-      <View style={styles.note}>
+      <View style={styles.body}>
         {selected === null ? (
-          <Text variant="paneSub">Choose a note to read or edit it.</Text>
+          <Empty contextLabel={contextLabel} />
+        ) : selected.kind === "folder" ? (
+          <FolderSummary
+            entry={selected}
+            canEdit={files.canEdit}
+            onSetVisibility={(visibility) =>
+              files.setVisibility(selected.path, "folder", visibility)
+            }
+          />
         ) : (
-          <>
-            <View style={styles.noteHead}>
-              <Text variant="noteTitle" role="heading" aria-level={3} numberOfLines={1}>
-                {baseName(selected.path)}
-              </Text>
-              <View style={styles.noteMeta}>
-                <Pill tone="neutral">{parentPath(selected.path) || "/"}</Pill>
-                <Pill tone={visibilityTone(selected)}>{describeVisibility(selected)}</Pill>
-                {selected.size !== undefined ? (
-                  <Text variant="meta">{formatBytes(selected.size)}</Text>
-                ) : null}
-              </View>
-            </View>
-
-            {files.canEdit ? (
-              <View style={styles.actions}>
-                <Button
-                  label="Rename"
-                  disabled={files.busy || selected.readOnly}
-                  onPress={() => setDialog({ kind: "rename", path: selected.path })}
-                />
-                <Button
-                  label="Move"
-                  disabled={files.busy || selected.readOnly}
-                  onPress={() => setDialog({ kind: "move", path: selected.path })}
-                />
-                <Button
-                  label="Duplicate"
-                  disabled={files.busy || selected.readOnly}
-                  onPress={() => files.duplicate(selected.path)}
-                />
-                {/* Archive first, and permanent deletion behind a "…". The
-                    recoverable action is the easy one on purpose — and for
-                    something already archived, the easy action is undoing it.
-                    The archive keeps the original path inside its timestamped
-                    folder precisely so this is a move, not a guess. */}
-                {restoreTargetFor(selected.path) !== null ? (
-                  <Button
-                    label="Restore"
-                    disabled={files.busy}
-                    onPress={() =>
-                      files.move(selected.path, parentPath(restoreTargetFor(selected.path)!))
-                    }
-                  />
-                ) : (
-                  <Button
-                    label="Archive"
-                    disabled={files.busy || selected.readOnly}
-                    onPress={() => setDialog({ kind: "archive", path: selected.path })}
-                  />
-                )}
-                <Button
-                  label="Delete…"
-                  variant="danger"
-                  disabled={files.busy || selected.readOnly}
-                  onPress={() =>
-                    setDialog({
-                      kind: "delete",
-                      path: selected.path,
-                      isFolder: selected.kind === "folder",
-                    })
-                  }
-                />
-              </View>
-            ) : null}
-
-            {selected.kind === "folder" ? (
-              <FolderSummary
-                entry={selected}
-                canEdit={files.canEdit}
-                onSetVisibility={(visibility) =>
-                  files.setVisibility(selected.path, "folder", visibility)
-                }
-              />
-            ) : (
-              <NoteEditor
-                state={files.editor}
-                canEdit={files.canEdit}
-                onChange={files.setDraft}
-                onSave={files.save}
-                onDiscard={files.discard}
-                onUseTheirs={files.useTheirs}
-                onKeepMine={files.keepMine}
-              />
-            )}
-          </>
+          <NoteEditor
+            state={files.editor}
+            canEdit={files.canEdit}
+            onChange={files.setDraft}
+            onSave={files.save}
+            onDiscard={files.discard}
+            onUseTheirs={files.useTheirs}
+            onKeepMine={files.keepMine}
+          />
         )}
       </View>
+    </View>
+  );
+}
 
-      <ExplorerDialogs files={files} dialog={dialog} onClose={() => setDialog(null)} />
+/**
+ * Nothing open.
+ *
+ * Says how to open something rather than just that nothing is — and names the
+ * gesture that is new, because a right-click menu nobody discovers is a feature
+ * that does not exist.
+ */
+function Empty({ contextLabel }: { contextLabel: string }) {
+  return (
+    <View style={styles.empty}>
+      <Text variant="paneTitle" role="heading" aria-level={2}>
+        {contextLabel}
+      </Text>
+      <Text variant="paneSub" style={styles.emptyLine}>
+        Choose a note to read or edit it. Right-click any row — or press and hold on a phone —
+        for everything you can do to it.
+      </Text>
     </View>
   );
 }
@@ -237,6 +205,9 @@ function FolderSummary({
   const current = entry.visibility;
   return (
     <View style={styles.folder}>
+      <Text variant="noteTitle" role="heading" aria-level={2}>
+        {entry.path}
+      </Text>
       <Text variant="paneSub">
         {current === "team"
           ? "Everything in this folder is visible to the people you have granted team access, unless a note is held back as an exception."
@@ -248,6 +219,7 @@ function FolderSummary({
             current === "team" ? "Make this folder private" : "Share this folder with your team"
           }
           variant="white"
+          style={styles.folderAction}
           onPress={() => onSetVisibility(current === "team" ? "private" : "team")}
         />
       ) : null}
@@ -258,53 +230,13 @@ function FolderSummary({
   );
 }
 
-function visibilityTone(entry: FileEntry): "ok" | "neutral" {
-  return entry.visibility === "team" ? "ok" : "neutral";
-}
-
-/**
- * The selected thing's visibility, said in full.
- *
- * The tree marks only exceptions; here there is room to be explicit, so a note
- * that follows its folder says so rather than looking simply unlabelled.
- */
-function describeVisibility(entry: FileEntry): string {
-  if (entry.readOnly) return "the access map";
-  if (entry.kind === "folder") return `${entry.visibility} by default`;
-  if (entry.exception) return `${entry.visibility} — set on this note`;
-  return `${entry.inherited} — follows its folder`;
-}
-
 const styles = StyleSheet.create({
-  /** The gear beside the title — `.mini`'s materials at icon size. */
-  gear: {
-    width: 28,
-    height: 26,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.lineStrong,
-    backgroundColor: colors.surface3,
-  },
-  gearHover: { borderColor: "rgba(255,255,255,.26)" },
-  gearGlyph: { fontSize: 13, lineHeight: 15, color: colors.text2 },
+  /** The editor region: chrome on its top edge, the document filling the rest. */
+  region: { flex: 1, minHeight: 0 },
+  body: { flex: 1, minHeight: 0, padding: space.x4 },
 
-  note: {
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radii.card,
-    backgroundColor: colors.surface2,
-    padding: 16,
-    gap: 14,
-  },
-  noteHead: { gap: 8 },
-  noteMeta: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
-  actions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  folder: { gap: 14 },
-
+  notices: { paddingHorizontal: space.x4, paddingTop: space.x3, gap: space.x2 },
   notice: {
-    marginBottom: 14,
     paddingVertical: 12,
     paddingHorizontal: 15,
     borderRadius: radii.md,
@@ -316,4 +248,10 @@ const styles = StyleSheet.create({
   noticeWarn: { borderColor: colors.warnBorder, backgroundColor: colors.warnWash },
   noticeWarnText: { color: colors.warnText },
   dismiss: { alignSelf: "flex-start" },
+
+  empty: { padding: space.x6, gap: space.x2, maxWidth: 520 },
+  emptyLine: { marginTop: 2 },
+
+  folder: { gap: 14, maxWidth: 620 },
+  folderAction: { alignSelf: "flex-start" },
 });

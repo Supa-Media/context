@@ -149,10 +149,18 @@ function statusLine(state: EditorState): string {
 const styles = StyleSheet.create({
   wrap: { gap: 12, flex: 1, minHeight: 0 },
 
-  /** `.note pre`, made editable. */
+  /**
+   * `.note pre`, made editable — and now filling the region it is given.
+   *
+   * `flex: 1` rather than the old `flexGrow` with a `minHeight`: the editor
+   * used to sit in a card on a scrolling page, where growing past a few hundred
+   * pixels just made the page longer. It owns a region now, so anything short
+   * of filling it leaves dead space under the document and a text box that
+   * stops in the middle of the screen.
+   */
   editor: {
-    minHeight: 300,
-    flexGrow: 1,
+    flex: 1,
+    minHeight: 160,
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: radii.lg,
@@ -165,11 +173,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   preview: {
+    flex: 1,
+    minHeight: 0,
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: radii.lg,
     backgroundColor: colors.well,
-    maxHeight: 360,
+    // No `maxHeight`. It was 360 while this sat in a card on a scrolling page;
+    // in a region that cap strands the reader two thirds of the way down a
+    // screen with the rest of the note behind a scrollbar that need not exist.
   },
   previewContent: { paddingVertical: 14, paddingHorizontal: 16 },
   codeKey: { color: colors.codeKey },
