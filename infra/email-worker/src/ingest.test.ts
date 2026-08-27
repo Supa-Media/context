@@ -492,6 +492,62 @@ describe("the target folder is configuration, and is still a path", () => {
   });
 });
 
+/**
+ * The refusals that survived authentication becoming a label.
+ *
+ * Each is asserted by its own *reason* rather than merely by refusing, because
+ * several of them refuse each other's messages by accident — a message whose
+ * MIME did not parse also has no body, so a broken `unparseable_message` check
+ * still produces a refusal, just the wrong one and one paragraph later. Pinning
+ * the reason is what makes deleting any single check go red.
+ *
+ * None of these is about trust. They are about a message this Worker cannot
+ * file: not ours, not readable, not small enough, nowhere to put it.
+ */
+describe("the structural refusals still refuse, each for its own reason", () => {
+  it("refuses bytes that are not a message, rather than capturing an empty note", async () => {
+    // Not asserted by reason, honestly: `parseEmail` only reports
+    // `parse_failed` when the HTML converter throws, which `decideCapture`
+    // cannot be made to do from a byte array — that branch is exercised in
+    // ./mime.test.ts where it lives. What matters here is that garbage never
+    // becomes a capture, whichever of the structural checks catches it.
+    for (const raw of [new Uint8Array(0), new TextEncoder().encode("\r\n\r\n"), new Uint8Array([0, 1, 2, 3])]) {
+      expect((await decide(raw)).kind).toBe("refuse");
+    }
+  });
+
+  it("refuses a message too large to look at", async () => {
+    expect(
+      await decide(rawMessage({ body: "x".repeat(5_000) }), { maxMessageBytes: 1_000 }),
+    ).toEqual({ kind: "refuse", reason: "message_too_large" });
+  });
+
+  it("refuses an unusable target folder before it reads anything", async () => {
+    expect(await decide(rawMessage(), { targetFolder: "../escape" })).toEqual({
+      kind: "refuse",
+      reason: "invalid_target_folder",
+    });
+  });
+
+  it("refuses a message with nothing in it", async () => {
+    expect(await decide(rawMessage({ body: "   \r\n  " }))).toEqual({
+      kind: "refuse",
+      reason: "empty_message",
+    });
+  });
+
+  it("refuses a recipient that is not ours, and a reserved one", () => {
+    expect(classifyRecipient("seyi@example.net", "context.lc")).toEqual({
+      kind: "refuse",
+      reason: "foreign_recipient_domain",
+    });
+    expect(classifyRecipient("support@context.lc", "context.lc")).toEqual({
+      kind: "refuse",
+      reason: "reserved_recipient",
+    });
+  });
+});
+
 describe("caps and empties", () => {
   it("refuses a message over the configured size", async () => {
     const decision = await decide(rawMessage({ body: "x".repeat(5_000) }), {
