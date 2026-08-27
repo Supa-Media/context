@@ -6,26 +6,27 @@
  * It used to be `[...supaPreset, { ignores: [...] }]`, and eslint could not
  * start: `ConfigError: Key "languageOptions": Key "parser"`. Nothing had linted
  * this app for months. Two separate defects in `@supa-media/linter@0.2.0`'s
- * flat preset stack up, and each has to be answered here until a fixed preset
- * ships — both belong upstream, in supa-framework.
+ * flat preset stacked up. `1.0.0` fixes one of them.
  *
- * **1. The parser.** The preset sets `languageOptions.parser` for TypeScript
- * files from a `try { require("@typescript-eslint/parser") } catch { undefined }`,
- * treating the parser as optional. It is not optional in flat config: ESLint
- * validates `languageOptions.parser` by the key's *presence*, so an explicit
- * `undefined` is rejected outright rather than falling back to espree — which
- * turns "no TypeScript parser installed" into "eslint refuses to run at all".
- * `@typescript-eslint/parser` is now a devDependency of this app, which both
- * makes that `require` succeed and gives the TS files a parser that can read
- * them. It is not something this app can go without: almost everything here is
- * `.ts` or `.tsx`.
+ * **1. The parser — still present at 1.0.0.** The preset sets
+ * `languageOptions.parser` for TypeScript files from a
+ * `try { require("@typescript-eslint/parser") } catch { undefined }`, treating
+ * the parser as optional. It is not optional in flat config: ESLint validates
+ * `languageOptions.parser` by the key's *presence*, so an explicit `undefined`
+ * is rejected outright rather than falling back to espree — which turns "no
+ * TypeScript parser installed" into "eslint refuses to run at all".
+ * `@typescript-eslint/parser` is a devDependency of this app for that reason
+ * as much as for parsing, and **removing it breaks lint entirely** rather than
+ * degrading it. It is not something this app can go without either way: almost
+ * everything here is `.ts` or `.tsx`. Still belongs upstream.
  *
- * **2. The plugin namespace.** The preset registers the plugin as `@supa` but
- * writes every rule as `@supa-media/…`, so with the parser fixed the next thing
- * eslint says is `Could not find plugin "@supa-media"`. Registering the same
- * plugin object under the name its own rules use is the smallest honest answer;
- * the alternative is restating all five rules here, which would quietly stop
- * tracking the preset.
+ * **2. The plugin namespace — fixed in `@supa-media/linter@1.0.0`.** The preset
+ * used to register the plugin as `@supa` while writing every rule as
+ * `@supa-media/…`, so with the parser fixed the next thing eslint said was
+ * `Could not find plugin "@supa-media"`, and this file re-registered the same
+ * plugin object under the name its own rules use. The preset now registers it
+ * correctly, so that workaround is gone. `lintRuns.test.ts` asserts the rules
+ * actually resolve, which is what makes deleting it safe rather than hopeful.
  *
  * ## Why the preset is not the whole rule set
  *
@@ -51,20 +52,12 @@
 const js = require("@eslint/js");
 const tsPlugin = require("@typescript-eslint/eslint-plugin");
 const reactHooks = require("eslint-plugin-react-hooks");
-const supaPlugin = require("@supa-media/linter");
 const supaPreset = require("@supa-media/linter/preset");
 
 const TS = ["**/*.ts", "**/*.tsx"];
 
 module.exports = [
   ...supaPreset,
-
-  // See note 2. Flat config merges `plugins` across every config object that
-  // matches a file, so registering it here is enough for the preset's own rule
-  // references to resolve.
-  {
-    plugins: { "@supa-media": supaPlugin },
-  },
 
   {
     ...js.configs.recommended,
