@@ -3,16 +3,20 @@
  *
  * ## This is an affordance layer, not a control surface
  *
- * Context is mobile-first. It ships to phones, where there is no keyboard at
- * all, and the console has to be completely usable with a thumb. So nothing in
- * this module is allowed to be the *only* way to run anything. The rule a
- * future addition has to satisfy is blunt:
+ * Context ships to a browser and to a phone, and both are the product. This
+ * module is the pointer surface's half of that, and it is deliberately only a
+ * half: a phone has no keyboard, so nothing here may be the *only* way to run
+ * anything. The rule a future addition has to satisfy is blunt:
  *
  *   **Every command named here must also be reachable by touch** — through the
  *   long-press action sheet on a tree row, or the bottom toolbar in the
- *   editor. A command that exists only as a keystroke is a command a phone
- *   user cannot run, which makes it a feature that does not exist on the
- *   platform we lead with.
+ *   editor. A command that exists only as a keystroke is a command half this
+ *   product's users cannot run at all.
+ *
+ * The reverse obligation is just as real, which is why this file is as long as
+ * it is. A web app whose only affordance is a visible button is a web app that
+ * feels slow to anybody who works in one all day: on a pointer, chords are not
+ * a power-user garnish, they are the difference between a tool and a form.
  *
  * Structurally that means this file is inert off the web. It imports nothing —
  * not React, not `react-native`, not the DOM — so a native build simply never

@@ -18,8 +18,9 @@
  *
  * ## Why the scoring rules are worth this much code
  *
- * This app is mobile-first, and on a phone this model backs a full-screen
- * search sheet opened from the bottom toolbar. A phone shows about six rows,
+ * This app serves a browser and a phone as equals. On the web this model backs
+ * ⌘K and ⌘O; on a phone it backs a full-screen search sheet opened from the
+ * bottom toolbar, and that is the harder case. A phone shows about six rows,
  * and nobody scrolls a fuzzy list on a touchscreen — they type another letter
  * or give up. So the bar is not "the right answer is in here somewhere", it is
  * **the first result is usually right**. Every rule below buys a specific case

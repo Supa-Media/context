@@ -1,12 +1,17 @@
 /**
  * The application frame's responsive rules.
  *
- * These run in plain node with no renderer, which is the point: the phone
- * layout is the primary one and nobody is going to catch a bad combination by
- * resizing a browser window. Every assertion here is a combination that would
- * otherwise only be visible on a device — an explorer that is a column and a
- * drawer at once, a bottom toolbar on a desktop, a drawer that survives a
- * rotation into a layout that has no drawer.
+ * These run in plain node with no renderer, which is the point. The app serves
+ * a browser and a phone as equals, so a bad combination is only visible if
+ * somebody happens to open the app at that particular width on that particular
+ * device — an explorer that is a column and a drawer at once, a bottom toolbar
+ * on a desktop, a drawer that survives a rotation into a layout that has no
+ * drawer, a drawer button on a pane with no tree behind it. Deciding all of it
+ * from a width makes every one of them an assertion instead of a bug report.
+ *
+ * The two invariant sweeps run over every combination of density, both
+ * toggles and the explorer flag, so a new density or a new region cannot be
+ * added without either satisfying them or failing loudly.
  */
 
 import { describe, expect, test } from "@jest/globals";
@@ -24,16 +29,19 @@ import { layout } from "../features/design/tokens";
 
 const DENSITIES: Density[] = ["compact", "medium", "wide"];
 
-/** Every combination of the two booleans, at every density. */
-function everyFrame(): { density: Density; state: FrameState }[] {
-  const frames: { density: Density; state: FrameState }[] = [];
+/** Every combination of the toggles and the explorer flag, at every density. */
+function everyFrame(): { density: Density; state: FrameState; hasExplorer: boolean }[] {
+  const frames: { density: Density; state: FrameState; hasExplorer: boolean }[] = [];
   for (const density of DENSITIES) {
     for (const drawerOpen of [false, true]) {
       for (const railCollapsed of [false, true]) {
-        frames.push({
-          density,
-          state: { drawerOpen, railCollapsed, explorerWidth: layout.explorerWidth },
-        });
+        for (const hasExplorer of [false, true]) {
+          frames.push({
+            density,
+            hasExplorer,
+            state: { drawerOpen, railCollapsed, explorerWidth: layout.explorerWidth },
+          });
+        }
       }
     }
   }
@@ -111,30 +119,75 @@ describe("regions", () => {
   /* ---------------------------------------------------------------------- */
 
   test("the explorer is never a column and a drawer at once", () => {
-    for (const { density, state } of everyFrame()) {
-      const regions = regionsFor(density, state);
+    for (const { density, state, hasExplorer } of everyFrame()) {
+      const regions = regionsFor(density, state, { hasExplorer });
       expect(regions.scrim).toBe(regions.explorer === "drawer");
     }
   });
 
   test("the bottom bar and the status bar are never both present", () => {
-    for (const { density, state } of everyFrame()) {
-      const regions = regionsFor(density, state);
+    for (const { density, state, hasExplorer } of everyFrame()) {
+      const regions = regionsFor(density, state, { hasExplorer });
       expect(regions.bottomBar && regions.statusBar).toBe(false);
     }
   });
 
   test("there is no density with nothing to read", () => {
-    for (const { density, state } of everyFrame()) {
-      expect(regionsFor(density, state).editor).toBe(true);
+    for (const { density, state, hasExplorer } of everyFrame()) {
+      expect(regionsFor(density, state, { hasExplorer }).editor).toBe(true);
     }
   });
 
   test("the drawer toggle exists exactly where a drawer can exist", () => {
-    for (const { density, state } of everyFrame()) {
-      const regions = regionsFor(density, state);
-      expect(regions.drawerToggle).toBe(density === "compact");
+    for (const { density, state, hasExplorer } of everyFrame()) {
+      const regions = regionsFor(density, state, { hasExplorer });
+      // A toggle exists only where a drawer can exist AND there is something
+      // to pull in. A button that opens an empty panel is worse than no button.
+      expect(regions.drawerToggle).toBe(density === "compact" && hasExplorer);
     }
+  });
+});
+
+describe("a route with no file tree", () => {
+  // Map and Connections are app-level panes spanning every context. There is no
+  // single tree that belongs beside them.
+  const none = { hasExplorer: false };
+
+  test("draws no empty column on a desktop", () => {
+    const regions = regionsFor("wide", initialFrame, none);
+    expect(regions.explorer).toBe("hidden");
+    expect(regions.scrim).toBe(false);
+  });
+
+  test("offers no drawer button on a phone", () => {
+    const regions = regionsFor("compact", initialFrame, none);
+    expect(regions.drawerToggle).toBe(false);
+    expect(regions.explorer).toBe("hidden");
+  });
+
+  test("a drawer already open cannot survive into such a route", () => {
+    // Navigating from Browse to Map with the drawer open must not leave a scrim
+    // over a pane that has nothing behind it.
+    const regions = regionsFor("compact", { ...initialFrame, drawerOpen: true }, none);
+    expect(regions.explorer).toBe("hidden");
+    expect(regions.scrim).toBe(false);
+  });
+
+  test("gives the rail its labels back on a tablet", () => {
+    // The rail collapses on a medium window to pay for the explorer column.
+    // With no column to pay for, there is no reason to make the rail harder to
+    // read.
+    expect(regionsFor("medium", initialFrame, none).rail).toBe("full");
+    expect(regionsFor("medium", initialFrame).rail).toBe("icons");
+  });
+
+  test("an explicit collapse is still honoured", () => {
+    const collapsed = { ...initialFrame, railCollapsed: true };
+    expect(regionsFor("medium", collapsed, none).rail).toBe("icons");
+  });
+
+  test("defaults to having one when the option is omitted", () => {
+    expect(regionsFor("wide", initialFrame).explorer).toBe("column");
   });
 });
 

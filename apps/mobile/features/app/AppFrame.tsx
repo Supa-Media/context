@@ -37,14 +37,22 @@ import {
  * Here the browser window is the window. Four regions, each owning its own
  * scroll, and a document that never moves.
  *
- * ## Built for the phone first
+ * ## Two real surfaces, not one plus a fallback
  *
- * The reference is Obsidian mobile, because that is what this product is: a
- * markdown context people carry around. On a phone the editor **is** the
- * screen, the file tree is a drawer pulled in from the left, and the verbs live
- * on a bottom toolbar within thumb reach. The wider layouts are what happens
- * when there is room to stop hiding things — not a desktop design with parts
- * removed.
+ * The same codebase serves a browser and a phone, and both are the product. On
+ * a wide window this is a desktop application — three columns at once, a
+ * resizable explorer, a status bar, a right-click menu and a keyboard chord for
+ * every operation. On a phone it is a phone application — the editor owns the
+ * screen, the tree is a drawer, and the verbs sit on a bottom toolbar within
+ * thumb reach, which is where Obsidian mobile puts them and where a thumb can
+ * actually reach.
+ *
+ * Neither is derived from the other. What is shared is the layer underneath:
+ * the menu items, the drop rules, the tab model and the ranking are one
+ * implementation each, so an operation cannot be available on one surface and
+ * quietly missing on the other. Only the presentation forks — and where it
+ * forks it does so on purpose, because a 44pt row is wrong under a pointer and
+ * a 24px row is unusable under a thumb.
  *
  * Which regions exist at a given width is decided by `frame.ts`, as a pure
  * function with tests, because the combinations that are wrong (a drawer *and*
@@ -124,8 +132,15 @@ export interface AppFrameProps {
   onSearch?: () => void;
   /** The rail, told how much room it has. Absent at compact. */
   rail: (mode: "full" | "icons") => ReactNode;
-  /** The file tree. Rendered as a column or inside the drawer. */
-  explorer: ReactNode;
+  /**
+   * The file tree, rendered as a column or inside the drawer.
+   *
+   * Omit it for a route that has no tree — Map and Connections are app-level
+   * panes spanning every context, and there is no single tree that belongs
+   * beside them. The frame then draws no column, no drawer and no drawer
+   * button, rather than a 260px empty strip and a button that opens nothing.
+   */
+  explorer?: ReactNode;
   /** Counts and save state, on the bottom edge of a pointer layout. */
   status?: ReactNode;
   /** Thumb-reach verbs, on the bottom edge of a phone. */
@@ -149,7 +164,7 @@ export function AppFrame({
   const [state, setState] = useState<FrameState>(initialFrame);
 
   const density = densityFor(width);
-  const regions = regionsFor(density, state);
+  const regions = regionsFor(density, state, { hasExplorer: explorer != null });
 
   const toggleExplorer = useCallback(() => {
     setState((current) =>

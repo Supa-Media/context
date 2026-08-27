@@ -10,20 +10,33 @@
  * bottom bar on a desktop, a rail with nowhere to go) are exactly the ones
  * nobody notices until somebody rotates a tablet.
  *
- * ## This is a phone layout that grows, not a desktop layout that shrinks
+ * ## Neither surface is the other one degraded
  *
- * The product is a markdown context people carry around, and the reference for
- * how it should feel on a phone is Obsidian mobile: the editor **is** the
- * screen, the file tree is a drawer you pull in from the left, and everything
- * you would otherwise reach for with a pointer lives on a bottom toolbar within
- * thumb reach. So `compact` is not a degraded `wide` with things hidden — it is
- * the layout, and the wider densities are what happens when there is room to
- * stop hiding things.
+ * This app ships to a browser and to a phone from one codebase, and both are
+ * the product. A pointer and a touchscreen are genuinely different machines:
+ * one has a right button, a keyboard and 1400px of width; the other has a
+ * thumb, a soft keyboard and 390px. Designing for either one and deriving the
+ * other produces a recognisable failure in both directions — a desktop layout
+ * shrunk down gives you 20px tap targets and a tree you cannot hit, and a phone
+ * layout stretched out gives you a 1400px column of chrome with nothing in it.
  *
- * That ordering matters for a concrete reason. A desktop-first layout reveals
- * its phone bugs only on a phone, and this repo's test suite runs in plain node
- * with no renderer — so the phone case has to be decidable from a number, which
- * is what this module makes it.
+ * So each density is designed on its own terms. `wide` is a real desktop
+ * application: three columns at once, a resizable explorer, a status bar, and
+ * every operation on a keyboard chord. `compact` is a real phone application:
+ * the editor owns the screen, the tree is a drawer, and the verbs sit on a
+ * bottom toolbar within thumb reach, the way Obsidian mobile does it. `medium`
+ * is the honest middle — a tablet has room for the explorer column but not for
+ * the rail's labels too, and it says so.
+ *
+ * What they share is this function and the models underneath it, which is the
+ * point: the *rules* are one implementation, so a refusal or a permission
+ * cannot exist on one surface and go missing on the other. Only the
+ * presentation forks.
+ *
+ * Deciding it from a number also makes it testable. This repo's suite runs in
+ * plain node with no renderer, so a layout decided by a width is a layout with
+ * tests, and the combinations that are wrong fail in CI rather than on a device
+ * somebody happens to pick up.
  *
  * ## Why the drawer and the column are the same region
  *
@@ -106,26 +119,41 @@ export interface Regions {
  *    answers to "what goes along the bottom edge", and a screen with both has
  *    28px of chrome saying nothing and a toolbar the thumb cannot reach.
  */
-export function regionsFor(density: Density, state: FrameState): Regions {
+export function regionsFor(
+  density: Density,
+  state: FrameState,
+  /**
+   * Whether this route has a file tree at all.
+   *
+   * Browse does; Map and Connections do not — they are app-level panes that
+   * span every context, and there is no single tree that belongs beside them.
+   * Without this, a wide window would draw a 260px empty column next to the
+   * constellation and a phone would offer a drawer button that pulls in
+   * nothing, which is worse than either pane simply being full width.
+   */
+  options: { hasExplorer?: boolean } = {},
+): Regions {
+  const hasExplorer = options.hasExplorer ?? true;
+
   if (density === "compact") {
+    const open = hasExplorer && state.drawerOpen;
     return {
       rail: "hidden",
-      explorer: state.drawerOpen ? "drawer" : "hidden",
+      explorer: open ? "drawer" : "hidden",
       editor: true,
-      scrim: state.drawerOpen,
+      scrim: open,
       bottomBar: true,
       statusBar: false,
-      drawerToggle: true,
+      drawerToggle: hasExplorer,
     };
   }
 
   return {
     // A medium window has room for the explorer column or the rail's labels,
-    // not both. The rail is the one that survives as icons, because its entries
-    // are a handful of stable destinations you learn by position, while the
-    // explorer is a list of names you have to read.
-    rail: density === "medium" || state.railCollapsed ? "icons" : "full",
-    explorer: "column",
+    // not both — unless there is no explorer, in which case the rail may as
+    // well be readable.
+    rail: (density === "medium" && hasExplorer) || state.railCollapsed ? "icons" : "full",
+    explorer: hasExplorer ? "column" : "hidden",
     editor: true,
     scrim: false,
     bottomBar: false,
