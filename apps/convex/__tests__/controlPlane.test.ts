@@ -998,6 +998,24 @@ async function startAuthorization(
   });
 }
 
+/** Park a request, approve it while narrowing, and pull the code out. */
+async function startAndApproveWith(
+  t: TestConvex,
+  who: { alice: Id<"users">; aliceWs: Id<"workspaces"> },
+  grantedScopes: string[],
+  overrides: Record<string, unknown> = {},
+): Promise<{ requestId: string; code: string }> {
+  const started = await bodyOf(await startAuthorization(t, overrides));
+  const requestId = started.requestId as string;
+  const { redirectTo } = await asUser(t, who.alice).action(
+    api.functions.authorizations.approveAuthorization,
+    { requestId, workspaceId: who.aliceWs, grantedScopes },
+  );
+  const code = new URL(redirectTo).searchParams.get("code");
+  if (code === null) throw new Error("no code in the approval redirect");
+  return { requestId, code };
+}
+
 /** Park a request, sign in as its approver, and pull the code out of the redirect. */
 async function startAndApprove(
   t: TestConvex,
@@ -1749,5 +1767,75 @@ describe("the full authorization flow produces a working, isolated grant", () =>
         }),
       ),
     ).toEqual({ binding: null });
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* 11. A narrowed approval survives the whole flow                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The narrowing has to reach the session, not just the screen.
+ *
+ * A tick box that changes a database row and not the answer the gateway gets is
+ * the same bug with a nicer picture, so each of these follows one approval all
+ * the way to `/gateway/session` — the payload the gateway builds its enforcement
+ * from — and asserts what came out the far end.
+ */
+describe("what the person approved is what the session carries", () => {
+  async function sessionScopesFor(
+    t: TestConvex,
+    who: { alice: Id<"users">; aliceWs: Id<"workspaces"> },
+    grantedScopes: string[],
+    overrides: Record<string, unknown> = {},
+  ): Promise<string[]> {
+    const { code } = await startAndApproveWith(t, who, grantedScopes, overrides);
+    const consumed = await bodyOf(
+      await gatewayPost(t, "/gateway/codes/consume", { code, clientId: CLIENT_A }),
+    );
+    const authorization = consumed.authorization as { workspaceId: string; userId: string; scope: string };
+
+    const accessToken = token(`narrowed_${grantedScopes.length}_${Math.random()}`.slice(0, 40));
+    await gatewayPost(t, "/gateway/grants/create", {
+      workspaceId: authorization.workspaceId,
+      userId: authorization.userId,
+      clientId: CLIENT_A,
+      // Exactly what the code carried. If `consumeAuthorizationCode` handed back
+      // the *request* instead of the approval, this is where it would show up.
+      scopes: authorization.scope.split(" "),
+      hashedRefreshToken: await hashToken(`crt_narrowed_${accessToken}`),
+      hashedAccessToken: await hashToken(accessToken),
+      accessTokenExpiresAt: Date.now() + 3_600_000,
+    });
+
+    const session = await bodyOf(await gatewayPost(t, "/gateway/session", { accessToken }));
+    return (session.session as { scopes: string[] }).scopes;
+  }
+
+  test("a read-only approval of a read-and-write request arrives read-only", async () => {
+    const { t, alice, aliceWs } = await twoConnectedTenants();
+    expect(await sessionScopesFor(t, { alice, aliceWs }, ["context:read"])).toEqual([
+      "context:read",
+    ]);
+  });
+
+  test("an approval that named no tier arrives with no tier", async () => {
+    const { t, alice, aliceWs } = await twoConnectedTenants();
+    // Alice owns this context. Under the old model that alone made the grant
+    // private-tier, and nothing recorded a decision because there was none.
+    expect(
+      await sessionScopesFor(t, { alice, aliceWs }, ["context:read", "context:write"]),
+    ).not.toContain("context:private");
+  });
+
+  test("an owner who chose private-tier arrives carrying it", async () => {
+    const { t, alice, aliceWs } = await twoConnectedTenants();
+    expect(
+      await sessionScopesFor(t, { alice, aliceWs }, [
+        "context:read",
+        "context:write",
+        "context:private",
+      ]),
+    ).toEqual(["context:read", "context:write", "context:private"]);
   });
 });
