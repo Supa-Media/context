@@ -181,3 +181,27 @@ export function foldersToRefresh(
   }
   return [...folders].sort();
 }
+
+/**
+ * Which folder a new note or folder should be created in.
+ *
+ * Written once because it was written twice and the copies disagreed. The
+ * explorer's toolbar had it right — a selected *folder* is the destination,
+ * anything else means its parent — while the phone's toolbar used
+ * `parentPath(selectedPath)` unconditionally. Since selecting a folder in the
+ * tree also expands it, `selectedPath` is routinely a folder, so tapping
+ * `1-projects` and then `+` on a phone created the note at the **root**.
+ *
+ * `null` means nothing is selected, which is the root — and the root is a
+ * legitimate destination, so it is `""` rather than a refusal.
+ */
+export function targetFolder(
+  listings: Readonly<Record<string, FolderListing | undefined>>,
+  selectedPath: string | null,
+): string {
+  if (selectedPath === null) return "";
+  const entry = findEntry(listings, selectedPath);
+  if (entry?.kind === "folder") return selectedPath;
+  const slash = selectedPath.lastIndexOf("/");
+  return slash < 0 ? "" : selectedPath.slice(0, slash);
+}

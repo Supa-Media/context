@@ -168,7 +168,20 @@ function RailButton({
   );
 }
 
-/** `.panehead` — title, explanatory line, and an optional status pill. */
+/**
+ * `.panehead` — title, explanatory line, and an optional status pill.
+ *
+ * The description is **dropped on a narrow screen**, and that is a deliberate
+ * edit rather than a responsive afterthought. Measured in Chromium, the title
+ * and its two-line explanation cost 95px of an 844px phone viewport — around a
+ * ninth of the screen, above every note, every time you open one. On a desktop
+ * that paragraph is a useful orientation for somebody seeing the pane for the
+ * first time; on a phone it is a paragraph standing between you and the note
+ * you just tapped, and the top bar already says which context you are in.
+ *
+ * The title stays: it is the heading a screen reader navigates by, and losing
+ * it would cost the page its structure to save nothing.
+ */
 export function PaneHead({
   title,
   description,
@@ -178,13 +191,16 @@ export function PaneHead({
   description?: string;
   trailing?: ReactNode;
 }) {
+  const { width } = useWindowDimensions();
+  const narrow = width > 0 && width < layout.narrowBreakpoint;
+
   return (
     <View style={styles.paneHead}>
       <View style={styles.paneHeadText}>
         <Text variant="paneTitle" role="heading" aria-level={2}>
           {title}
         </Text>
-        {description ? (
+        {description !== undefined && !narrow ? (
           <Text variant="paneSub" style={styles.paneHeadSub}>
             {description}
           </Text>

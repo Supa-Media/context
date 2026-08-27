@@ -227,7 +227,13 @@ export function PressRow({
     <Pressable
       role={role}
       accessibilityLabel={accessibilityLabel}
-      accessibilityState={role === "tab" ? { selected } : undefined}
+      // `aria-selected` is set directly rather than through
+      // `accessibilityState`. react-native-web 0.21 no longer maps
+      // `accessibilityState.selected` to an ARIA attribute, so the previous
+      // spelling emitted **nothing** — every `role="tab"` in this app was
+      // unlabelled for assistive tech, silently, and a render test asserting
+      // the prop was passed would still have gone green.
+      aria-selected={role === "tab" ? selected : undefined}
       onPress={onPress}
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}

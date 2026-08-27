@@ -36,4 +36,20 @@ module.exports = {
   // what lets a test assert that a screen does *not* show somebody a capture
   // address for a name the field is rejecting.
   moduleNameMapper: { "^react-native$": "react-native-web" },
+  /**
+   * Resolve `.web.ts` / `.web.tsx` ahead of the bare extension, the way Metro
+   * does when it bundles for the browser.
+   *
+   * Without this the suite was in a contradictory state: it renders components
+   * through `react-native-web` — the mapping above — while resolving every
+   * platform split to its **native** half. So `clipboard.web.ts`,
+   * `fonts.web.ts`, `leave.web.ts` and `rowInteractions.web.ts` were never once
+   * executed by a test, and a test asserting web behaviour silently exercised
+   * the native stub that deliberately does nothing. That is the same shape of
+   * false green this project keeps producing, and it is worth the risk of
+   * changing resolution for the whole suite to remove it.
+   *
+   * Native halves stay reachable by importing them by their explicit path.
+   */
+  moduleFileExtensions: ["web.ts", "web.tsx", "web.js", "ts", "tsx", "js", "jsx", "json", "node"],
 };

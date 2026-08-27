@@ -6,9 +6,21 @@
  * `useDemoFileBrowser` (the read-only console on the landing page, backed by
  * a handful of literals). The components take this and nothing else, which is
  * what lets the marketing page run the actual console rather than a
- * screenshot — and, more importantly, what makes it impossible for the demo to
- * offer a button that would lie: `canEdit` is false there, and every mutating
- * method is absent.
+ * screenshot.
+ *
+ * **A read-only browser still carries every mutating method, and they are
+ * inert.** This comment used to say the opposite — that `canEdit: false` meant
+ * the methods were absent — and it was never true: they are required members of
+ * this interface, `useDemoFileBrowser` sets all of them to no-ops, and
+ * `useFileBrowser`'s `run` returns without doing anything when `canEdit` is
+ * false. So `files.destroy(path)` on a console that cannot edit does not throw;
+ * it silently does nothing at all.
+ *
+ * Which means **the UI cannot use a crash to catch a control it should not have
+ * offered**. A Delete that reached the landing page would look like it worked
+ * and quietly do nothing, and nobody would find out. Whether a control exists
+ * is decided from `canEdit` — see `itemsFor` in `menu.ts` — and that decision is
+ * the only thing standing between a visitor and a button that lies.
  */
 
 import type { Clipboard } from "./clipboard";
@@ -56,6 +68,23 @@ export interface FileBrowser {
   copy: (path: string) => void;
   cut: (path: string) => void;
   paste: (destinationFolder: string) => void;
+  /**
+   * Copy a path into a destination folder, without touching the clipboard.
+   *
+   * For the ⌥-drop on the tree, where the thing being copied is the thing the
+   * person is dragging rather than the thing they last pressed ⌘C on. Spelling
+   * that as `copy(from)` then `paste(folder)` looks equivalent and is not:
+   * `copy` sets state, `paste` reads the clipboard captured in its own render,
+   * and the two run in the same tick — so the paste acts on the *previous*
+   * clipboard. Empty, it refuses; holding a cut of some other file, it moves
+   * that file into the drop folder.
+   *
+   * Same collision rules and the same server action as a copy-and-paste — a
+   * drop and a paste must never disagree about the name something lands under
+   * — with the source passed in. `paste` keeps reading the clipboard, because
+   * on the toolbar and menu path the clipboard genuinely is the source.
+   */
+  copyTo: (from: string, destinationFolder: string) => void;
 
   createNote: (folder: string, name: string) => void;
   createFolder: (folder: string, name: string) => void;
