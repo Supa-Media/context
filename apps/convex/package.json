@@ -11,7 +11,7 @@
   "dependencies": {
     "@context/shared": "workspace:*",
     "@convex-dev/auth": "^0.0.90",
-    "@supa-media/convex": "^0.2.0",
+    "@supa-media/convex": "^1.2.0",
     "convex": "^1.31.3"
   },
   "devDependencies": {

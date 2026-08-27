@@ -9,6 +9,7 @@ import { Text } from "../design/components/Text";
 import { clamp, colors, fonts, layout, leading, radii, tracking } from "../design/tokens";
 import { StageBackdrop } from "../design/components/StageBackdrop";
 import { LANDING_ROUTE, safeNextRoute } from "./redirect";
+import { normalizeSignInEmail } from "./email";
 
 /**
  * Email OTP sign-in, styled to the console's palette.
@@ -41,7 +42,7 @@ export function LoginScreen() {
     setError(null);
     setSubmitting(true);
     try {
-      await signIn("email", { email: email.trim() });
+      await signIn("email", { email: normalizeSignInEmail(email) });
       setStep("verify");
     } catch {
       setError("Couldn't send your code. Check the address and try again.");
@@ -54,7 +55,10 @@ export function LoginScreen() {
     setError(null);
     setSubmitting(true);
     try {
-      await signIn("email", { email: email.trim(), code: code.trim() });
+      await signIn("email", {
+        email: normalizeSignInEmail(email),
+        code: code.trim(),
+      });
       router.replace(next);
     } catch {
       setError("That code didn't work. Codes expire — ask for a new one if it's been a while.");

@@ -41,11 +41,16 @@ import { modules } from "../test.setup";
 import { SIGNIN_CODE_TTL_MS, signInCodeExpiry } from "../functions/lib/invitationEmail";
 import { randomOpaqueToken } from "../functions/lib/gatewayAuth";
 import { hashToken } from "../functions/lib/crypto";
+import { MAGIC_LINK_PROVIDER_ID } from "@supa-media/convex/auth";
 
 /** Mirrors SIGNIN_CODE_BYTES in functions/invitationEmail.ts, which is not exported. */
 const SIGNIN_CODE_BYTES = 32;
-/** Mirrors SIGNIN_PROVIDER, likewise not exported. */
-const SIGNIN_PROVIDER = "magic-link";
+/**
+ * The same constant the module under test uses, imported rather than mirrored.
+ * A hand-copied id that quietly stopped matching would not fail — it would make
+ * every "the row is under the link-only provider" assertion vacuous instead.
+ */
+const SIGNIN_PROVIDER = MAGIC_LINK_PROVIDER_ID;
 /** Mirrors RECIPIENT_MAIL_LIMIT. */
 const RECIPIENT_MAIL_LIMIT = 10;
 import {
@@ -198,6 +203,46 @@ const brokenAuthStore = internalMutation({
   returns: v.null(),
   handler: async () => {
     throw new Error("expirationTime is not a valid timestamp");
+  },
+});
+
+/**
+ * A deployment whose `auth.ts` does not register the link-only provider.
+ *
+ * This was the shipping state until `@supa-media/convex@1.2.0`, and it is now
+ * the regression: drop `magicLink` from `createSupaAuth` and every invitation
+ * quietly goes back to a plain link. The message is the one
+ * `getProviderOrThrow` raises for an id nothing declares, spelled through
+ * `SIGNIN_PROVIDER` so it cannot drift from the marker
+ * `classifyMintFailure` matches on.
+ */
+/**
+ * Set environment variables for one call and put them back exactly.
+ *
+ * `signIn` needs a signing key and an origin that nothing else in this suite
+ * does. Restoring rather than assigning matters because these tests share a
+ * process: a leaked `JWT_PRIVATE_KEY` would let a later test mint a session it
+ * has no business minting and pass for the wrong reason.
+ */
+function withEnv(values: Record<string, string>): () => void {
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(values)) {
+    previous.set(key, process.env[key]);
+    process.env[key] = value;
+  }
+  return () => {
+    for (const [key, was] of previous) {
+      if (was === undefined) delete process.env[key];
+      else process.env[key] = was;
+    }
+  };
+}
+
+const unregisteredAuthStore = internalMutation({
+  args: { args: v.any() },
+  returns: v.null(),
+  handler: async () => {
+    throw new Error(`Provider \`${SIGNIN_PROVIDER}\` is not configured`);
   },
 });
 
@@ -516,30 +561,26 @@ describe("what the email is allowed to say", () => {
 
 describe("the magic link", () => {
   /**
-   * ## Auto sign-in is minted but not yet redeemable, and that is on purpose
+   * ## Auto sign-in works, against the real provider
    *
-   * The link should sign its recipient in on click. It cannot yet, and the
-   * reason is upstream: `@convex-dev/auth`'s `Email()` hardcodes an `authorize`
-   * that refuses any verification without a matching `params.email`, so a code
-   * minted under the OTP provider is stored and expires correctly and then
-   * throws the moment anybody clicks it. The fix is a second, link-only
-   * provider — committed to supa-framework, not yet released — so
-   * `@supa-media/convex@0.2.0` cannot register one.
+   * These three tests used to assert the opposite. `@convex-dev/auth`'s
+   * `Email()` hardcodes an `authorize` that refuses any verification without a
+   * matching `params.email` — right for a code typed off a screen, fatal for a
+   * link whose whole premise is that the URL carries everything. The fix is a
+   * second, link-only provider, which lived upstream unreleased, so
+   * `@supa-media/convex@0.2.0` could not register one: the mint threw, the send
+   * caught it, and a plain link went out. That degraded state was asserted
+   * deliberately, as the state that shipped, and designed to fail the day the
+   * provider appeared.
    *
-   * `SIGNIN_PROVIDER` therefore names a provider this deployment does not
-   * have, minting throws, and `sendInvitationEmail` catches it and mails a
-   * plain link. **The invitation still arrives and still works**; what the
-   * recipient loses is one screen.
-   *
-   * These tests assert the degraded state deliberately rather than being
-   * deleted or skipped, because it is the state that ships. When the framework
-   * release lands and `auth.ts` registers the provider, they fail — which is
-   * exactly the notification wanted, and the block comment on `SIGNIN_PROVIDER`
-   * says what to change. The properties that outlive the blocker — the token's
-   * shape and its expiry — are asserted on the pure functions instead, below
-   * and in `invitationEmailText.test.ts`, so they are not lost in the meantime.
+   * It did. `@supa-media/convex@1.2.0` exports `MAGIC_LINK_PROVIDER_ID` and
+   * `auth.ts` passes `magicLink`, so this is now the real path and these assert
+   * it end to end — claim, mint, render, send — against the deployment's own
+   * `auth:store` rather than a substitute. The stubbed `mintingAuthStore` tests
+   * further down are kept: they prove the same shape while isolating the send
+   * from auth's storage, which is what makes a failure in either one legible.
    */
-  test("degrades to a plain link while no link-only provider is registered", async () => {
+  test("carries a sign-in code, minted under the link-only provider", async () => {
     const { t, inviter, workspaceId } = await scenario();
     await invite(t, inviter, workspaceId, "newcomer@example.invalid");
     await drainScheduled(t);
@@ -549,16 +590,169 @@ describe("the magic link", () => {
     // the shortcut.
     expect(captured).toHaveLength(1);
     const link = linkFrom(captured[0]);
-    expect(link.searchParams.get("code")).toBeNull();
-    // And the invitation token — the thing the link is actually for — is there.
+    const code = link.searchParams.get("code");
+    expect(code).toMatch(/^[0-9a-f]{64}$/);
+
+    // And the invitation token — the thing the link is actually for — is still
+    // in the path, and is emphatically not the secret that signs anybody in.
     const row = await invitationRow(t, workspaceId);
     expect(link.pathname).toContain(row!.token);
+    expect(code).not.toBe(row!.token);
 
-    // Nothing half-minted: no orphan row waiting to authenticate somebody.
+    // Exactly one verification row, under the link-only provider, holding the
+    // digest rather than the code. Under `"email"` the link would be inert.
     const codes = await t.run((ctx) =>
       ctx.db.query("authVerificationCodes").collect(),
     );
-    expect(codes).toEqual([]);
+    expect(codes).toHaveLength(1);
+    expect(codes[0].provider).toBe(SIGNIN_PROVIDER);
+    expect(codes[0].code).toBe(await hashToken(code!));
+    expect(codes[0].code).not.toBe(code);
+  });
+
+  /**
+   * THE TEST THIS WHOLE PROVIDER EXISTS FOR, and the one everything above
+   * stops short of.
+   *
+   * Every other assertion here ends at "a row exists with the right provider
+   * on it". None of them redeems anything — and the bug the second provider
+   * was created to fix does not live in the row. It lives in `authorize`,
+   * cleared by a post-spread override in `@supa-media/convex`'s `setup.ts`
+   * that its own comment concedes is the kind of thing a refactor drops
+   * silently. If that override stopped taking effect, every assertion above
+   * stays green while every link in every invitation throws on click.
+   *
+   * So this clicks the link: the code out of the mail, submitted with **no
+   * email**, which is the whole premise of a link and precisely what the OTP
+   * provider refuses. It asserts a real session for a real user, which needs a
+   * signing key — generated here rather than fixtured, so nothing shaped like
+   * a credential is committed to a public repository.
+   */
+  test("the code in the mail signs its holder in, with no email supplied", async () => {
+    const { t, inviter, workspaceId } = await scenario();
+    await invite(t, inviter, workspaceId, "newcomer@example.invalid");
+    await drainScheduled(t);
+    const code = linkFrom(captured[0]).searchParams.get("code");
+    expect(code).toMatch(/^[0-9a-f]{64}$/);
+
+    const { generateKeyPairSync } = await import("node:crypto");
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const restore = withEnv({
+      JWT_PRIVATE_KEY: privateKey
+        .export({ type: "pkcs8", format: "pem" })
+        .toString(),
+      SITE_URL: "https://context.invalid",
+      CONVEX_SITE_URL: "https://context.invalid",
+    });
+
+    try {
+      const result = await t.action(api.auth.signIn, {
+        provider: SIGNIN_PROVIDER,
+        params: { code },
+      });
+      expect(result.tokens).not.toBeNull();
+      expect(typeof result.tokens!.token).toBe("string");
+    } finally {
+      restore();
+    }
+
+    // A session exists, and it belongs to the invitee rather than the inviter.
+    const invitee = await t.run((ctx) =>
+      ctx.db
+        .query("users")
+        .withIndex("by_email", (q) => q.eq("email", "newcomer@example.invalid"))
+        .unique(),
+    );
+    expect(invitee).not.toBeNull();
+    const sessions = await t.run((ctx) =>
+      ctx.db.query("authSessions").collect(),
+    );
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].userId).toBe(invitee!._id);
+    expect(sessions[0].userId).not.toBe(inviter);
+
+    // Single use: the row is spent, so the same link cannot be replayed.
+    const left = await t.run((ctx) =>
+      ctx.db.query("authVerificationCodes").collect(),
+    );
+    expect(left).toEqual([]);
+  });
+
+  /**
+   * `auth.ts` sets `magicLink.maxAge` to an hour, and the link lives for the
+   * invitation's seven days. Both are true at once, and the reason is not
+   * obvious enough to leave to a reading: `maxAge` is consulted only where the
+   * *library* generates a code (`signIn.js`), while redemption checks the
+   * stored row (`verifyCodeAndSignIn.js`). This module mints its own code and
+   * passes its own `expirationTime`, so `maxAge` never touches it.
+   *
+   * Without this test, someone "aligning" `maxAge` with SIGNIN_CODE_TTL_MS —
+   * or shortening the link by editing `maxAge` — would be changing a value
+   * that does nothing here, and would believe they had changed the link.
+   *
+   * Asserting only the invitation's own expiry would not show that, because
+   * it restates SIGNIN_CODE_TTL_MS and would pass with `maxAge` set to
+   * anything at all. So this drives **both** paths through the one provider in
+   * one test and contrasts them: the invitation, which supplies its own
+   * expiry, and the public `signIn(MAGIC_LINK_PROVIDER_ID, { email })`, which
+   * is the path `maxAge` really does bound. Two orders of magnitude apart is
+   * the observable difference, and it is what disappears if either half stops
+   * being true.
+   */
+  test("maxAge bounds the public signIn mint, and the invitation's own expiry bounds the link", async () => {
+    const { t, inviter, workspaceId } = await scenario();
+    const before = Date.now();
+    await invite(t, inviter, workspaceId, "newcomer@example.invalid");
+    await drainScheduled(t);
+    // Bracketed against the post-send reading, not the pre-send one: the mint
+    // happens somewhere between the two, so `before + TTL` is not an upper
+    // bound at all and fails by a millisecond whenever the send is not
+    // instantaneous.
+    const after = Date.now();
+
+    const codes = await t.run((ctx) =>
+      ctx.db.query("authVerificationCodes").collect(),
+    );
+    expect(codes).toHaveLength(1);
+    expect(codes[0].provider).toBe(SIGNIN_PROVIDER);
+    // Well past the hour `magicLink.maxAge` would have imposed had it applied.
+    expect(codes[0].expirationTime).toBeGreaterThan(before + 60 * 60 * 1000);
+    expect(codes[0].expirationTime).toBeLessThanOrEqual(
+      after + SIGNIN_CODE_TTL_MS,
+    );
+
+    // The same provider, reached the other way. No invitation, no expiry
+    // supplied by us — so this one is the library's own, and `maxAge` is what
+    // sets it. If `maxAge` were seven days, this assertion is what would fail.
+    //
+    // `signIn` builds a redirect against SITE_URL, which nothing else in this
+    // suite needs; set for this call and put back, so no other test inherits it.
+    const restoreEnv = withEnv({
+      SITE_URL: "https://context.invalid",
+      CONVEX_SITE_URL: "https://context.invalid",
+    });
+    const mintedAt = Date.now();
+    try {
+      await t.action(api.auth.signIn, {
+        provider: SIGNIN_PROVIDER,
+        params: { email: "stranger@example.invalid" },
+      });
+    } finally {
+      restoreEnv();
+    }
+    const strangerCode = await t.run(async (ctx) => {
+      const all = await ctx.db.query("authVerificationCodes").collect();
+      return all.find((row) => row.expirationTime !== codes[0].expirationTime);
+    });
+    expect(strangerCode).toBeDefined();
+    expect(strangerCode!.expirationTime).toBeLessThanOrEqual(
+      Date.now() + 60 * 60 * 1000,
+    );
+    expect(strangerCode!.expirationTime).toBeGreaterThan(mintedAt);
+    // And emphatically not the invitation's week.
+    expect(strangerCode!.expirationTime).toBeLessThan(
+      mintedAt + SIGNIN_CODE_TTL_MS,
+    );
   });
 
   test("the token it would carry is not guessable, and is not a six-digit code", () => {
@@ -595,12 +789,13 @@ describe("the magic link", () => {
     expect(codes).toEqual([]);
   });
 
-  test("its expiry is capped at a day and inside the invitation it travels with", () => {
-    // The other property that outlives the blocker, asserted on the pure
-    // function. A link sits in a mailbox and gets forwarded in a way a typed
-    // code does not, so it must not stay live for the invitation's whole week
-    // — and it must never outlive the invitation itself, which would leave a
-    // credential working after the thing it was minted for had expired.
+  test("its expiry is capped at SIGNIN_CODE_TTL_MS and inside the invitation it travels with", () => {
+    // Asserted on the pure function rather than through a send, so the cap is
+    // proved independently of how the code gets minted. #57 made the cap the
+    // invitation's own seven days — single use, not the clock, is what bounds
+    // the link — so what remains load-bearing is the second half: the code must
+    // never outlive the invitation itself, which would leave a credential
+    // working after the thing it was minted for had expired.
     const now = Date.UTC(2026, 0, 1);
     const invitationExpiry = now + 7 * 24 * 60 * 60 * 1000;
     const expiry = signInCodeExpiry(now, invitationExpiry);
@@ -629,14 +824,14 @@ describe("what minting a sign-in code does to the users table", () => {
    * already does. When the real person signs in later they land on that row and
    * their invitation is waiting, which is the behaviour you want.
    *
-   * **It does not happen yet**, because no code is minted at all: the link-only
-   * provider is not registered on this deployment (see "the magic link" above),
-   * so the mint throws before `auth:store` is reached. So the assertion below
-   * is the *current* truth, and it flips the day the framework release lands —
-   * at which point this test fails and the paragraph above becomes the one to
-   * assert. That is the notification wanted, not a gap.
+   * This is the paragraph the previous version of this test said would become
+   * the one to assert. It has: the provider registers, the mint reaches
+   * `auth:store`, and the row appears. What is asserted is not just that it
+   * exists but that it is *inert* — because "an account was created for
+   * somebody who has not clicked anything" is only acceptable while that
+   * remains true.
    */
-  test("no account is invented for the invitee while no code is minted", async () => {
+  test("an account appears for the invitee, and it owns nothing", async () => {
     const { t, inviter, workspaceId } = await scenario();
     await invite(t, inviter, workspaceId, "newcomer@example.invalid");
     await drainScheduled(t);
@@ -650,7 +845,42 @@ describe("what minting a sign-in code does to the users table", () => {
         .withIndex("by_email", (q) => q.eq("email", "newcomer@example.invalid"))
         .collect(),
     );
-    expect(created).toEqual([]);
+    expect(created).toHaveLength(1);
+
+    // Inert, and that is the whole justification for creating it early. It
+    // owns no context, holds no session, and claims no name; the only thing
+    // that reaches it is whoever can read that mailbox.
+    const userId = created[0]._id;
+    const owned = await t.run((ctx) =>
+      ctx.db
+        .query("workspaceMembers")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .collect(),
+    );
+    expect(owned).toEqual([]);
+    // Not vacuous: the same query against the inviter returns rows, so an
+    // empty result for the invitee means "no memberships" rather than "this
+    // query never matches anything".
+    const inviterOwned = await t.run((ctx) =>
+      ctx.db
+        .query("workspaceMembers")
+        .withIndex("by_user", (q) => q.eq("userId", inviter))
+        .collect(),
+    );
+    expect(inviterOwned.length).toBeGreaterThan(0);
+
+    const sessions = await t.run((ctx) =>
+      ctx.db.query("authSessions").collect(),
+    );
+    expect(sessions).toEqual([]);
+
+    // `names` is non-empty here — the inviter's context claimed one — so this
+    // is a real absence rather than an empty table. Compared as ids, not via
+    // `String(...)`, which would also have "passed" against `undefined`.
+    const names = await t.run((ctx) => ctx.db.query("names").collect());
+    expect(names.length).toBeGreaterThan(0);
+    expect(names.some((n) => n.userId === userId)).toBe(false);
+    expect(names.some((n) => n.claimedBy === userId)).toBe(false);
   });
 
   test("no account is invented for an address that was never mailed", async () => {
@@ -880,15 +1110,105 @@ describe("telling the expected degradation from a broken mint", () => {
    * so an operator watching for the framework release could not tell "still
    * waiting on upstream" from "the provider is registered and minting is
    * broken". The catch did not even bind the error.
+   *
+   * The release landed, so the expected condition is now *no* degradation at
+   * all — asserted here against the real `auth:store`, which is the one that
+   * would actually stop minting if `auth.ts` lost `magicLink`. The
+   * `provider_not_configured` detail is still classified and still tested, by
+   * the test below that provokes it, because it is what an operator would see
+   * if that happened.
    */
-  test("the expected condition names itself", async () => {
+  test("the happy path degrades not at all", async () => {
     const { t, inviter, workspaceId } = await scenario();
+    await invite(t, inviter, workspaceId, "newcomer@example.invalid");
+    await drainScheduled(t);
+
+    expect(captured).toHaveLength(1);
+    expect(linesFor("signin_code_unavailable")).toEqual([]);
+    // "No degradation was logged" is also true of a build that never tried to
+    // mint at all, so say what did happen rather than only what did not.
+    expect(linkFrom(captured[0]).searchParams.get("code")).toMatch(
+      /^[0-9a-f]{64}$/,
+    );
+  });
+
+  /**
+   * The regression this file exists to catch, stated directly: if `auth.ts`
+   * stops registering the provider, minting throws with the marker
+   * `classifyMintFailure` looks for, and every invitation silently goes back to
+   * a plain link. `unregisteredAuthStore` reproduces exactly that failure —
+   * the message `getProviderOrThrow` raises for an id nothing declares.
+   *
+   * On its own this half is close to circular: the stub builds its message
+   * from `SIGNIN_PROVIDER` and the matcher builds `PROVIDER_MISSING_MARKER`
+   * from the same constant, so the id cannot drift between them — which is the
+   * point — but neither would notice if the *library* reworded the sentence
+   * around it. The test below is the half that would: it asks the real library,
+   * with no stub anywhere, and pins the wording as a literal. Read them as one
+   * guard in two parts, and do not delete the second one.
+   */
+  test("losing the provider is reported as provider_not_configured, not as a defect", async () => {
+    const t = setupTestWithAuthStore(unregisteredAuthStore);
+    const { inviter, workspaceId } = await scenario(t);
     await invite(t, inviter, workspaceId, "newcomer@example.invalid");
     await drainScheduled(t);
 
     const lines = linesFor("signin_code_unavailable");
     expect(lines).toHaveLength(1);
     expect(lines[0].detail).toBe("provider_not_configured");
+
+    // And the invitation still arrives, which is the point of degrading.
+    expect(captured).toHaveLength(1);
+    expect(linkFrom(captured[0]).searchParams.get("code")).toBeNull();
+
+    // Nothing half-minted: no orphan row left waiting to authenticate
+    // somebody. This assertion used to live on the degraded-state test that
+    // the release retired, and it is the only place that still makes it.
+    const codes = await t.run((ctx) =>
+      ctx.db.query("authVerificationCodes").collect(),
+    );
+    expect(codes).toEqual([]);
+  });
+
+  /**
+   * The guard above is weaker than it looks on its own, and this is the half
+   * that fixes it.
+   *
+   * `classifyMintFailure` recognises the expected condition by matching
+   * `@convex-dev/auth`'s prose. `unregisteredAuthStore` reproduces that prose
+   * from the same constant the matcher uses — so if the *library* reworded it,
+   * the stub and the matcher would agree with each other and disagree with
+   * reality, the test would stay green, and a genuinely unregistered provider
+   * would start classifying as `mint_threw_Error`: a real defect reported as
+   * one, but the expected condition reported as a defect too, which is the
+   * exact confusion the discriminator exists to prevent.
+   *
+   * So this asks the real library, with no stub anywhere, what it actually says
+   * about a provider nothing declares.
+   */
+  test("the library still says what classifyMintFailure matches on", async () => {
+    const t = setupTest();
+    const thrown = await t
+      .mutation(internal.auth.store, {
+        args: {
+          type: "createVerificationCode",
+          provider: "no-such-provider",
+          email: "newcomer@example.invalid",
+          code: "irrelevant",
+          expirationTime: Date.now() + 60_000,
+          allowExtraProviders: false,
+        },
+      })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+
+    expect(thrown).toBeInstanceOf(Error);
+    // The marker `classifyMintFailure` builds, for the id it was asked about.
+    expect((thrown as Error).message).toContain(
+      "Provider `no-such-provider` is not configured",
+    );
   });
 
   test("a mint that breaks for another reason does not claim to be it", async () => {
@@ -976,7 +1296,7 @@ describe("the magic link, once a provider can mint one", () => {
     expect(codes[0].code).not.toBe(code);
   });
 
-  test("its expiry is inside a day and inside the invitation, on the wire", async () => {
+  test("its expiry is inside SIGNIN_CODE_TTL_MS and inside the invitation, on the wire", async () => {
     const t = setupTestWithAuthStore(mintingAuthStore);
     const { inviter, workspaceId } = await scenario(t);
     const before = Date.now();
@@ -995,7 +1315,7 @@ describe("the magic link, once a provider can mint one", () => {
     expect(codes[0].expirationTime).toBeLessThanOrEqual(
       after + SIGNIN_CODE_TTL_MS,
     );
-    // The cap that matters: a day, not the invitation's week.
+    // The cap that matters, which #57 set to the invitation's own week.
     expect(codes[0].expirationTime - before).toBeLessThanOrEqual(
       SIGNIN_CODE_TTL_MS + (after - before),
     );
@@ -1008,6 +1328,46 @@ describe("the magic link, once a provider can mint one", () => {
 /* ========================================================================== */
 
 describe("who gets a link that signs them in", () => {
+  /**
+   * THE RESIDUAL, ASSERTED AS IT IS RATHER THAN AS IT SHOULD BE.
+   *
+   * The eligibility lookup below is byte-exact, because `users.by_email` is.
+   * `parseInvitee` lowercases every invitee and nothing on the sign-in side
+   * used to — so an account stored as `Mixed@Example.invalid` is invisible
+   * here, reads as a stranger, and gets mailed an auto-sign-in link into a
+   * *second* account that the mint then creates. That is the outcome this
+   * whole block exists to prevent, reached by spelling rather than by role.
+   *
+   * `normalizeSignInEmail` (apps/mobile) closes the only path in the product
+   * that creates such a row, so no new ones appear. It cannot fix rows that
+   * already exist, and it cannot stop a caller reaching `signIn` directly. The
+   * durable fix is normalizing in `createSupaAuth`'s `createOrUpdateUser`,
+   * which is upstream and filed separately.
+   *
+   * So this asserts the gap deliberately, in the same spirit as the
+   * degraded-link tests it sits beside: **when the upstream fix lands this
+   * test fails**, and that failure is the notification that the residual is
+   * gone and the assertion should become its opposite.
+   */
+  test("a mixed-case account is not recognised — the known residual", async () => {
+    const t = setupTestWithAuthStore(mintingAuthStore);
+    const { inviter, workspaceId } = await scenario(t);
+
+    // Established by every measure the rule cares about, and stored with a
+    // capital letter, which is all it takes.
+    const mixed = await createUser(t, "Mixed@Example.invalid");
+    await createWorkspace(t, mixed, "mixed-context");
+
+    await invite(t, inviter, workspaceId, "Mixed@Example.invalid");
+    await drainScheduled(t);
+
+    // Were the lookup case-insensitive this would be `null`, exactly as it is
+    // for Grace below.
+    expect(linkFrom(captured[0]).searchParams.get("code")).toMatch(
+      /^[0-9a-f]{64}$/,
+    );
+  });
+
   test("a stranger with no account does", async () => {
     const t = setupTestWithAuthStore(mintingAuthStore);
     const { inviter, workspaceId } = await scenario(t);
