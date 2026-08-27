@@ -4,7 +4,8 @@
  * The backend contract is
  *
  *   getIngestionSettings({ workspaceId })
- *     -> { address, targetFolder, allowedSenders, allowedDomains, allowAnySender } | null
+ *     -> { address, targetFolder, allowedSenders, allowedDomains, allowAnySender,
+ *          attachmentPolicy, maxAttachmentBytes } | null
  *   updateIngestionSettings({ workspaceId, targetFolder?, allowedSenders?, … })
  *
  * and **both are owner-only, for the read as well as the write**. That is not

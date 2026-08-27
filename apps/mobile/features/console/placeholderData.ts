@@ -770,6 +770,8 @@ export const DEMO_INGESTION: Record<string, IngestionSettings> = {
     allowedSenders: ["seyi@publicworship.life"],
     allowedDomains: [],
     allowAnySender: false,
+    attachmentPolicy: "store",
+    maxAttachmentBytes: 2_000_000,
   },
   lk: {
     address: "lk@context.lc",
@@ -777,5 +779,7 @@ export const DEMO_INGESTION: Record<string, IngestionSettings> = {
     allowedSenders: [],
     allowedDomains: ["publicworship.life"],
     allowAnySender: false,
+    attachmentPolicy: "list",
+    maxAttachmentBytes: 2_000_000,
   },
 };
