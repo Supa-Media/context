@@ -36,12 +36,22 @@
  */
 
 import { isLoopbackHost, sha256Hex } from "./controlPlane.js";
+import { SUPPORTED_SCOPES } from "./session.js";
 
 /** Access tokens are short-lived; the refresh token is the durable half. */
 const ACCESS_TOKEN_TTL_SECONDS = 3600;
 
-/** Everything a client may ask for. Advertised in both metadata documents. */
-const SUPPORTED_SCOPES = ["context:read", "context:write", "context:capture"];
+/**
+ * What a client gets when it sends no `scope` at all.
+ *
+ * Deliberately not `SUPPORTED_SCOPES`. A client that names nothing is asking
+ * for the ordinary thing, and `context:private` is never the ordinary thing —
+ * it is the one scope a person is asked about separately, and defaulting it on
+ * would hand every silent client the whole context including notes its owner
+ * marked private. The consent screen still shows the tier as an explicit
+ * choice; this only decides what the *request* said.
+ */
+const DEFAULT_REQUESTED_SCOPE = "context:read context:write";
 
 /** RFC 7591 caps nothing; this worker does. A registration is a few hundred bytes. */
 const REGISTRATION_BYTE_CAP = 32_000;
@@ -534,7 +544,7 @@ export async function handleAuthorize(request, env, controlPlane, { origin, slug
       state: state || null,
       codeChallenge,
       codeChallengeMethod: "S256",
-      scope: scope || "context:read context:write",
+      scope: scope || DEFAULT_REQUESTED_SCOPE,
       resource: resource || null,
       // The path has no slug on it — clients build this URL from the
       // authorization server metadata, which is workspace-free — so the
@@ -726,7 +736,12 @@ async function exchangeCode(params, client, controlPlane) {
     return oauthError("invalid_grant", "The code_verifier does not match the code_challenge.");
   }
 
-  const scopes = (authorization.scope || "context:read context:write")
+  // `authorization.scope` is what the *person approved*, not what the client
+  // asked for — the control plane narrowed it at consent time and clamped it to
+  // what the approver's role could hand over. Filtering against
+  // `SUPPORTED_SCOPES` here drops anything this gateway would not honour
+  // anyway; it is a sanity pass, not the narrowing.
+  const scopes = (authorization.scope || DEFAULT_REQUESTED_SCOPE)
     .split(/\s+/)
     .filter((entry) => SUPPORTED_SCOPES.includes(entry));
   if (!scopes.length) return oauthError("invalid_scope", "No usable scope was granted.");

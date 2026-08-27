@@ -47,25 +47,49 @@ export const SCOPE_READ = "context:read";
 export const SCOPE_WRITE = "context:write";
 /** Drop a raw capture into 0-inbox and nothing else. */
 export const SCOPE_CAPTURE = "context:capture";
-
-export const SUPPORTED_SCOPES = [SCOPE_READ, SCOPE_WRITE, SCOPE_CAPTURE];
+/**
+ * Reach notes marked private.
+ *
+ * Not an operation — holding it lets a client *do* nothing new. It widens the
+ * set of notes every other scope applies to, which is why it is the one scope
+ * a person is asked about separately on the consent screen and the one a
+ * client's request cannot decide.
+ */
+export const SCOPE_PRIVATE = "context:private";
 
 /**
- * Membership role → privacy tier.
+ * Everything a client may ask for, and everything both discovery documents
+ * advertise.
  *
- * The privacy engine has understood two tiers since before there were
- * workspaces, and `private` means "sees everything in this context, including
- * notes marked private". Only an `owner` gets that. An `editor` can write, and
- * a `member` cannot, but neither of them is the person whose private notes
- * these are, so both resolve to `team`.
- *
- * This mapping lives here rather than in the control plane on purpose: the
- * privacy tier is a property of the *gateway's* enforcement model, and the
- * control plane should not have to be redeployed to change what `editor` can
- * see.
+ * `oauth.js` imports this rather than keeping a second literal. It had one, and
+ * two lists of the same thing is how a server ends up advertising a scope its
+ * authorization endpoint then rejects — a client that follows discovery
+ * faithfully is the one that breaks.
  */
-export function visibilityTierForRole(role) {
-  return role === "owner" ? "private" : "team";
+export const SUPPORTED_SCOPES = [SCOPE_READ, SCOPE_WRITE, SCOPE_CAPTURE, SCOPE_PRIVATE];
+
+/**
+ * The privacy tier this grant was given.
+ *
+ * **Read from the grant, then clamped by role — never derived from role.**
+ * That inversion is the whole change. `visibilityTierForRole(role)` used to
+ * live here and answered `private` for every owner, which meant an owner could
+ * not connect a client at team level even if that was exactly what they wanted:
+ * every note they had ever marked private went to whatever they connected. The
+ * tier is now something a person decided at consent time and the grant carries,
+ * so an owner who granted `team` gets `team` on every later request, forever.
+ *
+ * The role clamp stays, and is not redundant with the control plane's. The
+ * control plane decides what may be *written* into a grant, at approval time;
+ * this decides what a *live request* may do with one, now. Between those two
+ * moments a membership can change — and while an owner cannot be demoted, a
+ * grant is not the only thing that can go stale. Reading a value the control
+ * plane vouched for and enforcing it against the role the control plane
+ * reported in the same breath costs one `Set` and closes the gap.
+ */
+export function visibilityTierForGrant(grantScopes, role) {
+  if (role !== "owner") return "team";
+  return new Set(grantScopes).has(SCOPE_PRIVATE) ? "private" : "team";
 }
 
 /** Roles that may change content at all, before per-grant scopes narrow it. */
@@ -247,15 +271,20 @@ export async function resolveSession(token, slug, controlPlane) {
   }
 
   const workspace = selectWorkspace(session, slug);
+  // Clamp once, then read the tier off the clamped set. Deriving the tier from
+  // the raw grant instead would give private-tier to a scope the clamp had just
+  // removed — two answers to one question, which is the shape of every
+  // privilege bug in this neighbourhood.
+  const scopes = effectiveScopes(session.scopes, workspace.role);
   const resolvedSession = {
     grantId: session.grantId,
     workspaceId: workspace.workspaceId,
     workspaceSlug: workspace.slug,
     role: workspace.role,
-    scope: visibilityTierForRole(workspace.role),
+    scope: visibilityTierForGrant(scopes, workspace.role),
     actorUserId: session.actorUserId,
     actorClientId: session.clientId,
-    scopes: effectiveScopes(session.scopes, workspace.role),
+    scopes,
     expiresAt: session.expiresAt,
   };
 
@@ -354,6 +383,13 @@ function selectWorkspace(session, slug) {
  * an owner must not write — the person deliberately connected a client that way
  * — and a full-scope grant issued to a read-only `member` must not write
  * either, because the grant cannot confer authority the membership never had.
+ *
+ * `SCOPE_PRIVATE` goes through the same intersection as everything else: it
+ * survives only if the grant carries it *and* the caller is the owner. It is
+ * kept on a capture-only grant too, where it means nothing — the tier only
+ * matters to reads — because filtering it out there would be a special case
+ * that has to stay in sync with which scopes read, and there is nothing to gain
+ * from one.
  */
 function effectiveScopes(grantScopes, role) {
   const granted = new Set(grantScopes);
@@ -362,6 +398,13 @@ function effectiveScopes(grantScopes, role) {
     effective.push(SCOPE_WRITE, SCOPE_CAPTURE);
   } else if (granted.has(SCOPE_CAPTURE) && roleCanWrite(role)) {
     effective.push(SCOPE_CAPTURE);
+  }
+  // The tier the person granted, and only for the one role that could grant it.
+  // A grant that predates the tier being grantable carries no `context:private`
+  // and therefore lands on `team` — a narrowing, which is always allowed, and
+  // the only reading that does not leave every legacy grant at full access.
+  if (granted.has(SCOPE_PRIVATE) && role === "owner") {
+    effective.push(SCOPE_PRIVATE);
   }
   // A grant with no read scope is capture-only: it may drop things into the
   // inbox and may not look at anything.
