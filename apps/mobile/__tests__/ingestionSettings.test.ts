@@ -269,13 +269,18 @@ describe("what the rules actually mean, said in one sentence", () => {
   });
 
   test("a real list counts both kinds, in the singular where it should", () => {
-    expect(describeSenderPolicy(base).text).toBe("Only 1 address may send. Nobody else.");
+    // The counting is what this test is about, so it pins the prefix rather
+    // than the whole sentence. The sentence used to end "Nobody else." — a
+    // promise the list cannot keep now that the receiver captures unverified
+    // mail instead of refusing it, and `captureHonesty.test.ts` bans those two
+    // words outright. See `describeSenderPolicy`.
+    expect(describeSenderPolicy(base).text).toMatch(/^Only 1 address may send\. /);
     expect(
       describeSenderPolicy({
         ...base,
         allowedDomains: ["publicworship.life", "globalecho.org"],
       }).text,
-    ).toBe("Only 1 address and 2 domains may send. Nobody else.");
+    ).toMatch(/^Only 1 address and 2 domains may send\. /);
   });
 });
 

@@ -35,9 +35,26 @@ import {
  * Two things used to be presented as fixed and are not: where forwarded mail
  * lands, and who is allowed to send it. The second is the one that matters.
  * The address is semi-public by nature — it ends up in a forwarding rule, a
- * mailing list, a screenshot — so **the allow-list is the security control**,
- * and "anyone" is something you turn on deliberately, with the consequence
- * written out, rather than the state you end up in by not deciding.
+ * mailing list, a screenshot — so the allow-list decides whether a message is
+ * captured at all, and "anyone" is something you turn on deliberately, with the
+ * consequence written out, rather than the state you end up in by not deciding.
+ *
+ * ## What the list is, and what this card must not imply it is
+ *
+ * This comment used to call the list "the security control", and the copy on
+ * screen matched. It is not one. The receiver does not verify who sent a
+ * message — see the "authentication is a label, not a gate" block in
+ * `infra/email-worker/src/auth.ts` — so a sender who knows one address on
+ * somebody's list can put that address in `From:` and be captured.
+ *
+ * What the list really does is keep the ordinary internet out: someone who
+ * learns the address but not who is on it gets nothing. That is worth having
+ * and worth configuring, and it is what the copy now says. What it must never
+ * say, in any tone, is that a captured note came from who it claims — the
+ * capture note itself carries that verdict, honestly, per message.
+ *
+ * Accurate, not alarming: a correctly configured list is still `ok`, because a
+ * permanent warning on the right answer teaches people to ignore warnings.
  *
  * ## Two questions, asked in this order
  *
@@ -254,7 +271,12 @@ export function IngestionCard({
           {canEdit ? (
             <ChoiceGroup
               label="Who may send to it"
-              hint="Anyone who learns this address can try it. Only the senders below are allowed."
+              /*
+                Both halves, in one sentence. The half an owner will assume is
+                that a name on the list means the mail came from them, so the
+                second clause is not optional — see the header of this file.
+              */
+              hint="Anyone who learns this address can try it. Only the senders below are allowed — though an email can claim to be from any address, so this filters rather than proves."
               value={shown.allowAnySender ? "anyone" : "list"}
               onChange={(value) =>
                 setDraft((current) =>
@@ -265,7 +287,10 @@ export function IngestionCard({
                 {
                   value: "list",
                   label: "Only the senders I list",
-                  detail: "Specific addresses, or whole domains. Nobody else.",
+                  // "Nobody else." stood here. It read as a guarantee the list
+                  // cannot make.
+                  detail:
+                    "Specific addresses, or whole domains. Anyone not on the list is turned away.",
                 },
                 {
                   value: "anyone",

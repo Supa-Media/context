@@ -7,9 +7,9 @@
  *
  *  - The address is **semi-public**. It ends up in a forwarding rule, a mailing
  *    list, a screenshot. Anyone who learns it can post into someone's context
- *    unless there is a list saying who may. So the allow-list is the security
- *    control, and "anyone" has to be a thing you deliberately turn on, in
- *    words, rather than the state you get by not deciding.
+ *    unless there is a list saying who may. So the allow-list is worth having,
+ *    and "anyone" has to be a thing you deliberately turn on, in words, rather
+ *    than the state you get by not deciding.
  *  - The folder is a filing preference. `0-inbox/` is the right default under
  *    PARA, and it is nobody's business but the owner's if it should be
  *    `2-areas/receipts/` instead.
@@ -18,6 +18,32 @@
  * **which contexts have an address at all.** Only a personal one does. See
  * `IngestionAvailability` below, and the header of
  * `apps/convex/functions/lib/ingestionStore.ts` for the reasoning.
+ *
+ * ============================================================================
+ * THE ALLOW-LIST FILTERS. IT DOES NOT AUTHENTICATE.
+ * ============================================================================
+ *
+ * This file used to call it "the security control", and the card called it the
+ * same. That is no longer true and the copy had to be rewritten for it.
+ *
+ * The receiver used to refuse any message whose sender's domain it could not
+ * verify. It does not any more — see the "authentication is a label, not a
+ * gate" block in `infra/email-worker/src/auth.ts` for the two real deliveries
+ * that settled it. An inbox is expected to contain unverified mail, and every
+ * capture is fenced as untrusted input whoever it came from.
+ *
+ * So the list decides *whether* a message is captured, and nothing else. A
+ * sender who knows one address on it can put that address in `From:` and pass.
+ * What the list actually buys is that the ordinary internet — anyone who learns
+ * the address but not who is on the list — gets nothing, which is real and
+ * worth configuring. What it does not buy is any assurance that a captured note
+ * came from who it says.
+ *
+ * Every sentence here that describes the list has to leave the reader with that
+ * distinction, and none may imply a boundary. `__tests__/captureHonesty.test.ts`
+ * bans the vocabulary — "nobody else", "verified sender", "we check who sent
+ * it" — the way it already bans present-tense delivery claims, so a sentence
+ * added later is caught without anybody remembering this paragraph.
  *
  * Everything here is pure so the awkward cases — a typo'd domain, a folder
  * spelled with a leading slash, a list that would allow the whole internet
@@ -538,6 +564,14 @@ export function senderLabel(entry: SenderEntry): string {
  * on purpose: an owner configuring the list before the receiver ships should
  * still be told what they have configured, and the receiver landing must not
  * require these strings to be revisited.
+ *
+ * ### And none of them describes the list as a boundary
+ *
+ * The `ok` line used to end "Nobody else." — two words that read as a promise
+ * the list cannot keep. The receiver does not verify who sent a message (see
+ * the header of this file), so the list keeps out anyone who does not know an
+ * address on it, and nothing more. The sentence has to leave a reader knowing
+ * both halves, because the half they will assume is the wrong one.
  */
 export function describeSenderPolicy(draft: IngestionDraft): {
   tone: "ok" | "warn" | "crit";
@@ -561,7 +595,15 @@ export function describeSenderPolicy(draft: IngestionDraft): {
   const parts: string[] = [];
   if (addresses > 0) parts.push(`${addresses} address${addresses === 1 ? "" : "es"}`);
   if (domains > 0) parts.push(`${domains} domain${domains === 1 ? "" : "s"}`);
-  return { tone: "ok", text: `Only ${parts.join(" and ")} may send. Nobody else.` };
+  // Still `ok`. A configured list is the right state to be in, and a permanent
+  // warning on the correct configuration teaches an owner to ignore warnings.
+  // What changed is the sentence, which used to end "Nobody else."
+  return {
+    tone: "ok",
+    text:
+      `Only ${parts.join(" and ")} may send. That filters mail — it does not prove who sent` +
+      " it, and someone who knows one of those addresses can put it in their From: line.",
+  };
 }
 
 // ─── saving ──────────────────────────────────────────────────────────────────
