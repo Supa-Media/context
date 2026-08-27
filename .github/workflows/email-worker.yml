@@ -35,6 +35,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Runs before install: it needs only bash and node, and a workflow whose
+      # shell does not parse is worth failing fast on. See the script's header
+      # for the apostrophe that made this necessary.
+      - name: Workflow run blocks parse as shell
+        run: node scripts/check-workflow-shell.mjs
+
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v5
