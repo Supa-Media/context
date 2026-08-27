@@ -25,6 +25,7 @@ import { PRIVACY_KEY, PARA_FOLDERS } from "../functions/lib/scaffold";
 import {
   type TestConvex,
   FAKE_STORAGE,
+  addMember,
   asUser,
   bindFakeStorage,
   createUser,
@@ -492,6 +493,162 @@ describe("verification classifies the bucket without touching it", () => {
         workspaceId,
       }),
     ).toMatchObject({ scaffoldReason: "existing-context" });
+  });
+
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * The note count, end to end through the real S3 adapter.
+   *
+   * `noteCount.test.ts` proves the walk. These prove it reaches the row a
+   * console reads — a separate failure, and the one that would leave the tile
+   * blank forever with a perfectly correct counter sitting behind it.
+   */
+  test("a verified bucket carries a note count and the moment it was taken", async () => {
+    const { t, owner, backend, workspaceId } = await connecting();
+    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    backend.seed("1-projects/ship-it/notes.md", "# Notes\n");
+    backend.seed("2-areas/health.md", "# Health\n");
+    backend.seed("1-projects/diagram.png", "binary");
+
+    await t.action(internal.functions.provisioning.verifyStorageBinding, {
+      workspaceId,
+    });
+
+    const row = await binding(t, owner, workspaceId);
+    expect(row).toMatchObject({ noteCount: 3, noteCountTruncated: false });
+    expect(row?.noteCountedAt).toBeTypeOf("number");
+  });
+
+  /** The `.history/` trap, at the layer that actually talks to a bucket. */
+  test("history revisions are not counted as notes", async () => {
+    const { t, owner, backend, workspaceId } = await connecting();
+    for (let index = 0; index < 1500; index += 1) {
+      backend.seed(`.history/1-projects/ship-it.${index}.md`, "old");
+    }
+    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+
+    await t.action(internal.functions.provisioning.verifyStorageBinding, {
+      workspaceId,
+    });
+
+    expect(await binding(t, owner, workspaceId)).toMatchObject({ noteCount: 1 });
+  });
+
+  /**
+   * Absent is not zero. A probe that never reached the bucket must leave the
+   * last real count standing — recording a `0` would tell the console this
+   * context is empty on the strength of a network error, which is the shape of
+   * #25 that this whole feature exists to avoid repeating.
+   */
+  test("a later failed probe does not erase the count", async () => {
+    const { t, owner, backend, workspaceId } = await connecting();
+    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    await t.action(internal.functions.provisioning.verifyStorageBinding, {
+      workspaceId,
+    });
+    const countedAt = (await binding(t, owner, workspaceId))?.noteCountedAt;
+    expect(countedAt).toBeTypeOf("number");
+
+    const broken = memoryS3(FAKE_STORAGE.bucket, { unreachable: true });
+    vi.stubGlobal("fetch", broken.fetchImpl);
+    await t.action(internal.functions.provisioning.verifyStorageBinding, {
+      workspaceId,
+    });
+
+    expect(await binding(t, owner, workspaceId)).toMatchObject({
+      status: "error",
+      noteCount: 1,
+      noteCountedAt: countedAt,
+    });
+  });
+
+  /**
+   * A rebind points at a **different bucket**, so a count carried across it is
+   * a number about somewhere else. Left standing, this read
+   * `{status: "error", noteCount: 2}` — a confident total beside a bucket
+   * nothing had ever reached, which is #25 wearing a fresh coat.
+   */
+  test("rebinding to another bucket clears the count with everything else", async () => {
+    const { t, owner, backend, workspaceId } = await connecting();
+    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    backend.seed("2-areas/health.md", "# Health\n");
+    await t.action(internal.functions.provisioning.verifyStorageBinding, {
+      workspaceId,
+    });
+    expect(await binding(t, owner, workspaceId)).toMatchObject({ noteCount: 2 });
+
+    const elsewhere = memoryS3("some-other-bucket", { unreachable: true });
+    vi.stubGlobal("fetch", elsewhere.fetchImpl);
+    await bindFakeStorage(t, owner, workspaceId, { bucket: "some-other-bucket" });
+
+    const row = await binding(t, owner, workspaceId);
+    expect(row?.noteCount).toBeUndefined();
+    expect(row?.noteCountedAt).toBeUndefined();
+    expect(row?.noteCountTruncated).toBeUndefined();
+  });
+
+  /**
+   * The count is of every Markdown file in the bucket, private notes included,
+   * while a member of somebody else's context may read only the `team` tier.
+   * Handing them the total lets them derive exactly how much is being withheld
+   * — an exact private-note count for a person who deliberately shared a
+   * subset. The role clamps what a client may read in three places already;
+   * this is the same rule applied to a number about the same notes.
+   */
+  test("a member cannot read the owner's note count", async () => {
+    const { t, owner, backend, workspaceId } = await connecting();
+    backend.seed("1-projects/private-thing.md", "# Secret\n");
+    backend.seed("2-areas/another.md", "# Also secret\n");
+    await t.action(internal.functions.provisioning.verifyStorageBinding, {
+      workspaceId,
+    });
+
+    const guest = await createUser(t, "guest@example.invalid");
+    await addMember(t, workspaceId, guest, "member");
+
+    // The owner sees it.
+    expect(await binding(t, owner, workspaceId)).toMatchObject({ noteCount: 2 });
+
+    // The member sees the binding, and no census on it.
+    const asGuest = await asUser(t, guest).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    expect(asGuest).toMatchObject({ status: "connected", bucket: FAKE_STORAGE.bucket });
+    expect(asGuest?.noteCount).toBeUndefined();
+    expect(asGuest?.noteCountedAt).toBeUndefined();
+    expect(asGuest?.noteCountTruncated).toBeUndefined();
+  });
+
+  /** An editor is not the owner either. Write access is not a licence to count. */
+  test("an editor cannot read the note count either", async () => {
+    const { t, backend, workspaceId } = await connecting();
+    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    await t.action(internal.functions.provisioning.verifyStorageBinding, {
+      workspaceId,
+    });
+
+    const editor = await createUser(t, "editor@example.invalid");
+    await addMember(t, workspaceId, editor, "editor");
+
+    const seen = await asUser(t, editor).query(api.functions.storage.getStorageBinding, {
+      workspaceId,
+    });
+    expect(seen?.noteCount).toBeUndefined();
+  });
+
+  /** A freshly scaffolded bucket is counted as it now stands, not as found. */
+  test("a scaffold is counted after it lands, not before", async () => {
+    const { t, owner, workspaceId } = await connecting();
+
+    await t.action(internal.functions.provisioning.verifyStorageBinding, {
+      workspaceId,
+      structure: { template: "para", folders: [] },
+    });
+
+    const row = await binding(t, owner, workspaceId);
+    expect(row?.noteCount).toBeGreaterThan(0);
   });
 
   test("a bucket holding only plumbing is empty, and is left that way", async () => {

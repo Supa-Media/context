@@ -45,6 +45,7 @@ import {
   hasExistingContext,
   scaffoldContext,
 } from "./lib/scaffold";
+import { countNotes } from "./lib/noteCount";
 import {
   type ProbeResult,
   redactSecrets,
@@ -165,6 +166,16 @@ export interface VerificationOutcome {
    * These are key names this module generated, never provider text.
    */
   scaffoldMissing?: string[];
+  /**
+   * Notes counted in the bucket, and whether the walk reached the end.
+   *
+   * Absent whenever nothing looked — a probe that never reached the bucket, or
+   * a listing that broke partway. Absent is not zero: `recordVerification`
+   * leaves the previous count standing rather than recording "this context is
+   * empty" on the strength of a network error.
+   */
+  noteCount?: number;
+  noteCountTruncated?: boolean;
   error?: string;
   /** Absent when `verified`, and absent when the failure has no useful code. */
   errorCode?: VerificationErrorCode;
@@ -258,6 +269,8 @@ export const verifyStorageBinding = internalAction({
     scaffolded: v.boolean(),
     scaffoldReason: v.string(),
     scaffoldMissing: v.optional(v.array(v.string())),
+    noteCount: v.optional(v.number()),
+    noteCountTruncated: v.optional(v.boolean()),
     error: v.optional(v.string()),
     errorCode: v.optional(v.string()),
   }),
@@ -415,7 +428,14 @@ export const verifyStorageBinding = internalAction({
       if (result.reason !== "existing-context") scaffoldMissing = result.missing;
     }
 
-    return await record(ctx, args, {
+    // The status first, and the census after it. Both orderings record the
+    // same two facts; only this one keeps the walk off the critical path.
+    // `countNotes` makes up to forty sequential LIST round trips against
+    // somebody else's bucket, and with it ahead of `record` all of that sat
+    // inside the window where the binding still read `unverified` — and an
+    // action that died mid-walk left a good bucket permanently unverified over
+    // a number nobody was waiting for.
+    const outcome = await record(ctx, args, {
       // A bucket we could not lay a context into is still connected: the
       // failure is a write we did not need to make, and the owner's existing
       // brain is exactly as it was.
@@ -428,6 +448,29 @@ export const verifyStorageBinding = internalAction({
       scaffoldMissing,
       error: scaffoldError,
     });
+
+    // Deliberately after the scaffold as well as after the record: a bucket we
+    // just laid a layout into is counted as it now stands, not as we found it.
+    // `countNotes` returns `null` rather than throwing, so a bucket that stops
+    // answering costs the count and nothing else.
+    const counted = await countNotes(store);
+    if (counted !== null) {
+      try {
+        await ctx.runMutation(internal.functions.storage.recordNoteCount, {
+          workspaceId: args.workspaceId,
+          notes: counted.notes,
+          truncated: counted.truncated,
+        });
+      } catch {
+        // Disconnected while we were walking. Same race `record` tolerates.
+      }
+    }
+
+    return {
+      ...outcome,
+      noteCount: counted?.notes,
+      noteCountTruncated: counted?.truncated,
+    };
   },
 });
 

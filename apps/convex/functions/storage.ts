@@ -456,6 +456,14 @@ export const applyBinding = internalMutation({
       // different bucket would carry that licence somewhere it was never
       // earned.
       scaffoldMissing: undefined,
+      // And the census, for the same reason as `lastVerifiedAt`: a rebind
+      // points at a different bucket, so a count carried forward is a number
+      // about somewhere else rendered as a fact about here. Left standing, a
+      // rebind to an unreachable bucket showed `status: "error"` beside a
+      // confident note total for a bucket nothing had ever contacted.
+      noteCount: undefined,
+      noteCountedAt: undefined,
+      noteCountTruncated: undefined,
       boundBy: args.actorUserId,
       updatedAt: now,
     };
@@ -648,6 +656,49 @@ export const recordVerification = internalMutation({
         conditionalWrite: (args.capabilities ?? binding.capabilities)
           .conditionalWrite,
       },
+    });
+    return null;
+  },
+});
+
+/**
+ * Record what a walk of the bucket counted. Internal, and separate from
+ * `recordVerification` on purpose.
+ *
+ * They are two different observations, and folding the count into the status
+ * write made the status wait on it. The walk is up to forty sequential LIST
+ * round trips against somebody else's bucket; with both in one write, all of
+ * that sat inside the window where the binding still read `unverified`, and an
+ * action that died mid-walk left a perfectly good bucket permanently unverified
+ * over a number nobody was waiting for.
+ *
+ * So the status lands first and this follows. A count that never arrives simply
+ * never calls this, which is also why there is no "clear the count" path here:
+ * absence is expressed by not calling, and the row keeps what the last real
+ * walk found. See `noteCount.ts` for why absent must never become zero.
+ */
+export const recordNoteCount = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    notes: v.number(),
+    truncated: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const binding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    // Disconnected or rebound while we were walking. The count describes a
+    // bucket this row no longer names, so it is dropped rather than written.
+    if (binding === null) return null;
+
+    await ctx.db.patch(binding._id, {
+      noteCount: args.notes,
+      // Stamped from the walk that produced it, never from the last
+      // verification that happened to succeed.
+      noteCountedAt: Date.now(),
+      noteCountTruncated: args.truncated,
     });
     return null;
   },
@@ -981,12 +1032,34 @@ export const getStorageBinding = query({
        * absent means nothing is outstanding.
        */
       scaffoldMissing: v.optional(v.array(v.string())),
+      /**
+       * HOW MANY NOTES, AND WHEN SOMETHING LAST LOOKED.
+       *
+       * All three absent until a verification has walked the bucket, **and
+       * absent to everyone but the owner.**
+       *
+       * The count is of every Markdown file in the bucket, private ones
+       * included, while a member of somebody else's context may read only the
+       * `team` tier. Handing them the total would let them derive exactly how
+       * much they are not being shown — an exact private-note count for a
+       * person who deliberately shared a subset. Roles clamp what a client may
+       * *read* in three places already; this is the same rule applied to a
+       * number about the same notes.
+       *
+       * A client must render nothing rather than a zero when they are absent —
+       * see the schema. `noteCountTruncated` means `noteCount` is a floor; say
+       * "40,000+", never "40,000".
+       */
+      noteCount: v.optional(v.number()),
+      noteCountedAt: v.optional(v.number()),
+      noteCountTruncated: v.optional(v.boolean()),
       updatedAt: v.number(),
     }),
   ),
   handler: async (ctx, args) => {
     const userId = (await requireAuthId(ctx)) as Id<"users">;
-    await requireWorkspaceAccess(ctx, args.workspaceId, userId);
+    const { membership } = await requireWorkspaceAccess(ctx, args.workspaceId, userId);
+    const isOwner = membership.role === "owner";
 
     const binding = await ctx.db
       .query("storageBindings")
@@ -1010,6 +1083,11 @@ export const getStorageBinding = query({
       scaffolded: binding.scaffolded,
       scaffoldReason: binding.scaffoldReason,
       scaffoldMissing: binding.scaffoldMissing,
+      // Owner only. See the validator above: this is a number about private
+      // notes, and a member of this context cannot read them.
+      noteCount: isOwner ? binding.noteCount : undefined,
+      noteCountedAt: isOwner ? binding.noteCountedAt : undefined,
+      noteCountTruncated: isOwner ? binding.noteCountTruncated : undefined,
       updatedAt: binding.updatedAt,
     };
   },

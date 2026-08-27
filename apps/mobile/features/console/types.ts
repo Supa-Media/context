@@ -82,6 +82,24 @@ export interface ConsoleStorage {
   objectCount?: string;
   paraPresent?: boolean;
   versioningOn?: boolean;
+  /**
+   * How many notes the last walk of this bucket counted, when it counted them,
+   * and whether it reached the end.
+   *
+   * The one member of this group that something now measures — see
+   * `functions/lib/noteCount.ts`. It obeys the same rule as its neighbours:
+   * absent means nobody has looked, and a client renders nothing rather than a
+   * zero. Absent, too, for anyone who is not the owner: the count includes
+   * private notes, and the control plane withholds it accordingly.
+   *
+   * `noteCountedAt` is separate from `lastVerifiedAt` because a verification
+   * can succeed and learn nothing about the contents. Print the count's own
+   * date or no date; a count dated from a fresh probe is a quieter way of
+   * inventing it.
+   */
+  noteCount?: number;
+  noteCountedAt?: number;
+  noteCountTruncated?: boolean;
   lastError?: string;
   /**
    * The machine-readable companion to `lastError`, from the closed set in

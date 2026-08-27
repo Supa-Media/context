@@ -105,6 +105,24 @@ function fakeConvexClient() {
   } as never;
 }
 
+/**
+ * The live hook, against a client whose storage query answers with `binding`.
+ *
+ * `QUERY_RESULTS` is keyed by function name and read at watch time, so swapping
+ * the entry for the duration of one render is enough — no second client.
+ */
+function withBinding(binding: Record<string, unknown>): () => ConsoleData {
+  const key = getFunctionName(api.functions.storage.getStorageBinding);
+  return () => {
+    QUERY_RESULTS[key] = binding;
+    try {
+      return useLiveConsoleData();
+    } finally {
+      QUERY_RESULTS[key] = CONNECTED_BINDING;
+    }
+  };
+}
+
 /** Mounts a console hook and renders the real settings pane from its data. */
 function renderSettings(useData: () => ConsoleData): { data: ConsoleData; text: string } {
   const container = document.createElement("div");
@@ -157,20 +175,61 @@ describe("the signed-in console states no fact it cannot answer", () => {
     expect(text).toContain("Connected");
   });
 
-  test("an account WITH a context is told no note or byte total either", () => {
-    // #20 guarded `contexts.length === 0` only, so connecting a first bucket
-    // brought "1,284 notes across all" straight back. There is no honest value
-    // for these, so there is no tile.
+  /**
+   * The note tile's rule changed, and the invariant did not.
+   *
+   * "notes across all" is a real number now — something walks the bucket and
+   * records what it counted. What still must never happen is a tile drawn from
+   * anything other than that walk, and the binding here is the case that proves
+   * it: connected, verified, and never counted. #20 guarded
+   * `contexts.length === 0` only, so connecting a first bucket brought
+   * "1,284 notes across all" straight back; the guard is now "no count, no
+   * tile" and it has to hold on a binding that looks healthy in every other
+   * way.
+   */
+  test("a connected bucket nobody has counted still gets no note tile", () => {
     const { data } = renderSettings(useLiveConsoleData);
     const labels = data.stats.map((stat) => stat.label);
 
     expect(labels).not.toContain("notes across all");
+    // Bytes are still unmeasured by anything, so that tile stays gone outright.
     expect(labels).not.toContain("in your own bucket");
     for (const stat of data.stats) expect(INVENTED).not.toContain(stat.value);
 
     // The two it can count are still counted — one context, no clients.
     expect(data.stats.find((s) => s.label === "contexts reachable")?.value).toBe("1");
     expect(data.stats.find((s) => s.label === "AI clients connected")?.value).toBe("0");
+  });
+
+  test("a counted bucket gets the tile, with the number that was counted", () => {
+    const { data } = renderSettings(
+      withBinding({ ...CONNECTED_BINDING, noteCount: 342, noteCountTruncated: false }),
+    );
+
+    expect(data.stats[0]).toEqual({ value: "342", label: "notes across all" });
+    // And it has not displaced what was already there.
+    expect(data.stats.find((s) => s.label === "contexts reachable")?.value).toBe("1");
+  });
+
+  /**
+   * A walk that hit its page budget is a floor. Printed as a total it is #25
+   * again — a precise-looking number that is not the truth about somebody's
+   * bucket — so the `+` is the whole point of the assertion.
+   */
+  test("a truncated count is marked as a floor, not printed as a total", () => {
+    const { data } = renderSettings(
+      withBinding({ ...CONNECTED_BINDING, noteCount: 39_000, noteCountTruncated: true }),
+    );
+
+    expect(data.stats[0]).toEqual({ value: "39,000+", label: "notes across all" });
+  });
+
+  test("a verified empty bucket says zero rather than hiding", () => {
+    const { data } = renderSettings(
+      withBinding({ ...CONNECTED_BINDING, noteCount: 0, noteCountTruncated: false }),
+    );
+
+    expect(data.stats[0]).toEqual({ value: "0", label: "notes across all" });
   });
 });
 

@@ -563,10 +563,15 @@ and that asymmetry is deliberate: on an all-contexts route you may hold three
 different roles in three contexts, and the wrong direction for one chip to be
 wrong in is "you are seeing everything".
 
-The owner's side states the rule and never a count. `ConsoleData` carries no
-note census and the listings it does carry are the caller's own filtered view,
-so a number drawn from either would be a guess rendered as a fact about
-somebody's storage.
+The owner's side states the rule and never a count of what is withheld. There
+is a note census now (see "The note count is measured" below), and it is
+**owner-only for this reason**: it counts every Markdown file in the bucket,
+private ones included, so handing it to a member would let them derive exactly
+how much they are not being shown — an exact private-note total for a person who
+deliberately shared a subset. `getStorageBinding` withholds the three census
+fields from anybody whose role is not `owner`, and the console's total treats a
+context it cannot count as an unknown, which makes the sum a floor rather than
+silently dropping it.
 
 ### There is no get-invitation-by-token query, and there must not be one
 
@@ -582,6 +587,68 @@ A failed subscription is the one permitted exception, with its own view. A query
 error says nothing about the token, and telling somebody their emailed link is
 spent when it is not is unrecoverable — the link is in an email they may never
 open again.
+
+### The note count is measured, stamped, and allowed to be a floor
+
+For two issues running (#20, #25) the console printed facts about somebody's
+bucket that nothing had measured: "1,284 notes across all", "2.4 GB in your own
+bucket", "Reachable — 1,284 objects" — over a live bucket holding six. The fix
+then was to delete the tiles, because there was no honest number available. The
+tile is back, and four things are what make it safe.
+
+**It counts notes, not objects.** `.history/` on a real context holds every
+revision of every file: tens of thousands of objects standing for a few hundred
+notes. An object count wearing the label "your notes" is the original bug with
+a measurement attached.
+
+**The walk is delimited at the root, then flat inside each real folder.** Not
+an optimisation. A flat listing returns `.history/…` first, because `.` sorts
+before every digit and letter, so a flat walk with any page budget spends it
+inside the history and reports **zero notes for the largest contexts there
+are** — the same trap `hasExistingContext` documents, and the first version of
+the test for it was vacuous because the seeded history fit inside the budget.
+Sabotaging the delimiter is what found that.
+
+**Absent is not zero, at every layer.** `countNotes` returns `null` rather than
+throwing or reporting `0`; `recordVerification` leaves the previous count
+standing when a probe brings none; `totalNotes` returns `null` when nothing has
+been counted and the console renders no tile rather than an em dash. A `0`
+anywhere on that path means "this person has no notes", and a listing that
+failed partway would be saying it about somebody's life's work.
+
+**A floor is never printed as a total.** The walk is bounded — it runs against
+a bucket we do not own, on their request quota — so `noteCountTruncated` travels
+with the number, and a total is also a floor when a context that *has* a bucket
+has not been walked. Both render `1,284+`. A precise-looking number that is not
+the truth is #25 with a measurement in front of it.
+
+`noteCountedAt` is stored separately from `lastVerifiedAt` for the same family
+of reasons: a verification can succeed and learn nothing about the contents, and
+dating a stale count from a fresh probe is a quieter version of inventing it.
+Nothing re-counts on a schedule, so the storage card prints the count's own date
+beside it rather than letting a months-old number read as current.
+
+Three more places the absence has to survive, each of which was wrong first:
+
+- **A rebind clears it.** A rebind points at a different bucket, so a count
+  carried across is a number about somewhere else. Left standing it produced
+  `status: "error"` beside a confident total for a bucket nothing had reached.
+- **Loading is not "no bucket".** `totalNotes` takes the binding, `null` for a
+  context with no bucket, and `undefined` for one whose query has not landed.
+  Collapsing the last two made every first paint print an *exact* total that
+  was missing a whole bucket's notes.
+- **The status write does not wait on the walk.** `recordNoteCount` is its own
+  internal mutation, called after `recordVerification`. Folded together, up to
+  forty sequential LIST round trips sat inside the window where the binding
+  still read `unverified`, and an action that died mid-walk left a good bucket
+  permanently unverified over a number nobody was waiting for.
+
+And one thing a single `try` got wrong: the folder prefixes fed back into
+`store.list` are **names the customer chose**, and the adapter's
+`assertSafePrefix` throws on a backslash, a control character or a `.`/`..`
+segment. Under one outer catch, a single oddly named folder silently suppressed
+the count for that whole bucket forever. Each folder is walked in its own `try`
+now, and one that will not walk makes the total a floor.
 
 ### A guard nobody has checked is not a guard
 

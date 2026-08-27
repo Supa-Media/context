@@ -8,6 +8,7 @@ import { FormError, Notice } from "../../design/components/Input";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { colors, leading } from "../../design/tokens";
+import { relativeTime } from "../format";
 import { PaneHead } from "../ConsoleShell";
 import { atName } from "../format";
 import { loadedFolders } from "../files/browser";
@@ -276,6 +277,25 @@ function BindingCard({
           the invented ones told a user with versioning already on to go and
           turn it on.
         */}
+        {/*
+          The note count, dated from the walk that produced it.
+          `noteCountedAt` is stored apart from `lastVerifiedAt` precisely so
+          this row can say when the number was taken — a months-old count
+          printed bare is the #25 shape again, a plausible figure about
+          somebody's bucket with nothing behind it. A truncated walk is a floor
+          and says so; absent, as ever, is a missing row rather than a zero.
+        */}
+        {storage.noteCount === undefined ? null : (
+          <Check tone="ok">
+            {`${storage.noteCount.toLocaleString("en-US")}${
+              storage.noteCountTruncated ? "+" : ""
+            } notes${
+              storage.noteCountedAt === undefined
+                ? ""
+                : ` — counted ${relativeTime(storage.noteCountedAt, Date.now())}`
+            }`}
+          </Check>
+        )}
         {storage.paraPresent === undefined ? null : storage.paraPresent ? (
           <Check tone="ok">PARA structure present</Check>
         ) : (

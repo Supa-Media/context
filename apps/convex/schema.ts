@@ -388,6 +388,33 @@ const schema = defineSchema({
      * content.
      */
     scaffoldMissing: v.optional(v.array(v.string())),
+    /**
+     * HOW MANY NOTES WERE IN THE BUCKET WHEN SOMETHING LAST LOOKED.
+     *
+     * A count, a timestamp, and whether the count is a total or a floor. All
+     * three absent until a verification has actually walked the bucket, and
+     * that absence is load-bearing: issue #25 was the console printing "1,284
+     * objects" over a bucket holding six, from a constant nobody had measured.
+     * A missing value must cost a tile rather than produce a plausible one.
+     *
+     * `noteCountedAt` is separate from `lastVerifiedAt` on purpose. A
+     * verification can succeed and still learn nothing about the contents — the
+     * listing failed partway, or the walk hit its budget — and a tile that
+     * dated its number from the last *verification* would be attributing a
+     * stale count to a fresh look.
+     *
+     * `noteCountTruncated` travels with the number everywhere it goes. The walk
+     * is bounded (`lib/noteCount.ts`), so a large enough context yields a floor,
+     * and a floor rendered as a total is #25 with extra steps.
+     *
+     * Metadata, not content: three numbers about somebody's bucket, no key
+     * names, no note text. This is the same category as `scaffolded` — a thing
+     * we observed at a moment we held a credential, which a query cannot
+     * recompute without becoming a public function that opens one.
+     */
+    noteCount: v.optional(v.number()),
+    noteCountedAt: v.optional(v.number()),
+    noteCountTruncated: v.optional(v.boolean()),
     boundBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
