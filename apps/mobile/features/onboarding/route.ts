@@ -124,9 +124,30 @@ export function standingFrom(
   invitations: readonly unknown[] | undefined,
 ): ContextStanding | undefined {
   const owned = ownedContexts(workspaces);
-  if (owned === undefined || workspaces === undefined || invitations === undefined) {
-    return undefined;
+  if (owned === undefined || workspaces === undefined) return undefined;
+
+  if (invitations === undefined) {
+    // The workspace list has landed and the invitation list has not — either
+    // still in flight, or failing. Waiting is right for the first and a trap
+    // for the second: `usable()` maps a persistent query error to `undefined`
+    // too, so a control plane that does not answer `listMyInvitations` at all
+    // (a rollback, a partial deploy, an older self-hosted backend) would leave
+    // this permanently unresolved, and an unresolved standing renders. A
+    // brand-new account would sit in a console with nothing in it and no route
+    // to `/welcome` — exactly the dead end that does not look like one this
+    // module exists to prevent, made worse than before the invitation list was
+    // consulted at all.
+    //
+    // So there is one case worth answering without it: somebody who can reach
+    // **nothing**. Sending them to `/welcome` costs an invitee one hop —
+    // claiming a name does not spend or hide an invitation, and `/invite` is
+    // still there once the query recovers — while leaving them in an empty
+    // console costs them the product. Anybody with a context to open is
+    // rendered as before, because the invitation count cannot change that.
+    if (workspaces.length > 0) return undefined;
+    return { owned, reachable: 0, invitations: 0 };
   }
+
   return { owned, reachable: workspaces.length, invitations: invitations.length };
 }
 

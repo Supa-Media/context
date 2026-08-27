@@ -13,6 +13,7 @@
  * error. `MembersView.actions` is therefore the entire object, present or not.
  */
 
+import { parseInvitee } from "@context/convex/functions/lib/invitees";
 import type { ConsoleFailure } from "../failure";
 
 /** A member's role, as the control plane spells it. */
@@ -302,4 +303,49 @@ export function shareBackSuggestions(
   return sharedWithYou(contexts).filter(
     (slug) => !already.has(slug.replace(/^@/, "").toLowerCase()),
   );
+}
+
+/**
+ * What to say after an invitation is created, given what was typed into the box.
+ *
+ * "Invitation sent." was true when nothing sent mail. It is now true for an
+ * address and false for a `@name`, and there is no way to make it true for
+ * both: we have no address for a handle, and finding one would be resolving an
+ * identifier to a person at invite time, which is the enumeration leak
+ * `inviteMember` is shaped to prevent. So the copy branches instead of
+ * averaging.
+ *
+ * This matters more than it looks, because the share-back buttons beside this
+ * field fill it with a `@handle` — steering owners into precisely the path
+ * where nothing is mailed. Somebody invited by handle finds out only if they
+ * happen to open Context.
+ *
+ * `parseInvitee` is imported from the control plane rather than mirrored. The
+ * classification has to agree with the one that actually decides whether mail
+ * goes out; two copies of that rule is how the screen ends up promising a send
+ * the backend never makes.
+ *
+ * Both branches keep the sentence about what Context refuses to disclose,
+ * because that is the same either way and is the reason "sent" can never mean
+ * "delivered" here.
+ */
+export function inviteOutcomeMessage(invitee: string): { headline: string; detail: string } {
+  const parsed = parseInvitee(invitee);
+  const disclosure =
+    "Context never says whether a @name or an address belongs to a real account — that would let anybody use this box to find out who is on the platform.";
+
+  if (parsed.ok && parsed.invitee.kind === "email") {
+    return {
+      headline: "Invitation sent.",
+      detail: `One email, to that address, and no reminders — an invitation is exactly one message. It appears above until they answer it, and expires in a week. ${disclosure}`,
+    };
+  }
+
+  // A handle, or a string the control plane refused — in which case no
+  // invitation exists and this message is not shown at all.
+  const handle = parsed.ok ? `@${parsed.invitee.value}` : "They";
+  return {
+    headline: "Invitation created.",
+    detail: `${handle} will see it next time they open Context. We have no email address for a @name, so nothing was mailed — invite by address if you want them to get one. It appears above until they answer it, and expires in a week. ${disclosure}`,
+  };
 }

@@ -14,6 +14,7 @@ import {
   describeRole,
   expiryLabel,
   memberDetail,
+  inviteOutcomeMessage,
   memberLabel,
   oppositeRole,
   type AssignableRole,
@@ -340,16 +341,16 @@ function InviteForm({
   const [role, setRole] = useState<AssignableRole>("member");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<MembersFailure | null>(null);
-  const [sent, setSent] = useState(false);
+  const [sent, setSent] = useState<{ headline: string; detail: string } | null>(null);
 
   async function send() {
     setBusy(true);
     setFailure(null);
-    setSent(false);
+    setSent(null);
     try {
       await invite(invitee, role);
       setInvitee("");
-      setSent(true);
+      setSent(inviteOutcomeMessage(invitee));
     } catch (error) {
       setFailure(describeMembersFailure(error));
     } finally {
@@ -384,7 +385,7 @@ function InviteForm({
                 testID={`invite-share-back-${handle}`}
                 onPress={() => {
                   setInvitee(`@${handle}`);
-                  setSent(false);
+                  setSent(null);
                 }}
               />
             ))}
@@ -397,7 +398,7 @@ function InviteForm({
         value={invitee}
         onChangeText={(text) => {
           setInvitee(text);
-          setSent(false);
+          setSent(null);
         }}
         autoCapitalize="none"
         autoCorrect={false}
@@ -434,16 +435,13 @@ function InviteForm({
         </Hint>
       ) : null}
 
-      {sent ? (
+      {sent !== null ? (
         <Hint>
           <Text variant="hint">
             <Text variant="hint" style={styles.hintStrong}>
-              Invitation sent.
+              {sent.headline}
             </Text>{" "}
-            It appears above until they answer it, and expires in a week. Context
-            never says whether a @name or an address belongs to a real account —
-            that would let anybody use this box to find out who is on the
-            platform.
+            {sent.detail}
           </Text>
         </Hint>
       ) : null}

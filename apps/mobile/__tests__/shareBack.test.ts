@@ -1,5 +1,6 @@
 import { describe, expect, test } from "@jest/globals";
 import {
+  inviteOutcomeMessage,
   shareBackSuggestions,
   sharedWithYou,
   type MembersView,
@@ -136,5 +137,53 @@ describe("suggesting only people who are not already here", () => {
     expect(
       shareBackSuggestions([{ slug: "lk", role: "owner", kind: "personal" }], EMPTY_VIEW),
     ).toEqual([]);
+  });
+});
+
+describe("what the box says after an invitation is created", () => {
+  test("an address is told it was mailed, once", () => {
+    const { headline, detail } = inviteOutcomeMessage("ada@example.invalid");
+    expect(headline).toBe("Invitation sent.");
+    expect(detail).toMatch(/one email/i);
+    expect(detail).toMatch(/no reminders/i);
+  });
+
+  test("a handle is not told anything was sent, because nothing was", () => {
+    // The bug this closes: "Invitation sent." was true when nothing sent mail
+    // and became a lie for half the cases the moment mail shipped. A `@name`
+    // invitee is mailed nothing — deliberately, because finding an address for
+    // a handle is the enumeration leak `inviteMember` refuses to perform.
+    const { headline, detail } = inviteOutcomeMessage("@ada");
+    expect(headline).toBe("Invitation created.");
+    expect(headline).not.toMatch(/sent/i);
+    expect(detail).toMatch(/@ada will see it next time they open Context/);
+    expect(detail).toMatch(/nothing was mailed/i);
+  });
+
+  test("the share-back buttons steer into the un-mailed path, so it must say so", () => {
+    // `shareBackSuggestions` returns bare handles and the buttons fill the
+    // field with `@handle` — which is exactly the branch where no mail goes
+    // out. Somebody invited this way finds out only if they open Context.
+    const suggestion = shareBackSuggestions(
+      [{ slug: "seyi", role: "member", kind: "personal" }],
+      EMPTY_VIEW,
+    )[0]!;
+    expect(inviteOutcomeMessage(`@${suggestion}`).detail).toMatch(/nothing was mailed/i);
+  });
+
+  test("both branches keep the sentence about what Context refuses to disclose", () => {
+    // Same either way, and the reason "sent" can never mean "delivered" here.
+    for (const invitee of ["ada@example.invalid", "@ada"]) {
+      expect(inviteOutcomeMessage(invitee).detail).toMatch(
+        /never says whether a @name or an address belongs to a real account/,
+      );
+    }
+  });
+
+  test("the classification is the control plane's, not a second copy", () => {
+    // A mirrored rule here would let the screen promise a send the backend
+    // never makes. These are the shapes `parseInvitee` treats as addresses.
+    expect(inviteOutcomeMessage("ADA@Example.Invalid").headline).toBe("Invitation sent.");
+    expect(inviteOutcomeMessage("ada").headline).toBe("Invitation created.");
   });
 });

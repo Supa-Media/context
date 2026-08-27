@@ -53,9 +53,9 @@ export function AgentsStep({
   return (
     <View>
       <Text variant="rowSub" style={styles.lede}>
-        Your context is ready and empty. Paste this endpoint into the tools you already use,
-        then give one of them the prompt below — it will fill the context from what it
-        already knows about your work.
+        Your context has its folders and nothing in them yet. Paste this endpoint into the
+        tools you already use, then give one of them the prompt below. A client that
+        remembers your past work will fill it in; one that does not will ask you.
       </Text>
 
       <Text variant="eyebrow" style={styles.head}>

@@ -13,9 +13,14 @@ import type { OnboardingController } from "../useOnboarding";
  * Step 4 — the two things to take away, and four sentences of orientation.
  *
  * Deliberately short. Somebody thirty seconds into a product does not read a
- * tour, and everything here is discoverable in the console anyway. What they
- * cannot discover is the endpoint — it is the whole point of the product and it
- * is not written down anywhere else — so that goes first, with a copy button.
+ * tour, and everything here is discoverable in the console anyway.
+ *
+ * The endpoint used to go first, on the reasoning that it is the one thing not
+ * written down anywhere else. It now belongs to the tools step, which is about
+ * it — but only a run whose bucket connected reaches that step, so this screen
+ * still carries it for a run that skipped storage. The lede moves with it:
+ * telling somebody to "paste this endpoint" beside no endpoint was the bug that
+ * conditional introduced.
  *
  * The one thing this screen has to be careful about is the bucket. It is the
  * last screen of the run, so a context that has nowhere to keep notes has to
@@ -44,7 +49,9 @@ export function DoneStep({
   return (
     <View>
       <Text variant="rowSub" style={styles.lede}>
-        {`@${slug} is yours. Paste this endpoint into Claude, ChatGPT, or any other MCP client and it can read and write your context — under the rules you set.`}
+        {sawAgentsStep
+          ? `@${slug} is yours. Your endpoint is on the previous screen and in the console, under Connections.`
+          : `@${slug} is yours. Paste this endpoint into Claude, ChatGPT, or any other MCP client and it can read and write your context — under the rules you set.`}
       </Text>
 
       {/*

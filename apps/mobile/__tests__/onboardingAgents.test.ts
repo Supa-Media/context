@@ -26,13 +26,15 @@ describe("the seed prompt names only folders that exist", () => {
     // If PARA_FOLDERS changes upstream, this must move with it rather than
     // naming a folder the scaffold no longer writes.
     const prompt = defaultSeedPrompt();
-    for (const folder of PARA_FOLDERS) {
-      // Only the two the prompt actually asks for are named; the point is that
-      // nothing outside the real set ever is.
+    // Every folder the prompt names must be one the scaffold actually writes.
+    // The previous version of this looped `expect(PARA_FOLDERS).toContain(f)`
+    // over PARA_FOLDERS itself, which is `for all f in S: f in S` — it could
+    // not fail, and left two hardcoded literals doing the only real work.
+    const named = [...prompt.matchAll(/in `([^`]+)\/`/g)].map((m) => m[1]!);
+    expect(named.length).toBeGreaterThan(0);
+    for (const folder of named) {
       expect(PARA_FOLDERS).toContain(folder);
     }
-    expect(prompt).toContain("1-projects/");
-    expect(prompt).toContain("3-resources/");
   });
 
   test("a custom layout is never told about folders it declined", () => {
@@ -52,26 +54,63 @@ describe("the seed prompt names only folders that exist", () => {
     // the prompt must not assume it has two to distribute work across.
     const prompt = seedPromptFor(["notes"]);
     expect(prompt).toContain("notes/");
-    expect(prompt.length).toBeGreaterThan(0);
+    // Every task lands somewhere real, rather than one of them falling through
+    // to a target the layout does not have.
+    // All three land in the one folder that exists. The bug this replaced sent
+    // the third to the root, which is where `index.md` lives.
+    expect([...prompt.matchAll(/in `([^`]+)\/`/g)].map((m) => m[1]!)).toEqual([
+      "notes",
+      "notes",
+      "notes",
+    ]);
   });
 
-  test("no folders at all does not produce a prompt naming `undefined`", () => {
+  test("no folders at all names no folder, and does not fall back to the root", () => {
     // Defensive: the structure step refuses to apply an empty custom list, so
     // this should be unreachable — but a prompt that renders "undefined/" as an
-    // instruction is the kind of thing that ships.
+    // instruction is the kind of thing that ships, and falling back to the root
+    // would aim all three tasks at the two files this prompt forbids.
     const prompt = seedPromptFor([]);
     expect(prompt).not.toMatch(/undefined/);
     expect(prompt).not.toMatch(/null/);
+    expect(prompt).not.toMatch(/`index\.md`:/);
+    expect([...prompt.matchAll(/in `([^`]+)\/`/g)]).toHaveLength(0);
+    expect(prompt).toMatch(/wherever you think it belongs/);
   });
 });
 
 describe("the three sentences that are not decoration", () => {
+  test("it never aims a client at a file Context maintains", () => {
+    // The bug this catches shipped in the first version of this prompt: task 1
+    // said "`index.md` at the root — who I am". `index.md` is INDEX_KEY, the
+    // context manifest, written by the scaffold and read back by `orient` —
+    // and `write_note` only checks an etag when one is supplied. A client
+    // obeying that instruction replaces the manifest with a biography on its
+    // first call, while the next screen still calls it "yours to edit".
+    const prompt = defaultSeedPrompt();
+    expect(prompt).not.toMatch(/In .*index\.md/);
+    expect(prompt).not.toMatch(/\d\.\s*`index\.md`/);
+    expect(prompt).toMatch(/Do not change `index\.md` or `privacy\.md`/);
+  });
+
+  test("it waits for a go, rather than only announcing", () => {
+    // "Tell me which folder, before you write it" is satisfied by a client
+    // that announces and writes in the same turn, which is not a confirmation.
+    expect(defaultSeedPrompt().replace(/\s+/g, " ")).toMatch(/wait for me to say go/i);
+  });
+
+  test("it gives a client that does not know the person somewhere to go", () => {
+    // KNOWN_CLIENTS names clients with no cross-session memory. Without this
+    // the honest one stalls and the eager one invents.
+    expect(defaultSeedPrompt().replace(/\s+/g, " ")).toMatch(/ask me rather than guessing/i);
+  });
+
   test("it tells the client to name the folder before writing", () => {
     // The house rule from the MCP server's own instructions. The folder decides
     // the visibility scope, so this is the confirmation that stops a private
     // thing landing somewhere shared — dropping it would teach every client the
     // product ships with to skip it.
-    expect(defaultSeedPrompt()).toMatch(/which folder each note is going in before you write it/i);
+    expect(defaultSeedPrompt().replace(/\s+/g, " ")).toMatch(/tell me which folder each note is going in/i);
   });
 
   test("it asks for short and factual notes", () => {
@@ -94,6 +133,13 @@ describe("the three sentences that are not decoration", () => {
 });
 
 describe("what the screen says about the endpoint and the tier", () => {
+  test("the grant sentence is said once, not twice on one screen", () => {
+    // Both notes render together in AgentsStep. They used to open with the same
+    // clause in different words, which reads as two different promises.
+    expect(ENDPOINT_NOTE).toMatch(/gets its own grant/);
+    expect(TIER_NOTE).not.toMatch(/gets its own grant/);
+  });
+
   test("the endpoint is described as shared, because it is", () => {
     // People expect a personal URL and reach for the wrong mental model when
     // they do not get one. The recurring question is "is this someone else's?".
@@ -111,6 +157,8 @@ describe("what the screen says about the endpoint and the tier", () => {
   });
 
   test("neither note promises a grant that cannot be revoked on its own", () => {
-    expect(TIER_NOTE).toMatch(/revoke on its own/i);
+    expect(TIER_NOTE).toMatch(/revoke any client on its own/i);
+    // And it says where, which it did not.
+    expect(TIER_NOTE).toMatch(/Connections/);
   });
 });

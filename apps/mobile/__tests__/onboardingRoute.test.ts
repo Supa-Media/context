@@ -89,13 +89,30 @@ describe("reading a standing off the two subscriptions", () => {
     expect(ownedContexts(undefined)).toBeUndefined();
   });
 
-  test("an unresolved invitation list is also unknown, not empty", () => {
+  test("an unresolved invitation list is unknown for anybody who has a context", () => {
     // The subtle one. A standing built from a landed workspace list and an
     // in-flight invitation list reads `invitations: 0`, which is precisely the
     // shape that means "send this person to onboarding" — so an invitee whose
     // second query is a few milliseconds slower would be bounced anyway, some
     // of the time.
-    expect(standingFrom([], undefined)).toBeUndefined();
+    expect(standingFrom([{ kind: "personal", role: "member" }], undefined)).toBeUndefined();
+  });
+
+  test("but somebody who can reach nothing is still sent to onboarding", () => {
+    // The failure this closes: `usable()` maps a *persistent* query error to
+    // `undefined` as well as an in-flight one, so a control plane that cannot
+    // answer `listMyInvitations` at all would leave the standing permanently
+    // unresolved — and an unresolved standing renders. A brand-new account
+    // would sit in an empty console with no route to `/welcome` forever, which
+    // is worse than the behaviour before the invitation list was consulted.
+    //
+    // One hop is the cost to a real invitee, and claiming a name neither
+    // spends nor hides an invitation.
+    expect(standingFrom([], undefined)).toEqual({
+      owned: 0,
+      reachable: 0,
+      invitations: 0,
+    });
   });
 });
 

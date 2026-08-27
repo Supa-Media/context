@@ -184,6 +184,33 @@ function withoutImports(source: string): string {
 }
 
 const DECRYPT_CALL = /\bdecryptSecret\s*\(/;
+
+/**
+ * Which modules may import the decrypt at all.
+ *
+ * `DECRYPT_CALL` above is a text match on a module's own source, and the taint
+ * graph's nodes are Convex functions — so a plain helper module that calls
+ * `decryptSecret` and declares no Convex function is invisible to both. The
+ * public function importing it contains no `decryptSecret(` and passes every
+ * check in this file. See the laundering test for the three-line version.
+ *
+ * So the import is enumerated rather than the call inferred. Both entries here
+ * declare Convex functions and are already analyzed properly; adding a third
+ * fails this test, which is the point — a new module reaching the decrypt is a
+ * conversation, not a merge.
+ */
+const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
+  "functions/storage.ts",
+  "functions/cloudflare.ts",
+]);
+
+/** An import of `decryptSecret`, in code rather than in prose. */
+function importsDecrypt(source: string): boolean {
+  const withoutComments = source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+  return /import\s*\{[^}]*\bdecryptSecret\b[^}]*\}\s*from/.test(withoutComments);
+}
 const CONVEX_REFERENCE = /\b(?:internal|api)((?:\.[A-Za-z_$][\w$]*)+)/g;
 const RUN_CALL = /\.run(?:Query|Mutation|Action)\(\s*([^,)\s]*)/g;
 /**
@@ -529,6 +556,28 @@ describe("no public function can reach a storage secret", () => {
    * needs the same scrutiny `getBindingForGateway` got. Add it deliberately,
    * and say why in the commit.
    */
+  /**
+   * The other half of the same closure, one level below the graph.
+   *
+   * The test below enumerates which *functions* can reach a decrypt. This one
+   * enumerates which *modules* may import it at all, and it is what stops a
+   * plain helper — no Convex exports, therefore no graph node — from calling
+   * `decryptSecret` on behalf of a public function whose own source never
+   * mentions it.
+   *
+   * If this fails, do not add the module and move on. Ask why a third place
+   * needs to open a customer's credential, and whether it could instead call
+   * one of the two that already does.
+   */
+  test("only these modules may import the decrypt", () => {
+    const importers = Object.entries(RAW_SOURCES)
+      .filter(([, source]) => importsDecrypt(source as string))
+      .map(([path]) => path.replace(/^(\.\.?\/)+/, ""))
+      .sort();
+
+    expect(importers).toEqual([...DECRYPT_IMPORTERS].sort());
+  });
+
   test("only these functions can reach a decrypted credential", () => {
     const { decryptCapable } = analyze(realModules());
 
@@ -814,6 +863,42 @@ export { passthrough };
     expect(violations.map((v) => v.node)).toContain(
       "functions.indirect.passthrough",
     );
+  });
+
+  /**
+   * And the sixth, which the five above all miss: the decrypt in a plain
+   * TypeScript helper that declares no Convex functions.
+   *
+   * Every rule so far reasons over the *graph*, and the graph's nodes are
+   * Convex functions. A module exporting an ordinary arrow function
+   * contributes no nodes, so it is not a node anything can be tainted
+   * through — while the public function that imports it contains no
+   * `decryptSecret(` of its own and passes every textual check.
+   *
+   * This is the fourth time a guard here has been weaker than it looked
+   * (CLAUDE.md keeps the tally: a check that grepped export names, an isolation
+   * claim that inverted silently, an import guard that read prose as code), and
+   * it is the same shape each time — a rule that describes the code it expects
+   * rather than the code an attacker would write.
+   *
+   * The closure is the one this file already uses twice, for
+   * `CREDENTIAL_BARRIERS` and for the pinned `decryptCapable` set: enumerate.
+   * `decryptSecret` may be imported only by modules on `DECRYPT_IMPORTERS`, so
+   * a laundering helper fails loudly and has to be argued for rather than
+   * merged. The test below is the enumeration; this one proves it bites.
+   */
+  test("catches a decrypt laundered through a helper that declares no Convex functions", () => {
+    const launder = `
+import { decryptSecret, requireKeyset } from "./crypto";
+export const open = (envelope: string, workspaceId: string) =>
+  decryptSecret(envelope, requireKeyset(), { workspaceId });
+`;
+    expect(importsDecrypt(launder)).toBe(true);
+    // …and a module that merely mentions it in prose does not, so the rule is
+    // about code rather than about the word.
+    expect(
+      importsDecrypt("// this module never calls decryptSecret, it just says so\nexport const x = 1;"),
+    ).toBe(false);
   });
 
   /** And the fifth: a public function in the same file as the decrypt. */

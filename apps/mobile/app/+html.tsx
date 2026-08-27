@@ -25,6 +25,21 @@ export default function Root({ children }: PropsWithChildren) {
           name="viewport"
           content="width=device-width, initial-scale=1, shrink-to-fit=no"
         />
+        {/*
+          No URL of ours is ever sent to a third party.
+
+          This matters more since the invitation email started carrying a
+          sign-in code: `/invite/<token>?code=<64 hex>` is the highest-value URL
+          in the product, and this document makes cross-origin requests to
+          fonts.googleapis.com and fonts.gstatic.com. Current browsers default
+          to `strict-origin-when-cross-origin`, which sends only the origin — so
+          this is not a leak today, and it is one default away from being one on
+          a page written before the URL carried a credential.
+
+          `no-referrer` costs nothing here: nothing we serve needs to know where
+          a request came from.
+        */}
+        <meta name="referrer" content="no-referrer" />
         <meta name="color-scheme" content="dark" />
         <meta name="theme-color" content="#050506" />
         <meta

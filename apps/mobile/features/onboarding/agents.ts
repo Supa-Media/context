@@ -55,22 +55,48 @@ interface SeedTask {
  * The three things worth having on day one.
  *
  * Deliberately three. A prompt that asks for a complete personal knowledge
- * base produces a wall of confident invention; one that asks for an index, the
- * live projects, and the reusable preferences produces something the person
- * recognises and can correct.
+ * base produces a wall of confident invention; one that asks for a note about
+ * the person, the live projects, and the reusable preferences produces
+ * something they recognise and can correct.
+ *
+ * ## Nothing here points at `index.md`
+ *
+ * The obvious slot for "who I am" is the file at the root, and it is the one
+ * file this prompt must never name. `index.md` is `INDEX_KEY` in the control
+ * plane's scaffold: the context *manifest*, written at setup with
+ * `role: context-manifest` frontmatter and one line per folder, and read back
+ * by the `orient` tool that this very prompt tells a client to call first.
+ *
+ * `write_note` only checks an etag when one is supplied, so a client following
+ * an instruction to write "who I am and what I'm working on" to `index.md`
+ * silently replaces the manifest with a biography — on its first call, before
+ * anybody has seen the context. The last screen of this same flow then tells
+ * the person `index.md` is "what this context is and how it is arranged, yours
+ * to edit", about a file an AI has already overwritten.
+ *
+ * So the first task goes in a folder like everything else, and the prompt says
+ * outright that the two maintained files are off limits.
  */
 function seedTasks(folders: readonly string[]): SeedTask[] {
-  const projects = folders.find((f) => f.startsWith("1-")) ?? folders[0] ?? null;
-  const resources = folders.find((f) => f.startsWith("3-")) ?? folders[1] ?? null;
+  // Every fallback ends at `folders[0]`, never at `null`, whenever there is a
+  // folder at all. `resources` used to fall back to `folders[1]` and stop,
+  // so a custom layout with a single folder sent its third task to the root —
+  // straight back into `index.md`, the one target the section above exists to
+  // keep a client away from. Landing two tasks in the same folder is a worse
+  // filing suggestion and a harmless one; landing one at the root is not.
+  const first = folders[0] ?? null;
+  const areas = folders.find((f) => f.startsWith("2-")) ?? first;
+  const projects = folders.find((f) => f.startsWith("1-")) ?? first;
+  const resources = folders.find((f) => f.startsWith("3-")) ?? folders[1] ?? first;
   return [
-    { folder: null, what: "who I am and what I'm working on now" },
+    { folder: areas, what: "a short note about me: who I am and what I'm working on now" },
     {
       folder: projects,
-      what: "one note per active project — its goal, its current state, and the decisions still open",
+      what: "one note per active project: its goal, its current state, and the decisions still open",
     },
     {
       folder: resources,
-      what: "anything reusable — my preferences, my tools, the conventions you've learned working with me",
+      what: "anything reusable: my preferences, my tools, the conventions you've learned working with me",
     },
   ];
 }
@@ -83,13 +109,21 @@ function seedTasks(folders: readonly string[]): SeedTask[] {
  * they declined. `seedPromptFor([])` is a real case — a custom layout can be a
  * single folder, and the prompt still has to make sense.
  *
- * Three sentences of it are load-bearing and should not be trimmed for length:
+ * Five sentences of it are load-bearing and should not be trimmed for length:
  *
- *  - **"Tell me which folder each note is going in before you write it."**
- *    This is the house rule from the MCP server's own instructions, and the
- *    folder determines the visibility scope. A prompt that skipped it would be
- *    teaching every client the product ships with to ignore the one
- *    confirmation that stops a private thing landing somewhere shared.
+ *  - **"tell me which folder each note is going in and wait for me to say go."**
+ *    The house rule from the MCP server's own instructions, and the folder
+ *    determines the visibility scope. It says *wait*, not just *tell*: a client
+ *    that announces and writes in the same turn has not offered a confirmation,
+ *    it has narrated. Skipping it would teach every client the product ships
+ *    with to ignore the one gate that stops a private thing landing somewhere
+ *    shared.
+ *  - **"Do not change `index.md` or `privacy.md`."** Both are maintained files,
+ *    and `index.md` is the manifest `orient` reads. See `seedTasks`.
+ *  - **"ask me rather than guessing."** `KNOWN_CLIENTS` includes clients with
+ *    no cross-session memory of the person. Without a branch for "I don't know
+ *    you", the honest one stalls and the eager one invents — which is the wall
+ *    of invention the three-task limit exists to avoid.
  *  - **"Keep them short and factual."** Without it the first thing in a brand
  *    new context is a thousand words of flattering summary, which is what
  *    people delete and then never come back to.
@@ -108,14 +142,23 @@ export function seedPromptFor(folders: readonly string[]): string {
   ];
 
   seedTasks(folders).forEach((task, index) => {
-    const where = task.folder === null ? "`index.md` at the root" : `\`${task.folder}/\``;
-    lines.push(`  ${index + 1}. ${where} — ${task.what}`);
+    // `null` only survives for a context with no folders at all, which the
+    // structure step refuses to create but the schema permits. "Wherever you
+    // think it belongs" is honest there; naming the root would not be, because
+    // the root holds the two files this prompt is about to say not to touch.
+    const where = task.folder === null ? "wherever you think it belongs" : `in \`${task.folder}/\``;
+    lines.push(`  ${index + 1}. Write ${where}: ${task.what}`);
   });
 
   lines.push(
     "",
-    "Tell me which folder each note is going in before you write it.",
-    "Keep them short and factual — they are shared context for many tools, not a report.",
+    "Before you write anything, tell me which folder each note is going in and",
+    "wait for me to say go. If you do not already know something, ask me rather",
+    "than guessing.",
+    "",
+    "Do not change `index.md` or `privacy.md` — Context maintains those.",
+    "Keep the notes short and factual — they are shared context for many tools,",
+    "not a report.",
     "",
     "From now on: check Context before answering anything about my projects,",
     "and write down decisions worth keeping.",
@@ -139,7 +182,7 @@ export function defaultSeedPrompt(): string {
  * be describing a product we deliberately do not ship.
  */
 export const TIER_NOTE =
-  "Each client signs in and gets its own grant, which you can revoke on its own. You choose per client whether it sees team notes or everything — team is the default, including for you.";
+  "You choose per client whether it sees team notes or everything. Team is the default, including for you, and you can revoke any client on its own from Connections.";
 
 /**
  * Why the endpoint is the same string for everybody.
@@ -147,6 +190,10 @@ export const TIER_NOTE =
  * People expect a personal URL and reach for the wrong mental model when they
  * do not get one — the recurring question is "is this someone else's?". One
  * sentence, next to the field.
+ *
+ * This is also the only place the per-client grant is explained. `TIER_NOTE`
+ * used to open with the same clause in different words, forty pixels below;
+ * two paraphrases of one promise on one screen read as two promises.
  */
 export const ENDPOINT_NOTE =
   "The same URL for everyone. Your client signs in and gets its own grant — nothing in the address identifies you, so it is safe to paste anywhere you configure a tool.";
