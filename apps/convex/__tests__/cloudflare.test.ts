@@ -35,13 +35,19 @@ import type { Id } from "../_generated/dataModel";
 import { decryptSecret, requireKeyset } from "../functions/lib/crypto";
 import {
   apiTokenTemplateUrl,
+  bucketCreatedDuringAttempt,
   bucketNameProblem,
+  bucketNotOursMessage,
   bucketResourceSelector,
   classifyCloudflareFailure,
   deriveS3SecretAccessKey,
   isPlausibleAccountId,
+  provisionFailureMessage,
   r2Endpoint,
+  residueAfterFailure,
+  residueSentence,
   scopedTokenName,
+  stripCredentialFields,
   suggestBucketName,
 } from "../functions/lib/cloudflare";
 import {
@@ -93,7 +99,18 @@ interface CloudflareStubOptions {
   permissionGroups?: { id: string; name: string }[];
   permissionGroupsFailure?: CloudflareFailure;
   bucketFailure?: CloudflareFailure;
+  /**
+   * What `GET /accounts/:id/r2/buckets/:name` answers with — the call that
+   * decides whether a name that is already taken belongs to a bucket this
+   * attempt created. Absent means Cloudflare does not know the bucket, which
+   * is the answer that must refuse rather than adopt.
+   */
+  bucketDetails?: { name?: string; creation_date?: string };
   tokenFailure?: CloudflareFailure;
+  /** Reject the socket on the mint call, the way DNS or a deadline would. */
+  tokenNetworkFailure?: boolean;
+  /** Refuse to delete a minted token, so the orphan cannot be taken back. */
+  tokenRevokeFailure?: CloudflareFailure;
   /** Return a token with no `value`, the way a truncated response would. */
   tokenWithoutValue?: boolean;
 }
@@ -154,6 +171,20 @@ function cloudflareStub(options: CloudflareStubOptions = {}) {
       });
     }
 
+    if (url.pathname.includes("/r2/buckets/")) {
+      if (options.bucketDetails === undefined) {
+        return cloudflareEnvelope(
+          { success: false, errors: [{ code: 10006, message: "The specified bucket does not exist." }], result: null },
+          404,
+        );
+      }
+      return cloudflareEnvelope({
+        success: true,
+        errors: [],
+        result: options.bucketDetails,
+      });
+    }
+
     if (url.pathname.endsWith("/r2/buckets")) {
       if (options.bucketFailure) return failureResponse(options.bucketFailure);
       return cloudflareEnvelope({
@@ -163,7 +194,17 @@ function cloudflareStub(options: CloudflareStubOptions = {}) {
       });
     }
 
+    if (call.method === "DELETE" && url.pathname.includes("/tokens/")) {
+      if (options.tokenRevokeFailure) {
+        return failureResponse(options.tokenRevokeFailure);
+      }
+      // Cloudflare's own answer here is a bare success envelope; the point of
+      // the stub is that the call happened at all.
+      return cloudflareEnvelope({ success: true, errors: [], result: null });
+    }
+
     if (url.pathname.endsWith("/tokens")) {
+      if (options.tokenNetworkFailure) throw new Error("network down");
       if (options.tokenFailure) return failureResponse(options.tokenFailure);
       return cloudflareEnvelope({
         success: true,
@@ -208,6 +249,59 @@ async function provisioning(options: CloudflareStubOptions = {}) {
   );
 
   return { t, owner, workspaceId, cloudflare, bucket };
+}
+
+/**
+ * Point `fetch` at a fresh Cloudflare stub, keeping the S3 backend behind it.
+ *
+ * A retry is a second attempt against a Cloudflare that answers differently —
+ * a permission fixed, a bucket that now exists — so a test of a retry needs to
+ * replace the stub without replacing the workspace.
+ */
+function useCloudflare(options: CloudflareStubOptions = {}) {
+  const cloudflare = cloudflareStub(options);
+  const bucket = memoryS3(BUCKET);
+  vi.stubGlobal("fetch", async (input: URL | RequestInfo, init: RequestInit = {}) => {
+    const url = new URL(typeof input === "string" ? input : String(input));
+    return url.hostname === "api.cloudflare.com"
+      ? await cloudflare.fetchImpl(input, init)
+      : await bucket.fetchImpl(input, init);
+  });
+  return cloudflare;
+}
+
+/**
+ * Break `crypto.subtle.digest`, and nothing else.
+ *
+ * The S3 secret is the SHA-256 of the minted token's value, so a digest that
+ * refuses stops the flow at exactly the point an eviction or a refused binding
+ * write would: after a live R2 token exists in the customer's account, and
+ * before anything in the control plane has recorded it. That window is the one
+ * hazard this flow can create and then forget about, so it needs a test rather
+ * than a comment.
+ */
+function withoutDigest(): void {
+  const real = globalThis.crypto;
+  const bound = (target: object, prop: string | symbol): unknown => {
+    const value = Reflect.get(target, prop, target) as unknown;
+    return typeof value === "function"
+      ? (value as (...args: unknown[]) => unknown).bind(target)
+      : value;
+  };
+  const subtle = new Proxy(real.subtle, {
+    get: (target, prop) =>
+      prop === "digest"
+        ? async () => {
+            throw new Error("digest unavailable");
+          }
+        : bound(target, prop),
+  });
+  vi.stubGlobal(
+    "crypto",
+    new Proxy(real, {
+      get: (target, prop) => (prop === "subtle" ? subtle : bound(target, prop)),
+    }),
+  );
 }
 
 async function startProvisioning(
