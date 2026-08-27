@@ -220,6 +220,71 @@ afterEach(() => {
 
 /* --------------------------------- the tests ------------------------------- */
 
+/**
+ * The owner's cap has to reach the parser, not merely be parsed.
+ *
+ * Everything in `controlPlane.test.ts` proves the number is read off the resolve
+ * response correctly. None of it proves the handler then *uses* it: reverting
+ * the wiring in `./index.ts` to a bare `DEFAULT_MIME_LIMITS` left that whole
+ * file green, which is exactly the shape of bug this project keeps finding —
+ * a guard proved at the wrong layer. These two drive a real message through
+ * `handleEmail` and read the note that came out.
+ */
+describe("the owner's attachment cap reaches a real message", () => {
+  /** 1 KB of base64, well under the fallback and over the caps set below. */
+  const attached = "A".repeat(1024);
+  const messageWithAttachment = () =>
+    new TextEncoder().encode(
+      [
+        `Authentication-Results: ${AUTHSERV}; dkim=pass header.d=example.com; spf=pass smtp.mailfrom=alice@example.com; dmarc=pass header.from=example.com`,
+        "From: alice@example.com",
+        "To: seyi@context.lc",
+        "Subject: Hello",
+        "Date: Tue, 26 Aug 2026 09:00:00 +0000",
+        "Message-ID: <att@example.com>",
+        "MIME-Version: 1.0",
+        'Content-Type: multipart/mixed; boundary="b"',
+        "",
+        "--b",
+        "Content-Type: text/plain",
+        "",
+        "see attached",
+        "--b",
+        "Content-Type: application/pdf",
+        'Content-Disposition: attachment; filename="report.pdf"',
+        "Content-Transfer-Encoding: base64",
+        "",
+        attached,
+        "--b--",
+        "",
+      ].join("\r\n"),
+    );
+
+  const noteFrom = (bucket: ReturnType<typeof bucketStub>) =>
+    [...bucket.objects.entries()].find(([key]) => key.endsWith(".md"))?.[1] ?? "";
+
+  it("a cap below the attachment size caps it, where the fallback would not have", async () => {
+    const { bucket } = await run(messageWithAttachment(), {
+      stub: { resolution: { ...RESOLUTION, maxAttachmentBytes: 8 } },
+    });
+
+    // `attachment_size_capped` is what the parser records when a part exceeds
+    // the limit. The fallback is 2 MB, so if the configured 8 were ignored this
+    // 1 KB attachment would sail through and this assertion is what notices.
+    expect(noteFrom(bucket)).toContain("attachment_size_capped");
+  });
+
+  it("the same message is not capped when the owner's cap allows it", async () => {
+    const { bucket } = await run(messageWithAttachment(), {
+      stub: { resolution: { ...RESOLUTION, maxAttachmentBytes: 1_000_000 } },
+    });
+
+    // The other half of the pair: without it, "caps everything always" passes.
+    expect(noteFrom(bucket)).not.toContain("attachment_size_capped");
+  });
+});
+
+
 // Nothing is mocked here. `./policy` re-exports the control plane's own
 // `senderIsAllowed`, so this suite drives the exact matcher a deployment does,
 // against `RESOLUTION.policy` above — which admits the fixture sender and
