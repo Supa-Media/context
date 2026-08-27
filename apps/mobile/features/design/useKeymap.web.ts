@@ -135,6 +135,16 @@ export function useKeymap(options: KeymapOptions): void {
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
 
+  /**
+   * One dependency for every thunk identity.
+   *
+   * Extracted rather than written inline because a complex expression in a
+   * dependency array cannot be checked statically — the lint rule that says so
+   * is right, and the variable is also the clearer statement: what the effect
+   * depends on is *which kind* of scope this is, never which closure.
+   */
+  const scopeKey = typeof scope === "function" ? FUNCTION_SCOPE : scope;
+
   useEffect(() => {
     if (!enabled) return;
     if (typeof document === "undefined") return;
@@ -183,7 +193,7 @@ export function useKeymap(options: KeymapOptions): void {
     // A thunk's identity is not a reason to tear the listener down and rebuild
     // it — it is read through `scopeRef`, like the handler. Only a literal
     // scope changing, or the binder being switched off, warrants that.
-  }, [typeof scope === "function" ? FUNCTION_SCOPE : scope, enabled]);
+  }, [scopeKey, enabled]);
 }
 
 /** The sentinel that keeps every thunk identity looking like one dependency. */

@@ -9,7 +9,7 @@ import { colors, radii, space } from "../../design/tokens";
 import { useFrame } from "../../app/AppFrame";
 import { loadedFolders, type FileBrowser } from "./browser";
 import { Confirm, DeleteForever, MovePicker, NamePrompt } from "./Dialogs";
-import { canDrop as verdictFor, type DragModifier, type DragSource } from "./dnd";
+import { canDrop as verdictFor, type DragSource } from "./dnd";
 import { FileTree, type TreeDragHandlers } from "./FileTree";
 import { itemsFor, type MenuActionId } from "./menu";
 import { baseName, parentPath, restoreTargetFor } from "./paths";
@@ -101,14 +101,22 @@ export function Explorer({
     return rank(query, itemsFromListings(files.listings));
   }, [query, files.listings]);
 
-  const selectedRow = rows.find((row) => row.path === files.selectedPath) ?? null;
   const selectedFolder = targetFolder(files.listings, files.selectedPath);
 
-  /** Choosing a note on a phone has to get the drawer out of the way. */
-  const select = (path: string) => {
-    files.select(path);
-    if (frame.closesOnSelect) frame.closeDrawer();
-  };
+  /**
+   * Choosing a note on a phone has to get the drawer out of the way.
+   *
+   * `useCallback` because `runAction` depends on it: a plain arrow is a new
+   * identity every render, which would rebuild that callback on every keystroke
+   * in the filter box.
+   */
+  const select = useCallback(
+    (path: string) => {
+      files.select(path);
+      if (frame.closesOnSelect) frame.closeDrawer();
+    },
+    [files, frame],
+  );
 
   /* ---------------------------------------------------------------------- */
   /*                          the row's own menu                              */

@@ -3,7 +3,6 @@ import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { colors, radii, space } from "../../design/tokens";
 import { Breadcrumb } from "../files/Breadcrumb";
-import type { FileBrowser } from "../files/browser";
 import { NoteEditor } from "../files/NoteEditor";
 import { findEntry } from "../files/tree";
 import type { FileEntry, Visibility } from "../files/types";

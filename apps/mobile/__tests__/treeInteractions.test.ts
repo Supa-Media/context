@@ -261,9 +261,14 @@ describe("a menu that will not open does not eat the browser's", () => {
  * doubled move: a file operation performed twice against a bucket, not a
  * cosmetic glitch.
  *
- * React 19's ref-cleanup contract is what does the removing, and it is also
- * what makes this checkable: re-attaching by hand to the same node and counting
- * the calls is the only way to see the listener from outside.
+ * **The first version of this passed by inspection and leaked in the app.**
+ * React 19 does support a cleanup returned from a callback ref — but the ref
+ * goes to a react-native-web `View`, whose `mergeRefs` calls `ref(node)` and
+ * throws the return value away, so React never sees a cleanup and detaches the
+ * pre-19 way: by calling the ref again with `null`. A test that only drove the
+ * hook by hand would have gone on being green while every unmounted row in the
+ * tree kept its seven listeners. Hence two tests below rather than one: the
+ * mounted-and-unmounted path is the one that reflects what actually ships.
  */
 describe("the row's listeners are removed when it lets go of a node", () => {
   const { useRowInteractions } =
@@ -272,6 +277,7 @@ describe("the row's listeners are removed when it lets go of a node", () => {
   /** Drives the hook directly: the node it attaches to is the thing under test. */
   function attach(node: HTMLElement, options: { onMenu: () => void; canDrag: boolean }) {
     let detach: (() => void) | void;
+    let refOf: ((node: unknown) => void) | undefined;
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -295,6 +301,7 @@ describe("the row's listeners are removed when it lets go of a node", () => {
       // The ref is called by hand rather than rendered onto a node, because
       // what is being tested is the contract between the hook and React —
       // "hand it a node, get a cleanup back".
+      refOf = interactions.ref;
       if (detach === undefined) detach = interactions.ref?.(node) as (() => void) | void;
       return null;
     };
@@ -305,8 +312,61 @@ describe("the row's listeners are removed when it lets go of a node", () => {
       });
     };
     rerender(options.canDrag);
-    return { detach: () => (detach as (() => void) | undefined)?.(), rerender };
+    return {
+      detach: () => (detach as (() => void) | undefined)?.(),
+      rerender,
+      /** Hand the same hook a different node, the way an unstable ref would. */
+      reattach: (next: HTMLElement) => {
+        detach = refOf!(next) as (() => void) | void;
+      },
+    };
   }
+
+  /**
+   * Through a real mount, so it is the *host's* detach convention under test
+   * and not the hook's opinion of it. This is the one that caught
+   * react-native-web discarding the cleanup return.
+   */
+  test("an unmounted row is deaf", () => {
+    const seen: string[] = [];
+    const tree = mountTree({ onMenu: (r) => seen.push(r.path), drag: DRAG });
+    const node = tree.rowFor("plan.md");
+
+    act(() => {
+      node.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    });
+    expect(seen).toEqual(["1-projects/plan.md"]);
+
+    // Torn down here rather than in `afterEach`, because the node has to
+    // outlive its own tree for the second dispatch to mean anything.
+    roots.pop()!();
+
+    act(() => {
+      node.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    });
+    expect(seen).toEqual(["1-projects/plan.md"]);
+  });
+
+  test("a re-attach releases the node it was on before", () => {
+    const first = document.createElement("div");
+    const second = document.createElement("div");
+    document.body.append(first, second);
+    let menus = 0;
+    const probe = attach(first, { onMenu: () => (menus += 1), canDrag: true });
+
+    // The unstable-callback case: same hook, a second node. Without a release
+    // the first element keeps listening for the rest of its life.
+    probe.reattach(second);
+
+    first.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    expect(menus).toBe(0);
+
+    second.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    expect(menus).toBe(1);
+
+    first.remove();
+    second.remove();
+  });
 
   test("the ref hands back a cleanup, and it detaches every listener", () => {
     const node = document.createElement("div");

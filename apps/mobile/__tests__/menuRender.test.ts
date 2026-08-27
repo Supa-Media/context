@@ -223,7 +223,9 @@ describe("the sheet draws the menu it was given", () => {
    * nothing here puts a chord back on a device with no keyboard.
    */
   test("no chords are printed on a sheet", () => {
-    const sheet = mountSheet();
+    // Mounted for its effect on the document — `Modal` portals into
+    // `document.body`, which is where the assertion below reads from.
+    mountSheet();
     const text = document.body.textContent ?? "";
     for (const glyph of ["⌘", "⇧", "⌫", "Ctrl+"]) expect(text).not.toContain(glyph);
   });

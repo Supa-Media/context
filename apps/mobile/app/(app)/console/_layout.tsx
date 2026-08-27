@@ -325,8 +325,6 @@ function Shortcuts({
     scope: useCallback(() => scopeForFocus(readFocus(paletteOpen)), [paletteOpen]),
     onCommand: useCallback(
       (command) => {
-        const path = files.editor.path;
-
         switch (command) {
           /* ---- frame ---------------------------------------------------- */
           case "palette":

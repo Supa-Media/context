@@ -51,13 +51,29 @@ export { LONG_PRESS_MS } from "./rowInteractions";
  *
  * ## Every listener is removed again, and `draggable` is written live
  *
- * The ref returns a cleanup — React 19's ref-cleanup contract, which is also
- * what stops React calling the ref a second time with `null`. Without it,
- * anything that hands the same hook a second node (a `<StrictMode>` double
- * mount, or one added dependency below turning the callback's identity
- * unstable) leaves the first set of listeners attached to a live element: two
- * `contextmenu` handlers is a menu that opens twice, and two `drop` handlers is
- * a *doubled move*, which is a data change rather than a cosmetic one.
+ * Without a detach, anything that hands the same hook a second node — a
+ * `<StrictMode>` double mount, or one added dependency below turning the ref
+ * callback's identity unstable — leaves the first set of listeners attached to
+ * a live element. Two `contextmenu` handlers is a menu that opens twice, and
+ * two `drop` handlers is a *doubled move*, which is a data change rather than a
+ * cosmetic one.
+ *
+ * **React 19's ref-cleanup return is not enough on its own here, and believing
+ * it was is how this would look fixed while leaking.** The ref is handed to a
+ * react-native-web `View`, which merges it through `mergeRefs`: that wrapper
+ * calls `ref(node)` and *discards the return value*, so React only ever sees
+ * the wrapper's own `undefined` and goes on detaching the old way — by calling
+ * the ref again with `null`. So the detach is held in a ref and run on every
+ * call, whatever prompted it:
+ *
+ *  - `null` — the react-native-web path, and today the only one that fires;
+ *  - a *different* node — the re-attach case, where the old element is still
+ *    live and still listening;
+ *  - the returned cleanup — React's own contract, honoured by any host that
+ *    passes the ref through untouched, and by the tests that drive it directly.
+ *
+ * All three land on the same idempotent `release`, so belt and braces cannot
+ * double-remove or double-fire.
  *
  * `draggable` is an attribute rather than a listener, so it cannot be read
  * through `latest` at event time the way everything else is. It is written on
@@ -83,6 +99,8 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
 
   /** The node this hook is currently attached to, or null between attachments. */
   const attached = useRef<HTMLElement | null>(null);
+  /** How to let go of it. Null exactly when `attached` is. */
+  const release = useRef<(() => void) | null>(null);
 
   const clearExpand = useCallback(() => {
     if (expandTimer.current !== null) {
@@ -92,6 +110,14 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
   }, []);
 
   useEffect(() => clearExpand, [clearExpand]);
+
+  /**
+   * The last resort, for a host that neither returns the cleanup nor calls the
+   * ref with `null`. Nothing in this app is such a host — but a listener left
+   * on a detached row is invisible until the day it is not, and this is one
+   * line.
+   */
+  useEffect(() => () => release.current?.(), []);
 
   /**
    * Deliberately without a dependency array: `canDrag` is read from `latest`,
@@ -105,6 +131,10 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
 
   const ref = useCallback(
     (node: unknown) => {
+      // Let go of whatever came before, whether this call is a detach (`null`)
+      // or a re-attach to a different element.
+      release.current?.();
+
       const element = node as HTMLElement | null;
       if (element === null || typeof element.addEventListener !== "function") return;
 
@@ -204,7 +234,12 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
       for (const [type, handler] of listeners) element.addEventListener(type, handler);
       attached.current = element;
 
-      return () => {
+      const detach = () => {
+        // Idempotent by identity: three different callers may reach this, and
+        // the two that arrive second must do nothing rather than tear down a
+        // *newer* attachment that has since taken this one's place.
+        if (release.current !== detach) return;
+        release.current = null;
         for (const [type, handler] of listeners) element.removeEventListener(type, handler);
         if (attached.current === element) attached.current = null;
         // A row torn down mid-drag would otherwise leave both behind: a depth
@@ -213,6 +248,9 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
         depth.current = 0;
         clearExpand();
       };
+
+      release.current = detach;
+      return detach;
     },
     [clearExpand],
   );

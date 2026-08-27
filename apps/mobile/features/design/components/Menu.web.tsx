@@ -672,7 +672,7 @@ export function Menu(props: MenuProps) {
    * instead of carrying a popover's keyboard state into a sheet that has no
    * keyboard.
    */
-  return width < 0 ? <Sheet {...props} /> : <Popover {...props} />;
+  return width < layout.narrowBreakpoint ? <Sheet {...props} /> : <Popover {...props} />;
 }
 
 const styles = StyleSheet.create({
