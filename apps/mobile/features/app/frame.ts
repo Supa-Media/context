@@ -134,8 +134,8 @@ export interface Regions {
 /**
  * The whole responsive design, as a function.
  *
- * Two invariants hold for every input, and both are asserted in the tests
- * because both are one careless edit away:
+ * Three invariants hold for every input, and each is asserted in the tests
+ * because each is one careless edit away:
  *
  *  - nothing is ever a permanent region and a panel over the editor at once,
  *    and the scrim exists if and only if some panel is over the editor;
@@ -235,8 +235,23 @@ export function clampExplorerWidth(width: number): number {
  * The day somebody takes it, this is where it lands — one function, one
  * meaning, and every caller follows.
  */
-export function explorerToggleFor(density: Density): "drawerOpen" | null {
-  if (density === "compact") return "drawerOpen";
+export function explorerToggleFor(
+  density: Density,
+  /**
+   * Whether this route has a file tree, exactly as `regionsFor` takes it.
+   *
+   * Without this the command was answering `"drawerOpen"` on Map and
+   * Connections, where there is no tree: `regionsFor` discarded the flag, so
+   * the keystroke looked inert and was in fact writing state. That was
+   * harmless until the rail became a panel and raising one panel had to put
+   * the other away — then ⌘⇧E on the pane you sign in to *dismissed the only
+   * navigation on the screen and opened nothing in its place.* The command
+   * has to answer "nothing to toggle" here, not "toggle the drawer that
+   * cannot exist".
+   */
+  options: { hasExplorer?: boolean } = {},
+): "drawerOpen" | null {
+  if (density === "compact" && (options.hasExplorer ?? true)) return "drawerOpen";
   return null;
 }
 
@@ -255,10 +270,40 @@ export function explorerToggleFor(density: Density): "drawerOpen" | null {
  * the phone had no navigation at all.
  *
  * Unlike `explorerToggleFor` this never returns `null`: every density has a
- * rail, so the command always means something.
+ * rail, so there is always a field to write. That is not the same as always
+ * being *visible* — a medium window with an explorer column renders the rail
+ * as icons whichever way `railCollapsed` points, so there the command changes
+ * a preference you only see later, on a pane with no tree. Pre-existing, and
+ * stated here rather than in a comment claiming otherwise.
  */
 export function railToggleFor(density: Density): "navOpen" | "railCollapsed" {
   return density === "compact" ? "navOpen" : "railCollapsed";
+}
+
+/**
+ * The panels, put away when the layout stops having anywhere to put them.
+ *
+ * `FrameState` above argues that a resize must not rewrite what somebody
+ * chose, and that argument is right — about `railCollapsed` and
+ * `explorerWidth`, which are *preferences*. `drawerOpen` and `navOpen` are
+ * not preferences. They are "a panel is currently over your editor", which is
+ * a thing that is either true of what is on the screen or is stale, and only
+ * `compact` has panels at all.
+ *
+ * Left uncleared they are write-once-and-stuck: at medium and wide there is no
+ * sheet, no scrim, no `navToggle`, and `railToggleFor` answers
+ * `"railCollapsed"` — so nothing can put them away, and they wait. Open the
+ * rail on an iPad in portrait (820pt is under `narrowBreakpoint`, so compact),
+ * rotate to landscape, work in the rail column, rotate back, and a sheet
+ * nobody asked for is sitting over the note behind a full-body scrim.
+ *
+ * Returns the same object when there is nothing to clear, so this is safe to
+ * call from a state updater on every density change.
+ */
+export function panelsClearedFor(density: Density, state: FrameState): FrameState {
+  if (density === "compact") return state;
+  if (!state.drawerOpen && !state.navOpen) return state;
+  return { ...state, drawerOpen: false, navOpen: false };
 }
 
 /**

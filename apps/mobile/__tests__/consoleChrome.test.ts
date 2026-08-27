@@ -142,6 +142,8 @@ function mockConsoleData(): never {
   } as never;
 }
 
+const { layout } = require("../features/design/tokens") as typeof import("../features/design/tokens");
+
 const ConsoleLayout = (
   require("../app/(app)/console/_layout") as { default: () => unknown }
 ).default;
@@ -169,9 +171,22 @@ function mountConsole(width = 1440) {
     root.render(createElement(ConsoleLayout as never));
   });
 
+  const find = (testId: string) =>
+    container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+
   return {
     text: () => container.textContent ?? "",
-    find: (testId: string) => container.querySelector<HTMLElement>(`[data-testid="${testId}"]`),
+    find,
+    press: (node: HTMLElement | null) => {
+      if (node === null) throw new Error("nothing to press");
+      act(() => {
+        node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    },
+    byLabel: (label: string) =>
+      container.querySelector<HTMLElement>(`[aria-label="${label}"]`),
     container,
     unmount: () => {
       act(() => root.unmount());
@@ -295,5 +310,68 @@ describe("search", () => {
     const phone = mountConsole(390);
     expect(phone.find("frame-search")).toBeNull();
     phone.unmount();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The way off a pane, on a phone, end to end.
+ *
+ * `appFrameRender.test.ts` proves the frame *can* raise and dismiss the sheet;
+ * this proves the console actually wires it up. That gap was real and total:
+ * deleting `frame.closeNav()` from the rail's `onNavigate` left all 1113 tests
+ * in this suite green, and it is the single line that makes the fix a way out
+ * rather than a panel you have to dismiss by hand after every choice.
+ *
+ * Mounted at a phone width against the real layout, the real `ConsoleRail` and
+ * the real `AppFrame` — only the data and the router are stubs.
+ */
+describe("the phone's way off a pane", () => {
+  test("choosing a destination dismisses the sheet", () => {
+    const app = mountConsole(390);
+
+    expect(app.find("frame-nav-sheet")).toBeNull();
+    app.press(app.find("frame-nav-toggle"));
+    expect(app.find("frame-nav-sheet")).not.toBeNull();
+
+    // Connections is an app-level pane, so this is a real change of route.
+    app.press(app.byLabel("Connections"));
+    expect(app.find("frame-nav-sheet")).toBeNull();
+    expect(app.find("frame-scrim")).toBeNull();
+
+    app.unmount();
+  });
+
+  test("and so does choosing the pane you are already on", () => {
+    // The router has nothing to do here — `sameRoute` short-circuits it — and a
+    // sheet that stays put because of that reads as a dead press.
+    mockPathname = "/console";
+    const app = mountConsole(390);
+
+    app.press(app.find("frame-nav-toggle"));
+    app.press(app.byLabel("Map"));
+    expect(app.find("frame-nav-sheet")).toBeNull();
+
+    app.unmount();
+    mockPathname = "/console/@seyi";
+  });
+
+  test("sign-out is reachable, and is a target a thumb can hit", () => {
+    // It lives at the foot of the rail and nowhere else, so before the sheet
+    // existed there was no way to sign out on a phone at all.
+    mockPathname = "/console";
+    const app = mountConsole(390);
+    app.press(app.find("frame-nav-toggle"));
+
+    const signOut = app.find("rail-sign-out");
+    expect(signOut).not.toBeNull();
+
+    const box = window.getComputedStyle(signOut!);
+    expect(Number.parseFloat(box.width)).toBeGreaterThanOrEqual(layout.minTouchTarget);
+    expect(Number.parseFloat(box.height)).toBeGreaterThanOrEqual(layout.minTouchTarget);
+
+    app.unmount();
+    mockPathname = "/console/@seyi";
   });
 });

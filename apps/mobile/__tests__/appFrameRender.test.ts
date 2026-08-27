@@ -6,6 +6,10 @@ import { describe, expect, jest, test } from "@jest/globals";
 import { act, createElement, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 
+// React only treats `act` as authoritative when this is set, and warns on every
+// call when it is not — which buries a real un-acted-update warning in noise.
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
 /**
  * The application frame, mounted for real.
  *
@@ -51,10 +55,23 @@ interface Mounted {
   press: (testId: string) => void;
   find: (testId: string) => HTMLElement | null;
   text: () => string;
+  /** Change the window width on a mounted frame — a rotation, or a drag. */
+  resize: (width: number) => void;
   unmount: () => void;
 }
 
-function mountFrame(width: number, children: ReactNode = "the note"): Mounted {
+/**
+ * @param options.explorer  Pass `false` for a route with no file tree — Map and
+ *   Connections, which is where signing in lands you. Every test here used to
+ *   mount *with* a tree, so the pane the whole fix exists for was never once
+ *   rendered and a regression gated on `explorer != null` walked straight
+ *   through the suite.
+ */
+function mountFrame(
+  width: number,
+  children: ReactNode = "the note",
+  options: { explorer?: boolean } = {},
+): Mounted {
   // Widening the window in jsdom takes more than it looks like it should, and
   // getting it wrong is silent rather than loud.
   //
@@ -65,17 +82,20 @@ function mountFrame(width: number, children: ReactNode = "the note"): Mounted {
   // in the compact branch, and every phone assertion passes for entirely the
   // wrong reason while every desktop assertion fails. Stub the element, then
   // dispatch the resize that invalidates the cache.
-  Object.defineProperty(document.documentElement, "clientWidth", {
-    value: width,
-    configurable: true,
-  });
-  Object.defineProperty(document.documentElement, "clientHeight", {
-    value: 800,
-    configurable: true,
-  });
-  Object.defineProperty(window, "innerWidth", { value: width, configurable: true });
-  Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
-  window.dispatchEvent(new Event("resize"));
+  const applyWidth = (next: number) => {
+    Object.defineProperty(document.documentElement, "clientWidth", {
+      value: next,
+      configurable: true,
+    });
+    Object.defineProperty(document.documentElement, "clientHeight", {
+      value: 800,
+      configurable: true,
+    });
+    Object.defineProperty(window, "innerWidth", { value: next, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
+    window.dispatchEvent(new Event("resize"));
+  };
+  applyWidth(width);
 
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -85,9 +105,13 @@ function mountFrame(width: number, children: ReactNode = "the note"): Mounted {
     root.render(
       createElement(AppFrame, {
         switcher: createElement("span", { "data-testid": "switcher" }, "@seyi"),
-        rail: (mode: "full" | "icons") =>
+        switcherLabel: "@seyi, personal",
+        rail: (mode: "full" | "icons" | "sheet") =>
           createElement("span", { "data-testid": `rail-${mode}` }, "rail"),
-        explorer: createElement("span", { "data-testid": "explorer" }, "tree"),
+        explorer:
+          options.explorer === false
+            ? undefined
+            : createElement("span", { "data-testid": "explorer" }, "tree"),
         status: createElement("span", { "data-testid": "status" }, "490 words"),
         bottomBar: createElement("span", { "data-testid": "bottom" }, "toolbar"),
         onSearch: () => {},
@@ -103,6 +127,9 @@ function mountFrame(width: number, children: ReactNode = "the note"): Mounted {
     container,
     find,
     text: () => container.textContent ?? "",
+    resize: (next: number) => {
+      act(() => applyWidth(next));
+    },
     press: (testId: string) => {
       const node = find(testId);
       if (node === null) throw new Error(`no element with testID ${testId}`);
@@ -214,31 +241,44 @@ describe("a phone", () => {
   test("the switcher opens the rail as a sheet, over a scrim", () => {
     // The bug: signing in lands on Map, which has no explorer, so the drawer
     // button is absent — and the rail was never mounted at this width. The
-    // whole screen was one pane and no way off it.
-    const app = mountFrame(390);
+    // whole screen was one pane and no way off it. Mounted here WITHOUT an
+    // explorer, because that is the pane the bug was reported on.
+    const app = mountFrame(390, "the note", { explorer: false });
 
     expect(app.find("frame-nav-toggle")).not.toBeNull();
-    expect(app.find("rail-full")).toBeNull();
+    expect(app.find("frame-drawer-toggle")).toBeNull();
+    expect(app.find("rail-sheet")).toBeNull();
 
     app.press("frame-nav-toggle");
 
-    expect(app.find("frame-nav-sheet")).not.toBeNull();
-    // `full`, not `icons`: a sheet has the width, and a phone has no hover to
-    // recover a glyph's meaning with.
-    expect(app.find("rail-full")).not.toBeNull();
+    const sheet = app.find("frame-nav-sheet");
+    expect(sheet).not.toBeNull();
     expect(app.find("frame-scrim")).not.toBeNull();
+
+    // `sheet`, not `full`: same labels, thumb-sized rows. And the rail must be
+    // INSIDE the sheet — asserting only that the node exists somewhere lets a
+    // layout that renders the column *and* the sheet pass.
+    const rail = app.find("rail-sheet");
+    expect(rail).not.toBeNull();
+    expect(sheet!.contains(rail)).toBe(true);
+    expect(app.find("rail-full")).toBeNull();
+    expect(app.find("rail-icons")).toBeNull();
+
+    // ...and exactly one navigation landmark on the screen.
+    expect(app.container.querySelectorAll('[role="navigation"]')).toHaveLength(1);
 
     app.unmount();
   });
 
-  test("the sheet keeps the switcher's own text as its accessible name", () => {
+  test("the toggle is named by what the switcher says, on every platform", () => {
     const app = mountFrame(390);
     const toggle = app.find("frame-nav-toggle")!;
 
-    // An `aria-label` here would replace "@seyi" with a generic word, so a
-    // screen reader would stop announcing which context you are in.
-    expect(toggle.getAttribute("aria-label")).toBeNull();
-    expect(toggle.textContent).toContain("@seyi");
+    // Spelled out rather than derived from the content. On web the content
+    // would do, but `aria-hidden` on a `Text` is dropped on native and
+    // `RCTRecursiveAccessibilityLabel` would fold the chevron into the name —
+    // "@seyi personal black down-pointing small triangle".
+    expect(toggle.getAttribute("aria-label")).toBe("@seyi, personal");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
 
     app.press("frame-nav-toggle");
@@ -247,9 +287,88 @@ describe("a phone", () => {
     app.unmount();
   });
 
+  test("the chevron turns over, and is hidden from the name", () => {
+    const app = mountFrame(390);
+    const glyph = () => app.find("frame-nav-toggle")!.querySelector("[aria-hidden]")?.textContent;
+
+    expect(glyph()).toBe("\u25be");
+    app.press("frame-nav-toggle");
+    expect(glyph()).toBe("\u25b4");
+
+    app.unmount();
+  });
+
+  test("what the sheet covers is out of reach of the keyboard too", () => {
+    // Without this, Tab from the switcher lands in the note the sheet is
+    // covering, and a screen reader walks the whole editor before reaching the
+    // navigation somebody just asked for.
+    const app = mountFrame(390);
+    const editor = () => app.find("app-frame")!.querySelector("[inert]");
+
+    expect(editor()).toBeNull();
+    app.press("frame-nav-toggle");
+    expect(editor()).not.toBeNull();
+    expect(editor()!.textContent).toContain("the note");
+
+    app.press("frame-scrim");
+    expect(editor()).toBeNull();
+
+    app.unmount();
+  });
+
+  test("the scrim announces as a control rather than as a mystery tab stop", () => {
+    const app = mountFrame(390);
+    app.press("frame-nav-toggle");
+    const scrim = app.find("frame-scrim")!;
+
+    // `Pressable` always takes a tab stop. Focusable and labelled but roleless
+    // is a stop a screen reader cannot describe — and Space would not fire it.
+    expect(scrim.getAttribute("aria-label")).toBe("Close this panel");
+    expect(scrim.tagName.toLowerCase()).toBe("button");
+
+    app.unmount();
+  });
+
+  test("a panel does not come back after a trip through a wider layout", () => {
+    // `navOpen` is never cleared by a resize, and nothing at medium or wide can
+    // clear it — no sheet, no scrim, no toggle, and ⌘B means `railCollapsed`
+    // there. So it waited. Rotate an iPad out of portrait and back and a sheet
+    // you never raised is over your note behind a full-body scrim.
+    const app = mountFrame(390);
+
+    app.press("frame-nav-toggle");
+    expect(app.find("frame-nav-sheet")).not.toBeNull();
+
+    app.resize(1440);
+    expect(app.find("frame-nav-sheet")).toBeNull();
+    expect(app.find("rail-full")).not.toBeNull();
+
+    app.resize(390);
+    expect(app.find("frame-nav-sheet")).toBeNull();
+    expect(app.find("frame-scrim")).toBeNull();
+
+    app.unmount();
+  });
+
+  test("and neither does the tree drawer", () => {
+    // Same defect, same fix — asserted separately so a `panelsClearedFor` that
+    // only remembers one of the two fields fails here.
+    const app = mountFrame(390);
+
+    app.press("frame-drawer-toggle");
+    expect(app.find("frame-drawer")).not.toBeNull();
+
+    app.resize(1440);
+    app.resize(390);
+    expect(app.find("frame-drawer")).toBeNull();
+    expect(app.find("frame-scrim")).toBeNull();
+
+    app.unmount();
+  });
+
   test("the control that opens it is a thumb-sized target", () => {
     // It is the primary navigation on this surface, and the chip inside it is
-    // 27px tall. `BottomBar` holds the bottom row to this floor; a control in
+    // about 32pt tall. `BottomBar` holds the bottom row to this floor; a control in
     // the top bar that every phone session has to hit is not exempt from it.
     const app = mountFrame(390);
     const toggle = app.find("frame-nav-toggle")!;
@@ -604,10 +723,49 @@ describe("what toggling the explorer means", () => {
 
     app.press("probe-toggle-rail");
     expect(app.find("frame-nav-sheet")).not.toBeNull();
-    expect(app.find("rail-full")).not.toBeNull();
+    expect(app.find("rail-sheet")).not.toBeNull();
 
     app.press("probe-toggle-rail");
     expect(app.find("frame-nav-sheet")).toBeNull();
+
+    app.unmount();
+  });
+
+  test("⌘⇧E on a pane with no tree leaves the rail alone", () => {
+    // It used to clear `navOpen` on its way to setting a flag `regionsFor`
+    // discards — so on Map, the pane you sign in to, the keystroke dismissed
+    // the only navigation on the screen and opened nothing. Before the sheet
+    // existed the same key was an inert no-op there, which is what it must go
+    // back to being.
+    const app = mountFrame(390, createElement(CommandProbe), { explorer: false });
+
+    app.press("frame-nav-toggle");
+    expect(app.find("frame-nav-sheet")).not.toBeNull();
+
+    app.press("probe-toggle-explorer");
+
+    expect(app.find("frame-nav-sheet")).not.toBeNull();
+    expect(app.find("frame-drawer")).toBeNull();
+
+    app.unmount();
+  });
+
+  test("raising the tree puts the rail away, and closing it leaves nothing behind", () => {
+    // Both directions, because `regionsFor`'s rail-wins precedence hides a
+    // `toggleRail` that stops clearing `drawerOpen`: the sheet still looks
+    // right, and the drawer springs open the moment you close it.
+    const app = mountFrame(390, createElement(CommandProbe));
+
+    app.press("frame-nav-toggle");
+    app.press("probe-toggle-explorer");
+    expect(app.find("frame-drawer")).not.toBeNull();
+    expect(app.find("frame-nav-sheet")).toBeNull();
+
+    app.press("frame-nav-toggle");
+    app.press("frame-nav-toggle");
+    expect(app.find("frame-nav-sheet")).toBeNull();
+    expect(app.find("frame-drawer")).toBeNull();
+    expect(app.find("frame-scrim")).toBeNull();
 
     app.unmount();
   });

@@ -127,6 +127,15 @@ export const space = {
   x8: 32,
 } as const;
 
+/**
+ * The touch minimum, hoisted so `layout` can derive from it.
+ *
+ * A `const` object cannot reference its own members while it is being built,
+ * and the alternative — writing `44` twice and claiming in a comment that the
+ * two agree — is exactly the shape this repo keeps getting bitten by.
+ */
+const MIN_TOUCH_TARGET = 44;
+
 /** The mockup's `.wrap`: `max-width:1200px; padding:0 28px`. */
 export const layout = {
   maxWidth: 1200,
@@ -166,12 +175,27 @@ export const layout = {
    * every control a phone offers, and the top bar's navigation control is one.
    * `BottomBar` re-exports it as `MIN_TOUCH_TARGET` so its tests keep asserting
    * the same number the styles use.
+   *
+   * Not yet universal: `Menu`, `Menu.web` and `Palette` still type `44` for
+   * this same rule and should be moved onto the token rather than the token's
+   * description being trimmed to match them.
    */
-  minTouchTarget: 44,
-  /** Chrome along the edges of the frame. Exactly `minTouchTarget`: the bar is
-      a touch target's worth of height, so a control may fill it and clear the
-      minimum without a number of its own. */
-  topBarHeight: 44,
+  minTouchTarget: MIN_TOUCH_TARGET,
+  /**
+   * Chrome along the edges of the frame.
+   *
+   * A touch target **plus its hairline**, not equal to one. React Native
+   * Web sets `box-sizing: border-box` on every `View` and Yoga measures the
+   * same way, so a 44 bar with a 1px bottom rule leaves a 43 content box — and
+   * a control stretching to fill it is a pixel short of the minimum, or clamps
+   * itself back to 44 and hangs that pixel under the bar where the body paints
+   * over it. One more pixel here and a control that fills the bar is exactly a
+   * touch target, with no number of its own.
+   *
+   * Derived rather than typed again: an equality asserted in prose beside two
+   * independent literals is an equality that quietly stops being true.
+   */
+  topBarHeight: MIN_TOUCH_TARGET + 1,
   statusBarHeight: 26,
   /**
    * The compact toolbar.

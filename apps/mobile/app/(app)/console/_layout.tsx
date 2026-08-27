@@ -138,6 +138,16 @@ export default function ConsoleLayout() {
             </View>
           )
         }
+        /*
+          The same words the chip draws, as a string. `AppFrame` cannot read
+          them off the node — and on native it could not derive them from the
+          rendered text either; see `switcherLabel`.
+        */
+        switcherLabel={
+          insideContext
+            ? [contextLabel, current?.kind].filter(Boolean).join(", ")
+            : `All contexts, ${data.contexts.length} reachable`
+        }
         topTrailing={<StorageChip data={data} />}
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
         rail={(mode) => <Rail data={data} route={route} mode={mode} />}
@@ -325,6 +335,14 @@ function Shortcuts({
           case "toggleRail":
             frame.toggleRail();
             return true;
+          case "dismiss":
+            // `keymap.ts` says Escape "closes whatever is open, wherever you
+            // are", and until this the console answered for nothing but the
+            // palette — so the one panel that is the only way off a pane could
+            // be dismissed by a press or a scrim and not by the key everybody
+            // tries. Returns whether there was anything to close, so an Escape
+            // with no panel up still reaches the browser.
+            return frame.closeOverlays();
 
           /* ---- the note ------------------------------------------------- */
           case "save":
@@ -416,7 +434,7 @@ function Rail({
 }: {
   data: ConsoleData;
   route: ConsoleRoute;
-  mode: "full" | "icons";
+  mode: "full" | "icons" | "sheet";
 }) {
   const frame = useFrame();
   const router = useRouter();
@@ -433,7 +451,7 @@ function Rail({
         // out from under an open note.
         if (!sameRoute(next, route)) router.replace(hrefFor(next));
       }}
-      account={<Account data={data} compact={mode === "icons"} />}
+      account={<Account data={data} compact={mode === "icons"} touch={mode === "sheet"} />}
     />
   );
 }
@@ -524,7 +542,15 @@ function StorageChip({ data }: { data: ConsoleData }) {
   );
 }
 
-function Account({ data, compact }: { data: ConsoleData; compact: boolean }) {
+function Account({
+  data,
+  compact,
+  touch = false,
+}: {
+  data: ConsoleData;
+  compact: boolean;
+  touch?: boolean;
+}) {
   const router = useRouter();
   const { signOut } = useAuthActions();
   const personal = data.contexts.find((context) => context.kind === "personal");
@@ -538,6 +564,7 @@ function Account({ data, compact }: { data: ConsoleData; compact: boolean }) {
       detail={data.ingestionAddress}
       initial={data.avatarInitial}
       compact={compact}
+      touch={touch}
       onSignOut={() => {
         void signOut().then(() => router.replace("/"));
       }}
