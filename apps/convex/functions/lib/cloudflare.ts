@@ -618,7 +618,9 @@ export async function cloudflareRequest<T>(options: {
     });
     throw new CloudflareApiError(failure, describeErrors(envelope, raw));
   }
-  return envelope.result;
+  // Only reachable as `undefined` when the caller asked for `resultOptional`,
+  // which is the caller saying the status was the answer.
+  return envelope.result as T;
 }
 
 /**

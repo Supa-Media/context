@@ -31,13 +31,23 @@
 /// <reference types="vite/client" />
 
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { convexTest } from "convex-test";
+import { v } from "convex/values";
 import { api, internal } from "../_generated/api";
+import { internalMutation } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
+import schema from "../schema";
+import { modules } from "../test.setup";
 import { SIGNIN_CODE_TTL_MS, signInCodeExpiry } from "../functions/lib/invitationEmail";
 import { randomOpaqueToken } from "../functions/lib/gatewayAuth";
+import { hashToken } from "../functions/lib/crypto";
 
 /** Mirrors SIGNIN_CODE_BYTES in functions/invitationEmail.ts, which is not exported. */
 const SIGNIN_CODE_BYTES = 32;
+/** Mirrors SIGNIN_PROVIDER, likewise not exported. */
+const SIGNIN_PROVIDER = "magic-link";
+/** Mirrors RECIPIENT_MAIL_LIMIT. */
+const RECIPIENT_MAIL_LIMIT = 10;
 import {
   addMember,
   asUser,
@@ -74,6 +84,139 @@ interface CapturedSend {
 let captured: CapturedSend[] = [];
 let realFetch: typeof globalThis.fetch;
 let realKey: string | undefined;
+let realOrigin: string | undefined;
+let realLog: typeof console.log;
+
+/**
+ * The operator-facing log lines this module emits.
+ *
+ * Captured rather than eyeballed, because several of the properties below are
+ * *only* observable there: whether a deployment misconfiguration was refused
+ * before or after the invitation was spent, and — the whole point of the
+ * `detail` field — whether a mint failure was the expected one.
+ */
+let logged: Array<Record<string, unknown>> = [];
+
+function linesFor(reason: string): Array<Record<string, unknown>> {
+  return logged.filter((line) => line.reason === reason);
+}
+
+/**
+ * How the sender behaves when `fetch` never gets an answer.
+ *
+ * A rejection, not a 5xx — the two are different facts and, until this suite
+ * grew, only one of them was handled.
+ */
+function fetchThatNeverArrives(): void {
+  globalThis.fetch = (async () => {
+    throw new TypeError("network error");
+  }) as typeof globalThis.fetch;
+}
+
+/* -------------------------------------------------------------------------- */
+/* A deployment whose auth config *does* register the link-only provider       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A stand-in for `auth:store` that mints successfully.
+ *
+ * The reason this exists is written out in the block comment on
+ * `SIGNIN_PROVIDER`: the real provider is upstream and unreleased, so on this
+ * deployment the mint always throws and the three "degrades to a plain link"
+ * tests below assert an absence. An absence is not a tripwire — the day the
+ * framework release lands, a mint that silently produced no `?code=` would keep
+ * every one of them green. So the post-release state is driven here instead, by
+ * substituting the one function the mint calls.
+ *
+ * It is a faithful-enough copy of `createVerificationCodeImpl`: upsert the user
+ * and the account for the address, delete any previous code on that account,
+ * and store `sha256(code)` rather than the code. Everything this suite asserts
+ * about the result — a `?code=` in the mail, exactly one row, the row not
+ * containing the code — is a property of that shape rather than of the copy.
+ */
+const mintingAuthStore = internalMutation({
+  args: { args: v.any() },
+  returns: v.null(),
+  handler: async (ctx, { args }) => {
+    const email = String(args.email);
+    const provider = String(args.provider);
+
+    const users = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .take(1);
+    const userId =
+      users[0]?._id ??
+      (await ctx.db.insert("users", {
+        email,
+        // Stamped on create, exactly as the framework's `createOrUpdateUser`
+        // does — see `accountLinking.test.ts`.
+        emailVerificationTime: Date.now(),
+        createdAt: Date.now(),
+      }));
+
+    const accounts = await ctx.db
+      .query("authAccounts")
+      .withIndex("providerAndAccountId", (q) =>
+        q.eq("provider", provider).eq("providerAccountId", email),
+      )
+      .take(1);
+    const accountId =
+      accounts[0]?._id ??
+      (await ctx.db.insert("authAccounts", {
+        userId,
+        provider,
+        providerAccountId: email,
+        emailVerified: email,
+      }));
+
+    const previous = await ctx.db
+      .query("authVerificationCodes")
+      .withIndex("accountId", (q) => q.eq("accountId", accountId))
+      .collect();
+    for (const row of previous) await ctx.db.delete(row._id);
+
+    await ctx.db.insert("authVerificationCodes", {
+      accountId,
+      provider,
+      code: await hashToken(String(args.code)),
+      expirationTime: Number(args.expirationTime),
+      emailVerified: email,
+    });
+    return null;
+  },
+});
+
+/**
+ * A mint that fails for a reason that is *not* "the provider is not registered".
+ *
+ * The discriminator this suite asserts exists so an operator can tell those two
+ * apart; a test that only ever saw one of them would prove nothing.
+ */
+const brokenAuthStore = internalMutation({
+  args: { args: v.any() },
+  returns: v.null(),
+  handler: async () => {
+    throw new Error("expirationTime is not a valid timestamp");
+  },
+});
+
+/**
+ * The whole control plane, with `auth:store` swapped for one of the above.
+ *
+ * Only that one export is replaced — `auth`, `signIn` and the rest are the real
+ * module's — and only inside the instance this returns, so no other test in the
+ * repository (`accountLinking.test.ts` in particular, which drives the *real*
+ * `auth:store`) sees a substituted one.
+ */
+function setupTestWithAuthStore(store: unknown): TestConvex {
+  const real = modules["./auth.ts"];
+  if (real === undefined) throw new Error("auth.ts is not in the module map");
+  return convexTest(schema, {
+    ...modules,
+    "./auth.ts": async () => ({ ...((await real()) as object), store }),
+  }) as TestConvex;
+}
 
 /**
  * Stand in for Resend.
@@ -84,8 +227,19 @@ let realKey: string | undefined;
  */
 beforeEach(() => {
   captured = [];
+  logged = [];
   realKey = process.env.RESEND_API_KEY;
+  realOrigin = process.env.APP_ORIGIN;
   process.env.RESEND_API_KEY = FAKE_RESEND_KEY;
+  realLog = console.log;
+  console.log = ((...parts: unknown[]) => {
+    const first = parts[0];
+    if (typeof first === "string" && first.includes('"invitation-email"')) {
+      logged.push(JSON.parse(first) as Record<string, unknown>);
+      return;
+    }
+    realLog(...parts);
+  }) as typeof console.log;
   realFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
@@ -104,16 +258,18 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = realFetch;
+  console.log = realLog;
   if (realKey === undefined) delete process.env.RESEND_API_KEY;
   else process.env.RESEND_API_KEY = realKey;
+  if (realOrigin === undefined) delete process.env.APP_ORIGIN;
+  else process.env.APP_ORIGIN = realOrigin;
 });
 
 /**
  * An inviter with a display name, a handle (`@ada`, the slug of her own
  * personal context), and a shared context to invite people into.
  */
-async function scenario() {
-  const t = setupTest();
+async function scenario(t: TestConvex = setupTest()) {
   const inviter = await createUser(t, "ada@example.invalid");
   await createWorkspace(t, inviter, "ada", { displayName: "Ada's Context" });
   await t.run((ctx) => ctx.db.patch(inviter, { name: "Ada Lovelace" }));

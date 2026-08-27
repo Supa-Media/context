@@ -75,17 +75,25 @@ import { requireWorkspaceAccess, requireWorkspaceRole } from "./lib/workspaceAut
 import { addressingIsAmbiguous } from "./storage";
 import {
   CloudflareApiError,
+  type ProvisionErrorCode,
+  type ProvisionStage,
   type R2Jurisdiction,
   R2_BUCKET_WRITE_PERMISSION_GROUP,
   R2_REGION,
   apiTokenTemplateUrl,
+  bucketCreatedDuringAttempt,
   bucketNameProblem,
+  bucketNotOursMessage,
   createBucketScopedToken,
   createR2Bucket,
   deriveS3SecretAccessKey,
+  getR2Bucket,
   isPlausibleAccountId,
+  provisionFailureMessage,
   r2Endpoint,
+  residueSentence,
   resolvePermissionGroupId,
+  revokeApiToken,
   scopedTokenName,
   suggestBucketName,
 } from "./lib/cloudflare";
@@ -107,8 +115,41 @@ const jurisdictionValidator = v.union(
 const PROVISION_LIMIT = 5;
 const PROVISION_WINDOW_MS = 60 * 60 * 1000;
 
-/** Cap on recorded failure text, matching the bindings' own limit. */
-const MAX_RECORDED_ERROR_LENGTH = 300;
+/**
+ * Cap on recorded failure text.
+ *
+ * Larger than the bindings' 300 because our half of this string now has two
+ * jobs — what went wrong, and what exists in the customer's Cloudflare account
+ * because of it — and the second half is the actionable one. `fail` truncates
+ * Cloudflare's detail to protect it, and this bound is what remains for the
+ * pathological case where our own two sentences are long.
+ */
+const MAX_RECORDED_ERROR_LENGTH = 500;
+
+/**
+ * How long an unfinished attempt may hold the sealed setup credential.
+ *
+ * Three Cloudflare calls with a 15-second deadline each, so a run that has not
+ * finished in fifteen minutes is not running. What expires is not the attempt's
+ * *result* — it is the credential: `purgeExpiredProvisioning` marks the row
+ * failed and strips the envelope, which is the only thing standing between "a
+ * scheduled job was lost to a deploy" and an account-level Cloudflare
+ * credential sitting in the control plane indefinitely.
+ */
+const PROVISION_ATTEMPT_TTL_MS = 15 * 60 * 1000;
+
+/**
+ * How long a failed attempt's *explanation* is kept.
+ *
+ * The row carries no credential once it has failed; what it carries is the
+ * sentence the owner needs to read, including "we created this bucket, retry
+ * with the same name". Deleting that promptly would delete the recovery
+ * instructions, so the second deadline is a week rather than an hour.
+ */
+const FAILED_ATTEMPT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Rows per sweep run. A backlog drains over several runs, like the others. */
+const SWEEP_BATCH_SIZE = 200;
 
 /** What the provisioning action reports. Deliberately free of any credential. */
 export interface ProvisionOutcome {
@@ -304,11 +345,20 @@ export const beginProvisioning = internalMutation({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .unique();
 
-    if (existing !== null && existing.status === "pending") {
+    if (
+      existing !== null &&
+      existing.status === "pending" &&
+      (existing.expiresAt ?? 0) > now
+    ) {
       // One at a time. Two concurrent runs would create two buckets and mint
       // two tokens, and only one of them could end up on the binding — the
       // other would be an orphaned credential in the customer's account that
       // nothing here remembers to clean up.
+      //
+      // Bounded by the row's own deadline, because "in progress" was otherwise
+      // permanent: an attempt whose scheduled action never ran left a `pending`
+      // row that refused every subsequent attempt forever, with no UI to
+      // dismiss it. A row past its deadline is not running, whatever it says.
       throw new ConvexError({
         code: "PROVISION_IN_PROGRESS",
         message:
@@ -331,6 +381,7 @@ export const beginProvisioning = internalMutation({
       errorCode: undefined,
       error: undefined,
       updatedAt: now,
+      expiresAt: now + PROVISION_ATTEMPT_TTL_MS,
     };
 
     let provisioningId: Id<"cloudflareProvisioning">;
@@ -340,6 +391,11 @@ export const beginProvisioning = internalMutation({
         createdAt: now,
       });
     } else {
+      // `createdAt` is deliberately not in `fields`: it dates the *attempt*,
+      // across every retry of it, and `provisionCloudflareStorage` uses it as
+      // the proof that a bucket which already exists is one an earlier run of
+      // this same attempt created. Resetting it here would quietly turn every
+      // retry back into the dead end this row is trying to get out of.
       await ctx.db.patch(existing._id, fields);
       provisioningId = existing._id;
     }
@@ -386,6 +442,8 @@ export const getProvisioningJob = internalQuery({
       jurisdiction: jurisdictionValidator,
       locationHint: v.optional(v.string()),
       status: v.string(),
+      /** When this attempt was first written. The anchor for bucket reuse. */
+      createdAt: v.number(),
     }),
   ),
   handler: async (ctx, args) => {
@@ -402,6 +460,7 @@ export const getProvisioningJob = internalQuery({
       jurisdiction: job.jurisdiction,
       locationHint: job.locationHint,
       status: job.status,
+      createdAt: job.createdAt,
     };
   },
 });
@@ -457,20 +516,46 @@ export const provisionCloudflareStorage = internalAction({
     /** Everything that must never appear in recorded text. Grows as we go. */
     const secrets: string[] = [];
 
+    /**
+     * Which call is in flight.
+     *
+     * The single most important variable in this function. Every recorded
+     * failure is composed from it, because "Cloudflare refused" means nothing
+     * was created at one stage and means a bucket now exists in somebody's
+     * account at the next — and the message that got this wrong was the one
+     * that told people to try again with a name we had just taken.
+     */
+    let stage: ProvisionStage = "resolve-permission-group";
+    /** Set once the mint returns, so a later failure can try to take it back. */
+    let mintedTokenId: string | undefined;
+    /** Whether taking it back worked. Only ever narrows what we claim exists. */
+    let tokenRevoked = false;
+
     const fail = async (
-      errorCode: string,
+      errorCode: ProvisionErrorCode,
       message: string,
       detail: string,
     ): Promise<ProvisionOutcome> => {
-      const text = detail.length > 0 ? `${message} (Cloudflare: ${detail})` : message;
+      // Our two sentences first — what went wrong, and what that left in the
+      // customer's account — with Cloudflare's detail trimmed to the room that
+      // remains. The other order truncates the half a person acts on.
+      const ours = provisionFailureMessage({
+        message,
+        stage,
+        errorCode,
+        bucket: job.bucket,
+        tokenRevoked,
+      });
+      const room = MAX_RECORDED_ERROR_LENGTH - ours.length - DETAIL_WRAPPER_LENGTH;
+      const text =
+        detail.length > 0 && room >= MIN_DETAIL_LENGTH
+          ? `${ours} (Cloudflare: ${truncated(detail, room)})`
+          : ours;
       const scrubbed = redactSecrets(text, secrets);
       await ctx.runMutation(internal.functions.cloudflare.failProvisioning, {
         workspaceId: args.workspaceId,
         errorCode,
-        error:
-          scrubbed.length > MAX_RECORDED_ERROR_LENGTH
-            ? `${scrubbed.slice(0, MAX_RECORDED_ERROR_LENGTH - 1)}…`
-            : scrubbed,
+        error: truncated(scrubbed, MAX_RECORDED_ERROR_LENGTH),
       });
       return { ok: false, errorCode };
     };
@@ -494,6 +579,34 @@ export const provisionCloudflareStorage = internalAction({
     }
     secrets.push(setupCredential);
 
+    /**
+     * Is the bucket that already exists one an earlier run of *this* attempt
+     * created?
+     *
+     * Asked only when the create call comes back `BUCKET_NAME_TAKEN`, and
+     * answered from Cloudflare's own record of when the bucket was made rather
+     * than from anything we remember — see `bucketCreatedDuringAttempt`. A
+     * failure to ask is a `false`: the direction this must fail in is "leave
+     * the customer's own bucket alone", and the cost of being wrong that way is
+     * a message telling them to pick another name.
+     */
+    const bucketBelongsToThisAttempt = async (): Promise<boolean> => {
+      try {
+        const details = await getR2Bucket({
+          apiToken: setupCredential,
+          accountId: job.accountId,
+          bucket: job.bucket,
+          jurisdiction: job.jurisdiction as R2Jurisdiction,
+        });
+        return bucketCreatedDuringAttempt({
+          creationDate: details.creationDate,
+          attemptStartedAt: job.createdAt,
+        });
+      } catch {
+        return false;
+      }
+    };
+
     try {
       // By name, at runtime. Only the read group's id is published, and a
       // hardcoded id would be a guess about what a token is allowed to do.
@@ -502,14 +615,44 @@ export const provisionCloudflareStorage = internalAction({
         name: R2_BUCKET_WRITE_PERMISSION_GROUP,
       });
 
-      await createR2Bucket({
-        apiToken: setupCredential,
-        accountId: job.accountId,
-        bucket: job.bucket,
-        jurisdiction: job.jurisdiction as R2Jurisdiction,
-        locationHint: job.locationHint,
-      });
+      stage = "create-bucket";
+      let reusedExistingBucket = false;
+      try {
+        await createR2Bucket({
+          apiToken: setupCredential,
+          accountId: job.accountId,
+          bucket: job.bucket,
+          jurisdiction: job.jurisdiction as R2Jurisdiction,
+          locationHint: job.locationHint,
+        });
+      } catch (error) {
+        if (
+          !(error instanceof CloudflareApiError) ||
+          error.errorCode !== "BUCKET_NAME_TAKEN"
+        ) {
+          throw error;
+        }
+        // A NAME THAT IS TAKEN IS ONLY A DEAD END IF THE BUCKET IS NOT OURS.
+        //
+        // The expected failure of this flow is a token that may create buckets
+        // but may not mint tokens (see open question 3 in `lib/cloudflare.ts`):
+        // the bucket is created, the mint is refused, and the honest recovery —
+        // fix the permission, press try again — used to land here and be told
+        // to choose a different name because of a bucket we had just made for
+        // them. So a taken name is a question rather than a verdict, and the
+        // question is answered by Cloudflare: was this bucket created after
+        // this attempt began?
+        if (!(await bucketBelongsToThisAttempt())) {
+          return await fail(
+            "BUCKET_NAME_TAKEN",
+            bucketNotOursMessage(job.bucket),
+            error.detail,
+          );
+        }
+        reusedExistingBucket = true;
+      }
 
+      stage = "mint-token";
       const minted = await createBucketScopedToken({
         apiToken: setupCredential,
         accountId: job.accountId,
@@ -522,7 +665,11 @@ export const provisionCloudflareStorage = internalAction({
       // what goes in the row is its SHA-256, which is what R2's S3 API expects
       // as the secret access key and cannot be turned back into a token.
       secrets.push(minted.value);
+      // Recorded locally the moment it exists, so the catch below can delete a
+      // token that nothing else in this system knows about.
+      mintedTokenId = minted.id;
 
+      stage = "store-binding";
       const secretAccessKey = await deriveS3SecretAccessKey(minted.value);
       const endpoint = r2Endpoint(job.accountId, job.jurisdiction as R2Jurisdiction);
       const encryptedSecretAccessKey = await encryptSecret(
@@ -543,9 +690,21 @@ export const provisionCloudflareStorage = internalAction({
         // thing a manual connect stores. It only has an answer when the bucket
         // is named after the account, which nothing can otherwise resolve.
         forcePathStyle: addressingIsAmbiguous(endpoint, job.bucket) ? true : undefined,
+        reusedExistingBucket,
       });
       return { ok: true };
     } catch (error) {
+      // Anything that fails after the mint leaves a live R2 token in the
+      // customer's account whose id exists nowhere but this stack frame — the
+      // one credential this flow can create and then lose. Take it back if
+      // Cloudflare will let us, and say so plainly if it will not.
+      if (stage === "store-binding" && mintedTokenId !== undefined) {
+        tokenRevoked = await revokeApiToken({
+          apiToken: setupCredential,
+          accountId: job.accountId,
+          tokenId: mintedTokenId,
+        });
+      }
       if (error instanceof CloudflareApiError) {
         return await fail(error.errorCode, error.message, error.detail);
       }

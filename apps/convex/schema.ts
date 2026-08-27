@@ -474,7 +474,29 @@ const schema = defineSchema({
     error: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_workspace", ["workspaceId"]),
+    /**
+     * When this row's *present* state stops being current.
+     *
+     * Two meanings, one field, because a row only ever has one deadline:
+     * while `pending` it is the moment the attempt is abandoned — the sweep
+     * marks it failed and destroys the sealed credential — and once `failed`
+     * it is the moment the record itself is deleted.
+     *
+     * **The pending half is a credential control, not housekeeping.** Without
+     * it, an attempt whose action never ran leaves an account-level Cloudflare
+     * credential sealed on this row forever, which contradicts the invariant
+     * this table exists to keep (CLAUDE.md, "The setup credential is not a
+     * stored credential") and blocks the owner from starting another attempt.
+     *
+     * Optional because rows written before the sweep existed have no deadline,
+     * and the honest reading of a missing one is "already expired": a pending
+     * row from before this field is exactly the stuck row it was added for.
+     */
+    expiresAt: v.optional(v.number()),
+  })
+    .index("by_workspace", ["workspaceId"])
+    /** For the sweep, and for nothing else — same reasoning as `oauthAuthorizations`. */
+    .index("by_expiresAt", ["expiresAt"]),
 
   /**
    * Who may post into a **personal** context by email, and where it lands.
