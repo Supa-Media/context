@@ -15,14 +15,37 @@
  *      mailbox?
  *   2. Is the message small enough to look at?
  *   3. Does it parse into something with a sender and a body?
- *   4. **Did the sender prove the identity they claim?**  ← ./auth.ts
- *   5. Does the owner's policy admit that *proved* identity?  ← ./policy.ts
+ *   4. **What, if anything, did the sender prove?**  ← ./auth.ts
+ *   5. Does the owner's policy admit the address on the message? ← ./policy.ts
  *   6. Only now: render, key, and hand back a write.
  *
- * Step 4 before step 5, always. A `From:` header is a claim; running an
- * allow-list against a claim produces a check that an attacker satisfies by
- * typing the name of someone trusted. There is no path in this file where a
- * policy match is reached without a passing verdict from `verifySender`.
+ * ============================================================================
+ * STEP 4 LABELS. IT NO LONGER GATES.
+ * ============================================================================
+ *
+ * This file used to refuse every message that failed or lacked authentication,
+ * and the comment here said so in the strongest terms. That was reversed
+ * deliberately — see the "authentication is a label, not a gate" block at the
+ * top of ./auth.ts for the two real deliveries that settled it and the owner's
+ * reasoning. An inbox is expected to contain unverified mail; every note is
+ * fenced as untrusted input regardless of who sent it.
+ *
+ * So step 4 now produces a `SenderIdentity` and step 5 runs the allow-list
+ * against `identity.address`, which — when nothing authenticated — is a string
+ * the sender typed into a `From:` header.
+ *
+ * **What that means, said plainly rather than implied:** the allow-list filters,
+ * it does not authenticate. A sender who knows one address on it can put that
+ * address in `From:` and be captured. The list is still worth having — it keeps
+ * the ordinary internet out of somebody's context — but it is not a boundary,
+ * and nothing in this codebase may describe it as one. `renderCaptureNote`
+ * carries the honest label into the note, and the console copy in
+ * `apps/mobile/features/console/ingestion/` says the same thing to the owner.
+ *
+ * The refusals that remain are the structural ones — a recipient that is not
+ * ours, a reserved name, a message too large or unparseable, an unusable target
+ * folder, an empty message, a sender the owner's list does not admit. None of
+ * those are about trust.
  *
  * ============================================================================
  * REFUSALS CARRY NOTHING
@@ -32,8 +55,8 @@
  * enum member used **only for this Worker's own structured logs**. It is never
  * rendered, returned to a sender, or used to choose an SMTP response: `index.ts`
  * turns every refusal — unknown recipient, a name that is a shared context,
- * failed authentication, disallowed sender, over quota, storage failure — into
- * the same frozen rejection.
+ * disallowed sender, over quota, storage failure — into the same frozen
+ * rejection.
  *
  * That uniformity is not tidiness. Ingestion runs on the apex, so
  * `<name>@context.lc` is an address anyone can probe. A rejection that differed
@@ -68,7 +91,7 @@ import { normalizeTargetFolder as controlPlaneFolderRules } from "../../../apps/
 // The same adapter-boundary prefix rules the gateway uses, rather than a second
 // opinion about what a safe key prefix is. See apps/mcp/src/store/index.js.
 import { assertSafePrefix } from "../../../apps/mcp/src/store/index.js";
-import { describeArcShape, verifySender, type AuthFailure } from "./auth";
+import { describeArcShape, describeSender } from "./auth";
 import { htmlToText } from "./html";
 import { DEFAULT_MIME_LIMITS, parseEmail, safeFilename, singleLine, type MimeLimits } from "./mime";
 import type { IngestionPolicy, SenderMatcher } from "./policy";
@@ -181,8 +204,11 @@ export type RefusalReason =
   | "invalid_target_folder"
   | "control_plane_unavailable"
   | "storage_unavailable"
-  | "write_failed"
-  | `auth_${AuthFailure}`;
+  | "write_failed";
+// There is deliberately no `auth_*` member any more. Authentication cannot
+// refuse a message — see the block at the top of this file — so a reason for it
+// would be a reason nothing produces, and a dead enum member is an invitation
+// to wire it back up without reading why it went.
 
 export interface AttachmentWrite {
   key: string;
@@ -202,7 +228,22 @@ export interface CaptureDecision {
   log: {
     sender: string;
     senderDomain: string;
+    /** The method that passed, or the literal `none`. Never a guess. */
     authMethod: string;
+    /**
+     * Why nothing passed, as a fixed `AuthFailure` member; absent on a verified
+     * capture. This is where the operator now sees what used to be a refusal
+     * reason, and it is the only way to notice that every message on a
+     * deployment is arriving unverified.
+     */
+    authFailure?: string;
+    /**
+     * A bounded description of the message's ARC shape — integers and one
+     * closed enum, never a sender string. Present only when the operator set
+     * `LOG_ARC_SHAPE` and the message was not verified. See `describeArcShape`
+     * in ./auth.ts for what it is for and why it is safe to log.
+     */
+    arc?: string;
     attachmentCount: number;
     problems: string[];
   };
@@ -211,13 +252,6 @@ export interface CaptureDecision {
 export interface RefuseDecision {
   kind: "refuse";
   reason: RefusalReason;
-  /**
-   * A bounded description of the message's ARC shape — integers and one closed
-   * enum, never a sender string. Present only when the operator set
-   * `LOG_ARC_SHAPE`, and only on an authentication refusal. See
-   * `describeArcShape` in ./auth.ts for what it is for and why it is safe.
-   */
-  arc?: string;
 }
 
 export type IngestDecision = CaptureDecision | RefuseDecision;
@@ -240,12 +274,13 @@ export interface IngestConfig {
   /** The authserv-id whose `Authentication-Results` we will believe. */
   authServiceId: string;
   /**
-   * Emit the bounded ARC shape alongside an authentication refusal.
+   * Emit the bounded ARC shape alongside an unverified capture.
    *
    * Off unless the operator turns it on. It exists because whether the ARC path
    * in ./auth.ts can ever fire depends on header positions nobody has yet
-   * captured from a real Cloudflare delivery, and "mail is still refused" is
-   * not a diagnosis.
+   * captured from a real Cloudflare delivery, and "every capture is unverified"
+   * is not a diagnosis. It used to ride on a refusal; there is no
+   * authentication refusal left to ride on.
    */
   arcDiagnostics?: boolean;
 }
@@ -387,7 +422,11 @@ export async function decideCapture(
     return { kind: "refuse", reason: "unparseable_message" };
   }
 
-  // ── Authentication, before the allow-list, always. ────────────────────────
+  // ── Authentication: evaluated in full, acted on not at all. ───────────────
+  //
+  // The verdict is still computed before the allow-list — the ordering never
+  // mattered for correctness, only for what we did next — and it now becomes a
+  // label the note carries. See the block at the top of this file.
   const authInput = {
     authenticationResults: parsed.authenticationResults,
     authenticationResultsFolded: parsed.authenticationResultsFolded,
@@ -395,22 +434,24 @@ export async function decideCapture(
     fromAddress: parsed.fromAddress,
     authServiceId: config.authServiceId,
   };
-  const verdict = verifySender(authInput);
-  if (!verdict.ok) {
-    return {
-      kind: "refuse",
-      reason: `auth_${verdict.reason}`,
-      // Only when an operator has asked for it. See `describeArcShape` and the
-      // `LOG_ARC_SHAPE` note in wrangler.jsonc: absent by default, so the
-      // refusal is the same value it has always been.
-      ...(config.arcDiagnostics ? { arc: describeArcShape(authInput) } : {}),
-    };
-  }
+  const identity = describeSender(authInput);
 
-  // ── The allow-list, applied to the *proved* identity. ─────────────────────
+  // ── The allow-list, applied to the identity on the message. ───────────────
+  //
+  // Proved when `identity.verified`; claimed otherwise. This is the seam where
+  // the trade-off actually lands, so it is worth being exact about what happens
+  // next: an unverified address that matches the list is captured, and the note
+  // says it was not verified. An address that matches nothing is refused, which
+  // is the same refusal it always was and is not about trust — it is the owner
+  // saying they do not want mail from there.
+  //
+  // A message with no parseable `From:` refuses here rather than anywhere
+  // special: `senderIsAllowed` returns false for an unparseable address *before*
+  // it consults `allowAnySender`, so "anyone" still does not mean "nobody in
+  // particular".
   let allowed: boolean;
   try {
-    allowed = matcher(verdict.address, config.policy) === true;
+    allowed = matcher(identity.address, config.policy) === true;
   } catch {
     // A matcher that throws is a matcher that has not decided. Refuse.
     allowed = false;
@@ -463,9 +504,11 @@ export async function decideCapture(
     recipient: input.recipient,
     owner: input.owner,
     targetFolder,
-    sender: verdict.address,
-    senderDomain: verdict.domain,
-    authMethod: verdict.method,
+    sender: identity.address,
+    senderDomain: identity.domain,
+    verified: identity.verified,
+    authMethod: identity.method,
+    authFailure: identity.failure,
     subject: parsed.subject,
     sentAt: parsed.date,
     messageId: parsed.messageId,
@@ -483,9 +526,16 @@ export async function decideCapture(
     attachments: writes,
     bytes: input.raw.length,
     log: {
-      sender: verdict.address,
-      senderDomain: verdict.domain,
-      authMethod: verdict.method,
+      sender: identity.address,
+      senderDomain: identity.domain,
+      authMethod: identity.method ?? "none",
+      ...(identity.failure ? { authFailure: identity.failure } : {}),
+      // Only when an operator asked for it, and only when there is something to
+      // diagnose. Absent by default, so an ordinary capture logs exactly the
+      // fields it always did.
+      ...(config.arcDiagnostics && !identity.verified
+        ? { arc: describeArcShape(authInput) }
+        : {}),
       attachmentCount: rendered.length,
       problems: parsed.problems,
     },

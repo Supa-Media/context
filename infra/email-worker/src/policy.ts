@@ -29,15 +29,47 @@
  * production.
  *
  * ============================================================================
- * WHAT THE MATCHER IS NOT
+ * WHAT THE MATCHER IS NOT — AND THIS IS NOW THE IMPORTANT PART
  * ============================================================================
  *
- * It is not authentication, and it must never be reached as though it were.
- * `senderIsAllowed` is handed an address; whether the sender proved that
- * address is decided earlier, by `./auth.ts`, from `Authentication-Results`.
- * `./ingest.ts` calls `verifySender` first and passes `verdict.address` here —
- * never the raw `From:` header. An allow-list applied to an unproved claim is a
- * check an attacker satisfies by typing the name of someone trusted.
+ * **It filters. It does not authenticate.**
+ *
+ * This block used to say that `./ingest.ts` establishes the sender's identity
+ * before any address reaches this matcher, so the list only ever ran against
+ * something the sender had proved. That is no longer true, and leaving it
+ * standing would make this the most dangerous stale comment in the Worker.
+ *
+ * `./auth.ts` still evaluates SPF/DKIM/DMARC in full, but its verdict is now a
+ * **label written into the capture note**, not a gate — see the block at the
+ * top of that file for the two real deliveries that settled the decision and
+ * the reasoning behind it. So the address handed to `senderIsAllowed` is, when
+ * nothing authenticated, the `From:` addr-spec: a string the sender typed.
+ *
+ * The consequence, stated rather than implied:
+ *
+ *  - A sender who knows one address on somebody's list can put that address in
+ *    `From:` and be captured. This list does not stop them.
+ *  - What it *does* do is keep the ordinary internet out: someone who does not
+ *    know the capture address, or does not know who is on the list, gets
+ *    nothing. That is real, and it is worth having.
+ *  - `allowAnySender: true` means literally any sender. It never meant "any
+ *    sender who is really who they say they are" — that sentence belonged to
+ *    the gate — and it now means less than it did.
+ *  - What protects the reader is the note, not this function.
+ *    `renderCaptureNote` marks an unverified capture as unverified, names no
+ *    authentication method it did not observe, and says in prose that the
+ *    sender address may be spoofed.
+ *
+ * Two things follow for anyone editing here. Do not describe this list as a
+ * security boundary anywhere — not in this file, and not in the console copy in
+ * `apps/mobile/features/console/ingestion/`, which had to be rewritten for the
+ * same reason. And do not "restore" the gate in `./ingest.ts` on the strength
+ * of this paragraph: the gate refused ordinary forwarded mail, which is the
+ * product.
+ *
+ * One thing it still does that is worth keeping: `senderIsAllowed` returns
+ * false for an unparseable address *before* it consults `allowAnySender`, so a
+ * message with no usable `From:` is refused even under "anyone".
  */
 
 /**
@@ -58,11 +90,10 @@ export type { IngestionPolicy } from "../../../apps/convex/functions/lib/ingesti
 /**
  * The one matcher.
  *
- * Note what `allowAnySender: true` does *not* mean: it never bypasses
- * `verifySender`. An address that failed SPF/DKIM/DMARC alignment is refused
- * under that flag exactly as it is under a list, because it never reaches this
- * function at all. "Any sender" means any sender who is really who they say
- * they are.
+ * `allowAnySender: true` means any sender at all: a message whose SPF, DKIM and
+ * DMARC all failed reaches this function exactly as one that passed does, and
+ * under that flag it is admitted. The capture note is where the difference is
+ * recorded. See the block above.
  */
 export { senderIsAllowed } from "../../../apps/convex/functions/lib/ingestion";
 

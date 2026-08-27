@@ -1,11 +1,19 @@
 /**
- * The check that makes the allow-list a control rather than theatre.
+ * What a `verified` label is allowed to mean.
  *
- * The property under test, stated once: **an allow-list applied to an
- * unverified `From:` header protects nothing**, because the header is a claim
- * anyone can type, and the claim an attacker most wants to make is exactly the
- * one the list invites. So authentication comes first, alignment is exact, and
- * a passing allow-list never rescues a failing verdict.
+ * The property under test, stated once: **a `From:` header is a claim anyone
+ * can type**, and the claim an attacker most wants to make is exactly the one
+ * an allow-list invites. So alignment is exact, position decides which verdict
+ * is ours, and nothing a sender wrote can produce a pass.
+ *
+ * What changed, and it is worth being exact about: a failing verdict no longer
+ * refuses the message — ./ingest.ts captures it and the note says it is
+ * unverified. Every test below is therefore about the *label*: a `false`
+ * verdict costs a sender a badge rather than a delivery. That makes the forgery
+ * cases matter as much as they ever did — a forged pass would put
+ * `verified: true` on a stranger's note — and the refusal-shaped wording in
+ * these test names is about `verifySender`'s own answer, not about what the
+ * Worker does with it.
  *
  * Each `describe` below is a sabotage target: the comment on it names the edit
  * that would defeat the check and which test catches it.
@@ -13,6 +21,7 @@
 import { describe, expect, it } from "vitest";
 import {
   describeArcShape,
+  describeSender,
   domainOf,
   parseArcAuthenticationResults,
   parseAuthenticationResults,
@@ -668,6 +677,118 @@ describe("the production refusal, as the real chain shapes it", () => {
     expect(shape).not.toContain("supa.media");
     expect(shape).not.toContain("google");
     expect(shape).toMatch(/^[a-z=0-9 ]+$/);
+  });
+});
+
+/**
+ * The seam that turns a verdict into a label.
+ *
+ * `describeSender` is the only thing ./ingest.ts calls, so it is the one place
+ * a "helpful" default could put a method name on a message that never earned
+ * one. Sabotage targets, both of which the tests here catch:
+ *
+ *   - fill `method` from the verdict unconditionally → "never names a method";
+ *   - drop the `verified` flag and let a caller infer it from `address` being
+ *     non-empty → "an unverified identity still carries the claimed address".
+ */
+describe("turning a verdict into a label", () => {
+  it("reports the proved address and the method that proved it", () => {
+    const identity = describeSender({
+      authenticationResults: [PASSING("example.com")],
+      fromAddress: "alice@example.com",
+      authServiceId: AUTHSERV,
+    });
+    expect(identity).toEqual({
+      address: "alice@example.com",
+      domain: "example.com",
+      verified: true,
+      method: "dmarc",
+      failure: null,
+    });
+  });
+
+  it("never names a method for a message that proved nothing", () => {
+    // The single most dangerous thing this function could do: a note reading
+    // `sender-authenticated-by: dmarc` about a message no DMARC verdict
+    // covered would be a fabricated proof, which is worse than a missing one.
+    for (const input of [
+      { authenticationResults: [], fromAddress: "alice@example.com" },
+      { authenticationResults: [PASSING("evil.test")], fromAddress: "alice@example.com" },
+      {
+        authenticationResults: [PASSING("example.com")],
+        authenticationResultsFolded: [true],
+        fromAddress: "alice@example.com",
+      },
+      { authenticationResults: [PASSING("example.com")], fromAddress: "alice@example.com", authServiceId: "" },
+    ]) {
+      const identity = describeSender({ authServiceId: AUTHSERV, ...input });
+      expect(identity.verified).toBe(false);
+      expect(identity.method).toBeNull();
+      expect(identity.failure).not.toBeNull();
+    }
+  });
+
+  it("an unverified identity still carries the claimed address, marked as a claim", () => {
+    // This is the address the allow-list is then applied to. It has to be
+    // there — a capture with no sender is useless — and `verified: false` is
+    // the only thing distinguishing it from a proved one, which is why it is a
+    // field rather than something a caller infers.
+    const identity = describeSender({
+      authenticationResults: [PASSING("evil.test")],
+      fromAddress: "  alice@example.com  ",
+      authServiceId: AUTHSERV,
+    });
+    expect(identity.address).toBe("alice@example.com");
+    expect(identity.domain).toBe("example.com");
+    expect(identity.verified).toBe(false);
+    expect(identity.failure).toBe("unaligned");
+  });
+
+  it("names each failure distinctly, so the note can say which", () => {
+    const failureOf = (input: Parameters<typeof describeSender>[0]) =>
+      describeSender(input).failure;
+    expect(
+      failureOf({ authenticationResults: [], fromAddress: "a@example.com", authServiceId: AUTHSERV }),
+    ).toBe("no_authentication_results");
+    expect(
+      failureOf({
+        authenticationResults: [PASSING("example.com")],
+        authenticationResultsFolded: [true],
+        fromAddress: "a@example.com",
+        authServiceId: AUTHSERV,
+      }),
+    ).toBe("folded_authentication_results");
+    expect(
+      failureOf({
+        authenticationResults: [PASSING("example.com")],
+        fromAddress: "a@example.com",
+        authServiceId: "other.test",
+      }),
+    ).toBe("foreign_authserv_id");
+    expect(
+      failureOf({
+        authenticationResults: [PASSING("example.com")],
+        fromAddress: "",
+        authServiceId: AUTHSERV,
+      }),
+    ).toBe("no_from_address");
+  });
+
+  it("carries an ARC pass through as the weaker claim it is", () => {
+    const identity = describeSender({
+      authenticationResults: [`${AUTHSERV}; dkim=pass header.d=forwarder.test; arc=pass`],
+      arcAuthenticationResults: [
+        {
+          value: `i=1; ${AUTHSERV}; dmarc=pass header.from=example.com`,
+          folded: false,
+          abovePrimary: true,
+        },
+      ],
+      fromAddress: "alice@example.com",
+      authServiceId: AUTHSERV,
+    });
+    expect(identity.verified).toBe(true);
+    expect(identity.method).toBe("arc-dmarc");
   });
 });
 

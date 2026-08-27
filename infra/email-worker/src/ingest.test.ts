@@ -17,7 +17,7 @@ import {
   type IngestConfig,
 } from "./ingest";
 import { DEFAULT_MIME_LIMITS } from "./mime";
-import type { IngestionPolicy, SenderMatcher } from "./policy";
+import { senderIsAllowed, type IngestionPolicy, type SenderMatcher } from "./policy";
 import { AUTHSERV, rawMessage } from "./fixtures.test-helpers";
 import { RESERVED_NAMES, RFC2142_MANDATORY_NAMES } from "../../../apps/convex/functions/lib/names";
 
@@ -37,6 +37,15 @@ const stubMatcher: SenderMatcher = (from, policy) => {
   const at = from.lastIndexOf("@");
   return at > 0 && policy.allowedDomains.includes(from.slice(at + 1));
 };
+
+/**
+ * The real matcher, for the one assertion that is about *its* behaviour rather
+ * than about ordering: an unparseable address is refused before
+ * `allowAnySender` is even consulted. `stubMatcher` above cannot stand in for
+ * that, because the property being pinned is precisely the branch the stub does
+ * not have.
+ */
+const realMatcher: SenderMatcher = senderIsAllowed;
 
 const ALLOW_ALICE: IngestionPolicy = {
   allowedSenders: ["alice@example.com"],
@@ -186,23 +195,93 @@ describe("classifying a recipient", () => {
   });
 });
 
-/* -------------------- authentication gates the allow-list ------------------- */
+/* ------------------- authentication labels; it does not gate ---------------- */
 
-describe("authentication gates the allow-list", () => {
-  it("accepts an allowed sender whose message authenticates", async () => {
+/**
+ * The block that changed, and why every assertion in it inverted.
+ *
+ * It used to be called "authentication gates the allow-list" and it proved that
+ * a message which failed `verifySender` was refused however good its `From:`
+ * looked. That gate refused two real deliveries — an ordinary Gmail forward,
+ * and then a message whose verdict *Cloudflare itself* had folded — and it was
+ * removed deliberately. See the block at the top of ./auth.ts.
+ *
+ * So what these tests pin now is the replacement guarantee: the message is
+ * captured, and the capture tells the truth about what was established. A note
+ * that claimed a method nobody observed would be strictly worse than the
+ * refusal this replaced, so the "does not claim a method" assertions here are
+ * the ones to keep green.
+ */
+describe("authentication labels a capture; it does not gate one", () => {
+  it("captures an allowed sender whose message authenticates, and names the method", async () => {
     const decision = await decide(rawMessage({ from: "alice@example.com" }));
     expect(decision.kind).toBe("capture");
+    if (decision.kind !== "capture") return;
+    expect(decision.log.authMethod).toBe("dmarc");
+    expect(decision.log.authFailure).toBeUndefined();
+    expect(decision.note).toContain("verified: true");
+    expect(decision.note).toContain('sender-authenticated-by: "dmarc"');
   });
 
-  it("refuses an allowed sender whose message fails authentication", async () => {
-    // The headline case. Everything about this message is on the allow-list;
-    // the only thing missing is proof.
+  it("captures an allowed sender whose message carries no authentication at all", async () => {
+    // The headline case, inverted. Everything about this message is on the
+    // allow-list; the only thing missing is proof, and proof is no longer the
+    // price of admission.
     const decision = await decide(rawMessage({ from: "alice@example.com", authResults: null }));
-    expect(decision).toEqual({ kind: "refuse", reason: "auth_no_authentication_results" });
+    expect(decision.kind).toBe("capture");
+    if (decision.kind !== "capture") return;
+    expect(decision.log.authMethod).toBe("none");
+    expect(decision.log.authFailure).toBe("no_authentication_results");
+    expect(decision.note).toContain("verified: false");
+    expect(decision.note).toContain('sender-authenticated-by: "none"');
+    expect(decision.note).toContain("the sender address may be spoofed");
   });
 
-  it("refuses a spoofed From: naming an allowed sender but authenticated elsewhere", async () => {
-    // `evil.test` sends perfectly authenticated mail claiming to be alice.
+  it("captures an unaligned forward — the delivery that motivated all of this", async () => {
+    // `From:` is the original sender's; the delivering hop signed as itself.
+    // This is what every forwarded message looks like, and it was refused
+    // `auth_unaligned` in production.
+    const decision = await decide(
+      rawMessage({
+        from: "alice@example.com",
+        authResults: [
+          `${AUTHSERV}; dkim=pass header.d=forwarder.test; spf=pass smtp.mailfrom=bounce@forwarder.test; dmarc=none header.from=example.com`,
+        ],
+      }),
+    );
+    expect(decision.kind).toBe("capture");
+    if (decision.kind !== "capture") return;
+    expect(decision.log.authFailure).toBe("unaligned");
+    expect(decision.note).toContain('authentication-result: "unaligned"');
+    expect(decision.note).toContain("the sender address may be spoofed");
+  });
+
+  it("captures a message whose verdict our own MTA folded", async () => {
+    // The second refusal in production: Cloudflare folds its own long
+    // `Authentication-Results`, and the anti-forgery rule refuses every folded
+    // one. The rule stays — it still withholds the `verified` label — but it no
+    // longer costs the owner the message.
+    const decision = await decide(
+      rawMessage({
+        from: "alice@example.com",
+        authResults: [
+          `${AUTHSERV}; dkim=pass header.d=example.com;\r\n dmarc=pass header.from=example.com`,
+        ],
+      }),
+    );
+    expect(decision.kind).toBe("capture");
+    if (decision.kind !== "capture") return;
+    expect(decision.log.authFailure).toBe("folded_authentication_results");
+    expect(decision.note).toContain("verified: false");
+    expect(decision.note).toContain("folded across several lines");
+  });
+
+  it("captures a spoofed From: naming an allowed sender, and says it is unverified", async () => {
+    // `evil.test` sends perfectly authenticated mail claiming to be alice, and
+    // alice is on the list. This is the cost of the decision, and it is a real
+    // one: the message lands. What stops it being laundered into the owner's
+    // own voice is the label, so this asserts the label rather than the
+    // refusal it used to assert.
     const decision = await decide(
       rawMessage({
         from: "alice@example.com",
@@ -211,39 +290,55 @@ describe("authentication gates the allow-list", () => {
         ],
       }),
     );
-    expect(decision).toEqual({ kind: "refuse", reason: "auth_unaligned" });
+    expect(decision.kind).toBe("capture");
+    if (decision.kind !== "capture") return;
+    expect(decision.log.authMethod).toBe("none");
+    expect(decision.log.authFailure).toBe("unaligned");
+    expect(decision.note).toContain("verified: false");
+    // The thing that must never happen: the note borrowing evil.test's pass.
+    expect(decision.note).not.toContain('sender-authenticated-by: "dmarc"');
+    expect(decision.note).not.toContain("verified: true");
   });
 
-  it("never consults the matcher for a message that failed authentication", async () => {
-    // Sabotage: move the `matcher(...)` call above `verifySender` and this
-    // fails — which is the whole point of asserting it separately from the
-    // outcome. An implementation that checked the list first and the verdict
-    // second would still refuse *this* message, and would still be wrong.
-    const matcher = vi.fn<SenderMatcher>(() => true);
-    const decision = await decide(
-      rawMessage({ from: "mallory@evil.test", authResults: null }),
-      {},
-      matcher,
-    );
-    expect(decision.kind).toBe("refuse");
-    expect(matcher).not.toHaveBeenCalled();
-  });
-
-  it("hands the matcher the proved address, not the raw From: header", async () => {
+  it("hands the matcher the address on the message, display name discarded", async () => {
     const matcher = vi.fn<SenderMatcher>(() => true);
     await decide(rawMessage({ from: "Alice <alice@example.com>" }), {}, matcher);
     expect(matcher).toHaveBeenCalledTimes(1);
     expect(matcher.mock.calls[0]![0]).toBe("alice@example.com");
   });
 
-  it("refuses an authenticated sender who is not on the list", async () => {
+  it("hands the matcher the claimed address when nothing authenticated", async () => {
+    // The seam where the trade-off actually lands, asserted directly: with no
+    // verdict to work from, the allow-list runs against a string the sender
+    // typed. Anything that describes this list as a boundary is wrong — see
+    // the header of ./policy.ts.
+    const matcher = vi.fn<SenderMatcher>(() => true);
+    await decide(
+      rawMessage({ from: "Alice <alice@example.com>", authResults: null }),
+      {},
+      matcher,
+    );
+    expect(matcher.mock.calls[0]![0]).toBe("alice@example.com");
+  });
+
+  it("still refuses a sender the owner's list does not admit", async () => {
+    // The refusal that remains, and it is not about trust: the owner said they
+    // do not want mail from there.
     const decision = await decide(rawMessage({ from: "stranger@example.net" }));
     expect(decision).toEqual({ kind: "refuse", reason: "sender_not_allowed" });
   });
 
-  it("still requires authentication under allowAnySender", async () => {
-    // `allowAnySender` means "any sender who is really who they say they are",
-    // never "skip the check".
+  it("refuses an unauthenticated stranger too — the list still filters", async () => {
+    const decision = await decide(
+      rawMessage({ from: "mallory@evil.test", authResults: null }),
+    );
+    expect(decision).toEqual({ kind: "refuse", reason: "sender_not_allowed" });
+  });
+
+  it("captures under allowAnySender whether or not anything authenticated", async () => {
+    // `allowAnySender` now means literally any sender. It used to mean "any
+    // sender who is really who they say they are", which was a sentence only a
+    // gate could support.
     const policy: IngestionPolicy = {
       allowedSenders: [],
       allowedDomains: [],
@@ -256,7 +351,23 @@ describe("authentication gates the allow-list", () => {
       rawMessage({ from: "anyone@example.net", authResults: null }),
       { policy },
     );
-    expect(unauthenticated.kind).toBe("refuse");
+    expect(unauthenticated.kind).toBe("capture");
+    if (unauthenticated.kind !== "capture") return;
+    expect(unauthenticated.note).toContain("verified: false");
+  });
+
+  it("refuses a message with no usable From:, even under allowAnySender", async () => {
+    // The one authentication-shaped refusal that survives, and it survives for
+    // a different reason: `senderIsAllowed` cannot match an address it cannot
+    // parse, and it answers before it consults `allowAnySender`. A capture
+    // with no sender at all is a note nobody can attribute or filter.
+    const policy: IngestionPolicy = {
+      allowedSenders: [],
+      allowedDomains: [],
+      allowAnySender: true,
+    };
+    const decision = await decide(rawMessage({ from: "not-an-address" }), { policy }, realMatcher);
+    expect(decision).toEqual({ kind: "refuse", reason: "sender_not_allowed" });
   });
 
   it("treats a matcher that throws as a matcher that said no", async () => {
@@ -482,17 +593,21 @@ describe("stored attachments", () => {
 });
 
 /**
- * The end-to-end shape of the ARC path: a forwarded message reaching the
- * allow-list, and the diagnostic that exists because nobody has yet captured
- * what Cloudflare really sends.
+ * The end-to-end shape of the ARC path, and the diagnostic that exists because
+ * nobody has yet captured what Cloudflare really sends.
+ *
+ * The ARC work survived the change from gate to label, and it still earns its
+ * keep: a forwarded message whose chain our MTA validated and re-sealed is the
+ * one forwarded message that can be captured **verified**. What it no longer
+ * decides is whether the message lands at all.
  *
  * The trust rules themselves live in ./auth.test.ts, with the forgery cases and
- * the sabotage targets. What is asserted here is the wiring — that `decideCapture`
- * hands the parser's positional and folding facts to `verifySender` at all,
- * which is the one way this feature could be silently disarmed without a single
- * auth test going red.
+ * the sabotage targets. What is asserted here is the wiring — that
+ * `decideCapture` hands the parser's positional and folding facts to
+ * `verifySender` at all, which is the one way this feature could be silently
+ * disarmed without a single auth test going red.
  */
-describe("a forwarded message reaches the allow-list through the chain", () => {
+describe("a forwarded message is verified only through the chain our MTA sealed", () => {
   const FORWARDED = `${AUTHSERV}; spf=none; dkim=pass header.d=forwarder.test;` +
     ` dmarc=none header.from=example.com; arc=pass`;
 
@@ -517,13 +632,17 @@ describe("a forwarded message reaches the allow-list through the chain", () => {
     // Not "dmarc". The note and the log both say the alignment came from a
     // chain, because that is a weaker claim than our own MTA making it.
     expect(decision.log.authMethod).toBe("arc-dmarc");
+    expect(decision.log.authFailure).toBeUndefined();
     expect(decision.log.sender).toBe("alice@example.com");
     expect(decision.note).toContain("arc-dmarc");
+    expect(decision.note).toContain("verified: true");
   });
 
-  it("refuses the same message when the ARC set is one the sender supplied", async () => {
+  it("captures the same message unverified when the ARC set is one the sender supplied", async () => {
     // Identical but for position: a sender's headers land below our MTA's
-    // verdict, and this is the wiring that carries that fact through.
+    // verdict, and this is the wiring that carries that fact through. The
+    // message still lands — it is an ordinary forward — but the sender does not
+    // get to hand themselves the `verified` label by typing an ARC header.
     const decision = await decide(
       rawMessage({
         from: "alice@example.com",
@@ -536,15 +655,24 @@ describe("a forwarded message reaches the allow-list through the chain", () => {
         ],
       }),
     );
-    expect(decision).toEqual({ kind: "refuse", reason: "auth_unaligned" });
+    expect(decision.kind).toBe("capture");
+    if (decision.kind !== "capture") return;
+    expect(decision.log.authMethod).toBe("none");
+    expect(decision.log.authFailure).toBe("unaligned");
+    expect(decision.note).toContain("verified: false");
+    expect(decision.note).not.toContain("arc-dmarc");
   });
 
   it("carries no ARC diagnostic unless the operator asked for one", async () => {
     const decision = await decide(rawMessage({ from: "alice@example.com", authResults: [FORWARDED] }));
-    expect(decision).toEqual({ kind: "refuse", reason: "auth_unaligned" });
+    expect(decision.kind).toBe("capture");
+    if (decision.kind !== "capture") return;
+    expect(decision.log.arc).toBeUndefined();
   });
 
   it("emits a bounded ARC shape when the operator did", async () => {
+    // It rides on the capture log now: there is no authentication refusal left
+    // for it to ride on.
     const decision = await decide(
       rawMessage({
         from: "alice@example.com",
@@ -553,10 +681,26 @@ describe("a forwarded message reaches the allow-list through the chain", () => {
       }),
       { arcDiagnostics: true },
     );
-    expect(decision).toEqual({
-      kind: "refuse",
-      reason: "auth_unaligned",
-      arc: "chain=pass headers=1 readable=1 above=0 ours=0 top=1",
-    });
+    expect(decision.kind).toBe("capture");
+    if (decision.kind !== "capture") return;
+    expect(decision.log.arc).toBe("chain=pass headers=1 readable=1 above=0 ours=0 top=1");
+  });
+
+  it("emits no ARC shape for a capture that verified, even with the flag on", async () => {
+    // The flag exists to explain why mail arrives unverified. A verified
+    // capture has nothing to explain, and the diagnostic is not free — it is an
+    // extension of a deliberately closed set of log fields.
+    const decision = await decide(
+      forwardedMessage([
+        [
+          "ARC-Authentication-Results",
+          `i=2; ${AUTHSERV}; dkim=pass header.d=example.com; dmarc=pass header.from=example.com`,
+        ],
+      ]),
+      { arcDiagnostics: true },
+    );
+    expect(decision.kind).toBe("capture");
+    if (decision.kind !== "capture") return;
+    expect(decision.log.arc).toBeUndefined();
   });
 });
