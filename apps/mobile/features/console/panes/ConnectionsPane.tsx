@@ -7,6 +7,7 @@ import { Hint } from "../../design/components/Field";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { colors } from "../../design/tokens";
+import { ConnectClients } from "../clients/ConnectClients";
 import { MembersSection } from "../members/MembersSection";
 import { PaneHead } from "../ConsoleShell";
 import type { ConsoleClient, ConsoleData } from "../types";
@@ -24,6 +25,11 @@ import type { ConsoleClient, ConsoleData } from "../types";
  * `functions/grants.listGrants` and Revoke calls `revokeGrant`, which is why
  * the demo console omits the callback rather than rendering a button that
  * cannot do anything.
+ *
+ * `ConnectClients` sits above the endpoint rather than replacing it. The
+ * endpoint card answers "what is my URL"; the section below answers "where does
+ * it go in my client", which is the question that actually stops people — see
+ * `clients/providers.ts`.
  *
  * `MembersSection` is mounted here because "who has access" is the question
  * this pane answers and there is no per-context settings view yet. It takes one
@@ -58,6 +64,10 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
           </Text>
         </Hint>
       </Card>
+
+      <View style={styles.spaced}>
+        <ConnectClients endpoint={data.endpoint} />
+      </View>
 
       <Card style={styles.spaced}>
         <Row style={styles.clientsHead}>
