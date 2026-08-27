@@ -383,7 +383,7 @@ jobs:
               console.error("  It must be the CATCH-ALL, not per-address rules — per-address rules");
               console.error("  make Cloudflare answer differently for a claimed name than for an");
               console.error("  unclaimed one, which is a username-enumeration oracle sitting above");
-              console.error("  this Worker's deliberately uniform refusals.");
+              console.error("  the uniform refusals this Worker returns.");
               process.exit(1);
             };
             if (!d.success) fail("could not read the catch-all rule: " + JSON.stringify(d.errors));
