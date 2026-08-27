@@ -21,18 +21,23 @@
  *  3. A correctly scoped key or none at all — the permission group is resolved
  *     by name at runtime, and its absence stops the flow before a bucket is
  *     created rather than widening the key.
- *  4. Every failure is a recorded, actionable state. `10042` in particular is
- *     a billing prerequisite with a one-time fix, not a storage error.
+ *  4. Every failure is a recorded, actionable state, and it is **honest about
+ *     what is in the customer's Cloudflare account** — the expected failure of
+ *     this flow creates a bucket and is then refused at the mint, and a message
+ *     that says "nothing was changed" there is what makes the retry a dead end.
+ *     `10042` in particular is a billing prerequisite with a one-time fix, not
+ *     a storage error.
  *  5. Nothing Cloudflare says about a credential ends up stored.
+ *  6. An attempt that never finishes still stops holding the credential.
  *
  * Every value here is obviously fake. This repository is public.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import schema from "../schema";
 import type { Id } from "../_generated/dataModel";
-import { decryptSecret, requireKeyset } from "../functions/lib/crypto";
+import { decryptSecret, encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import {
   apiTokenTemplateUrl,
   bucketCreatedDuringAttempt,
@@ -111,6 +116,12 @@ interface CloudflareStubOptions {
   tokenNetworkFailure?: boolean;
   /** Refuse to delete a minted token, so the orphan cannot be taken back. */
   tokenRevokeFailure?: CloudflareFailure;
+  /**
+   * A verbatim body for the mint call — the one endpoint whose response body
+   * can carry a live credential, and the one place the raw-body fallback in
+   * `describeErrors` can reach one.
+   */
+  tokenFailureBody?: { status: number; body: unknown };
   /** Return a token with no `value`, the way a truncated response would. */
   tokenWithoutValue?: boolean;
 }
@@ -205,6 +216,12 @@ function cloudflareStub(options: CloudflareStubOptions = {}) {
 
     if (url.pathname.endsWith("/tokens")) {
       if (options.tokenNetworkFailure) throw new Error("network down");
+      if (options.tokenFailureBody) {
+        return cloudflareEnvelope(
+          options.tokenFailureBody.body,
+          options.tokenFailureBody.status,
+        );
+      }
       if (options.tokenFailure) return failureResponse(options.tokenFailure);
       return cloudflareEnvelope({
         success: true,
@@ -953,6 +970,45 @@ describe("the setup credential does not survive the flow", () => {
   });
 });
 
+/**
+ * THE ONE BODY THAT CAN CARRY A CREDENTIAL.
+ *
+ * `describeErrors` falls back to the raw body when Cloudflare sends no
+ * structured errors, and `POST /accounts/:id/tokens` is the only call here
+ * whose body ever contains a live token. At that moment the value is not yet on
+ * the action's secret list — it cannot be, because the call that would have
+ * returned it threw — so redaction downstream could not save it even in
+ * principle. It is stripped at the source instead.
+ */
+describe("a provider body never carries a credential onto the row", () => {
+  test("a mint response that echoes the token is scrubbed before it is recorded", async () => {
+    const { t, owner, workspaceId } = await provisioning({
+      tokenFailureBody: {
+        status: 200,
+        body: {
+          success: false,
+          result: { id: MINTED_TOKEN_ID, value: MINTED_TOKEN_VALUE },
+        },
+      },
+    });
+    await startProvisioning(t, owner, workspaceId);
+    await drainScheduled(t);
+
+    const row = await provisioningRow(t, workspaceId);
+    expect(row!.status).toBe("failed");
+    expect(row!.error).not.toContain(MINTED_TOKEN_VALUE);
+    expect(row!.error).toContain("[redacted]");
+    expect(await everyStoredDocument(t)).not.toContain(MINTED_TOKEN_VALUE);
+
+    // …and it is not on the surface every member of the workspace can read.
+    const published = await asUser(t, owner).query(
+      api.functions.cloudflare.getCloudflareProvisioning,
+      { workspaceId },
+    );
+    expect(JSON.stringify(published)).not.toContain(MINTED_TOKEN_VALUE);
+  });
+});
+
 /* -------------------------------------------------------------------------- */
 /*                              failing honestly                              */
 /* -------------------------------------------------------------------------- */
@@ -1093,6 +1149,389 @@ describe("every failure is a state the owner can act on", () => {
     expect((await provisioningRow(t, workspaceId))!.errorCode).toBe(
       "CLOUDFLARE_UNAVAILABLE",
     );
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*               what exists in the customer's account afterwards             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE FAILURE THIS FLOW WAS ALWAYS GOING TO HAVE.
+ *
+ * Only R2's API-token template key is published, so a token pasted from our own
+ * deep link can create a bucket and then be refused at the minting step — open
+ * question 3 in `lib/cloudflare.ts` says so in as many words. Every test above
+ * fails *before* the bucket call or fails everything at once; none of them ever
+ * exercised the one shape the design predicts, and under it the product created
+ * a bucket in somebody's Cloudflare account and then told them nothing was
+ * changed and to try again — which walked them straight into `BUCKET_NAME_TAKEN`
+ * on the bucket it had just made for them.
+ */
+describe("a bucket that exists is never described as if it did not", () => {
+  const MINT_REFUSED: CloudflareFailure = {
+    status: 403,
+    errors: [{ code: 9109, message: "Unauthorized to access requested resource" }],
+  };
+  const NAME_TAKEN: CloudflareFailure = {
+    status: 409,
+    errors: [{ code: 10073, message: "The bucket you tried to create already exists." }],
+  };
+
+  test("the bucket is created, the mint is refused, and the record says both", async () => {
+    const { t, owner, workspaceId, cloudflare } = await provisioning({
+      tokenFailure: MINT_REFUSED,
+    });
+    await startProvisioning(t, owner, workspaceId);
+    await drainScheduled(t);
+
+    // The bucket call happened and succeeded; the mint is what failed.
+    expect(cloudflare.calls.map((call) => `${call.method} ${call.path}`)).toEqual([
+      "GET /client/v4/user/tokens/permission_groups",
+      `POST /client/v4/accounts/${FAKE_ACCOUNT_ID}/r2/buckets`,
+      `POST /client/v4/accounts/${FAKE_ACCOUNT_ID}/tokens`,
+    ]);
+
+    const published = await asUser(t, owner).query(
+      api.functions.cloudflare.getCloudflareProvisioning,
+      { workspaceId },
+    );
+    expect(published!.status).toBe("failed");
+    expect(published!.errorCode).toBe("INSUFFICIENT_PERMISSIONS");
+    // The half that was always right: what went wrong and which permission.
+    expect(published!.error).toMatch(/Account API Tokens/);
+    // The half that was missing, and the reason the retry used to dead-end.
+    expect(published!.error).toContain(BUCKET);
+    expect(published!.error).toMatch(/was created in your Cloudflare account/i);
+    expect(published!.error).toMatch(/same name/i);
+    expect(published!.error).not.toMatch(/nothing was (changed|created)/i);
+
+    // Nothing half-bound, and the credential is gone as on any other failure.
+    expect(await bindingRow(t, workspaceId)).toBeNull();
+    expect(
+      (await provisioningRow(t, workspaceId))!.encryptedSetupCredential,
+    ).toBeUndefined();
+    expect(await everyStoredDocument(t)).not.toContain(SETUP_TOKEN);
+  });
+
+  test("the retry is not a dead end: the bucket we made is reused, not refused", async () => {
+    const { t, owner, workspaceId } = await provisioning({ tokenFailure: MINT_REFUSED });
+    await startProvisioning(t, owner, workspaceId);
+    await drainScheduled(t);
+    expect((await provisioningRow(t, workspaceId))!.errorCode).toBe(
+      "INSUFFICIENT_PERMISSIONS",
+    );
+
+    // The owner adds the missing permission and presses try again with the
+    // same name — which is what the recorded message told them to do. The
+    // bucket from the first run is in the way, and it is ours.
+    const retry = useCloudflare({
+      bucketFailure: NAME_TAKEN,
+      bucketDetails: { name: BUCKET, creation_date: new Date().toISOString() },
+    });
+    await startProvisioning(t, owner, workspaceId);
+    await drainScheduled(t);
+
+    const binding = await bindingRow(t, workspaceId);
+    expect(binding).not.toBeNull();
+    expect(binding!.bucket).toBe(BUCKET);
+    expect(binding!.accessKeyId).toBe(MINTED_TOKEN_ID);
+    // Verified against the real bucket by the real probe, like any connect.
+    expect(binding!.status).toBe("connected");
+    expect(await provisioningRow(t, workspaceId)).toBeNull();
+
+    // It did not assume the bucket was ours — it asked Cloudflare when the
+    // bucket was created, which is the only evidence that is not our own
+    // memory.
+    expect(retry.calls.map((call) => `${call.method} ${call.path}`)).toContain(
+      `GET /client/v4/accounts/${FAKE_ACCOUNT_ID}/r2/buckets/${BUCKET}`,
+    );
+
+    // And "we created a bucket" and "we used one we had created" are different
+    // facts, so the audit trail keeps them apart.
+    const events = await asUser(t, owner).query(api.functions.audit.listEvents, {
+      workspaceId,
+    });
+    const provisioned = events.find((event) => event.action === "storage.provisioned");
+    expect(provisioned!.details!.reusedExistingBucket).toBe(true);
+  });
+
+  /**
+   * THE OTHER DIRECTION, WHICH MATTERS MORE.
+   *
+   * Reuse must never become a way to adopt a bucket somebody already had. The
+   * only thing separating the two is Cloudflare's own creation date, so this is
+   * the same setup as the test above with one field changed.
+   */
+  test("a bucket that predates the attempt is refused, not adopted", async () => {
+    const { t, owner, workspaceId, cloudflare } = await provisioning({
+      bucketFailure: NAME_TAKEN,
+      bucketDetails: {
+        name: BUCKET,
+        creation_date: new Date(Date.now() - 400 * 24 * 60 * 60 * 1000).toISOString(),
+      },
+    });
+    await startProvisioning(t, owner, workspaceId);
+    await drainScheduled(t);
+
+    const row = await provisioningRow(t, workspaceId);
+    expect(row!.errorCode).toBe("BUCKET_NAME_TAKEN");
+    expect(row!.error).toMatch(/cannot tell that it created it/i);
+    expect(row!.error).toMatch(/different name/i);
+    // No key was minted over storage that may not be ours, and nothing was
+    // bound to it.
+    expect(cloudflare.calls.some((call) => call.path.endsWith("/tokens"))).toBe(false);
+    expect(await bindingRow(t, workspaceId)).toBeNull();
+  });
+
+  test("a 5xx at the mint step reports the bucket rather than claiming innocence", async () => {
+    const { t, owner, workspaceId } = await provisioning({
+      tokenFailure: { status: 503, errors: [{ code: 1, message: "service unavailable" }] },
+    });
+    await startProvisioning(t, owner, workspaceId);
+    await drainScheduled(t);
+
+    const row = await provisioningRow(t, workspaceId);
+    expect(row!.errorCode).toBe("CLOUDFLARE_UNAVAILABLE");
+    expect(row!.error).toContain(BUCKET);
+    expect(row!.error).toMatch(/was created in your Cloudflare account/i);
+    expect(row!.error).not.toMatch(/nothing was (changed|created)/i);
+  });
+
+  test("a socket that dies at the mint step reports the bucket too", async () => {
+    const { t, owner, workspaceId } = await provisioning({ tokenNetworkFailure: true });
+    await startProvisioning(t, owner, workspaceId);
+    await drainScheduled(t);
+
+    const row = await provisioningRow(t, workspaceId);
+    expect(row!.errorCode).toBe("CLOUDFLARE_UNAVAILABLE");
+    expect(row!.error).toMatch(/was created in your Cloudflare account/i);
+    expect(row!.error).not.toMatch(/nothing was (changed|created)/i);
+  });
+
+  /**
+   * A create that never got an answer is the one case where the truthful answer
+   * is "we do not know", and saying either of the two confident things would be
+   * a guess about somebody else's account.
+   */
+  test("a create that never answered says the bucket may or may not be there", async () => {
+    const { t, owner, workspaceId } = await provisioning({
+      bucketFailure: { status: 500, errors: [{ code: 1, message: "boom" }] },
+    });
+    await startProvisioning(t, owner, workspaceId);
+    await drainScheduled(t);
+
+    const row = await provisioningRow(t, workspaceId);
+    expect(row!.errorCode).toBe("CLOUDFLARE_UNAVAILABLE");
+    expect(row!.error).toMatch(/may or may not have been created/i);
+    expect(row!.error).not.toMatch(/nothing was (changed|created)/i);
+  });
+
+  /** And the claim is still made where it is true, which is the point of it. */
+  test("a failure before the bucket call still says nothing was created", async () => {
+    const { t, owner, workspaceId } = await provisioning({
+      permissionGroupsFailure: {
+        status: 401,
+        errors: [{ code: 10000, message: "Authentication error" }],
+      },
+    });
+    await startProvisioning(t, owner, workspaceId);
+    await drainScheduled(t);
+
+    const row = await provisioningRow(t, workspaceId);
+    expect(row!.errorCode).toBe("CREDENTIAL_REJECTED");
+    expect(row!.error).toMatch(/nothing was created/i);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                    the credential this flow can lose                       */
+/* -------------------------------------------------------------------------- */
+
+describe("a token minted and then not stored is taken back", () => {
+  test("a failure after the mint deletes the token and says the bucket is there", async () => {
+    const { t, owner, workspaceId, cloudflare } = await provisioning();
+    withoutDigest();
+
+    await startProvisioning(t, owner, workspaceId);
+    await drainScheduled(t);
+
+    // The token was minted, so it was deleted again — by id, which existed
+    // nowhere but the action's own stack frame.
+    expect(cloudflare.calls.map((call) => `${call.method} ${call.path}`)).toContain(
+      `DELETE /client/v4/accounts/${FAKE_ACCOUNT_ID}/tokens/${MINTED_TOKEN_ID}`,
+    );
+
+    const row = await provisioningRow(t, workspaceId);
+    expect(row!.errorCode).toBe("PROVISION_FAILED");
+    expect(row!.error).toMatch(/was created in your Cloudflare account/i);
+    // Nothing to go and clean up, so nothing is asked of them.
+    expect(row!.error).not.toContain(scopedTokenName(BUCKET));
+
+    expect(await bindingRow(t, workspaceId)).toBeNull();
+    expect(await everyStoredDocument(t)).not.toContain(MINTED_TOKEN_VALUE);
+    expect(await everyStoredDocument(t)).not.toContain(SETUP_TOKEN);
+  });
+
+  test("a token we could not delete is named, because nothing else will name it", async () => {
+    const { t, owner, workspaceId } = await provisioning({
+      tokenRevokeFailure: {
+        status: 403,
+        errors: [{ code: 9109, message: "Unauthorized to access requested resource" }],
+      },
+    });
+    withoutDigest();
+
+    await startProvisioning(t, owner, workspaceId);
+    await drainScheduled(t);
+
+    const row = await provisioningRow(t, workspaceId);
+    expect(row!.error).toContain(scopedTokenName(BUCKET));
+    expect(row!.error).toMatch(/dashboard/i);
+    expect(row!.error).not.toMatch(/nothing was (changed|created)/i);
+    // The token's value is still nowhere, even though the token outlived us.
+    expect(await everyStoredDocument(t)).not.toContain(MINTED_TOKEN_VALUE);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                 an attempt that never finishes gives it up                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE INVARIANT THIS TABLE EXISTS FOR, WHEN NOTHING GOES TO PLAN.
+ *
+ * "There is no steady state in which the control plane holds an account-level
+ * cloud credential" (CLAUDE.md) held only for attempts that finished. Both
+ * paths that destroy the envelope need the scheduled action to reach them, and
+ * a job lost to a deploy, an eviction, or a throw on the way to recording a
+ * failure all leave a `pending` row holding the customer's Cloudflare account
+ * credential — and, because a pending row refuses every further attempt, an
+ * owner who cannot start again either.
+ */
+describe("an abandoned attempt stops holding the credential", () => {
+  /** A row exactly as a lost scheduled job leaves it: pending, sealed, stale. */
+  async function stuckAttempt(
+    t: TestConvex,
+    owner: Id<"users">,
+    workspaceId: Id<"workspaces">,
+    overrides: Record<string, unknown> = {},
+  ) {
+    const encryptedSetupCredential = await encryptSecret(SETUP_TOKEN, requireKeyset(), {
+      workspaceId,
+    });
+    return await t.run((ctx) =>
+      ctx.db.insert("cloudflareProvisioning", {
+        workspaceId,
+        requestedBy: owner,
+        credentialSource: "api-token" as const,
+        encryptedSetupCredential,
+        accountId: FAKE_ACCOUNT_ID,
+        bucket: BUCKET,
+        jurisdiction: "default" as const,
+        status: "pending" as const,
+        createdAt: Date.now() - 60 * 60 * 1000,
+        updatedAt: Date.now() - 60 * 60 * 1000,
+        expiresAt: Date.now() - 45 * 60 * 1000,
+        ...overrides,
+      }),
+    );
+  }
+
+  test("the sweep destroys the envelope and says what it cannot know", async () => {
+    const { t, owner, workspaceId } = await provisioning();
+    await stuckAttempt(t, owner, workspaceId);
+    expect(await everyStoredDocument(t)).toContain("encryptedSetupCredential");
+
+    const result = await t.mutation(
+      internal.functions.cloudflare.purgeExpiredProvisioning,
+      {},
+    );
+    expect(result).toEqual({ expired: 1, deleted: 0, moreRemaining: false });
+
+    const row = await provisioningRow(t, workspaceId);
+    expect(row!.status).toBe("failed");
+    expect(row!.errorCode).toBe("PROVISION_EXPIRED");
+    expect(row!.encryptedSetupCredential).toBeUndefined();
+    expect(await everyStoredDocument(t)).not.toContain(SETUP_TOKEN);
+
+    // An abandoned attempt may have got as far as creating the bucket, and
+    // nobody knows whether it did — so it says that rather than either of the
+    // two confident answers.
+    expect(row!.error).toMatch(/may or may not have been created/i);
+    expect(row!.error).toContain(BUCKET);
+
+    const events = await asUser(t, owner).query(api.functions.audit.listEvents, {
+      workspaceId,
+    });
+    expect(events.map((event) => event.action)).toContain("storage.provision_failed");
+  });
+
+  test("a row from before the deadline existed is treated as long expired", async () => {
+    const { t, owner, workspaceId } = await provisioning();
+    await stuckAttempt(t, owner, workspaceId, { expiresAt: undefined });
+
+    await t.mutation(internal.functions.cloudflare.purgeExpiredProvisioning, {});
+    const row = await provisioningRow(t, workspaceId);
+    expect(row!.status).toBe("failed");
+    expect(row!.encryptedSetupCredential).toBeUndefined();
+  });
+
+  test("a stale pending row does not block a fresh attempt", async () => {
+    const { t, owner, workspaceId } = await provisioning();
+    await stuckAttempt(t, owner, workspaceId);
+
+    // No sweep in between: the owner should not have to wait an hour for a
+    // cron to unblock a bucket they are trying to create now.
+    await startProvisioning(t, owner, workspaceId);
+    await drainScheduled(t);
+
+    expect(await provisioningRow(t, workspaceId)).toBeNull();
+    expect((await bindingRow(t, workspaceId))!.accessKeyId).toBe(MINTED_TOKEN_ID);
+  });
+
+  test("an attempt that is actually running is left alone", async () => {
+    const { t, owner, workspaceId } = await provisioning();
+    await stuckAttempt(t, owner, workspaceId, {
+      expiresAt: Date.now() + 10 * 60 * 1000,
+    });
+
+    const result = await t.mutation(
+      internal.functions.cloudflare.purgeExpiredProvisioning,
+      {},
+    );
+    expect(result).toEqual({ expired: 0, deleted: 0, moreRemaining: false });
+    expect((await provisioningRow(t, workspaceId))!.status).toBe("pending");
+  });
+
+  /**
+   * The second half of the deadline: once a row has failed it holds no
+   * credential, only an explanation, so it is kept for a week and then deleted.
+   * A failed row must also stop matching the sweep, or a backlog of them would
+   * crowd out the pending rows that matter.
+   */
+  test("a failed row is deleted once its explanation is stale", async () => {
+    const { t, owner, workspaceId } = await provisioning();
+    await stuckAttempt(t, owner, workspaceId);
+
+    // First sweep: the attempt is retired and its deadline moves forward.
+    await t.mutation(internal.functions.cloudflare.purgeExpiredProvisioning, {});
+    const retired = await provisioningRow(t, workspaceId);
+    expect(retired!.expiresAt).toBeGreaterThan(Date.now());
+
+    // A second sweep the same day changes nothing.
+    expect(
+      await t.mutation(internal.functions.cloudflare.purgeExpiredProvisioning, {}),
+    ).toEqual({ expired: 0, deleted: 0, moreRemaining: false });
+
+    // A week later it is a row nobody reads.
+    await t.run((ctx) =>
+      ctx.db.patch(retired!._id, { expiresAt: Date.now() - 1000 }),
+    );
+    expect(
+      await t.mutation(internal.functions.cloudflare.purgeExpiredProvisioning, {}),
+    ).toEqual({ expired: 0, deleted: 1, moreRemaining: false });
+    expect(await provisioningRow(t, workspaceId)).toBeNull();
   });
 });
 

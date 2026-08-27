@@ -842,6 +842,13 @@ export async function createBucketScopedToken(options: {
   });
 
   if (typeof result.id !== "string" || typeof result.value !== "string") {
+    // KNOWN RESIDUAL, STATED RATHER THAN GUESSED AT: if Cloudflare returned an
+    // id but no value, a token exists in the customer's account and this is the
+    // only place its id was ever visible. It is not revoked here because the
+    // shape of that response is undocumented — an id in a body we did not
+    // understand is not evidence enough to issue a delete against somebody's
+    // account. Every *other* post-mint failure is taken back by
+    // `revokeApiToken` in `functions/cloudflare.ts`.
     throw new CloudflareApiError(
       {
         errorCode: "PROVISION_FAILED",

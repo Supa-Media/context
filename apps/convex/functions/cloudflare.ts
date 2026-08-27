@@ -502,10 +502,29 @@ export const getProvisioningJob = internalQuery({
  *  3. **Every failure is recorded and none of them throws.** A missing
  *     entitlement, a taken name and a rejected token are *results* the owner
  *     reads off the row, not exceptions that vanish into a log.
+ *  4. **A recorded failure says what is in the customer's account.** The
+ *     expected failure of this flow creates a bucket and is then refused at the
+ *     mint (open question 3 in `lib/cloudflare.ts`), and the message used to
+ *     say "Nothing was changed; try again shortly" — which sent the owner
+ *     straight into `BUCKET_NAME_TAKEN` on the bucket we had just made for
+ *     them. So `stage` travels with every failure and the message is composed
+ *     from it: a failure before the bucket call may say nothing was created, a
+ *     failure after it must not, and a call that never got an answer says so.
+ *  5. **A bucket we created is reused, and one we did not is never touched.**
+ *     A taken name is a question, not a verdict, and the answer is Cloudflare's
+ *     own record of when that bucket was created — not our memory, and not an
+ *     assumption. Anything unknown refuses. See `bucketCreatedDuringAttempt`.
+ *
+ * The credential this flow can lose is the *minted* one: everything after the
+ * mint — the derive, the encrypt, the binding write, an eviction — leaves a
+ * live R2 token in the customer's account whose id exists nowhere but a local
+ * variable. The catch below deletes it, and when it cannot, the recorded
+ * message names it so somebody can.
  *
  * Idempotent in the only sense that matters: it does nothing unless there is a
  * `pending` row with an envelope on it, and the first thing success does is
- * delete that row.
+ * delete that row. What bounds the case where it never runs at all is
+ * `purgeExpiredProvisioning`, not this function.
  */
 export const provisionCloudflareStorage = internalAction({
   args: { workspaceId: v.id("workspaces") },
