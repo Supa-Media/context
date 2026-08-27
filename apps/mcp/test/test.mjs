@@ -2464,6 +2464,49 @@ check(
   ) === REFUSAL
 );
 
+// -- the contract with the email worker
+//
+// The two halves of this feature live in different packages and neither can
+// import the other. The worker decides the key and writes the link; the gateway
+// decides what it will resolve. If those drift, mail silently produces images
+// nothing can fetch — and every test on both sides stays green, because each
+// one is right about its own half.
+//
+// So this asserts the join: a note in exactly the shape
+// `renderCaptureNote` emits, resolving through the real tool.
+const CAPTURE_IMAGE = `${"9".repeat(64)}.png`;
+await contextStore.put(`.images/${CAPTURE_IMAGE}`, PNG_BYTES);
+await contextStore.put(
+  "1-projects/portable/email-capture.md",
+  [
+    "---",
+    'source: "email"',
+    "attachments: 1",
+    "---",
+    "",
+    "## Attachments",
+    "",
+    // Byte-for-byte the line infra/email-worker/src/note.ts writes.
+    `- ![shot.png](.images/${CAPTURE_IMAGE}) — image/png, 1.2 KB`,
+    "",
+    "_Attachment files came from the same untrusted sender as the text above._",
+    "",
+  ].join("\n")
+);
+const fromCapture = await call("priv-token", "read_image", {
+  note: "1-projects/portable/email-capture.md",
+  image: `.images/${CAPTURE_IMAGE}`,
+});
+check(
+  "an image the email worker stored resolves from the note it wrote",
+  !fromCapture.isError &&
+    fromCapture.content?.find((block) => block.type === "image")?.data === PNG_BASE64
+);
+check(
+  "...and the capture note itself is still an ordinary readable note",
+  !(await call("priv-token", "read_note", { path: "1-projects/portable/email-capture.md" })).isError
+);
+
 // -- the store stays opaque
 //
 // Adding a way in must not have added a way to enumerate. These are the same
