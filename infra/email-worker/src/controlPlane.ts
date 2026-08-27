@@ -350,7 +350,18 @@ export function createIngestControlPlane(env: ControlPlaneEnv, options: ControlP
         },
         body: JSON.stringify(body),
         signal: controller.signal,
-        redirect: "error",
+        // "manual", not "error". workerd does not implement `redirect: "error"`
+        // — `fetch` rejects with a TypeError before the request is made, which
+        // this function then flattens to "request failed". Every inbound
+        // message died there, and the flattening (deliberate: the raw error can
+        // quote the request, headers included) hid the cause for hours.
+        //
+        // "manual" is equally safe here and is what the intent was: a redirect
+        // is surfaced as a response rather than followed, and the status check
+        // below refuses anything that is not a 200 — so a redirected call is
+        // still a failed call, and no credential is ever replayed to a
+        // Location we did not choose.
+        redirect: "manual",
       });
     } catch {
       // The caught error may quote the request — headers included. Dropped on
