@@ -118,7 +118,7 @@
     // note 2: it is how an operator finds out whether the ARC path can fire at
     // all. Integers and one closed enum, never a sender string — but it is a
     // diagnostic, so turn it off again, and delete it once note 2 is settled.
-    "LOG_ARC_SHAPE": "",
+    "LOG_ARC_SHAPE": "1",
 
     // DELIBERATELY EMPTY. postmaster@ and abuse@ are forwarded here; with it
     // unset they are refused and a loud `operations_mailbox_unset` is logged.
