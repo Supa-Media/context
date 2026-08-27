@@ -51,6 +51,15 @@
  *     missing permission, rather than guessed at — see `templateKeys` on
  *     `apiTokenTemplateUrl` for where a verified key would slot in.
  *
+ *     **That failure is the expected one, so this module is built around it.**
+ *     It happens *after* a bucket exists in the customer's account, which is
+ *     why a classified failure carries the stage it happened at (see
+ *     `ProvisionStage`) and why the message a person reads is composed by
+ *     `provisionFailureMessage` rather than by the classifier alone. A message
+ *     that says "nothing was changed" when a bucket was created is not a
+ *     cosmetic problem: it is the sentence that sends somebody back into
+ *     `BUCKET_NAME_TAKEN` on a bucket we made for them.
+ *
  * References (documentation, not credentials):
  *  - https://developers.cloudflare.com/fundamentals/oauth/
  *  - https://developers.cloudflare.com/fundamentals/api/how-to/account-owned-token-template/
@@ -105,6 +114,13 @@ export type R2Jurisdiction = "default" | "eu" | "fedramp";
  *                                    scoped key can be minted. Never mint a
  *                                    broader one instead.
  *  - `CLOUDFLARE_UNAVAILABLE`      — 5xx or no answer. Retry.
+ *  - `PROVISION_EXPIRED`           — the attempt never finished and was swept.
+ *                                    Never returned by `classifyCloudflareFailure`;
+ *                                    written by the cron that destroys the
+ *                                    sealed setup credential of an abandoned
+ *                                    run. In the list because it lands in the
+ *                                    same field and a client branches on it the
+ *                                    same way.
  *  - `PROVISION_FAILED`            — anything else. Show the detail.
  */
 export type ProvisionErrorCode =
@@ -115,7 +131,132 @@ export type ProvisionErrorCode =
   | "INSUFFICIENT_PERMISSIONS"
   | "PERMISSION_GROUP_UNAVAILABLE"
   | "CLOUDFLARE_UNAVAILABLE"
+  | "PROVISION_EXPIRED"
   | "PROVISION_FAILED";
+
+/**
+ * Which call an attempt was making when it failed.
+ *
+ * **The classifier alone cannot tell an honest story.** "Cloudflare refused"
+ * means nothing was created when it is the permission-group lookup, and means a
+ * bucket now exists in somebody's account when it is the mint that follows the
+ * create. The old code emitted one message for both, and the message said
+ * "Nothing was changed" — which is exactly the instruction that walks a person
+ * into `BUCKET_NAME_TAKEN` on the bucket we made for them one attempt earlier.
+ *
+ * So a stage travels with every failure, and `residueAfterFailure` turns it
+ * into the only thing the person actually needs: what is in their Cloudflare
+ * account now.
+ */
+export type ProvisionStage =
+  | "resolve-permission-group"
+  | "create-bucket"
+  | "mint-token"
+  | "store-binding";
+
+/**
+ * What an attempt left behind in the customer's account when it failed.
+ *
+ *  - `nothing`         — no bucket, no token. The only case that may say so.
+ *  - `possible-bucket` — the create call never got an answer, so the bucket may
+ *                        or may not be there. Claiming either way is a guess.
+ *  - `bucket`          — a bucket exists, made by us, empty.
+ *  - `bucket-and-token`— a bucket exists and so does an API token we minted and
+ *                        could not take back. The one residue the person has to
+ *                        act on rather than just know about.
+ */
+export type AttemptResidue =
+  | "nothing"
+  | "possible-bucket"
+  | "bucket"
+  | "bucket-and-token";
+
+/**
+ * What is left in the customer's account, from the stage and the code.
+ *
+ * The asymmetry in `create-bucket` is the whole point: a classified refusal is
+ * Cloudflare telling us it did not create anything, whereas a 5xx or a socket
+ * that never answered leaves the question genuinely open — the request may have
+ * been processed and the answer lost. Only the first may say "nothing".
+ */
+export function residueAfterFailure(
+  stage: ProvisionStage,
+  errorCode: ProvisionErrorCode,
+  tokenRevoked = false,
+): AttemptResidue {
+  switch (stage) {
+    case "resolve-permission-group":
+      return "nothing";
+    case "create-bucket":
+      return errorCode === "CLOUDFLARE_UNAVAILABLE" ? "possible-bucket" : "nothing";
+    case "mint-token":
+      return "bucket";
+    case "store-binding":
+      // The token was minted. If we managed to delete it again, all that is
+      // left is the bucket; if we did not, say so rather than leaving a
+      // credential in somebody's account that nothing here records.
+      return tokenRevoked ? "bucket" : "bucket-and-token";
+  }
+}
+
+/**
+ * The sentence that says what exists now, and what to do about it.
+ *
+ * Written as a whole sentence per residue rather than assembled from clauses,
+ * because the failure modes here are prose failures: "Nothing was changed; try
+ * again shortly" was true of one branch and false of two, and no amount of
+ * string concatenation would have caught that.
+ */
+export function residueSentence(
+  residue: AttemptResidue,
+  facts: { bucket: string },
+): string {
+  const bucket = `"${facts.bucket}"`;
+  switch (residue) {
+    case "nothing":
+      return "Nothing was created in your Cloudflare account.";
+    case "possible-bucket":
+      return `Cloudflare never answered, so the bucket ${bucket} may or may not have been created. Try again with the same name — Context reuses a bucket it created itself.`;
+    case "bucket":
+      return `The bucket ${bucket} was created in your Cloudflare account and is empty. Try again with the same name once that is fixed — Context reuses the bucket it created rather than needing a new name.`;
+    case "bucket-and-token":
+      return `The bucket ${bucket} was created in your Cloudflare account, along with an API token named ${JSON.stringify(scopedTokenName(facts.bucket))} that Context could not delete again. Remove that token in the Cloudflare dashboard, then try again with the same name.`;
+  }
+}
+
+/**
+ * The recorded message for a failed attempt: what went wrong, then what exists.
+ *
+ * One composer, so the two halves cannot disagree. Everything that records a
+ * provisioning failure goes through here.
+ */
+export function provisionFailureMessage(input: {
+  /** The classifier's sentence, or ours for a failure Cloudflare had no part in. */
+  message: string;
+  stage: ProvisionStage;
+  errorCode: ProvisionErrorCode;
+  bucket: string;
+  tokenRevoked?: boolean;
+}): string {
+  const residue = residueAfterFailure(
+    input.stage,
+    input.errorCode,
+    input.tokenRevoked ?? false,
+  );
+  return `${input.message} ${residueSentence(residue, { bucket: input.bucket })}`;
+}
+
+/**
+ * What a name that is already taken means when we cannot prove we made it.
+ *
+ * Deliberately not the classifier's `BUCKET_NAME_TAKEN` message: this one is
+ * emitted after asking Cloudflare when the bucket was created and finding it
+ * predates this attempt. Saying so matters — the person's next move is
+ * different when the bucket is theirs from before than when it is ours.
+ */
+export function bucketNotOursMessage(bucket: string): string {
+  return `A bucket named "${bucket}" already exists in this Cloudflare account and Context cannot tell that it created it, so it will not touch it. Choose a different name, or connect that bucket directly with its own access key.`;
+}
 
 /**
  * THE MESSAGE FOR ERROR 10042, WRITTEN ON PURPOSE.
@@ -217,9 +358,13 @@ export function classifyCloudflareFailure(input: {
     };
   }
   if (input.status >= 500) {
+    // No claim about what was or was not changed: this classifier does not
+    // know which call it is classifying, and a 5xx is precisely the answer
+    // that leaves that open. `provisionFailureMessage` adds the half this
+    // cannot know.
     return {
       errorCode: "CLOUDFLARE_UNAVAILABLE",
-      message: "Cloudflare did not answer. Nothing was changed; try again shortly.",
+      message: "Cloudflare did not answer.",
     };
   }
   return {
@@ -411,10 +556,16 @@ function timeoutSignal(): AbortSignal | undefined {
  */
 export async function cloudflareRequest<T>(options: {
   apiToken: string;
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "DELETE";
   path: string;
   body?: unknown;
   headers?: Record<string, string>;
+  /**
+   * Accept a success envelope with no `result`. Only for calls whose answer is
+   * the status — `DELETE /tokens/:id` is the one — because treating a missing
+   * result as failure there would report a revoked token as still standing.
+   */
+  resultOptional?: boolean;
 }): Promise<T> {
   const signal = timeoutSignal();
   let response: Response;
@@ -431,12 +582,15 @@ export async function cloudflareRequest<T>(options: {
       ...(signal ? { signal } : {}),
     });
   } catch (error) {
-    // No answer at all: DNS, TLS, the deadline above. Retryable, and nothing
-    // was changed in the customer's account.
+    // No answer at all: DNS, TLS, the deadline above. Retryable — and whether
+    // anything changed depends entirely on which call this was, which is a
+    // question this function cannot answer. It used to answer it anyway, with
+    // "Nothing was changed", on the one call where that is most likely to be
+    // false: a create that timed out may well have created the bucket.
     throw new CloudflareApiError(
       {
         errorCode: "CLOUDFLARE_UNAVAILABLE",
-        message: "Cloudflare could not be reached. Nothing was changed; try again shortly.",
+        message: "Cloudflare could not be reached.",
       },
       String((error as { message?: unknown })?.message ?? ""),
     );
@@ -453,7 +607,11 @@ export async function cloudflareRequest<T>(options: {
     envelope = {};
   }
 
-  if (!response.ok || envelope.success === false || envelope.result === undefined) {
+  if (
+    !response.ok ||
+    envelope.success === false ||
+    (envelope.result === undefined && options.resultOptional !== true)
+  ) {
     const failure = classifyCloudflareFailure({
       status: response.status,
       errors: envelope.errors,
@@ -461,6 +619,23 @@ export async function cloudflareRequest<T>(options: {
     throw new CloudflareApiError(failure, describeErrors(envelope, raw));
   }
   return envelope.result;
+}
+
+/**
+ * JSON fields whose value is a credential, whatever else is in the body.
+ *
+ * The mint call is the one endpoint here whose *body* can carry a live secret
+ * (`result.value` is a Cloudflare API token), and the raw-body fallback below
+ * runs before that value is known to the caller — so it could not be redacted
+ * by the caller's secret list even in principle. This closes it at the source
+ * instead: the field never leaves this function with its value attached.
+ */
+const CREDENTIAL_JSON_FIELDS =
+  /"(value|secret|secret_access_key|access_key_id|token|password)"\s*:\s*"(?:[^"\\]|\\.)*"/gi;
+
+/** Strip anything shaped like a credential out of a raw provider body. */
+export function stripCredentialFields(raw: string): string {
+  return raw.replace(CREDENTIAL_JSON_FIELDS, (_match, field: string) => `"${field}":"[redacted]"`);
 }
 
 /** Provider text for the honest half of a recorded error. Never our prose. */
@@ -471,7 +646,8 @@ function describeErrors(envelope: CloudflareEnvelope<unknown>, raw: string): str
     )
     .filter((line) => line.length > 0);
   if (messages.length > 0) return messages.join("; ");
-  return raw.slice(0, 200);
+  // Scrubbed before it is truncated: a slice through a token is still a token.
+  return stripCredentialFields(raw).slice(0, 200);
 }
 
 /** One entry of `GET /user/tokens/permission_groups`. */
@@ -544,6 +720,83 @@ export async function createR2Bucket(options: {
   });
 }
 
+/**
+ * How far Cloudflare's clock may be behind ours before we stop believing it.
+ *
+ * `bucketCreatedDuringAttempt` compares a timestamp Cloudflare wrote against
+ * one we wrote, and the safe direction is to allow a little slack: without it a
+ * bucket we created a second ago could read as predating the attempt that
+ * created it. The cost of the slack is a window that wide in which a bucket the
+ * customer made by hand would be adopted, which needs them to have created a
+ * bucket with exactly this name a minute before pressing the button.
+ */
+export const CLOCK_SKEW_TOLERANCE_MS = 60_000;
+
+/** What `GET /accounts/:id/r2/buckets/:name` tells us that we use. */
+export interface R2BucketDetails {
+  name?: string;
+  /** ISO 8601, per Cloudflare. Absent or unparseable is treated as unknown. */
+  creationDate?: string;
+}
+
+/**
+ * Read one bucket's metadata.
+ *
+ * Exists for exactly one question — "did this attempt create this bucket?" —
+ * and the only field it needs is the creation date. Same jurisdiction header as
+ * the create, because a jurisdictional bucket is not visible without it and an
+ * absent bucket would otherwise read as "not ours", which is the safe answer to
+ * the wrong question.
+ */
+export async function getR2Bucket(options: {
+  apiToken: string;
+  accountId: string;
+  bucket: string;
+  jurisdiction: R2Jurisdiction;
+}): Promise<R2BucketDetails> {
+  const result = await cloudflareRequest<{ name?: string; creation_date?: string }>({
+    apiToken: options.apiToken,
+    method: "GET",
+    path: `/accounts/${options.accountId}/r2/buckets/${encodeURIComponent(options.bucket)}`,
+    headers:
+      options.jurisdiction === "default"
+        ? undefined
+        : { "cf-r2-jurisdiction": options.jurisdiction },
+  });
+  return { name: result.name, creationDate: result.creation_date };
+}
+
+/**
+ * Was this bucket created by the attempt that is now looking at it?
+ *
+ * **This is the whole safety argument for reusing a bucket rather than
+ * refusing.** A name that is already taken is only a dead end when the bucket
+ * is not ours; when it is ours — created by an earlier run of *this* attempt,
+ * which then failed at the minting step — refusing sends the owner looking for
+ * a new name because of a bucket we made for them.
+ *
+ * The evidence is Cloudflare's own record, not our memory: the bucket must have
+ * been created at or after the moment this provisioning attempt was first
+ * written down. A bucket the customer already had predates that by definition,
+ * because they cannot have created it after starting an attempt they had not
+ * started yet. Everything unknown — no date, an unparseable date, a bucket we
+ * could not read — is `false`, because the direction this must fail in is
+ * "leave the customer's bucket alone".
+ */
+export function bucketCreatedDuringAttempt(input: {
+  creationDate: string | undefined;
+  /** When the provisioning row was first written. Survives retries. */
+  attemptStartedAt: number;
+  toleranceMs?: number;
+}): boolean {
+  if (typeof input.creationDate !== "string" || input.creationDate.length === 0) {
+    return false;
+  }
+  const createdAt = Date.parse(input.creationDate);
+  if (Number.isNaN(createdAt)) return false;
+  return createdAt >= input.attemptStartedAt - (input.toleranceMs ?? CLOCK_SKEW_TOLERANCE_MS);
+}
+
 /** What minting produced. The `value` is a Cloudflare token — handle as such. */
 export interface MintedToken {
   id: string;
@@ -597,4 +850,38 @@ export async function createBucketScopedToken(options: {
     );
   }
   return { id: result.id, value: result.value };
+}
+
+/**
+ * Delete an API token we minted, by id. Best effort, and it says which.
+ *
+ * The hazard it closes: minting succeeds and then something after it fails —
+ * the encrypt, the binding write, an eviction — leaving a live R2 token in the
+ * customer's account that nothing in the control plane records, because the
+ * only place its id ever existed was a local variable. That is a credential we
+ * created and cannot tell them about later.
+ *
+ * Returns `false` rather than throwing, because every caller is already on a
+ * failure path: the answer feeds `residueAfterFailure`, which is the difference
+ * between telling somebody a token is there and telling them it is not.
+ */
+export async function revokeApiToken(options: {
+  apiToken: string;
+  accountId: string;
+  tokenId: string;
+}): Promise<boolean> {
+  try {
+    await cloudflareRequest<unknown>({
+      apiToken: options.apiToken,
+      method: "DELETE",
+      path: `/accounts/${options.accountId}/tokens/${encodeURIComponent(options.tokenId)}`,
+      // The answer is the status; Cloudflare's body for this call is not
+      // documented to carry a result, and reading its absence as failure would
+      // report a deleted token as still standing.
+      resultOptional: true,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }

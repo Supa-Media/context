@@ -78,6 +78,7 @@ import { internal } from "../_generated/api";
 import { internalMutation, mutation, query } from "../_generated/server";
 import type { QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import { invalidateInvitationSignInCode } from "./invitationEmail";
 import { recordAudit } from "./lib/audit";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import {
@@ -538,6 +539,11 @@ export const revokeInvitation = mutation({
     if (!isPending(invitation, now)) return { revoked: false };
 
     await ctx.db.patch(args.invitationId, { status: "revoked", respondedAt: now });
+    // Withdrawing the offer withdraws the credential it mailed. Leaving the
+    // magic-link code live for the rest of its 24 hours would mean an owner who
+    // revoked an invitation had revoked the half that is visible in the console
+    // and none of the half sitting in the invitee's inbox.
+    await invalidateInvitationSignInCode(ctx, invitation);
     await recordAudit(ctx, {
       workspaceId: invitation.workspaceId,
       actorUserId: userId,
@@ -698,6 +704,10 @@ export const acceptInvitation = mutation({
     // Spend it first. Everything after this is idempotent, so a retry that
     // races itself joins once.
     await ctx.db.patch(invitation._id, { status: "accepted", respondedAt: now });
+    // The link has been answered, by somebody who is signed in as we speak, so
+    // the code it carried has no remaining job. Leaving it would be a standing
+    // credential in a mail archive outliving the thing it was minted for.
+    await invalidateInvitationSignInCode(ctx, invitation);
 
     const existing = await getMembership(ctx, workspace._id, userId);
     if (existing !== null) {
@@ -748,6 +758,9 @@ export const declineInvitation = mutation({
 
     const invitation = await resolveInvitationForCaller(ctx, args.token, userId, now);
     await ctx.db.patch(invitation._id, { status: "declined", respondedAt: now });
+    // Saying no to the offer says no to the credential as well. This writes no
+    // audit event for the same reason the decline itself does not — see above.
+    await invalidateInvitationSignInCode(ctx, invitation);
     return null;
   },
 });

@@ -166,12 +166,52 @@ export function signInCodeExpiry(
 }
 
 /**
+ * The configured app origin, or `null` if this deployment has not given us one
+ * we are willing to put in a stranger's inbox.
+ *
+ * Separated from `invitationUrlFor` because the two callers want opposite
+ * things from the same rule. A *link builder* wants to refuse loudly; the
+ * *sender* wants to find out before it spends anything, because whether
+ * `APP_ORIGIN` is set is a fact about the deployment rather than about the
+ * invitation — it is identical for every row, and an invitation dropped for it
+ * is one that would have been fine an hour later. `sendInvitationEmail` checks
+ * this alongside the Resend key, before `claimInvitationEmail` writes
+ * `emailSentAt`, so a misconfigured deployment leaves its invitations unspent
+ * and mailable rather than burning every one of them identically and forever.
+ *
+ * Three ways to be unusable, and the third is the one that is easy to miss:
+ * unset or empty, not https, and *not a URL at all* — `new URL("app.example")`
+ * throws, and a `TypeError` out of a string somebody typed into a dashboard is
+ * the same outage as the other two.
+ */
+export function validAppOrigin(
+  env: Record<string, string | undefined> = process.env,
+): string | null {
+  const origin = env[APP_ORIGIN_ENV_VAR];
+  if (typeof origin !== "string" || origin.length === 0) return null;
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    return null;
+  }
+  // https is not negotiable for a URL that may carry a sign-in code.
+  return url.protocol === "https:" ? origin : null;
+}
+
+/**
  * Where the invitation is answered.
  *
  * Throws rather than guessing, exactly as `consentUrlFor` does and for the same
  * reason: this URL goes into an email we send to an address we do not control.
  * A guessed origin is a link with our name on it pointing somewhere we do not
  * own, and https is not negotiable for a URL that may carry a sign-in code.
+ *
+ * The throw is a real refusal and stays one — but it is no longer reachable
+ * from `sendInvitationEmail`, which checks `validAppOrigin` first and hands the
+ * result back in `env`. What is validated and what is built are the same
+ * string, so the check cannot pass for one origin and the build run against
+ * another.
  *
  * The token goes in the **path** and the code, when there is one, in the query.
  * That is the shape `@convex-dev/auth`'s client already reads: it takes a
@@ -183,14 +223,15 @@ export function invitationUrlFor(
   code: string | null,
   env: Record<string, string | undefined> = process.env,
 ): string {
-  const origin = env[APP_ORIGIN_ENV_VAR];
-  if (typeof origin !== "string" || origin.length === 0) {
+  const raw = env[APP_ORIGIN_ENV_VAR];
+  if (typeof raw !== "string" || raw.length === 0) {
     throw new Error(`${APP_ORIGIN_ENV_VAR} is not set`);
   }
-  const url = new URL(origin);
-  if (url.protocol !== "https:") {
-    throw new Error(`${APP_ORIGIN_ENV_VAR} must be https`);
+  const origin = validAppOrigin(env);
+  if (origin === null) {
+    throw new Error(`${APP_ORIGIN_ENV_VAR} must be an https origin`);
   }
+  const url = new URL(origin);
   // Encoded rather than trusted. Tokens are hex today; a path segment built by
   // concatenation is how that stops being true without anybody noticing.
   url.pathname = `/invite/${encodeURIComponent(token)}`;
