@@ -27,29 +27,50 @@
  * `apiToken` string and does not care where it came from. Only the *acquisition*
  * differs, and that difference lives above this module.
  *
- * ## OPEN QUESTIONS — do not close these by guessing
+ * ## ANSWERED 2026-08-27, against a real account
  *
- *  1. **The OAuth scope name for R2 is unpublished.** Cloudflare shipped
- *     third-party OAuth (authorization code + PKCE, with account selection in
- *     the consent screen, which is what would solve account discovery for us).
- *     Enumerating the scope vocabulary needs `GET /oauth/scopes` with a real
- *     token, which this repository does not have. No scope name is written down
- *     anywhere in this module on purpose: inventing one produces a consent
- *     screen that fails at authorize time, and a client that follows discovery
- *     to a scope the server rejects is a client that concludes we lied.
- *  2. **It is not documented whether an OAuth access token authenticates
- *     against `api.cloudflare.com/client/v4`.** If it does, the OAuth path is
- *     this module unchanged with a different `apiToken`. If it does not, the
- *     OAuth path needs a different transport and the shape here is wrong for
- *     it. Verify before building it.
- *  3. **The API-token template key for "Account API Tokens Write" is not
- *     known.** Minting the bucket-scoped S3 key needs that permission, and the
- *     deep link below can only pre-tick permissions whose template keys are
- *     published; only R2's (`workers_r2`) is. So a token pasted from the link
- *     may create the bucket and then be refused at the minting step. That is
- *     classified as `INSUFFICIENT_PERMISSIONS` with a message naming the
- *     missing permission, rather than guessed at — see `templateKeys` on
- *     `apiTokenTemplateUrl` for where a verified key would slot in.
+ *  1. **The R2 OAuth scopes exist.** `GET /oauth/scopes` returns 383 scopes,
+ *     among them `workers-r2.write`, `workers-r2.read`,
+ *     `workers-r2.metadata_read`, and `workers-r2-bucket-item.read` /
+ *     `.write`. So a "Connect Cloudflare" button does not have to fall back to
+ *     the token deep link for want of a scope. Note the two vocabularies: the
+ *     catalogue uses dotted ids, while `wrangler`'s stored grant uses short
+ *     names (`workers:write`, `account:read`). A self-managed OAuth client
+ *     picks from the catalogue — do not copy wrangler's strings.
+ *  2. **Yes, an OAuth access token authenticates against
+ *     `api.cloudflare.com/client/v4`,** as a plain `Authorization: Bearer`.
+ *     Verified: 200 on `/accounts`, `/user`, `/accounts/{id}/r2/buckets` and
+ *     `/accounts/{id}/workers/scripts`. So the OAuth path is this module
+ *     unchanged with a different `apiToken` — for the account and bucket calls.
+ *     Two traps found on the way:
+ *       - **`/user/tokens/verify` returns 401 `1000 Invalid API Token` for an
+ *         OAuth token.** Never use it to check whether a credential is good;
+ *         `GET /accounts` is the check that works for both sources.
+ *       - R2 bucket access answered 200 from a grant carrying no `workers-r2.*`
+ *         scope at all — bucket administration rides on `workers:write`.
+ *
+ * ## STILL OPEN, and now known to be worse than a missing template key
+ *
+ *  3. **An OAuth grant can never mint the credential we store.** The
+ *     383-scope catalogue contains **no API-Tokens-Write scope** — the only
+ *     token scopes in it are Zero Trust service tokens
+ *     (`access-service-token.*`) — and `/accounts/{id}/tokens`,
+ *     `/accounts/{id}/tokens/permission_groups` and
+ *     `/user/tokens/permission_groups` all answer **403** to an OAuth token.
+ *     `POST /accounts/{id}/r2/temp-access-tokens` exists but is temporary by
+ *     construction, so it cannot back a persistent binding either.
+ *
+ *     So OAuth can select the account and create the bucket and then stop.
+ *     **That makes `INSUFFICIENT_PERMISSIONS` the guaranteed outcome of a
+ *     pure-OAuth flow rather than an edge case**, which is a product decision
+ *     (a hybrid: OAuth for discovery, a pasted token to mint) and not
+ *     something to resolve inside this module.
+ *
+ *     The **deep link's** template key for "Account API Tokens Write" is still
+ *     unknown, and no API can supply it — it is a dashboard URL parameter
+ *     (`?permissionGroupKeys=[…]`), so it has to be read off the address bar of
+ *     the token-creation screen. Only R2's (`workers_r2`) is published. See
+ *     `templateKeys` on `apiTokenTemplateUrl` for where a verified key slots in.
  *
  *     **That failure is the expected one, so this module is built around it.**
  *     It happens *after* a bucket exists in the customer's account, which is
@@ -81,6 +102,19 @@ export const CLOUDFLARE_TOKEN_DASHBOARD = "https://dash.cloudflare.com/profile/a
  * precisely why hardcoding an id we read off a support page would be worse: a
  * wrong id is a token with the wrong powers, and a token with *more* powers
  * than this is a token we promised the customer we would not leave behind.
+ *
+ * **Confirmed byte-exact on 2026-08-27** against the payload Cloudflare's own
+ * token-creation screen generates for an R2-Buckets-scoped policy: it renders
+ * `Workers R2 Storage Bucket Item Read` and `Workers R2 Storage Bucket Item
+ * Write`. This matters more than it looks, because `resolvePermissionGroupId`
+ * matches on `group.name === …` and a miss throws *after* a bucket already
+ * exists in the customer's account.
+ *
+ * Two near misses to not "correct" this into. The account-wide groups are
+ * spelled `Workers R2 Storage Write` / `Read` — a different, broader
+ * permission that does not go with a bucket-scoped resource selector. And the
+ * published permissions reference lists **no** Bucket Item group at all, so its
+ * absence there is not evidence: that page is not exhaustive.
  */
 export const R2_BUCKET_WRITE_PERMISSION_GROUP =
   "Workers R2 Storage Bucket Item Write";
@@ -406,6 +440,15 @@ export function bucketResourceSelector(
   jurisdiction: R2Jurisdiction,
   bucket: string,
 ): string {
+  // Confirmed byte-exact on 2026-08-27 against the payload Cloudflare's own
+  // token-creation screen generates for a bucket-scoped policy:
+  //
+  //   "com.cloudflare.edge.r2.bucket.<accountId>_default_<bucket>": "*"
+  //
+  // — including that the ordinary jurisdiction travels as the literal string
+  // `default` rather than being omitted. A selector that does not match is not
+  // an error: it mints a token scoped to nothing, which fails later and
+  // somewhere else.
   return `com.cloudflare.edge.r2.bucket.${accountId}_${jurisdiction}_${bucket}`;
 }
 
@@ -842,13 +885,20 @@ export async function createBucketScopedToken(options: {
   });
 
   if (typeof result.id !== "string" || typeof result.value !== "string") {
-    // KNOWN RESIDUAL, STATED RATHER THAN GUESSED AT: if Cloudflare returned an
-    // id but no value, a token exists in the customer's account and this is the
-    // only place its id was ever visible. It is not revoked here because the
-    // shape of that response is undocumented — an id in a body we did not
-    // understand is not evidence enough to issue a delete against somebody's
-    // account. Every *other* post-mint failure is taken back by
-    // `revokeApiToken` in `functions/cloudflare.ts`.
+    // KNOWN RESIDUAL: if Cloudflare returned an id but no value, a token exists
+    // in the customer's account and this is the only place its id was ever
+    // visible, so it cannot be revoked afterwards. Every *other* post-mint
+    // failure is taken back by `revokeApiToken` in `functions/cloudflare.ts`.
+    //
+    // The response shape is no longer the unknown it was when this was written.
+    // Cloudflare documents `POST /accounts/{id}/tokens` as returning `result.id`
+    // (the token identifier) and `result.value` (the secret, 40–80 characters),
+    // which is exactly what is destructured above:
+    // https://developers.cloudflare.com/api/resources/accounts/subresources/tokens/methods/create/
+    //
+    // So this branch is a real defence against a response that contradicts the
+    // documentation, not a hedge against not knowing what to expect — which is
+    // why it still refuses to guess a delete from a body it did not understand.
     throw new CloudflareApiError(
       {
         errorCode: "PROVISION_FAILED",
