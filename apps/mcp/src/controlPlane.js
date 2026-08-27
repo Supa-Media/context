@@ -450,7 +450,16 @@ export function createControlPlane(env, options = {}) {
         },
         body: JSON.stringify(body),
         signal: controller.signal,
-        redirect: "error",
+        // "manual", not "error". workerd does not implement `redirect: "error"`
+        // — fetch rejects with a TypeError before the request is made, and the
+        // catch below flattens that to "request failed", so every control-plane
+        // call fails identically and invisibly. This is the same defect that
+        // stopped the email worker dead; see infra/email-worker/src/controlPlane.ts.
+        //
+        // "manual" keeps the intent: a redirect is surfaced as a response rather
+        // than followed, and the status check below refuses anything that is not
+        // a 200 — so no credential is replayed to a Location we did not choose.
+        redirect: "manual",
       });
     } catch {
       // The caught error may quote the request — headers included. It is
