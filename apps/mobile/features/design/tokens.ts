@@ -139,6 +139,35 @@ export const layout = {
   treeWidth: 246,
   consoleBodyMinHeight: 566,
   mapHeight: 398,
+
+  /* ---------------------------------------------------------------------- *
+   * The application frame.
+   *
+   * These belong to `features/app/frame.ts`, which decides which regions are
+   * on screen at a given width. They live here rather than there for the same
+   * reason every other measure does: a number that decides a layout should be
+   * readable beside the other numbers that decide layouts.
+   * ---------------------------------------------------------------------- */
+
+  /** Above this the rail can afford its labels and everything is visible. */
+  wideBreakpoint: 1180,
+  /** The rail reduced to its marks, for a medium window. */
+  railIconWidth: 56,
+  /** The explorer column's resting width, and the range a drag may take it to. */
+  explorerWidth: 260,
+  explorerMinWidth: 200,
+  explorerMaxWidth: 460,
+  /** Chrome along the edges of the frame. */
+  topBarHeight: 44,
+  statusBarHeight: 26,
+  /**
+   * The compact toolbar.
+   *
+   * 56 rather than the 44 a pointer would need: this is the one strip of the
+   * phone layout a thumb has to hit reliably, and every target on it clears the
+   * 44pt minimum with room to spare.
+   */
+  bottomBarHeight: 56,
 } as const;
 
 /**

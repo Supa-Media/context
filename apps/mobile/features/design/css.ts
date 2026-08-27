@@ -38,6 +38,30 @@ export function repeatingPattern(css: string, size: string): ViewStyle {
 }
 
 /**
+ * A region exactly one viewport tall, that the page cannot scroll past.
+ *
+ * The application frame owns the screen: the browser window *is* the window,
+ * the four regions scroll individually, and the document itself never moves.
+ * Saying that costs a platform split because the two platforms disagree about
+ * what "the viewport" is:
+ *
+ *  - **Web** — `100dvh`, the *dynamic* viewport unit. `100vh` is the wrong one
+ *    on a phone: mobile Safari and Chrome both measure it against the viewport
+ *    with the URL bar **hidden**, so a `100vh` app frame is roughly 60–100px
+ *    taller than the screen and its bottom toolbar sits underneath the browser
+ *    chrome, permanently out of reach. `dvh` tracks the bar as it collapses.
+ *    This is the single most common way a web app feels broken on a phone, and
+ *    it is invisible on a desktop.
+ *  - **Native** — there are no viewport units and no browser chrome; the root
+ *    view is already the screen, so `flex: 1` fills it.
+ */
+export function viewportHeight(): ViewStyle {
+  return Platform.OS === "web"
+    ? ({ height: "100dvh", maxHeight: "100dvh" } as unknown as ViewStyle)
+    : { flex: 1 };
+}
+
+/**
  * The mockup masks the grid with a radial gradient so it fades out at the
  * edges. `mask-image` is web-only and has no RN equivalent.
  */
