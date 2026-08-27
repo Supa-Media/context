@@ -16,6 +16,13 @@
  * redirect URI the client registered at sign-up. The check runs anyway: a
  * navigation target that a remote party influenced is exactly the value you do
  * not hand to a navigation API on trust.
+ *
+ * It is no longer only the consent screen's: `console/clients/open*.ts` guards
+ * the connect links with the same function. It stays here because this is where
+ * it was needed first and moving it would churn four call sites for a filename
+ * — but it is a general rule about navigation targets now, not a consent
+ * detail, and a second copy of it anywhere is a bug. One already existed and
+ * was weaker than this.
  */
 
 const DANGEROUS_SCHEMES = new Set([
