@@ -132,6 +132,23 @@ type ScopeEntry = ScopeLine | ((tier: VisibilityTier) => ScopeLine);
 const SCOPE_ALIASES: ReadonlyArray<[readonly string[], ScopeEntry]> = [
   [["read", "context:read", "context.read", "notes:read"], readLine],
   [
+    // Officially supported and advertised in both discovery documents
+    // (`SUPPORTED_SCOPES` in apps/mcp/src/session.js), and `/oauth/authorize`
+    // rejects anything outside that set. Without an entry here it fell to the
+    // unknown-scope fallback, so a client asking for exactly what the server
+    // advertises was shown a red "this version of Context can't describe it —
+    // approve only if you know what this client is asking for". The one scope
+    // guaranteed to appear was the one the screen called suspicious.
+    ["capture", "context:capture", "context.capture", "notes:capture"],
+    {
+      id: "capture",
+      sentence: "File things into your inbox",
+      detail:
+        "Add captures to 0-inbox/, the same way forwarded email arrives. It cannot read or change anything already in your context.",
+      tone: "plain",
+    },
+  ],
+  [
     ["write", "context:write", "context.write", "notes:write"],
     {
       id: "write",
