@@ -949,3 +949,56 @@ describe("domainOf", () => {
     expect(domainOf("@nope")).toBe("");
   });
 });
+
+/**
+ * Reading a folded verdict short assumes truncation can only ever weaken it.
+ * `evaluateAlignment` has one branch where that is false.
+ *
+ * A `dmarc=pass` whose `header.from` names a domain other than the message's
+ * From is a hard refusal — it returns `unaligned` and never falls through to
+ * the `dkim` and `spf` checks after it. So that clause is a **veto**, and a
+ * veto is the one kind of clause whose removal makes the verdict *stronger*.
+ *
+ * Cut it off with the fold and the same header stops refusing and starts
+ * passing. Whether Cloudflare ever wraps its own header between those two
+ * clauses is not known — the same unverified assumption about another system's
+ * formatting the fold rule has run on since #35 — so this is defence in depth
+ * rather than a demonstrated delivery. The guard costs one parse of a string we
+ * already hold and can only ever refuse, so the risk runs the safe way.
+ */
+describe("a folded verdict cannot be read into a stronger claim", () => {
+  const AUTHSERV = "mx.cloudflare.net";
+  const FIRST_LINE = `${AUTHSERV}; dkim=pass header.d=victim.test`;
+  const VETO = "dmarc=pass header.from=other.test";
+
+  const ask = (full: string, firstLine: string, folded: boolean) =>
+    verifySender({
+      authenticationResults: [full],
+      authenticationResultsFolded: [folded],
+      authenticationResultsFirstLine: [firstLine],
+      arcAuthenticationResults: [],
+      fromAddress: "alice@victim.test",
+      authServiceId: AUTHSERV,
+    });
+
+  it("refuses the intact header, which is the answer being preserved", () => {
+    const full = `${FIRST_LINE}; ${VETO}`;
+    expect(ask(full, full, false)).toEqual({ ok: false, reason: "unaligned" });
+  });
+
+  it("does not turn that refusal into a pass when the veto falls after the fold", () => {
+    expect(ask(`${FIRST_LINE}; ${VETO}`, FIRST_LINE, true).ok).toBe(false);
+  });
+
+  it("still reads a folded header short when nothing was vetoing", () => {
+    // The whole point of #52: an ordinary long header keeps working. Only a
+    // clause that would have *refused* stops the short read.
+    const full = `${FIRST_LINE}; spf=pass smtp.mailfrom=bounce@victim.test`;
+    expect(ask(full, FIRST_LINE, true)).toEqual({
+      ok: true,
+      address: "alice@victim.test",
+      domain: "victim.test",
+      method: "dkim",
+    });
+  });
+});
