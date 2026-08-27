@@ -14,6 +14,7 @@ import {
   describeRole,
   expiryLabel,
   memberDetail,
+  inviteOutcomeMessage,
   memberLabel,
   oppositeRole,
   type AssignableRole,
@@ -23,6 +24,7 @@ import {
   type MembersFailure,
   type MembersView,
 } from "./members";
+import { memberReachSentence } from "../visibility";
 
 /**
  * Who can reach this context, and the controls to change it.
@@ -44,10 +46,43 @@ import {
  * is all `listInvitations` returns: a declined invitation, a withdrawn one and
  * an expired one are the same absence, deliberately, so that answering "no"
  * never tells the person who sent it that you exist.
+ *
+ * `viewerRole` is the second prop, and it stays a plain string for the same
+ * reason the first one is a plain view model: it is the caller's role in the
+ * selected context, read straight off `ConsoleContext.role`, so this section
+ * still imports nothing from Convex, Expo Router, or the shell. It is passed in
+ * rather than dug out of `view.members` — the row a member holds and the role
+ * the context list reports come from the same membership, and reading it from
+ * two places is how they get to disagree.
  */
-export function MembersSection({ view }: { view: MembersView }) {
+export function MembersSection({
+  view,
+  viewerRole,
+  shareBackWith,
+}: {
+  view: MembersView;
+  /** The caller's role in this context. Absent until the context list lands. */
+  viewerRole?: string;
+  /**
+   * Handles of people who shared a context with *you* and are not already in
+   * this one — offered as one-tap invitees.
+   *
+   * Optional and empty-by-default so the demo console and any future mounting
+   * of this card get the plain invite box rather than a suggestion list built
+   * from nothing. See `shareBackSuggestions` in `members.ts`.
+   */
+  shareBackWith?: readonly string[];
+}) {
   const { actions } = view;
   const now = Date.now();
+  /*
+    The owner's half of the tier: what inviting these people did and did not
+    hand over. `null` for everybody else, because it describes a decision only
+    the owner made — a member reading "anything you marked private is yours
+    alone" on somebody else's context would be reading a claim about the wrong
+    person's notes. Their half is the chip in Browse and Settings.
+  */
+  const reach = memberReachSentence(viewerRole);
 
   // A query that came back as an error is neither an empty context nor a
   // permanent "Loading…", which is how both halves of this card would otherwise
@@ -89,6 +124,14 @@ export function MembersSection({ view }: { view: MembersView }) {
         {view.members.map((member) => (
           <MemberRow key={member.userId} member={member} actions={actions} />
         ))}
+
+        {reach !== null ? (
+          <Hint>
+            <Text variant="hint" testID="members-tier-rule">
+              {reach}
+            </Text>
+          </Hint>
+        ) : null}
       </Card>
 
       <Card style={styles.spaced}>
@@ -122,7 +165,7 @@ export function MembersSection({ view }: { view: MembersView }) {
       </Card>
 
       {actions !== undefined ? (
-        <InviteForm invite={actions.invite} />
+        <InviteForm invite={actions.invite} shareBackWith={shareBackWith ?? []} />
       ) : view.readOnlyReason !== undefined ? (
         <Text variant="foot" style={styles.readOnly}>
           {view.readOnlyReason}
@@ -289,23 +332,25 @@ function InvitationRow({
  */
 function InviteForm({
   invite,
+  shareBackWith,
 }: {
   invite: (invitee: string, role: AssignableRole) => Promise<void>;
+  shareBackWith: readonly string[];
 }) {
   const [invitee, setInvitee] = useState("");
   const [role, setRole] = useState<AssignableRole>("member");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<MembersFailure | null>(null);
-  const [sent, setSent] = useState(false);
+  const [sent, setSent] = useState<{ headline: string; detail: string } | null>(null);
 
   async function send() {
     setBusy(true);
     setFailure(null);
-    setSent(false);
+    setSent(null);
     try {
       await invite(invitee, role);
       setInvitee("");
-      setSent(true);
+      setSent(inviteOutcomeMessage(invitee));
     } catch (error) {
       setFailure(describeMembersFailure(error));
     } finally {
@@ -319,12 +364,41 @@ function InviteForm({
         Invite somebody
       </Text>
 
+      {/*
+        The people who shared with you first. Reciprocity is the highest-
+        converting invitation there is and it needs no address book — somebody
+        who arrived through an invitation already knows exactly one person who
+        is here. These fill the field rather than sending, because who they can
+        write is still a choice and sending on one tap would make it silently.
+      */}
+      {shareBackWith.length > 0 ? (
+        <View style={styles.shareBack} testID="invite-share-back">
+          <Text variant="foot">Shared their context with you:</Text>
+          <View style={styles.shareBackRow}>
+            {shareBackWith.map((handle) => (
+              <Button
+                key={handle}
+                label={`@${handle}`}
+                variant="mini"
+                disabled={busy}
+                accessibilityLabel={`Invite @${handle} to this context`}
+                testID={`invite-share-back-${handle}`}
+                onPress={() => {
+                  setInvitee(`@${handle}`);
+                  setSent(null);
+                }}
+              />
+            ))}
+          </View>
+        </View>
+      ) : null}
+
       <TextField
         label="@name or email"
         value={invitee}
         onChangeText={(text) => {
           setInvitee(text);
-          setSent(false);
+          setSent(null);
         }}
         autoCapitalize="none"
         autoCorrect={false}
@@ -361,16 +435,13 @@ function InviteForm({
         </Hint>
       ) : null}
 
-      {sent ? (
+      {sent !== null ? (
         <Hint>
           <Text variant="hint">
             <Text variant="hint" style={styles.hintStrong}>
-              Invitation sent.
+              {sent.headline}
             </Text>{" "}
-            It appears above until they answer it, and expires in a week. Context
-            never says whether a @name or an address belongs to a real account —
-            that would let anybody use this box to find out who is on the
-            platform.
+            {sent.detail}
           </Text>
         </Hint>
       ) : null}
@@ -385,6 +456,8 @@ const styles = StyleSheet.create({
   rowSub: { marginTop: 2 },
   rowError: { marginTop: 8 },
   wrapRow: { flexWrap: "wrap" },
+  shareBack: { gap: 8, marginBottom: 4 },
+  shareBackRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   roles: { marginTop: 13 },
   send: { marginTop: 13, alignSelf: "flex-start" },
   readOnly: { marginTop: 13 },

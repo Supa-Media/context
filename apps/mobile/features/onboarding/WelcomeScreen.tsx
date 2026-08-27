@@ -11,6 +11,7 @@ import { useOnboarding } from "./useOnboarding";
 import { NameStep } from "./steps/NameStep";
 import { StorageStep } from "./steps/StorageStep";
 import { StructureStep } from "./steps/StructureStep";
+import { AgentsStep } from "./steps/AgentsStep";
 import { DoneStep } from "./steps/DoneStep";
 
 /**
@@ -35,7 +36,7 @@ export function WelcomeScreen() {
   const controller = useOnboarding();
 
   const decision = resolveWelcomeRoute({
-    contextCount: controller.contextCount,
+    owned: controller.owned,
     claimed: controller.claimed !== null,
   });
 
@@ -136,6 +137,8 @@ function StepBody({
       return <StorageStep controller={controller} />;
     case "structure":
       return <StructureStep controller={controller} />;
+    case "agents":
+      return <AgentsStep controller={controller} onContinue={controller.finishAgents} />;
     case "done":
       return <DoneStep controller={controller} onOpenConsole={onOpenConsole} />;
   }

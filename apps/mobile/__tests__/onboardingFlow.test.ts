@@ -3,6 +3,7 @@ import { ConvexError } from "convex/values";
 import {
   STEP_LABELS,
   afterStorage,
+  afterStructure,
   stepProgress,
   stepTitle,
   stepsFor,
@@ -15,17 +16,37 @@ import {
 } from "../features/onboarding/errors";
 
 describe("the shape of the run", () => {
-  test("connecting a bucket gets you the layout step", () => {
+  test("connecting a bucket gets you the layout step and the tools step", () => {
     expect(stepsFor({ storage: "connected" })).toEqual([
       "name",
       "storage",
       "structure",
+      "agents",
       "done",
     ]);
   });
 
   test("skipping storage drops the layout step, because there is nowhere to put it", () => {
     expect(stepsFor({ storage: "skipped" })).toEqual(["name", "storage", "done"]);
+  });
+
+  test("and drops the tools step with it, because the prompt would fail on contact", () => {
+    // The tools step hands over an instruction telling an AI client to write
+    // notes. Giving that to somebody whose bucket we could not reach moves the
+    // failure into their client, where we cannot explain it — the same
+    // dishonesty as a capture address that was copyable before anything could
+    // receive mail.
+    for (const storage of ["skipped", "unverified"] as const) {
+      expect(stepsFor({ storage })).not.toContain("agents");
+    }
+  });
+
+  test("the layout step always hands off to the tools step", () => {
+    // They share a precondition — a connected bucket — so the pairing holds by
+    // construction rather than by coincidence, and this asserts it.
+    expect(afterStructure()).toBe("agents");
+    const run = stepsFor({ storage: "connected" });
+    expect(run[run.indexOf("structure") + 1]).toBe("agents");
   });
 
   test("the storage step hands off differently depending on what happened", () => {
@@ -63,7 +84,7 @@ describe("what the last screen says about the bucket", () => {
   });
 
   test("every step has a label and a title", () => {
-    const keys: StepKey[] = ["name", "storage", "structure", "done"];
+    const keys: StepKey[] = ["name", "storage", "structure", "agents", "done"];
     for (const key of keys) {
       expect(STEP_LABELS[key].length).toBeGreaterThan(0);
       expect(stepTitle(key).length).toBeGreaterThan(0);
@@ -73,8 +94,8 @@ describe("what the last screen says about the bucket", () => {
 
 describe("the progress indicator", () => {
   test("counts the run you are actually in", () => {
-    expect(stepProgress("name", { storage: "connected" })).toEqual({ index: 1, total: 4 });
-    expect(stepProgress("done", { storage: "connected" })).toEqual({ index: 4, total: 4 });
+    expect(stepProgress("name", { storage: "connected" })).toEqual({ index: 1, total: 5 });
+    expect(stepProgress("done", { storage: "connected" })).toEqual({ index: 5, total: 5 });
   });
 
   test("shrinks when the layout step is not going to happen", () => {
@@ -84,6 +105,7 @@ describe("the progress indicator", () => {
 
   test("a step this run does not contain has no number", () => {
     expect(stepProgress("structure", { storage: "skipped" })).toBeNull();
+    expect(stepProgress("agents", { storage: "skipped" })).toBeNull();
   });
 });
 

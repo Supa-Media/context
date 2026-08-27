@@ -6,16 +6,21 @@ import { Notice } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
 import { colors, leading } from "../../design/tokens";
 import { MCP_ENDPOINT, placeholderIngestionAddress } from "../../console/placeholderData";
-import { storageWarning } from "../flow";
+import { storageWarning, stepsFor } from "../flow";
 import type { OnboardingController } from "../useOnboarding";
 
 /**
  * Step 4 — the two things to take away, and four sentences of orientation.
  *
  * Deliberately short. Somebody thirty seconds into a product does not read a
- * tour, and everything here is discoverable in the console anyway. What they
- * cannot discover is the endpoint — it is the whole point of the product and it
- * is not written down anywhere else — so that goes first, with a copy button.
+ * tour, and everything here is discoverable in the console anyway.
+ *
+ * The endpoint used to go first, on the reasoning that it is the one thing not
+ * written down anywhere else. It now belongs to the tools step, which is about
+ * it — but only a run whose bucket connected reaches that step, so this screen
+ * still carries it for a run that skipped storage. The lede moves with it:
+ * telling somebody to "paste this endpoint" beside no endpoint was the bug that
+ * conditional introduced.
  *
  * The one thing this screen has to be careful about is the bucket. It is the
  * last screen of the run, so a context that has nowhere to keep notes has to
@@ -39,25 +44,39 @@ export function DoneStep({
 }) {
   const slug = controller.claimed?.slug ?? "you";
   const warning = storageWarning(controller.shape);
+  const sawAgentsStep = stepsFor(controller.shape).includes("agents");
 
   return (
     <View>
       <Text variant="rowSub" style={styles.lede}>
-        {`@${slug} is yours. Paste this endpoint into Claude, ChatGPT, or any other MCP client and it can read and write your context — under the rules you set.`}
+        {sawAgentsStep
+          ? `@${slug} is yours. Your endpoint is on the previous screen and in the console, under Connections.`
+          : `@${slug} is yours. Paste this endpoint into Claude, ChatGPT, or any other MCP client and it can read and write your context — under the rules you set.`}
       </Text>
 
-      <Text variant="eyebrow" style={styles.head}>
-        Your MCP endpoint
-      </Text>
-      <CopyField
-        value={MCP_ENDPOINT}
-        label="Copy your MCP endpoint"
-        testID="welcome-endpoint"
-      />
-      <Text variant="foot" style={styles.under}>
-        The same URL for everyone. Your client signs in and gets its own grant, which you can
-        revoke on its own at any time.
-      </Text>
+      {/*
+        The endpoint moved to the tools step, which is *about* it — but that
+        step only exists on a run whose bucket connected. A run that skipped
+        storage lands here having never been shown the one thing the product is
+        for, so this screen keeps it in exactly that case. Duplicating it on
+        every run would put the same field on two consecutive screens.
+      */}
+      {sawAgentsStep ? null : (
+        <>
+          <Text variant="eyebrow" style={styles.head}>
+            Your MCP endpoint
+          </Text>
+          <CopyField
+            value={MCP_ENDPOINT}
+            label="Copy your MCP endpoint"
+            testID="welcome-endpoint"
+          />
+          <Text variant="foot" style={styles.under}>
+            The same URL for everyone. Your client signs in and gets its own grant, which you
+            can revoke on its own at any time.
+          </Text>
+        </>
+      )}
 
       <Text variant="eyebrow" style={styles.head}>
         Your capture address

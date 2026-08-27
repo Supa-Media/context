@@ -63,6 +63,12 @@ export function SettingsPane({ data, onClose }: { data: ConsoleData; onClose: ()
         description="This context's bucket and its ingestion rules. Both belong to the context, not to your account — another context can point somewhere else entirely."
         trailing={
           <View style={styles.headActions}>
+            {/*
+              Ahead of the storage pill, because it qualifies everything below
+              it. Somebody who cannot connect a bucket here, cannot change the
+              allow-list here, and cannot see this context's private notes is
+              being told all three by one chip and two absent controls.
+            */}
             {storage ? <StatusPill storage={storage} /> : null}
             <Button
               label="Done"

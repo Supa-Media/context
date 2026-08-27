@@ -9,8 +9,9 @@ import { Text } from "../../design/components/Text";
 import { colors } from "../../design/tokens";
 import { ConnectClients } from "../clients/ConnectClients";
 import { MembersSection } from "../members/MembersSection";
+import { shareBackSuggestions } from "../members/members";
 import { PaneHead } from "../ConsoleShell";
-import type { ConsoleClient, ConsoleData } from "../types";
+import { selectedContext, type ConsoleClient, type ConsoleData } from "../types";
 
 /**
  * Who and what can reach this context — the people, and the robots.
@@ -38,6 +39,16 @@ import type { ConsoleClient, ConsoleData } from "../types";
  * rather than copying it.
  */
 export function ConnectionsPane({ data }: { data: ConsoleData }) {
+  /*
+    The members card below is the one per-context thing on an otherwise
+    app-level pane, so the role it needs is the *selected* context's — not a
+    property of this route. No chip goes in this pane's head for the same
+    reason the switcher above it says "All contexts": a `team level only` badge
+    on a heading that spans every context you can reach would be naming a scope
+    the pane is not in.
+  */
+  const viewerRole = selectedContext(data)?.role;
+
   return (
     <View>
       <PaneHead
@@ -97,7 +108,11 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
       </Card>
 
       <View style={styles.members}>
-        <MembersSection view={data.members} />
+        <MembersSection
+          view={data.members}
+          viewerRole={viewerRole}
+          shareBackWith={shareBackSuggestions(data.contexts, data.members)}
+        />
       </View>
     </View>
   );

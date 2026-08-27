@@ -6,6 +6,27 @@
  * that creates that extra membership; `createWorkspace` writes the creator's
  * `owner` row and nothing else in the codebase inserts into `workspaceMembers`.
  *
+ * ## An invitation is now delivered, and that changed one sentence and no rules
+ *
+ * This module used to say that `listMyInvitations` was the only delivery
+ * channel, and that nothing here sent email. Both were true and neither is any
+ * more: `inviteMember` schedules `functions/invitationEmail.ts`, which mails an
+ * `email` invitee a link.
+ *
+ * What did **not** change is why that sentence used to be here. It was never a
+ * statement that delivery was undesirable — it was the observation that the
+ * only channel available was one the invitee had to already have an account to
+ * read, and that `inviteMember` could not be allowed to acquire a second one
+ * that told the *inviter* anything. The send is therefore scheduled rather than
+ * called, so it has no return value, no exception, and no latency the inviter
+ * can observe; and it happens only for an `email` invitee, so no `@name` is
+ * ever resolved to a person at invite time. `listMyInvitations` remains the
+ * channel for a `@name` invitation and the fallback for every address, because
+ * mail is not guaranteed and an invitation must be answerable without it.
+ *
+ * The four mechanisms below are unchanged, and every one of them still holds
+ * with a send attached.
+ *
  * ## An invitation must not be an existence oracle
  *
  * This is the property the whole module is shaped around, and it is easy to
@@ -53,9 +74,11 @@
 
 import { ConvexError, v } from "convex/values";
 import { requireAuthId } from "@supa-media/convex/auth";
+import { internal } from "../_generated/api";
 import { internalMutation, mutation, query } from "../_generated/server";
 import type { QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import { invalidateInvitationSignInCode } from "./invitationEmail";
 import { recordAudit } from "./lib/audit";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import {
@@ -380,10 +403,15 @@ export const inviteMember = mutation({
       expiresAt: now + INVITATION_TTL_MS,
       createdAt: now,
       respondedAt: undefined,
+      // A superseding offer is a new offer: new token, new expiry, and the
+      // right to be emailed once more. Leaving the old `emailSentAt` in place
+      // would silently make re-inviting somebody a no-op in the inbox.
+      emailSentAt: undefined,
     };
 
+    let invitationId: Id<"workspaceInvitations">;
     if (superseded === null) {
-      await ctx.db.insert("workspaceInvitations", {
+      invitationId = await ctx.db.insert("workspaceInvitations", {
         workspaceId: args.workspaceId,
         inviteeKind: parsed.invitee.kind,
         invitee: parsed.invitee.value,
@@ -391,6 +419,7 @@ export const inviteMember = mutation({
       });
     } else {
       await ctx.db.patch(superseded._id, offer);
+      invitationId = superseded._id;
     }
 
     // The identifier is the owner's own input and is already in
@@ -402,6 +431,27 @@ export const inviteMember = mutation({
       action: "member.invited",
       details: { invitee: formatInvitee(parsed.invitee), role: args.role },
     });
+
+    // SCHEDULED, NEVER CALLED — and the difference is the oracle defence, not a
+    // performance note. `ctx.scheduler.runAfter` enqueues a job in a separate
+    // transaction whose return value the scheduler discards, so nothing about
+    // whether that mailbox exists, whether Resend accepted it, or how long the
+    // attempt took can reach this handler. A `ctx.runAction` here would put all
+    // three inside the inviter's own call: a value they could read, an
+    // exception they could catch, and a latency they could time without either.
+    // See CLAUDE.md, "Scheduling is not calling", and the docstring of
+    // `functions/invitationEmail.ts`.
+    //
+    // Only for an address. A `@name` has no mailbox we know of, and finding one
+    // would mean resolving an identifier to a person at invite time, which is
+    // the thing this whole module declines to do.
+    if (parsed.invitee.kind === "email") {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.invitationEmail.sendInvitationEmail,
+        { invitationId, inviteeKind: parsed.invitee.kind },
+      );
+    }
 
     return null;
   },
@@ -489,6 +539,11 @@ export const revokeInvitation = mutation({
     if (!isPending(invitation, now)) return { revoked: false };
 
     await ctx.db.patch(args.invitationId, { status: "revoked", respondedAt: now });
+    // Withdrawing the offer withdraws the credential it mailed. Leaving the
+    // magic-link code live for the rest of its 24 hours would mean an owner who
+    // revoked an invitation had revoked the half that is visible in the console
+    // and none of the half sitting in the invitee's inbox.
+    await invalidateInvitationSignInCode(ctx, invitation);
     await recordAudit(ctx, {
       workspaceId: invitation.workspaceId,
       actorUserId: userId,
@@ -508,11 +563,19 @@ export const revokeInvitation = mutation({
 /**
  * The invitations addressed to the caller.
  *
- * This is the delivery channel. `inviteMember` cannot hand the token to the
- * inviter — a return value that varied with anything would be the oracle this
- * module exists to prevent — and nothing in this repository sends email yet, so
+ * The in-app delivery channel, and the only one for a `@name` invitation.
+ * `inviteMember` cannot hand the token to the inviter — a return value that
+ * varied with anything would be the oracle this module exists to prevent — so
  * the invitee reading their own invitations is how a token reaches the person
  * it was issued for.
+ *
+ * An `email` invitee is additionally mailed a link (see
+ * `functions/invitationEmail.ts`), but this query is not a fallback for that
+ * and must not become one. Mail is best-effort by nature: it is dropped when
+ * the inviter's own address is unverified, dropped when the deployment has no
+ * Resend key, sent at most once per row, and may simply not arrive. An
+ * invitation has to be answerable by the person it was addressed to regardless,
+ * and this is how.
  *
  * Every row is re-checked through `resolveInvitationForCaller`, the same
  * function `acceptInvitation` uses, rather than trusting the identifiers this
@@ -641,6 +704,10 @@ export const acceptInvitation = mutation({
     // Spend it first. Everything after this is idempotent, so a retry that
     // races itself joins once.
     await ctx.db.patch(invitation._id, { status: "accepted", respondedAt: now });
+    // The link has been answered, by somebody who is signed in as we speak, so
+    // the code it carried has no remaining job. Leaving it would be a standing
+    // credential in a mail archive outliving the thing it was minted for.
+    await invalidateInvitationSignInCode(ctx, invitation);
 
     const existing = await getMembership(ctx, workspace._id, userId);
     if (existing !== null) {
@@ -691,6 +758,9 @@ export const declineInvitation = mutation({
 
     const invitation = await resolveInvitationForCaller(ctx, args.token, userId, now);
     await ctx.db.patch(invitation._id, { status: "declined", respondedAt: now });
+    // Saying no to the offer says no to the credential as well. This writes no
+    // audit event for the same reason the decline itself does not — see above.
+    await invalidateInvitationSignInCode(ctx, invitation);
     return null;
   },
 });

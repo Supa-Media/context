@@ -2,12 +2,14 @@ import type { ReactNode } from "react";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { PressRow, WindowDots } from "../design/components/Button";
 import { Dot } from "../design/components/Dot";
+import { Pill } from "../design/components/Pill";
 import { Text } from "../design/components/Text";
 import { gradient } from "../design/css";
 import { colors, layout, radii } from "../design/tokens";
 import { atName } from "./format";
 import { APP_SECTIONS, selectContextRoute, type ConsoleRoute } from "./nav";
 import { selectedContext, type ConsoleData } from "./types";
+import { tierChipLabel } from "./visibility";
 
 /**
  * The console chrome: title bar, left rail, and the pane body.
@@ -208,6 +210,34 @@ export function PaneHead({
       </View>
       {trailing}
     </View>
+  );
+}
+
+/**
+ * `team level only` — worn by a pane that is showing somebody else's context.
+ *
+ * Neutral rather than warn on purpose. Being a member of a context is a normal,
+ * correct state, not a fault to be fixed; the warn tone in this console means
+ * "something here needs you" and is already spoken for by the storage chip.
+ *
+ * It renders **nothing at all** for an owner, and nothing while the role is
+ * still `undefined` — `visibility.ts` explains why a half-second of "your notes
+ * are filtered" is worse than a half-second of silence. A component that can
+ * return `null` is what lets every caller mount it unconditionally instead of
+ * repeating that rule at each call site, where one of them would eventually get
+ * it wrong.
+ *
+ * The label is the pill's own text, so a screen reader already reads it; the
+ * longer `tierSentence` is deliberately not crammed in here as a tooltip, since
+ * a tooltip is invisible on a phone. Panes that have room state it in full.
+ */
+export function TierChip({ role }: { role: string | null | undefined }) {
+  const label = tierChipLabel(role);
+  if (label === null) return null;
+  return (
+    <Pill tone="neutral" leading={<Dot tone="neutral" />}>
+      {label}
+    </Pill>
   );
 }
 

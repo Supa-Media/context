@@ -499,13 +499,31 @@ describe("the Copy affordance does not invite someone to use a dead address", ()
   });
 
   test("the first run offers no copy button while nothing is receiving", () => {
+    // The shape is a run that skipped storage, which is the one that still
+    // shows the endpoint on this screen: the tools step, which otherwise owns
+    // it, only exists on a run whose bucket connected. Asserting a live copy
+    // button alongside the withheld one is the point — this must not turn into
+    // "the last screen has no copy buttons".
     const { html } = render(
-      createElement(DoneStep, { controller: controller({}), onOpenConsole: () => {} }),
+      createElement(DoneStep, {
+        controller: controller({ shape: { storage: "skipped" } }),
+        onOpenConsole: () => {},
+      }),
     );
     expect(html).not.toMatch(/Copy your capture address/i);
-    // The MCP endpoint is a live thing and keeps its copy button — this must
-    // not turn into "the last screen has no copy buttons".
     expect(html).toMatch(/Copy your MCP endpoint/i);
+  });
+
+  test("a run that reached the tools step is not shown the endpoint twice", () => {
+    // It is on the previous screen, which is about it. The same field on two
+    // consecutive screens reads as an oversight.
+    const { html } = render(
+      createElement(DoneStep, {
+        controller: controller({ shape: { storage: "connected" } }),
+        onOpenConsole: () => {},
+      }),
+    );
+    expect(html).not.toMatch(/Copy your MCP endpoint/i);
   });
 });
 

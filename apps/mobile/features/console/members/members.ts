@@ -13,6 +13,7 @@
  * error. `MembersView.actions` is therefore the entire object, present or not.
  */
 
+import { parseInvitee } from "@context/convex/functions/lib/invitees";
 import type { ConsoleFailure } from "../failure";
 
 /** A member's role, as the control plane spells it. */
@@ -56,10 +57,16 @@ export interface MemberActions {
 /**
  * Everything the members section renders.
  *
- * Deliberately the *only* prop `MembersSection` takes. The section knows nothing
- * about Convex, routing, or where in the app it is mounted, so it drops
- * unchanged into a settings pane, a context view, or a modal — which matters
- * while the navigation around it is being reshaped.
+ * The section knows nothing about Convex, routing, or where in the app it is
+ * mounted, so it drops unchanged into a settings pane, a context view, or a
+ * modal — which matters while the navigation around it is being reshaped.
+ *
+ * This was the *only* prop the section took, and is now one of two: `viewerRole`
+ * sits beside it so the card can say what the people listed here can actually
+ * see. That is a fact about the reader rather than about the membership, so
+ * folding it into this view would have meant a `MembersView` that changes shape
+ * depending on who is looking at it. The property that matters — no Convex, no
+ * router, no knowledge of its own mounting — is unchanged.
  */
 export interface MembersView {
   members: ConsoleMember[];
@@ -244,4 +251,101 @@ export function describeMembersFailure(error: unknown): MembersFailure {
         next: "Try again in a moment.",
       };
   }
+}
+
+/**
+ * The people who have shared a context with you, as `@name` handles.
+ *
+ * This is the reciprocity list — the highest-converting invitation there is,
+ * and the only one that needs no contact upload, no address book permission
+ * and no directory. Somebody who was let into Seyi's context and then builds
+ * their own has exactly one person they already know is here.
+ *
+ * Derived from the context list the console already holds, with no new query,
+ * because a personal context's slug *is* its owner's handle. That is not a
+ * convenience — `createWorkspace` writes exactly one `owner` and neither
+ * `inviteMember` nor `setMemberRole` can mint another, which is what makes
+ * `@name` address a person at all. If ownership ever became transferable this
+ * derivation would stop being sound, and so would `@name`.
+ *
+ * A `shared` context is excluded for the same reason: it has no single
+ * personal owner, so its slug names a place rather than somebody you could
+ * share back with.
+ */
+export function sharedWithYou(
+  contexts: readonly { slug: string; role: string; kind: string }[],
+): string[] {
+  return contexts
+    .filter((context) => context.kind === "personal" && context.role !== "owner")
+    .map((context) => context.slug);
+}
+
+/**
+ * Which of those you have not already let into this context.
+ *
+ * Inviting somebody who is already a member is a no-op in the control plane
+ * rather than an error, so suggesting them would not break anything — it would
+ * just offer a button that does nothing visible, which is worse than not
+ * offering it. Comparison is on the handle, lowercased, because that is what
+ * `inviteMember` is addressed with.
+ */
+export function shareBackSuggestions(
+  contexts: readonly { slug: string; role: string; kind: string }[],
+  view: MembersView,
+): string[] {
+  const already = new Set<string>();
+  for (const member of view.members) {
+    // `name` is optional — a member who has not claimed a handle is identified
+    // by email, which can never collide with a handle suggestion.
+    if (member.name !== undefined) already.add(member.name.replace(/^@/, "").toLowerCase());
+  }
+  for (const invitation of view.invitations) already.add(invitation.invitee.replace(/^@/, "").toLowerCase());
+  return sharedWithYou(contexts).filter(
+    (slug) => !already.has(slug.replace(/^@/, "").toLowerCase()),
+  );
+}
+
+/**
+ * What to say after an invitation is created, given what was typed into the box.
+ *
+ * "Invitation sent." was true when nothing sent mail. It is now true for an
+ * address and false for a `@name`, and there is no way to make it true for
+ * both: we have no address for a handle, and finding one would be resolving an
+ * identifier to a person at invite time, which is the enumeration leak
+ * `inviteMember` is shaped to prevent. So the copy branches instead of
+ * averaging.
+ *
+ * This matters more than it looks, because the share-back buttons beside this
+ * field fill it with a `@handle` — steering owners into precisely the path
+ * where nothing is mailed. Somebody invited by handle finds out only if they
+ * happen to open Context.
+ *
+ * `parseInvitee` is imported from the control plane rather than mirrored. The
+ * classification has to agree with the one that actually decides whether mail
+ * goes out; two copies of that rule is how the screen ends up promising a send
+ * the backend never makes.
+ *
+ * Both branches keep the sentence about what Context refuses to disclose,
+ * because that is the same either way and is the reason "sent" can never mean
+ * "delivered" here.
+ */
+export function inviteOutcomeMessage(invitee: string): { headline: string; detail: string } {
+  const parsed = parseInvitee(invitee);
+  const disclosure =
+    "Context never says whether a @name or an address belongs to a real account — that would let anybody use this box to find out who is on the platform.";
+
+  if (parsed.ok && parsed.invitee.kind === "email") {
+    return {
+      headline: "Invitation sent.",
+      detail: `One email, to that address, and no reminders — an invitation is exactly one message. It appears above until they answer it, and expires in a week. ${disclosure}`,
+    };
+  }
+
+  // A handle, or a string the control plane refused — in which case no
+  // invitation exists and this message is not shown at all.
+  const handle = parsed.ok ? `@${parsed.invitee.value}` : "They";
+  return {
+    headline: "Invitation created.",
+    detail: `${handle} will see it next time they open Context. We have no email address for a @name, so nothing was mailed — invite by address if you want them to get one. It appears above until they answer it, and expires in a week. ${disclosure}`,
+  };
 }
