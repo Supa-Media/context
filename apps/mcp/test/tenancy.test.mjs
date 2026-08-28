@@ -7,9 +7,14 @@
  * actually leaks. Tenants on different providers would pass an isolation suite
  * that a one-character bug defeats.
  *
+ * Two more are stood up on Dropbox, where that arrangement gets tighter still:
+ * no bucket name and no per-tenant endpoint, so **the same two URLs and the
+ * same customer-chosen folder, separated by the access token alone.**
+ *
  * Offline and dependency-free: the control plane is an in-memory server
- * speaking the documented HTTP contract, and the object store is an in-memory
- * S3 backend the real `S3Store` signs requests against.
+ * speaking the documented HTTP contract, the object store is an in-memory S3
+ * backend the real `S3Store` signs requests against, and the Dropbox tenants
+ * run against an in-memory Dropbox the real `DropboxStore` calls.
  *
  * ## Sabotage record
  *
@@ -27,6 +32,15 @@
  *    2 checks failed, including the `…/callback.evil` suffix attack.
  * 3. **PKCE not enforced** — `plain` accepted at the authorization endpoint and
  *    the verifier never compared. 2 checks failed.
+ * 4. **The in-memory Dropbox ignores the bearer token** and serves every tenant
+ *    out of one account — the shape of a gateway that built a store from the
+ *    wrong binding. 2 checks failed, including the two tenants' identically
+ *    pathed `1-projects/alpha.md` resolving to one file. Sabotaging the *stub*
+ *    rather than the source is the point here: a backend that cannot tell its
+ *    accounts apart would make every Dropbox isolation claim below vacuous.
+ * 5. **The store factory drops `rootPrefix` for Dropbox.** 4 checks failed
+ *    here, because a folder the customer chose is not something the adapter may
+ *    lose track of. See `storeFactory.test.mjs` for the rest of that record.
  */
 
 import worker from "../src/index.js";
@@ -35,6 +49,7 @@ import {
   CONTROL_PLANE_ORIGIN,
   GATEWAY_SECRET,
   createControlPlaneStub,
+  createDropboxBackend,
   createS3Backend,
   sha256Hex,
 } from "./controlPlaneStub.mjs";
@@ -51,6 +66,21 @@ const TOKEN_B = token("tenant_b_owner");
 const TOKEN_A_READONLY = token("tenant_a_readonly");
 const TOKEN_A_SIBLING = token("tenant_a_sibling");
 const REFRESH_A = `crt_tenant_a_${"0".repeat(24)}`;
+
+/**
+ * Two more tenants on the one-click tier.
+ *
+ * Dropbox has no bucket name and no per-tenant endpoint, so the S3 pair's
+ * "adjacent bucket names on one endpoint" arrangement has an even tighter
+ * Dropbox equivalent: **the same two URLs and the same rootPrefix, separated by
+ * the access token alone.** If the token is not what decides, these two see
+ * each other, and their identically-keyed notes are what says so.
+ */
+const TOKEN_C = token("tenant_c_owner");
+const TOKEN_D = token("tenant_d_owner");
+/** Dropbox's own short-lived tokens are `sl.`-prefixed. Obviously fake. */
+const DROPBOX_TOKEN_C = "sl.FAKE-tenant-c-access-token";
+const DROPBOX_TOKEN_D = "sl.FAKE-tenant-d-access-token";
 
 async function rpc(env, tokenValue, method, params, { path = "/mcp" } = {}) {
   const response = await worker.fetch(
@@ -128,6 +158,8 @@ export async function runTenancyChecks(check) {
 
   const s3 = createS3Backend(S3_ENDPOINT);
   const restoreS3 = s3.install();
+  const dropbox = createDropboxBackend();
+  const restoreDropbox = dropbox.install();
   const controlPlane = createControlPlaneStub();
   const restoreControlPlane = controlPlane.install();
 
@@ -154,6 +186,24 @@ export async function runTenancyChecks(check) {
     accessKeyId: "AKIAEXAMPLEEXAMPLEBB",
     secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEBB",
     forcePathStyle: true,
+    capabilities: { conditionalWrite: true },
+    status: "active",
+  });
+
+  // Two Dropbox tenants. No endpoint, no region, no bucket, no key pair — the
+  // binding is a short-lived access token and the folder the customer picked,
+  // and both of them picked the same folder name.
+  controlPlane.addWorkspace("ws_c", "gamma", {
+    provider: "dropbox",
+    accessToken: DROPBOX_TOKEN_C,
+    rootPrefix: "context/",
+    capabilities: { conditionalWrite: true },
+    status: "active",
+  });
+  controlPlane.addWorkspace("ws_d", "delta", {
+    provider: "dropbox",
+    accessToken: DROPBOX_TOKEN_D,
+    rootPrefix: "context/",
     capabilities: { conditionalWrite: true },
     status: "active",
   });
@@ -192,6 +242,23 @@ export async function runTenancyChecks(check) {
     userId: "user_a",
   });
 
+  await controlPlane.addGrant({
+    accessToken: TOKEN_C,
+    workspaceId: "ws_c",
+    role: "owner",
+    scopes: ["context:read", "context:write"],
+    clientId: "mcp_client_gamma",
+    userId: "user_c",
+  });
+  await controlPlane.addGrant({
+    accessToken: TOKEN_D,
+    workspaceId: "ws_d",
+    role: "owner",
+    scopes: ["context:read", "context:write"],
+    clientId: "mcp_client_delta",
+    userId: "user_d",
+  });
+
   // The sibling connected through the real flow in production; here its client
   // row is placed directly so it can authenticate at the revocation endpoint.
   for (const clientId of [
@@ -217,6 +284,17 @@ export async function runTenancyChecks(check) {
   bucketB.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "b0" });
   bucketB.set("1-projects/beta-secret.md", { body: "BETA-ONLY-MARKER", etag: "b1" });
   bucketB.set("1-projects/alpha.md", { body: "beta's own file, same name", etag: "b2" });
+
+  // Both Dropbox folders hold the same three paths, so nothing about a key can
+  // tell them apart. Note `1-projects/alpha.md` exists in all four tenants now.
+  const folderC = dropbox.accountFor(DROPBOX_TOKEN_C);
+  const folderD = dropbox.accountFor(DROPBOX_TOKEN_D);
+  folderC.set("/context/privacy.md", { body: PRIVACY_MANIFEST, rev: "c0" });
+  folderC.set("/context/1-projects/alpha.md", { body: "gamma's own file", rev: "c1" });
+  folderC.set("/context/1-projects/gamma-secret.md", { body: "GAMMA-ONLY-MARKER", rev: "c2" });
+  folderD.set("/context/privacy.md", { body: PRIVACY_MANIFEST, rev: "d0" });
+  folderD.set("/context/1-projects/alpha.md", { body: "delta's own file", rev: "d1" });
+  folderD.set("/context/1-projects/delta-secret.md", { body: "DELTA-ONLY-MARKER", rev: "d2" });
 
   const env = {
     CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
@@ -307,6 +385,171 @@ export async function runTenancyChecks(check) {
   const aSelectsSelfBare = await rpc(env, TOKEN_A, "ping", {}, { path: "/alpha/mcp" });
   check("naming your own workspace in the URL works", aSelectsSelf.body?.result !== undefined);
   check("the @ is cosmetic and normalised away", aSelectsSelfBare.body?.result !== undefined);
+
+  /* ------------- 1b. the same, for a workspace backed by Dropbox ------------- */
+
+  /**
+   * Tenancy has to hold on the one-click tier too, and it is a *harder* case
+   * than S3, not an easier one. Two S3 tenants at least differ by bucket name;
+   * two Dropbox tenants are the same two hostnames, the same paths, and the
+   * same customer-chosen folder — separated by the access token in the binding
+   * and by nothing else at all. The store the factory built is the only thing
+   * standing between them.
+   */
+  const listC = (await callTool(env, TOKEN_C, "list_notes"))?.content?.[0]?.text || "";
+  check(
+    "a dropbox-backed workspace serves its own notes end to end",
+    listC.includes("1-projects/alpha.md") && listC.includes("1-projects/gamma-secret.md")
+  );
+  check(
+    "a dropbox listing is not rootPrefix-decorated either",
+    !listC.includes("context/1-projects") && !listC.includes("/context/")
+  );
+  check(
+    "a dropbox tenant's listing never names the other dropbox tenant's notes",
+    !listC.includes("delta-secret") && !listC.includes("DELTA-ONLY")
+  );
+  check(
+    "nor any S3 tenant's",
+    !listC.includes("beta-secret") && !listC.includes("brand-new")
+  );
+
+  const cReadsD = await callTool(env, TOKEN_C, "read_note", {
+    path: "1-projects/delta-secret.md",
+  });
+  check(
+    "one dropbox tenant cannot read a path that exists only in the other",
+    cReadsD?.isError === true && !cReadsD.content[0].text.includes("DELTA-ONLY")
+  );
+  const dReadsC = await callTool(env, TOKEN_D, "read_note", {
+    path: "1-projects/gamma-secret.md",
+  });
+  check(
+    "and the refusal runs in both directions",
+    dReadsC?.isError === true && !dReadsC.content[0].text.includes("GAMMA-ONLY")
+  );
+
+  // Four tenants, one key, four different objects — and two of those four are
+  // told apart by nothing but a bearer token.
+  const cReadsShared = await callTool(env, TOKEN_C, "read_note", { path: "1-projects/alpha.md" });
+  const dReadsShared = await callTool(env, TOKEN_D, "read_note", { path: "1-projects/alpha.md" });
+  check(
+    "two dropbox tenants sharing a folder name are separated by the access token alone",
+    cReadsShared.content[0].text.includes("gamma's own file") &&
+      dReadsShared.content[0].text.includes("delta's own file")
+  );
+  check(
+    "and a dropbox tenant's copy is not an S3 tenant's copy",
+    !cReadsShared.content[0].text.includes("alpha rewrote this") &&
+      !cReadsShared.content[0].text.includes("beta's own file")
+  );
+
+  const aReadsGamma = await callTool(env, TOKEN_A, "read_note", {
+    path: "1-projects/gamma-secret.md",
+  });
+  check(
+    "an S3 tenant cannot reach a dropbox tenant's notes",
+    aReadsGamma?.isError === true && !aReadsGamma.content[0].text.includes("GAMMA-ONLY")
+  );
+  const cSearch =
+    (await callTool(env, TOKEN_C, "search_notes", { query: "BETA-ONLY-MARKER" }))?.content?.[0]
+      ?.text || "";
+  check(
+    "and a dropbox tenant's search cannot reach an S3 tenant's content",
+    !cSearch.includes("beta-secret") && !cSearch.includes("BETA-ONLY-MARKER\n")
+  );
+
+  const deltaBeforeWrite = folderD.get("/context/1-projects/alpha.md").body;
+  const cWrites = await callTool(env, TOKEN_C, "write_note", {
+    path: "1-projects/alpha.md",
+    content: "gamma rewrote this",
+    visibility: "team",
+    confirm_team_publish: true,
+  });
+  check("a dropbox-backed workspace can write", !cWrites.isError);
+  check(
+    "the write landed in that customer's own Dropbox folder",
+    folderC.get("/context/1-projects/alpha.md").body === "gamma rewrote this"
+  );
+  check(
+    "and left the other dropbox tenant's identically-pathed file untouched",
+    folderD.get("/context/1-projects/alpha.md").body === deltaBeforeWrite
+  );
+  check(
+    "and never reached an S3 tenant's bucket",
+    bucketA.get("context/1-projects/alpha.md").body === "alpha rewrote this" &&
+      bucketB.get("1-projects/alpha.md").body === beforeWrite
+  );
+
+  // The factory's refusals, reached the way a real request reaches them: the
+  // control plane, not a unit test, is where a half-built binding comes from.
+  //
+  /**
+   * A refusal has to arrive as a *response*.
+   *
+   * A binding the factory will not build throws, and if that throw is not the
+   * one `index.js` catches it escapes `worker.fetch` — a 500 in production, and
+   * here an exception that would take every later check in this file with it
+   * and report as a crash rather than a failure. So it is caught and reported
+   * as a status, the same way the malformed-escape checks below do.
+   */
+  const listNotesOrThrow = async (tokenValue) => {
+    try {
+      return await rpc(env, tokenValue, "tools/call", { name: "list_notes", arguments: {} });
+    } catch (error) {
+      return { status: "threw", text: String(error?.message || error), body: null };
+    }
+  };
+
+  const restoreTokenless = withControlPlaneOverride((path) => {
+    if (path === "/gateway/binding") {
+      return {
+        binding: {
+          workspaceId: "ws_c",
+          provider: "dropbox",
+          rootPrefix: "context/",
+          capabilities: { conditionalWrite: true },
+          status: "active",
+        },
+      };
+    }
+    return null;
+  }, controlPlane);
+  const tokenless = await listNotesOrThrow(TOKEN_C);
+  restoreTokenless();
+  check(
+    "a dropbox binding with no access token is a refusal, not a store",
+    tokenless.status === 503
+  );
+  check(
+    "and it does not fall through to anybody else's storage",
+    !tokenless.text.includes("gamma") && !tokenless.text.includes("alpha")
+  );
+
+  // The one thing the control plane must never send. A binding that worked
+  // while carrying it is how the bug would reach production unnoticed.
+  const restoreRefresh = withControlPlaneOverride((path) => {
+    if (path === "/gateway/binding") {
+      return {
+        binding: {
+          workspaceId: "ws_c",
+          provider: "dropbox",
+          accessToken: DROPBOX_TOKEN_C,
+          refreshToken: "rt.FAKE-long-lived-must-never-arrive",
+          rootPrefix: "context/",
+          capabilities: { conditionalWrite: true },
+          status: "active",
+        },
+      };
+    }
+    return null;
+  }, controlPlane);
+  const withRefresh = await listNotesOrThrow(TOKEN_C);
+  restoreRefresh();
+  check(
+    "a binding carrying a refresh token is refused even though its access token works",
+    withRefresh.status === 503 && !withRefresh.text.includes("gamma-secret")
+  );
 
   /* ------------------- 2. a resolution failure is a refusal ------------------- */
 
@@ -1139,6 +1382,9 @@ export async function runTenancyChecks(check) {
   const everythingSaid = [
     listA,
     listB,
+    listC,
+    tokenless.text,
+    withRefresh.text,
     garbage.text,
     downstream.text,
     unbound.text,
@@ -1158,11 +1404,18 @@ export async function runTenancyChecks(check) {
     !everythingSaid.includes("wJalrXUtnFEMI") && !everythingSaid.includes("AKIAEXAMPLE")
   );
   check(
+    "and none contains a Dropbox token of either life",
+    !everythingSaid.includes(DROPBOX_TOKEN_C) &&
+      !everythingSaid.includes(DROPBOX_TOKEN_D) &&
+      !everythingSaid.includes("rt.FAKE")
+  );
+  check(
     "no response names the control plane origin",
     !garbage.text.includes(CONTROL_PLANE_ORIGIN) && !downstream.text.includes(CONTROL_PLANE_ORIGIN)
   );
 
   restoreControlPlane();
+  restoreDropbox();
   restoreS3();
   restoreFetch();
 }

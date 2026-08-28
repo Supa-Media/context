@@ -15,7 +15,7 @@
  * stale entry, one id-confusion bug — away from signing tenant A's request with
  * tenant B's credential, and that failure is silent and total. So the storage
  * binding is fetched from the control plane on every request and lives only in
- * the `S3Store` built for that request.
+ * the store built for that request.
  *
  * The price is real and is stated rather than optimised away: two sequential
  * control-plane round trips before any bucket I/O (session, then binding — the
@@ -37,9 +37,16 @@
  * it is the single most important property in this file's neighbourhood.
  */
 
-import { R2Store } from "./store/r2.js";
-import { S3Store } from "./store/s3.js";
+import { StorageUnavailable, storeForBinding } from "./store/factory.js";
 import { ControlPlaneError } from "./controlPlane.js";
+
+/**
+ * Re-exported so every caller keeps importing it from here.
+ *
+ * It lives in `store/factory.js` because that is where storage now decides it
+ * cannot serve a request — this file only decides who is calling.
+ */
+export { StorageUnavailable };
 
 /** Read every visible note. */
 export const SCOPE_READ = "context:read";
@@ -105,22 +112,6 @@ export class SessionRefusal extends Error {
     this.status = status;
     this.code = code;
     this.description = description;
-  }
-}
-
-/**
- * The gateway could not reach a usable bucket for an otherwise valid session.
- *
- * Distinct from an auth failure because it is a different fact about a
- * different subject: the *caller* is fine, the *workspace* has no working
- * storage. Telling them apart is not an oracle — a caller learns only about
- * their own grant and their own workspace, never about anyone else's.
- */
-export class StorageUnavailable extends Error {
-  constructor(reason) {
-    super(`storage unavailable: ${reason}`);
-    this.name = "StorageUnavailable";
-    this.reason = reason;
   }
 }
 
@@ -428,6 +419,12 @@ export function hasScope(session, scope) {
  * against the `ContextStore` interface and never learns which provider, which
  * bucket, or which prefix it is talking to.
  *
+ * What this function owns is the *tenancy* half: a live grant, a workspace both
+ * sides agree on, and an active binding. Which backend that binding names, and
+ * whether it carries what that backend needs, is `storeForBinding`'s — one
+ * table in `store/factory.js` rather than a `provider` check here and another
+ * one in every other place a store gets built.
+ *
  * Keys are never namespaced. A note is at `1-projects/foo.md` in the customer's
  * own bucket, exactly as their Obsidian sync expects. `rootPrefix` is a
  * customer-chosen convenience applied inside the adapter and invisible above
@@ -469,79 +466,5 @@ export async function storeForSession(session, env, controlPlane) {
     throw new StorageUnavailable("workspace mismatch");
   }
 
-  if (binding.provider === "r2-binding") return nativeStore(binding, env);
-  return credentialedStore(binding);
-}
-
-/**
- * A native Cloudflare R2 binding, for self-hosters.
- *
- * The product deployment does not use this: its tenants bring their own
- * buckets, reached over the S3 API with credentials the customer can revoke
- * without asking us. A self-hosted gateway serving its owner's single bucket
- * has no such credential to hand out, and binding R2 natively is both simpler
- * and safer for them.
- *
- * Two locks, because this is the one code path where a control-plane answer
- * names something inside *our* Worker rather than something inside the
- * customer's account:
- *
- * 1. The binding name must appear in `env.NATIVE_BINDINGS`, a comma-separated
- *    allowlist set by whoever deployed the Worker. A control plane that is
- *    compromised, confused, or simply pointed at the wrong row cannot name a
- *    binding the operator never listed.
- * 2. It must actually exist on `env` and look like a bucket.
- *
- * Without the allowlist, "return `{provider:'r2-binding', bindingName:'X'}`"
- * would be a way to reach any R2 bucket the Worker can see, from the control
- * plane, for any tenant.
- */
-function nativeStore(binding, env) {
-  const name = binding.bindingName;
-  if (typeof name !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(name)) {
-    throw new StorageUnavailable("malformed binding");
-  }
-  const allowed = String(env?.NATIVE_BINDINGS || "")
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  if (!allowed.includes(name)) throw new StorageUnavailable("binding not allowed");
-  const bucket = env?.[name];
-  if (!bucket || typeof bucket.get !== "function" || typeof bucket.put !== "function") {
-    throw new StorageUnavailable("binding missing");
-  }
-  return new R2Store(bucket, { rootPrefix: binding.rootPrefix });
-}
-
-/** Any S3-compatible endpoint, signed with the customer's own credential. */
-function credentialedStore(binding) {
-  const { endpoint, region, bucket, accessKeyId, secretAccessKey } = binding;
-  if (
-    typeof endpoint !== "string" ||
-    typeof bucket !== "string" ||
-    typeof accessKeyId !== "string" ||
-    typeof secretAccessKey !== "string" ||
-    !endpoint ||
-    !bucket ||
-    !accessKeyId ||
-    !secretAccessKey
-  ) {
-    throw new StorageUnavailable("malformed binding");
-  }
-  try {
-    return new S3Store({
-      endpoint,
-      region: typeof region === "string" && region ? region : "auto",
-      bucket,
-      accessKeyId,
-      secretAccessKey,
-      rootPrefix: binding.rootPrefix,
-      forcePathStyle: binding.forcePathStyle,
-    });
-  } catch {
-    // The adapter's own validation (ambiguous addressing style, unsafe root
-    // prefix, bad bucket name) failed. Its message can quote configuration, so
-    // it is dropped rather than relayed.
-    throw new StorageUnavailable("malformed binding");
-  }
+  return storeForBinding(binding, env);
 }
