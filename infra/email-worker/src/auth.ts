@@ -791,7 +791,9 @@ function evaluateSender(input: VerifySenderInput): SenderVerdict {
   const parsed = parseAuthenticationResults(topmost);
   if (!parsed) return { ok: false, reason: "unparseable_authentication_results" };
 
-  // Rule 1b: a veto that fell after the fold means the short read cannot stand.
+  // Rule 3b: a veto that fell after the fold means the short read cannot stand.
+  // Stated here beside rule 1a, whose one unsound direction it closes; applied
+  // below rule 3, for the ordering reason at the end of this block.
   //
   // Rule 1a is sound because truncation can only remove clauses, and removing a
   // clause can only make the header prove less. That is true of every clause
@@ -817,12 +819,18 @@ function evaluateSender(input: VerifySenderInput): SenderVerdict {
   // header was folded. Identical answer either way. It was written that way
   // first, and sabotaging it changed no test — which is the signal that it was
   // redundant rather than the signal that a test was missing.
-  if (folded) {
-    const whole = parseAuthenticationResults(headers[0]!);
-    if (whole && vetoesAlignment(whole.results, fromDomain)) {
-      return { ok: false, reason: "folded_authentication_results" };
-    }
-  }
+  //
+  // It runs *after* rules 2 and 3, and that is not tidiness. `FOLD_MAY_EXPLAIN`
+  // deliberately excludes `foreign_authserv_id` and
+  // `ambiguous_authentication_results`, because neither is a finding a fold
+  // could have caused. Checking the veto first would hand every one of those
+  // refusals this reason instead — and a sender who prepends a foreign header,
+  // folded, with a veto clause after the fold would downgrade the loudest red
+  // flag this file raises ("a verdict written by an authority we do not
+  // recognise, which is what a sender writing their own verdict looks like")
+  // into its documented shrug ("our own server folded its verdict"). The
+  // sender would be choosing the label on their own message. Order is the
+  // whole guard here.
 
   // Rule 2: the topmost verdict must be from the authority we configured. A
   // sender who prepends their own with a different authserv-id fails here
@@ -839,6 +847,16 @@ function evaluateSender(input: VerifySenderInput): SenderVerdict {
     if (other && other.authservId === authServiceId) ours += 1;
   }
   if (ours > 1) return { ok: false, reason: "ambiguous_authentication_results" };
+
+  // Rule 3b, whose reasoning is set out above rule 2: a veto that only appears
+  // in the untruncated header. Placed here so it can never pre-empt a refusal
+  // that a fold cannot explain.
+  if (folded) {
+    const whole = parseAuthenticationResults(headers[0]!);
+    if (whole && vetoesAlignment(whole.results, fromDomain)) {
+      return { ok: false, reason: "folded_authentication_results" };
+    }
+  }
 
   // ── Our MTA's own verdict. Unchanged, and always asked first. ─────────────
   //

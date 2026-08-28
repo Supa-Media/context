@@ -1001,4 +1001,59 @@ describe("a folded verdict cannot be read into a stronger claim", () => {
       method: "dkim",
     });
   });
+
+  it("does not veto a `dmarc=pass` that simply omits `header.from`", () => {
+    // `evaluateAlignment` treats an absent `header.from` as "not a mismatch" —
+    // some MTAs omit it, and DMARC is defined against the From domain anyway.
+    // The veto must agree. Sabotage: drop the `!!claimed` guard, so the
+    // comparison runs against `""`, and this refuses every folded header from
+    // an MTA with that formatting — i.e. it labels ordinary mail unverified,
+    // which is the production symptom #52 exists to remove.
+    const full = `${FIRST_LINE}; dmarc=pass`;
+    expect(ask(full, FIRST_LINE, true)).toEqual({
+      ok: true,
+      address: "alice@victim.test",
+      domain: "victim.test",
+      method: "dkim",
+    });
+  });
+
+  /**
+   * Where the veto runs, which is a different property from what it says.
+   *
+   * `FOLD_MAY_EXPLAIN` names the three reasons a fold could itself have caused.
+   * `foreign_authserv_id` and `ambiguous_authentication_results` are
+   * deliberately not among them — the authserv-id is the first token of the
+   * first line, so it is never truncated away, and a duplicate header is a
+   * finding about a *different* header. A veto checked before those two rules
+   * would relabel both, and the sender chooses whether there is a veto.
+   */
+  describe("and cannot be used to relabel a refusal a fold could not have caused", () => {
+    const FOREIGN = "evil.example; dkim=pass header.d=victim.test";
+
+    it("still reports a foreign authserv-id, not the fold", () => {
+      // The downgrade an attacker wants: from "a verdict written by an
+      // authority we do not recognise, which is what a sender writing their
+      // own verdict looks like" to "our own server folded its verdict", which
+      // this file's own prose treats as a shrug.
+      expect(ask(`${FOREIGN}; ${VETO}`, FOREIGN, true)).toEqual({
+        ok: false,
+        reason: "foreign_authserv_id",
+      });
+    });
+
+    it("still reports two verdicts claiming our authority, not the fold", () => {
+      const first = `${FIRST_LINE}; ${VETO}`;
+      expect(
+        verifySender({
+          authenticationResults: [first, `${AUTHSERV}; dkim=pass header.d=victim.test`],
+          authenticationResultsFolded: [true, false],
+          authenticationResultsFirstLine: [FIRST_LINE, ""],
+          arcAuthenticationResults: [],
+          fromAddress: "alice@victim.test",
+          authServiceId: AUTHSERV,
+        }),
+      ).toEqual({ ok: false, reason: "ambiguous_authentication_results" });
+    });
+  });
 });
