@@ -386,16 +386,31 @@ async function route(request, env, ctx) {
  * The operator gets the error's class and nothing else. Catching here removes
  * the throw from Cloudflare's exception stream, and this Worker logs nowhere
  * else, so a silent catch would trade a dead request for an invisible one — a
- * worse bargain than the bug. A constructor name is a fixed identifier from
- * the runtime or from our own code (`TypeError`, `URIError`), never
+ * worse bargain than the bug. A class name is a fixed identifier from the
+ * runtime or from our own code (`TypeError`, `ControlPlaneError`), never
  * sender-derived, which is the same line the response body draws.
+ *
+ * Two things make that a check rather than an audit. `instanceof Error` first,
+ * because `name` and `constructor` on a thrown plain object are whatever the
+ * thrower put there — every `throw` in this Worker raises an `Error` subclass
+ * today, and that is a property of code somebody will edit. And its own `try`,
+ * because reading a property can itself throw: a getter or a Proxy that throws
+ * would escape `fetch` and restore the bodyless 1101 this guard exists to
+ * remove, so the guard would un-guard itself on exactly the input it is for.
  */
 export default {
   async fetch(request, env, ctx) {
     try {
       return await route(request, env, ctx);
     } catch (error) {
-      console.error("unhandled", error?.constructor?.name || "unknown");
+      try {
+        console.error(
+          "unhandled",
+          error instanceof Error ? String(error.name).slice(0, 64) : typeof error
+        );
+      } catch {
+        console.error("unhandled", "unknown");
+      }
       return json({ error: "server_error" }, 500);
     }
   },

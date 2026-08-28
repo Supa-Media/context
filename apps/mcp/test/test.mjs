@@ -698,6 +698,65 @@ check(
     !loggedLines[0].includes("secret-bucket-key-abc123")
 );
 
+// The log line must not be able to defeat the catch it lives in. Both cases
+// need our own code to throw a non-Error, which nothing does today — every
+// `throw` in `src/` raises an `Error` subclass. That is a fact about code
+// somebody will edit, so it is asserted rather than audited.
+async function fetchThrowing(thrown) {
+  const lines = [];
+  const real = console.error;
+  console.error = (...parts) => lines.push(parts.join(" "));
+  let res = null;
+  try {
+    res = await worker.fetch(
+      new Request("https://x/mcp", { method: "POST" }),
+      new Proxy({}, { get() { throw thrown; } }),
+      { waitUntil() {} }
+    );
+  } catch {
+    res = null;
+  } finally {
+    console.error = real;
+  }
+  return { status: res?.status ?? null, logged: lines.join(" | ") };
+}
+
+// A plain object carrying its own `constructor.name` — read unguarded, that
+// name is printed verbatim, and it is whatever the thrower put there.
+const forgedClass = await fetchThrowing({
+  constructor: { name: "secret-bucket-key-abc123" },
+  name: "secret-bucket-key-abc123",
+});
+check("a thrown non-Error cannot name its own class in the log", forgedClass.status === 500);
+check(
+  "and nothing it carries is printed",
+  !forgedClass.logged.includes("secret-bucket-key-abc123") && forgedClass.logged.includes("object")
+);
+
+// Reading a property can throw. Unguarded that throw escapes `fetch` and the
+// request dies as a bodyless 1101 — the guard undone by the input it is for.
+const hostileGetter = await fetchThrowing(
+  new Proxy(new TypeError("boom"), {
+    get(target, prop) {
+      if (prop === "name" || prop === "constructor") throw new Error("nope");
+      return Reflect.get(target, prop);
+    },
+  })
+);
+check("a throw while reading the error still answers 500", hostileGetter.status === 500);
+
+// A thrown string, number, null: no class to read at all.
+for (const [label, thrown] of [
+  ["a string", "secret-bucket-key-abc123"],
+  ["null", null],
+]) {
+  const res = await fetchThrowing(thrown);
+  check(
+    `a thrown ${label} still answers 500 and logs nothing of it`,
+    res.status === 500 && !res.logged.includes("secret-bucket-key-abc123")
+  );
+}
+
 // The refusal must not become the oracle the rest of the gateway avoids being.
 const refusalFingerprints = await Promise.all([
   transportRequest("https://evil.example").then(fingerprint),

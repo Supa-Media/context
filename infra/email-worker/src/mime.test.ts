@@ -555,6 +555,20 @@ describe("a Content-Disposition token is parsed as a token, not a media type", (
     expect(parsed.text).not.toContain("SECRET-ATTACHED-TEXT");
   });
 
+  it("keeps parameter names out of the prototype, so a real one is never dropped", () => {
+    // The bag is `Object.create(null)`. On a plain object `"constructor" in
+    // plain` is true before anything is parsed, so the first-wins rule below
+    // silently drops a parameter actually named `constructor`, and reading it
+    // back hands out the `Object` function rather than the header's value.
+    // Nothing reads that name today; the point is that an attacker-controlled
+    // string is used as both an `in` test and an assignment target, which is
+    // the shape that crashed the gateway one file over.
+    const parsed = parseContentType('text/plain; constructor=x; name="a.txt"');
+    expect(Object.getPrototypeOf(parsed.params)).toBe(null);
+    expect(parsed.params.constructor).toBe("x");
+    expect(parsed.params.name).toBe("a.txt");
+  });
+
   it("survives a bare trailing semicolon, which is the same shape with no parameter", () => {
     const raw =
       `From: alice@example.com\n` +
