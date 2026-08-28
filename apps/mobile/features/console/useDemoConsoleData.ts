@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { DEMO_GRAPH, DEMO_INGESTION, DEMO_STATS, MCP_ENDPOINT } from "./placeholderData";
 import { useDemoFileBrowser } from "./files/useDemoFileBrowser";
+import { viewerIdentity } from "./identity";
 import { ingestionAvailabilityFor } from "./ingestion/settings";
 import type { ConsoleInvitation, ConsoleMember } from "./members/members";
 import type {
@@ -191,7 +192,10 @@ export function useDemoConsoleData(): ConsoleData {
 
   return {
     demo: true,
-    avatarInitial: "S",
+    // Through the real resolver, so the demo obeys the same rule the product
+    // does: the visitor "is" @seyi — the one context they own — and stays
+    // @seyi while they click into the contexts they are only a guest in.
+    viewer: viewerIdentity({ contexts: DEMO_CONTEXTS }),
     contexts: DEMO_CONTEXTS,
     selectedContextId,
     selectContext,

@@ -15,6 +15,7 @@ import { colors, layout, radii, space } from "../design/tokens";
 import { offerOwnContext } from "../onboarding/route";
 import { atName } from "./format";
 import { APP_SECTIONS, selectContextRoute, type ConsoleRoute } from "./nav";
+import { railSections } from "./rail";
 import type { ConsoleData } from "./types";
 
 /**
@@ -108,60 +109,67 @@ export function ConsoleRail({
           ))}
         </Group>
 
-        <Group heading="Contexts" icons={icons}>
-          {data.contexts.length === 0 && !data.loading ? (
-            icons ? null : (
-              <Text variant="rowSub" style={styles.empty}>
-                No contexts yet
-              </Text>
-            )
-          ) : null}
-          {data.contexts.map((context) => (
-            <RailEntry
-              key={context.id}
-              label={atName(context.slug)}
-              // A context has no glyph of its own, so the initial stands in —
-              // the same letter the avatar uses, which is what makes a
-              // collapsed rail learnable rather than a row of identical dots.
-              glyph={context.slug.slice(0, 1).toUpperCase()}
-              icons={icons}
-              touch={touch}
-              accessibilityLabel={`Open ${atName(context.slug)}`}
-              selected={route.kind === "context" && route.slug === context.slug}
-              onPress={() => onNavigate(selectContextRoute(context.slug))}
-              leading={<Dot tone={context.status} />}
-            />
-          ))}
-          {/*
-            The way to have a context of your own, for somebody who does not.
+        {/*
+          Two groups, not one flat list: what you own under "Contexts", and
+          everything you were let into under "Shared with you". A section with
+          nothing to show is omitted, header and all — see `rail.ts`.
+        */}
+        {railSections({ contexts: data.contexts, claimable }).map((section) => (
+          <Group key={section.key} heading={section.heading} icons={icons}>
+            {section.key === "own" && data.contexts.length === 0 && !data.loading ? (
+              icons ? null : (
+                <Text variant="rowSub" style={styles.empty}>
+                  No contexts yet
+                </Text>
+              )
+            ) : null}
+            {section.contexts.map((context) => (
+              <RailEntry
+                key={context.id}
+                label={atName(context.slug)}
+                // A context has no glyph of its own, so the initial stands in —
+                // the same letter the avatar uses, which is what makes a
+                // collapsed rail learnable rather than a row of identical dots.
+                glyph={context.slug.slice(0, 1).toUpperCase()}
+                icons={icons}
+                touch={touch}
+                accessibilityLabel={`Open ${atName(context.slug)}`}
+                selected={route.kind === "context" && route.slug === context.slug}
+                onPress={() => onNavigate(selectContextRoute(context.slug))}
+                leading={<Dot tone={context.status} />}
+              />
+            ))}
+            {/*
+              The way to have a context of your own, for somebody who does not.
 
-            It sits *in* the Contexts group and last, under the contexts you
-            can already reach, because that is the question it answers: these
-            are the ones you can open, and none of them is yours. Above the
-            group, or in App, it would read as a verb about the application
-            rather than a gap in this list.
+              It sits *in* the Contexts group and last, under the contexts you
+              can already reach, because that is the question it answers: these
+              are the ones you can open, and none of them is yours. Above the
+              group, or in App, it would read as a verb about the application
+              rather than a gap in this list.
 
-            It is drawn accented rather than as another quiet row on purpose.
-            The person this is for arrived through somebody else's invitation
-            and has no reason to suspect the product does anything else; a row
-            that matched its neighbours would be discoverable only by reading
-            every word in the rail. This is the one entry that has to be
-            noticed, and it stops existing the moment it is used.
-          */}
-          {claimable ? (
-            <RailEntry
-              label="Claim your @name"
-              glyph="+"
-              icons={icons}
-              touch={touch}
-              accessibilityLabel="Claim your name and create your own context"
-              onPress={onClaimContext!}
-              style={styles.claim}
-              labelStyle={styles.claimLabel}
-              testID="rail-claim-context"
-            />
-          ) : null}
-        </Group>
+              It is drawn accented rather than as another quiet row on purpose.
+              The person this is for arrived through somebody else's invitation
+              and has no reason to suspect the product does anything else; a row
+              that matched its neighbours would be discoverable only by reading
+              every word in the rail. This is the one entry that has to be
+              noticed, and it stops existing the moment it is used.
+            */}
+            {section.claim ? (
+              <RailEntry
+                label="Claim your @name"
+                glyph="+"
+                icons={icons}
+                touch={touch}
+                accessibilityLabel="Claim your name and create your own context"
+                onPress={onClaimContext!}
+                style={styles.claim}
+                labelStyle={styles.claimLabel}
+                testID="rail-claim-context"
+              />
+            ) : null}
+          </Group>
+        ))}
       </ScrollView>
 
       <View style={[styles.account, icons && styles.accountIcons]}>{account}</View>

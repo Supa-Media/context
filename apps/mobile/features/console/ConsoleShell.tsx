@@ -8,6 +8,7 @@ import { gradient } from "../design/css";
 import { colors, layout, radii } from "../design/tokens";
 import { atName } from "./format";
 import { APP_SECTIONS, selectContextRoute, type ConsoleRoute } from "./nav";
+import { railSections } from "./rail";
 import { selectedContext, type ConsoleData } from "./types";
 import { tierChipLabel } from "./visibility";
 
@@ -15,11 +16,12 @@ import { tierChipLabel } from "./visibility";
  * The console chrome: title bar, left rail, and the pane body.
  *
  * The rail carries the two scopes rather than one flat list. **App** holds Map
- * and Connections, which span every context you can reach. **Contexts** holds
- * the contexts themselves, and picking one navigates *into* it — Browse is
- * where you land, and its settings hang off it. That is not just tidier: a
- * storage binding belongs to a workspace, so "Storage" sitting beside "Map" was
- * claiming a scope it never had.
+ * and Connections, which span every context you can reach. The contexts
+ * themselves split on ownership — **Contexts** for what you own, **Shared with
+ * you** for what you were let into (see `rail.ts`) — and picking one navigates
+ * *into* it: Browse is where you land, and its settings hang off it. That is
+ * not just tidier: a storage binding belongs to a workspace, so "Storage"
+ * sitting beside "Map" was claiming a scope it never had.
  *
  * It takes a `ConsoleData` and a route and nothing else, which is what lets the
  * same component serve both the authenticated console and the read-only demo on
@@ -83,7 +85,7 @@ export function ConsoleShell({
           style={[styles.avatar, gradient("linear-gradient(140deg,#3B82F6,#8B5CF6)")]}
           accessibilityLabel="Your account"
         >
-          <Text style={styles.avatarInitial}>{data.avatarInitial}</Text>
+          <Text style={styles.avatarInitial}>{data.viewer.initial}</Text>
         </View>
       </View>
 
@@ -108,26 +110,35 @@ export function ConsoleShell({
             ))}
           </View>
 
-          <View style={[styles.railGroup, narrow && styles.railGroupNarrow, styles.railGroupLast]}>
-            <Text variant="railHead" style={styles.railHead}>
-              Contexts
-            </Text>
-            {data.contexts.length === 0 && !data.loading ? (
-              <Text variant="rowSub" style={styles.railEmpty}>
-                No contexts yet
+          {/*
+            Own contexts under "Contexts", everything granted under "Shared
+            with you", empty sections omitted — the same split, from the same
+            function, as the real console's rail. See `rail.ts`. The landing
+            page never offers the claim entry: a picture has nowhere to send
+            anybody.
+          */}
+          {railSections({ contexts: data.contexts, claimable: false }).map((section) => (
+            <View key={section.key} style={[styles.railGroup, narrow && styles.railGroupNarrow]}>
+              <Text variant="railHead" style={styles.railHead}>
+                {section.heading}
               </Text>
-            ) : null}
-            {data.contexts.map((context) => (
-              <RailButton
-                key={context.id}
-                label={atName(context.slug)}
-                accessibilityLabel={`Open ${atName(context.slug)}`}
-                selected={route.kind === "context" && route.slug === context.slug}
-                onPress={() => onNavigate(selectContextRoute(context.slug))}
-                leading={<Dot tone={context.status} />}
-              />
-            ))}
-          </View>
+              {section.key === "own" && data.contexts.length === 0 && !data.loading ? (
+                <Text variant="rowSub" style={styles.railEmpty}>
+                  No contexts yet
+                </Text>
+              ) : null}
+              {section.contexts.map((context) => (
+                <RailButton
+                  key={context.id}
+                  label={atName(context.slug)}
+                  accessibilityLabel={`Open ${atName(context.slug)}`}
+                  selected={route.kind === "context" && route.slug === context.slug}
+                  onPress={() => onNavigate(selectContextRoute(context.slug))}
+                  leading={<Dot tone={context.status} />}
+                />
+              ))}
+            </View>
+          ))}
         </View>
 
         <View style={styles.pane}>{children}</View>
@@ -338,7 +349,6 @@ const styles = StyleSheet.create({
   },
   railGroup: { marginBottom: 22 },
   railGroupNarrow: { marginBottom: 0, flexGrow: 0, flexShrink: 0 },
-  railGroupLast: {},
   railHead: { marginBottom: 8, paddingHorizontal: 8 },
   railEmpty: { paddingHorizontal: 9, paddingVertical: 7 },
   /** `.railbtn` */

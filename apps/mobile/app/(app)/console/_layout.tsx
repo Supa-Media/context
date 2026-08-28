@@ -2,14 +2,14 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Slot, useRouter, usePathname } from "expo-router";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { Button } from "../../../features/design/components/Button";
+import { Button, PressRow } from "../../../features/design/components/Button";
 import { Dot } from "../../../features/design/components/Dot";
 import { FormError } from "../../../features/design/components/Input";
 import { Pill } from "../../../features/design/components/Pill";
 import { Palette } from "../../../features/design/components/Palette";
 import { StatusBar } from "../../../features/design/components/StatusBar";
 import { Text } from "../../../features/design/components/Text";
-import { colors, space } from "../../../features/design/tokens";
+import { colors, layout, radii, space } from "../../../features/design/tokens";
 import { AppFrame, useFrame } from "../../../features/app/AppFrame";
 import { BottomBar } from "../../../features/console/BottomBar";
 import { AccountBlock, Avatar, ConsoleRail } from "../../../features/console/ConsoleRail";
@@ -29,8 +29,10 @@ import {
   resolveContextRoute,
   routeForPath,
   sameRoute,
+  settingsHref,
   type ConsoleRoute,
 } from "../../../features/console/nav";
+import { storagePillLabel } from "../../../features/console/storage/pill";
 import { selectedContext, type ConsoleData } from "../../../features/console/types";
 import { useKeymap } from "../../../features/design/useKeymap";
 import type { FileBrowser } from "../../../features/console/files/browser";
@@ -162,7 +164,14 @@ export default function ConsoleLayout() {
               wrong in is "you are seeing everything".
             */}
             {insideContext ? <TierChip role={current?.role} /> : null}
-            <StorageChip data={data} />
+            <StorageChip
+              data={data}
+              onOpenSettings={
+                current === null
+                  ? undefined
+                  : () => router.push(settingsHref(current.slug))
+              }
+            />
           </>
         }
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
@@ -555,20 +564,50 @@ function ConsoleBottomBar({ data, onSearch }: { data: ConsoleData; onSearch: () 
  * other route even though the binding is a property of the context you are in.
  * A context with nowhere to keep notes is a legitimate state and one you have
  * to be able to *see*, so it is warn-toned rather than another grey chip.
+ *
+ * The words come from `storagePillLabel`, which is what stopped a Dropbox
+ * binding — no bucket, by design — from printing "dropbox · undefined" here.
+ *
+ * And it is a way in, not just a fact: pressing it opens the selected
+ * context's storage settings, for every provider alike. It always was the one
+ * place the binding is stated on every route, and a stated fact you cannot act
+ * on — "no bucket connected", with the connect form two unadvertised
+ * navigations away — is most of the way to a bug. The press target fills the
+ * top bar's height (`topBarHeight` is `minTouchTarget + 1`), so it is
+ * reachable by a thumb without growing the bar.
  */
-function StorageChip({ data }: { data: ConsoleData }) {
+function StorageChip({
+  data,
+  onOpenSettings,
+}: {
+  data: ConsoleData;
+  /** Absent only while there is no selected context to have settings. */
+  onOpenSettings?: () => void;
+}) {
   if (data.loading) return null;
-  const noBucket = data.storage === null;
+  const label = storagePillLabel(data.storage);
 
+  const pill =
+    label === null ? (
+      <Pill tone="warn" leading={<Dot tone="warn" />}>
+        no bucket connected
+      </Pill>
+    ) : (
+      <Pill tone="neutral">{label}</Pill>
+    );
+
+  if (onOpenSettings === undefined) return pill;
   return (
-    <Pill
-      tone={noBucket ? "warn" : "neutral"}
-      leading={noBucket ? <Dot tone="warn" /> : undefined}
+    <PressRow
+      accessibilityLabel="Open storage settings"
+      onPress={onOpenSettings}
+      radius={radii.pill}
+      style={styles.storagePress}
+      hoverStyle={styles.storagePressHover}
+      testID="storage-pill"
     >
-      {noBucket
-        ? "no bucket connected"
-        : `${shortProvider(data.storage!.provider)} · ${data.storage!.bucket}`}
-    </Pill>
+      {pill}
+    </PressRow>
   );
 }
 
@@ -583,16 +622,17 @@ function Account({
 }) {
   const router = useRouter();
   const { signOut } = useAuthActions();
-  const personal = data.contexts.find((context) => context.kind === "personal");
 
   return (
     <AccountBlock
-      // The handle is the identity in this product — a name addresses the sole
-      // owner of the personal context it names — so it is what the account
-      // block says rather than an email we would have to fetch separately.
-      name={personal ? atName(personal.slug) : "Signed in"}
-      detail={data.ingestionAddress}
-      initial={data.avatarInitial}
+      // The viewer, resolved once in `identity.ts` — never the viewed context.
+      // This block used to take the first `kind === "personal"` context (which
+      // is somebody else's the moment one is shared with you) and the selected
+      // context's capture address, so opening a shared context renamed the
+      // signed-in person after it.
+      name={data.viewer.name}
+      detail={data.viewer.detail}
+      initial={data.viewer.initial}
       compact={compact}
       touch={touch}
       onSignOut={() => {
@@ -615,22 +655,14 @@ function Status({ data }: { data: ConsoleData }) {
   const segments = statusSegments({
     editor: data.files.editor,
     conflictCheck: data.files.editor.conflictCheck,
-    storageLabel:
-      data.storage === null
-        ? null
-        : `${shortProvider(data.storage.provider)} · ${data.storage.bucket}`,
+    // The same words as the top bar's chip, from the same function — two call
+    // sites interpolating `provider · bucket` themselves is how one of them
+    // printed "dropbox · undefined".
+    storageLabel: storagePillLabel(data.storage),
     now: Date.now(),
   });
 
   return <StatusBar segments={segments} testID="console-status" />;
-}
-
-/** "Cloudflare R2" reads as "R2" in a chip that has to fit beside a name. */
-function shortProvider(provider: string): string {
-  if (/r2/i.test(provider)) return "R2";
-  if (/s3/i.test(provider)) return "S3";
-  if (/b2|backblaze/i.test(provider)) return "B2";
-  return provider;
 }
 
 export { Avatar };
@@ -649,6 +681,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   switcherKind: { color: colors.muted },
+
+  /**
+   * The pill's press target. `minHeight` is the touch floor — the top bar is
+   * one point taller, so the target fills it instead of growing it — and the
+   * pill centres inside the taller invisible surface.
+   */
+  storagePress: {
+    minHeight: layout.minTouchTarget,
+    justifyContent: "center",
+    borderRadius: radii.pill,
+  },
+  storagePressHover: { backgroundColor: colors.surface3 },
 
   /** Browse fills its region and scrolls inside itself. */
   browseRegion: { flex: 1, minHeight: 0 },

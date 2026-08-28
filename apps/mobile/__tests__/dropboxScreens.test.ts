@@ -349,7 +349,7 @@ describe("the storage choice: two cards, details behind the click", () => {
 function consoleData(storage: Partial<ConsoleStorage>): ConsoleData {
   return {
     demo: false,
-    avatarInitial: "S",
+    viewer: { name: "@seyi", detail: "seyi@context.lc", initial: "S" },
     contexts: [
       { id: "w1", slug: "seyi", displayName: "Seyi", role: "owner", kind: "personal", status: "ok" },
     ],

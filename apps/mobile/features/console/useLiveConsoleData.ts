@@ -16,6 +16,7 @@ import { useIngestionSettings } from "./ingestion/useIngestionSettings";
 import { useMembers } from "./members/useMembers";
 import { toBindStorageArgs, type Provider } from "./storage/connect";
 import { atName, contextTone, describeScopes, formatCount, grantTone, lastUsedLabel } from "./format";
+import { ownPersonalContext, viewerIdentity } from "./identity";
 import { formatNotesTotal, totalNotes } from "./noteTotals";
 import {
   buildConstellation,
@@ -361,9 +362,27 @@ export function useLiveConsoleData(): ConsoleData {
         : "You have read-only access to this context. Ask an owner for editor access to change anything.",
   });
 
+  // The viewer, not the viewed. The avatar and the account block used to take
+  // the *selected* context's slug, so clicking into a shared context renamed
+  // the signed-in person after it — top, bottom, everywhere. `identity.ts` is
+  // where the rules live; the inputs here are the only Convex-shaped parts:
+  // the real issued address is used only when the selected context *is* the
+  // viewer's own personal one (that is the only case the owner-only ingestion
+  // subscription answers for, and the guard keeps a second owned personal
+  // context from lending its address to the first), and the email comes off
+  // the selected context's member list, where the control plane already marks
+  // the caller's own row.
+  const own = ownPersonalContext(contexts);
+  const viewer = viewerIdentity({
+    contexts,
+    ownAddress:
+      own !== null && selected?.id === own.id ? ingestion.settings?.address : undefined,
+    email: members.members.find((member) => member.isMe)?.email,
+  });
+
   return {
     demo: false,
-    avatarInitial: (selected?.slug ?? "?").slice(0, 1).toUpperCase(),
+    viewer,
     contexts,
     selectedContextId,
     selectContext,
