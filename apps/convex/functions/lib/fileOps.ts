@@ -31,7 +31,14 @@
  *  3. **`privacy.md` is generated, never typed into.** It is the access map,
  *     and hand-editing it through a UI that also *writes* it is how a person
  *     loses every rule they had. `setVisibility` / `setFolderVisibility` are
- *     the only way in, and a write to that key is refused.
+ *     the only way to change a rule, and a write to that key through
+ *     `writeFile` is refused.
+ *
+ *     `resetPrivacyManifest` is the one other function that puts to that key,
+ *     and it is not an exception to the rule so much as the floor beneath it:
+ *     it takes no content, replaces only a manifest that does not parse, and
+ *     writes every folder `private`. There is no argument to it by which a note
+ *     could change hands.
  */
 
 import {
@@ -49,7 +56,7 @@ import {
   replacePrivacyRulesBlock,
   visibilityOf,
 } from "./privacy";
-import type { ScaffoldStore } from "./scaffold";
+import { renderPrivacyManifestForFolders, type ScaffoldStore } from "./scaffold";
 
 /* -------------------------------------------------------------------------- */
 /*                                   limits                                   */
@@ -100,6 +107,8 @@ export type FileErrorCode =
   | "PRIVACY_MANIFEST_READ_ONLY"
   | "PRIVACY_MANIFEST_MISSING"
   | "PRIVACY_MANIFEST_INVALID"
+  /** A reset was asked for on a manifest that parses. Refused, not a no-op. */
+  | "PRIVACY_MANIFEST_USABLE"
   | "PRIVACY_MANIFEST_BUSY"
   | "CONTENT_TOO_LARGE"
   | "FOLDER_TOO_LARGE"
@@ -943,6 +952,164 @@ export async function deletePath(
   // plumbing, and listing it would be the first time we ever showed a customer
   // a `.history/` key.
   return { paths: keys };
+}
+
+/* -------------------------------------------------------------------------- */
+/*                        repairing a broken privacy.md                       */
+/* -------------------------------------------------------------------------- */
+
+export interface PrivacyResetResult {
+  path: string;
+  /** The top-level folders the new manifest declares, all `private`. */
+  folders: string[];
+  /**
+   * Where the unreadable file was kept, or `null` when there was nothing to
+   * keep. A person whose manifest merely had a typo has not lost the other
+   * forty lines; they are one `.history/` key away.
+   */
+  backedUpTo: string | null;
+  /** True when the walk of the root stopped at the page cap. */
+  truncated: boolean;
+}
+
+/**
+ * Write a working `privacy.md` over a missing or unreadable one.
+ *
+ * ## Why this exists
+ *
+ * A bucket whose manifest does not parse fails closed: `loadPrivacyState`
+ * returns no rules, every note reads as private, and `mutateManifest` refuses
+ * every write — so `setVisibility` and `setFolderVisibility`, the only two ways
+ * in, both answer `PRIVACY_MANIFEST_MISSING` or `PRIVACY_MANIFEST_INVALID`. The
+ * console said "write a valid privacy.md at the root of the bucket, or ask a
+ * connected AI client to", and **neither was possible**: `assertWritablePath`
+ * refuses `privacy.md` here, and the gateway's `isPlumbing` refuses it in
+ * `write_note` and answers `set_folder_visibility` with "privacy.md is required
+ * before folder visibility can be changed". The only exit was rclone or the
+ * provider's own web console. This is the exit.
+ *
+ * ## The four things that keep it from being a hole
+ *
+ *  1. **It only runs on a manifest that is already broken.** A parseable file
+ *     is refused with `PRIVACY_MANIFEST_USABLE`, so this can never be the way
+ *     somebody's curated access map gets flattened. That check is the whole
+ *     safety argument, and it is the state the console's own banner reports —
+ *     `manifestUsable === false` on the root listing is exactly
+ *     `text === null || invalid`.
+ *  2. **Every folder is written `private`.** The bucket was already failing
+ *     closed, so an all-private manifest is the one rewrite under which no note
+ *     changes hands. Repairing cannot publish anything, which is why
+ *     `renderPrivacyManifestForFolders` takes no visibility argument.
+ *  3. **Owner clearance only.** `scope` is `private` for an owner and `team`
+ *     for everybody else (`scopeForRole`), and rewriting a context's whole
+ *     access map is not an editor's to do — it is the same boundary that keeps
+ *     an editor from seeing the private notes the map governs. Checked here as
+ *     well as at the action, because this module is the one that is testable
+ *     without a session.
+ *  4. **The unreadable file is kept.** A manifest that fails to parse usually
+ *     fails on one line; the other rules in it are the owner's work and may be
+ *     the only record of what was shared with whom. It goes to `.history/`
+ *     under the same convention `writeFile` uses, so it is recoverable by the
+ *     same route as any other overwritten note.
+ *
+ * ## Why it declares the bucket's real folders
+ *
+ * The scaffold writes the five PARA names because it is laying down a bucket
+ * that has nothing in it. This runs against a bucket that has a life already —
+ * frequently the case this whole feature is for, since a brain synced from
+ * Obsidian is exactly the kind that arrives with a hand-edited manifest — so
+ * declaring `0-inbox … 4-archive` over somebody's `Journal/` and `Clients/`
+ * would hand them a file with no line to edit for any folder they have. The
+ * root walk is delimited and bounded like every other listing here; a bucket
+ * too wide to finish gets the folders we saw and says the list is short, which
+ * costs a line to add by hand and never costs visibility.
+ */
+export async function resetPrivacyManifest(
+  store: FileStore,
+  options: { scope: Scope; now: number },
+): Promise<PrivacyResetResult> {
+  if (options.scope !== "private") {
+    // Same wording an editor gets for anything else out of reach, and the
+    // action above refuses first. Belt and braces: this module is the one an
+    // in-memory test can drive, so the rule is asserted where it can be.
+    throw new FileOpError(
+      "PRIVACY_MANIFEST_READ_ONLY",
+      "Only the owner of a context can rewrite its access map.",
+    );
+  }
+
+  const state = await loadPrivacyState(store);
+  if (state.text !== null && !state.invalid) {
+    throw new FileOpError(
+      "PRIVACY_MANIFEST_USABLE",
+      "privacy.md is readable, so there is nothing to reset. Change a folder or note's visibility instead.",
+    );
+  }
+
+  const { folders, truncated } = await rootFolders(store);
+  const text = renderPrivacyManifestForFolders(folders);
+
+  let backedUpTo: string | null = null;
+  if (state.text !== null) {
+    // Not `.md`, on purpose: the copy keeps the name of the file it came from,
+    // and `.history/` is plumbing that no listing shows either way.
+    backedUpTo = `${HISTORY_PREFIX}${PRIVACY_KEY}.${timestampSlug(options.now)}.md`;
+    await store.put(backedUpTo, state.text);
+  }
+
+  const conditional =
+    store.capabilities?.conditionalWrite === true && state.etag !== null;
+  const put = conditional
+    ? await store.put(PRIVACY_KEY, text, { onlyIf: { etagMatches: state.etag! } })
+    : await store.put(PRIVACY_KEY, text);
+  if (put === null) {
+    // Somebody repaired it — or fixed it by hand in Obsidian — between our read
+    // and our write. Theirs stands; re-reading is the console's next move
+    // anyway, and it will find a usable manifest.
+    throw new FileOpError(
+      "CONFLICT",
+      "privacy.md changed while it was being repaired. Reload to see what it says now.",
+    );
+  }
+
+  return { path: PRIVACY_KEY, folders, backedUpTo, truncated };
+}
+
+/**
+ * The bucket's top-level folders.
+ *
+ * Delimited, so this is the folder names and not every key under them — the
+ * same reason `countNotes` is delimited at the root, and the same trap avoided:
+ * a flat listing returns `.history/…` first and would spend the whole page
+ * budget inside it.
+ *
+ * A bucket whose notes all sit at the root has no folders and gets a manifest
+ * with none, which parses and is correct: `default_visibility: private` covers
+ * everything, and the person can add a line when they make a folder.
+ */
+async function rootFolders(
+  store: FileStore,
+): Promise<{ folders: string[]; truncated: boolean }> {
+  const seen = new Set<string>();
+  let cursor: string | undefined;
+  let truncated = false;
+
+  for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+    const listing = await store.list({ prefix: "", delimiter: "/", cursor, limit: 1000 });
+    for (const raw of listing.delimitedPrefixes ?? []) {
+      const folder = raw.replace(/\/+$/, "");
+      // `.history/`, `.audit/`, `.obsidian/`. A manifest line for any of them
+      // is rejected by `parsePrivacyManifest`, which would make the repair
+      // write a file that does not parse.
+      if (!folder || isPlumbing(folder)) continue;
+      seen.add(folder);
+    }
+    if (!listing.truncated || !listing.cursor) break;
+    cursor = listing.cursor;
+    if (page === LIST_PAGE_CAP - 1) truncated = true;
+  }
+
+  return { folders: [...seen].sort(), truncated };
 }
 
 /* -------------------------------------------------------------------------- */
