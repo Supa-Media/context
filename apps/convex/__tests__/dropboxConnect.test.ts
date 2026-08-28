@@ -383,4 +383,171 @@ describe("what a rebind leaves behind", () => {
     expect(row?.accessTokenExpiresAt).toBeUndefined();
     expect(row?.dropboxAccountId).toBeUndefined();
   });
+
+  /**
+   * Forgetting our copy is only half of it.
+   *
+   * `disconnectStorage` schedules `revokeDropboxGrant` and says why: without
+   * it "we forget our copy of the credential while the authorization lives on
+   * in the person's account, and their next connect silently auto-approves
+   * instead of asking". A rebind from Dropbox to a bucket ends the Dropbox
+   * relationship exactly as definitively — the customer moved their context
+   * somewhere else — and it took the other half of the fix and not this one.
+   *
+   * Sabotage: drop the scheduler call from `applyBinding`.
+   */
+  test("rebinding away from Dropbox also revokes the grant at Dropbox", async () => {
+    const { t, owner, workspaceId } = await scenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    const now = Date.now();
+    const dropboxEnvelope = await encryptSecret("refresh-abc", keyset, context);
+    const bucketEnvelope = await encryptSecret("s3-secret", keyset, context);
+    await t.run(async (ctx) =>
+      ctx.db.insert("storageBindings", {
+        workspaceId,
+        provider: "dropbox" as const,
+        rootPrefix: "Context/",
+        encryptedRefreshToken: dropboxEnvelope,
+        encryptedAccessToken: await encryptSecret("access-xyz", keyset, context),
+        accessTokenExpiresAt: now + 3_600_000,
+        dropboxAccountId: "dbid:AAA",
+        capabilities: { conditionalWrite: true },
+        status: "connected" as const,
+        boundBy: owner,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+
+    await t.mutation(internal.functions.storage.applyBinding, {
+      actorUserId: owner,
+      workspaceId,
+      provider: "s3" as const,
+      endpoint: "https://s3.example.invalid",
+      region: "us-east-1",
+      bucket: "my-own-bucket",
+      accessKeyId: "AKIAFAKEFAKEFAKE",
+      encryptedSecretAccessKey: bucketEnvelope,
+    });
+
+    const scheduled = await t.run(async (ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    const revokes = scheduled.filter((job) =>
+      String(job.name).includes("revokeDropboxGrant"),
+    );
+    expect(revokes).toHaveLength(1);
+    // WHICH envelope, not just how many jobs. Counting alone lets
+    // `existing.encryptedRefreshToken` become `args.encryptedSecretAccessKey`
+    // — one token's difference — with the whole suite green, and that would
+    // hand a bucket secret to Dropbox's revoke endpoint. `storage.test.ts`'s
+    // disconnect test already asserts the payload; these dropped the one line
+    // that made it evidence.
+    const args = JSON.stringify(revokes[0]!.args);
+    expect(args).toContain(dropboxEnvelope);
+    expect(args).not.toContain(bucketEnvelope);
+  });
+
+  /**
+   * The same gap, one path over: reconnecting to a DIFFERENT Dropbox account.
+   *
+   * `applyDropboxBinding` overwrites the envelope with the new account's, so
+   * the old account's authorization is orphaned — still live in a Dropbox
+   * nobody is pointing at any more. The schema's own comment says this case is
+   * expected and worth telling apart: `dropboxAccountId` exists so a reconnect
+   * can "notice that a *different* account just arrived, which is the
+   * difference between 'you signed in again' and 'your context now points
+   * somewhere else'".
+   *
+   * Scoped to a differing account on purpose. Revoking on a same-account
+   * reconnect would mean revoking a token from the same authorization the new
+   * one came from, and Dropbox's semantics there are not something to guess at
+   * from a comment.
+   */
+  test("reconnecting to a different Dropbox account revokes the old one", async () => {
+    const { t, owner, workspaceId } = await scenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    const now = Date.now();
+    const oldEnvelope = await encryptSecret("old-refresh", keyset, context);
+    await t.run(async (ctx) =>
+      ctx.db.insert("storageBindings", {
+        workspaceId,
+        provider: "dropbox" as const,
+        encryptedRefreshToken: oldEnvelope,
+        encryptedAccessToken: await encryptSecret("old-access", keyset, context),
+        accessTokenExpiresAt: now + 3_600_000,
+        dropboxAccountId: "dbid:OLD",
+        capabilities: { conditionalWrite: true },
+        status: "connected" as const,
+        boundBy: owner,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+
+    const newEnvelope = await encryptSecret("new-refresh", keyset, context);
+    await t.mutation(internal.functions.dropboxConnect.applyDropboxBinding, {
+      workspaceId,
+      boundBy: owner,
+      rootPrefix: undefined,
+      encryptedRefreshToken: newEnvelope,
+      encryptedAccessToken: await encryptSecret("new-access", keyset, context),
+      accessTokenExpiresAt: now + 3_600_000,
+      dropboxAccountId: "dbid:NEW",
+    });
+
+    const scheduled = await t.run(async (ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect(),
+    );
+    const revokes = scheduled.filter((job) =>
+      String(job.name).includes("revokeDropboxGrant"),
+    );
+    expect(revokes).toHaveLength(1);
+    // THE OLD one, and provably not the new one. Both envelopes are in scope
+    // here and the difference is `existing.` versus `args.` — a single token.
+    // Getting it wrong revokes the grant this reconnect just minted: the app
+    // vanishes from the person's connected-apps list, the verification
+    // scheduled right after fails, and the orphan this exists to kill lives on.
+    const args = JSON.stringify(revokes[0]!.args);
+    expect(args).toContain(oldEnvelope);
+    expect(args).not.toContain(newEnvelope);
+  });
+
+  test("but reconnecting the same account does not revoke it", async () => {
+    const { t, owner, workspaceId } = await scenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    const now = Date.now();
+    await t.run(async (ctx) =>
+      ctx.db.insert("storageBindings", {
+        workspaceId,
+        provider: "dropbox" as const,
+        encryptedRefreshToken: await encryptSecret("old-refresh", keyset, context),
+        accessTokenExpiresAt: now + 3_600_000,
+        dropboxAccountId: "dbid:SAME",
+        capabilities: { conditionalWrite: true },
+        status: "connected" as const,
+        boundBy: owner,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+
+    await t.mutation(internal.functions.dropboxConnect.applyDropboxBinding, {
+      workspaceId,
+      boundBy: owner,
+      rootPrefix: undefined,
+      encryptedRefreshToken: await encryptSecret("new-refresh", keyset, context),
+      encryptedAccessToken: await encryptSecret("new-access", keyset, context),
+      accessTokenExpiresAt: now + 3_600_000,
+      dropboxAccountId: "dbid:SAME",
+    });
+
+    const scheduled = await t.run(async (ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect(),
+    );
+    expect(
+      scheduled.filter((job) => String(job.name).includes("revokeDropboxGrant")),
+    ).toHaveLength(0);
+  });
 });

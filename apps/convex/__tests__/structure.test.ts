@@ -706,7 +706,11 @@ describe("no public function can reach a storage secret", () => {
       // (the row is already gone), it is spent on one refresh + one revoke,
       // and every failure is swallowed: after this runs, successfully or
       // not, the control plane holds nothing. internalAction, reached only
-      // by a schedule edge from `disconnectStorage`.
+      // by schedule edges — three of them now: `disconnectStorage`,
+      // `applyBinding` rebinding away from Dropbox, and
+      // `applyDropboxBinding` landing on a different account. A count in
+      // this list is the sort of thing that goes stale silently, so it is
+      // here to be checked rather than trusted.
       "functions.dropboxConnect.revokeDropboxGrant",
       // THE FILE EDITOR'S CREDENTIAL BARRIER. Builds one S3Store for one
       // file operation and hands it to lib/fileOps.ts, which never sees the

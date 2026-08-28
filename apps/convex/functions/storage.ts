@@ -545,6 +545,36 @@ export const applyBinding = internalMutation({
       updatedAt: now,
     };
 
+    // Rebinding away from Dropbox is a disconnect, and gets the same funeral.
+    //
+    // Clearing the four fields above stops us holding the credential, which
+    // was the whole of the earlier fix — and it is only half. `disconnect`
+    // schedules this and states the other half: without it "we forget our copy
+    // of the credential while the authorization lives on in the person's
+    // account, and their next connect silently auto-approves instead of
+    // asking". A customer moving their context to their own bucket has ended
+    // the Dropbox relationship exactly as definitively as one clicking
+    // Disconnect; they should not have to go to Dropbox to finish the job.
+    //
+    // Scheduled, never called, so this mutation cannot reach the decrypt — and
+    // the envelope travels in the args because `fields` is about to erase it.
+    // No check that the new provider is not Dropbox: this mutation's own
+    // validator cannot express one — `applyBinding` writes the S3 family and
+    // nothing else, and a Dropbox binding is written by `applyDropboxBinding`.
+    // `tsc` said so when the redundant clause was there.
+    // The `provider` half is defence, not a live guard: no product path writes
+    // a refresh token onto a non-Dropbox row (`applyDropboxBinding` sets both
+    // together, this mutation only ever clears the field, and rotation
+    // re-encrypts a field into itself without touching `provider`). Removing
+    // it changes no test, which is the honest signal — and a reader meeting it
+    // cannot tell that without running the sabotage, so it is written here.
+    if (existing?.provider === "dropbox" && existing.encryptedRefreshToken !== undefined) {
+      await ctx.scheduler.runAfter(0, internal.functions.dropboxConnect.revokeDropboxGrant, {
+        workspaceId: args.workspaceId,
+        encryptedRefreshToken: existing.encryptedRefreshToken,
+      });
+    }
+
     let bindingId: Id<"storageBindings">;
     if (existing === null) {
       bindingId = await ctx.db.insert("storageBindings", {
