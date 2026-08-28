@@ -213,6 +213,41 @@ async function call(token, name, args = {}) {
   return r.result;
 }
 
+/**
+ * TEXT came back, and it does not contain NEEDLE.
+ *
+ * The symmetric counterpart to `succeeded()`, and needed for the same reason.
+ * `!text.includes(x)` is the natural way to assert something is hidden, and
+ * once `text` is optional-chained — which the crash convention requires — an
+ * absent result reads `!undefined`, which is `true`. So every "a team
+ * connection cannot see this" check would pass on a call that returned
+ * nothing, which is the failure those checks exist to catch. Six of them have
+ * no positive companion on the same variable, so nothing else would go red.
+ *
+ * `typeof text === "string"` is the half that rejects the absent result;
+ * `!text.includes` is the half that does the actual hiding assertion.
+ */
+function lacks(text, needle) {
+  return typeof text === "string" && !text.includes(needle);
+}
+
+/**
+ * A tool call SUCCEEDED: a result came back, and it is not an error.
+ *
+ * `!(await call(...)).isError` is the natural way to write this and it is not
+ * the same claim. `isError` is absent on success, so optional-chaining it —
+ * which the crash convention above otherwise requires — makes the expression
+ * read true when there is no result AT ALL: a JSON-RPC error, or a handler
+ * that threw. That is precisely the failure such a check exists to catch, so
+ * the guard against a crash would have bought a silent pass instead.
+ *
+ * Both halves are load-bearing. `Boolean(result)` rejects the absent result;
+ * `!result.isError` rejects the tool-level refusal.
+ */
+function succeeded(result) {
+  return Boolean(result) && !result.isError;
+}
+
 let failures = 0;
 function check(label, cond) {
   if (!cond) failures++;
@@ -391,8 +426,8 @@ check(
 );
 check(
   "native team scope rules and legacy public scope rules both resolve as team-visible",
-  !(await call("team-token", "read_note", { path: "team-native/info.md" })).isError &&
-    !(await call("team-token", "read_note", { path: "1-projects/togather/status.md" })).isError
+  succeeded(await call("team-token", "read_note", { path: "team-native/info.md" })) &&
+    succeeded(await call("team-token", "read_note", { path: "1-projects/togather/status.md" }))
 );
 check(
   "server contract says team access is authenticated and not internet-public",
@@ -1035,7 +1070,7 @@ check(
 check(
   "modern tools/call reaches the same tool implementation",
   modernCall.status === 200 &&
-    modernCall.body.result?.content[0].text.includes("public manifest") &&
+    modernCall.body.result?.content?.[0]?.text.includes("public manifest") &&
     modernCall.body.result?.resultType === "complete"
 );
 check(
@@ -1046,7 +1081,7 @@ check(
       token: "readonly-token",
       params: { name: "write_note", arguments: { path: "1-projects/x.md", content: "no" } },
     })
-  ).body.result?.content[0].text.includes("permission denied")
+  ).body.result?.content?.[0]?.text.includes("permission denied")
 );
 
 // The mirrored headers exist so an intermediary can route without parsing the
@@ -1212,7 +1247,7 @@ for (const verb of ["GET", "DELETE"]) {
 // --- and now the half that must not have moved: legacy clients ---
 check(
   "a legacy client sending no version header still works",
-  (await rpc("priv-token", "tools/list")).result?.tools.length === 20
+  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 20
 );
 async function legacyWithVersionHeader(version) {
   return worker.fetch(
@@ -1344,9 +1379,9 @@ check(
 );
 
 // -- orient scoping
-const oPriv = (await call("priv-token", "orient")).content[0].text;
-const oPub = (await call("pub-token", "orient")).content[0].text;
-check("private orient has private manifest", oPriv.includes("PRIVATE manifest"));
+const oPriv = (await call("priv-token", "orient"))?.content?.[0]?.text;
+const oPub = (await call("pub-token", "orient"))?.content?.[0]?.text;
+check("private orient has private manifest", oPriv?.includes("PRIVATE manifest"));
 // Was: asserts orient tells agents to keep a ledger under `2-areas/agent-todos/`.
 // That is one customer's house rule, and this gateway serves buckets organized
 // years before it existed. The contract now points at their own front page for
@@ -1354,14 +1389,14 @@ check("private orient has private manifest", oPriv.includes("PRIVATE manifest"))
 // returns that front page directly above it.
 check(
   "orient defers to the context's own conventions rather than inventing filing",
-  oPriv.includes("Follow their conventions, not a template") &&
-    !oPriv.includes("Read your weekly file")
+  oPriv?.includes("Follow their conventions, not a template") &&
+    lacks(oPriv, "Read your weekly file")
 );
-check("team orient lacks private manifest", !oPub.includes("PRIVATE manifest"));
-check("team orient lacks secret project", !oPub.includes("secret-thing"));
-check("team orient shows team project", oPub.includes("1-projects/togather"));
-check("team orient hides 1:1 subfolder", !oPub.includes("one-on-ones"));
-check("orient hides .obsidian", !oPub.includes(".obsidian") && !oPriv.includes(".obsidian"));
+check("team orient lacks private manifest", lacks(oPub, "PRIVATE manifest"));
+check("team orient lacks secret project", lacks(oPub, "secret-thing"));
+check("team orient shows team project", oPub?.includes("1-projects/togather"));
+check("team orient hides 1:1 subfolder", lacks(oPub, "one-on-ones"));
+check("orient hides .obsidian", lacks(oPub, ".obsidian") && lacks(oPriv, ".obsidian"));
 
 // -- orient is the front door, so it has to be worth walking through
 //
@@ -1370,17 +1405,17 @@ check("orient hides .obsidian", !oPub.includes(".obsidian") && !oPriv.includes("
 // never comes back. So orient owes the caller three things beyond a folder
 // list — the user's own front page, what they touched recently, and a reason
 // to write anything back.
-check("orient names the front page", oPriv.includes("## Front page — index.md"));
-check("orient carries the front page content", oPriv.includes("# public manifest"));
-check("orient surfaces recent activity", oPriv.includes("## Recently updated"));
+check("orient names the front page", oPriv?.includes("## Front page — index.md"));
+check("orient carries the front page content", oPriv?.includes("# public manifest"));
+check("orient surfaces recent activity", oPriv?.includes("## Recently updated"));
 check(
   "orient dates recent activity relatively",
   /## Recently updated\n(?:- \S+\.md — (?:just now|\d+(?:m|h|d|w|mo|y) ago)\n)+/.test(oPriv)
 );
-check("orient asks the agent to write back", oPriv.includes("Leave more than you took"));
+check("orient asks the agent to write back", oPriv?.includes("Leave more than you took"));
 check(
   "orient points at the next call rather than ending",
-  oPriv.includes("list_notes") && oPriv.includes("search_notes")
+  oPriv?.includes("list_notes") && oPriv?.includes("search_notes")
 );
 
 // A count that included notes the caller cannot see would let a colleague
@@ -1390,11 +1425,32 @@ check(
 // listing, and asserted against `list_notes` rather than against a literal,
 // so seeding another fixture below cannot quietly make this vacuous.
 function orientFolderCount(text, prefix) {
+  // `text` comes from a call result this file now guards, so it can be
+  // undefined where it previously could not. The use is an argument rather
+  // than a dereference, which is why no sweep for `oPriv.` or `oPriv?.` finds
+  // it — the crash moved here when the assignment stopped throwing.
+  if (typeof text !== "string") return null;
   const line = text.match(new RegExp(`^- ${prefix} — (\\d+)(\\+?) notes?$`, "m"));
   return line ? { count: Number(line[1]), floor: line[2] === "+" } : null;
 }
+/**
+ * How many notes this connection can list under `prefix`, or `null` if the
+ * listing never arrived.
+ *
+ * `null` rather than `undefined` on purpose, and it is the third shape of the
+ * same bug. Neither `succeeded()` nor `lacks()` reaches an EQUALITY whose two
+ * operands can both go absent independently: the callers below compare this
+ * against `orientFolderCount(...)?.count`, and `undefined === undefined` is
+ * `true`. Both counts vanishing is exactly the state where the two checks
+ * asserting a team connection counts less than the owner would report PASS
+ * having measured nothing on either side — and those are the named owners of
+ * the property that stops a colleague deriving an exact private-note total.
+ *
+ * An empty listing is a real `0` and must stay distinguishable from that.
+ */
 async function visibleNoteCount(tokenLabel, prefix) {
-  const listed = (await call(tokenLabel, "list_notes", { prefix })).content[0].text;
+  const listed = (await call(tokenLabel, "list_notes", { prefix }))?.content?.[0]?.text;
+  if (typeof listed !== "string") return null;
   return listed === "(no visible notes under that prefix)" ? 0 : listed.split("\n").length;
 }
 const projectsPriv = orientFolderCount(oPriv, "1-projects/");
@@ -1405,24 +1461,31 @@ check(
 );
 check(
   "orient counts only what the owner can see",
-  projectsPriv?.count === (await visibleNoteCount("priv-token", "1-projects"))
+  typeof projectsPriv?.count === "number" &&
+    projectsPriv.count === (await visibleNoteCount("priv-token", "1-projects"))
 );
 check(
   "orient counts only what a team connection can see",
-  projectsPub?.count === (await visibleNoteCount("pub-token", "1-projects"))
+  typeof projectsPub?.count === "number" &&
+    projectsPub.count === (await visibleNoteCount("pub-token", "1-projects"))
 );
 check(
   "orient's team count is smaller than the owner's",
-  projectsPub.count < projectsPriv.count
+  projectsPub?.count < projectsPriv?.count
 );
+// Split first, then assert through `lacks`. Written inline the chain reads
+// `!oPub?.split(...)[0].includes(x)`, and optional chaining short-circuits the
+// WHOLE chain to undefined — so on a failed orient the negation is true twice
+// and the check passes without an orientation existing.
+const pubRecentActivity =
+  typeof oPub === "string" ? oPub.split("## Structure")[0] : undefined;
 check(
   "orient's recent activity never names a private note",
-  !oPub.split("## Structure")[0].includes("secret-thing") &&
-    !oPub.split("## Structure")[0].includes("one-on-ones")
+  lacks(pubRecentActivity, "secret-thing") && lacks(pubRecentActivity, "one-on-ones")
 );
 check(
   "orient omits the floor caveat when nothing was truncated",
-  !oPriv.includes("are floors")
+  lacks(oPriv, "are floors")
 );
 
 // -- the ChatGPT dialect: search and fetch
@@ -1436,7 +1499,7 @@ check(
 // checks that matter are that the shape parses and that the dialect discloses
 // nothing the ordinary tools would not.
 const openaiSearch = JSON.parse(
-  (await call("priv-token", "search", { query: "togather" })).content[0].text
+  (await call("priv-token", "search", { query: "togather" }))?.content?.[0]?.text
 );
 check(
   "search answers OpenAI's shape: a results array of id/title/text/url",
@@ -1454,7 +1517,7 @@ check(
   "a result id round-trips through fetch",
   await (async () => {
     const fetched = JSON.parse(
-      (await call("priv-token", "fetch", { id: openaiSearch.results[0].id })).content[0].text
+      (await call("priv-token", "fetch", { id: openaiSearch.results[0].id }))?.content?.[0]?.text
     );
     return (
       fetched.id === openaiSearch.results[0].id &&
@@ -1468,7 +1531,7 @@ check(
 // team connection's search must not surface a private note, and fetch of a
 // private path must be byte-identical to fetching a path that never existed.
 const teamSearch = JSON.parse(
-  (await call("pub-token", "search", { query: "PRIVATEWORD" })).content[0].text
+  (await call("pub-token", "search", { query: "PRIVATEWORD" }))?.content?.[0]?.text
 );
 check("a team search cannot surface a private note", teamSearch.results.length === 0);
 const teamFetchPrivate = await call("pub-token", "fetch", { id: "1-projects/secret-thing/status.md" });
@@ -1480,13 +1543,13 @@ check(
 );
 check(
   "fetch refuses plumbing and non-note ids",
-  (await call("priv-token", "fetch", { id: "privacy.md" })).isError === true &&
-    (await call("priv-token", "fetch", { id: ".history/index.md.x.archive.md" })).isError === true
+  (await call("priv-token", "fetch", { id: "privacy.md" }))?.isError === true &&
+    (await call("priv-token", "fetch", { id: ".history/index.md.x.archive.md" }))?.isError === true
 );
 check(
   "the dialect is read-only, so a read-only grant keeps it",
-  (await rpc("readonly-token", "tools/list")).result.tools.some((t) => t.name === "search") &&
-    !(await call("readonly-token", "search", { query: "togather" })).isError
+  (await rpc("readonly-token", "tools/list"))?.result.tools.some((t) => t.name === "search") &&
+    succeeded(await call("readonly-token", "search", { query: "togather" }))
 );
 
 // -- the privacy tier is a property of the grant, not of the approver's role
@@ -1516,10 +1579,10 @@ check(
   "and cannot find it by searching for its contents",
   !JSON.stringify(ownerTeamSearch).includes("secret-thing")
 );
-const ownerTeamOrient = (await call("owner-team-token", "orient")).content[0].text;
+const ownerTeamOrient = (await call("owner-team-token", "orient"))?.content?.[0]?.text;
 check(
   "and is not shown the private manifest their private-tier client sees",
-  !ownerTeamOrient.includes("PRIVATE manifest") && !ownerTeamOrient.includes("secret-thing")
+  lacks(ownerTeamOrient, "PRIVATE manifest") && lacks(ownerTeamOrient, "secret-thing")
 );
 // The other direction, so the three checks above are proving a tier and not a
 // broken grant: the same token reads team content perfectly well, and the same
@@ -1583,23 +1646,23 @@ check(
     visibilityTierForGrant(["context:read", "context:private"], "editor") === "team" &&
     visibilityTierForGrant(["context:read", "context:private"], "member") === "team"
 );
-check("orient exposes team write surface", oPub.includes("Team-writable folder defaults") && oPub.includes("2-areas"));
+check("orient exposes team write surface", oPub?.includes("Team-writable folder defaults") && oPub?.includes("2-areas"));
 check(
   "orient identifies shared credentials as team access",
   /connection (?:scope|access): team/i.test(oPub) &&
     !/connection (?:scope|access): public/i.test(oPub) &&
     !/writable public prefixes/i.test(oPub)
 );
-const publicScopeInfo = (await call("pub-token", "scope_info")).content[0].text;
-const privateScopeInfo = (await call("priv-token", "scope_info")).content[0].text;
-check("team scope_info lists broad team PARA roots", publicScopeInfo.includes("1-projects") && publicScopeInfo.includes("2-areas") && publicScopeInfo.includes("3-resources") && publicScopeInfo.includes("4-archive"));
-check("team scope_info hides private override names", !publicScopeInfo.includes("one-on-ones"));
-check("private scope_info can audit private overrides", privateScopeInfo.includes("one-on-ones"));
+const publicScopeInfo = (await call("pub-token", "scope_info"))?.content?.[0]?.text;
+const privateScopeInfo = (await call("priv-token", "scope_info"))?.content?.[0]?.text;
+check("team scope_info lists broad team PARA roots", publicScopeInfo?.includes("1-projects") && publicScopeInfo?.includes("2-areas") && publicScopeInfo?.includes("3-resources") && publicScopeInfo?.includes("4-archive"));
+check("team scope_info hides private override names", lacks(publicScopeInfo, "one-on-ones"));
+check("private scope_info can audit private overrides", privateScopeInfo?.includes("one-on-ones"));
 
 // -- list/read scoping
-const lPub = (await call("pub-token", "list_notes")).content[0].text;
-check("team list hides privacy.md", !lPub.includes("privacy.md"));
-check("team list hides private", !lPub.includes("secret-thing") && !lPub.includes("one-on-ones"));
+const lPub = (await call("pub-token", "list_notes"))?.content?.[0]?.text;
+check("team list hides privacy.md", lacks(lPub, "privacy.md"));
+check("team list hides private", lacks(lPub, "secret-thing") && lacks(lPub, "one-on-ones"));
 const rPub = await call("pub-token", "read_note", { path: "1-projects/secret-thing/status.md" });
 check("team read of private → not found", rPub.isError && rPub.content[0].text === "not found");
 const rPub2 = await call("pub-token", "read_note", { path: "2-areas/engineering/one-on-ones/alex.md" });
@@ -1660,7 +1723,7 @@ check(
   !folderPrivacyDryRun.isError &&
     folderPrivacyDryRunText.includes("dry run: no changes made") &&
     folderPrivacyDryRunText.includes("resulting_default: private") &&
-    !(await call("team-token", "read_note", { path: managedTeamPath })).isError
+    succeeded(await call("team-token", "read_note", { path: managedTeamPath }))
 );
 const folderPrivacyMissingEtag = await call("priv-token", "set_folder_visibility", {
   path: managedFolder,
@@ -1681,8 +1744,8 @@ const privacyAfterFolderPrivate = await objects.get("privacy.md").body;
 check(
   "personal MCP atomically makes a folder private and hides every inherited note from team",
   !makeFolderPrivate.isError &&
-    (await call("team-token", "read_note", { path: managedTeamPath })).isError &&
-    (await call("team-token", "read_note", { path: managedPrivatePath })).isError &&
+    (await call("team-token", "read_note", { path: managedTeamPath }))?.isError &&
+    (await call("team-token", "read_note", { path: managedPrivatePath }))?.isError &&
     privacyAfterFolderPrivate.includes(`  ${managedFolder}: private`)
 );
 check(
@@ -1705,7 +1768,7 @@ const publishFolderWithoutConfirmation = await call("priv-token", "set_folder_vi
 check(
   "private folder to inherited-team transition requires explicit confirmation",
   publishFolderWithoutConfirmation.isError &&
-    (await call("team-token", "read_note", { path: managedTeamPath })).isError
+    (await call("team-token", "read_note", { path: managedTeamPath }))?.isError
 );
 const publishFolderWithConfirmation = await call("priv-token", "set_folder_visibility", {
   path: managedFolder,
@@ -1716,7 +1779,7 @@ const publishFolderWithConfirmation = await call("priv-token", "set_folder_visib
 check(
   "confirmed inheritance change republishes the folder and removes its direct rule",
   !publishFolderWithConfirmation.isError &&
-    !(await call("team-token", "read_note", { path: managedTeamPath })).isError &&
+    succeeded(await call("team-token", "read_note", { path: managedTeamPath })) &&
     !objects.get("privacy.md").body.includes(`  ${managedFolder}: private`)
 );
 const teamCannotChangeFolderVisibility = await call("team-token", "set_folder_visibility", {
@@ -1765,7 +1828,7 @@ const teamMeetingList = (await call("team-token", "list_notes", {
 const teamPrivateSearch = (await call("team-token", "search_notes", {
   query: "PRIVATE-SIDE-BY-SIDE-MARKER",
 })).content[0].text;
-const teamOrientAfterPrivateNote = (await call("team-token", "orient")).content[0].text;
+const teamOrientAfterPrivateNote = (await call("team-token", "orient"))?.content?.[0]?.text;
 check(
   "private note is absent from team listings",
   teamMeetingList.includes(teamMeetingPath) && !teamMeetingList.includes(privateMeetingPath)
@@ -1773,7 +1836,7 @@ check(
 check("private note content is absent from team search", !teamPrivateSearch.includes(privateMeetingPath));
 check(
   "private note name is absent from team orientation",
-  !teamOrientAfterPrivateNote.includes("personnel-check-in")
+  lacks(teamOrientAfterPrivateNote, "personnel-check-in")
 );
 
 const privateScopeByPath = await call("priv-token", "scope_info", { path: privateMeetingPath });
@@ -1808,8 +1871,11 @@ const privateUpdate = await call("priv-token", "write_note", {
 check("updating a note without visibility preserves its private ACL", !privateUpdate.isError);
 check(
   "updated private note stays unreadable and unsearchable to team",
-  (await call("team-token", "read_note", { path: privateMeetingPath })).isError &&
-    !(await call("team-token", "search_notes", { query: "PRIVATE-UPDATED-MARKER" })).content[0].text.includes(privateMeetingPath)
+  (await call("team-token", "read_note", { path: privateMeetingPath }))?.isError &&
+    lacks(
+      (await call("team-token", "search_notes", { query: "PRIVATE-UPDATED-MARKER" }))?.content?.[0]?.text,
+      privateMeetingPath
+    )
 );
 
 const teamCannotCreatePrivatePath = "2-areas/engineering/meetings/team-cannot-hide.md";
@@ -1843,8 +1909,8 @@ check(
   misleadingFrontmatter.isError && !objects.has(misleadingFrontmatterPath)
 );
 
-const teamMeetingRead = (await call("priv-token", "read_note", { path: teamMeetingPath })).content[0].text;
-const teamMeetingEtag = teamMeetingRead.match(/etag: (\S+)/)?.[1];
+const teamMeetingRead = (await call("priv-token", "read_note", { path: teamMeetingPath }))?.content?.[0]?.text;
+const teamMeetingEtag = teamMeetingRead?.match(/etag: (\S+)/)?.[1];
 const makeMeetingPrivate = await call("priv-token", "set_visibility", {
   path: teamMeetingPath,
   visibility: "private",
@@ -1854,7 +1920,7 @@ check(
   "personal connection can narrow a team note to private in place",
   !makeMeetingPrivate.isError &&
     objects.has(teamMeetingPath) &&
-    (await call("team-token", "read_note", { path: teamMeetingPath })).isError
+    (await call("team-token", "read_note", { path: teamMeetingPath }))?.isError
 );
 const nowPrivateMeetingRead = (await call("priv-token", "read_note", {
   path: teamMeetingPath,
@@ -1868,7 +1934,7 @@ const publishWithoutConfirmation = await call("priv-token", "set_visibility", {
 check(
   "private to team transition requires explicit publication confirmation",
   publishWithoutConfirmation.isError &&
-    (await call("team-token", "read_note", { path: teamMeetingPath })).isError
+    (await call("team-token", "read_note", { path: teamMeetingPath }))?.isError
 );
 const publishWithConfirmation = await call("priv-token", "set_visibility", {
   path: teamMeetingPath,
@@ -1880,7 +1946,7 @@ check(
   "confirmed private to team transition publishes the same logical note",
   !publishWithConfirmation.isError &&
     objects.has(teamMeetingPath) &&
-    !(await call("team-token", "read_note", { path: teamMeetingPath })).isError
+    succeeded(await call("team-token", "read_note", { path: teamMeetingPath }))
 );
 const teamCannotChangeVisibility = await call("team-token", "set_visibility", {
   path: teamMeetingPath,
@@ -1896,7 +1962,7 @@ const inheritedPrivateWrite = await call("priv-token", "write_note", {
 });
 const inheritedPrivateEtag = (await call("priv-token", "read_note", {
   path: inheritedPrivatePath,
-})).content[0].text.match(/etag: (\S+)/)?.[1];
+}))?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
 const publishInsidePrivateFolder = await call("priv-token", "set_visibility", {
   path: inheritedPrivatePath,
   visibility: "team",
@@ -1914,7 +1980,7 @@ check(
   !publishInsidePrivateFolder.isError &&
     createTeamInsidePrivateFolder.isError &&
     !objects.has("2-areas/private/meetings/invalid-team-child.md") &&
-    !(await call("team-token", "read_note", { path: inheritedPrivatePath })).isError
+    succeeded(await call("team-token", "read_note", { path: inheritedPrivatePath }))
 );
 const teamUpdatesPublishedPrivateFolderNote = await call("team-token", "write_note", {
   path: inheritedPrivatePath,
@@ -1955,7 +2021,7 @@ check(
   !movePrivateMeeting.isError &&
     objects.has(movedPrivateMeetingPath) &&
     !objects.has(privateMeetingPath) &&
-    (await call("team-token", "read_note", { path: movedPrivateMeetingPath })).isError
+    (await call("team-token", "read_note", { path: movedPrivateMeetingPath }))?.isError
 );
 const archivePrivateMeeting = await call("priv-token", "archive_note", {
   path: movedPrivateMeetingPath,
@@ -1967,12 +2033,12 @@ check(
     archivedPrivateMeetingPath &&
     objects.has(archivedPrivateMeetingPath) &&
     !objects.has(movedPrivateMeetingPath) &&
-    (await call("team-token", "read_note", { path: archivedPrivateMeetingPath })).isError
+    (await call("team-token", "read_note", { path: archivedPrivateMeetingPath }))?.isError
 );
 
 // -- etag CAS + history
-const read1 = (await call("priv-token", "read_note", { path: "index.md" })).content[0].text;
-const etag = read1.match(/etag: (\S+)/)[1];
+const read1 = (await call("priv-token", "read_note", { path: "index.md" }))?.content?.[0]?.text;
+const etag = read1?.match(/etag: (\S+)/)?.[1];
 const wOk = await call("priv-token", "write_note", { path: "index.md", content: "v2", expected_etag: etag });
 check("CAS write with fresh etag ok", !wOk.isError);
 const wStale = await call("priv-token", "write_note", { path: "index.md", content: "v3", expected_etag: etag });
@@ -1980,10 +2046,10 @@ check("CAS write with stale etag conflicts", wStale.isError && wStale.content[0]
 check("history snapshot exists", [...objects.keys()].some((k) => k.startsWith(".history/index.md.")));
 
 // -- search scoping
-const sPub = (await call("pub-token", "search_notes", { query: "status" })).content[0].text;
-check("team search hides private hits", !sPub.includes("secret-thing"));
-const sPriv = (await call("priv-token", "search_notes", { query: "PRIVATEWORD" })).content[0].text;
-check("private search finds private", sPriv.includes("secret-thing"));
+const sPub = (await call("pub-token", "search_notes", { query: "status" }))?.content?.[0]?.text;
+check("team search hides private hits", lacks(sPub, "secret-thing"));
+const sPriv = (await call("priv-token", "search_notes", { query: "PRIVATEWORD" }))?.content?.[0]?.text;
+check("private search finds private", sPriv?.includes("secret-thing"));
 const sPrefixed = (await call("priv-token", "search_notes", {
   query: "portable",
   prefix: "1-projects/portable",
@@ -2001,12 +2067,12 @@ check(
   !arch.isError &&
     privateArchiveKey?.startsWith("4-archive/") &&
     !privateArchiveKey.startsWith("4-archive/private/") &&
-    (await call("team-token", "read_note", { path: privateArchiveKey })).isError &&
+    (await call("team-token", "read_note", { path: privateArchiveKey }))?.isError &&
     !objects.has("1-projects/togather/notes.md")
 );
 await call("pub-token", "write_note", { path: "1-projects/togather/probe.md", content: "temporary probe" });
-const probeRead = (await call("pub-token", "read_note", { path: "1-projects/togather/probe.md" })).content[0].text;
-const probeEtag = probeRead.match(/etag: (\S+)/)[1];
+const probeRead = (await call("pub-token", "read_note", { path: "1-projects/togather/probe.md" }))?.content?.[0]?.text;
+const probeEtag = probeRead?.match(/etag: (\S+)/)?.[1];
 const publicArchiveWithoutEtag = await call("pub-token", "archive_note", {
   path: "1-projects/togather/probe.md",
 });
@@ -2039,15 +2105,15 @@ check(
 );
 const publicProposalList = await call("pub-token", "list_proposals");
 check("team connection cannot inspect proposal queue", publicProposalList.isError);
-const privateProposalList = (await call("priv-token", "list_proposals")).content[0].text;
+const privateProposalList = (await call("priv-token", "list_proposals"))?.content?.[0]?.text;
 check(
   "private connection lists proposal metadata",
-  privateProposalList.includes(proposalId) &&
-    privateProposalList.includes("2-areas/private/apps/example.md") &&
-    !privateProposalList.includes("# Proposed app note")
+  privateProposalList?.includes(proposalId) &&
+    privateProposalList?.includes("2-areas/private/apps/example.md") &&
+    lacks(privateProposalList, "# Proposed app note")
 );
-const privateProposalRead = (await call("priv-token", "read_proposal", { id: proposalId })).content[0].text;
-check("private connection reads proposal content", privateProposalRead.includes("# Proposed app note"));
+const privateProposalRead = (await call("priv-token", "read_proposal", { id: proposalId }))?.content?.[0]?.text;
+check("private connection reads proposal content", privateProposalRead?.includes("# Proposed app note"));
 const approveProposal = await call("priv-token", "review_proposal", {
   id: proposalId,
   action: "approve",
@@ -2055,7 +2121,7 @@ const approveProposal = await call("priv-token", "review_proposal", {
 check(
   "private approval files proposal and clears pending queue",
   !approveProposal.isError && objects.has("2-areas/private/apps/example.md") &&
-    (await call("priv-token", "list_proposals")).content[0].text.includes("no pending")
+    (await call("priv-token", "list_proposals"))?.content?.[0]?.text.includes("no pending")
 );
 const rejectedProposal = await call("pub-token", "propose_note", {
   path: "2-areas/private/apps/rejected.md",
@@ -2098,7 +2164,7 @@ check(
   "personal connection can explicitly publish a chat archive to team visibility",
   !privatePublishedChat.isError &&
     privatePublishedPath?.startsWith("4-archive/chat-history/chatgpt/") &&
-    !((await call("pub-token", "read_note", { path: privatePublishedPath })).isError)
+    succeeded(await call("pub-token", "read_note", { path: privatePublishedPath }))
 );
 
 const publicChatArchive = await call("pub-token", "save_context", {
@@ -2137,7 +2203,7 @@ check(
   "personal reviewer can approve a team client's private chat archive",
   !approvePrivateChat.isError &&
     objects.has(privateChatIntendedPath) &&
-    (await call("pub-token", "read_note", { path: privateChatIntendedPath })).isError
+    (await call("pub-token", "read_note", { path: privateChatIntendedPath }))?.isError
 );
 
 // archive_chat must respect the folder default the way write_note does. Make
@@ -2199,8 +2265,8 @@ check(
 );
 
 // -- move note / folder
-const portableRead = (await call("pub-token", "read_note", { path: "1-projects/portable/a.md" })).content[0].text;
-const portableEtag = portableRead.match(/etag: (\S+)/)[1];
+const portableRead = (await call("pub-token", "read_note", { path: "1-projects/portable/a.md" }))?.content?.[0]?.text;
+const portableEtag = portableRead?.match(/etag: (\S+)/)?.[1];
 const moveNote = await call("pub-token", "move_note", {
   source: "1-projects/portable/a.md",
   destination: "1-projects/portable/renamed.md",
@@ -2237,8 +2303,8 @@ check(
 );
 check(
   "the moved half stays team-readable and the island stays unreadable",
-  !(await call("pub-token", "read_note", { path: "1-projects/mixed-dest/public.md" })).isError &&
-    (await call("pub-token", "read_note", { path: "1-projects/mixed/private/secret.md" })).isError
+  succeeded(await call("pub-token", "read_note", { path: "1-projects/mixed-dest/public.md" })) &&
+    (await call("pub-token", "read_note", { path: "1-projects/mixed/private/secret.md" }))?.isError
 );
 
 // The oracle itself. `1-projects/mixed/private` is private by folder default
@@ -2286,7 +2352,7 @@ check(
   !privateFolderMove.isError &&
     objects.has("1-projects/private-folder-renamed/a.md") &&
     !objects.has("1-projects/private-folder/a.md") &&
-    (await call("team-token", "read_note", { path: "1-projects/private-folder-renamed/a.md" })).isError
+    (await call("team-token", "read_note", { path: "1-projects/private-folder-renamed/a.md" }))?.isError
 );
 check(
   "moves snapshot sources to history",
@@ -2384,26 +2450,26 @@ await call("priv-token", "write_note", {
   path: "1-projects/secret-thing/private-update.md",
   content: "private audit marker",
 });
-const publicChanges = (await call("pub-token", "list_changes", { limit: 100 })).content[0].text;
-const privateChanges = (await call("priv-token", "list_changes", { limit: 100 })).content[0].text;
-check("team change log shows team move", publicChanges.includes("move_note"));
-check("team change log hides private paths", !publicChanges.includes("secret-thing") && !publicChanges.includes("private-folder"));
-check("private change log includes private paths", privateChanges.includes("secret-thing") && privateChanges.includes("private-folder"));
+const publicChanges = (await call("pub-token", "list_changes", { limit: 100 }))?.content?.[0]?.text;
+const privateChanges = (await call("priv-token", "list_changes", { limit: 100 }))?.content?.[0]?.text;
+check("team change log shows team move", publicChanges?.includes("move_note"));
+check("team change log hides private paths", lacks(publicChanges, "secret-thing") && lacks(publicChanges, "private-folder"));
+check("private change log includes private paths", privateChanges?.includes("secret-thing") && privateChanges?.includes("private-folder"));
 check(
   "team audit log filters exact-note private ACL events inside team folders",
-  !publicChanges.includes("personnel-check-in") &&
+  lacks(publicChanges, "personnel-check-in") &&
     publicChanges
       .split("\n")
       .filter((line) => line.includes("set_visibility") && line.includes(teamMeetingPath)).length === 0
 );
 check(
   "personal audit log retains private ACL, move, and archive events",
-  privateChanges.includes("personnel-check-in") &&
-    privateChanges.includes("set_visibility") &&
-    privateChanges.includes("inherited-private")
+  privateChanges?.includes("personnel-check-in") &&
+    privateChanges?.includes("set_visibility") &&
+    privateChanges?.includes("inherited-private")
 );
-const listAfterAudit = (await call("priv-token", "list_notes")).content[0].text;
-check("audit plumbing is hidden from note listings", !listAfterAudit.includes(".audit/"));
+const listAfterAudit = (await call("priv-token", "list_notes"))?.content?.[0]?.text;
+check("audit plumbing is hidden from note listings", lacks(listAfterAudit, ".audit/"));
 
 // -- path token + inbox
 const pt = await worker.fetch(

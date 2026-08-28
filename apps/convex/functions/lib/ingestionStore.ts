@@ -36,6 +36,12 @@
  * a person triages a capture out of their own context and moves it — which
  * means everything from outside passed through one accountable owner's hands.
  *
+ * A **personal context the owner has since shared is not a shared context**:
+ * it keeps its capture address, because its accountable owner still exists,
+ * still solely controls the allow-list, and still answers for what lands. The
+ * distinction is the `kind` chosen at creation plus a resolvable sole owner,
+ * never a member count — see `resolvePersonalContextForIngestion`.
+ *
  * `resolvePersonalContextForIngestion` below is the **single** place that
  * decides this. Nothing else may re-derive it.
  */
@@ -56,29 +62,44 @@ export async function getIngestionSettingsRow(
 }
 
 /**
- * How many member rows we will read before giving up on a context.
+ * How many member rows we will read before giving up on finding the owner.
  *
- * A personal context has one. Reading a bounded page and refusing anything
- * larger is what keeps this a constant-cost check on a path a stranger can
- * trigger by sending mail.
+ * Reading one bounded page is what keeps this a constant-cost check on a path
+ * a stranger can trigger by sending mail. The page is guaranteed to contain
+ * the owner row when one exists: `createWorkspace` writes it inside the
+ * transaction that creates the workspace, so it is the oldest member row, and
+ * `by_workspace` returns rows for one workspace in creation order. A page
+ * with no owner row therefore means the context *has* no owner, and refusing
+ * it is fail-closed, not a truncation artifact.
  */
 const MAX_MEMBERS_SCANNED = 8;
 
 /**
- * A personal context, resolved structurally rather than by its label.
+ * A personal context, resolved to the one person accountable for its mail.
  *
- * `schema.ts` says it in as many words: *"A personal context is a workspace
- * with a single `owner` member. A shared context is the same row with more
- * members."* That sentence is the definition this function implements, and it
- * is why the membership count is checked and not just `kind`. `workspaces.kind`
- * is chosen by whoever called `createWorkspace` and no mutation ever changes
- * it, so it is a reliable *statement of intent* — but it is descriptive, and a
- * context that has since been shared with three people is not somewhere
- * unauthenticated mail may land whatever its row says. Both are required, and
- * the stricter one is the count.
+ * Two things are established here, and both are required. `workspaces.kind`
+ * must be `"personal"` — chosen at creation and never patched, so it is a
+ * reliable statement of what this context *is*; a shared context has no
+ * ingestion address at all (see the header). And the context must have
+ * exactly one `owner` member, who is returned: the owner is what makes a
+ * personal context accountable — their allow-list admits the mail, their
+ * inbox receives it, and the capture is attributed to them.
  *
- * Ordering note: `kind` is checked first and the count second, so a shared
- * context costs one document read rather than a member scan.
+ * ## Members do not kill the address
+ *
+ * This used to require a lone *member*, so inviting a colleague into your own
+ * context silently bounced your mail from that moment on — and because every
+ * refusal is byte-identical, nobody was told. That shipped as the cautious
+ * guess and was reversed deliberately (2026-08): sharing a personal context
+ * is a headline flow, and it must not cost the capture address. The risk the
+ * old rule guarded — unauthenticated mail landing where several people read —
+ * is governed where it belongs instead: the settings stay owner-only in
+ * `functions/ingestion.ts`, captures land in the owner's target folder under
+ * the context's own privacy manifest, and everything from outside still
+ * passes through one accountable owner's hands.
+ *
+ * Ordering note: `kind` is checked first and the owner scan second, so a
+ * shared context costs one document read rather than a member scan.
  *
  * ## Why this resolves through the workspace namespace
  *
@@ -96,22 +117,21 @@ const MAX_MEMBERS_SCANNED = 8;
  * handle, which is what CLAUDE.md means by usernames and workspace slugs
  * sharing one namespace. `functions/invitations.ts`'s `resolveInviteeUser`
  * already resolves a handle to a person exactly this way, and has since before
- * ingestion existed; this is the same rule, one notch stricter (it requires a
- * lone member, not merely a lone owner, because the question here is "may a
- * stranger write here?" rather than "who do I address an invitation to?").
+ * ingestion existed; this is the same rule — a handle addresses the sole
+ * owner of the personal context it names.
  *
  * If the `kind: "user"` arm is ever claimed at signup, this is the one function
  * that has to learn about it.
  *
  * ## Every "no" is the same "no"
  *
- * `null` covers: no such name, the name is a shared context, the name is a
- * personal context that has since gained members, the workspace row is gone,
- * and the context has no lone owner. The caller must not be able to tell them
- * apart — `<name>@context.lc` is an address anyone on the internet can probe,
- * and a distinguishable answer is a username-enumeration oracle drivable from
- * any mail client. Distinguishing the shared case in particular would publish
- * which names on this domain are teams.
+ * `null` covers: no such name, the name is a shared context, the workspace
+ * row is gone, and the context has no resolvable sole owner. The caller must
+ * not be able to tell them apart — `<name>@context.lc` is an address anyone
+ * on the internet can probe, and a distinguishable answer is a
+ * username-enumeration oracle drivable from any mail client. Distinguishing
+ * the shared case in particular would publish which names on this domain are
+ * teams.
  */
 export async function resolvePersonalContextForIngestion(
   ctx: QueryCtx,
@@ -129,10 +149,13 @@ export async function resolvePersonalContextForIngestion(
     .query("workspaceMembers")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
     .take(MAX_MEMBERS_SCANNED);
-  if (members.length !== 1) return null;
-  if (members[0].role !== "owner") return null;
+  // Exactly one owner: zero means damaged data (`removeMember` refuses to
+  // delete an owner), two would mean the sole-owner invariant broke somewhere
+  // else. Either way there is no single accountable person, so refuse.
+  const owners = members.filter((member) => member.role === "owner");
+  if (owners.length !== 1) return null;
 
-  return { workspace, ownerUserId: members[0].userId };
+  return { workspace, ownerUserId: owners[0].userId };
 }
 
 /**

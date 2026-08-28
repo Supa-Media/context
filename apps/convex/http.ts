@@ -592,7 +592,7 @@ export const gatewayGrantsRevoke = gatewayRoute(async (ctx, body) => {
  *
  * `{ "ingestion": null }` is the answer to every kind of no: no such name, a
  * reserved or malformed name, **the name is a shared context**, a personal
- * context that has since gained members, no policy row, unbound or unusable
+ * context with no resolvable owner, no policy row, unbound or unusable
  * storage, and over the rate limit. They are built here in one place so they
  * are byte-identical, because the difference between any two of them is a
  * username-enumeration oracle probeable from any mail client on earth.

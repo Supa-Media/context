@@ -56,11 +56,14 @@
  *    `apps/convex/functions/lib/ingestionStore.ts`'s
  *    `resolvePersonalContextForIngestion` is the single implementation, and it
  *    requires **both** `workspaces.kind === "personal"` **and** that the
- *    context has exactly one member who is its owner. The second is the
- *    stricter half, and it is what makes this structural rather than
- *    descriptive: `schema.ts` defines a personal context as "a workspace with
- *    a single `owner` member", so a context that has since been shared with
- *    three people stops receiving mail whatever its `kind` field says.
+ *    context resolves to exactly one `owner` member, who is returned as the
+ *    accountable person. The second is what makes this structural rather than
+ *    descriptive: a `kind` label with no resolvable owner behind it is
+ *    refused, because there is nobody whose allow-list could admit the mail.
+ *    A personal context that has since been *shared* keeps its address —
+ *    deliberately, since sharing must not silently kill capture — and what
+ *    stays owner-only is the policy governing it, so every capture still
+ *    passes through one accountable owner's hands.
  *
  *    ── What this is NOT, and why ──
  *
