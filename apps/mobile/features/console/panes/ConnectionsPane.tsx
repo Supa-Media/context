@@ -77,7 +77,7 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
       </Card>
 
       <View style={styles.spaced}>
-        <ConnectClients endpoint={data.endpoint} />
+        <ConnectClients endpoint={data.endpoint} clients={data.clients} />
       </View>
 
       <Card style={styles.spaced}>

@@ -40,8 +40,8 @@ boundary and invisible above it).
 - Search indexes, caches, and embeddings are **disposable derivatives**,
   rebuildable from the files. Never the only copy of anything.
 - The on-bucket layout is a stable format, not an internal detail:
-  `privacy.md` at root, `.history/`, `.audit/`, PARA folders. Treat changes to
-  it as breaking changes.
+  `index.md` and `privacy.md` at root, `.history/`, `.audit/`, PARA folders.
+  Treat changes to it as breaking changes.
 
 ### 4. One person or workspace is one security boundary
 
@@ -72,6 +72,8 @@ apps/web/        landing page
 apps/mcp/        Cloudflare Worker: MCP gateway, privacy engine, tools,
                  storage adapter, email ingestion
 packages/shared/ types and constants shared across apps
+packages/hook/   `npx @context-lc/hook` — the session-end hook that saves a
+                 coding session without the agent having to remember to
 ```
 
 ### The gateway (`apps/mcp`)
@@ -698,6 +700,143 @@ would mail the address that was named — but the code it mints is real, and thi
 is the provider with no email check and no rate limit. An hour is the shortest
 useful life for it. **Setting it to seven days to "match" the invitation
 lengthens only that code and buys the link nothing.**
+
+### Orientation is the front door, and `index.md` is the part we do not generate
+
+A context nobody's agent reads is worth nothing, and the first version of this
+gateway lost that fight quietly: clients connected, never called `orient`, never
+wrote anything back, and the owner concluded the product did not work. The fix
+is not one lever. There are three surfaces and they act at three different
+moments, and only the first two decide whether a tool is *reached for at all*:
+
+- **Connect** — the `instructions` payload (legacy `initialize`, modern
+  `server/discover`). Read once, sits in the system prompt for every
+  conversation, and reaches the model before it has decided anything.
+- **Decision** — the tool descriptions in `tools/list`, present every turn, for
+  every client. A description that explains mechanics ("List note paths,
+  optionally under a folder prefix") tells a model how a tool works and gives it
+  no reason to believe the user's question is answered inside. They are written
+  in the language of the user's intent for that reason.
+- **Result** — text appended to tool output. Only ever reaches an agent that
+  already called something.
+
+**There is deliberately no "you have not oriented yet" banner**, though it is
+the obvious next idea and the only mechanically enforceable one. It would live
+at *result* time, which is the moment least related to the failure, and it needs
+per-grant state to avoid becoming noise — and a grant is a **connection, not a
+conversation**. One desktop client holds one grant for weeks, so "already
+oriented" would need an invented TTL and would stay silent for exactly the fresh
+chat worth catching. It buys a Convex schema change and a write on the hot path
+to solve the least of the three problems.
+
+`orient` itself leads with the person's context and ends with the rules. It used
+to open with twenty-five lines of visibility governance handed to an agent that
+had not yet been given one reason to care, which is a document to comply with
+rather than a context to explore.
+
+**`index.md` is the one part of orientation we never generate.** Everything else
+— folder map, counts, recency — is derived and rebuilt per call. The front page
+is an ordinary root note the customer writes, edits in Obsidian, and owns; it is
+in the stable on-bucket layout above. Absent, `orient` says so and says what it
+is for. Generating a plausible one instead would be the product inventing the
+one thing only its owner can say.
+
+**Who may write the front page is settled, and it is not "whoever asks".** The
+onboarding seed prompt tells a connected client outright not to touch
+`index.md`, because `write_note` only checks an etag when one is supplied and a
+client told to write "who I am" would replace the scaffolded manifest with a
+biography on its first call. The orientation contract does ask agents to keep it
+current, and the two are reconciled rather than left to collide: read it, pass
+its etag, add to what is there, say what is changing first, never replace it
+wholesale. Loosening that to "keep index.md up to date" is one sentence shorter
+and hands every connected client a wholesale overwrite of the one file the whole
+orientation is built on.
+
+Three properties of the survey are load-bearing:
+
+- **Every count counts only what this connection can see.** Counting hidden
+  notes would let a colleague subtract and derive an exact private-note total
+  for the person who withheld them — what the console's census is owner-only to
+  prevent.
+- **Two listings per folder, answering different questions.** Delimited names
+  every subfolder; a bounded flat walk counts and dates them. Deriving the map
+  from the walk alone is simpler and drops the siblings of one huge folder off
+  the map entirely — for precisely the people with the most in here. Anything
+  the walk could not reach is a floor (`5000+`), never a total, and a recency
+  list built from a partial walk says that it is.
+- **The connect-time sketch fails soft, always.** A slow bucket, a revoked key,
+  a `privacy.md` somebody broke in Obsidian: none of them may take down a
+  handshake. A client that gets the static instructions is fully working and
+  merely less curious. Note that a thrown handler is answered with a JSON-RPC
+  error over HTTP 200, so "the handshake returned 200" does not test this.
+
+### The hook is a capture-only OAuth client, and that is the whole design
+
+An agent can call `save_context` when it finishes, and the failure mode is not
+refusal — it is a long session that ends without one, where the thing worth
+keeping was in the part nobody wrote down. The hook is the safety net, and
+because it runs unattended it is the one credential in this system that sits on
+somebody's laptop indefinitely.
+
+So it asks for `context:capture` and nothing else. That grant writes to
+`0-inbox/` and **cannot read a single note** — no search, no listing, no
+existence oracle. The obvious upgrade, `context:write`, would let the hook
+honour the user's own save destination instead of always landing in the inbox,
+and it would also mean a stale credential on an old laptop can read every
+private note its owner has ever written. That trade only goes one way, and a
+capture landing in `0-inbox/` is not even a compromise: it is what that folder
+is for.
+
+It authenticates with the ordinary authorization-code flow over a loopback
+redirect, which the gateway already supported — `redirectUriMatches` implements
+the RFC 8252 §7.3 port exception precisely so native clients can do this. The
+three alternatives were considered and are worse: a dashboard-minted long-lived
+token is a bearer secret with no client identity behind it, so revoking it is
+all-or-nothing; reusing the token the AI client already holds would require
+reading another application's credential store; and token-in-URL is already the
+compatibility fallback and never the boundary.
+
+Each machine registers its own client, so revoking the laptop you lost does not
+sign out the one on your desk.
+
+**The capture boundary is an allow-list, and it is the most security-sensitive
+code in the package.** A session log holds the system prompt, the model's
+reasoning, every tool call and result, and the contents of files read along the
+way. A message travels only if its role is `user` or `assistant` *and* its
+content block is declared `type: "text"`. Switching on the declared type rather
+than reaching for any `.text` present is what stops a `tool_result` — whose
+nested blocks also have a `.text` — from being posted; the fishing version
+passes every test written with plain string messages, which is why the suite
+seeds a log carrying six distinct marker strings and asserts each one absent.
+
+**The session-start hook is where the scope question actually bites.** Claude
+Code injects a `SessionStart` hook's output into the session before the first
+turn, which is the only mechanism anywhere in this product that does not depend
+on an agent deciding something — and it is therefore the strongest available
+answer to "connected agents never call `orient`". Fetching a real orientation
+needs read access, on the credential that sits unattended on a laptop, so there
+are two versions and the default is the narrow one: capture-only injects an
+instruction to call `orient`, and `--orient` injects the orientation itself.
+
+Three things hold that line. The wider mode is a flag somebody types, never a
+default they discover afterwards. A change of scope **re-registers the client**
+rather than re-authorizing the one that declared it wanted less. And neither
+mode ever requests `context:private` — a hook that could read every note its
+owner marked private is past what any convenience is worth, and the cost is
+paid honestly: on a mostly-private context the injected orientation is thin and
+says so.
+
+Both hooks fail towards doing nothing loudly rather than something wrong
+quietly. The start hook runs before the person has typed anything, so a revoked
+grant, a slow gateway or a capture-only credential all come out as the
+directive, and a capture-only install does not even spend the request finding
+out it cannot read.
+
+**A hook is only offered for a client whose end-of-session event is documented.**
+Claude Code's `SessionEnd` hands over the transcript path; the others are
+guesses. A hook that silently never fires is worse than no button, because the
+person believes their sessions are being saved and finds out months later that
+none of them were.
 
 ### A guard nobody has checked is not a guard
 

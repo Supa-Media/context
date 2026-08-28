@@ -1,0 +1,86 @@
+# The session hook's own CI.
+#
+# Same reason `mcp.yml` exists: the reusable framework pipeline filters on
+# apps/mobile, apps/convex and packages/shared, so nothing under packages/hook
+# matches and its suite would never run. That package holds the code that
+# decides **what leaves somebody's machine** — the capture boundary over a
+# session log full of system prompts, reasoning and tool output — and an OAuth
+# client that keeps a refresh token on disk. Least covered in CI is exactly the
+# wrong place for it.
+#
+# Bare node, no install step: the package has no dependencies, on purpose. It is
+# something people `npx` onto their own machine, so its supply chain should be
+# its own source.
+name: Session hook
+
+# No `paths:` filter on pull_request, deliberately — see mcp.yml. A required
+# check that is filtered out never reports at all, and leaves every unrelated
+# pull request stuck on an "Expected" status it can never satisfy.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - "packages/hook/**"
+      - ".github/workflows/hook.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test Session Hook
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          # This workflow never installs pnpm, and setup-node's default cache
+          # detection shells out to it. See mcp.yml.
+          package-manager-cache: false
+
+      - name: Run test suite
+        working-directory: packages/hook
+        run: node test/test.mjs
+
+  no-dependencies:
+    name: Hook stays dependency-free
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Assert packages/hook declares no runtime dependencies
+        run: |
+          set -euo pipefail
+          for field in dependencies optionalDependencies peerDependencies bundleDependencies; do
+            declared=$(node -p "JSON.stringify(require('./packages/hook/package.json').$field || {})")
+            if [ "$declared" != "{}" ]; then
+              echo "packages/hook declared $field: $declared"
+              echo ""
+              echo "This package runs unattended on a user's laptop, holds a"
+              echo "credential, and reads their session transcripts. Every"
+              echo "dependency is something that can change what it does to"
+              echo "either. Propose it in an issue first."
+              exit 1
+            fi
+          done
+          echo "OK — no dependencies in any field."
+
+      # The same invariant the gateway holds, for the same reason: the package
+      # must import nothing but Node built-ins and its own files. Reuses the
+      # gateway's checker, which strips comments and self-tests rather than
+      # grepping for the word "import" and matching prose.
+      # Quoted, and that is not cosmetic: an unquoted `node:` inside a plain
+      # scalar is a YAML mapping value, so this file failed to parse and GitHub
+      # ignored the whole workflow — silently, with no run, no error and no
+      # failing check. The first version of this file shipped that way and the
+      # PR went green without ever testing the package.
+      - name: "Assert packages/hook imports only node: built-ins and relative paths"
+        run: |
+          node scripts/check-gateway-imports.mjs --self-test
+          node scripts/check-gateway-imports.mjs --allow-node-builtins packages/hook/src packages/hook/bin

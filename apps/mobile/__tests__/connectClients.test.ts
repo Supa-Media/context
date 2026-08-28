@@ -46,7 +46,7 @@ interface Screen {
   unmount: () => void;
 }
 
-function mount(): Screen {
+function mount(clients: readonly { name: string }[] = []): Screen {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -66,7 +66,7 @@ function mount(): Screen {
   });
 
   act(() => {
-    root.render(createElement(ConnectClients, { endpoint: ENDPOINT }));
+    root.render(createElement(ConnectClients, { endpoint: ENDPOINT, clients }));
   });
 
   const q = (testID: string) =>
@@ -153,6 +153,117 @@ describe("the rows", () => {
     expect(add).not.toBeNull();
     expect(add!.textContent).toContain(`--url ${ENDPOINT}`);
     expect(screen.q("provider-codex-name")).toBeNull();
+    screen.unmount();
+  });
+});
+
+describe("what is already connected", () => {
+  test("a connected client ticks its own row and no other", () => {
+    const screen = mount([{ name: "ChatGPT" }]);
+
+    expect(screen.q("provider-chatgpt-connected")).not.toBeNull();
+    expect(screen.q("provider-claude-connected")).toBeNull();
+    expect(screen.q("provider-cursor-connected")).toBeNull();
+    screen.unmount();
+  });
+
+  /*
+   * The load-bearing half of the matching. "Claude Code" matches /claude/ as
+   * well, so a catalogue-order scan ticks the Claude row for every terminal and
+   * leaves Claude Code reading as unconnected — the person then connects it a
+   * second time and wonders why their Claude row was already ticked.
+   */
+  test("Claude Code ticks Claude Code, not Claude", () => {
+    const screen = mount([{ name: "Claude Code" }]);
+
+    expect(screen.q("provider-claude-code-connected")).not.toBeNull();
+    expect(screen.q("provider-claude-connected")).toBeNull();
+    screen.unmount();
+  });
+
+  test("a second account of the same client counts, and the button offers another", () => {
+    const screen = mount([{ name: "Claude" }, { name: "claude.ai" }]);
+
+    expect(screen.q("provider-claude-connected")!.textContent).toContain("2 connected");
+    expect(screen.q("provider-claude-open")!.textContent).toContain("Connect another");
+    // Never disabled: a work account and a personal one are two grants, each
+    // revocable on its own, so there is nothing here to have "already done".
+    expect(screen.q("provider-claude-open")!.getAttribute("disabled")).toBeNull();
+    screen.unmount();
+  });
+
+  /*
+   * The name belongs to the client, so a miss is always possible. It must leave
+   * the row looking unconnected — the grant is still listed in full under
+   * Connected clients — rather than ticking a row at random, because a row that
+   * claims a connection nobody made is somebody concluding their tool is set up
+   * when it is not.
+   */
+  test("an unrecognised client ticks nothing", () => {
+    const screen = mount([{ name: "some in-house agent" }]);
+
+    for (const provider of CLIENT_PROVIDERS) {
+      expect(screen.q(`provider-${provider.id}-connected`)).toBeNull();
+    }
+    screen.unmount();
+  });
+
+  test("the row is a name and a button; the caveats wait for Details", () => {
+    const screen = mount();
+    const chatgpt = CLIENT_PROVIDERS.find((provider) => provider.id === "chatgpt")!;
+
+    expect(screen.text()).not.toContain(chatgpt.note);
+    screen.click("provider-chatgpt-toggle");
+    expect(screen.text()).toContain(chatgpt.note);
+    screen.unmount();
+  });
+});
+
+describe("the hooks panel", () => {
+  test("only clients with a real hook offer one", () => {
+    const screen = mount();
+    for (const provider of CLIENT_PROVIDERS) {
+      const button = screen.q(`provider-${provider.id}-hook-toggle`);
+      // Present exactly where a hook exists. A button on a client whose
+      // end-of-session event we would be guessing at is worse than none: the
+      // person believes their sessions are being saved and finds out months
+      // later that none of them were.
+      expect(button === null).toBe(provider.hook === undefined);
+    }
+    screen.unmount();
+  });
+
+  test("it carries the install command for the endpoint the pane was given", () => {
+    const screen = mount();
+    screen.click("provider-claude-code-hook-toggle");
+
+    const command = screen.q("provider-claude-code-hook-command");
+    expect(command).not.toBeNull();
+    expect(command!.textContent).toContain("@context-lc/hook install");
+    expect(command!.textContent).toContain(ENDPOINT);
+    screen.unmount();
+  });
+
+  test("hooks and details are separate panels, and one at a time", () => {
+    const screen = mount();
+
+    screen.click("provider-claude-code-hook-toggle");
+    expect(screen.q("provider-claude-code-hook")).not.toBeNull();
+    expect(screen.q("provider-claude-code-details")).toBeNull();
+
+    screen.click("provider-claude-code-toggle");
+    expect(screen.q("provider-claude-code-details")).not.toBeNull();
+    expect(screen.q("provider-claude-code-hook")).toBeNull();
+
+    screen.click("provider-claude-code-toggle");
+    expect(screen.q("provider-claude-code-details")).toBeNull();
+    screen.unmount();
+  });
+
+  test("the hook panel says what access it asks for", () => {
+    const screen = mount();
+    screen.click("provider-claude-code-hook-toggle");
+    expect(screen.text()).toContain("capture access only");
     screen.unmount();
   });
 });
