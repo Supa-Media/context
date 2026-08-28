@@ -315,9 +315,24 @@ const SCHEMA_ENCRYPTED_FIELDS = (() => {
  * `accesskeyid` names the credential's public half, forbidden to a barrier
  * because a barrier returning half a key pair has already returned too much.
  */
-const PUBLIC_FORBIDDEN_FIELDS = [...new Set(["secretaccesskey", ...SCHEMA_ENCRYPTED_FIELDS])];
+const PLAINTEXT_CREDENTIAL_FIELDS = [
+  // The S3 secret, and the Dropbox one. `accesstoken` matters as much as
+  // `secretaccesskey` and is easier to miss, because it is the *decrypted*
+  // half — the value `getBindingForGateway` hands the gateway, not an envelope
+  // with an offline step in front of it. It never appears as a schema column,
+  // so the derivation above cannot find it: at rest Dropbox is stored as
+  // `encryptedAccessToken`, and the bare `accessToken` exists only in flight.
+  // A guard that only reads the schema is a guard that only knows the shapes
+  // that sit still.
+  "secretaccesskey",
+  "accesstoken",
+];
+
+const PUBLIC_FORBIDDEN_FIELDS = [
+  ...new Set([...PLAINTEXT_CREDENTIAL_FIELDS, ...SCHEMA_ENCRYPTED_FIELDS]),
+];
 const BARRIER_FORBIDDEN_FIELDS = [
-  ...new Set(["secretaccesskey", "accesskeyid", ...SCHEMA_ENCRYPTED_FIELDS]),
+  ...new Set([...PLAINTEXT_CREDENTIAL_FIELDS, "accesskeyid", ...SCHEMA_ENCRYPTED_FIELDS]),
 ];
 
 /**
@@ -866,6 +881,13 @@ describe("no public function can reach a storage secret", () => {
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedsecretaccesskey");
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedsetupcredential");
     expect(BARRIER_FORBIDDEN_FIELDS).toContain("encryptedsetupcredential");
+    // The Dropbox columns, which the hand-written list never knew about.
+    expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedrefreshtoken");
+    expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedaccesstoken");
+    expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedverifier");
+    // And the decrypted token, which no schema column will ever name.
+    expect(PUBLIC_FORBIDDEN_FIELDS).toContain("accesstoken");
+    expect(BARRIER_FORBIDDEN_FIELDS).toContain("accesstoken");
   });
 
   test("no public function declares a credential field in its return validator", () => {
