@@ -5,6 +5,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SupaConvexProvider } from "@supa-media/core/providers";
 import { ErrorBoundary } from "../features/app/ErrorBoundary";
+import { shouldHandleCodeHere } from "../features/auth/handleCode";
 import { ensureFontsLoaded } from "../features/design/fonts";
 import { colors } from "../features/design/tokens";
 
@@ -37,7 +38,16 @@ export default function RootLayout() {
   return (
     <KeyboardProvider>
       <SafeAreaProvider>
-        <SupaConvexProvider url={process.env.EXPO_PUBLIC_CONVEX_URL}>
+        {/*
+          `shouldHandleCode` keeps ConvexAuthProvider's hands off the `?code=`
+          that Dropbox (and any future /connect/ provider) sends back — left
+          to its default, it redeems that foreign code as a login code, gets
+          `tokens: null`, and stores the sign-out. See features/auth/handleCode.
+        */}
+        <SupaConvexProvider
+          url={process.env.EXPO_PUBLIC_CONVEX_URL}
+          shouldHandleCode={shouldHandleCodeHere}
+        >
           <StatusBar style="light" />
           {/* One dark ground under every route, so nothing flashes white. */}
           <View style={{ flex: 1, backgroundColor: colors.ground }}>
