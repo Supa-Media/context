@@ -89,32 +89,57 @@ export interface BindingResult {
   status: string;
 }
 
-/** The sealed row, as `getBindingRow` returns it. */
+/**
+ * The sealed row, as `getBindingRow` returns it.
+ *
+ * The S3 fields are optional because a Dropbox binding has none of them. What
+ * used to be guaranteed by the type is now a per-provider check at the two
+ * places that consume it, both of which refuse rather than half-build.
+ */
 export interface SealedBinding {
   provider: string;
-  endpoint: string;
-  region: string;
-  bucket: string;
+  endpoint?: string;
+  region?: string;
+  bucket?: string;
   rootPrefix?: string;
-  accessKeyId: string;
-  encryptedSecretAccessKey: string;
+  accessKeyId?: string;
+  encryptedSecretAccessKey?: string;
   /** Absent means "let the adapter decide". See the schema for why. */
   forcePathStyle?: boolean;
   capabilities: StorageCapabilities;
   status: string;
 }
 
-/** What the gateway gets: the same row with the secret opened. */
-export type GatewayCredential = Omit<
-  SealedBinding,
-  "encryptedSecretAccessKey"
-> & { secretAccessKey: string };
+/**
+ * What the gateway gets: an opened credential that is complete.
+ *
+ * Spelled out rather than derived from `SealedBinding`, because the two stopped
+ * being the same shape when Dropbox arrived. A *row* may be missing every S3
+ * field; a credential handed to the gateway may not — `getBindingForGateway`
+ * refuses a Dropbox row by name and narrows the rest before returning, so the
+ * required fields here are a guarantee it has already made. Deriving this from
+ * the row would push that guarantee onto every consumer as an optional-check
+ * they would each get slightly wrong.
+ */
+export interface GatewayCredential {
+  provider: string;
+  endpoint: string;
+  region: string;
+  bucket: string;
+  rootPrefix?: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  forcePathStyle?: boolean;
+  capabilities: StorageCapabilities;
+  status: string;
+}
 
-/** One batch of rows still sealed under an older key. */
+/** One batch of envelopes still sealed under an older key. */
 export interface RekeyCandidates {
   candidates: {
     bindingId: Id<"storageBindings">;
     workspaceId: Id<"workspaces">;
+    field: EnvelopeField;
     envelope: string;
   }[];
   unreadable: number;
@@ -553,11 +578,27 @@ const MAX_LAST_ERROR_LENGTH = 300;
  */
 function scrubProviderError(
   raw: string,
-  binding: { accessKeyId: string; encryptedSecretAccessKey: string },
+  binding: {
+    accessKeyId?: string;
+    encryptedSecretAccessKey?: string;
+    encryptedRefreshToken?: string;
+    encryptedAccessToken?: string;
+  },
 ): string {
   let scrubbed = raw;
-  for (const known of [binding.encryptedSecretAccessKey, binding.accessKeyId]) {
-    if (known.length > 0) scrubbed = scrubbed.split(known).join("[redacted]");
+  // Every credential-shaped value the binding holds, whichever provider it is.
+  // Listing them explicitly rather than iterating the row keeps a future
+  // non-secret field from being redacted out of an error by accident, and a
+  // future secret one from being missed — it has to be named here either way.
+  for (const known of [
+    binding.encryptedSecretAccessKey,
+    binding.accessKeyId,
+    binding.encryptedRefreshToken,
+    binding.encryptedAccessToken,
+  ]) {
+    if (typeof known === "string" && known.length > 0) {
+      scrubbed = scrubbed.split(known).join("[redacted]");
+    }
   }
   // Shared with the verifying action, which applies the same rule to the value
   // it returns. Two redactors that drifted apart would mean one published
@@ -717,12 +758,12 @@ export const getBindingRow = internalQuery({
     v.null(),
     v.object({
       provider: v.string(),
-      endpoint: v.string(),
-      region: v.string(),
-      bucket: v.string(),
+      endpoint: v.optional(v.string()),
+      region: v.optional(v.string()),
+      bucket: v.optional(v.string()),
       rootPrefix: v.optional(v.string()),
-      accessKeyId: v.string(),
-      encryptedSecretAccessKey: v.string(),
+      accessKeyId: v.optional(v.string()),
+      encryptedSecretAccessKey: v.optional(v.string()),
       forcePathStyle: v.optional(v.boolean()),
       capabilities: v.object({ conditionalWrite: v.boolean() }),
       status: v.string(),
@@ -788,6 +829,37 @@ export const getBindingForGateway = internalAction({
     );
     if (binding === null) return null;
 
+    // A Dropbox binding is not servable through this path yet. It is refused
+    // by name rather than falling through: the fields below are all absent for
+    // it, and a store built from undefined endpoint and undefined key is the
+    // silent wrong-bucket write this module exists to prevent. The Dropbox
+    // path — refresh the grant, hand back a short-lived access token, never
+    // the refresh token — lands with the OAuth change.
+    if (binding.provider === "dropbox") {
+      throw new ConvexError({
+        code: "PROVIDER_NOT_SERVABLE",
+        message:
+          "This context is stored in Dropbox, which this gateway cannot serve yet.",
+      });
+    }
+
+    // Narrowed rather than asserted. These five are guaranteed together for
+    // every non-Dropbox provider by `bindStorage`, and a row that somehow
+    // lacks one is a corrupt binding, not something to paper over with `!`.
+    if (
+      !binding.endpoint ||
+      !binding.region ||
+      !binding.bucket ||
+      !binding.accessKeyId ||
+      !binding.encryptedSecretAccessKey
+    ) {
+      throw new ConvexError({
+        code: "CREDENTIAL_UNAVAILABLE",
+        message:
+          "This workspace's storage binding is incomplete. Rebind storage to replace it.",
+      });
+    }
+
     // The workspace id is the AAD the envelope was sealed with. Passing the id
     // this call was made *for* — rather than one carried inside the row — is
     // what makes a future id-confusion bug in the gateway a decrypt failure
@@ -848,7 +920,36 @@ export const getBindingForGateway = internalAction({
 /** How many bindings one `rekeyStorageBindings` pass moves. */
 const REKEY_BATCH_SIZE = 50;
 
-/** Bindings whose envelope was written under some other key id. */
+/**
+ * Every field on a binding that holds an encrypted envelope.
+ *
+ * **A binding no longer has exactly one secret.** An S3 binding has the bucket
+ * secret; a Dropbox binding has a refresh token and a cached access token, and
+ * no bucket secret at all. Rotation walks this list rather than one hardcoded
+ * field, because a rotation that silently skipped a field would leave those
+ * envelopes readable only by a key the operator is about to delete — the
+ * failure would not appear until the customer's next read, long after the
+ * pass reported success.
+ *
+ * Adding a fourth encrypted field means adding it here. There is a test that
+ * fails if a schema field matching `encrypted*` is missing from this list, so
+ * the coupling is enforced rather than remembered.
+ */
+export const ENVELOPE_FIELDS = [
+  "encryptedSecretAccessKey",
+  "encryptedRefreshToken",
+  "encryptedAccessToken",
+] as const;
+
+export type EnvelopeField = (typeof ENVELOPE_FIELDS)[number];
+
+const envelopeFieldValidator = v.union(
+  v.literal("encryptedSecretAccessKey"),
+  v.literal("encryptedRefreshToken"),
+  v.literal("encryptedAccessToken"),
+);
+
+/** Envelopes written under some other key id, one row per envelope. */
 export const listRekeyCandidates = internalQuery({
   args: { currentKeyId: v.string(), limit: v.number() },
   returns: v.object({
@@ -856,6 +957,7 @@ export const listRekeyCandidates = internalQuery({
       v.object({
         bindingId: v.id("storageBindings"),
         workspaceId: v.id("workspaces"),
+        field: envelopeFieldValidator,
         envelope: v.string(),
       }),
     ),
@@ -867,19 +969,27 @@ export const listRekeyCandidates = internalQuery({
     const candidates = [];
     let unreadable = 0;
     for (const binding of bindings) {
-      let keyId: string;
-      try {
-        keyId = envelopeKeyId(binding.encryptedSecretAccessKey);
-      } catch {
-        unreadable += 1;
-        continue;
+      for (const field of ENVELOPE_FIELDS) {
+        const envelope = binding[field];
+        // Absent is normal now, not a defect: a Dropbox binding has no bucket
+        // secret and an S3 one has no tokens. Only a *present* envelope that
+        // cannot be read is unreadable.
+        if (typeof envelope !== "string" || envelope.length === 0) continue;
+        let keyId: string;
+        try {
+          keyId = envelopeKeyId(envelope);
+        } catch {
+          unreadable += 1;
+          continue;
+        }
+        if (keyId === args.currentKeyId) continue;
+        candidates.push({
+          bindingId: binding._id,
+          workspaceId: binding.workspaceId,
+          field,
+          envelope,
+        });
       }
-      if (keyId === args.currentKeyId) continue;
-      candidates.push({
-        bindingId: binding._id,
-        workspaceId: binding.workspaceId,
-        envelope: binding.encryptedSecretAccessKey,
-      });
     }
     return { candidates, unreadable };
   },
@@ -896,17 +1006,20 @@ export const listRekeyCandidates = internalQuery({
 export const applyRekey = internalMutation({
   args: {
     bindingId: v.id("storageBindings"),
+    field: envelopeFieldValidator,
     expectedEnvelope: v.string(),
-    encryptedSecretAccessKey: v.string(),
+    envelope: v.string(),
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
     const binding = await ctx.db.get(args.bindingId);
     if (binding === null) return false;
-    if (binding.encryptedSecretAccessKey !== args.expectedEnvelope) return false;
+    // Still conditional, and now per field: a Dropbox binding whose access
+    // token was refreshed mid-pass must not have the stale one restored.
+    if (binding[args.field] !== args.expectedEnvelope) return false;
 
     await ctx.db.patch(args.bindingId, {
-      encryptedSecretAccessKey: args.encryptedSecretAccessKey,
+      [args.field]: args.envelope,
       updatedAt: Date.now(),
     });
     // No actor: this is a maintenance pass, not a person. The credential and
@@ -961,12 +1074,9 @@ export const rekeyStorageBindings = internalAction({
         internal.functions.storage.applyRekey,
         {
           bindingId: candidate.bindingId,
+          field: candidate.field,
           expectedEnvelope: candidate.envelope,
-          encryptedSecretAccessKey: await encryptSecret(
-            plaintext,
-            keyset,
-            context,
-          ),
+          envelope: await encryptSecret(plaintext, keyset, context),
         },
       );
       if (applied) rekeyed += 1;
@@ -992,11 +1102,11 @@ export const getStorageBinding = query({
     v.null(),
     v.object({
       provider: v.string(),
-      endpoint: v.string(),
-      region: v.string(),
-      bucket: v.string(),
+      endpoint: v.optional(v.string()),
+      region: v.optional(v.string()),
+      bucket: v.optional(v.string()),
       rootPrefix: v.optional(v.string()),
-      maskedAccessKeyId: v.string(),
+      maskedAccessKeyId: v.optional(v.string()),
       forcePathStyle: v.optional(v.boolean()),
       capabilities: v.object({ conditionalWrite: v.boolean() }),
       status: v.string(),
@@ -1073,7 +1183,12 @@ export const getStorageBinding = query({
       region: binding.region,
       bucket: binding.bucket,
       rootPrefix: binding.rootPrefix,
-      maskedAccessKeyId: maskAccessKeyId(binding.accessKeyId),
+      // Absent for Dropbox, which has no access key. `undefined` rather than
+      // an empty string, so the console renders nothing instead of a masked
+      // credential that does not exist.
+      maskedAccessKeyId: binding.accessKeyId
+        ? maskAccessKeyId(binding.accessKeyId)
+        : undefined,
       forcePathStyle: binding.forcePathStyle,
       capabilities: binding.capabilities,
       status: binding.status,
@@ -1242,7 +1357,7 @@ export const disconnectStorage = mutation({
       workspaceId: args.workspaceId,
       actorUserId: userId,
       action: "storage.disconnected",
-      details: { provider: binding.provider, bucket: binding.bucket },
+      details: { provider: binding.provider, bucket: binding.bucket ?? null },
     });
     return { disconnected: true };
   },
