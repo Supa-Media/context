@@ -84,6 +84,15 @@ export interface ClientProvider {
   /** As the client calls itself. */
   name: string;
   /**
+   * Matches the name this client registers itself under over OAuth, so a row
+   * can say "connected" instead of making somebody cross-reference two lists.
+   *
+   * A heuristic, and treated as one: the name is chosen by the client, not by
+   * us, so a miss leaves a row unticked and the grant still listed under
+   * Connected clients below. Order matters — see `providerIdForClientName`.
+   */
+  matches: RegExp;
+  /**
    * Whether the fields go into a form or into a shell.
    *
    * Independent of `ProviderLink.kind`, and the two must not be conflated:
@@ -225,6 +234,7 @@ function connectorFields(endpoint: string, withDescription: boolean): ProviderFi
 export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
   {
     id: "chatgpt",
+    matches: /chatgpt|openai/i,
     name: "ChatGPT",
     form: "connector",
     note: "Opens Settings → Connectors with the create form already open. Custom connectors need a paid plan and developer mode, under Settings → Apps → Advanced.",
@@ -237,6 +247,7 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
   },
   {
     id: "claude",
+    matches: /claude/i,
     name: "Claude",
     form: "connector",
     note: "Opens the Add custom connector dialog on claude.ai. Paste the URL, then approve the sign-in Claude sends you to.",
@@ -249,6 +260,7 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
   },
   {
     id: "claude-code",
+    matches: /claude[\s._-]*code/i,
     name: "Claude Code",
     form: "command",
     note: "One command in your terminal, then /mcp inside Claude Code to sign in.",
@@ -268,6 +280,7 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
   },
   {
     id: "codex",
+    matches: /codex/i,
     name: "Codex CLI",
     form: "command",
     note: "Add it, then sign in — Codex handles the OAuth flow for HTTP servers itself.",
@@ -287,6 +300,7 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
   },
   {
     id: "cursor",
+    matches: /cursor/i,
     name: "Cursor",
     form: "connector",
     note: "Installs it for you — Cursor opens with the server filled in and asks you to confirm.",
@@ -299,6 +313,7 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
   },
   {
     id: "vscode",
+    matches: /vs[\s._-]*code|visual studio|copilot/i,
     name: "VS Code",
     form: "connector",
     note: "Installs it into VS Code's MCP settings for Copilot's agent mode.",
@@ -311,6 +326,7 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
   },
   {
     id: "notion",
+    matches: /notion/i,
     name: "Notion",
     form: "connector",
     note: "For Notion's Custom Agents. A workspace owner has to switch on custom MCP servers first, then add this URL as an approved connection.",
@@ -323,6 +339,7 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
   },
   {
     id: "gemini-cli",
+    matches: /gemini/i,
     name: "Gemini CLI",
     form: "command",
     note: "The Gemini app has no custom connectors. Gemini CLI does — one command, and it stores the server in ~/.gemini/settings.json.",
@@ -355,4 +372,46 @@ export function fieldsCaption(provider: ClientProvider, kind: ProviderLinkKind):
   }
   if (kind === "connector") return "Paste these into the form that opens.";
   return "Paste these into the form the instructions point you at.";
+}
+
+/**
+ * Which row a connected client belongs to, by the name it registered under.
+ *
+ * Specificity first, and that ordering is the whole correctness of this
+ * function: "Claude Code" matches `/claude/` too, so a catalogue-order scan
+ * would tick the Claude row for every terminal and leave Claude Code looking
+ * unconnected. Anything unrecognised returns `null` and appears only in the
+ * Connected clients list, which is the honest outcome — the name is the
+ * client's to choose and we do not get to insist it be one of nine.
+ */
+const MATCH_ORDER = [
+  "claude-code",
+  "codex",
+  "cursor",
+  "vscode",
+  "gemini-cli",
+  "notion",
+  "chatgpt",
+  "claude",
+] as const;
+
+export function providerIdForClientName(name: string): string | null {
+  if (typeof name !== "string" || !name.trim()) return null;
+  for (const id of MATCH_ORDER) {
+    const provider = CLIENT_PROVIDERS.find((candidate) => candidate.id === id);
+    if (provider?.matches.test(name)) return provider.id;
+  }
+  return null;
+}
+
+/** How many connected clients belong to each row. */
+export function connectedCountsByProvider(
+  clients: readonly { name: string }[],
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const client of clients) {
+    const id = providerIdForClientName(client.name);
+    if (id) counts[id] = (counts[id] || 0) + 1;
+  }
+  return counts;
 }
