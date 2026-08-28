@@ -711,6 +711,7 @@ async function keysUnder(
   // manifest bookkeeping below rewrites rules on the strength of it.
   let complete = false;
   let cursor: string | undefined;
+  const seen = new Set<string>();
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
     const listing = await store.list({ prefix, cursor, limit: 1000 });
     for (const object of listing.objects ?? []) {
@@ -731,10 +732,12 @@ async function keysUnder(
       complete = true;
       break;
     }
-    // A store that hands back the cursor it was given will never finish, and
-    // the page budget would spend itself before saying so. The gateway checks
-    // this too.
-    if (listing.cursor === cursor) break;
+    // A store that repeats a cursor will never finish, and the page budget
+    // would spend itself before saying so. Comparing against the previous
+    // cursor alone is defeated by a store alternating two of them, so this
+    // keeps the set - which is what the gateway's `nextListCursor` does.
+    if (seen.has(listing.cursor)) break;
+    seen.add(listing.cursor);
     cursor = listing.cursor;
   }
   // Refused rather than truncated, which is what the gateway's own listing
@@ -761,6 +764,7 @@ async function namesExtending(store: FileStore, path: string): Promise<string[]>
   const keys: string[] = [];
   let cursor: string | undefined;
   let complete = false;
+  const seen = new Set<string>();
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
     const listing = await store.list({ prefix: `${path}.`, cursor, limit: 1000 });
     for (const object of listing.objects ?? []) {
@@ -771,7 +775,8 @@ async function namesExtending(store: FileStore, path: string): Promise<string[]>
       complete = true;
       break;
     }
-    if (listing.cursor === cursor) break;
+    if (seen.has(listing.cursor)) break;
+    seen.add(listing.cursor);
     cursor = listing.cursor;
   }
   // One `list` with a limit and no cursor was the first version of this, added
@@ -1009,6 +1014,32 @@ function rulesSurvivorsRestOn(
   return kept;
 }
 
+/**
+ * One rule per prefix, and the more private of a pair wins.
+ *
+ * A rename can land a rule on a prefix that already had one - move `src` onto
+ * `dst` when `src/hr` and `dst/hr` both carry rules - and the manifest then
+ * holds two lines for the same folder with opposite visibility. `visibilityOf`
+ * takes the first of equal length and `renderPrivacyRulesBlock`'s sort is
+ * stable, so whichever it is survives the round trip and the file says two
+ * things at once. Measured: `1-projects/dst/hr` emitted as both `team` and
+ * `private`.
+ *
+ * The collision has no right answer - the arriving folder and the one already
+ * there both have a claim - so it is resolved in the only direction that
+ * cannot leak.
+ */
+function oneRulePerPrefix(rules: readonly PrivacyRule[]): PrivacyRule[] {
+  const byPrefix = new Map<string, PrivacyRule>();
+  for (const rule of rules) {
+    const existing = byPrefix.get(rule.prefix);
+    if (existing === undefined || (existing.vis === "team" && rule.vis === "private")) {
+      byPrefix.set(rule.prefix, rule);
+    }
+  }
+  return [...byPrefix.values()];
+}
+
 /** The folder rules a folder move leaves behind. `remapPrivacy` applies this. */
 function rulesAfterFolderMove(
   rules: readonly PrivacyRule[],
@@ -1088,6 +1119,19 @@ export async function movePath(
   if (from === to) return { from, to, paths: [] };
   if (to.startsWith(`${from}/`)) {
     throw new FileOpError("PATH_INVALID", "A folder cannot be moved inside itself.");
+  }
+  // ...nor onto one of its own ancestors, which is a rename that flattens a
+  // folder into a parent it is already inside. It also breaks the one thing
+  // that makes the manifest repair below sound: a renamed rule normally lands
+  // under the destination, where it cannot outrank a rule kept under the
+  // source. When the destination IS an ancestor the two trees overlap, and a
+  // renamed `.../b/b/hr/deep: team` came out longer than the `.../b/hr: private`
+  // put back for a survivor, which published it.
+  if (from.startsWith(`${to}/`)) {
+    throw new FileOpError(
+      "PATH_INVALID",
+      "A folder cannot be moved onto a folder it is already inside.",
+    );
   }
 
   const state = await loadPrivacyState(store);
@@ -1785,11 +1829,12 @@ async function remapPrivacy(
         ),
       );
     }
+    const deduped = oneRulePerPrefix(rules);
     let overrides = current.overrides;
     for (const move of change.moves) {
-      overrides = movedOverrides(move.from, move.to, rules, overrides);
+      overrides = movedOverrides(move.from, move.to, deduped, overrides);
     }
-    return { rules, overrides };
+    return { rules: deduped, overrides };
   });
 }
 

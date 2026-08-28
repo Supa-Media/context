@@ -1793,6 +1793,33 @@ describe("a bulk operation acts only on what the caller can see", () => {
     expect(leak.code).toBe("FILE_NOT_FOUND");
   });
 
+  test("a store alternating two cursors does not spend the whole page budget", async () => {
+    // A single-step comparison against the previous cursor passes this store
+    // forever; the guard has to keep the set, which is what the gateway does.
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/pingpong/a.md", "# A\n");
+    let calls = 0;
+    const alternating: FileStore = {
+      ...store,
+      list: async (options) => {
+        const page = await store.list(options);
+        calls += 1;
+        return { ...page, truncated: true, cursor: calls % 2 === 0 ? "ping" : "pong" };
+      },
+    };
+    const error = await capture(() =>
+      deletePath(alternating, {
+        path: "1-projects/pingpong",
+        scope: "team",
+        confirmation: DELETE_CONFIRMATION,
+      }),
+    );
+    expect(error.code).toBe("FOLDER_TOO_LARGE");
+    // Three calls, not a hundred: pong, ping, then pong again is a repeat.
+    expect(calls).toBeLessThanOrEqual(4);
+  });
+
   test("a store that repeats its cursor does not spend the whole page budget", async () => {
     const store = bucket();
     await shareProjects(store);
@@ -1942,6 +1969,160 @@ describe("a bulk operation acts only on what the caller can see", () => {
     expect(
       (await capture(() => readFile(store, { path: "2-areas/shared/x.md", scope: "team" }))).code,
     ).toBe("FILE_NOT_FOUND");
+  });
+
+  /**
+   * The repair is one pass, and what makes one pass sound is that a renamed
+   * rule lands under the destination where it cannot outrank a rule kept under
+   * the source. That holds only while the two trees are disjoint. Moving a
+   * folder onto its own ancestor overlaps them, and a renamed rule came out
+   * longer than the repair and published the survivor — so that move is
+   * refused, and this is the test that says why.
+   */
+  test("a folder cannot be moved onto a folder it is already inside", async () => {
+    const store = bucket();
+    store.seed("1-projects/a/b/visible.md", "# V\n");
+    store.seed("1-projects/a/b/hr/deep/secret.md", "# Salaries\n\n200k\n");
+    store.seed("1-projects/a/b/b/hr/deep/other.md", "# Other\n");
+    await setFolderVisibility(store, {
+      path: "1-projects/a/b",
+      visibility: "team",
+      scope: "private",
+    });
+    await setFolderVisibility(store, {
+      path: "1-projects/a/b/hr",
+      visibility: "private",
+      scope: "private",
+    });
+    await setFolderVisibility(store, {
+      path: "1-projects/a/b/b/hr/deep",
+      visibility: "team",
+      scope: "private",
+    });
+    const secret = "1-projects/a/b/hr/deep/secret.md";
+
+    const error = await capture(() =>
+      movePath(store, { from: "1-projects/a/b", to: "1-projects/a", scope: "team", now: NOW }),
+    );
+    expect(error.code).toBe("PATH_INVALID");
+    expect((await capture(() => readFile(store, { path: secret, scope: "team" }))).code).toBe(
+      "FILE_NOT_FOUND",
+    );
+    // The owner is refused too — this is a nonsensical rename, not a clearance
+    // question, and letting it through at `private` scope would leave the same
+    // contradictory manifest behind.
+    expect(
+      (
+        await capture(() =>
+          movePath(store, {
+            from: "1-projects/a/b",
+            to: "1-projects/a",
+            scope: "private",
+            now: NOW,
+          }),
+        )
+      ).code,
+    ).toBe("PATH_INVALID");
+  });
+
+  /**
+   * A rename can land a rule on a prefix that already carries one, and the
+   * manifest then says two things about the same folder. `visibilityOf` takes
+   * the first of equal length and the render sort is stable, so the winner
+   * survives the round trip — measured as `1-projects/dst/hr` emitted both
+   * `team` and `private`. Resolved towards private, the only direction that
+   * cannot leak.
+   */
+  test("a rule arriving on an occupied prefix does not publish what was there", async () => {
+    const store = bucket();
+    store.seed("1-projects/src/v.md", "# V\n");
+    store.seed("1-projects/src/hr/secret.md", "# Salaries\n\n200k\n");
+    store.seed("1-projects/dst/hr/pre.md", "# Pre\n");
+    await setFolderVisibility(store, {
+      path: "1-projects/src",
+      visibility: "team",
+      scope: "private",
+    });
+    await setFolderVisibility(store, {
+      path: "1-projects/src/hr",
+      visibility: "private",
+      scope: "private",
+    });
+    await setFolderVisibility(store, {
+      path: "1-projects/dst/hr",
+      visibility: "team",
+      scope: "private",
+    });
+
+    await movePath(store, {
+      from: "1-projects/src",
+      to: "1-projects/dst",
+      scope: "private",
+      now: NOW,
+    });
+
+    const manifest = store.snapshot()[PRIVACY_KEY] as string;
+    const lines = manifest.split("\n").filter((line) => line.includes("1-projects/dst/hr:"));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("private");
+    // ...and the note that arrived under it is still private, which is what
+    // the one line has to mean.
+    expect(
+      (
+        await capture(() =>
+          readFile(store, { path: "1-projects/dst/hr/secret.md", scope: "team" }),
+        )
+      ).code,
+    ).toBe("FILE_NOT_FOUND");
+  });
+
+  /**
+   * The commit that introduced the repair was about a SET of survivors, and
+   * every test for it had exactly one — so reducing the loop to its first
+   * element, or breaking out of it early, changed nothing that was measured.
+   * This has two survivors resting on two different rules, with the one that
+   * needs no repair sorting first.
+   */
+  test("every survivor is repaired, not just the first", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/mixed/public.md", "# Public\n");
+    // Sorts first, held back by its own exception, needs no rule put back.
+    store.seed("1-projects/mixed/aaa.md", "# A\n");
+    store.seed("1-projects/mixed/hr/pay.md", "# Pay\n\n200k\n");
+    store.seed("1-projects/mixed/legal/case.md", "# Case\n\nsettlement\n");
+    await setVisibility(store, {
+      path: "1-projects/mixed/aaa.md",
+      visibility: "private",
+      scope: "private",
+    });
+    await setFolderVisibility(store, {
+      path: "1-projects/mixed/hr",
+      visibility: "private",
+      scope: "private",
+    });
+    await setFolderVisibility(store, {
+      path: "1-projects/mixed/legal",
+      visibility: "private",
+      scope: "private",
+    });
+
+    await deletePath(store, {
+      path: "1-projects/mixed",
+      scope: "team",
+      confirmation: DELETE_CONFIRMATION,
+    });
+
+    for (const path of [
+      "1-projects/mixed/aaa.md",
+      "1-projects/mixed/hr/pay.md",
+      "1-projects/mixed/legal/case.md",
+    ]) {
+      expect((await capture(() => readFile(store, { path, scope: "team" }))).code).toBe(
+        "FILE_NOT_FOUND",
+      );
+      expect(store.snapshot()[path]).toBeDefined();
+    }
   });
 
   /**
