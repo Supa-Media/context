@@ -1321,7 +1321,7 @@ function toolDefinitions() {
     {
       name: "archive_note",
       description:
-        "Move a note to a recoverable, date-stamped PARA archive without encoding privacy in its path. Team archives remain team-visible; personal archives safely tighten to private through privacy.md. Pass expected_etag for team cleanup.",
+        "Retract a note from its canonical location into this context's own 4-archive, date-stamped and recoverable — there is no delete, and this is the safe way to pull something out of circulation. Only on contexts whose layout has a 4-archive; elsewhere it refuses and move_note follows the owner's conventions instead. Team archives remain team-visible; personal archives safely tighten to private. Pass expected_etag for team cleanup.",
       inputSchema: {
         type: "object",
         properties: {
@@ -2484,11 +2484,19 @@ function yamlString(value) {
  * not — and every context created before this decision has that rule, which is
  * what keeps their sessions where they have always been.
  */
-function defaultSessionFolder(rules) {
-  const hasArchive = (rules || []).some(
+/**
+ * Whether this context's manifest declares a `4-archive` — the question both
+ * `save_context`'s fallback and `archive_note` hang on, answered in one place
+ * so the two tools cannot drift into disagreeing about the same bucket.
+ */
+function manifestHasArchive(rules) {
+  return (rules || []).some(
     (rule) => rule.prefix === "4-archive" || rule.prefix.startsWith("4-archive/")
   );
-  return hasArchive ? "4-archive/chat-history" : "0-inbox/sessions";
+}
+
+function defaultSessionFolder(rules) {
+  return manifestHasArchive(rules) ? "4-archive/chat-history" : "0-inbox/sessions";
 }
 
 async function uniqueSessionPath(store, platform, at, folder) {
@@ -2845,6 +2853,23 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
   const path = normalizePath(pathArg);
   if (!path) return toolError("invalid path");
   if (!canSee(path, scope, rules, overrides)) return toolError("not found");
+  // The destination is `4-archive/`, and that folder is the owner's to have or
+  // not have. On a context whose manifest declares one — every PARA scaffold —
+  // this works exactly as it always did. On a custom layout it used to invent
+  // the folder, which is the same layout assumption `save_context` and the
+  // connect instructions were purged of: an agent "tidying up" would create a
+  // top-level folder the owner deliberately did not choose, in a bucket they
+  // also see in Obsidian. Refusing is honest and loses nothing: `move_note`
+  // reaches whatever folder this context actually uses for inactive material,
+  // and the front page says which that is.
+  if (!manifestHasArchive(rules)) {
+    return toolError(
+      "this context has no 4-archive folder — its layout is its owner's, and archiving must " +
+        "not invent one. Use move_note to the folder this context keeps inactive material in " +
+        "(orient and the front page state its conventions), or ask the owner to add a " +
+        "4-archive rule to privacy.md."
+    );
+  }
   if (path.startsWith("4-archive/")) return toolText("already archived");
   const obj = await store.get(path);
   if (!obj) return toolError("not found");

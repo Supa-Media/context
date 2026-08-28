@@ -362,6 +362,32 @@ export async function runOrientationChecks(check) {
 
     bucket.seed("index.md", "# The front page\n\nShipping the gateway.");
 
+    // -- archive_note on a layout that has no archive
+    //
+    // This fixture's manifest deliberately declares no `4-archive`, which makes
+    // it the case the tool used to get wrong: it would invent the folder, in a
+    // bucket its owner also sees in Obsidian, to satisfy a destination the
+    // owner never chose — the same layout assumption save_context and the
+    // connect instructions were purged of.
+    const { body: archiveRefusal } = await rpc(env, OWNER_TOKEN, "tools/call", {
+      name: "archive_note",
+      arguments: { path: "2-areas/handbook.md" },
+    });
+    const refusalText = archiveRefusal?.result?.content?.[0]?.text || "";
+    check(
+      "archive_note refuses rather than inventing a 4-archive on a custom layout",
+      archiveRefusal?.result?.isError === true && refusalText.includes("no 4-archive")
+    );
+    check(
+      "the refusal points at move_note and the owner's own conventions",
+      refusalText.includes("move_note") && refusalText.includes("conventions")
+    );
+    check(
+      "and nothing was created or moved by the refusal",
+      ![...bucket.objects.keys()].some((key) => key.startsWith("4-archive/")) &&
+        bucket.objects.has("2-areas/handbook.md")
+    );
+
     // -- the connect-time sketch, and the handshake it must never endanger
     const connect = async (token) => {
       const { status, body } = await rpc(env, token, "initialize", {
