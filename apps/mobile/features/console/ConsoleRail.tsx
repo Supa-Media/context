@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -7,6 +7,7 @@ import {
   type TextStyle,
   type ViewStyle,
 } from "react-native";
+import { ContextRowMenu, RightClickTarget } from "./ContextRowMenu";
 import { PressRow } from "../design/components/Button";
 import { Dot } from "../design/components/Dot";
 import { Text } from "../design/components/Text";
@@ -82,6 +83,9 @@ export function ConsoleRail({
 }) {
   const icons = mode === "icons";
   const touch = mode === "sheet";
+  // Which context's right-click menu is open, if any. One at a time: opening
+  // a second closes the first, which is what every menu bar does.
+  const [menuSlug, setMenuSlug] = useState<string | null>(null);
   const claimable = onClaimContext !== undefined && offerOwnContext({
     contexts: data.contexts,
     loading: data.loading,
@@ -124,20 +128,38 @@ export function ConsoleRail({
               )
             ) : null}
             {section.contexts.map((context) => (
-              <RailEntry
+              // Right-clicking a context offers its verbs — Settings, sharing
+              // — because the rail entry is the visible handle for the
+              // context, and the storage pill in the corner was findable only
+              // by people who already knew it was there.
+              <RightClickTarget
                 key={context.id}
-                label={atName(context.slug)}
-                // A context has no glyph of its own, so the initial stands in —
-                // the same letter the avatar uses, which is what makes a
-                // collapsed rail learnable rather than a row of identical dots.
-                glyph={context.slug.slice(0, 1).toUpperCase()}
-                icons={icons}
-                touch={touch}
-                accessibilityLabel={`Open ${atName(context.slug)}`}
-                selected={route.kind === "context" && route.slug === context.slug}
-                onPress={() => onNavigate(selectContextRoute(context.slug))}
-                leading={<Dot tone={context.status} />}
-              />
+                onOpenMenu={() => setMenuSlug(context.slug)}
+              >
+                <RailEntry
+                  label={atName(context.slug)}
+                  // A context has no glyph of its own, so the initial stands in —
+                  // the same letter the avatar uses, which is what makes a
+                  // collapsed rail learnable rather than a row of identical dots.
+                  glyph={context.slug.slice(0, 1).toUpperCase()}
+                  icons={icons}
+                  touch={touch}
+                  accessibilityLabel={`Open ${atName(context.slug)}`}
+                  selected={route.kind === "context" && route.slug === context.slug}
+                  onPress={() => onNavigate(selectContextRoute(context.slug))}
+                  leading={<Dot tone={context.status} />}
+                />
+                {menuSlug === context.slug ? (
+                  <ContextRowMenu
+                    slug={context.slug}
+                    onSelect={(target) => {
+                      setMenuSlug(null);
+                      onNavigate(target);
+                    }}
+                    onDismiss={() => setMenuSlug(null)}
+                  />
+                ) : null}
+              </RightClickTarget>
             ))}
             {/*
               The way to have a context of your own, for somebody who does not.
