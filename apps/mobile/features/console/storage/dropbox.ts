@@ -276,6 +276,16 @@ export function resolveDropboxCallbackView(inputs: {
       if (inputs.attempt.resumeTo === "onboarding") {
         return { kind: "connected", href: RESUME_ONBOARDING_ROUTE };
       }
+      // An EMPTY store gets the setup walk-through, wherever the connect
+      // started. Seen live: a disconnect-then-reconnect onto a fresh Dropbox
+      // landed in settings with no "choose PARA or your own layout" step,
+      // because the structure question only existed inside first-run. Zero
+      // is measured — the probe walked the folder and found nothing — while
+      // an ABSENT count keeps the settings path: absent must never become
+      // zero (the schema's rule), and a store we could not count may be full.
+      if (inputs.binding?.noteCount === 0) {
+        return { kind: "connected", href: RESUME_ONBOARDING_ROUTE };
+      }
       return {
         kind: "connected",
         href: inputs.slug === null ? CONSOLE_ROUTE : settingsHref(inputs.slug),
