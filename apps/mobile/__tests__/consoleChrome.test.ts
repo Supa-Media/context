@@ -106,7 +106,7 @@ function mockConsoleData(): never {
 
   return {
     demo: false,
-    avatarInitial: "S",
+    viewer: { name: "@seyi", detail: "seyi@context.lc", initial: "S" },
     contexts: [
       {
         id: "w1",

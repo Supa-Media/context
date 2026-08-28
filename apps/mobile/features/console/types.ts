@@ -1,5 +1,6 @@
 import type { ConsoleFailure } from "./failure";
 import type { FileBrowser } from "./files/browser";
+import type { ViewerIdentity } from "./identity";
 import type { IngestionState } from "./ingestion/settings";
 import type { MapGraph } from "./map/layout";
 import type { MembersView } from "./members/members";
@@ -163,8 +164,12 @@ export interface ConsoleStat {
 export interface ConsoleData {
   /** True for the read-only demo on the landing page. */
   demo: boolean;
-  /** Initial for the avatar in the title bar. */
-  avatarInitial: string;
+  /**
+   * The signed-in person — never the viewed context. The avatar, and the
+   * account block at the foot of the rail, render this and nothing else; only
+   * the top-left context chip names what is being viewed. See `identity.ts`.
+   */
+  viewer: ViewerIdentity;
   contexts: ConsoleContext[];
   selectedContextId: string | null;
   selectContext: (id: string) => void;

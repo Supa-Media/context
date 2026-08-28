@@ -177,7 +177,9 @@ function mockConsoleData(): never {
 
   return {
     demo: false,
-    avatarInitial: "S",
+    // The shapes here are non-owners; the identity resolver would answer the
+    // neutral fallback for them, and nothing in this file asserts on it.
+    viewer: { name: "Signed in", initial: "?" },
     contexts: [
       {
         id: "w1",
