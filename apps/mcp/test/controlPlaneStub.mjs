@@ -475,10 +475,26 @@ export function createDropboxBackend() {
    * cannot drift apart.
    */
   function tagged(summary, status = 409) {
-    const segments = summary.split("/").filter((part) => part && part !== "...");
+    const segments = summary
+      .split("/")
+      .filter((part) => part && part !== "..." && part !== ".");
     let error = null;
-    for (const segment of segments.reverse()) {
+    for (const segment of [...segments].reverse()) {
       error = error ? { ".tag": segment, [segment]: error } : { ".tag": segment };
+    }
+    // `UploadError.path` is the one variant that is NOT a plain nested union.
+    // It carries `UploadWriteFailed`, a *struct* (`reason WriteError`,
+    // `upload_session_id String`), and Stone flattens struct-valued variants —
+    // so Dropbox sends `{".tag":"path", reason:{…}, upload_session_id:"…"}`
+    // rather than nesting under `path`. Deriving the nested form everywhere
+    // replaced one shape Dropbox does not send with another, at the one
+    // endpoint where it matters most: the conditional-write conflict.
+    if (segments[0] === "path" && segments[1] === "conflict" && error?.path) {
+      error = {
+        ".tag": "path",
+        reason: error.path,
+        upload_session_id: "FAKE-upload-session",
+      };
     }
     return new Response(JSON.stringify({ error_summary: summary, error: error ?? {} }), {
       status,

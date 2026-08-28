@@ -24,8 +24,16 @@ import {
 } from "./fixtures.helpers";
 import { encryptSecret, hashToken, requireKeyset } from "../functions/lib/crypto";
 import { dropboxRedirectAllowed } from "../functions/lib/dropboxOAuth";
+import {
+  DROPBOX_CALLBACK_PATH,
+  DROPBOX_REDIRECT_ORIGINS,
+} from "../../mobile/features/console/storage/dropbox";
 
-const APP = "https://console.example.invalid";
+// Must match `vitest.config.ts`'s `APP_ORIGIN`. It did not, and the two tests
+// below that go through the real action were passing for the wrong reason:
+// every non-loopback URI was refused in that environment, so a working
+// allow-list and a blanket refusal were indistinguishable.
+const APP = "https://app.context.invalid";
 
 async function scenario() {
   const t = setupTest();
@@ -101,6 +109,22 @@ describe("who may start a connect", () => {
     expect(errorCode(error)).toBe("REDIRECT_URI_NOT_ALLOWED");
   });
 
+  test("a permitted redirect gets through the refusal", async () => {
+    // Without this, the refusal test above cannot tell a working allow-list
+    // from a blanket refusal — and the environment really did refuse
+    // everything, so it was proving nothing. `startDropboxConnect` still fails
+    // afterwards for want of a Dropbox app key; what matters is that it fails
+    // somewhere OTHER than the redirect check.
+    const { t, owner, workspaceId } = await scenario();
+    const error = await captureError(() =>
+      asUser(t, owner).action(api.functions.dropboxConnect.startDropboxConnect, {
+        workspaceId,
+        redirectUri: `${APP}/storage/dropbox/callback`,
+      }),
+    );
+    expect(errorCode(error)).not.toBe("REDIRECT_URI_NOT_ALLOWED");
+  });
+
   test("and nothing is parked when it is refused", async () => {
     const { t, owner, workspaceId } = await scenario();
     await captureError(() =>
@@ -127,17 +151,50 @@ describe("which redirect URIs this deployment answers on", () => {
   test("and nothing that merely looks like it", () => {
     for (const hostile of [
       "https://attacker.example/cb",
-      // Suffix, prefix, and port confusion — the three ways an inexact match
-      // is defeated. Same reason `redirectUriMatches` and the gateway's origin
-      // allowlist are exact.
-      "https://console.example.invalid.evil.example/cb",
-      "https://evil.example/console.example.invalid",
-      "https://console.example.invalid:8443/cb",
-      "http://console.example.invalid/cb",
+      // Suffix, prefix, and port confusion — the three ways an inexact match is
+      // defeated, and the list has to actually contain all three. It named
+      // three and covered two: the shape an `endsWith` bug produces is an
+      // attacker prefix on OUR domain, and `evilapp.context.invalid` is a
+      // domain anybody can register.
+      "https://evilapp.context.invalid/cb",
+      "https://app.context.invalid.evil.example/cb",
+      "https://evil.example/app.context.invalid",
+      "https://app.context.invalid:8443/cb",
+      "http://app.context.invalid/cb",
+      // The loopback branch is an exact set, not a substring test. Both of
+      // these are hosts an attacker controls.
+      "https://localhost.evil.example/cb",
+      "http://127.0.0.1.evil.example/cb",
       "javascript:alert(1)",
       "",
     ]) {
       expect(dropboxRedirectAllowed(hostile, env), hostile).toBe(false);
+    }
+  });
+
+  test("and nothing `redirectUriIsAcceptable` would refuse on its own", () => {
+    // That precheck does three jobs — refuse a fragment (RFC 6749 §3.1.2), cap
+    // the length, refuse plaintext http off loopback — and all three were
+    // unguarded here: it could be deleted outright with the suite green. The
+    // `javascript:` case above does not cover it, because that fails on the
+    // origin comparison rather than on the precheck.
+    expect(dropboxRedirectAllowed(`${APP}/cb#fragment`, env)).toBe(false);
+    expect(dropboxRedirectAllowed(`${APP}/${"A".repeat(4000)}`, env)).toBe(false);
+  });
+
+  test("the origins the console actually sends are accepted by the pin", () => {
+    // Two sources of truth for one fact, with nothing binding them: the client
+    // sends a frozen list, the server pins to APP_ORIGIN, and `.env.example`
+    // documents APP_ORIGIN with an `app.` subdomain while the client's list is
+    // the apex. If they disagree, every production connect fails closed with
+    // REDIRECT_URI_NOT_ALLOWED and no test would say so.
+    for (const origin of DROPBOX_REDIRECT_ORIGINS) {
+      expect(
+        dropboxRedirectAllowed(`${origin}${DROPBOX_CALLBACK_PATH}`, {
+          APP_ORIGIN: "https://context.lc",
+        }),
+        origin,
+      ).toBe(true);
     }
   });
 

@@ -1092,6 +1092,38 @@ export async function runStoreChecks(check, gateway) {
   }
 
   {
+    // The 64 KB cap on an error body, which is one of this adapter's advertised
+    // fixes and shipped with nothing guarding it. `s3.js` states the reason: a
+    // body is buffered whole before anything trims it, so a hostile or broken
+    // endpoint could stream hundreds of megabytes into a 128 MB isolate.
+    const huge = "x".repeat(200_000);
+    const store = dropbox(
+      () =>
+        new Response(
+          JSON.stringify({
+            error_summary: "path/not_found/..",
+            error: { ".tag": "path", path: { ".tag": "not_found" } },
+            padding: huge,
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } }
+        )
+    );
+    // Over the cap the body is not read at all, so no tag is found and the
+    // absence is not mistaken for one — a failure, which is the safe direction.
+    let threw = null;
+    let result = "unset";
+    try {
+      result = await store.get("a.md");
+    } catch (error) {
+      threw = error;
+    }
+    check(
+      "an oversized error body is capped rather than buffered whole",
+      result !== null && threw !== null && !threw.message.includes("xxxxx")
+    );
+  }
+
+  {
     // The tag decides, not the prose around it. Dropbox's `user_message` is
     // localized text; a note title or a refusal message containing the words
     // "not_found" must not turn a file that exists into a file that is gone.
@@ -1160,12 +1192,20 @@ export async function runStoreChecks(check, gateway) {
       () => dbxJson({ error_summary: "too_many_requests" }, 429, { "Retry-After": "86400" }),
       { sleep: async (ms) => slept.push(ms) }
     );
-    const response = await store.get("a.md").catch(() => "threw");
-    check(
-      "an outsized Retry-After is not slept through",
-      slept.every((ms) => ms <= 31_000)
-    );
-    check("and the caller gets an answer rather than a stalled request", response !== undefined);
+    let surfaced = "";
+    await store.get("a.md").catch((error) => {
+      surfaced = error.message;
+    });
+    // `slept.length === 0`, not "every sleep was short". The claim is that the
+    // caller gets the 429 back rather than waiting; asserting the sleeps were
+    // bounded passes just as well if the cap is implemented by clamping, which
+    // is a different behaviour. And `response !== undefined` was vacuous —
+    // `.catch(() => "threw")` is never undefined.
+    check("an outsized Retry-After is handed back, not slept through", slept.length === 0);
+    // And the 429 reaches the caller as a 429, rather than the request sitting
+    // on it. Asserting only that the sleeps were short would pass just as well
+    // against a cap implemented by clamping, which is different behaviour.
+    check("and the caller gets the 429 itself", surfaced.includes("429"));
   }
 
   {

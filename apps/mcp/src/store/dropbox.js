@@ -204,10 +204,13 @@ export class DropboxStore {
     const attempt = RETRY_BACKOFF_MS.length - retriesLeft;
     const fallback = RETRY_BACKOFF_MS[attempt] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1];
     const advertised = Number(response.headers.get("Retry-After")) * 1000;
-    const honoured = Number.isFinite(advertised) ? Math.min(advertised, MAX_RETRY_AFTER_MS) : 0;
-    // Past the cap, hand back the 429 rather than sleeping through it.
+    // Past the cap, hand back the 429 rather than sleeping through it. One
+    // control, not two: this used to sit beside a `Math.min` that clamped the
+    // same value, and either half could be deleted with the suite green
+    // because the other still bounded the sleep. Two halves of one guard, each
+    // making the other untestable, is how a guard comes to look covered.
     if (Number.isFinite(advertised) && advertised > MAX_RETRY_AFTER_MS) return response;
-    const base = Math.max(honoured, fallback);
+    const base = Math.max(Number.isFinite(advertised) ? advertised : 0, fallback);
     await this.sleep(base + Math.floor(Math.random() * 1000));
     return this._request(url, init, { retriesLeft: retriesLeft - 1 });
   }
@@ -226,9 +229,18 @@ export class DropboxStore {
    * must not be mistaken for absence — reading a tag rather than a status is
    * the difference between "this file is missing" and "this token expired".
    */
-  async _isNotFound(response) {
-    if (response.status !== 409) return false;
-    return (await errorTagPath(response.clone())).split("/").includes("not_found");
+  /**
+   * Read the error body ONCE, and answer both questions from it.
+   *
+   * This used to be two calls — `_isNotFound(response)` on a clone, then
+   * `_fail(response)` on the original — and a clone tees the stream. Cancelling
+   * one branch part-way, which is exactly what the byte cap does on an
+   * oversized body, leaves the other branch waiting for a producer that is
+   * never going to run again: the request hangs rather than failing. A body is
+   * read once here and the tag travels as a string.
+   */
+  async _errorTag(response) {
+    return errorTagPath(response);
   }
 
   /**
@@ -242,11 +254,8 @@ export class DropboxStore {
    * code. A tag is a fixed identifier from Dropbox's own vocabulary, so it can
    * say what went wrong without saying what it went wrong *on*.
    */
-  async _fail(response, action) {
-    const tag = await errorTagPath(response);
-    throw new Error(
-      `dropbox ${action} failed: ${response.status}${tag ? ` (${tag})` : ""}`,
-    );
+  _fail(status, action, tag) {
+    throw new Error(`dropbox ${action} failed: ${status}${tag ? ` (${tag})` : ""}`);
   }
 
   async get(key) {
@@ -256,8 +265,11 @@ export class DropboxStore {
       headers: { "Dropbox-API-Arg": apiArgHeader({ path: this._path(key) }) },
     });
 
-    if (response.status === 409 && (await this._isNotFound(response))) return null;
-    if (!response.ok) return this._fail(response, "download");
+    if (!response.ok) {
+      const tag = await this._errorTag(response);
+      if (response.status === 409 && tag.split("/").includes("not_found")) return null;
+      return this._fail(response.status, "download", tag);
+    }
 
     const metadata = JSON.parse(response.headers.get("Dropbox-API-Result") || "{}");
     const buffer = await response.arrayBuffer();
@@ -305,7 +317,8 @@ export class DropboxStore {
       body,
     });
 
-    if (response.status === 409) {
+    if (!response.ok) {
+      const tag = await this._errorTag(response);
       // `null` means "your precondition failed" and nothing else, so a write
       // nobody made conditional must never return it. Dropbox answers
       // `path/conflict/folder` when a *folder* occupies the path of an
@@ -315,12 +328,15 @@ export class DropboxStore {
       // afterwards. This is the only backend that could produce that, because
       // it is the only one deriving `null` from anything but a real
       // precondition.
-      if (conditional && (await errorTagPath(response.clone())).split("/").includes("conflict")) {
+      if (
+        response.status === 409 &&
+        conditional &&
+        tag.split("/").includes("conflict")
+      ) {
         return null;
       }
-      return this._fail(response, "upload");
+      return this._fail(response.status, "upload", tag);
     }
-    if (!response.ok) return this._fail(response, "upload");
 
     const metadata = await response.json();
     return { etag: normalizeEtag(metadata.rev) };
@@ -331,8 +347,11 @@ export class DropboxStore {
     const response = await this._rpc("/files/delete_v2", { path: this._path(key) });
     // Deleting what is already gone is success, so a rollback path that runs
     // twice does not fail the second time.
-    if (response.status === 409 && (await this._isNotFound(response))) return;
-    if (!response.ok) await this._fail(response, "delete");
+    if (!response.ok) {
+      const tag = await this._errorTag(response);
+      if (response.status === 409 && tag.split("/").includes("not_found")) return;
+      this._fail(response.status, "delete", tag);
+    }
   }
 
   /**
@@ -358,10 +377,13 @@ export class DropboxStore {
 
     // A folder that does not exist yet lists as empty rather than throwing:
     // this is the first thing a freshly connected, untouched context does.
-    if (response.status === 409 && (await this._isNotFound(response))) {
+    if (!response.ok) {
+      const tag = await this._errorTag(response);
+      if (response.status === 409 && tag.split("/").includes("not_found")) {
       return { objects: [], delimitedPrefixes: [], truncated: false };
+      }
+      return this._fail(response.status, "list", tag);
     }
-    if (!response.ok) return this._fail(response, "list");
 
     const page = await response.json();
     const objects = [];
