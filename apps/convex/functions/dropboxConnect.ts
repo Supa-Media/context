@@ -596,21 +596,24 @@ export const applyDropboxBinding = internalMutation({
  *
  * The envelope travels in the args rather than being read from the row,
  * because by the time this runs the row no longer holds it. Three callers,
- * two different reasons: `disconnectStorage` deletes the row outright, while
- * `applyBinding` and `applyDropboxBinding` overwrite the envelope in place.
- * Same conclusion, and it is worth stating both — the first version of this
- * comment gave only the delete reason, which stopped being the whole truth
- * the moment the other two callers existed.
+ * three different reasons: `disconnectStorage` deletes the row outright,
+ * `applyBinding` erases the field, and `applyDropboxBinding` writes another
+ * account's envelope over it. Same conclusion each time, and worth stating
+ * all three — the first version of this comment gave only the delete reason,
+ * which stopped being the whole truth the moment the other callers existed.
  *
  * Known and accepted: a Dropbox authorization is per *account*, so revoking
  * it ends the app's access to that account everywhere. Somebody who connected
  * one Dropbox to two of their own contexts loses the second when they rebind
  * the first. No data is lost — their Dropbox is untouched and they can
- * reconnect — but it is a real surprise, and it is unindexed to detect. That is also why this is
- * best-effort and swallows every failure: the disconnect the person asked for
- * has already happened, the credential is already forgotten on our side, and
- * the one thing a retry loop could add is a background job hammering a grant
- * the person may have revoked from Dropbox's side themselves.
+ * reconnect — but it is a real surprise, and there is no index on
+ * `dropboxAccountId` with which to find the other binding cheaply.
+ *
+ * This is best-effort and swallows every failure: the disconnect the person
+ * asked for has already happened, the credential is already forgotten on our
+ * side, and the one thing a retry loop could add is a background job
+ * hammering a grant the person may have revoked from Dropbox's side
+ * themselves.
  *
  * The refresh token is spent to mint one fresh access token, and revoking
  * that access token disables the pair — Dropbox's revoke endpoint takes the
