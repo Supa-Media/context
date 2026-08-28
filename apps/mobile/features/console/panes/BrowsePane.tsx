@@ -187,7 +187,7 @@ export function BrowsePane({
         ) : selected.kind === "folder" ? (
           <FolderSummary
             entry={selected}
-            canEdit={files.canEdit}
+            canSetVisibility={files.canSetVisibility}
             onSetVisibility={(visibility) =>
               files.setVisibility(selected.path, "folder", visibility)
             }
@@ -235,11 +235,17 @@ function Empty({ contextLabel }: { contextLabel: string }) {
  */
 function FolderSummary({
   entry,
-  canEdit,
+  canSetVisibility,
   onSetVisibility,
 }: {
   entry: FileEntry;
-  canEdit: boolean;
+  /**
+   * Owner-only, like every visibility control. This pane's button said
+   * `canEdit` once, which put "Make this folder private" in front of an
+   * editor on somebody else's context — offered, then refused by the
+   * server. Absent is the truth.
+   */
+  canSetVisibility: boolean;
   onSetVisibility: (visibility: Visibility) => void;
 }) {
   const current = entry.visibility;
@@ -253,7 +259,7 @@ function FolderSummary({
           ? "Everything in this folder is visible to the people you have granted team access, unless a note is held back as an exception."
           : "Everything in this folder is yours alone, unless a note is shared as an exception."}
       </Text>
-      {canEdit ? (
+      {canSetVisibility ? (
         <Button
           label={
             current === "team" ? "Make this folder private" : "Share this folder with your team"

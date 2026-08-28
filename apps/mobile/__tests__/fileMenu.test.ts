@@ -59,6 +59,9 @@ function menu(target: MenuTarget, over: Partial<Omit<MenuContext, "target">> = {
   const context: MenuContext = {
     target,
     canEdit: true,
+    // Permissive default like canEdit: most of this suite is about shape,
+    // and the owner-only rule has its own describe below.
+    canSetVisibility: true,
     clipboard: null,
     platform: "web",
     ...over,
@@ -725,7 +728,7 @@ describe("separators come from grouping, so the empty-group bugs cannot happen",
       for (const platform of ["web", "touch"] as const) {
         for (const canEdit of [true, false]) {
           for (const clipboard of [null, put("copy", "2-areas/handbook.md")]) {
-            const list = itemsFor({ target, platform, canEdit, clipboard });
+            const list = itemsFor({ target, platform, canEdit, canSetVisibility: canEdit, clipboard });
             if (list.length === 0) continue;
             expect(list[0].separatorBefore).toBeUndefined();
             for (const entry of list) {
@@ -737,5 +740,34 @@ describe("separators come from grouping, so the empty-group bugs cannot happen",
         }
       }
     }
+  });
+});
+
+describe("visibility is offered only to the owner", () => {
+  /**
+   * The second half of the live breach's fix. The server refuses an editor's
+   * visibility write (`minimum: "owner"`); this is the layer that stops the
+   * menu OFFERING it — absent, never present-and-refused, per this module's
+   * own first rule.
+   */
+  test("an editor's menu has everything mutating except Visibility", () => {
+    const list = menu(
+      { kind: "row", row: note("1-projects/plan.md") },
+      { canSetVisibility: false },
+    );
+    const ids = list.map((item) => item.id);
+    expect(ids).toContain("rename");
+    expect(ids).toContain("archive");
+    expect(ids).not.toContain("visibility");
+  });
+
+  test("a folder's menu drops it the same way", () => {
+    const list = menu({ kind: "row", row: dir("2-areas") }, { canSetVisibility: false });
+    expect(list.map((item) => item.id)).not.toContain("visibility");
+  });
+
+  test("the owner keeps it", () => {
+    const list = menu({ kind: "row", row: note("1-projects/plan.md") });
+    expect(list.map((item) => item.id)).toContain("visibility");
   });
 });

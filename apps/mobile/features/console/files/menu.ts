@@ -91,6 +91,15 @@ export type MenuTarget =
 export interface MenuContext {
   target: MenuTarget;
   canEdit: boolean;
+  /**
+   * Whether visibility items are offered at all. Owner-only, and absent
+   * rather than disabled — the same rule as `canEdit` above. An editor with
+   * a Visibility submenu was the live breach: changing visibility rewrites
+   * the access map that decides what that editor may see, so the authority
+   * is the owner's alone, and the server (`minimum: "owner"`, plus the
+   * scope gate in lib/fileOps) refuses it regardless of what this menu says.
+   */
+  canSetVisibility: boolean;
   clipboard: Clipboard | null;
   /** Web prints shortcuts; touch does not, and touch has no "open in new tab". */
   platform: "web" | "touch";
@@ -410,7 +419,9 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
     // A mixed selection gets no visibility submenu: "Follow folder" means
     // nothing for a folder, and a submenu that applies to some of what is
     // selected is the partial success this menu exists to avoid.
-    single !== null || isFolder || isFile ? visibilityGroup(context, isFolder) : [],
+    context.canSetVisibility && (single !== null || isFolder || isFile)
+      ? visibilityGroup(context, isFolder)
+      : [],
 
     [
       archived
