@@ -21,7 +21,7 @@
     "@convex-dev/auth": "^0.0.90",
     "@expo/metro-runtime": "~6.1.2",
     "@react-native-community/netinfo": "11.4.1",
-    "@supa-media/core": "^1.0.1",
+    "@supa-media/core": "^1.0.2",
     "convex": "^1.31.3",
     "expo": "~54.0.23",
     "expo-constants": "~18.0.12",
