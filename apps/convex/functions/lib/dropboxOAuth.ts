@@ -231,6 +231,13 @@ export function dropboxAuthorizeUrl(options: {
   // caused it.
   url.searchParams.set("token_access_type", "offline");
   url.searchParams.set("scope", DROPBOX_SCOPES.join(" "));
+  // Always show the consent screen, even when Dropbox already has a grant for
+  // this app. Without it, a reconnect silently auto-approves whichever account
+  // the browser is logged into and bounces straight back — the person never
+  // gets the page where they could switch accounts, which reads as "it won't
+  // let me choose" (it wouldn't). On a genuine first connect the screen was
+  // showing anyway, so this costs nothing there.
+  url.searchParams.set("force_reapprove", "true");
   url.searchParams.set("state", options.state);
   return url.toString();
 }
@@ -608,4 +615,39 @@ export async function refreshDropboxToken(options: {
       ? { refreshToken: rotated }
       : {}),
   };
+}
+
+/** Where a grant is disabled. Same host as the token endpoint, not `www`. */
+export const DROPBOX_REVOKE_ENDPOINT = "https://api.dropboxapi.com/2/auth/token/revoke";
+
+/**
+ * Disable the grant behind an access token — and, per Dropbox, the refresh
+ * token paired with it. This is what makes "Disconnect" mean disconnected:
+ * without it we delete our copy of the credential but the authorization
+ * lives on in the person's Dropbox, and the next connect silently
+ * auto-approves instead of asking. After a successful revoke, the app is
+ * gone from their connected-apps list and a reconnect is a true first-time
+ * consent.
+ *
+ * The same secrecy rule as every call in this file: a failure carries a
+ * status, never the token and never Dropbox's free-text prose.
+ */
+export async function revokeDropboxToken(options: {
+  accessToken: string;
+  fetchImpl?: FetchLike;
+}): Promise<void> {
+  const fetchImpl = options.fetchImpl ?? ((input: string, init: RequestInit) => globalThis.fetch(input, init));
+  const response = await fetchImpl(DROPBOX_REVOKE_ENDPOINT, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${options.accessToken}` },
+  });
+  if (!response.ok) {
+    // 401 means the token is already dead, which is the outcome revocation
+    // wanted; only a live-but-refused grant is worth reporting.
+    if (response.status === 401) return;
+    throw new DropboxOAuthError(
+      "REQUEST_REJECTED",
+      `Dropbox refused the revoke call with status ${response.status}.`,
+    );
+  }
 }

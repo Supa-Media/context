@@ -638,6 +638,16 @@ describe("no public function can reach a storage secret", () => {
       // because that one is public: reached only by a schedule edge, which is
       // the same shape as `verifyStorageBinding`.
       "functions.dropboxConnect.exchangeAndBind",
+      // THE CREDENTIAL'S FUNERAL. Opens a Dropbox refresh token one last
+      // time to disable the grant at Dropbox after `disconnectStorage`
+      // deleted the row — without it, "Disconnect" forgets our copy while
+      // the authorization lives on in the person's account, and their next
+      // connect silently auto-approves. The envelope arrives in the args
+      // (the row is already gone), it is spent on one refresh + one revoke,
+      // and every failure is swallowed: after this runs, successfully or
+      // not, the control plane holds nothing. internalAction, reached only
+      // by a schedule edge from `disconnectStorage`.
+      "functions.dropboxConnect.revokeDropboxGrant",
       // THE FILE EDITOR'S CREDENTIAL BARRIER. Builds one S3Store for one
       // file operation and hands it to lib/fileOps.ts, which never sees the
       // credential. internalAction, and the only member of

@@ -1557,6 +1557,19 @@ export const disconnectStorage = mutation({
       .unique();
     if (binding === null) return { disconnected: false };
 
+    // A Dropbox disconnect also disables the grant at Dropbox — otherwise we
+    // forget our copy of the credential while the authorization lives on in
+    // the person's account, and their next connect silently auto-approves
+    // instead of asking. Scheduled, not called: this public mutation must not
+    // reach the decrypt. Best-effort, and the envelope travels in the args
+    // because the row is deleted on the next line.
+    if (binding.provider === "dropbox" && binding.encryptedRefreshToken !== undefined) {
+      await ctx.scheduler.runAfter(0, internal.functions.dropboxConnect.revokeDropboxGrant, {
+        workspaceId: args.workspaceId,
+        encryptedRefreshToken: binding.encryptedRefreshToken,
+      });
+    }
+
     await ctx.db.delete(binding._id);
     await recordAudit(ctx, {
       workspaceId: args.workspaceId,
