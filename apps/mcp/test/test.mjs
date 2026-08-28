@@ -970,9 +970,10 @@ check(
 check("every modern result is tagged complete", discover.body.result?.resultType === "complete");
 // `tools/list` has had this check since the modern path landed; `discover` did
 // not, and it is the one that matters more. Its `instructions` carry a sketch
-// of THIS caller's context — their front page, their folder map, their recent
-// activity — so `public` here would hand one person's notes to whoever a shared
-// intermediary served next. Two comments in `index.js` say exactly that and
+// of THIS caller's context — their front page and their filtered folder map —
+// so `public` here would hand one person's notes to whoever a shared
+// intermediary served next. (Not recency: the sketch's own header points at
+// `orient` for that, and no timestamp enters this payload.) Two comments in `index.js` say exactly that and
 // nothing enforced it: marking discover `public` passed the whole suite.
 check(
   "the per-caller context sketch is never marked publicly cacheable",
