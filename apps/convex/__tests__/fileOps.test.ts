@@ -1672,29 +1672,200 @@ describe("a bulk operation acts only on what the caller can see", () => {
   });
 
   test("a whole-folder move still carries its rules across", async () => {
-    // The control for the two above: when nothing is held back the folder move
-    // is a folder move, and the rules follow it. Refusing to remap whenever a
-    // walk *could* have filtered would silently break every ordinary rename.
+    // The control for the two above: when nothing is held back the rules follow
+    // the folder. The first version of this put the folder inside an already
+    // shared `1-projects`, so the destination was listable whether or not the
+    // rule travelled and it asserted nothing — it stayed green with the remap
+    // disabled outright. Inside a *private* parent the rule is the only thing
+    // that can make the destination visible.
     const store = bucket();
-    await shareProjects(store);
-    store.seed("1-projects/whole/deep/note.md", "# Note\n");
+    store.seed("2-areas/whole/note.md", "# Note\n");
     await setFolderVisibility(store, {
-      path: "1-projects/whole/deep",
+      path: "2-areas/whole",
       visibility: "team",
       scope: "private",
     });
     const moved = await movePath(store, {
-      from: "1-projects/whole",
-      to: "1-projects/whole-2",
+      from: "2-areas/whole",
+      to: "2-areas/whole-2",
       scope: "team",
       now: NOW,
     });
-    expect(moved.paths).toEqual(["1-projects/whole-2/deep/note.md"]);
-    const listing = await listFolder(store, {
-      path: "1-projects/whole-2/deep",
+    expect(moved.paths).toEqual(["2-areas/whole-2/note.md"]);
+    const listing = await listFolder(store, { path: "2-areas/whole-2", scope: "team" });
+    expect(names(listing.entries)).toEqual(["note.md"]);
+  });
+
+  /**
+   * The rules under a partly-moved folder describe two places at once, and both
+   * blunt answers are wrong. Rewriting them all publishes the survivor;
+   * *keeping* them all makes the kept rule the disclosure — a folder that
+   * renames cleanly and one that refuses because it hides something are exactly
+   * what the filtering above exists not to distinguish. So a rule stays only
+   * where removing it would change what a survivor is.
+   */
+  test("a folder that hides something moves exactly like one that does not", async () => {
+    async function rename(hides: boolean) {
+      const store = bucket();
+      store.seed("2-areas/shared/a.md", "# A\n");
+      if (hides) store.seed("2-areas/shared/secret.md", "# Secret\n");
+      await setFolderVisibility(store, {
+        path: "2-areas/shared",
+        visibility: "team",
+        scope: "private",
+      });
+      if (hides) {
+        await setVisibility(store, {
+          path: "2-areas/shared/secret.md",
+          visibility: "private",
+          scope: "private",
+        });
+      }
+      // The caller sees the same folder either way before they act.
+      const before = await listFolder(store, { path: "2-areas/shared", scope: "team" });
+      expect(names(before.entries)).toEqual(["a.md"]);
+      const moved = await movePath(store, {
+        from: "2-areas/shared",
+        to: "2-areas/renamed",
+        scope: "team",
+        now: NOW,
+      });
+      return { store, moved };
+    }
+
+    const clean = await rename(false);
+    const hiding = await rename(true);
+    expect(hiding.moved.paths).toEqual(clean.moved.paths);
+
+    // ...and the note it hid is still hidden, and still where it was.
+    const leak = await capture(() =>
+      readFile(hiding.store, { path: "2-areas/shared/secret.md", scope: "team" }),
+    );
+    expect(leak.code).toBe("FILE_NOT_FOUND");
+    expect(hiding.store.snapshot()["2-areas/shared/secret.md"]).toBeDefined();
+  });
+
+  /**
+   * The walk is bounded, and running out of pages used to look exactly like
+   * reaching the end: a short list with nothing recorded as held back, which
+   * the manifest bookkeeping then rewrote as though the whole folder had gone.
+   * `listFolder` reports the same condition as `truncated` and this one said
+   * nothing. Refused rather than truncated, which is what the gateway's own
+   * listing helper does.
+   */
+  test("a folder deeper than the page cap is refused, not half-done", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/huge/aaa.md", "# A\n");
+    // Plumbing consumes pages without ever being held back, so it is the
+    // cheapest way to outrun the cap without tripping FOLDER_OPERATION_CAP.
+    for (let i = 0; i < 21_000; i += 1) {
+      store.seed(`1-projects/huge/.junk/${i}.md`, "x");
+    }
+    store.seed("1-projects/huge/zdeep/secret.md", "# Salaries\n\n200k\n");
+    await setFolderVisibility(store, {
+      path: "1-projects/huge/zdeep",
+      visibility: "private",
+      scope: "private",
+    });
+
+    const error = await capture(() =>
+      deletePath(store, {
+        path: "1-projects/huge",
+        scope: "team",
+        confirmation: DELETE_CONFIRMATION,
+      }),
+    );
+    expect(error.code).toBe("FOLDER_TOO_LARGE");
+    // Nothing was deleted and, above all, nothing was published.
+    expect(store.snapshot()["1-projects/huge/aaa.md"]).toBeDefined();
+    const leak = await capture(() =>
+      readFile(store, { path: "1-projects/huge/zdeep/secret.md", scope: "team" }),
+    );
+    expect(leak.code).toBe("FILE_NOT_FOUND");
+  });
+
+  /**
+   * `movePath` hands the same `folderMove` to the destination guard and to the
+   * manifest rewrite, and they have to agree. Given an unconditional one while
+   * the rewrite got a conditional one, the guard judged destinations against
+   * rules that were never going to exist — and a team caller's move succeeded
+   * into space they could no longer see, with 117 tests green.
+   */
+  test("the destination guard and the manifest rewrite agree about the move", async () => {
+    const store = bucket();
+    store.seed("2-areas/shared/a.md", "# A\n");
+    await setFolderVisibility(store, {
+      path: "2-areas/shared",
+      visibility: "team",
+      scope: "private",
+    });
+    const moved = await movePath(store, {
+      from: "2-areas/shared",
+      to: "2-areas/shared-2",
+      scope: "team",
+      now: NOW,
+    });
+    // The guard allowed it, so the mover must be able to read the result.
+    const readBack = await readFile(store, {
+      path: moved.paths[0]!,
       scope: "team",
     });
-    expect(names(listing.entries)).toEqual(["note.md"]);
+    expect(readBack.text).toContain("# A");
+  });
+
+  /**
+   * The survivor comparison ends in a `.` for the same reason the match it
+   * undoes does. Without it a survivor's name that merely *prefixes* the
+   * deleted note's protects history the delete promised to purge — the
+   * `permanently delete` lie this function's own comment calls out, arrived at
+   * from the other side.
+   */
+  test("a survivor whose name prefixes the deleted one does not shield it", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/a.md.notes.md", "# Notes\n");
+    store.seed("1-projects/a.md", "# A\n");
+    store.seed(
+      ".history/1-projects/a.md.notes.md.2026-07-01T09-00-00-000Z.md",
+      "# older notes\n",
+    );
+    // The survivor is the SHORTER name, held back from the caller.
+    await setVisibility(store, {
+      path: "1-projects/a.md",
+      visibility: "private",
+      scope: "private",
+    });
+
+    const result = await deletePath(store, {
+      path: "1-projects",
+      scope: "team",
+      confirmation: DELETE_CONFIRMATION,
+    });
+    expect(result.paths).toContain("1-projects/a.md.notes.md");
+    expect(result.paths).not.toContain("1-projects/a.md");
+    // The deleted note keeps no copy, even though a survivor's name prefixes it.
+    expect(historyKeys(store).some((key) => key.includes("a.md.notes.md."))).toBe(false);
+  });
+
+  test("deleting a note does not take the history of one whose name extends it", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/a.md", "# A\n");
+    store.seed("1-projects/a.md.notes.md", "# Notes\n");
+    store.seed(".history/1-projects/a.md.2026-07-01T09-00-00-000Z.md", "# older a\n");
+    store.seed(".history/1-projects/a.md.notes.md.2026-07-01T09-00-00-000Z.md", "# older notes\n");
+
+    await deletePath(store, {
+      path: "1-projects/a.md",
+      scope: "private",
+      confirmation: DELETE_CONFIRMATION,
+    });
+    expect(store.snapshot()["1-projects/a.md.notes.md"]).toBeDefined();
+    expect(historyKeys(store).some((key) => key.includes("a.md.notes.md."))).toBe(true);
+    expect(
+      historyKeys(store).some((key) => key.endsWith("1-projects/a.md.2026-07-01T09-00-00-000Z.md")),
+    ).toBe(false);
   });
 
   /**
@@ -1785,19 +1956,6 @@ describe("a bulk operation acts only on what the caller can see", () => {
   });
 
   /**
-   * `rulesAfterFolderMove` now drives a security guard as well as the manifest
-   * rewrite, so its segment boundary matters in a second place: without the
-   * slash, moving `1-projects/sub` renames the rule belonging to
-   * `1-projects/subway` and publishes its contents.
-   *
-   * Two checks have to be wrong for that to happen — `remapPrivacy` decides
-   * whether to rewrite at all with a boundary comparison of its own, and it
-   * refuses first. Breaking either alone leaves this green, which is what
-   * defence in depth looks like from a test; breaking both fails it. That is
-   * the property worth pinning, because the day one of them is "simplified"
-   * away the other is all that is left.
-   */
-  /**
    * `folderVisibleAtScope` unhides a folder for a nested `team` rule. It must
    * check the visibility, not merely the prefix: a private folder whose only
    * nested rule is *also* private would otherwise appear in a team caller's
@@ -1825,6 +1983,19 @@ describe("a bulk operation acts only on what the caller can see", () => {
     expect(names(shared.entries)).toContain("3-resources");
   });
 
+  /**
+   * `rulesAfterFolderMove` now drives a security guard as well as the manifest
+   * rewrite, so its segment boundary matters in a second place: without the
+   * slash, moving `1-projects/sub` renames the rule belonging to
+   * `1-projects/subway` and publishes its contents.
+   *
+   * Two checks have to be wrong for that to happen — `remapPrivacy` decides
+   * whether to rewrite at all with a boundary comparison of its own, and it
+   * refuses first. Breaking either alone leaves this green, which is what
+   * defence in depth looks like from a test; breaking both fails it. That is
+   * the property worth pinning, because the day one of them is "simplified"
+   * away the other is all that is left.
+   */
   test("a folder move does not rename a rule belonging to a name it prefixes", async () => {
     const store = bucket();
     await shareProjects(store);

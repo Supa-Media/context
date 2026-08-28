@@ -697,6 +697,12 @@ async function keysUnder(
   // Convex reuse isolates, so a module-level flag would be one request telling
   // the next one what it saw.
   const withheld: string[] = [];
+  // Whether the walk reached the end of the folder. `listFolder` reports the
+  // same thing as `truncated` and `resetPrivacyManifest` as `partial`; this one
+  // used to just fall out of the loop, so a folder deeper than the page cap
+  // returned a short list that read exactly like a complete one — and the
+  // manifest bookkeeping below rewrites rules on the strength of it.
+  let complete = false;
   let cursor: string | undefined;
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
     const listing = await store.list({ prefix, cursor, limit: 1000 });
@@ -714,10 +720,37 @@ async function keysUnder(
         );
       }
     }
-    if (!listing.truncated || !listing.cursor) break;
+    if (!listing.truncated || !listing.cursor) {
+      complete = true;
+      break;
+    }
     cursor = listing.cursor;
   }
+  // Refused rather than truncated, which is what the gateway's own listing
+  // helper does ("refusing to loop"). A partial walk cannot be operated on
+  // safely: it moves some of a folder while the manifest is rewritten as
+  // though all of it went, and nothing downstream can tell.
+  if (!complete) {
+    throw new FileOpError(
+      "FOLDER_TOO_LARGE",
+      "That folder holds too many files to move or delete in one go. Do it in smaller pieces.",
+    );
+  }
   return { keys, withheld };
+}
+
+/**
+ * Live notes whose key extends this one's, which a file delete must not sweep.
+ *
+ * `a.md.notes.md` is an ordinary note and its snapshots begin with
+ * `.history/a.md.`, so deleting `a.md` reached them. These are survivors in
+ * exactly the sense the folder walk means, so they travel the same way.
+ */
+async function namesExtending(store: FileStore, path: string): Promise<string[]> {
+  const listing = await store.list({ prefix: `${path}.`, limit: 1000 });
+  return (listing.objects ?? [])
+    .map((object) => object.key)
+    .filter((key) => key !== path && !isPlumbing(key));
 }
 
 /**
@@ -776,7 +809,14 @@ async function historyKeysFor(
    * Answered with the survivors themselves rather than a stamp regex. A regex
    * would have to track five snapshot spellings across two apps and would fail
    * silently in the wrong direction; this cannot drift, because it compares
-   * against the very keys the walk kept back.
+   * against real keys.
+   *
+   * **A single-file delete has survivors too**, which the first version of this
+   * missed by only thinking about folders: deleting `a.md` matched
+   * `.history/a.md.notes.md.<stamp>.md`, and `a.md.notes.md` is a live note
+   * nobody asked to delete. That one is older than the filtering — it is true
+   * on `main` — and it is the same sentence being false, so it is fixed here
+   * rather than left with a comment that describes only half of it.
    */
   survivors: readonly string[],
 ): Promise<string[]> {
@@ -791,14 +831,24 @@ async function historyKeysFor(
       // For a file, a `/` in the tail would mean a directory we did not put
       // there — leave it rather than sweep something we cannot explain.
       if (!(pathIsFolder || !object.key.slice(prefix.length).includes("/"))) continue;
-      if (
-        deleted !== null &&
-        !deleted.some((key) => object.key.startsWith(`${HISTORY_PREFIX}${key}.`))
-      ) {
-        continue;
-      }
-      if (survivors.some((key) => object.key.startsWith(`${HISTORY_PREFIX}${key}.`))) {
-        continue;
+      if (deleted !== null) {
+        // Which note does this snapshot belong to? `.history/a.md.X.md` could
+        // be a version of `a.md` stamped `X`, or of a note actually called
+        // `a.md.X` — a prefix test cannot tell, and testing the deleted set and
+        // the survivors separately gets it wrong in both directions at once:
+        // `a.md` shields `a.md.notes.md`'s snapshots from a delete that took
+        // it, and `a.md.notes.md` is swept by a delete of `a.md`.
+        //
+        // Longest match decides, the same way `visibilityOf` resolves a key
+        // against overlapping folder rules. The snapshot belongs to the most
+        // specific note whose name it extends, and it goes only if that note
+        // is one of the ones actually deleted.
+        let owner: string | null = null;
+        for (const key of [...deleted, ...survivors]) {
+          if (!object.key.startsWith(`${HISTORY_PREFIX}${key}.`)) continue;
+          if (owner === null || key.length > owner.length) owner = key;
+        }
+        if (owner === null || !deleted.includes(owner)) continue;
       }
       keys.push(object.key);
     }
@@ -856,6 +906,50 @@ function assertDestinationsVisible(
   for (const destination of destinations) {
     if (!canSee(destination, scope, rules, overrides)) throw notFound();
   }
+}
+
+/**
+ * The rules under `folder` that a survivor's visibility actually rests on.
+ *
+ * A bulk operation at team scope leaves the notes it could not see behind, and
+ * the rules under that folder are then describing two places at once. Both
+ * blunt answers are wrong:
+ *
+ *  - **Rewrite them all** (what a whole-folder operation does) and a nested
+ *    rule stops protecting the note it was written for. That is not a note
+ *    losing its rule and falling back to private — `visibilityOf` takes the
+ *    longest matching prefix, so dropping `1-projects/mixed/deep: private`
+ *    hands those notes to the parent's `1-projects: team`. Measured: a team
+ *    caller deleted a shared folder and then read the owner's salary note.
+ *  - **Keep them all** and the kept rule is itself the disclosure. A folder
+ *    that renames cleanly and a folder that refuses because it hides something
+ *    are exactly what `keysUnder` above refuses to distinguish.
+ *
+ * So neither: a rule stays only where removing it would change what a survivor
+ * is. That is a question with an answer rather than a policy, it keeps the
+ * nested private rule in the first case, and in the second it drops the
+ * folder's own `team` rule — whose survivor was held back by something more
+ * specific and does not need it — so the hiding folder answers like the clean
+ * one. Only rules that make a survivor *more private* can be retained this
+ * way, and those never unhide a folder.
+ */
+function rulesSurvivorsRestOn(
+  rules: readonly PrivacyRule[],
+  overrides: ReadonlyMap<string, Visibility>,
+  survivors: readonly string[],
+  folder: string,
+): PrivacyRule[] {
+  if (survivors.length === 0) return [];
+  return rules.filter((rule) => {
+    if (rule.prefix !== folder && !rule.prefix.startsWith(`${folder}/`)) return false;
+    const without = rules.filter((other) => other !== rule);
+    return survivors.some(
+      (key) =>
+        (key === rule.prefix || key.startsWith(`${rule.prefix}/`)) &&
+        effectiveVisibility(key, rules, overrides) !==
+          effectiveVisibility(key, without, overrides),
+    );
+  });
 }
 
 /** The folder rules a folder move leaves behind. `remapPrivacy` applies this. */
@@ -950,14 +1044,7 @@ export async function movePath(
   if (!sourceIsFolder && (await store.get(from)) === null) throw notFound();
   if (sources.length === 0) throw notFound();
 
-  // `filtered` decides whether the manifest bookkeeping below may treat this as
-  // a whole-folder operation. It may not when anything was held back: the rules
-  // under this folder still govern the notes left behind, and moving or
-  // dropping one PUBLISHES them — `visibilityOf` takes the longest matching
-  // prefix, so removing `1-projects/mixed/deep: private` hands those notes to
-  // the parent's `1-projects: team`. Measured before this line existed: a team
-  // caller deleted a shared folder and then read the owner's salary note.
-  const folderMove = sourceIsFolder && walk.withheld.length === 0 ? { from, to } : null;
+  const folderMove = sourceIsFolder ? { from, to } : null;
 
   const pairs = sources.map((key) => ({
     source: key,
@@ -988,6 +1075,7 @@ export async function movePath(
   await remapPrivacy(store, {
     moves: pairs.map((pair) => ({ from: pair.source, to: pair.destination })),
     folderMove,
+    survivors: walk.withheld,
   });
 
   return { from, to, paths: pairs.map((pair) => pair.destination) };
@@ -1175,7 +1263,7 @@ export async function deletePath(
   const targetIsFolder = await isFolder(store, path);
   const walk = targetIsFolder
     ? await keysUnder(store, path, options.scope, state.rules, state.overrides)
-    : { keys: [path], withheld: [] };
+    : { keys: [path], withheld: await namesExtending(store, path) };
   const keys = walk.keys;
   if (!targetIsFolder && (await store.get(path)) === null) throw notFound();
   // A folder holding nothing this caller can see is not a folder they can
@@ -1194,20 +1282,19 @@ export async function deletePath(
     store,
     path,
     targetIsFolder,
-    options.scope === "private" ? null : keys,
+    // `null` sweeps the whole subtree, orphans included, and that is a FOLDER
+    // idea: everything under it is going, so a snapshot matched by nobody is
+    // still this folder's. A single file has no subtree, and its neighbours'
+    // names can extend its own, so it always names what it deleted and lets
+    // longest match decide — otherwise an owner deleting `a.md` takes the
+    // history of `a.md.notes.md`, which they never asked to delete.
+    targetIsFolder && options.scope === "private" ? null : keys,
     walk.withheld,
   )) {
     await store.delete(key);
   }
 
-  // `filtered` decides whether the manifest bookkeeping below may treat this as
-  // a whole-folder operation. It may not when anything was held back: the rules
-  // under this folder still govern the notes left behind, and moving or
-  // dropping one PUBLISHES them — `visibilityOf` takes the longest matching
-  // prefix, so removing `1-projects/mixed/deep: private` hands those notes to
-  // the parent's `1-projects: team`. Measured before this line existed: a team
-  // caller deleted a shared folder and then read the owner's salary note.
-  await forgetPrivacy(store, keys, targetIsFolder && walk.withheld.length === 0 ? path : null);
+  await forgetPrivacy(store, keys, targetIsFolder ? path : null, walk.withheld);
 
   // `paths` stays the live keys. It is what the console echoes and what the
   // audit log records as "what you deleted"; the history that came with them is
@@ -1609,6 +1696,8 @@ async function remapPrivacy(
   change: {
     moves: { from: string; to: string }[];
     folderMove: { from: string; to: string } | null;
+    /** Notes the walk could not see, which stayed where they were. */
+    survivors: readonly string[];
   },
 ): Promise<void> {
   const state = await loadPrivacyState(store);
@@ -1626,6 +1715,18 @@ async function remapPrivacy(
 
   await mutateManifest(store, (current) => {
     const rules = [...rulesAfterFolderMove(current.rules, change.folderMove)];
+    // The renamed set describes where the moved notes went. Anything a note
+    // left behind still depends on has to stay where that note is.
+    if (change.folderMove !== null) {
+      rules.push(
+        ...rulesSurvivorsRestOn(
+          current.rules,
+          current.overrides,
+          change.survivors,
+          change.folderMove.from,
+        ),
+      );
+    }
     let overrides = current.overrides;
     for (const move of change.moves) {
       overrides = movedOverrides(move.from, move.to, rules, overrides);
@@ -1659,6 +1760,8 @@ async function forgetPrivacy(
   store: FileStore,
   keys: string[],
   deletedFolder: string | null,
+  /** Notes the walk could not see, which were not deleted. */
+  survivors: readonly string[],
 ): Promise<void> {
   const state = await loadPrivacyState(store);
   if (state.text === null || state.invalid) return;
@@ -1677,10 +1780,21 @@ async function forgetPrivacy(
     const rules =
       deletedFolder === null
         ? current.rules
-        : current.rules.filter(
-            (rule) =>
-              rule.prefix !== deletedFolder && !rule.prefix.startsWith(`${deletedFolder}/`),
-          );
+        : current.rules
+            .filter(
+              (rule) =>
+                rule.prefix !== deletedFolder && !rule.prefix.startsWith(`${deletedFolder}/`),
+            )
+            // A rule a surviving note's visibility rests on is not this
+            // folder's to forget — the note is still here and still needs it.
+            .concat(
+              rulesSurvivorsRestOn(
+                current.rules,
+                current.overrides,
+                survivors,
+                deletedFolder,
+              ),
+            );
     return { rules, overrides };
   });
 }
