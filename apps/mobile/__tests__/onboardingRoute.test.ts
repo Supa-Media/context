@@ -197,6 +197,31 @@ describe("the welcome screen's own gate", () => {
     });
   });
 
+  /**
+   * `resume=structure` is a Dropbox connect that left first-run for the OAuth
+   * redirect and came back. The person owns a context *because step 1 ran*;
+   * without this flag the gate bounces them to the console and the layout and
+   * agents steps never happen — which is exactly how the first live connect
+   * failed.
+   */
+  test("resuming renders for an owner instead of bouncing to the console", () => {
+    expect(resolveWelcomeRoute({ owned: 1, claimed: false, resuming: true })).toEqual({
+      action: "render",
+    });
+  });
+
+  test("resuming still waits while the workspace list is outstanding", () => {
+    expect(
+      resolveWelcomeRoute({ owned: undefined, claimed: false, resuming: true }),
+    ).toEqual({ action: "wait" });
+  });
+
+  test("a typed resume param for somebody who owns nothing is just onboarding", () => {
+    expect(resolveWelcomeRoute({ owned: 0, claimed: false, resuming: true })).toEqual({
+      action: "render",
+    });
+  });
+
   test("still runs for somebody who has accepted an invitation but owns nothing", () => {
     // The lock-out this replaced: accepting Seyi's invitation gave them a
     // workspace, the old rule read that as "already onboarded", and there was

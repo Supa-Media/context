@@ -167,13 +167,40 @@ export interface OnboardingController {
   finishAgents: () => void;
 }
 
-export function useOnboarding(): OnboardingController {
+export function useOnboarding(
+  options: {
+    /**
+     * Re-enter at the layout step, for a first run that a Dropbox redirect
+     * tore in half. The workspace already exists — step 1 ran before the
+     * person left — so `claimed` is recovered from `listMyWorkspaces` rather
+     * than from a create that happened on a page that no longer exists.
+     */
+    resume?: "structure";
+  } = {},
+): OnboardingController {
   const workspaces = useQuery(api.functions.workspaces.listMyWorkspaces) as
     | Array<{ workspaceId: Id<"workspaces">; slug: string; kind: string; role: string }>
     | undefined;
 
   const [step, setStep] = useState<StepKey>("name");
   const [claimed, setClaimed] = useState<ClaimedContext | null>(null);
+
+  // Resume happens exactly once, when the owned workspace becomes known, and
+  // only while the flow is still sitting on its first step — a person who has
+  // moved on their own is never yanked back.
+  const resumed = useRef(false);
+  useEffect(() => {
+    if (options.resume !== "structure") return;
+    if (resumed.current || claimed !== null) return;
+    if (workspaces === undefined) return;
+    const own = workspaces.find(
+      (workspace) => workspace.kind === "personal" && workspace.role === "owner",
+    );
+    if (own === undefined) return;
+    resumed.current = true;
+    setClaimed({ workspaceId: own.workspaceId, slug: own.slug });
+    setStep("structure");
+  }, [claimed, options.resume, workspaces]);
   // Starts at `connected` because that is the run the step rail should draw
   // before anything has gone wrong: the full four steps. It is only ever
   // narrowed, by an explicit choice on the storage step, and every path off

@@ -51,6 +51,7 @@ export function StorageStep({ controller }: { controller: OnboardingController }
         <StorageChoice
           workspaceId={controller.claimed?.workspaceId ?? null}
           connect={controller.connect}
+          dropboxResumeTo="onboarding"
           // Said here rather than discovered afterwards. The Dropbox flow is a
           // redirect: it takes the browser to Dropbox and brings it back to
           // `/connect/dropbox`, not to this screen, so the two steps after this

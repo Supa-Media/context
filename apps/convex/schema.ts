@@ -930,6 +930,16 @@ const schema = defineSchema({
     /** The folder the person chose, carried across the redirect. */
     rootPrefix: v.optional(v.string()),
     /**
+     * Where the person was when they left, carried across the redirect.
+     *
+     * The redirect destroys the page that started it, and the redirect URI
+     * cannot carry this — Dropbox matches it exactly. Without it, connecting
+     * Dropbox during first-run navigated away mid-flow and the welcome gate
+     * then routed the returning owner to the console: the layout and agents
+     * steps simply never happened. Seen on the first live run.
+     */
+    resumeTo: v.optional(v.literal("onboarding")),
+    /**
      * Short. An authorization that has not come back within a few minutes is a
      * tab somebody abandoned, and a parked verifier is a live half-credential
      * — there is no reason to keep one for a day.

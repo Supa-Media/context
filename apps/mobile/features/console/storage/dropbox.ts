@@ -170,7 +170,7 @@ export type DropboxAttempt =
   | { kind: "running" }
   | { kind: "failed"; failure: StorageFailure }
   /** The exchange is queued. The binding is what says whether it worked. */
-  | { kind: "queued"; workspaceId: string };
+  | { kind: "queued"; workspaceId: string; resumeTo?: "onboarding" };
 
 /** What the person is doing on a card that starts the flow. */
 export type DropboxStartState =
@@ -206,6 +206,12 @@ export type DropboxCallbackView =
  * console reads the binding reactively, so an outcome that lands later shows
  * up there without anybody reloading this page.
  */
+/**
+ * Where a first-run connect resumes. The param is how `/welcome` knows to
+ * re-enter at the layout step for an owner it would otherwise bounce.
+ */
+export const RESUME_ONBOARDING_ROUTE = "/welcome?resume=structure";
+
 export const DROPBOX_TIMEOUT_MESSAGE =
   "Still waiting on Dropbox. Nothing is lost — your context's storage shows the result as soon as the check lands.";
 
@@ -262,6 +268,14 @@ export function resolveDropboxCallbackView(inputs: {
 
   switch (progress.kind) {
     case "connected":
+      // A connect that was started from first-run goes BACK to first-run. The
+      // redirect tore the person out of onboarding mid-flow; without this the
+      // welcome gate routes a returning owner to the console and the layout
+      // and agents steps never happen. Seen, not hypothesised: the first live
+      // connect skipped them exactly this way.
+      if (inputs.attempt.resumeTo === "onboarding") {
+        return { kind: "connected", href: RESUME_ONBOARDING_ROUTE };
+      }
       return {
         kind: "connected",
         href: inputs.slug === null ? CONSOLE_ROUTE : settingsHref(inputs.slug),

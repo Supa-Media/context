@@ -19,7 +19,10 @@ import { leaveForDropbox } from "./leaveForDropbox";
  * screen's is, and it re-checks that the URL really is Dropbox's before
  * following it.
  */
-export function useDropboxStart(workspaceId: string | null): {
+export function useDropboxStart(
+  workspaceId: string | null,
+  options: { resumeTo?: "onboarding" } = {},
+): {
   /** `null` where Dropbox will not redirect back to this origin. */
   redirectUri: string | null;
   state: DropboxStartState;
@@ -46,6 +49,10 @@ export function useDropboxStart(workspaceId: string | null): {
             // the backend reads as "the app folder itself", and it is the
             // answer for every context but a second one on the same account.
             ...(folder === undefined ? {} : { rootPrefix: folder }),
+            // Parked with the attempt, because the redirect destroys the page
+            // that started it and Dropbox's exact-match redirect URI can carry
+            // nothing. This is how first-run gets its remaining steps back.
+            ...(options.resumeTo === undefined ? {} : { resumeTo: options.resumeTo }),
           });
           leaveForDropbox(authorizeUrl);
           // Left deliberately in `starting`. On web this line runs while the
@@ -56,7 +63,7 @@ export function useDropboxStart(workspaceId: string | null): {
         }
       })();
     },
-    [redirectUri, startConnect, workspaceId],
+    [options.resumeTo, redirectUri, startConnect, workspaceId],
   );
 
   return { redirectUri, state, start };
