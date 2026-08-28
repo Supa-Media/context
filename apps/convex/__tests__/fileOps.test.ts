@@ -1287,6 +1287,63 @@ describe("resetting a privacy.md that cannot be read", () => {
     expect(() => parsePrivacyManifest(store.snapshot()[PRIVACY_KEY])).not.toThrow();
   });
 
+  test("a folder whose name cannot be a rule is dropped, not written into the file", async () => {
+    // Bucket keys are far more permissive than a manifest line. A colon breaks
+    // `parsePrivacyManifest`'s rule pattern outright, so one such folder would
+    // make the repair write a file that does not parse — leaving the bucket
+    // exactly as broken as it found it, with the person's one exit spent.
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed(PRIVACY_KEY, "# broken\n");
+    store.seed("2026: notes/a.md", "# a\n");
+    // The second name is here to keep the guard honest about *how* it decides.
+    // A colon blacklist would pass every other assertion in this file, and it
+    // would let this one through: `  2026#notes: private` loses everything
+    // after the `#` to the parser's comment stripper, leaving `2026` with no
+    // colon on it, which the parser rejects outright. Only asking the real
+    // parser catches both.
+    store.seed("2026#notes/a.md", "# a\n");
+    store.seed("1-projects/a.md", "# a\n");
+
+    const result = await resetPrivacyManifest(store, { scope: "private", now: NOW });
+
+    expect(result.folders).toEqual(["1-projects"]);
+    expect(result.partial).toBe(true);
+    expect(() => parsePrivacyManifest(store.snapshot()[PRIVACY_KEY])).not.toThrow();
+  });
+
+  test("a folder name cannot inject rules into the manifest", async () => {
+    // A newline is a legal S3 key character and nothing between the bucket and
+    // this function has to have come through our own path validation — Obsidian
+    // sync, rclone, and the provider's console all write keys directly. A name
+    // carrying its own line break would otherwise append whatever it liked to
+    // `folder_defaults`, and the useful thing to append is `: team`.
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed(PRIVACY_KEY, "# broken\n");
+    store.seed("innocent\n  2-areas: team\n#/a.md", "# a\n");
+    store.seed("2-areas/secret.md", "# secret\n");
+
+    await resetPrivacyManifest(store, { scope: "private", now: NOW });
+
+    const parsed = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    // Not "the file contains no `team`" — the manifest's own prose explains
+    // what `team` means, and asserting on the whole text would pass or fail on
+    // the wording rather than on the rules.
+    expect(parsed.rules.every((rule) => rule.vis === "private")).toBe(true);
+    // `2-areas` is a real folder here and rightly gets a line; what the
+    // injection was for is that the line say `team`. It says `private`.
+    expect(parsed.rules.find((rule) => rule.prefix === "2-areas")?.vis).toBe("private");
+    expect(parsed.overrides.size).toBe(0);
+    // The observable consequence: the note the injected rule was reaching for
+    // is still invisible to a team-scoped caller.
+    expect((await listFolder(store, { path: "", scope: "team" })).entries).toEqual([]);
+  });
+
+  test("a complete walk of ordinary folders is not reported as partial", async () => {
+    const store = brokenBucket();
+    const result = await resetPrivacyManifest(store, { scope: "private", now: NOW });
+    expect(result.partial).toBe(false);
+  });
+
   test("the unreadable file is kept, so a typo does not cost forty rules", async () => {
     const store = brokenBucket();
     const original = store.snapshot()[PRIVACY_KEY];

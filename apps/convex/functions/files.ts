@@ -191,7 +191,8 @@ const privacyResetValidator = v.object({
    * manifest had forty rules in it.
    */
   backedUpTo: v.union(v.string(), v.null()),
-  truncated: v.boolean(),
+  /** `folders` is short: the walk hit its cap, or a name could not be a rule. */
+  partial: v.boolean(),
 });
 
 const operationResultValidator = v.union(
@@ -301,7 +302,7 @@ type OperationResult =
       path: string;
       folders: string[];
       backedUpTo: string | null;
-      truncated: boolean;
+      partial: boolean;
     };
 
 /* -------------------------------------------------------------------------- */
@@ -1019,7 +1020,11 @@ export const resetPrivacy = action({
       // The folder *names* are metadata the audit log already records for every
       // other operation, and the count is what says how much of a map was
       // rebuilt. No rule is recorded because there is only one: private.
-      details: { folders: result.folders.length, restored: result.backedUpTo !== null },
+      details: {
+        folders: result.folders.length,
+        partial: result.partial,
+        restored: result.backedUpTo !== null,
+      },
     });
     return result;
   },

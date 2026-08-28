@@ -642,15 +642,21 @@ export function useFileBrowser(options: {
       const result = await resetPrivacyAction({ workspaceId: workspaceId! });
       const declared =
         result.folders.length === 0
-          ? "It has no folder rules yet, because the bucket has no folders at its root."
+          ? "It has no folder rules yet."
           : `It declares ${result.folders.length} folder${result.folders.length === 1 ? "" : "s"}, every one of them private.`;
+      // A short list is never printed as a complete one — the rule
+      // `noteCountTruncated` follows, for the same reason. Anything left out
+      // has no rule, so it stays private and can be given a line by hand.
+      const short = result.partial
+        ? " Some folders could not be listed as rules; those stay private and can be added to the file by hand."
+        : "";
       const kept =
         result.backedUpTo === null
           ? ""
           : ` The file that could not be read was kept at ${result.backedUpTo}.`;
       return {
         touched: [result.path],
-        message: `privacy.md has been rewritten. ${declared}${kept} Share a folder when you are ready by changing its visibility.`,
+        message: `privacy.md has been rewritten. ${declared}${short}${kept} Share a folder when you are ready by changing its visibility.`,
       };
     });
   }, [resetPrivacyAction, run, workspaceId]);

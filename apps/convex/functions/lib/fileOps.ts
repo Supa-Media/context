@@ -53,6 +53,7 @@ import {
   movedOverrides,
   nextOverrides,
   parsePrivacyManifest,
+  renderPrivacyRulesBlock,
   replacePrivacyRulesBlock,
   visibilityOf,
 } from "./privacy";
@@ -968,8 +969,17 @@ export interface PrivacyResetResult {
    * forty lines; they are one `.history/` key away.
    */
   backedUpTo: string | null;
-  /** True when the walk of the root stopped at the page cap. */
-  truncated: boolean;
+  /**
+   * True when `folders` is not all of them — the walk hit the page cap, or a
+   * folder was dropped because its name cannot be a manifest rule.
+   *
+   * One flag for both because the person's next move is the same either way:
+   * anything missing has no line, so it inherits `default_visibility: private`
+   * and can be given one by hand. The console says the list is short rather
+   * than printing a count that reads like the whole bucket — the same rule
+   * `noteCountTruncated` follows.
+   */
+  partial: boolean;
 }
 
 /**
@@ -1046,8 +1056,13 @@ export async function resetPrivacyManifest(
     );
   }
 
-  const { folders, truncated } = await rootFolders(store);
+  const { folders, partial } = await rootFolders(store);
   const text = renderPrivacyManifestForFolders(folders);
+  // The repair's whole job is to leave a file the parser accepts. Every folder
+  // was checked individually above, so this cannot fire — which is exactly why
+  // it is cheap to keep: if it ever does, the bucket is left broken as it was
+  // rather than broken in a new way with the one exit spent.
+  parsePrivacyManifest(text);
 
   let backedUpTo: string | null = null;
   if (state.text !== null) {
@@ -1072,11 +1087,11 @@ export async function resetPrivacyManifest(
     );
   }
 
-  return { path: PRIVACY_KEY, folders, backedUpTo, truncated };
+  return { path: PRIVACY_KEY, folders, backedUpTo, partial };
 }
 
 /**
- * The bucket's top-level folders.
+ * The bucket's top-level folders, as far as they can be written down.
  *
  * Delimited, so this is the folder names and not every key under them — the
  * same reason `countNotes` is delimited at the root, and the same trap avoided:
@@ -1089,27 +1104,77 @@ export async function resetPrivacyManifest(
  */
 async function rootFolders(
   store: FileStore,
-): Promise<{ folders: string[]; truncated: boolean }> {
+): Promise<{ folders: string[]; partial: boolean }> {
   const seen = new Set<string>();
   let cursor: string | undefined;
-  let truncated = false;
+  let partial = false;
 
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
     const listing = await store.list({ prefix: "", delimiter: "/", cursor, limit: 1000 });
     for (const raw of listing.delimitedPrefixes ?? []) {
       const folder = raw.replace(/\/+$/, "");
-      // `.history/`, `.audit/`, `.obsidian/`. A manifest line for any of them
-      // is rejected by `parsePrivacyManifest`, which would make the repair
-      // write a file that does not parse.
-      if (!folder || isPlumbing(folder)) continue;
+      if (!folder) continue;
+      // `.history/`, `.audit/`, `.obsidian/`.
+      if (isPlumbing(folder)) continue;
+      if (!writableAsRule(folder)) {
+        partial = true;
+        continue;
+      }
       seen.add(folder);
     }
     if (!listing.truncated || !listing.cursor) break;
     cursor = listing.cursor;
-    if (page === LIST_PAGE_CAP - 1) truncated = true;
+    if (page === LIST_PAGE_CAP - 1) partial = true;
   }
 
-  return { folders: [...seen].sort(), truncated };
+  return { folders: [...seen].sort(), partial };
+}
+
+/**
+ * Can this folder name be a line in `folder_defaults`?
+ *
+ * **A bucket key is far more permissive than a manifest rule, and nothing
+ * guarantees a key came through our own path validation.** Obsidian's sync
+ * plugin, rclone and the provider's web console all write keys directly, so
+ * this function's input is arbitrary bytes that S3 accepted. Two ways that goes
+ * wrong, and they fail in opposite directions:
+ *
+ *  - **A colon.** `parsePrivacyManifest`'s rule pattern is
+ *    `^([^:]+?)\/?\s*:\s*(team|private)$`, so a folder called `2026: notes`
+ *    produces a line the parser rejects — and one such folder would make the
+ *    repair write a manifest that does not parse. The person's one exit from a
+ *    broken manifest would leave it broken, with no second thing to try. (A `#`
+ *    is the quieter version: the parser strips it as a comment, so the rule
+ *    silently names a different folder.)
+ *  - **A newline.** A legal S3 key character, and a name carrying one appends
+ *    whatever it likes to `folder_defaults`. The useful thing to append is
+ *    `: team`. That is a privilege escalation written into a folder name, and
+ *    the manifest is the one file in the product where that lands.
+ *
+ * So the check is not a character blacklist — a blacklist is a guess about a
+ * parser, and this one has a comment stripper, a trailing-slash tolerance and a
+ * dot-segment rule. It **renders one rule and parses it back with the real
+ * parser**, and accepts the folder only if exactly one rule comes out naming
+ * exactly it. The oracle is the code that will read the file, so the two cannot
+ * drift, and a future change to either is checked by construction.
+ *
+ * A folder that fails is left out of the manifest rather than blocking the
+ * repair. It then has no rule, so it inherits `default_visibility: private` —
+ * the fail-closed direction — and `partial` says the list is short.
+ */
+function writableAsRule(folder: string): boolean {
+  try {
+    const parsed = parsePrivacyManifest(
+      renderPrivacyRulesBlock([{ prefix: folder, vis: "private" }], new Map()),
+    );
+    return (
+      parsed.rules.length === 1 &&
+      parsed.rules[0]!.prefix === folder &&
+      parsed.overrides.size === 0
+    );
+  } catch {
+    return false;
+  }
 }
 
 /* -------------------------------------------------------------------------- */
