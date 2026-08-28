@@ -12,6 +12,7 @@ import { R2Store } from "../src/store/r2.js";
 import { S3Store, parseListObjectsV2, deriveSigningKey } from "../src/store/s3.js";
 import { DropboxStore } from "../src/store/dropbox.js";
 import { probeStore, normalizeEtag, PROBE_PREFIX } from "../src/store/index.js";
+import { dropboxTaggedError as dbxTagged } from "./controlPlaneStub.mjs";
 
 const FAKE_CONFIG = {
   endpoint: "https://s3.example-object-storage.test",
@@ -1092,6 +1093,33 @@ export async function runStoreChecks(check, gateway) {
   }
 
   {
+    // The fake's own error shape, pinned — on the SHAPE, not on the tag it
+    // walks to. Both the flattened and the nested form walk to
+    // "path/conflict/file", so an assertion through `errorTagPath` cannot tell
+    // them apart and proves nothing about the fixture.
+    //
+    // `UploadError.path` carries `UploadWriteFailed`, a struct, and Stone
+    // flattens struct-valued union variants, so an upload conflict really is
+    // `{".tag":"path", reason:{…}, upload_session_id:"…"}`. A lookup error
+    // genuinely does nest. The derivation must get both right.
+    const conflict = await dbxTagged("path/conflict/file/.").json();
+    const lookup = await dbxTagged("path/restricted_content/.").json();
+    check(
+      "the shared fake emits the flattened upload shape",
+      conflict.error?.[".tag"] === "path" &&
+        conflict.error?.reason?.[".tag"] === "conflict" &&
+        conflict.error?.reason?.conflict?.[".tag"] === "file" &&
+        conflict.error?.path === undefined
+    );
+    check(
+      "and the nested lookup shape, which is a different union",
+      lookup.error?.[".tag"] === "path" &&
+        lookup.error?.path?.[".tag"] === "restricted_content" &&
+        lookup.error?.reason === undefined
+    );
+  }
+
+  {
     // The 64 KB cap on an error body, which is one of this adapter's advertised
     // fixes and shipped with nothing guarding it. `s3.js` states the reason: a
     // body is buffered whole before anything trims it, so a hostile or broken
@@ -1120,6 +1148,47 @@ export async function runStoreChecks(check, gateway) {
     check(
       "an oversized error body is capped rather than buffered whole",
       result !== null && threw !== null && !threw.message.includes("xxxxx")
+    );
+  }
+
+  {
+    // The `content-length` shortcut, which is the branch that normally fires.
+    // `new Response(string)` carries no content-length in this runtime, so the
+    // test above only exercises the streaming cap — while a real fetch response
+    // usually does declare a length, making the *untested* branch the one
+    // production takes. Not two halves of one control, as the Retry-After cap
+    // was: the streaming cap is the real defence and is guarded. This covers
+    // the cheap path as well as the safe one.
+    //
+    // The signal is `bodyUsed`, not a spy on `text()`: the streaming branch
+    // reads through `body.getReader()`, so a `text()` counter stays at zero
+    // whether the shortcut fires or not, and asserting on it proves nothing.
+    const body = JSON.stringify({
+      error_summary: "path/not_found/..",
+      error: { ".tag": "path", path: { ".tag": "not_found" } },
+      padding: "y".repeat(200_000),
+    });
+    let sent = null;
+    const store = dropbox(() => {
+      sent = new Response(body, {
+        status: 409,
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": String(body.length),
+        },
+      });
+      return sent;
+    });
+    let threw = null;
+    let result = "unset";
+    try {
+      result = await store.get("a.md");
+    } catch (error) {
+      threw = error;
+    }
+    check(
+      "a declared over-cap Content-Length is refused without reading the body",
+      result !== null && threw !== null && sent.bodyUsed === false
     );
   }
 

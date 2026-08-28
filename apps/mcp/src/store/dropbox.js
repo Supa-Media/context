@@ -136,6 +136,14 @@ async function readCappedText(response, cap) {
  *
  * Unparseable or untagged bodies yield "", which every caller treats as "not
  * the specific thing I was asking about" and therefore as a real failure.
+ *
+ * **Every caller reads the body exactly once and passes the tag along as a
+ * string.** This used to be two calls — a not-found check on `response.clone()`
+ * and then a failure path on the original — and a clone tees the stream.
+ * Cancelling one branch part-way, which is exactly what the byte cap does on an
+ * oversized body, leaves the other waiting for a producer that will not run
+ * again: the request hangs rather than failing, which is worse than the
+ * unbounded read the cap exists to prevent.
  */
 async function errorTagPath(response) {
   let parsed;
@@ -230,20 +238,6 @@ export class DropboxStore {
    * the difference between "this file is missing" and "this token expired".
    */
   /**
-   * Read the error body ONCE, and answer both questions from it.
-   *
-   * This used to be two calls — `_isNotFound(response)` on a clone, then
-   * `_fail(response)` on the original — and a clone tees the stream. Cancelling
-   * one branch part-way, which is exactly what the byte cap does on an
-   * oversized body, leaves the other branch waiting for a producer that is
-   * never going to run again: the request hangs rather than failing. A body is
-   * read once here and the tag travels as a string.
-   */
-  async _errorTag(response) {
-    return errorTagPath(response);
-  }
-
-  /**
    * The tag, and never the body.
    *
    * These throws reach the connected AI client as `internal error: <message>`,
@@ -266,7 +260,7 @@ export class DropboxStore {
     });
 
     if (!response.ok) {
-      const tag = await this._errorTag(response);
+      const tag = await errorTagPath(response);
       if (response.status === 409 && tag.split("/").includes("not_found")) return null;
       return this._fail(response.status, "download", tag);
     }
@@ -318,7 +312,7 @@ export class DropboxStore {
     });
 
     if (!response.ok) {
-      const tag = await this._errorTag(response);
+      const tag = await errorTagPath(response);
       // `null` means "your precondition failed" and nothing else, so a write
       // nobody made conditional must never return it. Dropbox answers
       // `path/conflict/folder` when a *folder* occupies the path of an
@@ -348,7 +342,7 @@ export class DropboxStore {
     // Deleting what is already gone is success, so a rollback path that runs
     // twice does not fail the second time.
     if (!response.ok) {
-      const tag = await this._errorTag(response);
+      const tag = await errorTagPath(response);
       if (response.status === 409 && tag.split("/").includes("not_found")) return;
       this._fail(response.status, "delete", tag);
     }
@@ -378,9 +372,9 @@ export class DropboxStore {
     // A folder that does not exist yet lists as empty rather than throwing:
     // this is the first thing a freshly connected, untouched context does.
     if (!response.ok) {
-      const tag = await this._errorTag(response);
+      const tag = await errorTagPath(response);
       if (response.status === 409 && tag.split("/").includes("not_found")) {
-      return { objects: [], delimitedPrefixes: [], truncated: false };
+        return { objects: [], delimitedPrefixes: [], truncated: false };
       }
       return this._fail(response.status, "list", tag);
     }
