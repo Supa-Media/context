@@ -123,6 +123,7 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       setVisibility: noop,
       resetPrivacy: noop,
       canResetPrivacy: false,
+    canSetVisibility: false,
     }),
     [editor, expanded, select, selectedPath, toggleFolder, tree],
   );

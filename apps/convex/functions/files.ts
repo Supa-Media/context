@@ -894,7 +894,7 @@ export const deleteEntry = action({
 
 /**
  * Change one note's visibility, through the privacy manifest. Requires
- * `editor`.
+ * `owner` — see `setDirectoryVisibility` for why, learned the hard way.
  *
  * Setting a note to its folder's default removes the exception rather than
  * writing a redundant one — which is what keeps `privacy.md` a readable
@@ -915,7 +915,7 @@ export const setNoteVisibility = action({
     const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
-      minimum: "editor",
+      minimum: "owner",
     });
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
@@ -938,7 +938,18 @@ export const setNoteVisibility = action({
   },
 });
 
-/** Change a folder's default, which every note without an exception follows. */
+/**
+ * Change a folder's default, which every note without an exception follows.
+ * Requires `owner`.
+ *
+ * It said `editor` once, and that was a live breach: an invited editor
+ * flipped private folders to `team` and read everything behind them —
+ * deciding their own clearance, which is exactly the authority
+ * `resetPrivacy`'s comment already reserved for the owner. All three
+ * privacy-manifest writers now carry the same gate, and `lib/fileOps.ts`
+ * refuses a non-`private` scope besides, so no future caller can reopen
+ * this by getting one minimum wrong.
+ */
 export const setDirectoryVisibility = action({
   args: {
     workspaceId: v.id("workspaces"),
@@ -954,7 +965,7 @@ export const setDirectoryVisibility = action({
     const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
-      minimum: "editor",
+      minimum: "owner",
     });
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,

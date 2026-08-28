@@ -114,6 +114,13 @@ export interface FileBrowser {
    * ask for, not theirs to make.
    */
   canResetPrivacy: boolean;
+  /**
+   * Whether the tree's visibility markers are pressable. Owner-only:
+   * visibility writes rewrite the access map that decides what a
+   * non-owner may see, so for everyone else the marker is a fact, not
+   * a control — same rule the server enforces with `minimum: "owner"`.
+   */
+  canSetVisibility: boolean;
 }
 
 /** Every folder currently loaded, for the move dialog's destination list. */

@@ -365,7 +365,7 @@ export function Explorer({
         ) : (
           <FileTree
             rows={rows}
-            canEdit={files.canEdit}
+            canSetVisibility={files.canSetVisibility}
             onSelect={select}
             onToggle={(path) => {
               files.toggleFolder(path);
