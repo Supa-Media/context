@@ -110,6 +110,14 @@ export function useFileBrowser(options: {
   workspaceId: string | null;
   canEdit: boolean;
   readOnlyReason?: string;
+  /**
+   * Whether the caller owns this context.
+   *
+   * Separate from `canEdit`, which an `editor` also has. Only the owner may
+   * rewrite the access map, so this is what decides whether the repair control
+   * exists — see `canResetPrivacy` on `FileBrowser`.
+   */
+  isOwner?: boolean;
 }): FileBrowser {
   const workspaceId = options.workspaceId as Id<"workspaces"> | null;
 
@@ -124,6 +132,7 @@ export function useFileBrowser(options: {
   const deleteEntry = useAction(api.functions.files.deleteEntry);
   const setNoteVisibility = useAction(api.functions.files.setNoteVisibility);
   const setDirectoryVisibility = useAction(api.functions.files.setDirectoryVisibility);
+  const resetPrivacyAction = useAction(api.functions.files.resetPrivacy);
 
   const [listings, setListings] = useState<Listings>({});
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
@@ -608,6 +617,44 @@ export function useFileBrowser(options: {
     [run, setDirectoryVisibility, setNoteVisibility, workspaceId],
   );
 
+  /**
+   * Write a working `privacy.md` over one that is missing or unreadable.
+   *
+   * Goes through `run` like every other operation, so it inherits the timeout,
+   * the generation counter and the "a failed refresh is not a failed
+   * operation" rule — and, crucially, `run`'s own `canEdit` gate. The message
+   * is not a courtesy: this rewrites the file that governs the whole context,
+   * and the only visible change is that the banner disappears, so without a
+   * sentence the person cannot tell it from a button that did nothing.
+   *
+   * **Refreshing the root alone is enough, and that is worth stating because
+   * it looks like an omission.** A manifest rewrite would normally have to
+   * cascade through every open folder. This one cannot change what anybody
+   * sees: the caller is always the owner, who reads at `private` scope and
+   * therefore sees every note either way, and the repair writes every folder
+   * `private` over a manifest that was already failing closed — so each
+   * entry's `visibility`, `inherited` and `exception` come out identical, and
+   * so does every loaded folder's `folderDefault`. The one field that changes
+   * is `manifestUsable`, and the pane reads it from `listings[""]`.
+   */
+  const resetPrivacy = useCallback(() => {
+    void run(async () => {
+      const result = await resetPrivacyAction({ workspaceId: workspaceId! });
+      const declared =
+        result.folders.length === 0
+          ? "It has no folder rules yet, because the bucket has no folders at its root."
+          : `It declares ${result.folders.length} folder${result.folders.length === 1 ? "" : "s"}, every one of them private.`;
+      const kept =
+        result.backedUpTo === null
+          ? ""
+          : ` The file that could not be read was kept at ${result.backedUpTo}.`;
+      return {
+        touched: [result.path],
+        message: `privacy.md has been rewritten. ${declared}${kept} Share a folder when you are ready by changing its visibility.`,
+      };
+    });
+  }, [resetPrivacyAction, run, workspaceId]);
+
   // Keep the tree open down to whatever is selected, so a path opened from a
   // link or restored after a move does not appear in a collapsed tree.
   useEffect(() => {
@@ -650,6 +697,14 @@ export function useFileBrowser(options: {
       archive,
       destroy,
       setVisibility,
+      resetPrivacy,
+      // A control that cannot work is a control that is not drawn. All three
+      // have to hold: the manifest is broken, this is the owner, and this
+      // console can act.
+      canResetPrivacy:
+        options.canEdit &&
+        options.isOwner === true &&
+        listings[""]?.manifestUsable === false,
     }),
     [
       archive,
@@ -670,9 +725,11 @@ export function useFileBrowser(options: {
       move,
       notice,
       options.canEdit,
+      options.isOwner,
       options.readOnlyReason,
       paste,
       rename,
+      resetPrivacy,
       save,
       select,
       selectedPath,

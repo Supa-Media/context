@@ -36,6 +36,7 @@ import { useKeymap } from "../../../features/design/useKeymap";
 import type { FileBrowser } from "../../../features/console/files/browser";
 import { useLiveConsoleData } from "../../../features/console/useLiveConsoleData";
 import { canReload, reloadApp } from "../../../features/app/reload";
+import { WELCOME_ROUTE } from "../../../features/onboarding/route";
 
 /**
  * The console, as an application rather than a page.
@@ -441,6 +442,11 @@ const NUMBERED_TABS = [
  * you just asked for. It dismisses even when the destination is the route you
  * are already on — you asked for that pane, and a sheet that stays put because
  * the router had nothing to do reads as a dead press.
+ *
+ * `onClaimContext` leaves the console entirely, which is why it is a callback
+ * rather than a `ConsoleRoute`: `/welcome` is not under `/console`, and the
+ * rail renders the entry only for somebody who owns nothing. See
+ * `offerOwnContext`.
  */
 function Rail({
   data,
@@ -467,6 +473,15 @@ function Rail({
         if (!sameRoute(next, route)) router.replace(hrefFor(next));
       }}
       account={<Account data={data} compact={mode === "icons"} touch={mode === "sheet"} />}
+      onClaimContext={() => {
+        frame.closeNav();
+        // `push`, not `replace`: somebody who opens this out of curiosity from
+        // inside a context they were given must be able to come back with the
+        // browser's own Back button. Onboarding has no Back of its own — step 1
+        // claims a name out of a global namespace with no release path — so the
+        // one before it is the only one there can be.
+        router.push(WELCOME_ROUTE);
+      }}
     />
   );
 }
