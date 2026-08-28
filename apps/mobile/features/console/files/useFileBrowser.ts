@@ -711,6 +711,10 @@ export function useFileBrowser(options: {
         options.canEdit &&
         options.isOwner === true &&
         listings[""]?.manifestUsable === false,
+      // Visibility is a clearance decision and clearance belongs to the
+      // owner — same rule the server now enforces (`minimum: "owner"`), so
+      // the control is absent rather than present and refused.
+      canSetVisibility: options.canEdit && options.isOwner === true,
     }),
     [
       archive,

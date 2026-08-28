@@ -1205,6 +1205,16 @@ export async function setVisibility(
   store: FileStore,
   options: { path: string; visibility: Visibility; scope: Scope },
 ): Promise<VisibilityResult> {
+  // Visibility writes rewrite `privacy.md`, the file that decides what every
+  // non-owner may see — so only the owner's scope may reach them. The public
+  // actions already require `owner`; this refusal is the layer that survives
+  // a future caller getting that minimum wrong, the way the console once did.
+  if (options.scope !== "private") {
+    throw new FileOpError(
+      "PATH_INVALID",
+      "Only the owner of a context can change visibility.",
+    );
+  }
   const path = requirePath(options.path);
   assertWritablePath(path);
   if (!path.endsWith(".md")) {
@@ -1243,6 +1253,16 @@ export async function setFolderVisibility(
   store: FileStore,
   options: { path: string; visibility: Visibility; scope: Scope },
 ): Promise<VisibilityResult> {
+  // Visibility writes rewrite `privacy.md`, the file that decides what every
+  // non-owner may see — so only the owner's scope may reach them. The public
+  // actions already require `owner`; this refusal is the layer that survives
+  // a future caller getting that minimum wrong, the way the console once did.
+  if (options.scope !== "private") {
+    throw new FileOpError(
+      "PATH_INVALID",
+      "Only the owner of a context can change visibility.",
+    );
+  }
   const folder = requirePath(options.path);
   if (isPlumbing(folder)) throw new FileOpError("PATH_INVALID", "That path is reserved.");
 

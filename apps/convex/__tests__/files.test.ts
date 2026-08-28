@@ -839,3 +839,65 @@ describe("a context with no bucket says so", () => {
     expect(errorCode(error)).toBe("STORAGE_NOT_CONNECTED");
   });
 });
+
+describe("visibility is a clearance decision, and clearance belongs to the owner", () => {
+  /**
+   * The live breach, pinned. Seyi invited a test agent as an editor and
+   * watched it flip his private folders to `team` — at which point it could
+   * read everything in them. An editor changing visibility is an editor
+   * deciding their own clearance; `resetPrivacy` had already written that
+   * argument down and gated itself `owner`, while these two said `editor`.
+   * The MCP gateway got it right from day one (`scope !== "private"` →
+   * refused); the console actions are what this suite now holds to the same
+   * rule.
+   */
+  test("an editor cannot widen a folder to team — the exact live attack", async () => {
+    const f = await fixture();
+    await share(f);
+
+    const error = await captureError(() =>
+      asUser(f.t, f.editor).action(api.functions.files.setDirectoryVisibility, {
+        workspaceId: f.workspaceId,
+        path: "2-areas",
+        visibility: "team",
+      }),
+    );
+    expect(errorCode(error)).toBe("INSUFFICIENT_ROLE");
+
+    // And the private note behind that folder stays unreadable: the attack's
+    // payoff, not just its mechanism, is what must be absent.
+    const read = await captureError(() =>
+      asUser(f.t, f.editor).action(api.functions.files.readNote, {
+        workspaceId: f.workspaceId,
+        path: "2-areas/shared.md",
+      }),
+    );
+    expect(errorCode(read)).not.toBeNull();
+  });
+
+  test("an editor cannot change a note's visibility either — narrowing included", async () => {
+    const f = await fixture();
+    await share(f);
+    // Narrowing is refused too: visibility writes rewrite privacy.md, and an
+    // editor hiding a team note from other members is the same authority
+    // exercised in the other direction.
+    const error = await captureError(() =>
+      asUser(f.t, f.editor).action(api.functions.files.setNoteVisibility, {
+        workspaceId: f.workspaceId,
+        path: "1-projects/shared.md",
+        visibility: "private",
+      }),
+    );
+    expect(errorCode(error)).toBe("INSUFFICIENT_ROLE");
+  });
+
+  test("the owner still can — this is a gate, not a removal", async () => {
+    const f = await fixture();
+    await share(f);
+    const result = await asUser(f.t, f.owner).action(
+      api.functions.files.setDirectoryVisibility,
+      { workspaceId: f.workspaceId, path: "2-areas", visibility: "team" },
+    );
+    expect(result.visibility).toBe("team");
+  });
+});

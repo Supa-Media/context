@@ -43,7 +43,7 @@ import type { Visibility } from "./types";
  */
 export function FileTree({
   rows,
-  canEdit,
+  canSetVisibility,
   onSelect,
   onToggle,
   onCycleVisibility,
@@ -52,7 +52,13 @@ export function FileTree({
   dropTarget = null,
 }: {
   rows: readonly TreeRow[];
-  canEdit: boolean;
+  /**
+   * Whether the visibility markers are pressable. Owner-only — an editor
+   * changing visibility is an editor deciding their own clearance, which is
+   * the live breach this prop's rename records. The marker still RENDERS for
+   * everyone; what a non-owner loses is the press.
+   */
+  canSetVisibility: boolean;
   onSelect: (path: string) => void;
   onToggle: (path: string) => void;
   onCycleVisibility: (row: TreeRow) => void;
@@ -81,7 +87,7 @@ export function FileTree({
           <FileRow
             key={row.key}
             row={row}
-            canEdit={canEdit}
+            canSetVisibility={canSetVisibility}
             onSelect={onSelect}
             onToggle={onToggle}
             onCycleVisibility={onCycleVisibility}
@@ -115,7 +121,7 @@ export interface TreeDragHandlers {
  */
 function FileRow({
   row,
-  canEdit,
+  canSetVisibility,
   onSelect,
   onToggle,
   onCycleVisibility,
@@ -124,7 +130,13 @@ function FileRow({
   isDropTarget,
 }: {
   row: TreeRow;
-  canEdit: boolean;
+  /**
+   * Whether the visibility markers are pressable. Owner-only — an editor
+   * changing visibility is an editor deciding their own clearance, which is
+   * the live breach this prop's rename records. The marker still RENDERS for
+   * everyone; what a non-owner loses is the press.
+   */
+  canSetVisibility: boolean;
   onSelect: (path: string) => void;
   onToggle: (path: string) => void;
   onCycleVisibility: (row: TreeRow) => void;
@@ -179,7 +191,7 @@ function FileRow({
         </Text>
       </PressRow>
 
-      <VisibilityControl row={row} canEdit={canEdit} onPress={() => onCycleVisibility(row)} />
+      <VisibilityControl row={row} canSetVisibility={canSetVisibility} onPress={() => onCycleVisibility(row)} />
     </View>
   );
 }
@@ -190,11 +202,17 @@ function noopVoid(): void {}
 
 function VisibilityControl({
   row,
-  canEdit,
+  canSetVisibility,
   onPress,
 }: {
   row: TreeRow;
-  canEdit: boolean;
+  /**
+   * Whether the visibility markers are pressable. Owner-only — an editor
+   * changing visibility is an editor deciding their own clearance, which is
+   * the live breach this prop's rename records. The marker still RENDERS for
+   * everyone; what a non-owner loses is the press.
+   */
+  canSetVisibility: boolean;
   onPress: () => void;
 }) {
   // `privacy.md` has no visibility of its own — it *is* the visibility — so it
@@ -226,7 +244,7 @@ function VisibilityControl({
       </View>
     );
 
-  if (!canEdit) return <View style={styles.marker}>{body}</View>;
+  if (!canSetVisibility) return <View style={styles.marker}>{body}</View>;
 
   return (
     <PressRow
