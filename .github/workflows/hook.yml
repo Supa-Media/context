@@ -75,7 +75,12 @@ jobs:
       # must import nothing but Node built-ins and its own files. Reuses the
       # gateway's checker, which strips comments and self-tests rather than
       # grepping for the word "import" and matching prose.
-      - name: Assert packages/hook imports only node: built-ins and relative paths
+      # Quoted, and that is not cosmetic: an unquoted `node:` inside a plain
+      # scalar is a YAML mapping value, so this file failed to parse and GitHub
+      # ignored the whole workflow — silently, with no run, no error and no
+      # failing check. The first version of this file shipped that way and the
+      # PR went green without ever testing the package.
+      - name: "Assert packages/hook imports only node: built-ins and relative paths"
         run: |
           node scripts/check-gateway-imports.mjs --self-test
           node scripts/check-gateway-imports.mjs --allow-node-builtins packages/hook/src packages/hook/bin
