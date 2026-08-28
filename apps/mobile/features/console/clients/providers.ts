@@ -116,13 +116,17 @@ export interface ClientProvider {
    */
   note: string;
   /**
-   * The session-end hook, for the clients that have one.
+   * The session hooks, for the clients that have them.
    *
-   * Absent on most of them, and that absence is the honest part: a hook needs a
-   * documented end-of-session event that hands over the transcript, and a
-   * guessed integration that silently never fires is worse than no button —
-   * the person believes their sessions are being saved and finds out months
-   * later that none of them were.
+   * Absent where the client's own contract cannot be read: Cursor has hooks but
+   * publishes no transcript path, and hosted ChatGPT has no hook system at all.
+   * That absence is the honest part — a guessed integration that silently never
+   * fires is worse than no button, because the person believes their sessions
+   * are being saved and finds out months later that none of them were.
+   *
+   * It is also a list that was wrong once, in the safe direction and still
+   * wrong: this shipped naming only Claude Code, asserted from memory, while
+   * Codex and Gemini CLI both had documented hooks the whole time.
    */
   hook?: ProviderHook;
   link: (endpoint: string) => ProviderLink;
@@ -283,7 +287,7 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     note: "One command in your terminal, then /mcp inside Claude Code to sign in.",
     hook: {
       note: "Signs in once, then brackets every session: at the start the model is told to orient before answering, and at the end the session's user-visible messages are saved to 0-inbox/. It asks for capture access only — it can add to your inbox and cannot read a single note. Add --orient to have your actual orientation injected at session start instead, which asks for read access on a credential that lives on your machine unattended.",
-      command: (endpoint) => `npx -y @context-lc/hook install --endpoint ${shellQuote(endpoint)}`,
+      command: (endpoint) => `npx -y @context-lc/hook install --client claude-code --endpoint ${shellQuote(endpoint)}`,
     },
     link: () => ({
       kind: "docs",
@@ -305,6 +309,10 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     name: "Codex CLI",
     form: "command",
     note: "Add it, then sign in — Codex handles the OAuth flow for HTTP servers itself.",
+    hook: {
+      note: "Signs in once, then brackets every session: at the start the model is told to orient before answering, and at the end the session's user-visible messages are saved to 0-inbox/. It asks for capture access only — it can add to your inbox and cannot read a single note. Add --orient to have your actual orientation injected at session start instead, which asks for read access on a credential that lives on your machine unattended. The transcript parser was written against Claude Code's format, so a save here may keep less than it could — it says so when that happens rather than going quiet.",
+      command: (endpoint) => `npx -y @context-lc/hook install --client codex --endpoint ${shellQuote(endpoint)}`,
+    },
     link: () => ({
       kind: "docs",
       label: "Codex MCP docs",
@@ -364,6 +372,10 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     name: "Gemini CLI",
     form: "command",
     note: "The Gemini app has no custom connectors. Gemini CLI does — one command, and it stores the server in ~/.gemini/settings.json.",
+    hook: {
+      note: "Signs in once, then brackets every session: at the start the model is told to orient before answering, and at the end the session's user-visible messages are saved to 0-inbox/. It asks for capture access only — it can add to your inbox and cannot read a single note. Add --orient to have your actual orientation injected at session start instead, which asks for read access on a credential that lives on your machine unattended. The transcript parser was written against Claude Code's format, so a save here may keep less than it could — it says so when that happens rather than going quiet.",
+      command: (endpoint) => `npx -y @context-lc/hook install --client gemini-cli --endpoint ${shellQuote(endpoint)}`,
+    },
     link: () => ({
       kind: "docs",
       label: "Gemini CLI MCP docs",

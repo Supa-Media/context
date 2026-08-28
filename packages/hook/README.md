@@ -106,11 +106,33 @@ npx -y @context-lc/hook uninstall    # remove the hook, forget the credential
 
 ## Which clients
 
-Claude Code today, because it has a documented `SessionEnd` hook that hands over
-the session transcript. Other clients are added when they have an
-end-of-session event whose contract can be read rather than guessed — a hook
-that silently never fires is worse than no hook, because you would believe your
-sessions were being saved.
+**Claude Code, Codex CLI, and Gemini CLI.** All three ship documented hook
+systems of the same shape: a command per lifecycle event, JSON on stdin
+carrying `session_id`, `transcript_path` and `cwd`, and an `additionalContext`
+field at session start that injects text into the model's context.
+
+```sh
+npx -y @context-lc/hook install --client codex
+npx -y @context-lc/hook install --client gemini-cli
+```
+
+They differ in three details this package handles for you: the file
+(`~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.gemini/settings.json`),
+what the end of a session is called (Codex says `Stop`, the others say
+`SessionEnd`), and the unit of `timeout` — seconds for Claude Code and Codex,
+**milliseconds** for Gemini CLI. Nothing here writes a timeout rather than carry
+a number that means two different things depending on where it lands.
+
+**Not supported, and why.** Cursor has hooks (`beforeSubmitPrompt` through
+`stop`) but no documented transcript path, so the capture half has nothing to
+read. Hosted ChatGPT has no hook system at all — it is a product rather than a
+harness, and the MCP connector is the whole surface.
+
+**One honest caveat.** The transcript parser was written against Claude Code's
+format. Codex and Gemini CLI hand over a path to their own; the parser drops
+anything it does not positively recognise, so the worst case there is a save
+that keeps less than it could — and it says so on the spot rather than going
+quiet. The session-start half reads no transcript at all and is unaffected.
 
 ## Dependencies
 

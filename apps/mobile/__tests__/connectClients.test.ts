@@ -220,6 +220,29 @@ describe("what is already connected", () => {
 });
 
 describe("the hooks panel", () => {
+  /*
+   * The catalogue said Claude Code was the only client with documented hooks.
+   * That was asserted from memory and was false — Codex and Gemini CLI both
+   * had them. Pinned by name so the next person to add or remove one has to
+   * mean it, rather than discovering months later that a row quietly lost its
+   * button.
+   */
+  test("the three clients with documented hooks have one, and the others do not", () => {
+    const withHook = CLIENT_PROVIDERS.filter((provider) => provider.hook).map((p) => p.id).sort();
+    expect(withHook).toEqual(["claude-code", "codex", "gemini-cli"]);
+  });
+
+  test("each hook command names its own client", () => {
+    const screen = mount();
+    for (const provider of CLIENT_PROVIDERS.filter((p) => p.hook)) {
+      screen.click(`provider-${provider.id}-hook-toggle`);
+      expect(screen.q(`provider-${provider.id}-hook-command`)!.textContent).toContain(
+        `--client ${provider.id}`,
+      );
+    }
+    screen.unmount();
+  });
+
   test("only clients with a real hook offer one", () => {
     const screen = mount();
     for (const provider of CLIENT_PROVIDERS) {
