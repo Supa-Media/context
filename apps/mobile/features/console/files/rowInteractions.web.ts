@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef } from "react";
 import { AUTO_EXPAND_MS, type DragModifier } from "./dnd";
-import type { RowInteractionOptions, RowInteractions } from "./rowInteractions";
+import type { RowInteractionOptions, RowInteractions } from "./rowInteractionContract";
 
-export type { RowInteractionOptions, RowInteractions };
-export { LONG_PRESS_MS } from "./rowInteractions";
+export type { RowInteractionOptions, RowInteractions } from "./rowInteractionContract";
+export { LONG_PRESS_MS } from "./rowInteractionContract";
 
 /**
  * Right-click and drag on a tree row — the pointer half.

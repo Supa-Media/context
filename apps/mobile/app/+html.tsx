@@ -44,7 +44,7 @@ export default function Root({ children }: PropsWithChildren) {
         <meta name="theme-color" content="#050506" />
         <meta
           name="description"
-          content="One MCP endpoint for every AI client, backed by plain markdown in a bucket you own."
+          content="Tell one AI once. Context carries the right decisions to every AI and teammate you allow, backed by plain markdown in Dropbox or storage you own."
         />
 
         <link rel="preconnect" href="https://fonts.googleapis.com" />
