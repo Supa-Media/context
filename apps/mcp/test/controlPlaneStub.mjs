@@ -460,8 +460,27 @@ export function createDropboxBackend() {
     return accounts.get(accessToken);
   }
 
+  /**
+   * A Dropbox error, with the tags Dropbox actually sends.
+   *
+   * `error` used to be `{}` — an error object with no tag in it, which is not
+   * a shape Dropbox produces. It passed only because the adapter searched the
+   * raw body for a substring, so the summary line alone was enough. A fake
+   * built to the check rather than to the API stops being evidence the moment
+   * the check changes, and it hid a real defect: an adapter reading tags
+   * correctly saw *no* tag here and treated a missing file as a hard failure.
+   *
+   * The union is nested the way Dropbox nests it — `path/not_found` becomes
+   * `{".tag":"path", path:{".tag":"not_found"}}` — so the summary and the tags
+   * cannot drift apart.
+   */
   function tagged(summary, status = 409) {
-    return new Response(JSON.stringify({ error_summary: summary, error: {} }), {
+    const segments = summary.split("/").filter((part) => part && part !== "...");
+    let error = null;
+    for (const segment of segments.reverse()) {
+      error = error ? { ".tag": segment, [segment]: error } : { ".tag": segment };
+    }
+    return new Response(JSON.stringify({ error_summary: summary, error: error ?? {} }), {
       status,
       headers: { "Content-Type": "application/json" },
     });
