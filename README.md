@@ -41,9 +41,10 @@ That's not a feature we might remove later. It's the architecture:
 │ …                  │ OAuth│  OAuth grants,       │      │  2-areas/          │
 └────────────────────┘      │  storage bindings    │      │  3-resources/      │
                             ├──────────────────────┤      │  4-archive/        │
-                            │  MCP gateway         │─────▶│  privacy.md        │
-                            │  (Cloudflare Worker) │ your │  .history/         │
-                            └──────────────────────┘ keys │  .audit/           │
+                            │  MCP gateway         │─────▶│  index.md          │
+                            │  (Cloudflare Worker) │ your │  privacy.md        │
+                            └──────────────────────┘ keys │  .history/         │
+                                                          │  .audit/           │
                                                           └────────────────────┘
      control plane holds metadata only — never your notes, never a second copy
 ```
@@ -68,6 +69,46 @@ on setup:
 
 It's a suggestion, not a schema. Bring your own structure and Context works the
 same — the tools operate on paths, not on a fixed taxonomy.
+
+## `index.md` — the front page every agent reads
+
+Every connected client is told to call one tool first, `orient`. It is cheap on
+purpose: your front page, what you touched most recently, and a map of your
+folders with note counts. It is the difference between an AI client that knows
+you already have a project on this and one that asks you to explain yourself
+again.
+
+Most of what `orient` returns is derived from the bucket and rebuilt on every
+call. One part is not: `index.md`, an ordinary Markdown file at the root of your
+bucket that you own. Setting up a new context writes a starting one describing
+the conventions; what makes it earn its place is the part only you can write.
+
+```markdown
+# Context
+
+Building the gateway; consulting on the side. Mornings are for deep work.
+
+## Now
+- 1-projects/gateway — shipping the MCP server. Decisions in decisions.md.
+- 1-projects/acme — client work, weekly check-in Thursdays.
+
+## Where things go
+- Anything a client said → 1-projects/<client>/notes.md
+- Reusable how-to → 3-resources/
+- Mail I send myself lands in 0-inbox/ and I file it on Fridays.
+```
+
+Nothing about the format is enforced. Edit it in Obsidian, in your editor, or
+ask an agent to bring it up to date — it is a note like any other, so it obeys
+the same privacy rules, keeps the same history, and travels with the bucket.
+Agents are told to add to it rather than replace it, and to say what they are
+changing first. Owners can add an `index-private.md` beside it for anything that
+should only reach a personal connection.
+
+Connecting a bucket that already has months of notes in it never overwrites
+anything, so an imported context may have no `index.md` at all. `orient` then
+says so and tells the agent what it's for, which is usually enough to get one
+written.
 
 ## Privacy tiers
 

@@ -115,95 +115,220 @@ const GRANOLA_WEBHOOK_MAX_AGE_SECONDS = 5 * 60;
 /** Pages a single listing may fetch — 1000 keys each, so 100k objects. */
 const LIST_PAGE_CAP = 100;
 
-const SERVER_INSTRUCTIONS = `This is the user's context: markdown notes
-organized by the PARA method (1-projects = active work, 2-areas = ongoing
-responsibilities, 3-resources = reference material, 4-archive = inactive,
-0-inbox = raw unfiled captures).
+/**
+ * `orient` is called at the top of a session, before the agent knows whether
+ * this context is even relevant, so it is budgeted rather than exhaustive.
+ * Five pages is 5000 notes in one folder; past that the survey reports a floor
+ * ("48+ notes") instead of guessing, for the same reason the console's note
+ * census does. A number that looks precise and is not is worse than a floor.
+ */
+const ORIENT_FOLDER_PAGE_CAP = 5;
+const ORIENT_RECENT_LIMIT = 8;
+const ORIENT_CHILDREN_LIMIT = 12;
+const ORIENT_ROOT_NOTE_LIMIT = 20;
+/** The front page is the customer's own prose; long ones are cut, never dropped. */
+const ORIENT_INDEX_CHAR_CAP = 6_000;
+/**
+ * The connect-time digest lands in the client's system prompt for every
+ * conversation on that connection, relevant or not, so it gets a far tighter
+ * budget than `orient` — enough to make an agent curious, never enough to be
+ * the reason somebody's context window filled up.
+ */
+const INSTRUCTIONS_INDEX_CHAR_CAP = 1_200;
 
-House rules for every connected tool:
-1. Call \`orient\` at the start of a session before answering anything that
-   touches the user's projects, schedule, or personal context.
-2. Before CREATING a new note, tell the user which folder (and therefore
-   which visibility scope) it will land in, and confirm.
-3. When updating an existing note, preserve its structure and frontmatter;
-   pass the etag you read so conflicting edits are detected.
-4. Notes you cannot see do not exist; never speculate about unlisted content.
-5. Keep notes concise and factual — they are shared context for many tools.
-6. Be proactive about durable memory. During substantial work, notice decisions,
-   workflows, pitfalls, and facts that another agent should not have to rediscover.
-   Search once per topic in the narrowest relevant prefix, then reuse that result
-   for the session and update the best existing note or propose a concise new one.
-   Do not repeat an identical search before every write.
-   Do not capture transient chatter or duplicate an existing note.
-7. When the user clearly starts substantial work with an end state, proactively
-   propose or use a folder under \`1-projects/\`. Put reusable instructions and
-   reference knowledge under \`3-resources/\`; keep project-specific investigation
-   and decisions with the project. Do not wait for the user to invent the filing.
-8. Human actions belong in root \`todo.md\`. Agent work belongs in that agent's
+/**
+ * What every client is told at connect time — legacy in `initialize`, modern in
+ * `server/discover`.
+ *
+ * This is the only text that reaches a model *before* it decides whether this
+ * server is worth calling at all, and it sits in the system prompt for every
+ * conversation on the connection. It used to open with fourteen numbered rules
+ * about visibility, etags and archival — a governance document handed to an
+ * agent that had not yet been given one reason to look inside. The rules are
+ * all still here; they are just no longer the first thing read. What comes
+ * first is what this is, when to reach for it, and where to start.
+ */
+const SERVER_INSTRUCTIONS = `This server is the user's own context: the markdown
+notes they keep about their own work and life, in storage they own. It is
+organized by the PARA method — 0-inbox (raw captures, including mail sent to
+their capture address), 1-projects (active work), 2-areas (ongoing
+responsibilities), 3-resources (reference material), 4-archive (inactive).
+
+WHEN TO REACH FOR IT
+Any time the conversation touches something this person is likely to have
+written down — a project, a client, a colleague, a decision they already made,
+a preference, a deadline, a draft, a meeting, something they mailed themselves —
+the answer is probably already in here. Look before you ask them to repeat
+themselves, and look before you conclude that nothing exists. This is not a
+filing cabinet you visit when asked; it is what they know, and you have been
+given it so that they do not have to say it again.
+
+START WITH \`orient\`
+One small call, at the top of the session, before your first substantive answer
+about their work — not after they point out that you missed something. It
+returns their front page (\`index.md\`), what they touched most recently, and a
+map of everything this connection may see. Every other tool here is easier to
+use well once you have it.
+
+LEAVE MORE THAN YOU TOOK
+Reading is half the job. When something durable comes out of the work — a
+decision, a fix, a name, a constraint, a preference, a fact the user should
+never have to say twice — write it back with \`write_note\` before you finish.
+Ask yourself: "what should no agent have to rediscover?" and capture only that.
+
+House rules:
+1. Prefer improving the note that already covers a topic over creating a near
+   duplicate. Preserve its structure and frontmatter, and pass the etag you read
+   so a conflicting edit is detected rather than silently overwritten.
+2. Before CREATING a new note, tell the user which folder — and therefore which
+   visibility scope — it will land in, and confirm.
+3. Notes you cannot see do not exist; never speculate about unlisted content.
+   Keep notes concise and factual: they are shared context for many tools, not
+   a transcript. Do not capture transient chatter.
+4. Search once per topic in the narrowest relevant prefix and reuse that result
+   for the session. Do not repeat an identical search before every write.
+5. When the user starts substantial work with an end state, proactively propose
+   or use a folder under \`1-projects/\`. Reusable instructions and reference
+   knowledge go under \`3-resources/\`; project-specific investigation and
+   decisions stay with the project. Do not wait for the user to invent the
+   filing. Keep \`index.md\` and any project manifest current as work starts and
+   finishes.
+6. Human actions belong in root \`todo.md\`. Agent work belongs in that agent's
    weekly ledger under \`2-areas/agent-todos/\`. After orienting, identify and
    read your ledger (Codex, Claude, Notion, or ChatGPT). For substantial work,
    add a concise unchecked item when you start, keep it current, and check it
    off when the outcome is complete. Do not add routine one-question answers.
-9. Before finishing meaningful work, ask internally: "What should no agent have
-   to rediscover?" Capture only the durable answer. Keep manifests current when
-   a project becomes active or inactive.
-10. Use \`scope_info\` before creating or reorganizing notes. It reports the
-   authorized writable prefixes for this connection. Team output never names
-   private paths or private overrides.
-   A folder does not need to exist before creating a subfolder under a writable
-   prefix. If the correct destination is not writable, use \`propose_note\`
-   instead of staging the content in the wrong PARA location.
-11. Folder scope is only the default. An exact note may override its parent in
+7. Use \`scope_info\` before creating or reorganizing notes: it reports the
+   writable prefixes for this connection, and team output never names private
+   paths or private overrides. A folder does not need to exist before creating a
+   subfolder under a writable prefix. If the correct destination is not
+   writable, use \`propose_note\` rather than staging content in the wrong PARA
+   location.
+8. Folder scope is only a default. An exact note may override its parent in
    either direction through the private \`privacy.md\` manifest. Frontmatter such
-   as \`visibility: private\` is descriptive,
-   not access control: pass the visibility argument to write_note or set_visibility.
-   Personal connections use \`set_folder_visibility\` to change a folder default;
-   the tool updates \`privacy.md\` directly, so no source checkout or rclone access
-   is needed. Team connections may create any depth of implicit subfolders by
-   writing a note beneath a team-default folder.
-   New notes created by a personal connection default private; new notes created
-   by a team connection default team. Publishing private content to team requires
-   explicit confirmation. There is no anonymous or internet-public tier.
-12. Use \`move_note\`, \`move_notes\`, and \`move_folder\` for reorganization.
-   Moves preserve private overrides and never implicitly reduce privacy. Use
-   dry-run preflight for multi-note or folder reorganizations. Never emulate a
-   move with write + archive when move tools exist.
-13. Team connections can archive already-team notes into the team archive.
-   Archived content remains team-visible and recoverable; this is retraction from the
-   canonical location, not confidential deletion.
-14. Before a substantive conversation ends, use \`archive_chat\` to preserve the
+   as \`visibility: private\` is descriptive, not access control: pass the
+   visibility argument to \`write_note\` or \`set_visibility\`. Personal
+   connections use \`set_folder_visibility\` to change a folder default, which
+   updates \`privacy.md\` directly — no source checkout or rclone needed. Team
+   connections may create any depth of implicit subfolders beneath a team-default
+   folder. New notes default private on a personal connection and team on a team
+   connection. Publishing private content to team requires explicit
+   confirmation. There is no anonymous or internet-public tier.
+9. Use \`move_note\`, \`move_notes\`, and \`move_folder\` to reorganize — never
+   emulate a move with write plus archive. Moves preserve private overrides and
+   never implicitly reduce privacy; dry-run any multi-note or folder move first.
+   Team connections may archive already-team notes into the team archive:
+   archived content stays team-visible and recoverable, so this is retraction
+   from the canonical location, not confidential deletion.
+10. Before a substantive conversation ends, use \`archive_chat\` to preserve the
    user-visible conversation history available to you. Default privacy is the
    connection access: personal connections archive privately; team connections
-   archive at team visibility. Change visibility only when the user explicitly asks.
-   Archive user-visible user/assistant messages only — never hidden system or
-   developer prompts, internal reasoning, credentials, or raw tool logs. Mark
-   completeness honestly; do not claim a full transcript after compaction or when
-   the client supplied only partial context.`;
+   archive at team visibility. Change visibility only when the user explicitly
+   asks. Archive user-visible user and assistant messages only — never hidden
+   system or developer prompts, internal reasoning, credentials, or raw tool
+   logs. Mark completeness honestly; do not claim a full transcript after
+   compaction or when the client supplied only partial context.`;
 
-const ORIENT_OPERATING_CONTRACT = `## Connected agent operating contract
+/**
+ * The working half of `orient` — short on purpose.
+ *
+ * This used to be the first twenty-five lines an agent read, ahead of anything
+ * about the user's actual context, and it is governance rather than motivation:
+ * an agent that has not been given a reason to care about this context does not
+ * become interested on reading the visibility rules. The full rules live in the
+ * connect-time instructions; what stays here is what changes behaviour during a
+ * session, and it comes after the context it applies to.
+ */
+const ORIENT_OPERATING_CONTRACT = `## Working here
 
-- Identify yourself as Codex, Claude, Notion, ChatGPT, or another named tool.
-- Read your weekly file under \`2-areas/agent-todos/\` before substantial work.
-- Add a concise checkbox when substantial work starts; update or check it off
-  before finishing. Keep human-only actions in root \`todo.md\` instead.
-- Search once per topic, preferably with a relevant prefix, and reuse the result
-  for the session instead of repeating it before every write. Maintain the active
-  project folder while working.
-- Before finishing, capture the durable answer to: "What should no agent have
-  to rediscover?" Prefer updating an existing project or resource note.
-- Call \`scope_info\` before creating or moving content. Folder scope is a default;
-  exact notes can override it through the private \`privacy.md\` manifest.
-- Frontmatter does not enforce access control. Use write_note visibility or
-  set_visibility. Use set_folder_visibility from a personal connection to change
-  a folder default without editing privacy.md or using rclone. Personal connections
-  default new notes private; team connections default new notes team and may create
-  nested paths beneath a team-default folder. There is no internet-public tier.
-- If the correct PARA destination is not writable, use \`propose_note\`; do not
-  stage it elsewhere merely to work around permissions.
-- Before ending a substantive conversation, call \`archive_chat\` with the
-  user-visible history available to you. Its visibility defaults to this connection's
-  scope. Override visibility only on the user's explicit instruction, and label
-  partial or summarized captures honestly.`;
+- **Leave more than you took.** When something durable comes out of this session
+  — a decision, a fix, a name, a preference, a fact the user should not have to
+  say twice — write it back with write_note before you finish. An agent that
+  only reads is worth about as much as a search box.
+- **Update, do not accumulate.** Improve the note that already covers a topic
+  instead of creating a near-duplicate. Pass the etag you read.
+- Read your weekly file under \`2-areas/agent-todos/\` (Codex, Claude, Notion,
+  ChatGPT) and keep a line there for substantial work. Human actions belong in
+  root \`todo.md\`.
+- \`index.md\` is the front page every agent reads first, and it belongs to the
+  user. Offer to bring it up to date when the shape of the context changes — a
+  project starting or ending, a folder that now means something else — by
+  reading it, passing its etag, and adding to what is there. Never replace it
+  wholesale, and never write it without saying what you are about to change.
+- Search once per topic with a prefix and reuse the result; do not re-search
+  before every write.
+- \`scope_info\` before creating or moving. Folder scope is only a default and
+  frontmatter is never access control: pass visibility to write_note, or use
+  set_visibility / set_folder_visibility. If the right destination is not
+  writable, \`propose_note\` — never stage content in the wrong folder.
+- Before a substantive conversation ends, \`archive_chat\` the user-visible
+  history, labelling partial captures honestly.`;
+
+/**
+ * The instructions a specific connection is given, with a live sketch of the
+ * context appended.
+ *
+ * The static text above can tell an agent that this server is worth calling.
+ * Only the customer's own front page can tell it *what is in here*, and that is
+ * the difference between a tool an agent might use and one it reaches for. This
+ * is the one payload every client reads without deciding to — it lands in the
+ * system prompt for every conversation on the connection — so the sketch is
+ * deliberately two cheap round trips and a hard character cap, not a survey.
+ *
+ * Three properties:
+ *
+ * **It is filtered like everything else.** The front page and the folder names
+ * both go through `canSee`, so a team connection is told exactly what a team
+ * connection may know. It runs after the session is resolved, never before.
+ *
+ * **It fails soft, always.** A slow bucket, a revoked key, a `privacy.md`
+ * somebody broke in Obsidian: none of those may take down the handshake. The
+ * static instructions are the floor, and a connection that gets them is fully
+ * working — it just starts less curious.
+ *
+ * **It is a snapshot, and says so.** A client caches instructions for the life
+ * of the connection, so this text ages while `orient` does not. Every sentence
+ * that could be read as current points at `orient` for the live answer.
+ */
+async function instructionsForSession(store, session) {
+  try {
+    const privacy = await loadPrivacyState(store);
+    if (privacy.error) return SERVER_INSTRUCTIONS;
+    const { scope } = session;
+    const { rules, overrides } = privacy;
+    const [frontPage, root] = await Promise.all([
+      readFrontPage(store, scope, rules, overrides, INSTRUCTIONS_INDEX_CHAR_CAP),
+      listImmediateLayout(store),
+    ]);
+
+    const folders = root.prefixes
+      .filter((prefix) => canSee(prefix.replace(/\/$/, ""), scope, rules, overrides))
+      .sort();
+    const rootNotes = root.objects
+      .filter(({ key }) => isVisibleNote(key, scope, rules, overrides))
+      .map(({ key }) => key)
+      .sort();
+    const layout = [...folders, ...rootNotes];
+    if (!layout.length && !frontPage) return SERVER_INSTRUCTIONS;
+
+    const sketch = [
+      "\n\nWHAT IS IN HERE (a snapshot taken when this connection opened; call " +
+        "`orient` for the live version, with note counts and recent activity)",
+    ];
+    if (layout.length) sketch.push(`Top level: ${layout.join(", ")}`);
+    if (frontPage) {
+      sketch.push(`Their front page, \`index.md\`:\n\n${frontPage}`);
+    } else {
+      sketch.push(
+        "There is no `index.md` yet. It is the front page of this context, and " +
+          "writing one with them is a good early contribution."
+      );
+    }
+    return SERVER_INSTRUCTIONS + sketch.join("\n\n");
+  } catch {
+    return SERVER_INSTRUCTIONS;
+  }
+}
 
 /**
  * A store for the deployment's own local bucket, for the two features that have
@@ -750,10 +875,15 @@ async function handleModernMcp(request, msg, store, session) {
         // MUST be implemented. It is how a modern client learns what this
         // server is without probing every list endpoint in turn. Modern-only
         // `supportedVersions` — see `MODERN_ONLY_VERSION_LISTS`.
+        // The instructions carry a sketch of *this* caller's context, which is
+        // safe to cache only because `CACHEABLE` is `cacheScope: "private"` —
+        // the same property that stops a shared intermediary handing one grant's
+        // tool list to another. If that ever becomes `public`, this line is the
+        // second thing it breaks.
         return modernResultResponse(id, {
           supportedVersions: MODERN_PROTOCOLS,
           capabilities: { tools: {} },
-          instructions: SERVER_INSTRUCTIONS,
+          instructions: await instructionsForSession(store, session),
           ...CACHEABLE,
         });
       case "tools/list":
@@ -902,7 +1032,7 @@ async function handleRpc(msg, store, session) {
           protocolVersion,
           capabilities: { tools: {} },
           serverInfo: SERVER_INFO,
-          instructions: SERVER_INSTRUCTIONS,
+          instructions: await instructionsForSession(store, session),
         });
       }
       case "notifications/initialized":
@@ -930,7 +1060,10 @@ function toolDefinitions() {
     {
       name: "orient",
       description:
-        "Read this first, once per session. Returns the context manifest (active projects, priorities, conventions) plus the folder map — everything filtered to what this connection is allowed to see.",
+        "CALL THIS FIRST, once per session, before answering anything about the user's own work. " +
+        "One cheap call returns their front page, what they touched most recently, and a map of " +
+        "every folder with note counts — so you know what already exists instead of guessing. " +
+        "Everything else here is easier to use well afterwards.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
@@ -947,7 +1080,10 @@ function toolDefinitions() {
     },
     {
       name: "list_notes",
-      description: "List note paths, optionally under a folder prefix (e.g. '1-projects').",
+      description:
+        "List note paths under a folder prefix (e.g. '1-projects'), or everywhere when omitted. " +
+        "Use it to open up an area that orient only summarized — a project folder's contents, " +
+        "what is sitting unfiled in 0-inbox — before deciding something has not been written down.",
       inputSchema: {
         type: "object",
         properties: {
@@ -959,7 +1095,10 @@ function toolDefinitions() {
     },
     {
       name: "read_note",
-      description: "Read one note. Returns its content and an etag to pass back to write_note for conflict-safe updates.",
+      description:
+        "Read one of the user's notes in full — the paths come from orient, list_notes, or " +
+        "search_notes. Returns its content and an etag; pass that etag back to write_note so a " +
+        "concurrent edit is detected instead of silently overwritten.",
       inputSchema: {
         type: "object",
         properties: { path: { type: "string", description: "e.g. '1-projects/togather/status.md'" } },
@@ -971,7 +1110,11 @@ function toolDefinitions() {
     {
       name: "write_note",
       description:
-        "Create or update a markdown note. Folder rules are defaults; visibility is enforced by the private privacy.md manifest, never by frontmatter. New personal writes default private; new team writes default team; updates preserve existing visibility. A personal connection may explicitly publish one note as team even inside a private-default folder by passing visibility=team and confirm_team_publish=true.",
+        "Create or update a markdown note — this is how what you learned in this session survives " +
+        "it. Use it when a decision is made, a constraint is discovered, a preference is stated, " +
+        "or a fact emerges that the user should never have to repeat to the next agent; prefer " +
+        "improving the note that already covers the topic over adding a near-duplicate. " +
+        "Folder rules are defaults; visibility is enforced by the private privacy.md manifest, never by frontmatter. New personal writes default private; new team writes default team; updates preserve existing visibility. A personal connection may explicitly publish one note as team even inside a private-default folder by passing visibility=team and confirm_team_publish=true.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1092,7 +1235,11 @@ function toolDefinitions() {
     {
       name: "search_notes",
       description:
-        "Case-insensitive text search across visible notes. Returns matching paths with line snippets. Pass a relevant folder prefix whenever possible; cache the result for the session instead of repeating identical searches before every write.",
+        "Search the user's own notes. Reach for this whenever they mention a project, a person, a " +
+        "client, a decision, a preference, or something they have written before — it is usually " +
+        "already recorded here, and asking them to repeat it is the failure mode. Case-insensitive; " +
+        "returns matching paths with line snippets. Pass a folder prefix when you know one, and " +
+        "reuse the result for the session rather than repeating the same search before every write.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1414,36 +1561,178 @@ async function listAllNoteKeys(store) {
   );
 }
 
-/** Build orient's two-level map without enumerating every note in each tree. */
-async function listOrientEntries(store, scope, rules, overrides) {
-  const root = await listImmediateLayout(store);
-  const entries = new Set(
-    root.objects
-      .filter(({ key }) => key.endsWith(".md") && canSee(key, scope, rules, overrides))
-      .map(({ key }) => key)
-  );
-  const visibleRoots = root.prefixes.filter((prefix) => {
-    const path = prefix.replace(/\/$/, "");
-    return canSee(path, scope, rules, overrides);
-  });
-  const layouts = await Promise.all(
-    visibleRoots.map(async (prefix) => ({ prefix, layout: await listImmediateLayout(store, prefix) }))
-  );
-  for (const { layout } of layouts) {
-    for (const childPrefix of layout.prefixes) {
-      const path = childPrefix.replace(/\/$/, "");
-      if (canSee(path, scope, rules, overrides)) entries.add(childPrefix);
+/**
+ * List note keys under one folder, spending at most `pageCap` pages.
+ *
+ * `listAllKeys` throws rather than truncate, which is right for a search or a
+ * move — a partial answer there is a wrong answer. Orientation is the opposite
+ * case: a context too large to walk still has a shape worth describing, so this
+ * stops early and *says so*, and every caller has to carry the `truncated` flag
+ * into what it prints.
+ */
+async function listBoundedKeys(store, prefix, pageCap) {
+  const keys = [];
+  const seen = new Set();
+  let truncated = false;
+  let cursor;
+  let pages = 0;
+  do {
+    const page = await store.list({ prefix: prefix || undefined, cursor, limit: 1000 });
+    for (const object of page.objects || []) {
+      keys.push({ key: object.key, uploaded: object.uploaded });
     }
-    for (const object of layout.objects) {
-      if (
-        object.key.endsWith(".md") &&
-        canSee(object.key, scope, rules, overrides)
-      ) {
-        entries.add(object.key);
+    pages += 1;
+    cursor = page.truncated ? page.cursor : undefined;
+    if (cursor && pages >= pageCap) {
+      truncated = true;
+      cursor = undefined;
+    } else if (cursor) {
+      if (seen.has(cursor)) {
+        throw new Error("storage listing repeated a pagination cursor; refusing to loop");
       }
+      seen.add(cursor);
     }
+  } while (cursor);
+  return { keys, truncated };
+}
+
+/**
+ * Survey the visible context: what folders exist, how much is in each, and what
+ * was touched most recently. This is what `orient` is *for* — an agent that
+ * only learns a list of folder names has no reason to look inside one.
+ *
+ * Two properties are load-bearing:
+ *
+ * **Every count is a count of notes this connection can see.** Counting hidden
+ * notes and printing the total would let a team member subtract and derive
+ * exactly how much of the owner's context is being withheld from them — the
+ * same reason the console's note census is owner-only. A folder earns its place
+ * on the map by holding a visible note or a subfolder this connection may know
+ * about; a count of zero is rendered as no count at all, because "0 notes" is a
+ * claim about the folder and all we know is that nothing in it reached us.
+ *
+ * **The walk is delimited at the root and flat inside each real folder.** A
+ * flat walk from the root spends its whole budget inside `.history/`, because
+ * "." sorts before every digit and letter, and then reports zero notes for the
+ * largest contexts there are.
+ */
+async function surveyContext(store, scope, rules, overrides) {
+  const root = await listImmediateLayout(store);
+  const rootNotes = root.objects
+    .filter(({ key }) => isVisibleNote(key, scope, rules, overrides))
+    .map(({ key, uploaded }) => ({ key, uploaded }));
+
+  // Two listings per folder, and they answer different questions.
+  //
+  // The delimited one names every immediate subfolder for one page's worth of
+  // keys, which is what makes the *map* complete. The flat one counts notes and
+  // dates them, and it is the one with a budget — so in a context with one
+  // enormous folder the walk can stop inside it having never reached its
+  // siblings. Deriving the map from the walk alone looked simpler and quietly
+  // dropped whole projects from the orientation of exactly the people with the
+  // most in here.
+  //
+  // Each folder gets its own try. The prefixes are names the customer chose,
+  // and the adapter refuses some of them outright (a backslash, a "." segment);
+  // under one outer catch a single oddly named folder would suppress the whole
+  // survey — the bug the note census shipped first.
+  const folders = await mapInBatches(root.prefixes, 6, async (prefix) => {
+    try {
+      const [layout, walk] = await Promise.all([
+        listImmediateLayout(store, prefix),
+        listBoundedKeys(store, prefix, ORIENT_FOLDER_PAGE_CAP),
+      ]);
+      const notes = walk.keys.filter(({ key }) => isVisibleNote(key, scope, rules, overrides));
+      return { prefix, layout, notes, truncated: walk.truncated, walked: true };
+    } catch {
+      return { prefix, layout: null, notes: [], truncated: true, walked: false };
+    }
+  });
+
+  const visibleFolders = folders
+    .map((folder) => ({
+      prefix: folder.prefix,
+      count: folder.notes.length,
+      truncated: folder.truncated,
+      children: mergeChildren(folder, scope, rules, overrides),
+    }))
+    .filter((folder) => folder.count > 0 || folder.children.length > 0);
+
+  const everything = [...rootNotes, ...folders.flatMap((folder) => folder.notes)];
+  return {
+    rootNotes: rootNotes.sort((a, b) => a.key.localeCompare(b.key)),
+    folders: visibleFolders.sort((a, b) => a.prefix.localeCompare(b.prefix)),
+    total: everything.length,
+    // A count is a floor when any folder ran out of budget, or when one refused
+    // to be walked at all. Both render as "312+".
+    truncated: folders.some((folder) => folder.truncated),
+    // Named only to a connection that could have seen inside it anyway. We
+    // could not read the folder, so its own path is all `canSee` has to go on.
+    unwalkable: folders
+      .filter((folder) => !folder.walked)
+      .map((folder) => folder.prefix)
+      .filter((prefix) => canSee(prefix.replace(/\/$/, ""), scope, rules, overrides)),
+    recent: mostRecent(everything, ORIENT_RECENT_LIMIT),
+  };
+}
+
+function isVisibleNote(key, scope, rules, overrides) {
+  return key.endsWith(".md") && !isPlumbing(key) && canSee(key, scope, rules, overrides);
+}
+
+/**
+ * The immediate subfolders of one top-level folder, with a count where the
+ * bounded walk got far enough to have one.
+ *
+ * A child is listed on either of two independent grounds, and both are needed:
+ * the folder default says this connection may know it exists, or it holds a
+ * note this connection can already read. The second matters because an owner
+ * can publish one team note inside a private-default folder, and hiding the
+ * folder while showing the note in `list_notes` would just be inconsistent.
+ */
+function mergeChildren(folder, scope, rules, overrides) {
+  const counts = new Map();
+  for (const note of folder.notes) {
+    const remainder = note.key.slice(folder.prefix.length);
+    const slash = remainder.indexOf("/");
+    if (slash === -1) continue;
+    const childPrefix = `${folder.prefix}${remainder.slice(0, slash + 1)}`;
+    counts.set(childPrefix, (counts.get(childPrefix) || 0) + 1);
   }
-  return [...entries].sort();
+  const named = (folder.layout?.prefixes || []).filter((childPrefix) =>
+    canSee(childPrefix.replace(/\/$/, ""), scope, rules, overrides)
+  );
+  return [...new Set([...named, ...counts.keys()])]
+    .map((childPrefix) => ({ prefix: childPrefix, count: counts.get(childPrefix) ?? null }))
+    .sort((a, b) => a.prefix.localeCompare(b.prefix));
+}
+
+/**
+ * Newest first, ties broken by key so the answer is stable across calls.
+ * A store that reports no timestamps contributes nothing rather than an
+ * arbitrary eight notes wearing the label "recently updated".
+ */
+function mostRecent(notes, limit) {
+  return notes
+    .filter((note) => note.uploaded instanceof Date && !Number.isNaN(note.uploaded.getTime()))
+    .sort((a, b) => b.uploaded - a.uploaded || a.key.localeCompare(b.key))
+    .slice(0, limit);
+}
+
+/** "3h ago" reads as a reason to look; a raw ISO timestamp reads as metadata. */
+function relativeAge(date, now = Date.now()) {
+  const seconds = Math.max(0, Math.round((now - date.getTime()) / 1000));
+  if (seconds < 90) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 90) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 36) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 14) return `${days}d ago`;
+  const weeks = Math.round(days / 7);
+  if (weeks < 9) return `${weeks}w ago`;
+  const months = Math.round(days / 30);
+  return months < 24 ? `${months}mo ago` : `${Math.round(days / 365)}y ago`;
 }
 
 async function mapInBatches(items, batchSize, mapper) {
@@ -1517,27 +1806,129 @@ async function toolListChanges(store, scope, rules, overrides, limitArg) {
   );
 }
 
+/**
+ * The front page of a context, as its owner wrote it.
+ *
+ * `index.md` is an ordinary note at the bucket root — editable in Obsidian, in
+ * any editor, or by an agent through `write_note`. It is deliberately not a
+ * generated file: the derived structure below it is something we can always
+ * rebuild, and the one thing we cannot is what the person considers important.
+ */
+async function readFrontPage(store, scope, rules, overrides, charCap) {
+  if (!canSee("index.md", scope, rules, overrides)) return null;
+  const object = await store.get("index.md");
+  if (!object) return null;
+  const text = (await object.text()).trim();
+  if (!text) return null;
+  return text.length > charCap
+    ? `${text.slice(0, charCap)}\n\n[truncated — read the whole thing with read_note("index.md")]`
+    : text;
+}
+
+const NO_FRONT_PAGE =
+  "This context has no `index.md` yet. That file is its front page: what the " +
+  "user is working on, who matters, and where things belong. Once you have " +
+  "looked around, offer to write one with write_note at path `index.md` — " +
+  "every agent that connects reads it first.";
+
+function renderStructure(survey) {
+  const lines = [];
+  for (const note of survey.rootNotes.slice(0, ORIENT_ROOT_NOTE_LIMIT)) {
+    lines.push(`- ${note.key}`);
+  }
+  if (survey.rootNotes.length > ORIENT_ROOT_NOTE_LIMIT) {
+    lines.push(`- (+${survey.rootNotes.length - ORIENT_ROOT_NOTE_LIMIT} more notes at the root)`);
+  }
+  for (const folder of survey.folders) {
+    // The floor travels down as well as up: a child count drawn from a walk
+    // that stopped early is no more a total than its parent's is.
+    const floor = folder.truncated ? "+" : "";
+    const noun = folder.count === 1 && !folder.truncated ? "note" : "notes";
+    lines.push(
+      folder.count === 0
+        ? `- ${folder.prefix}`
+        : `- ${folder.prefix} — ${folder.count}${floor} ${noun}`
+    );
+    for (const child of folder.children.slice(0, ORIENT_CHILDREN_LIMIT)) {
+      // No count means the walk stopped before reaching this subfolder. It is
+      // named without a number rather than given a zero: "0 notes" about a
+      // folder nothing counted is the one reading that is certainly wrong.
+      lines.push(child.count === null ? `  - ${child.prefix}` : `  - ${child.prefix} — ${child.count}${floor}`);
+    }
+    if (folder.children.length > ORIENT_CHILDREN_LIMIT) {
+      lines.push(`  - (+${folder.children.length - ORIENT_CHILDREN_LIMIT} more folders)`);
+    }
+  }
+  // A folder the storage adapter refuses to list — a backslash or a "." segment
+  // in a name somebody chose in Obsidian — is named rather than dropped. It is
+  // the caller's own data, and silently omitting it would make this map claim
+  // completeness it does not have.
+  for (const prefix of survey.unwalkable) {
+    lines.push(`- ${prefix} — could not be listed (unsupported characters in the folder name)`);
+  }
+  return lines.length ? lines.join("\n") : "- (nothing visible to this connection yet)";
+}
+
 async function toolOrient(store, scope, rules, overrides) {
-  const parts = [ORIENT_OPERATING_CONTRACT];
-  const [index, privateIndex, pendingProposals, entries] = await Promise.all([
-    store.get("index.md"),
+  const [frontPage, privateIndex, pendingProposals, survey] = await Promise.all([
+    readFrontPage(store, scope, rules, overrides, ORIENT_INDEX_CHAR_CAP),
     scope === "private" ? store.get("index-private.md") : Promise.resolve(null),
     scope === "private" ? listAllKeys(store, PROPOSAL_PENDING_PREFIX) : Promise.resolve([]),
-    listOrientEntries(store, scope, rules, overrides),
+    surveyContext(store, scope, rules, overrides),
   ]);
-  if (index && canSee("index.md", scope, rules, overrides)) parts.push(await index.text());
-  if (scope === "private") {
-    if (privateIndex) parts.push(await privateIndex.text());
+
+  const total = `${survey.total}${survey.truncated ? "+" : ""}`;
+  const parts = [
+    `# Orientation\n\n${total} notes visible to this connection across ` +
+      `${survey.folders.length} folders. This is the user's own context: their projects, ` +
+      "decisions, people and writing. Assume the answer to a question about their work is " +
+      "already in here somewhere, and look before you ask them to repeat it.",
+    `## Front page — index.md\n\n${frontPage || NO_FRONT_PAGE}`,
+  ];
+
+  if (scope === "private" && privateIndex) {
+    parts.push(`## Owner's front page — index-private.md\n\n${(await privateIndex.text()).trim()}`);
+  }
+
+  if (survey.recent.length) {
+    const now = Date.now();
     parts.push(
-      `## Pending note proposals\n${pendingProposals.length} pending. ` +
+      "## Recently updated\n" +
+        survey.recent
+          .map((note) => `- ${note.key} — ${relativeAge(note.uploaded, now)}`)
+          .join("\n") +
+        "\n\nThese are where the user's attention has been. Read one before assuming you " +
+        "know what they are working on." +
+        // Object storage cannot be listed by modification time, so this is
+        // ranked from what the bounded walk actually saw. In a context small
+        // enough to walk that is everything; past the budget it is a sample,
+        // and saying "recently updated" about a sample without saying so would
+        // let an agent conclude a silent project is a finished one.
+        (survey.truncated
+          ? " This context is larger than one orientation walks, so this ranks the part " +
+            "of it this call reached — not every folder is represented."
+          : "")
+    );
+  }
+
+  parts.push(
+    `## Structure\n${renderStructure(survey)}\n\n` +
+      (survey.truncated
+        ? "Counts marked `+` are floors: the folder was larger than one orientation walks. "
+        : "") +
+      "Go deeper with list_notes on a prefix, and search_notes before concluding something " +
+      "is not written down — a topic that is missing from this map is usually filed under a " +
+      "name you did not guess."
+  );
+
+  if (scope === "private" && pendingProposals.length) {
+    parts.push(
+      `## Pending note proposals\n${pendingProposals.length} waiting for you. ` +
         "Use list_proposals, read_proposal, and review_proposal to process them."
     );
   }
-  parts.push(
-    "## Visible structure\n" +
-      entries.map((entry) => `- ${entry}`).join("\n") +
-      "\n\nUse list_notes / read_note to go deeper. Search before assuming something isn't written down."
-  );
+
+  parts.push(ORIENT_OPERATING_CONTRACT);
   parts.push(scopeInfoText(scope, rules));
   return toolText(parts.join("\n\n---\n\n"));
 }
@@ -2188,7 +2579,16 @@ async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg)
       if (hits.length >= 25) break;
     }
   }
-  let out = hits.length ? hits.join("\n\n") : "(no matches)";
+  // An empty search is the moment an agent decides the context is useless and
+  // answers from its own head. It is almost always the wrong conclusion — the
+  // note exists under a word the user would have used and this query did not —
+  // so the miss says what to try instead of stopping the sentence at "no".
+  let out = hits.length
+    ? hits.join("\n\n")
+    : "(no matches)\n\nThis is a literal text search, so a miss usually means the wrong word " +
+      "rather than the wrong assumption. Before concluding it is not written down: try the " +
+      "term the user would have typed, drop the prefix if you passed one, or call orient / " +
+      "list_notes to see which folders exist.";
   if (keys.length > scanned.length) {
     out += `\n\n[note: scanned ${scanned.length} of ${keys.length} notes — narrow with a prefix if needed]`;
   }

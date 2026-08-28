@@ -2,6 +2,7 @@ import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
 import { SUPPORTED_SCOPES, visibilityTierForGrant } from "../src/session.js";
 import { runStoreChecks } from "./store.test.mjs";
+import { runOrientationChecks } from "./orientation.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
 import {
   CONTROL_PLANE_ORIGIN,
@@ -1087,6 +1088,68 @@ check("team orient lacks secret project", !oPub.includes("secret-thing"));
 check("team orient shows team project", oPub.includes("1-projects/togather"));
 check("team orient hides 1:1 subfolder", !oPub.includes("one-on-ones"));
 check("orient hides .obsidian", !oPub.includes(".obsidian") && !oPriv.includes(".obsidian"));
+
+// -- orient is the front door, so it has to be worth walking through
+//
+// The complaint these checks exist for is not a privacy bug: it is that a
+// connected agent reads the orientation, learns nothing it can act on, and
+// never comes back. So orient owes the caller three things beyond a folder
+// list — the user's own front page, what they touched recently, and a reason
+// to write anything back.
+check("orient names the front page", oPriv.includes("## Front page — index.md"));
+check("orient carries the front page content", oPriv.includes("# public manifest"));
+check("orient surfaces recent activity", oPriv.includes("## Recently updated"));
+check(
+  "orient dates recent activity relatively",
+  /## Recently updated\n(?:- \S+\.md — (?:just now|\d+(?:m|h|d|w|mo|y) ago)\n)+/.test(oPriv)
+);
+check("orient asks the agent to write back", oPriv.includes("Leave more than you took"));
+check(
+  "orient points at the next call rather than ending",
+  oPriv.includes("list_notes") && oPriv.includes("search_notes")
+);
+
+// A count that included notes the caller cannot see would let a colleague
+// subtract and derive exactly how much of the owner's context is being withheld
+// from them — an exact private-note total handed to the person it was withheld
+// from. So the numbers are derived from the same visibility filter as the
+// listing, and asserted against `list_notes` rather than against a literal,
+// so seeding another fixture below cannot quietly make this vacuous.
+function orientFolderCount(text, prefix) {
+  const line = text.match(new RegExp(`^- ${prefix} — (\\d+)(\\+?) notes?$`, "m"));
+  return line ? { count: Number(line[1]), floor: line[2] === "+" } : null;
+}
+async function visibleNoteCount(tokenLabel, prefix) {
+  const listed = (await call(tokenLabel, "list_notes", { prefix })).content[0].text;
+  return listed === "(no visible notes under that prefix)" ? 0 : listed.split("\n").length;
+}
+const projectsPriv = orientFolderCount(oPriv, "1-projects/");
+const projectsPub = orientFolderCount(oPub, "1-projects/");
+check(
+  "orient counts notes per folder",
+  projectsPriv !== null && projectsPub !== null && !projectsPriv.floor && !projectsPub.floor
+);
+check(
+  "orient counts only what the owner can see",
+  projectsPriv?.count === (await visibleNoteCount("priv-token", "1-projects"))
+);
+check(
+  "orient counts only what a team connection can see",
+  projectsPub?.count === (await visibleNoteCount("pub-token", "1-projects"))
+);
+check(
+  "orient's team count is smaller than the owner's",
+  projectsPub.count < projectsPriv.count
+);
+check(
+  "orient's recent activity never names a private note",
+  !oPub.split("## Structure")[0].includes("secret-thing") &&
+    !oPub.split("## Structure")[0].includes("one-on-ones")
+);
+check(
+  "orient omits the floor caveat when nothing was truncated",
+  !oPriv.includes("are floors")
+);
 
 // -- the privacy tier is a property of the grant, not of the approver's role
 //
@@ -2304,6 +2367,11 @@ await runStoreChecks(check, {
 // Last, and with its own control plane and object store: it swaps
 // globalThis.fetch and restores it, so it must not run while the calendar cron
 // checks above still own that global.
+// Orientation's budgeted walk and fail-soft handshake, against a bucket that
+// paginates and delimits honestly. Its own control plane, so it runs beside the
+// tenancy suite rather than against the shared fixture.
+await runOrientationChecks(check);
+
 await runTenancyChecks(check);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");

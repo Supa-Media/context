@@ -40,8 +40,8 @@ boundary and invisible above it).
 - Search indexes, caches, and embeddings are **disposable derivatives**,
   rebuildable from the files. Never the only copy of anything.
 - The on-bucket layout is a stable format, not an internal detail:
-  `privacy.md` at root, `.history/`, `.audit/`, PARA folders. Treat changes to
-  it as breaking changes.
+  `index.md` and `privacy.md` at root, `.history/`, `.audit/`, PARA folders.
+  Treat changes to it as breaking changes.
 
 ### 4. One person or workspace is one security boundary
 
@@ -698,6 +698,75 @@ would mail the address that was named — but the code it mints is real, and thi
 is the provider with no email check and no rate limit. An hour is the shortest
 useful life for it. **Setting it to seven days to "match" the invitation
 lengthens only that code and buys the link nothing.**
+
+### Orientation is the front door, and `index.md` is the part we do not generate
+
+A context nobody's agent reads is worth nothing, and the first version of this
+gateway lost that fight quietly: clients connected, never called `orient`, never
+wrote anything back, and the owner concluded the product did not work. The fix
+is not one lever. There are three surfaces and they act at three different
+moments, and only the first two decide whether a tool is *reached for at all*:
+
+- **Connect** — the `instructions` payload (legacy `initialize`, modern
+  `server/discover`). Read once, sits in the system prompt for every
+  conversation, and reaches the model before it has decided anything.
+- **Decision** — the tool descriptions in `tools/list`, present every turn, for
+  every client. A description that explains mechanics ("List note paths,
+  optionally under a folder prefix") tells a model how a tool works and gives it
+  no reason to believe the user's question is answered inside. They are written
+  in the language of the user's intent for that reason.
+- **Result** — text appended to tool output. Only ever reaches an agent that
+  already called something.
+
+**There is deliberately no "you have not oriented yet" banner**, though it is
+the obvious next idea and the only mechanically enforceable one. It would live
+at *result* time, which is the moment least related to the failure, and it needs
+per-grant state to avoid becoming noise — and a grant is a **connection, not a
+conversation**. One desktop client holds one grant for weeks, so "already
+oriented" would need an invented TTL and would stay silent for exactly the fresh
+chat worth catching. It buys a Convex schema change and a write on the hot path
+to solve the least of the three problems.
+
+`orient` itself leads with the person's context and ends with the rules. It used
+to open with twenty-five lines of visibility governance handed to an agent that
+had not yet been given one reason to care, which is a document to comply with
+rather than a context to explore.
+
+**`index.md` is the one part of orientation we never generate.** Everything else
+— folder map, counts, recency — is derived and rebuilt per call. The front page
+is an ordinary root note the customer writes, edits in Obsidian, and owns; it is
+in the stable on-bucket layout above. Absent, `orient` says so and says what it
+is for. Generating a plausible one instead would be the product inventing the
+one thing only its owner can say.
+
+**Who may write the front page is settled, and it is not "whoever asks".** The
+onboarding seed prompt tells a connected client outright not to touch
+`index.md`, because `write_note` only checks an etag when one is supplied and a
+client told to write "who I am" would replace the scaffolded manifest with a
+biography on its first call. The orientation contract does ask agents to keep it
+current, and the two are reconciled rather than left to collide: read it, pass
+its etag, add to what is there, say what is changing first, never replace it
+wholesale. Loosening that to "keep index.md up to date" is one sentence shorter
+and hands every connected client a wholesale overwrite of the one file the whole
+orientation is built on.
+
+Three properties of the survey are load-bearing:
+
+- **Every count counts only what this connection can see.** Counting hidden
+  notes would let a colleague subtract and derive an exact private-note total
+  for the person who withheld them — what the console's census is owner-only to
+  prevent.
+- **Two listings per folder, answering different questions.** Delimited names
+  every subfolder; a bounded flat walk counts and dates them. Deriving the map
+  from the walk alone is simpler and drops the siblings of one huge folder off
+  the map entirely — for precisely the people with the most in here. Anything
+  the walk could not reach is a floor (`5000+`), never a total, and a recency
+  list built from a partial walk says that it is.
+- **The connect-time sketch fails soft, always.** A slow bucket, a revoked key,
+  a `privacy.md` somebody broke in Obsidian: none of them may take down a
+  handshake. A client that gets the static instructions is fully working and
+  merely less curious. Note that a thrown handler is answered with a JSON-RPC
+  error over HTTP 200, so "the handshake returned 200" does not test this.
 
 ### A guard nobody has checked is not a guard
 
