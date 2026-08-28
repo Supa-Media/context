@@ -7,7 +7,14 @@
  * for a global at call time.
  */
 
-import { loadEndpoint, saveEndpoint, forgetEndpoint, defaultConfigPath, endpointKey } from "./config.js";
+import {
+  loadEndpoint,
+  saveEndpoint,
+  forgetEndpoint,
+  defaultConfigPath,
+  endpointKey,
+  credentialEndpointKey,
+} from "./config.js";
 import { installHook, uninstallHook, clientById } from "./install.js";
 import { fetchOrientation, startContext } from "./orient.js";
 import {
@@ -85,6 +92,11 @@ export async function authorize({
   openBrowser,
   log = console.log,
 }) {
+  // Refused before the first `.well-known` request, not after. `loadEndpoint`
+  // below would catch it, but by then two cleartext discovery requests have
+  // gone out — no credential in them, and still enough to tell a passive
+  // observer that this machine is installing against that endpoint.
+  credentialEndpointKey(endpoint);
   const discovery = await discover(endpoint, { fetchImpl });
   const scope = orient ? ORIENT_SCOPE : HOOK_SCOPE;
   const existing = await loadEndpoint(endpoint, configPath);
