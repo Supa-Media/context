@@ -352,8 +352,7 @@ function localIngestionStore(env) {
   return new R2Store(bucket, { rootPrefix: env.LOCAL_CONTEXT_ROOT_PREFIX });
 }
 
-export default {
-  async fetch(request, env, ctx) {
+async function route(request, env, ctx) {
     const url = new URL(request.url);
 
     const origin = publicOrigin(request, env);
@@ -393,7 +392,7 @@ export default {
     // precedes, and the refusal is produced before any token, slug, or control
     // plane answer exists to vary it.
     if (isTransportPath(path)) {
-      const refusal = enforceOrigin(request, env, origin);
+      const refusal = enforceOrigin(request, env);
       if (refusal) return refusal;
     }
 
@@ -495,6 +494,53 @@ export default {
     }
 
     return json({ error: "not_found" }, 404);
+}
+
+/**
+ * One catch around the whole request.
+ *
+ * An unhandled throw in a Worker is not an error response — it is a 1101 with
+ * no body at all, which tells a client nothing and an operator less. Two
+ * separate bugs have escaped exactly this way: a `URIError` from a malformed
+ * `%` escape in the path, and a `TypeError` from a prototype-named JSON-RPC
+ * method. Both were fixed at their source; both would have been a plain 500
+ * rather than a dead request had this existed. Two of a kind is enough to stop
+ * patching the class one instance at a time.
+ *
+ * It carries no detail on purpose. A thrown message here could be anything the
+ * request reached — a storage error naming a key, a parser quoting its input —
+ * and this response goes to an unauthenticated caller on the open internet.
+ *
+ * The operator gets the error's class and nothing else. Catching here removes
+ * the throw from Cloudflare's exception stream, and this Worker logs nowhere
+ * else, so a silent catch would trade a dead request for an invisible one — a
+ * worse bargain than the bug. A class name is a fixed identifier from the
+ * runtime or from our own code (`TypeError`, `ControlPlaneError`), never
+ * sender-derived, which is the same line the response body draws.
+ *
+ * Two things make that a check rather than an audit. `instanceof Error` first,
+ * because `name` and `constructor` on a thrown plain object are whatever the
+ * thrower put there — every `throw` in this Worker raises an `Error` subclass
+ * today, and that is a property of code somebody will edit. And its own `try`,
+ * because reading a property can itself throw: a getter or a Proxy that throws
+ * would escape `fetch` and restore the bodyless 1101 this guard exists to
+ * remove, so the guard would un-guard itself on exactly the input it is for.
+ */
+export default {
+  async fetch(request, env, ctx) {
+    try {
+      return await route(request, env, ctx);
+    } catch (error) {
+      try {
+        console.error(
+          "unhandled",
+          error instanceof Error ? String(error.name).slice(0, 64) : typeof error
+        );
+      } catch {
+        console.error("unhandled", "unknown");
+      }
+      return json({ error: "server_error" }, 500);
+    }
   },
 
   async scheduled(event, env, ctx) {

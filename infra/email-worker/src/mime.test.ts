@@ -486,3 +486,103 @@ describe("ARC headers carry their position and their foldedness", () => {
     expect(parsed.arcAuthenticationResults[0]!.value).toContain("dmarc=pass");
   });
 });
+
+describe("a Content-Disposition token is parsed as a token, not a media type", () => {
+  it("reads `attachment` even with no filename, so the guards that test it work", () => {
+    // The regression: `Content-Disposition` went through `parseContentType`,
+    // whose `type/subtype` validation no disposition can satisfy — a
+    // disposition is a bare token with no slash. So `disposition` was always
+    // "" and both `leaf.disposition !== "attachment"` guards were constant
+    // `true`, leaving only their `!leaf.filename` half doing any work.
+    //
+    // Nothing caught it because every attachment fixture supplies a filename.
+    // Without one, this attached part won inline selection and BECAME the note
+    // body, while also being dropped from the attachment list — so the real
+    // body never appeared and nothing recorded that a second part had existed.
+    const raw =
+      `From: alice@example.com\n` +
+      `Content-Type: multipart/mixed; boundary="bnd"\n\n` +
+      `--bnd\n` +
+      `Content-Type: text/plain\n` +
+      `Content-Disposition: attachment\n\n` +
+      `SECRET-ATTACHED-TEXT\n` +
+      `--bnd\n` +
+      `Content-Type: text/plain\n\n` +
+      `the real body\n` +
+      `--bnd--\n`;
+    const parsed = parse(raw);
+    expect(parsed.text).toBe("the real body");
+    expect(parsed.text).not.toContain("SECRET-ATTACHED-TEXT");
+  });
+
+  it("keeps the parameters, so a filename on an attachment still reaches the list", () => {
+    const raw =
+      `From: alice@example.com\n` +
+      `Content-Type: multipart/mixed; boundary="bnd"\n\n` +
+      `--bnd\n` +
+      `Content-Type: text/plain\n\n` +
+      `the real body\n` +
+      `--bnd\n` +
+      `Content-Type: application/pdf\n` +
+      `Content-Disposition: attachment; filename="report.pdf"\n\n` +
+      `%PDF-1.4\n` +
+      `--bnd--\n`;
+    const parsed = parse(raw);
+    expect(parsed.text).toBe("the real body");
+    expect(parsed.attachments.map((a) => a.filename)).toContain("report.pdf");
+  });
+
+  it("strips the parameters before comparing, even when none of them is a filename", () => {
+    // The two tests above both pass if `dispositionToken` keeps only its
+    // `.trim().toLowerCase()` and drops `splitParams`: the first supplies no
+    // parameters at all, and the second has a filename, so the `!leaf.filename`
+    // half of each guard carries it. This is the case that needs the split —
+    // a parameter that is not a filename, which is what puts the whole value
+    // (`"attachment; size=42"`) up against the bare token `"attachment"`.
+    const raw =
+      `From: alice@example.com\n` +
+      `Content-Type: multipart/mixed; boundary="bnd"\n\n` +
+      `--bnd\n` +
+      `Content-Type: text/plain\n` +
+      `Content-Disposition: attachment; size=42\n\n` +
+      `SECRET-ATTACHED-TEXT\n` +
+      `--bnd\n` +
+      `Content-Type: text/plain\n\n` +
+      `the real body\n` +
+      `--bnd--\n`;
+    const parsed = parse(raw);
+    expect(parsed.text).toBe("the real body");
+    expect(parsed.text).not.toContain("SECRET-ATTACHED-TEXT");
+  });
+
+  it("keeps parameter names out of the prototype, so a real one is never dropped", () => {
+    // The bag is `Object.create(null)`. On a plain object `"constructor" in
+    // plain` is true before anything is parsed, so the first-wins rule below
+    // silently drops a parameter actually named `constructor`, and reading it
+    // back hands out the `Object` function rather than the header's value.
+    // Nothing reads that name today; the point is that an attacker-controlled
+    // string is used as both an `in` test and an assignment target, which is
+    // the shape that crashed the gateway one file over.
+    const parsed = parseContentType('text/plain; constructor=x; name="a.txt"');
+    expect(Object.getPrototypeOf(parsed.params)).toBe(null);
+    expect(parsed.params.constructor).toBe("x");
+    expect(parsed.params.name).toBe("a.txt");
+  });
+
+  it("survives a bare trailing semicolon, which is the same shape with no parameter", () => {
+    const raw =
+      `From: alice@example.com\n` +
+      `Content-Type: multipart/mixed; boundary="bnd"\n\n` +
+      `--bnd\n` +
+      `Content-Type: text/plain\n` +
+      `Content-Disposition: attachment;\n\n` +
+      `SECRET-ATTACHED-TEXT\n` +
+      `--bnd\n` +
+      `Content-Type: text/plain\n\n` +
+      `the real body\n` +
+      `--bnd--\n`;
+    const parsed = parse(raw);
+    expect(parsed.text).toBe("the real body");
+    expect(parsed.text).not.toContain("SECRET-ATTACHED-TEXT");
+  });
+});

@@ -42,12 +42,15 @@ describe("bindStorage", () => {
     );
 
     expect(binding).not.toBeNull();
+    // An S3 binding always carries this; the field is only optional because a
+    // Dropbox binding has no bucket secret at all.
+    expect(binding!.encryptedSecretAccessKey).toBeDefined();
     expect(binding!.encryptedSecretAccessKey).not.toContain(
       FAKE_STORAGE.secretAccessKey,
     );
     // `v2` — the envelope now carries a key id and is bound to the workspace.
     // See `lib/crypto.ts` for why `v1` is rejected rather than migrated.
-    expect(binding!.encryptedSecretAccessKey.startsWith("v2:")).toBe(true);
+    expect(binding!.encryptedSecretAccessKey!.startsWith("v2:")).toBe(true);
     // The whole row, serialized, must not contain the plaintext anywhere.
     expect(JSON.stringify(binding)).not.toContain(FAKE_STORAGE.secretAccessKey);
   });
@@ -267,7 +270,7 @@ describe("no public function returns a decrypted secret", () => {
     expect(serialized).not.toContain("v2:");
     // Even the access key id — half a credential — comes back masked.
     expect(serialized).not.toContain(FAKE_STORAGE.accessKeyId);
-    expect(binding?.maskedAccessKeyId.endsWith("ID00")).toBe(true);
+    expect(binding?.maskedAccessKeyId?.endsWith("ID00")).toBe(true);
   });
 
   test("the owner cannot read their own secret back either", async () => {
@@ -466,7 +469,7 @@ describe("rotating the encryption key", () => {
         .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
         .unique(),
     );
-    return binding!.encryptedSecretAccessKey;
+    return binding!.encryptedSecretAccessKey!;
   }
 
   test("a binding written before a rotation keeps working, and can be moved to the new key", async () => {
