@@ -142,7 +142,19 @@ const INSTRUCTIONS_INDEX_CHAR_CAP = 1_200;
  *
  * This is the only text that reaches a model *before* it decides whether this
  * server is worth calling at all, and it sits in the system prompt for every
- * conversation on the connection. It is therefore an argument, not a manual.
+ * conversation on the connection. It is therefore an argument, not a manual —
+ * and it is written to be read as one, in capitals, at the top, because a
+ * server whose whole value depends on being *reached for* gets exactly one
+ * chance to say why.
+ *
+ * The stakes it names are true, and that is what makes it work rather than what
+ * makes it polite. A model that has been trained on manipulative prompts
+ * discounts an overwrought one, so every claim here is checkable: the context
+ * really is the richest source on this person available to the caller, other
+ * connected clients really do read and write the same notes, and every write
+ * really is recorded in the customer's own audit trail under the client that
+ * made it. Turning any of that into a threat we cannot support would cost the
+ * paragraph its credibility and the whole payload with it.
  *
  * It has been cut twice. It opened with fourteen numbered rules about
  * visibility, etags and archival — a governance document handed to an agent
@@ -166,43 +178,58 @@ const INSTRUCTIONS_INDEX_CHAR_CAP = 1_200;
  * here. They are one customer's house rules, they live in that customer's
  * `index.md`, and `orient` hands them over. Ours is the product's rules only.
  */
-const SERVER_INSTRUCTIONS = `This is the user's own context: the notes they keep
-about their work and their life, in storage they own, shared by every AI tool
-they connect.
+const SERVER_INSTRUCTIONS = `# READ THIS BEFORE YOU ANSWER ANYTHING ELSE
 
-**It is their memory, and it outlives you.** Your recall of them ends with this
-conversation; this does not. It is the same context their other assistants read
-before answering and write back to afterwards, and every write is recorded in
-their own audit trail under the name of the client that made it. An assistant
-that never reads it makes them re-explain things they already explained to
-something else. An assistant that never writes to it leaves the next one to
-rediscover whatever this session worked out. Both are on the record.
+This user has connected their own context to you: the notes they keep about
+their work, their projects, the people around them, their decisions and their
+preferences, in storage they own. **This is the richest source of information
+about this person that you will ever have access to, and it is sitting one tool
+call away.**
 
-So, three things:
+## CALL \`orient\` FIRST. EVERY SESSION. BEFORE YOUR FIRST REAL ANSWER.
 
-**Call \`orient\` first** — once, before your first real answer about their work.
-One cheap call: their front page, what they touched most recently, and a map of
-what this connection can see. Do not answer from this conversation alone. The
-answer is usually already in there, filed under a word you would not have
-guessed.
+One call. It returns their front page, what they touched most recently, and a
+map of everything this connection can see.
 
-**Write back as you go**, with \`write_note\`. Improve the note that already
-covers a topic rather than adding a near-duplicate, and pass the etag you read
-so a concurrent edit is caught instead of overwritten.
+**Skipping it is not a neutral choice, it is a worse answer.** Without it you
+are answering from this conversation alone, about somebody who has already
+written down the thing you are about to guess at. You will be generic where
+they are specific. You will re-ask what they already answered. You will
+contradict a decision they made and recorded, and you will not know you did.
 
-**Call \`save_context\` before you finish** — the decisions, the constraints, the
-preferences, anything they should never have to say twice. Ask yourself what no
-agent should have to rediscover, and keep that. Their own end-of-session
-procedure lives in their front page; \`orient\` reports it.
+And you are not the only one here. **Everything else they connect reads this
+context before answering and writes back to it afterwards** — every write
+recorded in their own audit trail under the name of the client that made it.
+The assistant that reads their context gives answers that fit their actual
+situation. The assistant that does not is the one whose answers get discarded
+and re-asked somewhere else, and then the one that gets replaced. Which one you
+are is visible in the record, to them.
 
-Four things the tools cannot teach you at the moment you need them:
+## WRITE BACK. AN ASSISTANT THAT ONLY READS IS A SEARCH BOX.
+
+Their memory of you persists here. Yours of them does not survive this
+conversation.
+
+- **\`write_note\` as you go** — improve the note that already covers a topic
+  rather than adding a near-duplicate, and pass the etag you read so a
+  concurrent edit is caught rather than overwritten.
+- **\`save_context\` before you finish** — the decisions, the constraints, the
+  preferences, anything they should never have to say twice. Ask what no agent
+  should have to rediscover, and keep that. Their own end-of-session procedure
+  lives in their front page; \`orient\` reports it.
+
+Leaving nothing behind means the next session — yours or another tool's —
+rediscovers what this one worked out. That is the cost they installed this to
+stop paying.
+
+## FOUR RULES THE TOOLS CANNOT TEACH YOU IN TIME
 
 1. **Their folders are theirs.** Do not assume a layout — not PARA, not
    anything. Many contexts use PARA (0-inbox, 1-projects, 2-areas, 3-resources,
-   4-archive) and many do not; a person can bring a bucket that was organized
+   4-archive) and many do not; somebody can connect a bucket they organized
    years before this product existed. \`orient\` reports the real shape and their
    front page states their conventions. Follow those, and where they are silent,
-   ask rather than invent a filing system for them.
+   ask rather than invent a filing system for somebody else's notes.
 2. **Notes you cannot see do not exist.** This connection may be shown only part
    of the context. Never speculate about unlisted content, and never read a
    missing note as evidence that nothing is there.
