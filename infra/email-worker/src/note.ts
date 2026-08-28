@@ -468,8 +468,16 @@ export function renderCaptureNote(input: CaptureNoteInput): string {
     // They are still here, and still first, so the note reads the same way. The
     // frontmatter carries both as well, where `yamlString` quotes them and they
     // read as field values rather than as narrative.
-    `**Subject:** ${subject || "(no subject)"}`,
-    `**Sent:** ${singleLine(input.sentAt) || "(no date header)"}`,
+    //
+    // `defangFence` is not optional now that they are inside. Above the fence a
+    // stray closing marker preceded the `begin` and misled nobody; in here it is
+    // a counterfeit end, standing before the real body, and a reader skimming
+    // for the marker would stop on it and read the rest of the sender's message
+    // as the owner's own words. Same reason the body gets it — the region only
+    // means something if the marker appears exactly twice.
+    `**Subject:** ${defangFence(subject) || "(no subject)"}`,
+    "",
+    `**Sent:** ${defangFence(singleLine(input.sentAt)) || "(no date header)"}`,
     "",
   ];
 
