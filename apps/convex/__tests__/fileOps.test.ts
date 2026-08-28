@@ -2126,6 +2126,138 @@ describe("a bulk operation acts only on what the caller can see", () => {
   });
 
   /**
+   * The guard and the manifest writer have to answer from the same rule set.
+   * Given the raw rename, the guard saw the first of two colliding rules
+   * (`team`) while the writer kept the more private one — so the move was
+   * allowed and then made invisible to the person who made it, who could not
+   * undo it either, because `canSee` refuses them the source from that moment.
+   * The fix for a duplicate manifest line reintroduced the harm the guard was
+   * added for, four commits later.
+   */
+  test("a move the writer would hide is refused, not stranded", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/aaa-team/plan.md", "# The team's plan\n");
+    store.seed("1-projects/zzz-hidden/secret.md", "# Salaries\n\n200k\n");
+    await setFolderVisibility(store, {
+      path: "1-projects/aaa-team",
+      visibility: "team",
+      scope: "private",
+    });
+    await setFolderVisibility(store, {
+      path: "1-projects/zzz-hidden",
+      visibility: "private",
+      scope: "private",
+    });
+
+    const error = await capture(() =>
+      movePath(store, {
+        from: "1-projects/aaa-team",
+        to: "1-projects/zzz-hidden",
+        scope: "team",
+        now: NOW,
+      }),
+    );
+    expect(error.code).toBe("FILE_NOT_FOUND");
+    // The note stayed where its owner can still reach it...
+    expect(store.snapshot()["1-projects/aaa-team/plan.md"]).toBeDefined();
+    const listing = await listFolder(store, { path: "1-projects/aaa-team", scope: "team" });
+    expect(names(listing.entries)).toEqual(["plan.md"]);
+    // ...and the owner's note was never published either.
+    expect(
+      (
+        await capture(() =>
+          readFile(store, { path: "1-projects/zzz-hidden/secret.md", scope: "team" }),
+        )
+      ).code,
+    ).toBe("FILE_NOT_FOUND");
+  });
+
+  /**
+   * The collision is resolved towards private, and the first test for it chose
+   * names where alphabetical order made "keep the more private" and "keep
+   * whichever came last" agree — so the security property was not pinned at
+   * all. This one mirrors the names so they disagree: the arriving `private`
+   * rule sorts first, the pre-existing `team` rule last.
+   */
+  test("the arriving rule wins on privacy, not on order", async () => {
+    const store = bucket();
+    store.seed("1-projects/aaa/v.md", "# V\n");
+    store.seed("1-projects/aaa/hr/secret.md", "# Salaries\n\n200k\n");
+    store.seed("1-projects/zzz/hr/pre.md", "# Pre\n");
+    await setFolderVisibility(store, {
+      path: "1-projects/aaa",
+      visibility: "team",
+      scope: "private",
+    });
+    await setFolderVisibility(store, {
+      path: "1-projects/aaa/hr",
+      visibility: "private",
+      scope: "private",
+    });
+    await setFolderVisibility(store, {
+      path: "1-projects/zzz/hr",
+      visibility: "team",
+      scope: "private",
+    });
+
+    await movePath(store, {
+      from: "1-projects/aaa",
+      to: "1-projects/zzz",
+      scope: "private",
+      now: NOW,
+    });
+
+    const manifest = store.snapshot()[PRIVACY_KEY] as string;
+    const lines = manifest.split("\n").filter((line) => line.includes("1-projects/zzz/hr:"));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("private");
+    expect(
+      (
+        await capture(() =>
+          readFile(store, { path: "1-projects/zzz/hr/secret.md", scope: "team" }),
+        )
+      ).code,
+    ).toBe("FILE_NOT_FOUND");
+  });
+
+  /**
+   * `forgetPrivacy` does not run the de-duplication, so the repair loop's own
+   * two guards are all that stop it emitting a rule twice — and each of them
+   * was recorded as "inert" on the strength of the other. Two survivors resting
+   * on one rule is the case that needs both.
+   */
+  test("two survivors resting on one rule put it back once", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/mixed/public.md", "# Public\n");
+    store.seed("1-projects/mixed/hr/pay.md", "# Pay\n");
+    store.seed("1-projects/mixed/hr/bonus.md", "# Bonus\n");
+    await setFolderVisibility(store, {
+      path: "1-projects/mixed/hr",
+      visibility: "private",
+      scope: "private",
+    });
+
+    await deletePath(store, {
+      path: "1-projects/mixed",
+      scope: "team",
+      confirmation: DELETE_CONFIRMATION,
+    });
+
+    const manifest = store.snapshot()[PRIVACY_KEY] as string;
+    const lines = manifest
+      .split("\n")
+      .filter((line) => line.trim().startsWith("1-projects/mixed/hr:"));
+    expect(lines).toHaveLength(1);
+    for (const path of ["1-projects/mixed/hr/pay.md", "1-projects/mixed/hr/bonus.md"]) {
+      expect((await capture(() => readFile(store, { path, scope: "team" }))).code).toBe(
+        "FILE_NOT_FOUND",
+      );
+    }
+  });
+
+  /**
    * The repaired rule has to be the one that *decided* the survivor, which is
    * the longest prefix matching it — not merely one that covers it. Two nested
    * rules of the same visibility cannot tell those apart, so this one nests a

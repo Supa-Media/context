@@ -1009,6 +1009,11 @@ function rulesSurvivorsRestOn(
         determining = rule;
       }
     }
+    // Two guards hold this together and neither is redundant: the comparison
+    // above already stops a second survivor re-pushing a rule the first one
+    // restored, and this stops a repeat when that comparison is bypassed. With
+    // both gone the delete path emits the same rule twice — `forgetPrivacy`
+    // does not run `oneRulePerPrefix`, so nothing downstream tidies it.
     if (determining !== null && !kept.includes(determining)) kept.push(determining);
   }
   return kept;
@@ -1088,10 +1093,19 @@ function assertMoveDestinationsVisible(
     const carried = state.overrides.get(pair.source);
     if (carried !== undefined) overrides.set(pair.destination, carried);
   }
+  // Deduped, because that is what `remapPrivacy` writes. Judging against the
+  // raw rename let the two disagree: the rename can leave two rules on one
+  // prefix, `visibilityOf` takes the first of equal length, and the writer
+  // takes the more private — so a guard reading the first said `team` while the
+  // file ended up `private`. The move was allowed and then made invisible to
+  // the person who made it, who could not undo it either, because `canSee`
+  // refuses them the source from that moment. That is the harm this guard's own
+  // comment says it exists to prevent, reintroduced by the fix for the
+  // duplicate line.
   assertDestinationsVisible(
     pairs.map((pair) => pair.destination),
     scope,
-    rulesAfterFolderMove(state.rules, folderMove),
+    oneRulePerPrefix(rulesAfterFolderMove(state.rules, folderMove)),
     overrides,
   );
 }
