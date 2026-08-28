@@ -4,6 +4,10 @@
 
 Your context is the durable layer. AI clients are replaceable interfaces.
 
+Your personal context is your **brain** — one per person, addressed by your
+name. A shared one is a **workspace**. Your brain, the brains people share
+with you, and your workspaces are, together, your **context**.
+
 Context gives you one MCP endpoint you add everywhere — ChatGPT, Claude, Codex,
 Notion AI, whatever comes next — so every tool starts already knowing your
 projects, decisions, and history. You stop re-teaching each new assistant from
@@ -20,9 +24,9 @@ That's not a feature we might remove later. It's the architecture:
 
 - **Plain files are canonical.** Markdown you can open in Obsidian, grep, or
   `rclone` out. Never a proprietary database that becomes the only copy.
-- **Your storage keeps its native shape.** In Dropbox, the context is an
+- **Your storage keeps its native shape.** In Dropbox, your brain is an
   ordinary folder. In object storage, tenancy is bucket-level: we never rewrite
-  your keys or namespace your paths. Existing contexts connect without a
+  your keys or namespace your paths. An existing brain connects without a
   migration.
 - **The gateway is portable.** `apps/mcp` is a self-contained Cloudflare Worker.
   If Context.LC disappears tomorrow, deploy it yourself and your bucket keeps
@@ -81,7 +85,7 @@ again.
 
 Most of what `orient` returns is derived from the bucket and rebuilt on every
 call. One part is not: `index.md`, an ordinary Markdown file at the root of your
-bucket that you own. Setting up a new context writes a starting one describing
+bucket that you own. Setting up a new brain writes a starting one describing
 the conventions; what makes it earn its place is the part only you can write.
 
 ```markdown
@@ -107,7 +111,7 @@ changing first. Owners can add an `index-private.md` beside it for anything that
 should only reach a personal connection.
 
 Connecting a bucket that already has months of notes in it never overwrites
-anything, so an imported context may have no `index.md` at all. `orient` then
+anything, so an imported brain may have no `index.md` at all. `orient` then
 says so and tells the agent what it's for, which is usually enough to get one
 written.
 

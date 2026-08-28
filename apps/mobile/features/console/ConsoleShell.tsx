@@ -74,7 +74,7 @@ export function ConsoleShell({
             // Map and Connections are not inside anything, and a context chip
             // above them would be naming a scope the pane is not in.
             <>
-              <Text variant="wsSwitch">All contexts</Text>
+              <Text variant="wsSwitch">Your context</Text>
               <Text variant="wsSwitch" style={styles.switcherKind}>
                 {`${data.contexts.length} reachable`}
               </Text>
@@ -124,7 +124,7 @@ export function ConsoleShell({
               </Text>
               {section.key === "own" && data.contexts.length === 0 && !data.loading ? (
                 <Text variant="rowSub" style={styles.railEmpty}>
-                  No contexts yet
+                  Nothing here yet
                 </Text>
               ) : null}
               {section.contexts.map((context) => (

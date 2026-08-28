@@ -197,7 +197,7 @@ describe("the signed-in console states no fact it cannot answer", () => {
     for (const stat of data.stats) expect(INVENTED).not.toContain(stat.value);
 
     // The two it can count are still counted — one context, no clients.
-    expect(data.stats.find((s) => s.label === "contexts reachable")?.value).toBe("1");
+    expect(data.stats.find((s) => s.label === "in your context")?.value).toBe("1");
     expect(data.stats.find((s) => s.label === "AI clients connected")?.value).toBe("0");
   });
 
@@ -208,7 +208,7 @@ describe("the signed-in console states no fact it cannot answer", () => {
 
     expect(data.stats[0]).toEqual({ value: "342", label: "notes across all" });
     // And it has not displaced what was already there.
-    expect(data.stats.find((s) => s.label === "contexts reachable")?.value).toBe("1");
+    expect(data.stats.find((s) => s.label === "in your context")?.value).toBe("1");
   });
 
   /**

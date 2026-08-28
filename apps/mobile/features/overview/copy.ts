@@ -49,16 +49,16 @@ export const CONTEXT_OVERVIEW_FACTS: readonly OverviewFact[] = [
   },
   {
     title: "Your own structure",
-    body: "PARA, or folders you invented years ago. We don't impose a schema on a context you have already arranged.",
+    body: "PARA, or folders you invented years ago. We don't impose a schema on a brain you have already arranged.",
   },
   {
     title: "Named people only",
     body: "Sharing is with named people the owner granted access to, never the public internet. There is no anonymous tier.",
   },
   {
-    title: "Shared context buckets",
+    title: "Shared workspaces",
     status: "coming soon",
-    body: "One bucket, several members, one set of privacy rules. Mail is not part of it — a capture address belongs to one person's own context, and a shared context has none.",
+    body: "One bucket, several members, one set of privacy rules. Mail is not part of it — a capture address belongs to one person's brain, and a workspace has none.",
   },
 ];
 

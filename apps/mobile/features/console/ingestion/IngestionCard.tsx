@@ -238,7 +238,7 @@ export function IngestionCard({
               autoCapitalize="none"
               autoCorrect={false}
               placeholder="0-inbox/"
-              hint="Any folder in this context. It does not have to exist yet."
+              hint="Any folder in your brain. It does not have to exist yet."
               error={folderProblem ?? undefined}
               testID="ingestion-folder"
             />
@@ -296,7 +296,7 @@ export function IngestionCard({
                   value: "anyone",
                   label: "Anyone",
                   detail:
-                    "An open drop-box. Anyone who learns the address — a forwarded thread, a mailing list, a screenshot — can put a note in this context.",
+                    "An open drop-box. Anyone who learns the address — a forwarded thread, a mailing list, a screenshot — can put a note in your brain.",
                 },
               ]}
               testID="ingestion-who"

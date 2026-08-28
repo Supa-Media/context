@@ -14,7 +14,7 @@ export function describeGraph(graph: MapGraph): string {
   const clients = graph.nodes.filter((node) => node.kind === "client");
 
   if (contexts.length === 0) {
-    return "Map of reachable contexts. You are not connected to any context yet.";
+    return "Map of your context. Nothing is connected yet.";
   }
 
   const contextNames = contexts.map((node) => node.label).join(", ");
@@ -25,8 +25,8 @@ export function describeGraph(graph: MapGraph): string {
         `${clients.map((node) => node.label).join(", ")}.`;
 
   return (
-    "Map of reachable contexts. You are at the centre, connected to " +
-    `${contexts.length} context${contexts.length === 1 ? "" : "s"}: ${contextNames}. ` +
+    "Map of your context. You are at the centre, connected to " +
+    `${contexts.length} ${contexts.length === 1 ? "place" : "places"}: ${contextNames}. ` +
     clientPart
   );
 }

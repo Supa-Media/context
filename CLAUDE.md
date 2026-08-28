@@ -92,13 +92,40 @@ its *plumbing* freely; changing its *semantics* needs an explicit decision.
 
 ## Vocabulary
 
-The user-facing noun is **context**, never "brain". People structure their
-context however they like, so a name implying one shape is wrong. Use it in
-tool descriptions, UI copy, docs, and new code.
+Three user-facing nouns, decided by the owner (2026-08). This replaces the
+earlier rule "context, never brain", which guarded against *brain as the
+generic unit noun*; these are per-shape names, and the generic unit noun is
+gone from user-facing copy instead.
 
-Legacy single-tenant names (`BRAIN` binding, `PRIVATE_TOKEN`) survive only
-where they're load-bearing for the original deployment, and should disappear as
-code is generalized.
+- **Brain** — a personal context: the workspace a username names, exactly one
+  per person. "Create your brain", "@seyi's brain".
+- **Workspace** — a shared context: slug-addressed, several members, no single
+  personal owner. Deliberately the same word as the internal noun, so code and
+  copy agree.
+- **Context** — the aggregate: everything one person can reach through the
+  endpoint — their brain, brains shared with them, and their workspaces. Also
+  the product name. New copy never uses "context" for a single unit; a
+  sentence that needs "either kind" says "a brain or a workspace". One
+  pragmatic allowance: existing unit-generic strings (permission errors,
+  refusals) at call sites that do not know the unit's `kind` may keep "this
+  context" until the site learns the kind — prefer the specific noun wherever
+  `kind` is already in hand, and never introduce new "a context" copy.
+
+One deliberate exception: copy addressed to a **connected AI client** about
+the one thing its grant reaches (gateway `instructions`, `orient`, tool
+descriptions and results) keeps saying "your context" — from that client's
+side, what it can reach *is* the person's context, and a grant can be to
+either kind of unit, which the gateway does not always know.
+
+`brain` and `brains` are reserved names (`functions/lib/names.ts`), like
+`workspace` and `context` before them — product vocabulary as a claimable
+handle is an impersonation risk, and ingestion is on the apex.
+
+Code identifiers do not change: `workspace`/`workspaceId` stay the internal
+unit, `kind: "personal" | "shared"` stays the discriminator. Legacy
+single-tenant names (`BRAIN` binding, `PRIVATE_TOKEN`) survive only where
+they're load-bearing for the original deployment, and should disappear as code
+is generalized.
 
 ## The workspace model (build this now, it's cheap)
 

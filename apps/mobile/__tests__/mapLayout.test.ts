@@ -253,13 +253,13 @@ describe("buildConstellation", () => {
 describe("describeGraph", () => {
   test("summarises the demo constellation for screen readers", () => {
     const text = describeGraph(DEMO_GRAPH);
-    expect(text).toContain("3 contexts");
+    expect(text).toContain("3 places");
     expect(text).toContain("@seyi");
     expect(text).toContain("4 AI clients connected");
   });
 
   test("says so when there is nothing connected yet", () => {
-    expect(describeGraph({ nodes: [], edges: [] })).toContain("not connected to any context");
+    expect(describeGraph({ nodes: [], edges: [] })).toContain("Nothing is connected yet");
   });
 
   test("uses the singular for one context and no clients", () => {
@@ -270,7 +270,7 @@ describe("describeGraph", () => {
       ],
       edges: [],
     });
-    expect(text).toContain("1 context:");
+    expect(text).toContain("1 place:");
     expect(text).toContain("No AI clients are connected.");
   });
 });

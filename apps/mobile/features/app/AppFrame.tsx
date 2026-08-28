@@ -190,7 +190,7 @@ export interface AppFrameProps {
    *
    * Passed rather than derived, because deriving it only works on one of the
    * two platforms this app ships to. On web the `<button>` takes its name from
-   * its content and the chevron beside it is `aria-hidden`, so "All contexts, 3
+   * its content and the chevron beside it is `aria-hidden`, so "Your context, 3
    * reachable" is what a screen reader reads. On iOS and Android neither half
    * holds: `aria-hidden` is destructured by `View` and **not** by `Text`
    * (`react-native/Libraries/Text/Text.js`), so it is dropped as an unknown
@@ -386,7 +386,7 @@ export function AppFrame({
             Not a second `☰` beside the tree's: two identical glyphs in a 390px
             bar opening two different panels is a coin toss, and one of them
             does not exist on Map or Connections. The chip already names the
-            scope you are in — "All contexts", "@you · personal" — which is
+            scope you are in — "Your context", "@you · personal" — which is
             exactly what a workspace switcher says, so pressing it to change
             that scope is the behaviour it was already advertising. Its own
             text is still the accessible name, spelled out through

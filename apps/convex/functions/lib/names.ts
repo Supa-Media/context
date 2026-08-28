@@ -182,6 +182,12 @@ export const RESERVED_NAMES: ReadonlySet<string> = new Set([
   "root",
   "security",
   "system",
+  // Product vocabulary (see CLAUDE.md, "Vocabulary"): a person's personal
+  // context is a "brain", a shared one is a "workspace" (already reserved
+  // above). Claimable, `brain@context.lc` would receive mail people believed
+  // was going to the product, and `@brain/...` would read as a product path.
+  "brain",
+  "brains",
   // On-bucket layout words, so a name can never be confused for a folder.
   //
   // The numbered forms are the ones that actually exist on a bucket

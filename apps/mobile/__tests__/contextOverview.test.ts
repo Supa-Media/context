@@ -56,7 +56,7 @@ function render(): string {
 }
 
 const SHARED = CONTEXT_OVERVIEW_FACTS.find(
-  (fact) => fact.title === "Shared context buckets",
+  (fact) => fact.title === "Shared workspaces",
 );
 
 describe("the overview is six lines, in the order somebody needs them", () => {
@@ -97,7 +97,7 @@ describe("the shared-buckets line does not promise a team capture address", () =
     // capture address will assume a shared one does too, and the refusal in
     // the control plane is byte-identical to an unclaimed name's — so they
     // would find out by forwarding mail into a void.
-    expect(SHARED!.body).toMatch(/shared context has none/i);
+    expect(SHARED!.body).toMatch(/workspace has none/i);
   });
 
   test("no line anywhere offers an address on a context that cannot receive mail", () => {

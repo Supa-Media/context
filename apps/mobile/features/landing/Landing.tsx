@@ -197,14 +197,14 @@ export function Landing() {
               <Text style={styles.markdownBody}>
                 Context stores ordinary files and folders—the same building blocks you already
                 know from Obsidian. Let an AI organize them, or open the editor yourself to write,
-                rename, move, and shape the workspace by hand.
+                rename, move, and shape it all by hand.
               </Text>
             </View>
 
             <View style={styles.markdownProof}>
               <View style={styles.markdownProofHead}>
                 <View style={styles.markdownProofDot} />
-                <Text style={styles.markdownProofLabel}>your-context/</Text>
+                <Text style={styles.markdownProofLabel}>your-brain/</Text>
                 <Text variant="meta">plain files</Text>
               </View>
               <Text style={styles.fileLine}>├── 1-projects/</Text>
@@ -242,7 +242,7 @@ export function Landing() {
           </View>
 
           <View style={styles.foot}>
-            <Text variant="foot">Demo — sign in for your own context</Text>
+            <Text variant="foot">Demo — sign in for your own brain</Text>
             <Text variant="foot">Dropbox in one click · or bring your own bucket</Text>
             <Text variant="foot">MIT · self-hostable</Text>
           </View>

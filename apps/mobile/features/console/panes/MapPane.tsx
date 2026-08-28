@@ -14,8 +14,8 @@ export function MapPane({ data }: { data: ConsoleData }) {
   return (
     <View>
       <PaneHead
-        title="Reachable contexts"
-        description="Every context you can read from, and which AI clients are connected to each. Solid edges are yours; dashed edges are access someone granted you."
+        title="Your context"
+        description="Everything you can read from — your brain, brains shared with you, and your workspaces — and which AI clients are connected to each. Solid edges are yours; dashed edges are access someone granted you."
         trailing={
           <Pill tone="ok" leading={<Dot tone="ok" />}>
             {`${connected} connected`}

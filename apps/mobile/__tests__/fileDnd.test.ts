@@ -241,7 +241,7 @@ describe("dropping onto another context", () => {
     expect(verdict.ok).toBe(false);
     expect(verdict.ok === false && verdict.reason).toContain("@public-worship");
     expect(verdict.ok === false && verdict.reason).toMatch(/not supported yet/);
-    expect(verdict.ok === false && verdict.reason).toMatch(/separate context with its own bucket/);
+    expect(verdict.ok === false && verdict.reason).toMatch(/separate, with its own bucket/);
   });
 
   test("the copy modifier does not unlock it", () => {

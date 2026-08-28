@@ -100,7 +100,7 @@ export function storageWarning(shape: FlowShape): string | null {
     case "connected":
       return null;
     case "skipped":
-      return "No bucket is connected yet, so there is nowhere to keep notes. The console shows this at the top of your context, with the connect form behind it.";
+      return "No bucket is connected yet, so there is nowhere to keep notes. The console shows this at the top of your brain, with the connect form behind it.";
     case "unverified":
       return "We could not confirm your bucket, so we never looked inside it and nothing has been written to it. Until that check passes there is nowhere to keep notes. The console shows what your provider said, with a way to retry or replace the credential.";
   }
