@@ -68,7 +68,14 @@ const MAX_PATH_LENGTH = 512;
 /** One note. Generous for markdown, small enough that a paste cannot DoS an action. */
 export const MAX_NOTE_BYTES = 2_000_000;
 /** Pages of a listing we will walk. 1000 keys each. */
-const LIST_PAGE_CAP = 20;
+// Matched to the gateway's own `LIST_PAGE_CAP`. They disagreed at 20 vs 100,
+// which meant a folder `list_notes` walked happily was refused by the console —
+// and the page size is a *hint*: S3 may return fewer keys than `max-keys` and
+// Dropbox documents `limit` as approximate, so the object count this actually
+// corresponds to is provider-dependent and can be far lower than the arithmetic
+// suggests. A cap that fires on an ordinary folder is an outage, and the answer
+// here is a refusal rather than a silent half-operation.
+const LIST_PAGE_CAP = 100;
 /** Keys a single folder move/copy/delete may touch. Same cap the gateway uses. */
 export const FOLDER_OPERATION_CAP = 500;
 /** Attempts at the compare-and-swap that rewrites `privacy.md`. */
@@ -724,6 +731,10 @@ async function keysUnder(
       complete = true;
       break;
     }
+    // A store that hands back the cursor it was given will never finish, and
+    // the page budget would spend itself before saying so. The gateway checks
+    // this too.
+    if (listing.cursor === cursor) break;
     cursor = listing.cursor;
   }
   // Refused rather than truncated, which is what the gateway's own listing
@@ -747,10 +758,33 @@ async function keysUnder(
  * exactly the sense the folder walk means, so they travel the same way.
  */
 async function namesExtending(store: FileStore, path: string): Promise<string[]> {
-  const listing = await store.list({ prefix: `${path}.`, limit: 1000 });
-  return (listing.objects ?? [])
-    .map((object) => object.key)
-    .filter((key) => key !== path && !isPlumbing(key));
+  const keys: string[] = [];
+  let cursor: string | undefined;
+  let complete = false;
+  for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+    const listing = await store.list({ prefix: `${path}.`, cursor, limit: 1000 });
+    for (const object of listing.objects ?? []) {
+      if (object.key === path || isPlumbing(object.key)) continue;
+      keys.push(object.key);
+    }
+    if (!listing.truncated || !listing.cursor) {
+      complete = true;
+      break;
+    }
+    if (listing.cursor === cursor) break;
+    cursor = listing.cursor;
+  }
+  // One `list` with a limit and no cursor was the first version of this, added
+  // in the same change that stopped `keysUnder` inferring completeness — the
+  // same mistake, three functions apart. A short answer here silently drops a
+  // survivor, and a dropped survivor has its history swept.
+  if (!complete) {
+    throw new FileOpError(
+      "FOLDER_TOO_LARGE",
+      "Too many files share that name for it to be deleted safely. Rename or remove some of them first.",
+    );
+  }
+  return keys;
 }
 
 /**
@@ -909,47 +943,70 @@ function assertDestinationsVisible(
 }
 
 /**
- * The rules under `folder` that a survivor's visibility actually rests on.
+ * The rules a rewrite must put back, because a survivor's visibility rests on
+ * them.
  *
  * A bulk operation at team scope leaves the notes it could not see behind, and
- * the rules under that folder are then describing two places at once. Both
- * blunt answers are wrong:
+ * the rules under that folder then describe two places at once. Both blunt
+ * answers are wrong: rewriting them all stops a nested rule protecting the note
+ * it was written for — and because `visibilityOf` takes the longest matching
+ * prefix, that does not demote the note to the default, it PROMOTES it to the
+ * nearest surviving ancestor, which is the `team` folder the caller is standing
+ * in. Keeping them all makes the kept rule its own disclosure.
  *
- *  - **Rewrite them all** (what a whole-folder operation does) and a nested
- *    rule stops protecting the note it was written for. That is not a note
- *    losing its rule and falling back to private — `visibilityOf` takes the
- *    longest matching prefix, so dropping `1-projects/mixed/deep: private`
- *    hands those notes to the parent's `1-projects: team`. Measured: a team
- *    caller deleted a shared folder and then read the owner's salary note.
- *  - **Keep them all** and the kept rule is itself the disclosure. A folder
- *    that renames cleanly and a folder that refuses because it hides something
- *    are exactly what `keysUnder` above refuses to distinguish.
+ * So: a rule comes back only where a survivor actually needs it, and "needs"
+ * is asked of the REWRITE, not of the rule.
  *
- * So neither: a rule stays only where removing it would change what a survivor
- * is. That is a question with an answer rather than a policy, it keeps the
- * nested private rule in the first case, and in the second it drops the
- * folder's own `team` rule — whose survivor was held back by something more
- * specific and does not need it — so the hiding folder answers like the clean
- * one. Only rules that make a survivor *more private* can be retained this
- * way, and those never unhide a folder.
+ * The first version asked it of the rule — "would removing *this one* change a
+ * survivor?" — one rule at a time. That is a different question and it fails
+ * whenever two rules cover a survivor redundantly (`…/hr: private` and
+ * `…/hr/comp: private`, which is what an owner who tightened a folder and then
+ * a subfolder has). Removing either alone changes nothing, so neither was
+ * needed, so BOTH were dropped and the note went to the team ancestor. A
+ * per-element counterfactual cannot see a set effect; this compares the whole
+ * before against the whole after, and repairs what actually moved.
+ *
+ * One pass suffices. A survivor whose visibility changed is repaired by the
+ * rule that decided it *before* — the longest prefix matching it — and nothing
+ * in the rewritten set can outrank that, because the rewritten rules live under
+ * the destination and everything else covering a survivor is an ancestor, which
+ * is shorter. Ties go to the first rule, matching `visibilityOf`.
  */
 function rulesSurvivorsRestOn(
-  rules: readonly PrivacyRule[],
+  before: readonly PrivacyRule[],
+  after: readonly PrivacyRule[],
   overrides: ReadonlyMap<string, Visibility>,
   survivors: readonly string[],
   folder: string,
 ): PrivacyRule[] {
   if (survivors.length === 0) return [];
-  return rules.filter((rule) => {
-    if (rule.prefix !== folder && !rule.prefix.startsWith(`${folder}/`)) return false;
-    const without = rules.filter((other) => other !== rule);
-    return survivors.some(
-      (key) =>
-        (key === rule.prefix || key.startsWith(`${rule.prefix}/`)) &&
-        effectiveVisibility(key, rules, overrides) !==
-          effectiveVisibility(key, without, overrides),
-    );
-  });
+  // Narrowing, not a check. A rule outside this folder is already in `after`
+  // untouched, so it can never be the one a survivor lost — dropping this
+  // filter changes no outcome, which is measured rather than assumed. It stays
+  // because it bounds the search to the rules this rewrite could have moved.
+  const candidates = before.filter(
+    (rule) => rule.prefix === folder || rule.prefix.startsWith(`${folder}/`),
+  );
+  if (candidates.length === 0) return [];
+
+  const kept: PrivacyRule[] = [];
+  for (const key of survivors) {
+    if (
+      effectiveVisibility(key, before, overrides) ===
+      effectiveVisibility(key, [...after, ...kept], overrides)
+    ) {
+      continue;
+    }
+    let determining: PrivacyRule | null = null;
+    for (const rule of candidates) {
+      if (key !== rule.prefix && !key.startsWith(`${rule.prefix}/`)) continue;
+      if (determining === null || rule.prefix.length > determining.prefix.length) {
+        determining = rule;
+      }
+    }
+    if (determining !== null && !kept.includes(determining)) kept.push(determining);
+  }
+  return kept;
 }
 
 /** The folder rules a folder move leaves behind. `remapPrivacy` applies this. */
@@ -1721,6 +1778,7 @@ async function remapPrivacy(
       rules.push(
         ...rulesSurvivorsRestOn(
           current.rules,
+          rules,
           current.overrides,
           change.survivors,
           change.folderMove.from,
@@ -1777,24 +1835,18 @@ async function forgetPrivacy(
   await mutateManifest(store, (current) => {
     let overrides = current.overrides;
     for (const key of keys) overrides = clearedOverrides(key, overrides);
-    const rules =
-      deletedFolder === null
-        ? current.rules
-        : current.rules
-            .filter(
-              (rule) =>
-                rule.prefix !== deletedFolder && !rule.prefix.startsWith(`${deletedFolder}/`),
-            )
-            // A rule a surviving note's visibility rests on is not this
-            // folder's to forget — the note is still here and still needs it.
-            .concat(
-              rulesSurvivorsRestOn(
-                current.rules,
-                current.overrides,
-                survivors,
-                deletedFolder,
-              ),
-            );
+    let rules = current.rules;
+    if (deletedFolder !== null) {
+      const dropped = current.rules.filter(
+        (rule) =>
+          rule.prefix !== deletedFolder && !rule.prefix.startsWith(`${deletedFolder}/`),
+      );
+      // A rule a surviving note's visibility rests on is not this folder's to
+      // forget — the note is still here and still needs it.
+      rules = dropped.concat(
+        rulesSurvivorsRestOn(current.rules, dropped, current.overrides, survivors, deletedFolder),
+      );
+    }
     return { rules, overrides };
   });
 }

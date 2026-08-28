@@ -1753,15 +1753,10 @@ describe("a bulk operation acts only on what the caller can see", () => {
    * nothing. Refused rather than truncated, which is what the gateway's own
    * listing helper does.
    */
-  test("a folder deeper than the page cap is refused, not half-done", async () => {
+  test("a walk that cannot reach the end is refused, not half-done", async () => {
     const store = bucket();
     await shareProjects(store);
     store.seed("1-projects/huge/aaa.md", "# A\n");
-    // Plumbing consumes pages without ever being held back, so it is the
-    // cheapest way to outrun the cap without tripping FOLDER_OPERATION_CAP.
-    for (let i = 0; i < 21_000; i += 1) {
-      store.seed(`1-projects/huge/.junk/${i}.md`, "x");
-    }
     store.seed("1-projects/huge/zdeep/secret.md", "# Salaries\n\n200k\n");
     await setFolderVisibility(store, {
       path: "1-projects/huge/zdeep",
@@ -1769,8 +1764,21 @@ describe("a bulk operation acts only on what the caller can see", () => {
       scope: "private",
     });
 
+    // A store whose pages never end. This is the shape that matters rather
+    // than any particular object count: the page size a provider returns is a
+    // hint — S3 may hand back fewer keys than asked and Dropbox documents its
+    // limit as approximate — so the number of objects behind the cap is not
+    // something this code can know. What it can know is that it did not finish.
+    const endless: FileStore = {
+      ...store,
+      list: async (options) => {
+        const page = await store.list(options);
+        return { ...page, truncated: true, cursor: `c${Math.random()}` };
+      },
+    };
+
     const error = await capture(() =>
-      deletePath(store, {
+      deletePath(endless, {
         path: "1-projects/huge",
         scope: "team",
         confirmation: DELETE_CONFIRMATION,
@@ -1783,6 +1791,31 @@ describe("a bulk operation acts only on what the caller can see", () => {
       readFile(store, { path: "1-projects/huge/zdeep/secret.md", scope: "team" }),
     );
     expect(leak.code).toBe("FILE_NOT_FOUND");
+  });
+
+  test("a store that repeats its cursor does not spend the whole page budget", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/stuck/a.md", "# A\n");
+    let calls = 0;
+    const stuck: FileStore = {
+      ...store,
+      list: async (options) => {
+        calls += 1;
+        const page = await store.list(options);
+        return { ...page, truncated: true, cursor: options?.cursor ?? "same" };
+      },
+    };
+    const error = await capture(() =>
+      deletePath(stuck, {
+        path: "1-projects/stuck",
+        scope: "team",
+        confirmation: DELETE_CONFIRMATION,
+      }),
+    );
+    expect(error.code).toBe("FOLDER_TOO_LARGE");
+    // Two calls: the first hands out "same", the second returns it unchanged.
+    expect(calls).toBeLessThanOrEqual(3);
   });
 
   /**
@@ -1821,6 +1854,186 @@ describe("a bulk operation acts only on what the caller can see", () => {
    * `permanently delete` lie this function's own comment calls out, arrived at
    * from the other side.
    */
+  /**
+   * Two rules covering one survivor redundantly — what an owner has after
+   * tightening a folder and then a subfolder inside it. Asked one rule at a
+   * time, removing either changes nothing, so neither looks needed and both go;
+   * the note then lands on the nearest surviving ancestor, which is the `team`
+   * folder the caller is standing in. The question has to be asked of the
+   * rewrite, not of the rule.
+   */
+  test("redundant rules over one survivor are not both dropped", async () => {
+    async function twoRules(): Promise<MemoryStore & FileStore> {
+      const store = bucket();
+      await shareProjects(store);
+      store.seed("1-projects/mixed/public.md", "# Public\n");
+      store.seed("1-projects/mixed/hr/comp/secret.md", "# Salaries\n\n200k\n");
+      await setFolderVisibility(store, {
+        path: "1-projects/mixed/hr",
+        visibility: "private",
+        scope: "private",
+      });
+      await setFolderVisibility(store, {
+        path: "1-projects/mixed/hr/comp",
+        visibility: "private",
+        scope: "private",
+      });
+      return store;
+    }
+    const secret = "1-projects/mixed/hr/comp/secret.md";
+
+    const deleted = await twoRules();
+    await deletePath(deleted, {
+      path: "1-projects/mixed",
+      scope: "team",
+      confirmation: DELETE_CONFIRMATION,
+    });
+    expect((await capture(() => readFile(deleted, { path: secret, scope: "team" }))).code).toBe(
+      "FILE_NOT_FOUND",
+    );
+    expect((await readFile(deleted, { path: secret, scope: "private" })).text).toContain("200k");
+
+    const moved = await twoRules();
+    await movePath(moved, {
+      from: "1-projects/mixed",
+      to: "1-projects/moved",
+      scope: "team",
+      now: NOW,
+    });
+    expect((await capture(() => readFile(moved, { path: secret, scope: "team" }))).code).toBe(
+      "FILE_NOT_FOUND",
+    );
+  });
+
+  /**
+   * The other half of the same question, and the one a "keep every rule under
+   * the folder" implementation fails. A survivor held back by an exact-note
+   * exception does not need the folder's own `team` rule, so that rule must go
+   * — retaining it leaves a rule behind that nothing needed, which is the
+   * disclosure the filtering exists to avoid.
+   */
+  test("a rule no survivor needs is not retained", async () => {
+    const store = bucket();
+    store.seed("2-areas/shared/a.md", "# A\n");
+    store.seed("2-areas/shared/x.md", "# X\n");
+    await setFolderVisibility(store, {
+      path: "2-areas/shared",
+      visibility: "team",
+      scope: "private",
+    });
+    await setVisibility(store, {
+      path: "2-areas/shared/x.md",
+      visibility: "private",
+      scope: "private",
+    });
+
+    await movePath(store, {
+      from: "2-areas/shared",
+      to: "2-areas/renamed",
+      scope: "team",
+      now: NOW,
+    });
+    const manifest = store.snapshot()[PRIVACY_KEY] as string;
+    expect(manifest).toContain("2-areas/renamed: team");
+    // The old prefix keeps no rule: its survivor is held back by its own
+    // exception and never rested on the folder default.
+    expect(manifest).not.toContain("2-areas/shared: team");
+    // ...and the survivor is still private, which is the property that matters.
+    expect(
+      (await capture(() => readFile(store, { path: "2-areas/shared/x.md", scope: "team" }))).code,
+    ).toBe("FILE_NOT_FOUND");
+  });
+
+  /**
+   * The repaired rule has to be the one that *decided* the survivor, which is
+   * the longest prefix matching it — not merely one that covers it. Two nested
+   * rules of the same visibility cannot tell those apart, so this one nests a
+   * `private` inside a `team`: keeping the outer rule restores a rule and still
+   * publishes the note.
+   */
+  test("the rule put back is the one that decided the survivor", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/mixed/public.md", "# Public\n");
+    store.seed("1-projects/mixed/hr/comp/secret.md", "# Salaries\n\n200k\n");
+    await setFolderVisibility(store, {
+      path: "1-projects/mixed/hr",
+      visibility: "team",
+      scope: "private",
+    });
+    await setFolderVisibility(store, {
+      path: "1-projects/mixed/hr/comp",
+      visibility: "private",
+      scope: "private",
+    });
+    const secret = "1-projects/mixed/hr/comp/secret.md";
+    expect((await capture(() => readFile(store, { path: secret, scope: "team" }))).code).toBe(
+      "FILE_NOT_FOUND",
+    );
+
+    await deletePath(store, {
+      path: "1-projects/mixed",
+      scope: "team",
+      confirmation: DELETE_CONFIRMATION,
+    });
+    expect((await capture(() => readFile(store, { path: secret, scope: "team" }))).code).toBe(
+      "FILE_NOT_FOUND",
+    );
+  });
+
+  test("a sibling listing that cannot finish refuses the delete", async () => {
+    const store = bucket();
+    store.seed("1-projects/a.md", "# A\n");
+    store.seed("1-projects/a.md.one.md", "# One\n");
+    store.seed(".history/1-projects/a.md.one.md.2026-07-01T09-00-00-000Z.md", "# older\n");
+
+    // Only the sibling walk is made endless; the folder walk is untouched, so
+    // this pins `namesExtending` rather than `keysUnder`.
+    const endless: FileStore = {
+      ...store,
+      list: async (options) => {
+        const page = await store.list(options);
+        return options?.prefix === "1-projects/a.md."
+          ? { ...page, truncated: true, cursor: `c${Math.random()}` }
+          : page;
+      },
+    };
+    const error = await capture(() =>
+      deletePath(endless, {
+        path: "1-projects/a.md",
+        scope: "private",
+        confirmation: DELETE_CONFIRMATION,
+      }),
+    );
+    expect(error.code).toBe("FOLDER_TOO_LARGE");
+    // Nothing was deleted, so nothing lost a history it should have kept.
+    expect(store.snapshot()["1-projects/a.md"]).toBeDefined();
+    expect(historyKeys(store).some((key) => key.includes("a.md.one.md."))).toBe(true);
+  });
+
+
+  test("deleting a note with two extending siblings keeps both their histories", async () => {
+    const store = bucket();
+    store.seed("1-projects/a.md", "# A\n");
+    store.seed("1-projects/a.md.one.md", "# One\n");
+    store.seed("1-projects/a.md.two.md", "# Two\n");
+    store.seed(".history/1-projects/a.md.2026-07-01T09-00-00-000Z.md", "# older a\n");
+    store.seed(".history/1-projects/a.md.one.md.2026-07-01T09-00-00-000Z.md", "# older one\n");
+    store.seed(".history/1-projects/a.md.two.md.2026-07-01T09-00-00-000Z.md", "# older two\n");
+
+    await deletePath(store, {
+      path: "1-projects/a.md",
+      scope: "private",
+      confirmation: DELETE_CONFIRMATION,
+    });
+    expect(historyKeys(store).some((key) => key.includes("a.md.one.md."))).toBe(true);
+    expect(historyKeys(store).some((key) => key.includes("a.md.two.md."))).toBe(true);
+    expect(
+      historyKeys(store).some((key) => key.endsWith("1-projects/a.md.2026-07-01T09-00-00-000Z.md")),
+    ).toBe(false);
+  });
+
+
   test("a survivor whose name prefixes the deleted one does not shield it", async () => {
     const store = bucket();
     await shareProjects(store);
