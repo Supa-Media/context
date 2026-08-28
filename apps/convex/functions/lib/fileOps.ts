@@ -687,15 +687,25 @@ async function keysUnder(
   scope: Scope,
   rules: readonly PrivacyRule[],
   overrides: ReadonlyMap<string, Visibility>,
-): Promise<string[]> {
+): Promise<{ keys: string[]; withheld: string[] }> {
   const prefix = `${folder}/`;
   const keys: string[] = [];
+  // What was held back, which two callers need for different reasons: the
+  // manifest bookkeeping must know *whether* anything was, and the history
+  // purge must know *which*, so it does not sweep a survivor's snapshots.
+  // Returned rather than recorded anywhere outside this call: Workers and
+  // Convex reuse isolates, so a module-level flag would be one request telling
+  // the next one what it saw.
+  const withheld: string[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
     const listing = await store.list({ prefix, cursor, limit: 1000 });
     for (const object of listing.objects ?? []) {
       if (isPlumbing(object.key)) continue;
-      if (!canSee(object.key, scope, rules, overrides)) continue;
+      if (!canSee(object.key, scope, rules, overrides)) {
+        withheld.push(object.key);
+        continue;
+      }
       keys.push(object.key);
       if (keys.length > FOLDER_OPERATION_CAP) {
         throw new FileOpError(
@@ -707,7 +717,7 @@ async function keysUnder(
     if (!listing.truncated || !listing.cursor) break;
     cursor = listing.cursor;
   }
-  return keys;
+  return { keys, withheld };
 }
 
 /**
@@ -751,6 +761,24 @@ async function historyKeysFor(
    * data loss wearing a smaller number.
    */
   deleted: readonly string[] | null,
+  /**
+   * Notes left standing, whose snapshots must survive with them.
+   *
+   * The prefix match above is deliberately not a parse, and its stated cost was
+   * that it "can over-match another note's — equally unreachable — plumbing,
+   * which would need a note literally named `<this note>.something.md`". That
+   * was true while the whole folder went, because the over-matched note was
+   * being deleted too. Once a caller deletes only part of a folder it is false:
+   * `a.md.notes.md` survives and `.history/a.md.notes.md.<stamp>.md` begins
+   * with `.history/a.md.`, so deleting `a.md` took every version of a note it
+   * did not delete.
+   *
+   * Answered with the survivors themselves rather than a stamp regex. A regex
+   * would have to track five snapshot spellings across two apps and would fail
+   * silently in the wrong direction; this cannot drift, because it compares
+   * against the very keys the walk kept back.
+   */
+  survivors: readonly string[],
 ): Promise<string[]> {
   // A folder's history mirrors its shape (`.history/1-projects/note.md.<stamp>.md`),
   // so the whole subtree goes. A file's history is the siblings sharing its name.
@@ -767,6 +795,9 @@ async function historyKeysFor(
         deleted !== null &&
         !deleted.some((key) => object.key.startsWith(`${HISTORY_PREFIX}${key}.`))
       ) {
+        continue;
+      }
+      if (survivors.some((key) => object.key.startsWith(`${HISTORY_PREFIX}${key}.`))) {
         continue;
       }
       keys.push(object.key);
@@ -865,7 +896,12 @@ function assertMoveDestinationsVisible(
   state: PrivacyState,
   folderMove: { from: string; to: string } | null,
 ): void {
-  const overrides = new Map<string, Visibility>();
+  // Seeded from the manifest, not built empty. A fresh map holds only what the
+  // move carries and therefore cannot see an exception already sitting on a
+  // destination — which put back, exactly, the oracle this guard exists to
+  // close: a destination hidden by its own `private` exception answered
+  // "something already exists at <path>" again while a free name succeeded.
+  const overrides = new Map<string, Visibility>(state.overrides);
   for (const pair of pairs) {
     const carried = state.overrides.get(pair.source);
     if (carried !== undefined) overrides.set(pair.destination, carried);
@@ -907,21 +943,28 @@ export async function movePath(
   if (!canSee(from, options.scope, state.rules, state.overrides)) throw notFound();
 
   const sourceIsFolder = await isFolder(store, from);
-  const sources = sourceIsFolder ? await keysUnder(store, from, options.scope, state.rules, state.overrides) : [from];
+  const walk = sourceIsFolder
+    ? await keysUnder(store, from, options.scope, state.rules, state.overrides)
+    : { keys: [from], withheld: [] };
+  const sources = walk.keys;
   if (!sourceIsFolder && (await store.get(from)) === null) throw notFound();
   if (sources.length === 0) throw notFound();
+
+  // `filtered` decides whether the manifest bookkeeping below may treat this as
+  // a whole-folder operation. It may not when anything was held back: the rules
+  // under this folder still govern the notes left behind, and moving or
+  // dropping one PUBLISHES them — `visibilityOf` takes the longest matching
+  // prefix, so removing `1-projects/mixed/deep: private` hands those notes to
+  // the parent's `1-projects: team`. Measured before this line existed: a team
+  // caller deleted a shared folder and then read the owner's salary note.
+  const folderMove = sourceIsFolder && walk.withheld.length === 0 ? { from, to } : null;
 
   const pairs = sources.map((key) => ({
     source: key,
     destination: sourceIsFolder ? `${to}${key.slice(from.length)}` : to,
   }));
 
-  assertMoveDestinationsVisible(
-    pairs,
-    options.scope,
-    state,
-    sourceIsFolder ? { from, to } : null,
-  );
+  assertMoveDestinationsVisible(pairs, options.scope, state, folderMove);
 
   for (const pair of pairs) {
     if ((await store.get(pair.destination)) !== null) {
@@ -944,7 +987,7 @@ export async function movePath(
 
   await remapPrivacy(store, {
     moves: pairs.map((pair) => ({ from: pair.source, to: pair.destination })),
-    folderMove: sourceIsFolder ? { from, to } : null,
+    folderMove,
   });
 
   return { from, to, paths: pairs.map((pair) => pair.destination) };
@@ -972,7 +1015,11 @@ export async function copyPath(
   if (!canSee(from, options.scope, state.rules, state.overrides)) throw notFound();
 
   const sourceIsFolder = await isFolder(store, from);
-  const sources = sourceIsFolder ? await keysUnder(store, from, options.scope, state.rules, state.overrides) : [from];
+  // `copyPrivacy` only ever writes a per-note exception, never a folder rule,
+  // so a partial copy has nothing to get wrong and `filtered` is not needed.
+  const sources = sourceIsFolder
+    ? (await keysUnder(store, from, options.scope, state.rules, state.overrides)).keys
+    : [from];
   if (sources.length === 0) throw notFound();
 
   const pairs = sources.map((key) => ({
@@ -1126,9 +1173,10 @@ export async function deletePath(
   if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
 
   const targetIsFolder = await isFolder(store, path);
-  const keys = targetIsFolder
+  const walk = targetIsFolder
     ? await keysUnder(store, path, options.scope, state.rules, state.overrides)
-    : [path];
+    : { keys: [path], withheld: [] };
+  const keys = walk.keys;
   if (!targetIsFolder && (await store.get(path)) === null) throw notFound();
   // A folder holding nothing this caller can see is not a folder they can
   // empty. Answering `notFound()` is byte-identical to a folder that was never
@@ -1147,11 +1195,19 @@ export async function deletePath(
     path,
     targetIsFolder,
     options.scope === "private" ? null : keys,
+    walk.withheld,
   )) {
     await store.delete(key);
   }
 
-  await forgetPrivacy(store, keys, targetIsFolder ? path : null);
+  // `filtered` decides whether the manifest bookkeeping below may treat this as
+  // a whole-folder operation. It may not when anything was held back: the rules
+  // under this folder still govern the notes left behind, and moving or
+  // dropping one PUBLISHES them — `visibilityOf` takes the longest matching
+  // prefix, so removing `1-projects/mixed/deep: private` hands those notes to
+  // the parent's `1-projects: team`. Measured before this line existed: a team
+  // caller deleted a shared folder and then read the owner's salary note.
+  await forgetPrivacy(store, keys, targetIsFolder && walk.withheld.length === 0 ? path : null);
 
   // `paths` stays the live keys. It is what the console echoes and what the
   // audit log records as "what you deleted"; the history that came with them is

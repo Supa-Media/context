@@ -1606,6 +1606,248 @@ describe("a bulk operation acts only on what the caller can see", () => {
     expect(store.snapshot()["1-projects/dest/aaa.md"]).toBeUndefined();
   });
 
+  /**
+   * Every fixture above hides its note with an exact-note **exception**, and
+   * `forgetPrivacy` and `remapPrivacy` only touch **rules** — so the whole
+   * group agreed with the code about the one mechanism that happened to be
+   * safe, and proved nothing about the other. These hide by rule.
+   *
+   * The trap is that a rule is not a note's only protection, it is the reason
+   * the *parent's* rule does not reach it. `visibilityOf` takes the longest
+   * matching prefix, so dropping `1-projects/mixed/deep: private` does not
+   * leave those notes unruled and private — it hands them to `1-projects:
+   * team`. Deleting part of a folder used to drop that rule, and the survivor
+   * became readable by the person who had just been refused it.
+   */
+  async function ruleHiddenFolder(): Promise<MemoryStore & FileStore> {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/mixed/public.md", "# Public\n");
+    store.seed("1-projects/mixed/deep/secret.md", "# Salaries\n\n200k\n");
+    await setFolderVisibility(store, {
+      path: "1-projects/mixed/deep",
+      visibility: "private",
+      scope: "private",
+    });
+    return store;
+  }
+
+  test("a partial delete leaves the rule that still governs the survivor", async () => {
+    const store = await ruleHiddenFolder();
+    const result = await deletePath(store, {
+      path: "1-projects/mixed",
+      scope: "team",
+      confirmation: DELETE_CONFIRMATION,
+    });
+    expect(result.paths).toEqual(["1-projects/mixed/public.md"]);
+
+    // The survivor is still there, and still *private*. Reading it is the
+    // assertion that matters: the rule surviving is only the mechanism.
+    const leak = await capture(() =>
+      readFile(store, { path: "1-projects/mixed/deep/secret.md", scope: "team" }),
+    );
+    expect(leak.code).toBe("FILE_NOT_FOUND");
+    const owner = await readFile(store, {
+      path: "1-projects/mixed/deep/secret.md",
+      scope: "private",
+    });
+    expect(owner.text).toContain("200k");
+  });
+
+  test("a partial move leaves the rule where the survivor still is", async () => {
+    const store = await ruleHiddenFolder();
+    const moved = await movePath(store, {
+      from: "1-projects/mixed",
+      to: "1-projects/moved",
+      scope: "team",
+      now: NOW,
+    });
+    expect(moved.paths).toEqual(["1-projects/moved/public.md"]);
+
+    // The note did not move, so its rule must not have moved either.
+    const leak = await capture(() =>
+      readFile(store, { path: "1-projects/mixed/deep/secret.md", scope: "team" }),
+    );
+    expect(leak.code).toBe("FILE_NOT_FOUND");
+  });
+
+  test("a whole-folder move still carries its rules across", async () => {
+    // The control for the two above: when nothing is held back the folder move
+    // is a folder move, and the rules follow it. Refusing to remap whenever a
+    // walk *could* have filtered would silently break every ordinary rename.
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/whole/deep/note.md", "# Note\n");
+    await setFolderVisibility(store, {
+      path: "1-projects/whole/deep",
+      visibility: "team",
+      scope: "private",
+    });
+    const moved = await movePath(store, {
+      from: "1-projects/whole",
+      to: "1-projects/whole-2",
+      scope: "team",
+      now: NOW,
+    });
+    expect(moved.paths).toEqual(["1-projects/whole-2/deep/note.md"]);
+    const listing = await listFolder(store, {
+      path: "1-projects/whole-2/deep",
+      scope: "team",
+    });
+    expect(names(listing.entries)).toEqual(["note.md"]);
+  });
+
+  /**
+   * The prefix match on `.history/` is not a parse, and its documented cost was
+   * over-matching "another note's — equally unreachable — plumbing". That was
+   * true while the whole folder went. It is false for a partial delete: the
+   * over-matched note is a survivor.
+   */
+  test("a partial delete keeps the history of the note it kept", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/hist/a.md", "# A\n");
+    // A survivor whose own name begins with the deleted note's name.
+    store.seed("1-projects/hist/a.md.notes.md", "# Notes\n");
+    store.seed(
+      ".history/1-projects/hist/a.md.notes.md.2026-07-01T09-00-00-000Z.md",
+      "# older notes\n",
+    );
+    store.seed(".history/1-projects/hist/a.md.2026-07-01T09-00-00-000Z.md", "# older a\n");
+    await setVisibility(store, {
+      path: "1-projects/hist/a.md.notes.md",
+      visibility: "private",
+      scope: "private",
+    });
+
+    const result = await deletePath(store, {
+      path: "1-projects/hist",
+      scope: "team",
+      confirmation: DELETE_CONFIRMATION,
+    });
+    expect(result.paths).toEqual(["1-projects/hist/a.md"]);
+    // The deleted note's history is gone...
+    expect(historyKeys(store).some((key) => key.endsWith("hist/a.md.2026-07-01T09-00-00-000Z.md"))).toBe(false);
+    // ...and the survivor's is not.
+    expect(historyKeys(store).some((key) => key.includes("a.md.notes.md."))).toBe(true);
+  });
+
+  /**
+   * `assertMoveDestinationsVisible` builds the override map a move will leave
+   * behind. Built empty rather than seeded from the manifest, it cannot see an
+   * exception already sitting on a destination — which put back exactly the
+   * oracle the destination guard exists to close, on the move path only, while
+   * the copy path stayed correct and the suite stayed green.
+   */
+  test("moving onto a destination hidden by its own exception discloses nothing", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/src.md", "# Src\n");
+    store.seed("1-projects/hidden-name.md", "# Hidden\n");
+    await setVisibility(store, {
+      path: "1-projects/hidden-name.md",
+      visibility: "private",
+      scope: "private",
+    });
+
+    const taken = await capture(() =>
+      movePath(store, {
+        from: "1-projects/src.md",
+        to: "1-projects/hidden-name.md",
+        scope: "team",
+        now: NOW,
+      }),
+    );
+    // Compared against another destination this caller cannot see — the two
+    // reasons it cannot see one must not be distinguishable. A *visible* free
+    // name succeeds, and that residual is the folder default, not the object.
+    const elsewhere = await capture(() =>
+      movePath(store, {
+        from: "1-projects/src.md",
+        to: "2-areas/never-existed.md",
+        scope: "team",
+        now: NOW,
+      }),
+    );
+    expect(errorShape(taken)).toBe(errorShape(elsewhere));
+    expect(taken.code).toBe("FILE_NOT_FOUND");
+    // The old reply quoted the path it had found.
+    expect(taken.message).not.toContain("hidden-name.md");
+
+    // ...and the operation still works where it is allowed to.
+    const moved = await movePath(store, {
+      from: "1-projects/src.md",
+      to: "1-projects/free.md",
+      scope: "team",
+      now: NOW,
+    });
+    expect(moved.paths).toEqual(["1-projects/free.md"]);
+  });
+
+  /**
+   * `rulesAfterFolderMove` now drives a security guard as well as the manifest
+   * rewrite, so its segment boundary matters in a second place: without the
+   * slash, moving `1-projects/sub` renames the rule belonging to
+   * `1-projects/subway` and publishes its contents.
+   *
+   * Two checks have to be wrong for that to happen — `remapPrivacy` decides
+   * whether to rewrite at all with a boundary comparison of its own, and it
+   * refuses first. Breaking either alone leaves this green, which is what
+   * defence in depth looks like from a test; breaking both fails it. That is
+   * the property worth pinning, because the day one of them is "simplified"
+   * away the other is all that is left.
+   */
+  /**
+   * `folderVisibleAtScope` unhides a folder for a nested `team` rule. It must
+   * check the visibility, not merely the prefix: a private folder whose only
+   * nested rule is *also* private would otherwise appear in a team caller's
+   * root listing, which is the name of a folder they were never shown.
+   */
+  test("a nested private rule does not unhide the folder above it", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("3-resources/deep/a.md", "# A\n");
+    await setFolderVisibility(store, {
+      path: "3-resources/deep",
+      visibility: "private",
+      scope: "private",
+    });
+
+    const root = await listFolder(store, { path: "", scope: "team" });
+    expect(names(root.entries)).not.toContain("3-resources");
+    // The control: the same shape with a `team` rule does unhide it.
+    await setFolderVisibility(store, {
+      path: "3-resources/deep",
+      visibility: "team",
+      scope: "private",
+    });
+    const shared = await listFolder(store, { path: "", scope: "team" });
+    expect(names(shared.entries)).toContain("3-resources");
+  });
+
+  test("a folder move does not rename a rule belonging to a name it prefixes", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/sub/note.md", "# Note\n");
+    store.seed("1-projects/subway/secret.md", "# Secret\n");
+    await setFolderVisibility(store, {
+      path: "1-projects/subway",
+      visibility: "private",
+      scope: "private",
+    });
+
+    await movePath(store, {
+      from: "1-projects/sub",
+      to: "1-projects/sub-moved",
+      scope: "team",
+      now: NOW,
+    });
+    const leak = await capture(() =>
+      readFile(store, { path: "1-projects/subway/secret.md", scope: "team" }),
+    );
+    expect(leak.code).toBe("FILE_NOT_FOUND");
+  });
+
   test("a folder holding nothing visible is not found, not empty", async () => {
     const store = bucket();
     await shareProjects(store);
