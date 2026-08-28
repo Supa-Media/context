@@ -44,8 +44,12 @@ PUBLIC_ORIGIN = "https://mcp.context.lc"
 # Unset means "non-browser clients only". That is deliberately fail-closed and
 # breaks nothing you are already running: Claude Desktop, Codex CLI and the MCP
 # SDKs send no `Origin` at all, and a request without one is always served. It
-# only refuses *browser* clients you have not listed. This deployment's own
-# origin is always permitted and does not need listing.
+# only refuses *browser* clients you have not listed. The origin in
+# `PUBLIC_ORIGIN` above is always permitted and does not need listing — but
+# only that one. With `PUBLIC_ORIGIN` unset there is no declared self, so
+# nothing is self-permitted: the fallback named above is the request's own
+# `Host`, and trusting it here would let a page claiming any hostname allow
+# itself. So on `wrangler dev`, list the origin you browse from.
 #
 # Matching is exact — scheme, host and port, no wildcards. On the product
 # deployment the console is the apex, so:

@@ -626,8 +626,14 @@ check(
     })
   ).status === 200
 );
+// Named for what it actually asserts. It was "a claimed Host cannot smuggle
+// itself past a declared PUBLIC_ORIGIN", which passes against the pre-fix code
+// too — `publicOrigin()` always preferred `env.PUBLIC_ORIGIN` when one was set,
+// so the `Host` fallback this change removes was never reached on this path.
+// The check above it is the one that fails on revert; a name promising more
+// than the assertion delivers is how a guard comes to look covered.
 check(
-  "and a claimed Host cannot smuggle itself past a declared PUBLIC_ORIGIN",
+  "a declared PUBLIC_ORIGIN admits itself and nothing else",
   (
     await transportRequest("https://x", {
       useEnv: { ...noAllowlistEnv, PUBLIC_ORIGIN: "https://mcp.context.test" },
@@ -637,6 +643,59 @@ check(
 check(
   "tightening the self-origin leaves non-browser clients alone",
   (await transportRequest(undefined, { useEnv: noAllowlistEnv })).status === 200
+);
+
+// -- the top-level catch
+//
+// The guard `index.js` grew for the two throws that reached the runtime as a
+// bodyless 1101. Untested it is an assertion in a comment: deleting the whole
+// `try`/`catch` left all 457 checks green, which is precisely the shape this
+// repo's "a guard nobody has checked is not a guard" rule names.
+//
+// `env` is a proxy that throws on first touch, so the throw originates inside
+// `route()` rather than being handed to the catch directly.
+const throwingEnv = new Proxy(
+  {},
+  {
+    get() {
+      throw new TypeError("secret-bucket-key-abc123 not readable");
+    },
+  }
+);
+const loggedLines = [];
+const realConsoleError = console.error;
+console.error = (...parts) => loggedLines.push(parts.join(" "));
+// Caught here, not left to propagate. Removing the guard makes `fetch` throw,
+// and an uncaught throw at this line kills the process — exit 1, zero FAIL,
+// which is the "looks like detection and is the opposite" shape the header of
+// this file warns about. A null response turns it into four named failures.
+let caughtRes = null;
+try {
+  caughtRes = await worker.fetch(new Request("https://x/mcp", { method: "POST" }), throwingEnv, {
+    waitUntil() {},
+  });
+} catch {
+  caughtRes = null;
+} finally {
+  console.error = realConsoleError;
+}
+check("an unhandled throw becomes a 500, not a dead request", caughtRes?.status === 500);
+const caughtBody = caughtRes ? await caughtRes.text() : "";
+check("the 500 says nothing about what threw", caughtBody === '{"error":"server_error"}');
+check(
+  "and the thrown message reaches neither body nor headers",
+  caughtRes !== null &&
+    !caughtBody.includes("secret-bucket-key-abc123") &&
+    ![...caughtRes.headers.values()].some((v) => v.includes("secret-bucket-key-abc123"))
+);
+// Catching removes the throw from Cloudflare's exception stream, and this
+// Worker logs nowhere else. A silent catch would trade a dead request for an
+// invisible one.
+check(
+  "the operator gets the error class, and only the class",
+  loggedLines.length === 1 &&
+    loggedLines[0].includes("TypeError") &&
+    !loggedLines[0].includes("secret-bucket-key-abc123")
 );
 
 // The refusal must not become the oracle the rest of the gateway avoids being.

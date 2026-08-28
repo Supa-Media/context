@@ -382,12 +382,20 @@ async function route(request, env, ctx) {
  * It carries no detail on purpose. A thrown message here could be anything the
  * request reached — a storage error naming a key, a parser quoting its input —
  * and this response goes to an unauthenticated caller on the open internet.
+ *
+ * The operator gets the error's class and nothing else. Catching here removes
+ * the throw from Cloudflare's exception stream, and this Worker logs nowhere
+ * else, so a silent catch would trade a dead request for an invisible one — a
+ * worse bargain than the bug. A constructor name is a fixed identifier from
+ * the runtime or from our own code (`TypeError`, `URIError`), never
+ * sender-derived, which is the same line the response body draws.
  */
 export default {
   async fetch(request, env, ctx) {
     try {
       return await route(request, env, ctx);
-    } catch {
+    } catch (error) {
+      console.error("unhandled", error?.constructor?.name || "unknown");
       return json({ error: "server_error" }, 500);
     }
   },

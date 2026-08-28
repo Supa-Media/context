@@ -531,4 +531,44 @@ describe("a Content-Disposition token is parsed as a token, not a media type", (
     expect(parsed.text).toBe("the real body");
     expect(parsed.attachments.map((a) => a.filename)).toContain("report.pdf");
   });
+
+  it("strips the parameters before comparing, even when none of them is a filename", () => {
+    // The two tests above both pass if `dispositionToken` keeps only its
+    // `.trim().toLowerCase()` and drops `splitParams`: the first supplies no
+    // parameters at all, and the second has a filename, so the `!leaf.filename`
+    // half of each guard carries it. This is the case that needs the split —
+    // a parameter that is not a filename, which is what puts the whole value
+    // (`"attachment; size=42"`) up against the bare token `"attachment"`.
+    const raw =
+      `From: alice@example.com\n` +
+      `Content-Type: multipart/mixed; boundary="bnd"\n\n` +
+      `--bnd\n` +
+      `Content-Type: text/plain\n` +
+      `Content-Disposition: attachment; size=42\n\n` +
+      `SECRET-ATTACHED-TEXT\n` +
+      `--bnd\n` +
+      `Content-Type: text/plain\n\n` +
+      `the real body\n` +
+      `--bnd--\n`;
+    const parsed = parse(raw);
+    expect(parsed.text).toBe("the real body");
+    expect(parsed.text).not.toContain("SECRET-ATTACHED-TEXT");
+  });
+
+  it("survives a bare trailing semicolon, which is the same shape with no parameter", () => {
+    const raw =
+      `From: alice@example.com\n` +
+      `Content-Type: multipart/mixed; boundary="bnd"\n\n` +
+      `--bnd\n` +
+      `Content-Type: text/plain\n` +
+      `Content-Disposition: attachment;\n\n` +
+      `SECRET-ATTACHED-TEXT\n` +
+      `--bnd\n` +
+      `Content-Type: text/plain\n\n` +
+      `the real body\n` +
+      `--bnd--\n`;
+    const parsed = parse(raw);
+    expect(parsed.text).toBe("the real body");
+    expect(parsed.text).not.toContain("SECRET-ATTACHED-TEXT");
+  });
 });

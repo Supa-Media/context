@@ -688,25 +688,37 @@ function decodeExtendedParam(value: string): string {
 }
 
 /**
- * Parse a `Content-Type` / `Content-Disposition` value, resolving RFC 2231
- * continuations (`name*0`, `name*1`, …) and extended values (`name*`).
- */
-/**
  * The bare token of a `Content-Disposition`, lowercased, or "".
  *
  * Separate from `parseContentType` because a disposition is not a media type:
  * it has no `/`, so the media-type validator can only ever reject it.
+ *
+ * `splitParams` is the load-bearing half: the two callers compare the result
+ * against `"attachment"`, and a real header is `attachment; filename=…` — or
+ * `attachment; size=42`, or `attachment;` with nothing after it. Comparing the
+ * whole value is how both guards came to be dead in the first place.
  */
 function dispositionToken(value: string): string {
   const token = (splitParams(value)[0] || "").trim().toLowerCase();
   return /^[a-z0-9!#$&^_.+-]+$/.test(token) ? token : "";
 }
 
+/**
+ * Parse a `Content-Type` / `Content-Disposition` value, resolving RFC 2231
+ * continuations (`name*0`, `name*1`, …) and extended values (`name*`).
+ */
 export function parseContentType(value: string): ContentType {
   const pieces = splitParams(value);
   const type = (pieces[0] || "").trim().toLowerCase();
 
-  const plain: Record<string, string> = {};
+  // `Object.create(null)`, not `{}`: `rawKey` is attacker-controlled and is used
+  // both as an `in` test and as an assignment target below. On a plain object
+  // `"constructor" in plain` is true before anything is parsed, so the
+  // first-wins rule would silently drop a real parameter, and `__proto__` is a
+  // setter rather than a key. Neither is exploitable today — every consumer
+  // reads a fixed name — but the same shape one file over crashed the gateway,
+  // and a null-prototype bag costs nothing.
+  const plain: Record<string, string> = Object.create(null);
   const extended = new Map<string, { parts: Map<number, string>; encoded: Set<number> }>();
 
   for (const piece of pieces.slice(1)) {
