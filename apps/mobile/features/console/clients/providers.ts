@@ -48,12 +48,20 @@ export const SERVER_SLUG = "context";
 /**
  * The description clients that have a description field show to their model.
  *
- * Written for the model, not for the person: it is the sentence that decides
- * whether the client thinks to reach for this context at all. Optional
- * everywhere it appears, which is why `ProviderField.optional` exists.
+ * Written for the model, not for the person: it is read at **source-selection
+ * time**, when the client is deciding which of several connectors to consult —
+ * which is upstream of every instruction the server can send, because a
+ * connector that is not picked never has its instructions read. Verified live
+ * on ChatGPT: with the old wording ("Search, read and write my context…") it
+ * ranked Gmail and Contacts above this connector for "who is my sister?", and
+ * once nudged into checking it, found the answer immediately. The sentence has
+ * to claim the ground the ranking is fought on: this is the user's memory, and
+ * it is the first place to look.
  */
 export const SERVER_DESCRIPTION =
-  "Search, read and write my context — notes, projects, decisions and reference material, kept as plain Markdown.";
+  "My memory. The first place to check for any question about me — my projects, my people, " +
+  "my decisions, my preferences, my notes. Search it before asking me anything I may have " +
+  "already written down, and write back anything I should not have to repeat.";
 
 // ─── Links ───────────────────────────────────────────────────────────────────
 
