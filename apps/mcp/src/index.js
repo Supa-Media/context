@@ -142,94 +142,81 @@ const INSTRUCTIONS_INDEX_CHAR_CAP = 1_200;
  *
  * This is the only text that reaches a model *before* it decides whether this
  * server is worth calling at all, and it sits in the system prompt for every
- * conversation on the connection. It used to open with fourteen numbered rules
- * about visibility, etags and archival — a governance document handed to an
- * agent that had not yet been given one reason to look inside. The rules are
- * all still here; they are just no longer the first thing read. What comes
- * first is what this is, when to reach for it, and where to start.
+ * conversation on the connection. It is therefore an argument, not a manual.
+ *
+ * It has been cut twice. It opened with fourteen numbered rules about
+ * visibility, etags and archival — a governance document handed to an agent
+ * that had not yet been given one reason to look inside. Then it was still
+ * ninety lines, most of them restating what a tool description says at the
+ * moment the tool is reached for, which is both later and better. What is left
+ * is the case for using this at all, the three calls that matter, and the four
+ * rules a model cannot discover by calling something and reading the answer.
+ *
+ * **Nothing here asserts a folder layout, and that is a correctness fix rather
+ * than brevity.** This text used to open by stating the context "is organized
+ * by the PARA method" and then tell agents to file work under `1-projects/`.
+ * PARA is the *default scaffold*, not the format: `structureTemplate: "custom"`
+ * exists, and the whole premise is that somebody can connect a bucket they
+ * organized years before this product existed. Every one of those agents was
+ * being told to create folders their person had deliberately not chosen. The
+ * real shape is derived — the connect-time sketch lists their actual top level,
+ * `orient` maps it, and their own front page states their conventions.
+ *
+ * For the same reason the agent-ledger and `todo.md` conventions are gone from
+ * here. They are one customer's house rules, they live in that customer's
+ * `index.md`, and `orient` hands them over. Ours is the product's rules only.
  */
-const SERVER_INSTRUCTIONS = `This server is the user's own context: the markdown
-notes they keep about their own work and life, in storage they own. It is
-organized by the PARA method — 0-inbox (raw captures, including mail sent to
-their capture address), 1-projects (active work), 2-areas (ongoing
-responsibilities), 3-resources (reference material), 4-archive (inactive).
+const SERVER_INSTRUCTIONS = `This is the user's own context: the notes they keep
+about their work and their life, in storage they own, shared by every AI tool
+they connect.
 
-WHEN TO REACH FOR IT
-Any time the conversation touches something this person is likely to have
-written down — a project, a client, a colleague, a decision they already made,
-a preference, a deadline, a draft, a meeting, something they mailed themselves —
-the answer is probably already in here. Look before you ask them to repeat
-themselves, and look before you conclude that nothing exists. This is not a
-filing cabinet you visit when asked; it is what they know, and you have been
-given it so that they do not have to say it again.
+**It is their memory, and it outlives you.** Your recall of them ends with this
+conversation; this does not. It is the same context their other assistants read
+before answering and write back to afterwards, and every write is recorded in
+their own audit trail under the name of the client that made it. An assistant
+that never reads it makes them re-explain things they already explained to
+something else. An assistant that never writes to it leaves the next one to
+rediscover whatever this session worked out. Both are on the record.
 
-START WITH \`orient\`
-One small call, at the top of the session, before your first substantive answer
-about their work — not after they point out that you missed something. It
-returns their front page (\`index.md\`), what they touched most recently, and a
-map of everything this connection may see. Every other tool here is easier to
-use well once you have it.
+So, three things:
 
-LEAVE MORE THAN YOU TOOK
-Reading is half the job. When something durable comes out of the work — a
-decision, a fix, a name, a constraint, a preference, a fact the user should
-never have to say twice — write it back with \`write_note\` before you finish.
-Ask yourself: "what should no agent have to rediscover?" and capture only that.
+**Call \`orient\` first** — once, before your first real answer about their work.
+One cheap call: their front page, what they touched most recently, and a map of
+what this connection can see. Do not answer from this conversation alone. The
+answer is usually already in there, filed under a word you would not have
+guessed.
 
-House rules:
-1. Prefer improving the note that already covers a topic over creating a near
-   duplicate. Preserve its structure and frontmatter, and pass the etag you read
-   so a conflicting edit is detected rather than silently overwritten.
-2. Before CREATING a new note, tell the user which folder — and therefore which
-   visibility scope — it will land in, and confirm.
-3. Notes you cannot see do not exist; never speculate about unlisted content.
-   Keep notes concise and factual: they are shared context for many tools, not
-   a transcript. Do not capture transient chatter.
-4. Search once per topic in the narrowest relevant prefix and reuse that result
-   for the session. Do not repeat an identical search before every write.
-5. When the user starts substantial work with an end state, proactively propose
-   or use a folder under \`1-projects/\`. Reusable instructions and reference
-   knowledge go under \`3-resources/\`; project-specific investigation and
-   decisions stay with the project. Do not wait for the user to invent the
-   filing. Keep \`index.md\` and any project manifest current as work starts and
-   finishes.
-6. Human actions belong in root \`todo.md\`. Agent work belongs in that agent's
-   weekly ledger under \`2-areas/agent-todos/\`. After orienting, identify and
-   read your ledger (Codex, Claude, Notion, or ChatGPT). For substantial work,
-   add a concise unchecked item when you start, keep it current, and check it
-   off when the outcome is complete. Do not add routine one-question answers.
-7. Use \`scope_info\` before creating or reorganizing notes: it reports the
-   writable prefixes for this connection, and team output never names private
-   paths or private overrides. A folder does not need to exist before creating a
-   subfolder under a writable prefix. If the correct destination is not
-   writable, use \`propose_note\` rather than staging content in the wrong PARA
-   location.
-8. Folder scope is only a default. An exact note may override its parent in
-   either direction through the private \`privacy.md\` manifest. Frontmatter such
-   as \`visibility: private\` is descriptive, not access control: pass the
-   visibility argument to \`write_note\` or \`set_visibility\`. Personal
-   connections use \`set_folder_visibility\` to change a folder default, which
-   updates \`privacy.md\` directly — no source checkout or rclone needed. Team
-   connections may create any depth of implicit subfolders beneath a team-default
-   folder. New notes default private on a personal connection and team on a team
-   connection. Publishing private content to team requires explicit
-   confirmation. There is no anonymous or internet-public tier.
-9. Use \`move_note\`, \`move_notes\`, and \`move_folder\` to reorganize — never
-   emulate a move with write plus archive. Moves preserve private overrides and
-   never implicitly reduce privacy; dry-run any multi-note or folder move first.
-   Team connections may archive already-team notes into the team archive:
-   archived content stays team-visible and recoverable, so this is retraction
-   from the canonical location, not confidential deletion.
-10. Before a substantive conversation ends, use \`save_context\` to save what
-   mattered from it. The user's own end-of-session procedure and destination
-   live in a "## Save context" section of their \`index.md\`; orient reports
-   them. Absent one, save the user-visible conversation history available to you. Default privacy is the
-   connection access: personal connections archive privately; team connections
-   archive at team visibility. Change visibility only when the user explicitly
-   asks. Archive user-visible user and assistant messages only — never hidden
-   system or developer prompts, internal reasoning, credentials, or raw tool
-   logs. Mark completeness honestly; do not claim a full transcript after
-   compaction or when the client supplied only partial context.`;
+**Write back as you go**, with \`write_note\`. Improve the note that already
+covers a topic rather than adding a near-duplicate, and pass the etag you read
+so a concurrent edit is caught instead of overwritten.
+
+**Call \`save_context\` before you finish** — the decisions, the constraints, the
+preferences, anything they should never have to say twice. Ask yourself what no
+agent should have to rediscover, and keep that. Their own end-of-session
+procedure lives in their front page; \`orient\` reports it.
+
+Four things the tools cannot teach you at the moment you need them:
+
+1. **Their folders are theirs.** Do not assume a layout — not PARA, not
+   anything. Many contexts use PARA (0-inbox, 1-projects, 2-areas, 3-resources,
+   4-archive) and many do not; a person can bring a bucket that was organized
+   years before this product existed. \`orient\` reports the real shape and their
+   front page states their conventions. Follow those, and where they are silent,
+   ask rather than invent a filing system for them.
+2. **Notes you cannot see do not exist.** This connection may be shown only part
+   of the context. Never speculate about unlisted content, and never read a
+   missing note as evidence that nothing is there.
+3. **Frontmatter is not access control.** A \`visibility:\` line inside a file is
+   description. Pass the visibility argument to \`write_note\` or
+   \`set_visibility\`, and before creating a note tell them which folder it will
+   land in — the folder decides who else can read it. Default privacy follows
+   this connection: personal connections write private, team connections write
+   team. Publishing something private to team needs their explicit yes. There is
+   no anonymous or internet-public tier; "team" means people they named.
+4. **Many tools read these notes, not just you.** Keep them concise and factual.
+   No transient chatter, and when you save a conversation, save the user-visible
+   messages only — never system or developer prompts, internal reasoning,
+   credentials, or raw tool logs — and label an incomplete capture honestly.`;
 
 /**
  * The working half of `orient` — short on purpose.
@@ -249,9 +236,10 @@ const ORIENT_OPERATING_CONTRACT = `## Working here
   only reads is worth about as much as a search box.
 - **Update, do not accumulate.** Improve the note that already covers a topic
   instead of creating a near-duplicate. Pass the etag you read.
-- Read your weekly file under \`2-areas/agent-todos/\` (Codex, Claude, Notion,
-  ChatGPT) and keep a line there for substantial work. Human actions belong in
-  root \`todo.md\`.
+- **Follow their conventions, not a template.** The front page above states how
+  this context is organized and where things go — including any per-agent
+  ledger or to-do file it asks you to keep. Where it is silent, ask rather than
+  invent a filing system for somebody else's notes.
 - \`index.md\` is the front page every agent reads first, and it belongs to the
   user. Offer to bring it up to date when the shape of the context changes — a
   project starting or ending, a folder that now means something else — by
