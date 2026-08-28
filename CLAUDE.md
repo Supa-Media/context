@@ -283,10 +283,23 @@ sensible default allow-list — the address you signed up with — has no answer
 all for a shared context ("whose email?").
 
 `resolvePersonalContextForIngestion` in `functions/lib/ingestionStore.ts` is the
-single place that decides this, and it establishes "personal" structurally
-(exactly one member, who is the owner) rather than by trusting the `kind` label.
-Every refusal is byte-identical to the one an unclaimed name gets — a rejection
-that singled out the shared case would publish which names here are teams.
+single place that decides this. It requires the `kind: "personal"` chosen at
+creation (no mutation ever changes it) *and* resolves the context's sole owner,
+who is returned as the accountable person; a personal context with no
+resolvable owner is damaged data and refuses. Every refusal is byte-identical
+to the one an unclaimed name gets — a rejection that singled out the shared
+case would publish which names here are teams.
+
+**Sharing a personal context does not kill its capture address.** The rule
+used to require exactly one *member*, so inviting somebody into your own
+context silently bounced your mail from that moment on — and because every
+refusal is identical, nobody was told. That was the cautious first guess, not
+the intent, and the owner reversed it deliberately (2026-08): sharing your
+context is a headline flow and must not cost capture. What holds the original
+risk instead is that the policy stays owner-only in both directions — members
+cannot read or change the allow-list (`functions/ingestion.ts`) — and every
+capture is attributed to the sole owner. Re-tightening this to a member count
+would re-break the flow somebody already decided to keep.
 
 ### Link previews reveal nothing about a context
 

@@ -8,11 +8,12 @@
  *   updateIngestionSettings({ workspaceId, targetFolder?, allowedSenders?, … })
  *
  * and **both are owner-only, for the read as well as the write**. That is not
- * belt-and-braces: a personal context has exactly one member and that member is
- * its owner, so "any member may read" described a role that cannot exist there.
- * Anyone else gets `INSUFFICIENT_ROLE`, so this hook must not fire the query for
- * them at all — `shouldReadIngestionSettings` is where that is decided, and it
- * also declines for a context that has no capture address in the first place.
+ * belt-and-braces: a personal context can have members now — sharing it keeps
+ * its capture address — and the allow-list is the owner's correspondent list,
+ * which membership does not buy a view of. Anyone else gets
+ * `INSUFFICIENT_ROLE`, so this hook must not fire the query for them at all —
+ * `shouldReadIngestionSettings` is where that is decided, and it also declines
+ * for a context that has no capture address in the first place.
  *
  * `save` is absent, not disabled, for anyone who cannot use it. Same rule as
  * `StorageActions`: a control that is never offered cannot mislead.

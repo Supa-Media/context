@@ -204,21 +204,13 @@ export const NO_INGESTION_ADDRESS: IngestionState = {
 /**
  * Which contexts get an address, decided from the workspace's `kind`.
  *
- * `kind` is the console's half of the rule `resolvePersonalContextForIngestion`
- * enforces on the backend, and it is only the first half — that function also
- * requires the context to have exactly one member, because a personal context
- * somebody has since invited people into is not somewhere unauthenticated mail
- * may land whatever its row says.
- *
- * **The console cannot see that second half**, because the workspace summary
- * carries no membership count. So one state is described imprecisely: a
- * `personal` context with a second member is shown the "ingestion is off" card,
- * when the truth is that it has no address at all and setting one would be
- * refused. It is a narrow corner — you have to invite somebody into your own
- * context — and it fails honestly rather than quietly: the backend answers
- * `null` to the read, and refuses the save with `INGESTION_NOT_AVAILABLE`,
- * whose sentence `refusalMessage` puts on screen. Closing it properly means
- * teaching `listMyWorkspaces` to say how many members a context has.
+ * `kind` is the same rule `resolvePersonalContextForIngestion` enforces on
+ * the backend: a personal context has a capture address, a shared one does
+ * not, and sharing a personal context does not change what it is. (The
+ * backend additionally requires the context to resolve to its sole owner,
+ * but a personal context without one is damaged data, not a state the
+ * console plans a card around — the backend answers `null` to the read and
+ * refuses the save, which the card already renders honestly.)
  *
  * An `undefined` kind is the console before the workspace list has landed, not
  * an unknown kind of context. It reads as available so the card falls through to

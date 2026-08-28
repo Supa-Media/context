@@ -28,7 +28,7 @@
  *
  * `resolveForIngestion` answers `null` for **all** of: no such name, the name
  * is reserved or malformed, the name belongs to a shared context, the personal
- * context has since gained members, there is no policy row, storage is unbound
+ * context has no resolvable owner, there is no policy row, storage is unbound
  * or unusable, and the caller is over its rate limit.
  *
  * That is not tidiness. `<name>@context.lc` is an address anyone on the
@@ -209,9 +209,9 @@ export const resolveForIngestion = internalMutation({
       // One code, because this is one refusal: `resolvePersonalContextForIngestion`
       // is the single definition of "a context that may receive mail" and it
       // folds "no such name", "that name is a shared context" and "a personal
-      // context that has since gained members" together on purpose. Splitting
-      // them here would rebuild, in a log, the distinction the function exists
-      // to erase — and an operator who needs the difference can read the row.
+      // context with no resolvable owner" together on purpose. Splitting them
+      // here would rebuild, in a log, the distinction the function exists to
+      // erase — and an operator who needs the difference can read the row.
       logIngest({
         event: "resolve_refused",
         reason: "no_personal_context",
