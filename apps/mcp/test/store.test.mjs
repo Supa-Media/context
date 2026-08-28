@@ -12,6 +12,7 @@ import { R2Store } from "../src/store/r2.js";
 import { S3Store, parseListObjectsV2, deriveSigningKey } from "../src/store/s3.js";
 import { DropboxStore } from "../src/store/dropbox.js";
 import { probeStore, normalizeEtag, PROBE_PREFIX } from "../src/store/index.js";
+import { dropboxTaggedError as dbxTagged } from "./controlPlaneStub.mjs";
 
 const FAKE_CONFIG = {
   endpoint: "https://s3.example-object-storage.test",
@@ -432,6 +433,21 @@ export async function runStoreChecks(check, gateway) {
   const traversalStore = s3(() => new Response("nope"), { rootPrefix: "team-notes" });
   const traversalBucket = memoryBucket();
   const traversalR2 = new R2Store(traversalBucket, { rootPrefix: "team-notes" });
+  // Dropbox runs the same matrix. It had one traversal check — a single key
+  // through `get` — under a name claiming parity with "every other backend".
+  // On this backend the claim matters more than on the others: the OAuth token
+  // is scoped to an ACCOUNT rather than to a bucket nobody else uses, so a key
+  // that escapes the root escapes into the customer's own Dropbox.
+  const traversalDropboxCalls = [];
+  const traversalDropbox = new DropboxStore({
+    accessToken: "sl.FAKE-not-a-real-token",
+    rootPrefix: "team-notes",
+    sleep: async () => {},
+    fetch: async (...args) => {
+      traversalDropboxCalls.push(args);
+      return new Response("{}", { status: 200 });
+    },
+  });
   const rejections = [];
   for (const key of TRAVERSAL_KEYS) {
     for (const [name, run] of [
@@ -441,6 +457,9 @@ export async function runStoreChecks(check, gateway) {
       ["R2Store.get", () => traversalR2.get(key)],
       ["R2Store.put", () => traversalR2.put(key, "x")],
       ["R2Store.delete", () => traversalR2.delete(key)],
+      ["DropboxStore.get", () => traversalDropbox.get(key)],
+      ["DropboxStore.put", () => traversalDropbox.put(key, "x")],
+      ["DropboxStore.delete", () => traversalDropbox.delete(key)],
     ]) {
       let threw = null;
       try {
@@ -455,12 +474,14 @@ export async function runStoreChecks(check, gateway) {
     }
   }
   check(
-    "dot, dot-dot, empty, encoded, control-character and backslash keys are rejected by both adapters",
+    "dot, dot-dot, empty, encoded, control-character and backslash keys are rejected by every adapter",
     rejections.length === 0
   );
   check(
     "a rejected key never reaches the backend",
-    traversalStore.fetchImpl.calls.length === 0 && traversalBucket.objects.size === 0
+    traversalStore.fetchImpl.calls.length === 0 &&
+      traversalBucket.objects.size === 0 &&
+      traversalDropboxCalls.length === 0
   );
 
   let traversalError = null;
@@ -1019,11 +1040,241 @@ export async function runStoreChecks(check, gateway) {
 
   {
     // Dropbox says 409 for a lost race; the contract says null.
-    const store = dropbox(() =>
-      dbxJson({ error_summary: "path/conflict/file/..", error: {} }, 409)
-    );
+    //
+    // The body is the shape Dropbox actually sends. It used to be
+    // `{ error_summary: "path/conflict/file/..", error: {} }` — an `error` with
+    // no tag in it, which satisfied a `String.includes` over the raw body and
+    // nothing else. A fixture that only passes the check being replaced is a
+    // fixture written to the check rather than to the API.
+    const conflictBody = {
+      error_summary: "path/conflict/file/...",
+      error: {
+        ".tag": "path",
+        reason: { ".tag": "conflict", conflict: { ".tag": "file" } },
+      },
+    };
+    const store = dropbox(() => dbxJson(conflictBody, 409));
     const result = await store.put("a.md", "x", { onlyIf: { etagMatches: "stale" } });
     check("a lost conditional write is null, not an exception", result === null);
+  }
+
+  {
+    // `null` means "your precondition failed" and nothing else.
+    //
+    // Dropbox answers `path/conflict/folder` when a folder sits at the path of
+    // an ordinary overwrite. Returned as `null`, that tells `move_note` and
+    // `archive_note` the destination was contended when it was simply never
+    // written — and both delete the source on the next line. This is the only
+    // backend that can derive `null` from something other than a precondition,
+    // so it is the only one that needs the check.
+    const store = dropbox(() =>
+      dbxJson(
+        {
+          error_summary: "path/conflict/folder/...",
+          error: {
+            ".tag": "path",
+            reason: { ".tag": "conflict", conflict: { ".tag": "folder" } },
+          },
+        },
+        409
+      )
+    );
+    let threw = null;
+    let result = "unset";
+    try {
+      result = await store.put("a.md", "x");
+    } catch (error) {
+      threw = error;
+    }
+    check(
+      "an unconditional write never returns null, whatever the conflict",
+      result !== null && threw !== null
+    );
+  }
+
+  {
+    // The fake's own error shape, pinned — on the SHAPE, not on the tag it
+    // walks to. Both the flattened and the nested form walk to
+    // "path/conflict/file", so an assertion through `errorTagPath` cannot tell
+    // them apart and proves nothing about the fixture.
+    //
+    // `UploadError.path` carries `UploadWriteFailed`, a struct, and Stone
+    // flattens struct-valued union variants, so an upload conflict really is
+    // `{".tag":"path", reason:{…}, upload_session_id:"…"}`. A lookup error
+    // genuinely does nest. The derivation must get both right.
+    const conflict = await dbxTagged("path/conflict/file/.").json();
+    const lookup = await dbxTagged("path/restricted_content/.").json();
+    check(
+      "the shared fake emits the flattened upload shape",
+      conflict.error?.[".tag"] === "path" &&
+        conflict.error?.reason?.[".tag"] === "conflict" &&
+        conflict.error?.reason?.conflict?.[".tag"] === "file" &&
+        conflict.error?.path === undefined
+    );
+    check(
+      "and the nested lookup shape, which is a different union",
+      lookup.error?.[".tag"] === "path" &&
+        lookup.error?.path?.[".tag"] === "restricted_content" &&
+        lookup.error?.reason === undefined
+    );
+  }
+
+  {
+    // The 64 KB cap on an error body, which is one of this adapter's advertised
+    // fixes and shipped with nothing guarding it. `s3.js` states the reason: a
+    // body is buffered whole before anything trims it, so a hostile or broken
+    // endpoint could stream hundreds of megabytes into a 128 MB isolate.
+    const huge = "x".repeat(200_000);
+    const store = dropbox(
+      () =>
+        new Response(
+          JSON.stringify({
+            error_summary: "path/not_found/..",
+            error: { ".tag": "path", path: { ".tag": "not_found" } },
+            padding: huge,
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } }
+        )
+    );
+    // Over the cap the body is not read at all, so no tag is found and the
+    // absence is not mistaken for one — a failure, which is the safe direction.
+    let threw = null;
+    let result = "unset";
+    try {
+      result = await store.get("a.md");
+    } catch (error) {
+      threw = error;
+    }
+    check(
+      "an oversized error body is capped rather than buffered whole",
+      result !== null && threw !== null && !threw.message.includes("xxxxx")
+    );
+  }
+
+  {
+    // The `content-length` shortcut, which is the branch that normally fires.
+    // `new Response(string)` carries no content-length in this runtime, so the
+    // test above only exercises the streaming cap — while a real fetch response
+    // usually does declare a length, making the *untested* branch the one
+    // production takes. Not two halves of one control, as the Retry-After cap
+    // was: the streaming cap is the real defence and is guarded. This covers
+    // the cheap path as well as the safe one.
+    //
+    // The signal is `bodyUsed`, not a spy on `text()`: the streaming branch
+    // reads through `body.getReader()`, so a `text()` counter stays at zero
+    // whether the shortcut fires or not, and asserting on it proves nothing.
+    const body = JSON.stringify({
+      error_summary: "path/not_found/..",
+      error: { ".tag": "path", path: { ".tag": "not_found" } },
+      padding: "y".repeat(200_000),
+    });
+    let sent = null;
+    const store = dropbox(() => {
+      sent = new Response(body, {
+        status: 409,
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": String(body.length),
+        },
+      });
+      return sent;
+    });
+    let threw = null;
+    let result = "unset";
+    try {
+      result = await store.get("a.md");
+    } catch (error) {
+      threw = error;
+    }
+    check(
+      "a declared over-cap Content-Length is refused without reading the body",
+      result !== null && threw !== null && sent.bodyUsed === false
+    );
+  }
+
+  {
+    // The tag decides, not the prose around it. Dropbox's `user_message` is
+    // localized text; a note title or a refusal message containing the words
+    // "not_found" must not turn a file that exists into a file that is gone.
+    const store = dropbox(() =>
+      dbxJson(
+        {
+          error_summary: "path/restricted_content/...",
+          error: { ".tag": "path", path: { ".tag": "restricted_content" } },
+          user_message: { text: "This file could not be downloaded (not_found)." },
+        },
+        409
+      )
+    );
+    let threw = null;
+    let result = "unset";
+    try {
+      result = await store.get("a.md");
+    } catch (error) {
+      threw = error;
+    }
+    check(
+      "a 409 that merely mentions not_found is a failure, not an absence",
+      result !== null && threw !== null
+    );
+  }
+
+  {
+    // These throws reach the connected AI client verbatim. Dropbox echoes the
+    // offending path, which is the customer's folder plus the note's own name —
+    // the thing `assertSafeKey`'s contract says a message must never carry.
+    const store = dropbox(() =>
+      dbxJson(
+        {
+          error_summary: "path/malformed_path/..",
+          error: {
+            ".tag": "path",
+            path: {
+              ".tag": "malformed_path",
+              malformed_path: "/Private Journal/1-projects/acquisition-of-acme.md",
+            },
+          },
+        },
+        409
+      )
+    );
+    let message = "";
+    try {
+      await store.get("1-projects/acquisition-of-acme.md");
+    } catch (error) {
+      message = error.message;
+    }
+    check(
+      "a Dropbox failure names the tag and never the customer's path",
+      message.includes("malformed_path") &&
+        !message.includes("Private Journal") &&
+        !message.includes("acquisition-of-acme")
+    );
+  }
+
+  {
+    // `Retry-After` is a number from outside the Worker, honoured up to four
+    // times. Unbounded, `Retry-After: 86400` asks for ~96 hours of wall clock
+    // inside one request.
+    const slept = [];
+    const store = dropbox(
+      () => dbxJson({ error_summary: "too_many_requests" }, 429, { "Retry-After": "86400" }),
+      { sleep: async (ms) => slept.push(ms) }
+    );
+    let surfaced = "";
+    await store.get("a.md").catch((error) => {
+      surfaced = error.message;
+    });
+    // `slept.length === 0`, not "every sleep was short". The claim is that the
+    // caller gets the 429 back rather than waiting; asserting the sleeps were
+    // bounded passes just as well if the cap is implemented by clamping, which
+    // is a different behaviour. And `response !== undefined` was vacuous —
+    // `.catch(() => "threw")` is never undefined.
+    check("an outsized Retry-After is handed back, not slept through", slept.length === 0);
+    // And the 429 reaches the caller as a 429, rather than the request sitting
+    // on it. Asserting only that the sleeps were short would pass just as well
+    // against a cap implemented by clamping, which is different behaviour.
+    check("and the caller gets the 429 itself", surfaced.includes("429"));
   }
 
   {
@@ -1041,10 +1292,126 @@ export async function runStoreChecks(check, gateway) {
   }
 
   {
+    // The rootPrefix seam, on all four operations rather than on `list` alone.
+    //
+    // `R2Store` has this check and Dropbox did not, and the asymmetry runs the
+    // wrong way: an S3 or R2 credential is scoped to a bucket that holds
+    // nothing but this context, so the prefix is a convenience. A Dropbox
+    // token is scoped to an ACCOUNT, so until the binding says otherwise this
+    // seam is the only thing standing between a workspace and the customer's
+    // tax returns. Sabotage: drop `this._path()` from any one of get, put or
+    // delete and this fails — before this check, only `list` noticed.
+    const paths = [];
+    const scoped = new DropboxStore({
+      accessToken: "sl.FAKE-not-a-real-token",
+      rootPrefix: "Private Journal",
+      sleep: async () => {},
+      fetch: async (url, init) => {
+        const header = init?.headers?.["Dropbox-API-Arg"];
+        if (header) paths.push(JSON.parse(header).path);
+        else paths.push(JSON.parse(init.body).path);
+        return dbxJson({ rev: "r1", entries: [], has_more: false });
+      },
+    });
+    await scoped.get("1-projects/foo.md");
+    await scoped.put("1-projects/foo.md", "x");
+    await scoped.delete("1-projects/foo.md");
+    await scoped.list({ prefix: "1-projects/" });
+    check(
+      "dropbox applies rootPrefix on read, write, delete and list alike",
+      paths.length === 4 &&
+        paths.every((path) => path.startsWith("/Private Journal/")) &&
+        paths[3] === "/Private Journal/1-projects"
+    );
+  }
+
+  {
+    // The capability claim, proved rather than declared.
+    //
+    // `capabilities.conditionalWrite` is what CLAUDE.md's "probe capability at
+    // connect time and degrade honestly" turns on, and the comment above it
+    // says `probeStore()` proves it — which nothing did, because no test ever
+    // built a DropboxStore and probed one. This runs the real probe against a
+    // fake with Dropbox's own semantics: rev-per-write, `mode: update` honoured
+    // as a precondition, 409-with-a-tag for absence.
+    const files = new Map();
+    let revs = 0;
+    const probeFake = new DropboxStore({
+      accessToken: "sl.FAKE-not-a-real-token",
+      sleep: async () => {},
+      fetch: async (url, init) => {
+        const arg = init?.headers?.["Dropbox-API-Arg"];
+        const body = arg ? JSON.parse(arg) : JSON.parse(init.body || "{}");
+        const notFound = () =>
+          dbxJson(
+            {
+              error_summary: "path/not_found/..",
+              error: { ".tag": "path", path: { ".tag": "not_found" } },
+            },
+            409
+          );
+        if (url.includes("/files/upload")) {
+          const current = files.get(body.path);
+          if (body.mode?.[".tag"] === "update" && current?.rev !== body.mode.update) {
+            return dbxJson(
+              {
+                error_summary: "path/conflict/file/..",
+                error: {
+                  ".tag": "path",
+                  reason: { ".tag": "conflict", conflict: { ".tag": "file" } },
+                },
+              },
+              409
+            );
+          }
+          const rev = `r${(revs += 1)}`;
+          files.set(body.path, {
+            rev,
+            text:
+              typeof init.body === "string" ? init.body : new TextDecoder().decode(init.body),
+          });
+          return dbxJson({ rev });
+        }
+        if (url.includes("/files/download")) {
+          const found = files.get(body.path);
+          if (!found) return notFound();
+          return new Response(found.text, {
+            status: 200,
+            headers: { "Dropbox-API-Result": JSON.stringify({ rev: found.rev }) },
+          });
+        }
+        if (url.includes("/files/delete")) {
+          if (!files.delete(body.path)) return notFound();
+          return dbxJson({});
+        }
+        return dbxJson({ entries: [], has_more: false });
+      },
+    });
+    const probed = await probeStore(probeFake);
+    check(
+      "dropbox rev really is a conditional write, and the probe says so",
+      probed.ok === true &&
+        probed.conditionalWrite.declared === true &&
+        probed.conditionalWrite.verified === true &&
+        probed.conditionalWrite.rejectsWrong === true &&
+        probed.conditionalWrite.acceptsCorrect === true &&
+        probed.conditionalWrite.rejectsStale === true &&
+        probed.conditionalWrite.mismatch === false
+    );
+    check("the probe cleans up after itself", probed.cleanedUp === true && files.size === 0);
+  }
+
+  {
     // 409 is also how Dropbox says "no such file", so the tag decides, not the
     // status — otherwise an expired token would read as an empty context.
     const store = dropbox(() =>
-      dbxJson({ error_summary: "path/not_found/..", error: {} }, 409)
+      dbxJson(
+        {
+          error_summary: "path/not_found/..",
+          error: { ".tag": "path", path: { ".tag": "not_found" } },
+        },
+        409
+      )
     );
     check("a missing object reads as null", (await store.get("gone.md")) === null);
   }
@@ -1052,7 +1419,7 @@ export async function runStoreChecks(check, gateway) {
   {
     let threw = null;
     const store = dropbox(() =>
-      dbxJson({ error_summary: "expired_access_token/..", error: {} }, 409)
+      dbxJson({ error_summary: "expired_access_token/..", error: { ".tag": "expired_access_token" } }, 409)
     );
     try {
       await store.get("a.md");
@@ -1108,7 +1475,13 @@ export async function runStoreChecks(check, gateway) {
 
   {
     const store = dropbox(() =>
-      dbxJson({ error_summary: "path/not_found/..", error: {} }, 409)
+      dbxJson(
+        {
+          error_summary: "path/not_found/..",
+          error: { ".tag": "path", path: { ".tag": "not_found" } },
+        },
+        409
+      )
     );
     const page = await store.list({ prefix: "" });
     check(

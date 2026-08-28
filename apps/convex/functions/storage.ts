@@ -520,6 +520,27 @@ export const applyBinding = internalMutation({
       noteCount: undefined,
       noteCountedAt: undefined,
       noteCountTruncated: undefined,
+      // And the Dropbox grant, which is the one with a life of its own.
+      //
+      // `applyDropboxBinding` clears every S3 field on the way in and says why:
+      // "what is true of the old storage is not true of the new." The reverse
+      // direction was never written, so a customer moving off Dropbox onto
+      // their own bucket left us holding a live refresh token for their
+      // Dropbox — invisible in the console, which shows an S3 binding and no
+      // Dropbox field at all, and kept alive indefinitely because key rotation
+      // walks `ENVELOPE_FIELDS` on every pass.
+      //
+      // That is the direct inverse of "a customer can revoke our storage
+      // credential without asking us first, and keep a complete, usable
+      // context": they did the thing that should end the relationship, the
+      // product agreed, and the credential stayed. It is also the shape the
+      // Cloudflare decision rules out for that credential — "there is no
+      // steady state in which the control plane holds an account-level cloud
+      // credential."
+      encryptedRefreshToken: undefined,
+      encryptedAccessToken: undefined,
+      accessTokenExpiresAt: undefined,
+      dropboxAccountId: undefined,
       boundBy: args.actorUserId,
       updatedAt: now,
     };

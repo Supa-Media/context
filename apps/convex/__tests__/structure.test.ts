@@ -276,6 +276,66 @@ const SCHEDULE_CALL = /\.scheduler\.run(?:After|At)\(\s*[^,]*,\s*([^,)\s]*)/g;
 const CREDENTIAL_BARRIERS = new Set(["functions.files.runFileOperation"]);
 
 /**
+ * Every `encrypted*` column in the schema, lowercased — read from the schema
+ * rather than typed out here.
+ *
+ * The two credential-field guards below match **specific field names**, so
+ * until this existed they protected exactly the names somebody remembered to
+ * add. That is the failure this file already documents one guard over: a
+ * credential check that grepped export names, defeated by a rename in a new
+ * file. A second credential shape — an OAuth refresh token beside an S3
+ * secret, say — arrives as a new column with a new name, and a hand-maintained
+ * list does not know about it. The list would still be green, and the guard
+ * would be blind to precisely the field nobody had thought about yet.
+ *
+ * Deriving it means a new encrypted column is forbidden in a public return
+ * validator from the moment it is declared, with nobody needing to remember.
+ * `ENVELOPE_FIELDS` in `functions/storage.ts` is coupled to the schema the
+ * same way and for the same reason.
+ */
+export function encryptedColumnsIn(schemaSource: string): string[] {
+  const names = [...schemaSource.matchAll(/^\s+(encrypted[A-Za-z0-9]*)\s*:/gm)].map((match) =>
+    match[1]!.toLowerCase(),
+  );
+  return [...new Set(names)];
+}
+
+const SCHEMA_ENCRYPTED_FIELDS = (() => {
+  const source = RAW_SOURCES["../schema.ts"];
+  if (typeof source !== "string") {
+    throw new Error("structure.test.ts could not read schema.ts to derive credential fields");
+  }
+  return encryptedColumnsIn(source);
+})();
+
+/**
+ * Plus the ones that are credentials without being encrypted at rest.
+ *
+ * `secretaccesskey` is the plaintext half nothing should ever return;
+ * `accesskeyid` names the credential's public half, forbidden to a barrier
+ * because a barrier returning half a key pair has already returned too much.
+ */
+const PLAINTEXT_CREDENTIAL_FIELDS = [
+  // The S3 secret, and the Dropbox one. `accesstoken` matters as much as
+  // `secretaccesskey` and is easier to miss, because it is the *decrypted*
+  // half — the value `getBindingForGateway` hands the gateway, not an envelope
+  // with an offline step in front of it. It never appears as a schema column,
+  // so the derivation above cannot find it: at rest Dropbox is stored as
+  // `encryptedAccessToken`, and the bare `accessToken` exists only in flight.
+  // A guard that only reads the schema is a guard that only knows the shapes
+  // that sit still.
+  "secretaccesskey",
+  "accesstoken",
+];
+
+const PUBLIC_FORBIDDEN_FIELDS = [
+  ...new Set([...PLAINTEXT_CREDENTIAL_FIELDS, ...SCHEMA_ENCRYPTED_FIELDS]),
+];
+const BARRIER_FORBIDDEN_FIELDS = [
+  ...new Set([...PLAINTEXT_CREDENTIAL_FIELDS, "accesskeyid", ...SCHEMA_ENCRYPTED_FIELDS]),
+];
+
+/**
  * THE HTTP ROUTES THAT MAY REACH A CREDENTIAL.
  *
  * There are two, and there is a reason it cannot be zero: the whole product is
@@ -785,17 +845,59 @@ describe("no public function can reach a storage secret", () => {
    * obtained some other way (a raw envelope read straight off the row, say).
    * It reads the validator Convex will actually enforce, not the source.
    */
+  /**
+   * The derivation itself, checked — because a regex that quietly stops
+   * matching disables both guards below and leaves them green.
+   *
+   * This is the shape the file already warns about: "a guard nobody has checked
+   * is not a guard". A derived list makes the guard cover fields nobody
+   * remembered, and makes an empty list a silent all-clear. So: prove it finds
+   * a column it was not told about, and prove it is not empty on the real
+   * schema.
+   */
+  test("the credential-field list is derived from the schema, and the derivation works", () => {
+    // A column that does not exist in this repo today. A hand-maintained list
+    // could not know about it; the derivation must.
+    expect(
+      encryptedColumnsIn(
+        [
+          "  storageBindings: defineTable({",
+          "    provider: v.string(),",
+          "    encryptedRefreshToken: v.optional(v.string()),",
+          "    encryptedAccessToken: v.optional(v.string()),",
+          "    dropboxAccountId: v.optional(v.string()),",
+          "  })",
+        ].join("\n"),
+      ),
+    ).toEqual(["encryptedrefreshtoken", "encryptedaccesstoken"]);
+
+    // Lowercased, deduplicated, and nothing that merely mentions the word.
+    expect(encryptedColumnsIn("    encrypted: v.string(),")).toEqual(["encrypted"]);
+    expect(encryptedColumnsIn("// encryptedThing: not a column")).toEqual([]);
+
+    // And on the real schema it is non-empty and covers what is there now. An
+    // empty list would make both guards below pass unconditionally.
+    expect(SCHEMA_ENCRYPTED_FIELDS.length).toBeGreaterThan(0);
+    expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedsecretaccesskey");
+    expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedsetupcredential");
+    expect(BARRIER_FORBIDDEN_FIELDS).toContain("encryptedsetupcredential");
+    // The Dropbox columns, which the hand-written list never knew about.
+    expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedrefreshtoken");
+    expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedaccesstoken");
+    expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedverifier");
+    // And the decrypted token, which no schema column will ever name.
+    expect(PUBLIC_FORBIDDEN_FIELDS).toContain("accesstoken");
+    expect(BARRIER_FORBIDDEN_FIELDS).toContain("accesstoken");
+  });
+
   test("no public function declares a credential field in its return validator", () => {
-    // `encryptedsetupcredential` is the Cloudflare provisioning envelope. It
-    // seals a credential that can create buckets and mint further credentials
-    // in a customer's cloud account, so it belongs here for the same reason the
-    // storage envelope does: an opaque value is still the credential, with an
-    // offline step in front of it.
-    const forbidden = [
-      "secretaccesskey",
-      "encryptedsecretaccesskey",
-      "encryptedsetupcredential",
-    ];
+    // Derived from the schema, so a new credential column is covered the moment
+    // it is declared. `encryptedsetupcredential` — the Cloudflare provisioning
+    // envelope — arrives that way rather than by being remembered: it seals a
+    // credential that can create buckets and mint further credentials in a
+    // customer's cloud account, so it belongs here for the same reason the
+    // storage envelope does. An opaque value is still the credential.
+    const forbidden = PUBLIC_FORBIDDEN_FIELDS;
     for (const [globKey, module] of Object.entries(LIVE_MODULES)) {
       for (const [name, value] of Object.entries(module ?? {})) {
         const classification = classify(value);
@@ -1169,7 +1271,7 @@ describe("the credential barrier is a pin, not an amnesty", () => {
    * impossible, and the behavioural half lives in `fileContent.test.ts`.
    */
   test("no barrier declares a credential field in its return validator", () => {
-    const forbidden = ["secretaccesskey", "encryptedsecretaccesskey", "accesskeyid"];
+    const forbidden = BARRIER_FORBIDDEN_FIELDS;
     for (const [globKey, module] of Object.entries(LIVE_MODULES)) {
       for (const [name, value] of Object.entries(module ?? {})) {
         const node = `${referencePath(globKey)}.${name}`;

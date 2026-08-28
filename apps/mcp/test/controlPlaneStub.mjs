@@ -446,6 +446,34 @@ function escapeXml(value) {
  *    conditional write is a 409 tagged `conflict`. A stub that answered 404
  *    would let an adapter reading the status instead of the tag pass.
  */
+export function dropboxTaggedError(summary, status = 409) {
+  const segments = summary
+    .split("/")
+    .filter((part) => part && part !== "..." && part !== ".");
+  let error = null;
+  for (const segment of [...segments].reverse()) {
+    error = error ? { ".tag": segment, [segment]: error } : { ".tag": segment };
+  }
+  // `UploadError.path` is the one variant that is NOT a plain nested union.
+  // It carries `UploadWriteFailed`, a *struct* (`reason WriteError`,
+  // `upload_session_id String`), and Stone flattens struct-valued variants —
+  // so Dropbox sends `{".tag":"path", reason:{…}, upload_session_id:"…"}`
+  // rather than nesting under `path`. Deriving the nested form everywhere
+  // replaced one shape Dropbox does not send with another, at the one
+  // endpoint where it matters most: the conditional-write conflict.
+  if (segments[0] === "path" && segments[1] === "conflict" && error?.path) {
+    error = {
+      ".tag": "path",
+      reason: error.path,
+      upload_session_id: "FAKE-upload-session",
+    };
+  }
+  return new Response(JSON.stringify({ error_summary: summary, error: error ?? {} }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 export function createDropboxBackend() {
   const API_ORIGIN = "https://api.dropboxapi.com";
   const CONTENT_ORIGIN = "https://content.dropboxapi.com";
@@ -460,12 +488,21 @@ export function createDropboxBackend() {
     return accounts.get(accessToken);
   }
 
-  function tagged(summary, status = 409) {
-    return new Response(JSON.stringify({ error_summary: summary, error: {} }), {
-      status,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
+  /**
+   * A Dropbox error, with the tags Dropbox actually sends.
+   *
+   * `error` used to be `{}` — an error object with no tag in it, which is not
+   * a shape Dropbox produces. It passed only because the adapter searched the
+   * raw body for a substring, so the summary line alone was enough. A fake
+   * built to the check rather than to the API stops being evidence the moment
+   * the check changes, and it hid a real defect: an adapter reading tags
+   * correctly saw *no* tag here and treated a missing file as a hard failure.
+   *
+   * The union is nested the way Dropbox nests it — `path/not_found` becomes
+   * `{".tag":"path", path:{".tag":"not_found"}}` — so the summary and the tags
+   * cannot drift apart.
+   */
+  const tagged = dropboxTaggedError;
 
   const notFound = () => tagged("path/not_found/...");
   const conflict = () => tagged("path/conflict/file/...");

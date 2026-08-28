@@ -72,6 +72,99 @@ function apiArgHeader(value) {
 /** Backoff for a 429, in milliseconds, jittered so a fleet does not sync in lockstep. */
 const RETRY_BACKOFF_MS = [1000, 2000, 4000, 8000];
 
+/**
+ * The longest `Retry-After` we will actually sleep for, per attempt.
+ *
+ * Dropbox's number wins over ours when it is larger — but only up to here.
+ * It is a value from outside the Worker, it is honoured up to four times, and
+ * an unbounded one is a request that never returns: `Retry-After: 86400` asks
+ * for 96 hours of wall clock across the four attempts. Past the cap the right
+ * answer is to give the caller the 429 and let them come back.
+ */
+const MAX_RETRY_AFTER_MS = 30_000;
+
+/**
+ * Error bodies are read with a ceiling, for the reason `s3.js` gives: a
+ * response body is buffered whole before anything trims it, and a hostile or
+ * broken endpoint could stream hundreds of megabytes into a 128 MB isolate.
+ * Milder here than there — these hosts are hardcoded constants rather than a
+ * customer-configured endpoint — but the same read, and the decision was
+ * already made once.
+ */
+const ERROR_RESPONSE_BYTE_CAP = 64_000;
+
+async function readCappedText(response, cap) {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > cap) return "";
+  const body = response.body;
+  if (!body || typeof body.getReader !== "function") {
+    const text = await response.text().catch(() => "");
+    return new TextEncoder().encode(text).byteLength > cap ? "" : text;
+  }
+  const reader = body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > cap) {
+      await reader.cancel().catch(() => {});
+      return "";
+    }
+    chunks.push(value);
+  }
+  const joined = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    joined.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return new TextDecoder().decode(joined);
+}
+
+/**
+ * The tags out of a Dropbox error body, as a `/`-joined path — `path/not_found`,
+ * `path/conflict/file`, `path/conflict/folder`.
+ *
+ * Reading the *tag* is the whole point, and it used to be a `String.includes`
+ * over the raw body. That body also carries `error_summary` and a localized,
+ * human-facing `user_message`, so a note whose prose happened to contain
+ * "not_found" — or a `restricted_content` refusal whose message did — reported
+ * as absent. A file that exists and cannot be read is not a file that is gone,
+ * and the two answers lead to opposite places.
+ *
+ * Unparseable or untagged bodies yield "", which every caller treats as "not
+ * the specific thing I was asking about" and therefore as a real failure.
+ *
+ * **Every caller reads the body exactly once and passes the tag along as a
+ * string.** This used to be two calls — a not-found check on `response.clone()`
+ * and then a failure path on the original — and a clone tees the stream.
+ * Cancelling one branch part-way, which is exactly what the byte cap does on an
+ * oversized body, leaves the other waiting for a producer that will not run
+ * again: the request hangs rather than failing, which is worse than the
+ * unbounded read the cap exists to prevent.
+ */
+async function errorTagPath(response) {
+  let parsed;
+  try {
+    parsed = JSON.parse(await readCappedText(response, ERROR_RESPONSE_BYTE_CAP));
+  } catch {
+    return "";
+  }
+  const tags = [];
+  let node = parsed?.error;
+  while (node && typeof node === "object") {
+    const tag = node[".tag"];
+    if (typeof tag !== "string") break;
+    tags.push(tag);
+    // Dropbox nests the detail under a key named after the tag, and puts an
+    // upload's cause under `reason`.
+    node = node[tag] ?? node.reason;
+  }
+  return tags.join("/");
+}
+
 export class DropboxStore {
   /**
    * @param {Object} options
@@ -119,6 +212,12 @@ export class DropboxStore {
     const attempt = RETRY_BACKOFF_MS.length - retriesLeft;
     const fallback = RETRY_BACKOFF_MS[attempt] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1];
     const advertised = Number(response.headers.get("Retry-After")) * 1000;
+    // Past the cap, hand back the 429 rather than sleeping through it. One
+    // control, not two: this used to sit beside a `Math.min` that clamped the
+    // same value, and either half could be deleted with the suite green
+    // because the other still bounded the sleep. Two halves of one guard, each
+    // making the other untestable, is how a guard comes to look covered.
+    if (Number.isFinite(advertised) && advertised > MAX_RETRY_AFTER_MS) return response;
     const base = Math.max(Number.isFinite(advertised) ? advertised : 0, fallback);
     await this.sleep(base + Math.floor(Math.random() * 1000));
     return this._request(url, init, { retriesLeft: retriesLeft - 1 });
@@ -138,15 +237,19 @@ export class DropboxStore {
    * must not be mistaken for absence — reading a tag rather than a status is
    * the difference between "this file is missing" and "this token expired".
    */
-  async _isNotFound(response) {
-    if (response.status !== 409) return false;
-    const detail = await response.clone().text();
-    return detail.includes("not_found");
-  }
-
-  async _fail(response, action) {
-    const detail = (await response.text().catch(() => "")).slice(0, 200);
-    throw new Error(`dropbox ${action} failed: ${response.status} ${detail}`);
+  /**
+   * The tag, and never the body.
+   *
+   * These throws reach the connected AI client as `internal error: <message>`,
+   * and a Dropbox error body echoes the offending path — which is the
+   * customer's chosen folder plus the note's own name. `assertSafeKey` states
+   * the rule this has to keep ("the message never echoes the key: keys are the
+   * customer's own note paths"), and `s3Error` keeps it by extracting only the
+   * code. A tag is a fixed identifier from Dropbox's own vocabulary, so it can
+   * say what went wrong without saying what it went wrong *on*.
+   */
+  _fail(status, action, tag) {
+    throw new Error(`dropbox ${action} failed: ${status}${tag ? ` (${tag})` : ""}`);
   }
 
   async get(key) {
@@ -156,8 +259,11 @@ export class DropboxStore {
       headers: { "Dropbox-API-Arg": apiArgHeader({ path: this._path(key) }) },
     });
 
-    if (response.status === 409 && (await this._isNotFound(response))) return null;
-    if (!response.ok) return this._fail(response, "download");
+    if (!response.ok) {
+      const tag = await errorTagPath(response);
+      if (response.status === 409 && tag.split("/").includes("not_found")) return null;
+      return this._fail(response.status, "download", tag);
+    }
 
     const metadata = JSON.parse(response.headers.get("Dropbox-API-Result") || "{}");
     const buffer = await response.arrayBuffer();
@@ -175,6 +281,7 @@ export class DropboxStore {
     // conditional write silently downgraded to an overwrite, which is the exact
     // failure this adapter exists to make impossible.
     let mode = { ".tag": "overwrite" };
+    let conditional = false;
     if (options && "onlyIf" in options) {
       const expected = options.onlyIf?.etagMatches;
       if (typeof expected !== "string" || !expected.trim()) {
@@ -183,6 +290,7 @@ export class DropboxStore {
         );
       }
       mode = { ".tag": "update", update: assertSafeEtag(normalizeEtag(expected)) };
+      conditional = true;
     }
 
     const body = typeof value === "string" ? new TextEncoder().encode(value) : value;
@@ -203,14 +311,26 @@ export class DropboxStore {
       body,
     });
 
-    if (response.status === 409) {
-      const detail = await response.clone().text();
-      // The precondition failed: somebody wrote since the caller last read.
-      // `null` is the contract's word for that, and every caller handles it.
-      if (detail.includes("conflict")) return null;
-      return this._fail(response, "upload");
+    if (!response.ok) {
+      const tag = await errorTagPath(response);
+      // `null` means "your precondition failed" and nothing else, so a write
+      // nobody made conditional must never return it. Dropbox answers
+      // `path/conflict/folder` when a *folder* occupies the path of an
+      // ordinary `overwrite` upload; read as a lost race, that told
+      // `move_note` and `archive_note` the destination was contended when it
+      // had simply not been written — and both delete the source immediately
+      // afterwards. This is the only backend that could produce that, because
+      // it is the only one deriving `null` from anything but a real
+      // precondition.
+      if (
+        response.status === 409 &&
+        conditional &&
+        tag.split("/").includes("conflict")
+      ) {
+        return null;
+      }
+      return this._fail(response.status, "upload", tag);
     }
-    if (!response.ok) return this._fail(response, "upload");
 
     const metadata = await response.json();
     return { etag: normalizeEtag(metadata.rev) };
@@ -221,8 +341,11 @@ export class DropboxStore {
     const response = await this._rpc("/files/delete_v2", { path: this._path(key) });
     // Deleting what is already gone is success, so a rollback path that runs
     // twice does not fail the second time.
-    if (response.status === 409 && (await this._isNotFound(response))) return;
-    if (!response.ok) await this._fail(response, "delete");
+    if (!response.ok) {
+      const tag = await errorTagPath(response);
+      if (response.status === 409 && tag.split("/").includes("not_found")) return;
+      this._fail(response.status, "delete", tag);
+    }
   }
 
   /**
@@ -248,10 +371,13 @@ export class DropboxStore {
 
     // A folder that does not exist yet lists as empty rather than throwing:
     // this is the first thing a freshly connected, untouched context does.
-    if (response.status === 409 && (await this._isNotFound(response))) {
-      return { objects: [], delimitedPrefixes: [], truncated: false };
+    if (!response.ok) {
+      const tag = await errorTagPath(response);
+      if (response.status === 409 && tag.split("/").includes("not_found")) {
+        return { objects: [], delimitedPrefixes: [], truncated: false };
+      }
+      return this._fail(response.status, "list", tag);
     }
-    if (!response.ok) return this._fail(response, "list");
 
     const page = await response.json();
     const objects = [];

@@ -50,6 +50,7 @@ import {
   createPkcePair,
   dropboxAuthorizeUrl,
   exchangeDropboxCode,
+  dropboxRedirectAllowed,
   isDropboxReconnectRequired,
   refreshDropboxToken,
   revokeDropboxToken,
@@ -197,6 +198,19 @@ export const startDropboxConnect = action({
       throw new ConvexError({
         code: "NOT_OWNER",
         message: "Only the owner of a context can connect its storage.",
+      });
+    }
+
+    // Refused here, before anything is parked and before an authorize URL
+    // exists. See `dropboxRedirectAllowed`: an arbitrary redirect turns this
+    // into a confused deputy with our consent screen on the front of it, and
+    // the `startedBy` check below cannot catch it because the attacker really
+    // did start their own attempt. This is not a tenancy answer and leaks
+    // nothing about anybody else, so it says what is wrong.
+    if (!dropboxRedirectAllowed(args.redirectUri)) {
+      throw new ConvexError({
+        code: "REDIRECT_URI_NOT_ALLOWED",
+        message: "That redirect URI is not one this deployment answers on.",
       });
     }
 
