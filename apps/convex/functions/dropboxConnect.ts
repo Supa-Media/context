@@ -50,6 +50,7 @@ import {
   createPkcePair,
   dropboxAuthorizeUrl,
   exchangeDropboxCode,
+  isDropboxReconnectRequired,
 } from "./lib/dropboxOAuth";
 
 /**
@@ -227,7 +228,36 @@ export const startDropboxConnect = action({
  * is and notice later that a *different* one was reconnected.
  */
 /**
- * Finish a connect.
+ * Finish a connect. **No session required, and that is a security argument,
+ * not a shortcut.**
+ *
+ * ## Why possession of `state` + `code` is the whole proof
+ *
+ * The first live run failed here twice, the same way: the OAuth round trip
+ * dropped the browser's session (a refresh-token rotation lost mid-redirect
+ * reads as reuse, which kills the grant), the callback demanded sign-in, and
+ * the minutes of email OTP cost more than Dropbox's single-use code lives.
+ * A sign-in wall on this URL turns every slow inbox into a failed connect.
+ *
+ * It is also not needed. Three facts already pin everything a session would:
+ *
+ *  - **The attempt names the workspace and the starter.** Both were recorded
+ *    when an authenticated owner started the flow; nothing the caller sends
+ *    can choose either. `boundBy` is the starter, not the caller.
+ *  - **PKCE binds the code to this attempt cryptographically.** The code can
+ *    only be exchanged with the verifier whose challenge began the flow, and
+ *    the verifier lives encrypted on the attempt row. A stolen code presented
+ *    with any other state fails at Dropbox itself — so a caller cannot bind
+ *    their workspace to somebody else's Dropbox, or the reverse, whatever
+ *    session they hold.
+ *  - **`state` is unguessable and single use**, hashed at rest, and the row
+ *    is deleted before the exchange runs.
+ *
+ * What an interceptor of the full callback URL can do is complete — or, by
+ * failing the exchange, burn — the victim's *own* connect, which was the
+ * victim's intent anyway; availability, not access. What the session check
+ * added on top was one more way for the flow to fail for its owner, and on
+ * the first real run it was the only thing that did.
  *
  * ## Why this hands off instead of doing the work
  *
@@ -250,10 +280,9 @@ export const completeDropboxConnect = action({
   args: { state: v.string(), code: v.string() },
   returns: v.object({ workspaceId: v.id("workspaces") }),
   handler: async (ctx, args): Promise<{ workspaceId: Id<"workspaces"> }> => {
-    const userId = await requireActor(ctx);
     const workspaceId: Id<"workspaces"> | null = await ctx.runMutation(
       internal.functions.dropboxConnect.consumeAttemptAndExchange,
-      { hashedState: await hashToken(args.state), userId, code: args.code },
+      { hashedState: await hashToken(args.state), code: args.code },
     );
     if (workspaceId === null) refuseAttempt();
     return { workspaceId };
@@ -268,7 +297,7 @@ export const completeDropboxConnect = action({
  * makes a replay of the same callback URL find nothing.
  */
 export const consumeAttemptAndExchange = internalMutation({
-  args: { hashedState: v.string(), userId: v.id("users"), code: v.string() },
+  args: { hashedState: v.string(), code: v.string() },
   returns: v.union(v.null(), v.id("workspaces")),
   handler: async (ctx, args) => {
     const attempt = await ctx.db
@@ -283,16 +312,15 @@ export const consumeAttemptAndExchange = internalMutation({
     await ctx.db.delete(attempt._id);
 
     if (attempt.expiresAt < Date.now()) return null;
-    // The person answering must be the person who started it, or a callback
-    // URL captured from somebody else's browser is usable by whoever took it.
-    if (attempt.startedBy !== args.userId) return null;
 
     await ctx.scheduler.runAfter(
       0,
       internal.functions.dropboxConnect.exchangeAndBind,
       {
         workspaceId: attempt.workspaceId,
-        boundBy: args.userId,
+        // The starter, recorded when an authenticated owner began the flow —
+        // never the caller, who may hold no session at all.
+        boundBy: attempt.startedBy,
         encryptedVerifier: attempt.encryptedVerifier,
         code: args.code,
         redirectUri: attempt.redirectUri,
@@ -325,15 +353,39 @@ export const exchangeAndBind = internalAction({
     const context = { workspaceId: args.workspaceId as string };
     const verifier = await decryptSecret(args.encryptedVerifier, keyset, context);
 
-    const tokens = await exchangeDropboxCode({
-      clientId,
-      code: args.code,
-      verifier,
-      // The redirect the flow was started with, not one a caller supplied now.
-      // Dropbox checks it matches, and reading it off the attempt is what stops
-      // the exchange being redirected somewhere else.
-      redirectUri: args.redirectUri,
-    });
+    let tokens;
+    try {
+      tokens = await exchangeDropboxCode({
+        clientId,
+        code: args.code,
+        verifier,
+        // The redirect the flow was started with, not one a caller supplied
+        // now. Dropbox checks it matches, and reading it off the attempt is
+        // what stops the exchange being redirected somewhere else.
+        redirectUri: args.redirectUri,
+      });
+    } catch (error) {
+      // THE FAILURE THAT WAS INVISIBLE, seen on the first live run.
+      //
+      // This job is scheduled, so a throw here reaches nobody: the caller was
+      // already told "started" and is watching the binding, which never
+      // arrives. Seyi hit exactly that — the sign-in wall cost enough time
+      // that Dropbox's single-use code expired, the exchange threw
+      // `invalid_grant`, and the screen sat on "still checking" over a
+      // connection that had already failed for good.
+      //
+      // So the failure is written where the watcher is looking. Only when the
+      // workspace has no usable binding: a failed *re*-connect must not
+      // clobber the storage that is still serving the context.
+      await ctx.runMutation(internal.functions.dropboxConnect.recordConnectFailure, {
+        workspaceId: args.workspaceId,
+        boundBy: args.boundBy,
+        errorCode: isDropboxReconnectRequired(error)
+          ? "DROPBOX_CODE_EXPIRED"
+          : "DROPBOX_EXCHANGE_FAILED",
+      });
+      return null;
+    }
 
     await ctx.runMutation(internal.functions.dropboxConnect.applyDropboxBinding, {
       workspaceId: args.workspaceId,
@@ -353,6 +405,55 @@ export const exchangeAndBind = internalAction({
       internal.functions.provisioning.verifyStorageBinding,
       { workspaceId: args.workspaceId },
     );
+    return null;
+  },
+});
+
+/**
+ * Record a connect that failed after the caller was told "started".
+ *
+ * Written as an error-status binding row rather than into a side table,
+ * because the row is where the callback screen and the console already look.
+ * No tokens are stored — there are none — and the gateway refuses an
+ * incomplete row loudly, so this can never half-serve.
+ *
+ * **Refuses to touch a usable binding.** A failed reconnect leaves the
+ * working storage alone; the person still has the context they had.
+ */
+export const recordConnectFailure = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    boundBy: v.id("users"),
+    errorCode: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (existing !== null && existing.status === "connected") return null;
+
+    const now = Date.now();
+    const message =
+      args.errorCode === "DROPBOX_CODE_EXPIRED"
+        ? "Signing in took longer than Dropbox allows, so this connection expired. Press Connect Dropbox again — it takes seconds now that you are signed in."
+        : "Dropbox did not complete the connection. Press Connect Dropbox to try again.";
+    const fields = {
+      workspaceId: args.workspaceId,
+      provider: "dropbox" as const,
+      capabilities: { conditionalWrite: true },
+      status: "error" as const,
+      lastError: message,
+      errorCode: args.errorCode,
+      boundBy: args.boundBy,
+      updatedAt: now,
+    };
+    if (existing === null) {
+      await ctx.db.insert("storageBindings", { ...fields, createdAt: now });
+    } else {
+      await ctx.db.patch(existing._id, fields);
+    }
     return null;
   },
 });

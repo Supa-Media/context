@@ -7,7 +7,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 
 /**
- * `DropboxCallbackBody` and `DropboxCard` use no router and no Convex client.
+ * `DropboxCallbackBody` and `StorageChoiceBody` use no router and no Convex client.
  * Their *modules* reach `expo-router`, which ships untranspiled JSX that this
  * project's jest transform does not reach into `node_modules` for. Stubbing
  * the three names is the whole of it; nothing below touches any of them.
@@ -20,7 +20,7 @@ jest.mock("expo-router", () => ({
 }));
 
 import { DropboxCallbackBody } from "../features/console/storage/DropboxCallbackScreen";
-import { DropboxCard } from "../features/console/storage/DropboxCard";
+import { StorageChoiceBody } from "../features/console/storage/StorageChoice";
 import { SettingsPane } from "../features/console/panes/SettingsPane";
 import type { ConsoleData, ConsoleStorage } from "../features/console/types";
 import {
@@ -114,21 +114,24 @@ function mountBody(view: DropboxCallbackView, onLeave: (href: string) => void = 
 
 function mountCard(
   overrides: {
+    dropboxReady?: boolean;
     redirectUri?: string | null;
     state?: DropboxStartState;
-    start?: (folder?: string) => void;
+    start?: () => void;
     note?: string;
   } = {},
 ): Screen {
   return mount(
-    createElement(DropboxCard, {
+    createElement(StorageChoiceBody, {
+      dropboxReady: overrides.dropboxReady ?? true,
       redirectUri:
         overrides.redirectUri === undefined
           ? "https://context.lc/connect/dropbox"
           : overrides.redirectUri,
-      state: overrides.state ?? { kind: "idle" },
-      start: overrides.start ?? (() => {}),
-      note: overrides.note,
+      dropboxState: overrides.state ?? { kind: "idle" },
+      startDropbox: overrides.start ?? (() => {}),
+      connect: async () => ({ status: "unverified" }),
+      dropboxNote: overrides.note,
     }),
   );
 }
@@ -224,7 +227,7 @@ describe("the callback screen's body", () => {
   });
 
   test("the states that render nothing render nothing", () => {
-    for (const view of [{ kind: "wait" } as const, { kind: "signIn", href: "/login" } as const]) {
+    for (const view of [{ kind: "wait" } as const]) {
       const screen = mountBody(view);
       expect(screen.text).toBe("");
       screen.unmount();
@@ -232,137 +235,117 @@ describe("the callback screen's body", () => {
   });
 });
 
-describe("the Connect Dropbox card", () => {
-  test("the consent screen's promise is on the card before anybody presses it", () => {
+describe("the storage choice: two cards, details behind the click", () => {
+  /**
+   * Seyi's spec, verbatim enough to test: "just two options, simple square
+   * cards next to each other", the bucket first because it is the one we
+   * recommend, and the details only after a card is chosen.
+   */
+  test("both cards are present, the bucket first and marked recommended", () => {
     const screen = mountCard();
-    // "its own folder", not "all your Dropbox" — the same words the Dropbox
-    // consent screen uses for an App Folder scoped app.
-    expect(screen.text).toContain("its own folder");
-    expect(screen.text).toContain("byte-identical");
+    const bucket = screen.q("choose-bucket");
+    const dropbox = screen.q("choose-dropbox");
+    expect(bucket).not.toBe(null);
+    expect(dropbox).not.toBe(null);
+    // First in the DOM is first on the screen: reading order and layout order
+    // agree in a flex row.
+    expect(
+      bucket!.compareDocumentPosition(dropbox!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+    expect(screen.text).toContain("Recommended");
+    screen.unmount();
+  });
+
+  test("neither the bucket form nor any pitch prose renders before a click", () => {
+    const screen = mountCard();
+    // The form's first field is the endpoint; its absence is the whole point.
+    expect(screen.q("connect-endpoint")).toBe(null);
+    // And no wall of trade-off copy either — the old screen's divider text.
+    expect(screen.text).not.toContain("storage you own outright. Both keep plain Markdown");
+    screen.unmount();
+  });
+
+  test("choosing the bucket reveals the credential form, and choosing again hides it", () => {
+    const screen = mountCard();
+    screen.click("choose-bucket");
+    expect(screen.q("connect-endpoint")).not.toBe(null);
+    screen.click("choose-bucket");
+    expect(screen.q("connect-endpoint")).toBe(null);
     screen.unmount();
   });
 
   /**
-   * The common case asks nothing. A folder picker in front of every person
-   * connecting an app folder we already have is a question with a known
-   * answer — the same restraint the bucket form's addressing question follows.
+   * Pressing Dropbox goes — it does not expand into one more button. The app
+   * is folder-scoped so there is nothing to ask, and a step that exists only
+   * to be clicked through teaches people to click through steps.
    */
-  test("no folder is asked for by default, and none is sent", () => {
-    const calls: Array<string | undefined> = [];
-    const screen = mountCard({ start: (folder) => calls.push(folder) });
+  test("pressing Dropbox starts the flow immediately, asking nothing", () => {
+    let starts = 0;
+    const screen = mountCard({ start: () => (starts += 1) });
+    screen.click("choose-dropbox");
+    expect(starts).toBe(1);
+    // No folder field ever rendered — the second-context question does not
+    // exist on this screen.
     expect(screen.q("dropbox-folder")).toBe(null);
-    screen.click("dropbox-connect");
-    expect(calls).toEqual([undefined]);
     screen.unmount();
   });
 
-  /**
-   * `CLAUDE.md` forbids us namespacing inside somebody's storage and permits
-   * only a root prefix the customer chose. So the field, when it appears,
-   * appears **empty** — a value we derived from a workspace id and dropped in
-   * the box is not a value they chose, it just looks like one.
-   */
-  test("the second-context field opens empty, never prefilled from anything", () => {
+  test("the consent promise is on the card before anybody presses it", () => {
     const screen = mountCard();
-    screen.click("dropbox-folder-disclose");
-    const field = screen.q("dropbox-folder") as HTMLInputElement | null;
-    expect(field).not.toBe(null);
-    expect(field?.value).toBe("");
-    screen.unmount();
-  });
-
-  test("a folder somebody typed is what gets sent", () => {
-    const calls: Array<string | undefined> = [];
-    const screen = mountCard({ start: (folder) => calls.push(folder) });
-    screen.click("dropbox-folder-disclose");
-    screen.type("dropbox-folder", "  second/  ");
-    screen.click("dropbox-connect");
-    expect(calls).toEqual(["second/"]);
-    screen.unmount();
-  });
-
-  test("opening the field and leaving it empty still sends nothing", () => {
-    const calls: Array<string | undefined> = [];
-    const screen = mountCard({ start: (folder) => calls.push(folder) });
-    screen.click("dropbox-folder-disclose");
-    screen.click("dropbox-connect");
-    expect(calls).toEqual([undefined]);
-    screen.unmount();
-  });
-
-  test("a traversal is refused before anything leaves the page", () => {
-    const calls: Array<string | undefined> = [];
-    const screen = mountCard({ start: (folder) => calls.push(folder) });
-    screen.click("dropbox-folder-disclose");
-    screen.type("dropbox-folder", "a/../../b");
-    screen.click("dropbox-connect");
-    expect(calls).toEqual([]);
-    expect(screen.text).toContain("`..`");
+    // "its own folder" — the same words the Dropbox consent screen uses for an
+    // App Folder scoped app.
+    expect(screen.text).toContain("its own folder");
     screen.unmount();
   });
 
   /**
    * Dropbox matches `redirect_uri` exactly and only two are registered. On a
-   * native build, or a dev server on the wrong port, the honest move is to say
-   * where this works — not to offer a button that ends on Dropbox's own error
-   * page, off our domain, with nothing a person can act on.
+   * native build, or a dev server on the wrong port, pressing the card
+   * explains where the flow works instead of leaving for Dropbox's own error
+   * page — and does not call start at all.
    */
-  test("where the flow cannot finish there is no button, and an address instead", () => {
-    const screen = mountCard({ redirectUri: null });
-    expect(screen.q("dropbox-connect")).toBe(null);
-    expect(screen.q("dropbox-folder-disclose")).toBe(null);
+  test("where the flow cannot finish, pressing explains and does not start", () => {
+    let starts = 0;
+    const screen = mountCard({ redirectUri: null, start: () => (starts += 1) });
+    expect(screen.q("dropbox-unavailable")).toBe(null);
+    screen.click("choose-dropbox");
+    expect(starts).toBe(0);
     expect(screen.q("dropbox-unavailable")).not.toBe(null);
-    expect(screen.text).toContain("https://context.lc");
-    // And it says the other path is unaffected, so nobody reads this as
-    // "storage cannot be connected here".
-    expect(screen.text).toContain("Connecting a bucket works from anywhere");
+    expect(screen.text).toContain("context.lc");
     screen.unmount();
   });
 
-  test("the note about leaving the page is only where the button is", () => {
-    const withButton = mountCard({ note: "This leaves the page." });
-    expect(withButton.text).toContain("This leaves the page.");
-    withButton.unmount();
-
-    const without = mountCard({ redirectUri: null, note: "This leaves the page." });
-    expect(without.text).not.toContain("This leaves the page.");
-    without.unmount();
-  });
-
-  test("a start that failed shows the failure, and the button comes back", () => {
+  test("a start that failed shows the failure beside the cards", () => {
     const screen = mountCard({
-      state: { kind: "failed", failure: { headline: "Dropbox isn't set up", next: "Use a bucket." } },
+      state: {
+        kind: "failed",
+        failure: {
+          headline: "Dropbox could not be reached.",
+          next: "Try again.",
+          detail: null,
+        } as never,
+      },
     });
-    expect(screen.text).toContain("Dropbox isn't set up");
-    expect(screen.text).toContain("Use a bucket.");
-    expect(screen.q("dropbox-connect")).not.toBe(null);
+    expect(screen.text).toContain("Dropbox could not be reached.");
+    expect(screen.text).toContain("Try again.");
     screen.unmount();
   });
 
-  test("while starting, the button says so and is not pressable twice", () => {
-    const calls: Array<string | undefined> = [];
-    const screen = mountCard({ state: { kind: "starting" }, start: (f) => calls.push(f) });
-    expect(screen.text).toContain("Opening Dropbox…");
-    screen.click("dropbox-connect");
-    expect(calls).toEqual([]);
+  test("while starting, the Dropbox card is busy and not pressable twice", () => {
+    let starts = 0;
+    const screen = mountCard({ state: { kind: "starting" }, start: () => (starts += 1) });
+    screen.click("choose-dropbox");
+    expect(starts).toBe(0);
     screen.unmount();
+  });
+
+  test("the note about leaving the page renders beside a working card only", () => {
+    const withButton = mountCard({ note: "Leaving finishes onboarding early." });
+    expect(withButton.text).toContain("Leaving finishes onboarding early.");
+    withButton.unmount();
   });
 });
 
-/**
- * A Dropbox binding, on the settings pane.
- *
- * The pane was written when every binding had a bucket, an endpoint, a region
- * and an access key, and it drew all four unconditionally. A Dropbox row has
- * none of them, so the untouched pane drew four labelled wells with nothing in
- * them — which reads as a screen that failed to load somebody's credentials
- * rather than one describing a backend that has none. Same family as #25: a
- * confident-looking claim with nothing behind it.
- *
- * `storageActions` is present in the fixture because every control on this pane
- * is owner-only and absent otherwise; this is an owner looking at their own
- * context, which is the only person who sees any of it.
- */
 function consoleData(storage: Partial<ConsoleStorage>): ConsoleData {
   return {
     demo: false,

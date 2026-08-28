@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, StyleSheet, View, useWindowDimensions } from "react-native";
-import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useAction, useConvexAuth, useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
@@ -93,7 +93,11 @@ export function DropboxCallbackScreen() {
   useEffect(() => {
     if (started.current) return;
     if (callback.kind !== "ready") return;
-    if (auth.isLoading || !auth.isAuthenticated) return;
+    // No session gate. The exchange is provable without one (see
+    // `completeDropboxConnect`), and waiting on auth here is what fed the
+    // sign-in wall that burned Dropbox's single-use code on the first live
+    // run. The binding *watch* below still waits for a session, because
+    // reading the row is members-only.
     started.current = true;
     setAttempt({ kind: "running" });
     void (async () => {
@@ -104,7 +108,7 @@ export function DropboxCallbackScreen() {
         setAttempt({ kind: "failed", failure: describeThrownStorageError(error, "dropbox") });
       }
     })();
-  }, [auth.isAuthenticated, auth.isLoading, callback, complete]);
+  }, [callback, complete]);
 
   const workspaceId = attempt?.kind === "queued" ? attempt.workspaceId : null;
 
@@ -122,6 +126,9 @@ export function DropboxCallbackScreen() {
   // unstable and set state during render. See `console/querySpec.ts`.
   const queries = useMemo<RequestForQueries>(() => {
     if (workspaceId === null) return EMPTY_QUERY_SPEC;
+    // A signed-out finisher must not mount a members-only query: it would
+    // error, and the resolver already gives them the honest terminal state.
+    if (!auth.isAuthenticated) return EMPTY_QUERY_SPEC;
     return {
       binding: {
         query: api.functions.storage.getStorageBinding,
@@ -129,7 +136,7 @@ export function DropboxCallbackScreen() {
       },
       workspaces: { query: api.functions.workspaces.listMyWorkspaces, args: {} },
     };
-  }, [workspaceId]);
+  }, [auth.isAuthenticated, workspaceId]);
   const results = useQueries(queries);
 
   const rawBinding = results.binding;
@@ -156,7 +163,6 @@ export function DropboxCallbackScreen() {
   });
 
   if (view.kind === "wait") return <View style={styles.ground} />;
-  if (view.kind === "signIn") return <Redirect href={view.href} />;
 
   return (
     <ConnectPage testID="dropbox-callback-page">
@@ -188,8 +194,20 @@ export function DropboxCallbackBody({
 
   switch (view.kind) {
     case "wait":
-    case "signIn":
       return null;
+
+    case "finishing":
+      return (
+        <Outcome
+          titleSize={titleSize}
+          headline="Dropbox is connecting"
+          detail="The connection is finishing on our side — nothing else to do here. Sign in to open your console and watch it land."
+          tone="ok"
+          primary={{ label: "Sign in to your console", href: view.href }}
+          onLeave={onLeave}
+          testID="dropbox-finishing"
+        />
+      );
 
     case "working":
       return (

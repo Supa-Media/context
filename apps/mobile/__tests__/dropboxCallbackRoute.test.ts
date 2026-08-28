@@ -168,29 +168,34 @@ describe("the Dropbox callback route", () => {
     screen.unmount();
   });
 
-  test("nothing is spent while auth is still resolving", async () => {
+  /**
+   * THE INVERSION OF A GUARD THIS FILE USED TO CARRY, on purpose.
+   *
+   * These used to assert that a signed-out visit spends nothing and redirects
+   * to sign-in with the code in `next`. That wall is what failed the first
+   * live connect: the OAuth round trip dropped the session, the wall demanded
+   * email OTP, and the minutes it took outlived Dropbox's single-use code.
+   * The exchange needs no session — PKCE binds the code to the parked
+   * attempt — so it now runs immediately, whatever the auth state is doing.
+   */
+  test("the exchange runs immediately while auth is still resolving", async () => {
     reset();
     mockAuth = { isLoading: true, isAuthenticated: false };
     mockParams = { code: "c1", state: "s1" };
     const screen = await mount();
-    expect(mockActionCalls).toEqual([]);
+    expect(mockActionCalls).toEqual([{ state: "s1", code: "c1" }]);
+    // And exactly once: auth settling later must not spend a second attempt.
+    expect(mockRedirects).toEqual([]);
     screen.unmount();
   });
 
-  /**
-   * Signed out, the code and the state ride through sign-in in `next`. They
-   * exist in this URL for about a minute and nowhere else, so a bare `/login`
-   * strands somebody on a page with nothing left to finish.
-   */
-  test("signed out redirects to sign-in carrying both halves, and spends nothing", async () => {
+  test("signed out still exchanges, and is never bounced to a sign-in wall", async () => {
     reset();
     mockAuth = { isLoading: false, isAuthenticated: false };
     mockParams = { code: "c1", state: "s1" };
     const screen = await mount();
-    expect(mockActionCalls).toEqual([]);
-    expect(mockRedirects).toHaveLength(1);
-    const next = new URL(mockRedirects[0]!, "https://context.lc").searchParams.get("next");
-    expect(next).toBe("/connect/dropbox?code=c1&state=s1");
+    expect(mockActionCalls).toEqual([{ state: "s1", code: "c1" }]);
+    expect(mockRedirects).toEqual([]);
     screen.unmount();
   });
 
