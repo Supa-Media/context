@@ -490,6 +490,7 @@ export const claimInvitationEmail = internalMutation({
       to: v.string(),
       token: v.string(),
       workspaceName: v.string(),
+      workspaceKind: v.union(v.literal("personal"), v.literal("shared")),
       inviterName: v.union(v.string(), v.null()),
       inviterHandle: v.union(v.string(), v.null()),
       expiresAt: v.number(),
@@ -551,6 +552,7 @@ export const claimInvitationEmail = internalMutation({
       to: invitation.invitee,
       token: invitation.token,
       workspaceName: workspace.displayName,
+      workspaceKind: workspace.kind,
       inviterName: inviter.name ?? null,
       inviterHandle,
       expiresAt: invitation.expiresAt,
@@ -729,6 +731,7 @@ export const sendInvitationEmail = internalAction({
       inviterName: send.inviterName,
       inviterHandle: send.inviterHandle,
       workspaceName: send.workspaceName,
+      workspaceKind: send.workspaceKind,
       // The origin validated above, handed back explicitly rather than read
       // from the environment a second time. The check and the build then cannot
       // be looking at different values, and this call provably cannot throw.
@@ -736,6 +739,7 @@ export const sendInvitationEmail = internalAction({
         [APP_ORIGIN_ENV_VAR]: appOrigin,
       }),
       expiresAt: send.expiresAt,
+      sentAt: Date.now(),
     });
 
     let response: Response;

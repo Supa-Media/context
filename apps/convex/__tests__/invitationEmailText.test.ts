@@ -22,7 +22,7 @@ import {
   SIGNIN_CODE_TTL_MS,
   describeInviter,
   escapeHtml,
-  formatExpiryDate,
+  describeExpiry,
   invitationUrlFor,
   renderInvitationEmail,
   sanitizeHeaderText,
@@ -39,8 +39,12 @@ function facts(overrides: Partial<Parameters<typeof renderInvitationEmail>[0]> =
     inviterName: "Ada Lovelace",
     inviterHandle: "ada",
     workspaceName: "Atlas Team",
+    // A shared context by default, because that is the case whose headline
+    // names the context. The personal branch is asserted explicitly below.
+    workspaceKind: "shared" as const,
     url: `https://app.context.invalid/invite/${TOKEN}`,
     expiresAt: Date.UTC(2026, 8, 3, 11, 30, 0),
+    sentAt: Date.UTC(2026, 7, 27, 11, 30, 0),
     ...overrides,
   };
 }
@@ -198,15 +202,69 @@ describe("what the email says", () => {
     expect(rendered.html).toContain("Atlas Team");
   });
 
+  /**
+   * A personal context's display name IS its owner's handle, so the shared
+   * sentence would say the same word twice — "@ada invited you to ada" — and
+   * read like a template nobody finished. Naming what it is instead says more,
+   * and "some" is the honest word: an invitee gets the `team` tier, never the
+   * owner's own view.
+   */
+  test("a personal context is described, not named twice", () => {
+    const personal = renderInvitationEmail(
+      facts({ workspaceKind: "personal", workspaceName: "ada" }),
+    );
+    for (const body of [personal.subject, personal.text, personal.html]) {
+      expect(body).toContain("some of their personal context");
+    }
+    // The redundant second mention is gone, not merely reworded.
+    expect(personal.subject).toBe(
+      "Ada Lovelace (@ada) invited you to use some of their personal context on Context",
+    );
+  });
+
+  /**
+   * The product knows a display name and a handle. It knows nothing about
+   * anybody's gender, and a name is not evidence of one — so the pronoun is
+   * "their". This is mail sent to third parties about a real person, and a
+   * guess here misgenders them in front of somebody else.
+   */
+  test("never guesses a gendered pronoun for the inviter", () => {
+    const personal = renderInvitationEmail(
+      facts({ workspaceKind: "personal", workspaceName: "ada" }),
+    );
+    const whole =
+      `${personal.subject}\n${personal.text}\n${personal.html}`.toLowerCase();
+    for (const pronoun of [" his ", " her ", " hers ", " he ", " she "]) {
+      expect(whole, `the email says "${pronoun.trim()}"`).not.toContain(pronoun);
+    }
+    expect(whole).toContain("their");
+  });
+
+  test("a shared context is named, and says nothing about whose it is", () => {
+    const shared = renderInvitationEmail(facts({ workspaceKind: "shared" }));
+    expect(shared.subject).toBe(
+      "Ada Lovelace (@ada) invited you to Atlas Team on Context",
+    );
+    expect(shared.text).not.toContain("personal");
+    expect(shared.html).not.toContain("personal");
+  });
+
   test("carries the link in both alternatives", () => {
     expect(rendered.text).toContain(facts().url);
     expect(rendered.html).toContain(facts().url);
   });
 
-  test("states the expiry as a UTC date rather than a locale's guess", () => {
-    expect(formatExpiryDate(Date.UTC(2026, 8, 3, 11, 30, 0))).toBe("2026-09-03");
-    expect(rendered.text).toContain("2026-09-03");
-    expect(rendered.html).toContain("2026-09-03");
+  test("states the expiry as time remaining, counted from the send", () => {
+    // Counted from the send, not from a hardcoded TTL: an invitation whose
+    // send was skipped is mailed later while still expiring on its original
+    // clock, and a constant would promise a week that had partly gone.
+    const week = 7 * 86_400_000;
+    expect(describeExpiry(0, week)).toBe("in 7 days");
+    expect(describeExpiry(week - 86_400_000, week)).toBe("in 1 day");
+    expect(describeExpiry(week - 1, week)).toBe("in 1 day");
+    expect(describeExpiry(week, week)).toBe("today");
+    expect(rendered.text).toContain("in 7 days");
+    expect(rendered.html).toContain("in 7 days");
   });
 
   /**
