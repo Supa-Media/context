@@ -111,6 +111,9 @@ export const deleteAccount = mutation({
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
     for (const row of nameRows) {
+      // Same rule as the workspace slugs below: a freed name inherits
+      // nothing, so its pending invitations go before the row does.
+      await voidPendingInvitationsTo(ctx, row.name);
       await ctx.db.delete(row._id);
     }
 
@@ -326,8 +329,37 @@ async function deleteWorkspaceCascade(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const row of nameRows) {
+    await voidPendingInvitationsTo(ctx, row.name);
     await ctx.db.delete(row._id);
   }
 
   await ctx.db.delete(workspaceId);
+}
+
+/**
+ * A freed name must inherit nothing.
+ *
+ * Invitations are addressed to an identifier and resolved only at accept
+ * time — deliberately, so `listInvitations` cannot be a username oracle and
+ * so an email invitation follows whoever holds the mailbox. That design is
+ * exactly why freeing a name is dangerous: a pending invitation to `@agent`
+ * sitting in somebody else's workspace would be acceptable by the name's
+ * NEXT owner — a stranger walking into a context that was shared with a
+ * person who no longer exists. So every name this deletion releases takes
+ * its pending invitations with it, across all workspaces, before the row is
+ * freed.
+ *
+ * Pending only. `accepted`, `declined` and `expired` rows are other
+ * workspaces' history, none of them can mint access (accepting requires
+ * `pending`), and deleting them would be erasing somebody else's audit trail.
+ */
+async function voidPendingInvitationsTo(ctx: MutationCtx, name: string): Promise<void> {
+  const pending = await ctx.db
+    .query("workspaceInvitations")
+    .withIndex("by_invitee", (q) => q.eq("inviteeKind", "name").eq("invitee", name))
+    .filter((q) => q.eq(q.field("status"), "pending"))
+    .collect();
+  for (const invitation of pending) {
+    await ctx.db.delete(invitation._id);
+  }
 }
