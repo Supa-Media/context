@@ -97,6 +97,21 @@ export function findSpecifiers(source) {
 
 const isRelative = (specifier) => specifier.startsWith("./") || specifier.startsWith("../");
 
+/**
+ * `--allow-node-builtins` widens the rule from "relative only" to "relative or
+ * a `node:` built-in", for the one thing in this repo that is a Node program
+ * rather than a Worker: `packages/hook`, which people run on their own laptop.
+ *
+ * The invariant that matters is the same in both places and is **not** "no
+ * `node:`" — it is **no third party**. A package hoisted to the workspace root
+ * resolves without ever appearing in the package's own manifest, so a
+ * dependency can arrive in something published to npm without anybody adding
+ * one. Keeping `node:` forbidden by default is what protects the gateway, where
+ * the built-ins genuinely do not exist at runtime; the flag says "this one runs
+ * on Node" out loud rather than dropping the check.
+ */
+const isNodeBuiltin = (specifier) => specifier.startsWith("node:");
+
 function walk(dir) {
   const files = [];
   for (const entry of readdirSync(dir)) {
@@ -109,6 +124,11 @@ function walk(dir) {
 
 function selfTest() {
   const cases = [
+    // The flag widens the rule to node: built-ins and nothing else. Asserted
+    // here so "allow Node" cannot quietly become "allow anything".
+    ['import fs from "node:fs";', true, "node builtin under --allow-node-builtins", true],
+    ['import { z } from "zod";', false, "third party under --allow-node-builtins", true],
+    ['import crypto from "crypto";', false, "legacy specifier under --allow-node-builtins", true],
     ['import fs from "node:fs";', false, "named node import"],
     ['import fs\n  from "node:fs";', false, "multi-line import"],
     ['import "node:crypto";', false, "bare side-effect import"],
@@ -128,8 +148,10 @@ function selfTest() {
   ];
 
   let failed = 0;
-  for (const [source, shouldPass, label] of cases) {
-    const offenders = findSpecifiers(source).filter((f) => !isRelative(f.specifier));
+  for (const [source, shouldPass, label, allowNode = false] of cases) {
+    const offenders = findSpecifiers(source).filter(
+      (f) => !isRelative(f.specifier) && !(allowNode && isNodeBuiltin(f.specifier))
+    );
     const passed = offenders.length === 0;
     if (passed !== shouldPass) {
       failed += 1;
@@ -145,11 +167,17 @@ function selfTest() {
   console.log("\nSelf-test passed.");
 }
 
-const arg = process.argv[2];
-if (arg === "--self-test") {
+const args = process.argv.slice(2);
+const allowNode = args.includes("--allow-node-builtins");
+const targets = args.filter((value) => !value.startsWith("--"));
+if (args.includes("--self-test")) {
   selfTest();
 } else {
-  const dir = arg ?? "apps/mcp/src";
+  const dirs = targets.length ? targets : ["apps/mcp/src"];
+  for (const dir of dirs) checkDirectory(dir, allowNode);
+}
+
+function checkDirectory(dir, allowNode) {
   let statInfo;
   try {
     statInfo = statSync(dir);
@@ -166,21 +194,33 @@ if (arg === "--self-test") {
   for (const file of walk(dir)) {
     const source = readFileSync(file, "utf8");
     for (const { specifier, line } of findSpecifiers(source)) {
-      if (!isRelative(specifier)) offenders.push(`${file}:${line}  ${specifier}`);
+      if (isRelative(specifier)) continue;
+      if (allowNode && isNodeBuiltin(specifier)) continue;
+      offenders.push(`${file}:${line}  ${specifier}`);
     }
   }
 
   if (offenders.length > 0) {
     console.error(offenders.join("\n"));
     console.error("");
-    console.error(`${dir} may only import relative paths.`);
+    console.error(
+      allowNode
+        ? `${dir} may only import relative paths and node: built-ins.`
+        : `${dir} may only import relative paths.`
+    );
     console.error("");
-    console.error("It runs on the Cloudflare Workers runtime, where Node built-ins do not");
-    console.error("exist — a 'node:' import typechecks and passes the in-memory test stub,");
-    console.error("then fails at the edge on real traffic. And a third-party package hoisted");
-    console.error("to the workspace root would resolve here without ever appearing in");
-    console.error("apps/mcp/package.json.");
+    if (!allowNode) {
+      console.error("It runs on the Cloudflare Workers runtime, where Node built-ins do not");
+      console.error("exist — a 'node:' import typechecks and passes the in-memory test stub,");
+      console.error("then fails at the edge on real traffic.");
+    }
+    console.error("And a third-party package hoisted to the workspace root would resolve");
+    console.error("here without ever appearing in that package's own manifest.");
     process.exit(1);
   }
-  console.log(`OK — every specifier in ${dir} is relative.`);
+  console.log(
+    allowNode
+      ? `OK — every specifier in ${dir} is relative or a node: built-in.`
+      : `OK — every specifier in ${dir} is relative.`
+  );
 }
