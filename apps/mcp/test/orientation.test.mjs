@@ -460,6 +460,123 @@ export async function runOrientationChecks(check) {
         ownerConnect.instructions.includes("1-projects\\legacy/")
     );
 
+    // ...AND THE FRONT PAGE IS THE THIRD FILTERED COMPONENT, WHICH NOTHING
+    // REACHED EITHER.
+    //
+    // The sketch is not only a folder map and a root-note list: it embeds the
+    // *body* of `index.md`, gated by its own `canSee` in `readFrontPage`. This
+    // fixture's manifest declares `index.md: team`, so that gate never had to
+    // hold here and deleting the line left all 621 checks green.
+    //
+    // `index.md: private` is an ordinary choice — the file is a named entry in
+    // `folder_defaults` precisely so it can be made one — and it is the case
+    // where the gate is the only thing standing between a colleague's system
+    // prompt and the owner's front-page prose, on every conversation, before
+    // they have called anything. That is a worse disclosure than the folder
+    // names above: names versus what the person actually wrote.
+    check(
+      "a team front page is given to a team connection",
+      teamConnect.instructions.includes("Shipping the gateway.")
+    );
+    bucket.seed("privacy.md", PRIVACY_MANIFEST.replace("index.md: team", "index.md: private"));
+    const withheldFrontPage = await connect(TEAM_TOKEN);
+    // `ok` is NOT the control here, and the first version of this check
+    // believed it was. It is `Boolean(body.result)`, and the fail-soft path
+    // returns `SERVER_INSTRUCTIONS` — a perfectly good result over 200 — so a
+    // collapsed sketch satisfies `status && ok` and hands the absence over for
+    // free. Narrowing the bail in `instructionsForSession` to
+    // `if (!frontPage) return SERVER_INSTRUCTIONS` is a plausible-looking
+    // simplification, costs a team connection its ENTIRE sketch on a private
+    // front page, and passed all 626 checks.
+    //
+    // #88's "a team connection still gets a sketch" does not cover it either:
+    // that runs against `teamConnect`, captured before the reseed, when
+    // `index.md` is still team-visible — so under that sabotage it has a front
+    // page, builds a sketch, and passes. The control has to be re-established
+    // on the connection this check actually examines, and it has to be
+    // content only a real sketch contains. `1-projects/` is the second half:
+    // the sketch must be intact, not merely present, or "only the front page
+    // was removed" is not what was proved.
+    //
+    // THE TRAILING SLASH IS LOAD-BEARING, and it is worth being exact about
+    // which case it buys. `SERVER_INSTRUCTIONS` names the PARA folders in
+    // prose — `0-inbox, 1-projects, 2-areas, …` — so the bare `1-projects`
+    // appears on every connection ever made, the fallback included. Only the
+    // folder map emits the slash.
+    //
+    // Total collapse is caught by `WHAT IS IN HERE` whichever way this is
+    // spelled. What the slash buys is the *gutted* map — a sketch that is
+    // present but has lost a folder. Measured, dropping only `1-projects/`
+    // from the layout: with the slash this check fails, without it the check
+    // passes and the conjunct is decoration.
+    //
+    // The margin is one character, and it has already been the other way
+    // round: this text used to tell agents to file work under `1-projects/`,
+    // with the slash — see the note at `src/index.js:169`. If that phrasing
+    // returns, this conjunct silently degrades and nothing here will say so.
+    check(
+      "a private one is withheld, and only it — the rest of the sketch survives",
+      withheldFrontPage.status === 200 &&
+        withheldFrontPage.ok &&
+        withheldFrontPage.instructions.includes("WHAT IS IN HERE") &&
+        withheldFrontPage.instructions.includes("1-projects/") &&
+        !withheldFrontPage.instructions.includes("Shipping the gateway.")
+    );
+    // The owner is the control, for the same reason as above: absent because
+    // it was filtered, not because the sketch quietly stopped being built.
+    check(
+      "while the owner still receives their own, so the gate is what withheld it",
+      (await connect(OWNER_TOKEN)).instructions.includes("Shipping the gateway.")
+    );
+
+    // The same file and the same gate, reached by a second tool.
+    // `readSaveProcedure` has its own `canSee("index.md")`, and deleting it
+    // also left 621 green.
+    //
+    // The obvious probe is `save_context`, and it is a vacuous one: the tool
+    // is a write, TEAM_TOKEN holds a read-only grant, and the refusal arrives
+    // from `callToolForSession` before the procedure is ever read. Written
+    // that way this passed with the gate deleted — a check answering a
+    // question nobody asked. `orient` is the path that actually reaches it
+    // from a read-only connection, which is also the connection this matters
+    // for: the procedure lands in a colleague's orientation unbidden.
+    bucket.seed(
+      "index.md",
+      "# The front page\n\nShipping the gateway.\n\n" +
+        "## Save context\n\ndestination: 2-areas/sessions\n\n" +
+        "Only the decisions, and never the transcript.\n"
+    );
+    // Asserted on the heading `orient` renders rather than on the prose. The
+    // prose is inside `index.md`, so a broken *front page* gate would leak the
+    // same words and fail this check too — and a check that fails for its
+    // neighbour's defect stops telling you which one broke. This heading is
+    // produced by `readSaveProcedure` and nothing else.
+    const teamOriented = await orientText(env, TEAM_TOKEN);
+    check(
+      "a private front page's save procedure is withheld from a team connection",
+      // The positive half is not decoration either: an `orient` that failed
+      // outright would satisfy the absence for free.
+      teamOriented.includes("## Working here") &&
+        !teamOriented.includes("## Before this session ends")
+    );
+    const ownerOriented = await orientText(env, OWNER_TOKEN);
+    check(
+      "while the owner's own procedure still reaches them, so the gate withheld it",
+      ownerOriented.includes("## Before this session ends") &&
+        ownerOriented.includes("Only the decisions, and never the transcript")
+    );
+
+    // Restored to the pristine constants — which for `privacy.md` is not quite
+    // the state this block found: the `save_context` checks above drove the
+    // gateway to rewrite it through `mutateManifest`, so as-found it carried a
+    // reordered `folder_defaults` and an extra override. Nothing below depends
+    // on either, and re-seeding the constant is what the broken-privacy block
+    // beneath already does. Said plainly because "restored" would overstate
+    // it: a check inserted here that depended on accumulated manifest state
+    // would silently see the constant instead.
+    bucket.seed("privacy.md", PRIVACY_MANIFEST);
+    bucket.seed("index.md", "# The front page\n\nShipping the gateway.");
+
     const deadConnect = await connect(BROKEN_TOKEN);
     check(
       "an unreachable bucket still completes the handshake",
