@@ -59,9 +59,12 @@ const schema = defineSchema({
    * A workspace is the unit that owns a context: one storage binding, one
    * privacy manifest, one audit trail, one set of grants.
    *
-   * A personal context is a workspace with a single `owner` member. A shared
-   * context is the same row with more members. There is deliberately no
-   * separate "personal context" table — see CLAUDE.md, "The workspace model".
+   * A personal context is a workspace created `kind: "personal"`, with
+   * exactly one `owner` member — the person its slug names. It may gain more
+   * members when that person shares it; sharing does not change what it is.
+   * A shared context is created `kind: "shared"` and has no single personal
+   * owner. There is deliberately no separate "personal context" table — see
+   * CLAUDE.md, "The workspace model".
    */
   workspaces: defineTable({
     /** Normalized, globally unique, also present as a row in `names`. */

@@ -36,6 +36,7 @@
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
+import { resolvePersonalContextForIngestion } from "../functions/lib/ingestionStore";
 import {
   TEST_EMAIL_WORKER_SECRET,
   TEST_GATEWAY_SECRET,
@@ -382,19 +383,75 @@ describe("a shared context cannot receive mail", () => {
     );
   });
 
-  test("a personal context that has since been shared stops receiving mail", async () => {
-    // `workspaces.kind` is chosen at creation and never patched, so it states
-    // intent reliably — but `schema.ts` defines a personal context as one with a
-    // single owner member, and a context three people read is not somewhere
-    // unauthenticated mail may land whatever its row says. The count is the
-    // stricter half of the rule and this is what proves it is applied.
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE OTHER HALF OF THE DECISION.
+ *
+ * Sharing a personal context must not kill its capture address. The rule used
+ * to be "exactly one member", which meant inviting a colleague into your own
+ * context silently bounced your mail from that moment on — and because every
+ * refusal is byte-identical to an unclaimed name, nobody was told. That was
+ * never the product intent: it punished exactly the flow sharing exists for.
+ *
+ * What keeps the flip safe is that the *owner* stays the boundary. The
+ * allow-list and target folder are owner-only in both directions
+ * (`ingestion.test.ts`, "who may read" / "who may write"), and every capture
+ * is attributed to the sole owner — so everything from outside still passes
+ * through one accountable owner's hands, however many people can read the
+ * context it lands in.
+ */
+describe("a personal context that has been shared keeps its capture address", () => {
+  test("mail still resolves after a member is added", async () => {
     const { t, ownerId, workspaceId } = await ready();
     expect((await (await resolve(t, "seyi")).json()).ingestion).not.toBeNull();
 
     const colleague = await createUser(t, "colleague@example.test");
     await addMember(t, workspaceId, colleague, "member", ownerId);
 
-    expect(await (await resolve(t, "seyi")).json()).toEqual({ ingestion: null });
+    const body = await (await resolve(t, "seyi")).json();
+    expect(body.ingestion).not.toBeNull();
+    expect(body.ingestion.context).toEqual({ kind: "personal", path: "seyi" });
+  });
+
+  test("and the capture is attributed to the owner, never a newcomer", async () => {
+    const { t, ownerId, workspaceId } = await ready();
+    const colleague = await createUser(t, "colleague@example.test");
+    await addMember(t, workspaceId, colleague, "editor", ownerId);
+
+    const resolved = await t.run((ctx) =>
+      resolvePersonalContextForIngestion(ctx, "seyi"),
+    );
+    expect(resolved?.ownerUserId).toBe(ownerId);
+  });
+
+  test("a personal context with no owner row is refused, byte-identically", async () => {
+    // The fail-closed floor of the new rule. The sole owner is what makes a
+    // personal context accountable — whose allow-list, whose inbox — so a
+    // membership set with no resolvable owner, reachable only by data damage
+    // since `removeMember` refuses to delete an owner, refuses like any other
+    // no. A colleague remains a member on purpose: with the member rows
+    // otherwise empty, a resolver that returned the first row *whatever its
+    // role* would still refuse here and this test would prove nothing — the
+    // sabotage that found that gap resolved the colleague as "the owner".
+    const { t, ownerId, workspaceId } = await ready();
+    const colleague = await createUser(t, "colleague@example.test");
+    await addMember(t, workspaceId, colleague, "editor", ownerId);
+    await t.run(async (ctx) => {
+      const rows = await ctx.db
+        .query("workspaceMembers")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .collect();
+      for (const row of rows) {
+        if (row.role === "owner") await ctx.db.delete(row._id);
+      }
+    });
+
+    expect(await responseFingerprint(await resolve(t, "seyi"))).toBe(
+      await responseFingerprint(await resolve(t, "nobody-has-this-name")),
+    );
   });
 });
 

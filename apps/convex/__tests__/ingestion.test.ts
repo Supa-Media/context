@@ -177,17 +177,28 @@ describe("who may read", () => {
     expect((await get(t, ownerId, workspaceId))?.targetFolder).toBe("0-inbox/");
   });
 
-  test("a member cannot — there is nobody but the owner in a personal context", async () => {
-    // The read used to be `member`, reasoning that people already inside a
-    // shared context should see what is being captured into it. Mail no longer
-    // reaches a shared context at all, so that reasoning has no subject: a
-    // personal context has one member and it is the owner.
+  test("a member cannot — the allow-list is the owner's correspondent list", async () => {
+    // Owner-only used to be vacuous here (a personal context had exactly one
+    // member). Now that a personal context keeps its address after being
+    // shared, this refusal is load-bearing: the allow-list names the people
+    // the owner corresponds with, which is not something membership buys.
     const { t, ownerId, workspaceId } = await scenario();
     const memberId = await createUser(t, "member@example.test");
     await addMember(t, workspaceId, memberId, "member", ownerId);
 
     const error = await captureError(() => get(t, memberId, workspaceId));
     expect(errorCode(error)).toBe("INSUFFICIENT_ROLE");
+  });
+
+  test("the owner of a since-shared context still reads their policy", async () => {
+    // Sharing must not lock the owner out of their own capture settings. Under
+    // the old exactly-one-member rule this read went `null` the moment a
+    // member joined, and the settings card blanked without a word.
+    const { t, ownerId, workspaceId } = await scenario();
+    const memberId = await createUser(t, "member@example.test");
+    await addMember(t, workspaceId, memberId, "member", ownerId);
+
+    expect((await get(t, ownerId, workspaceId))?.targetFolder).toBe("0-inbox/");
   });
 
   test("a non-member gets WORKSPACE_NOT_FOUND, not a forbidden", async () => {
@@ -242,6 +253,20 @@ describe("who may write", () => {
       }),
     );
     expect(errorCode(error)).toBe("INSUFFICIENT_ROLE");
+  });
+
+  test("the owner of a since-shared context can still change it", async () => {
+    // The write half of the same flip: `INGESTION_NOT_AVAILABLE` used to be
+    // thrown at the owner as soon as anyone else joined.
+    const { t, ownerId, workspaceId } = await scenario();
+    const memberId = await createUser(t, "member@example.test");
+    await addMember(t, workspaceId, memberId, "member", ownerId);
+
+    const result = await asUser(t, ownerId).mutation(
+      api.functions.ingestion.updateIngestionSettings,
+      { workspaceId, targetFolder: "2-areas/mail" },
+    );
+    expect(result.targetFolder).toBe("2-areas/mail/");
   });
 
   test("a non-member cannot, and learns nothing from trying", async () => {

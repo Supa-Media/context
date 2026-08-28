@@ -19,13 +19,14 @@
  *
  * What follows from that, and why the code is shorter than it was:
  *
- *  - **No member/owner split.** A personal context has exactly one member and
- *    that member is its owner, so "any member may read, only an owner may
- *    write" described two roles that are the same person. Both functions now
- *    require the sole owner, and `resolvePersonalContextForIngestion` is what
- *    establishes that — the same function the email worker's resolve route
- *    goes through, so the console cannot show a policy for a context that could
- *    not receive mail.
+ *  - **Owner-only, in both directions.** A personal context may have members
+ *    now — sharing it no longer kills its capture address — and none of them
+ *    may read or write this policy: the allow-list is the owner's
+ *    correspondent list, which is not something membership buys. Both
+ *    functions require the sole owner, and
+ *    `resolvePersonalContextForIngestion` is what establishes that — the same
+ *    function the email worker's resolve route goes through, so the console
+ *    cannot show a policy for a context that could not receive mail.
  *  - **A shared context reads as `null`.** Not an error: there is genuinely no
  *    policy, because there is nothing for a policy to govern. The console knows
  *    the context's `kind` already and says so in its own words.
@@ -124,10 +125,10 @@ export const getIngestionSettings = query({
   returns: v.union(settingsValidator, v.null()),
   handler: async (ctx, args) => {
     const userId = (await requireAuthId(ctx)) as Id<"users">;
-    // Owner, not member: a personal context has exactly one member and it is
-    // its owner, so this is the same person either way — and asking for the
-    // owner means a *shared* context cannot reach the resolve check below by
-    // way of one of its readers.
+    // Owner, not member: the allow-list names the people the owner
+    // corresponds with, so a member of a since-shared personal context may
+    // not read it — and asking for the owner means a *shared* context cannot
+    // reach the resolve check below by way of one of its readers.
     const { workspace } = await requireWorkspaceRole(
       ctx,
       args.workspaceId,
