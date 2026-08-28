@@ -528,6 +528,27 @@ export const applyDropboxBinding = internalMutation({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .unique();
 
+    // A reconnect that lands on a DIFFERENT Dropbox account orphans the old
+    // one: the envelope below is about to be overwritten, and the old
+    // authorization stays live in an account nobody is pointing at any more.
+    // Same reasoning `disconnectStorage` gives for scheduling this — forgetting
+    // our copy is only half of ending the relationship.
+    //
+    // Only when the account differs. Revoking on a same-account reconnect
+    // would spend a token from the same authorization the new one came out of,
+    // and that is not a thing to guess at: `dropboxAccountId` exists to tell
+    // the two cases apart, which is what the schema's comment says it is for.
+    if (
+      existing?.provider === "dropbox" &&
+      existing.encryptedRefreshToken !== undefined &&
+      existing.dropboxAccountId !== args.dropboxAccountId
+    ) {
+      await ctx.scheduler.runAfter(0, internal.functions.dropboxConnect.revokeDropboxGrant, {
+        workspaceId: args.workspaceId,
+        encryptedRefreshToken: existing.encryptedRefreshToken,
+      });
+    }
+
     const fields = {
       workspaceId: args.workspaceId,
       provider: "dropbox" as const,
