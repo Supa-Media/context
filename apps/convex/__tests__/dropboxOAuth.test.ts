@@ -29,6 +29,7 @@
 import { describe, expect, test } from "vitest";
 import {
   DROPBOX_AUTHORIZE_ENDPOINT,
+  DROPBOX_REVOKE_ENDPOINT,
   DROPBOX_SCOPES,
   DROPBOX_TOKEN_ENDPOINT,
   DropboxOAuthError,
@@ -38,6 +39,7 @@ import {
   isDropboxReconnectRequired,
   pkceChallengeFor,
   refreshDropboxToken,
+  revokeDropboxToken,
 } from "../functions/lib/dropboxOAuth";
 
 /* -------------------------------------------------------------------------- */
@@ -213,6 +215,22 @@ describe("authorize URL", () => {
     // the digest, and the browser never sees the preimage.
     expect(url).not.toContain(verifier);
     expect(url).toContain(challenge);
+  });
+
+  test("always forces the consent screen, so a reconnect can switch accounts", () => {
+    const url = new URL(
+      dropboxAuthorizeUrl({
+        clientId: FAKE_CLIENT_ID,
+        redirectUri: FAKE_REDIRECT_URI,
+        challenge: RFC7636_CHALLENGE,
+        state: FAKE_STATE,
+      }),
+    );
+    // Without this, Dropbox silently auto-approves an app it has already
+    // authorized and bounces straight back — the person disconnecting to
+    // switch accounts never sees the page where switching happens. Seyi hit
+    // exactly that loop on the first live reconnect.
+    expect(url.searchParams.get("force_reapprove")).toBe("true");
   });
 
   test("refuses a state-less request", () => {
@@ -580,5 +598,43 @@ describe("errors", () => {
     expect(isDropboxReconnectRequired("invalid_grant")).toBe(false);
     expect(isDropboxReconnectRequired(null)).toBe(false);
     expect(isDropboxReconnectRequired(undefined)).toBe(false);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                                   revoke                                   */
+/* -------------------------------------------------------------------------- */
+
+describe("revoke", () => {
+  test("posts the token as a bearer header to the revoke endpoint, and nowhere else", async () => {
+    const { impl, calls } = stubFetch(200, null);
+    await revokeDropboxToken({ accessToken: FAKE_ACCESS_TOKEN, fetchImpl: impl });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe(DROPBOX_REVOKE_ENDPOINT);
+    const headers = calls[0].init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe(`Bearer ${FAKE_ACCESS_TOKEN}`);
+    // Not in the URL, where it would land in every proxy log on the path.
+    expect(calls[0].url).not.toContain(FAKE_ACCESS_TOKEN);
+  });
+
+  test("an already-dead token is the outcome revocation wanted", async () => {
+    const { impl } = stubFetch(401, { error_summary: "invalid_access_token/..." });
+    await expect(
+      revokeDropboxToken({ accessToken: FAKE_ACCESS_TOKEN, fetchImpl: impl }),
+    ).resolves.toBeUndefined();
+  });
+
+  test("a live refusal throws, and the throw carries no token", async () => {
+    const { impl } = stubFetch(500, { error_summary: "internal_error/." });
+    let thrown: unknown;
+    try {
+      await revokeDropboxToken({ accessToken: FAKE_ACCESS_TOKEN, fetchImpl: impl });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(DropboxOAuthError);
+    expect(JSON.stringify({ ...(thrown as object), message: (thrown as Error).message }))
+      .not.toContain(FAKE_ACCESS_TOKEN);
   });
 });

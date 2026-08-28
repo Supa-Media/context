@@ -759,6 +759,55 @@ describe("disconnectStorage", () => {
     expect(second.disconnected).toBe(false);
   });
 
+  test("a Dropbox disconnect also schedules the grant revocation", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    // Reshape the fixture's bucket binding into a Dropbox one. Direct db
+    // writes, because what is under test is the disconnect, not the connect.
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("storageBindings").unique();
+      await ctx.db.patch(row!._id, {
+        provider: "dropbox",
+        encryptedRefreshToken: "v2:current:FAKE:ENVELOPE",
+        endpoint: undefined,
+        region: undefined,
+        bucket: undefined,
+        accessKeyId: undefined,
+        encryptedSecretAccessKey: undefined,
+      });
+    });
+
+    await asUser(t, owner).mutation(api.functions.storage.disconnectStorage, {
+      workspaceId,
+    });
+
+    // The row is gone AND the revoke is on the schedule, carrying the
+    // envelope it can no longer read from the row. Without the revoke, we
+    // forget the credential while the grant lives on in the person's
+    // Dropbox — and their next connect silently auto-approves the same
+    // account, which is the "stuck in a cycle" Seyi hit live.
+    const rows = await t.run((ctx) => ctx.db.query("storageBindings").collect());
+    expect(rows).toHaveLength(0);
+    const scheduled = await t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect(),
+    );
+    const revokes = scheduled.filter((job) => job.name.includes("revokeDropboxGrant"));
+    expect(revokes).toHaveLength(1);
+    expect(JSON.stringify(revokes[0].args)).toContain("v2:current:FAKE:ENVELOPE");
+  });
+
+  test("a bucket disconnect schedules nothing — there is no grant to revoke", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await asUser(t, owner).mutation(api.functions.storage.disconnectStorage, {
+      workspaceId,
+    });
+    const scheduled = await t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect(),
+    );
+    expect(
+      scheduled.filter((job) => job.name.includes("revokeDropboxGrant")),
+    ).toHaveLength(0);
+  });
+
   test("leaves an audit trail that carries no credential", async () => {
     const { t, owner, workspaceId } = await boundWorkspace();
     await asUser(t, owner).mutation(api.functions.storage.disconnectStorage, {

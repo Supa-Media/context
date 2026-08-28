@@ -51,6 +51,9 @@ import {
   dropboxAuthorizeUrl,
   exchangeDropboxCode,
   isDropboxReconnectRequired,
+  refreshDropboxToken,
+  revokeDropboxToken,
+  DropboxOAuthError,
 } from "./lib/dropboxOAuth";
 
 /**
@@ -550,5 +553,53 @@ export const applyDropboxBinding = internalMutation({
     }
     await ctx.db.patch(existing._id, fields);
     return existing._id;
+  },
+});
+
+/**
+ * Disable the grant at Dropbox after a disconnect. INTERNAL ACTION — decrypts.
+ *
+ * Scheduled by `disconnectStorage`, which deletes the binding row in the same
+ * mutation — so the envelope travels in the args, because by the time this
+ * runs there is no row left to read it from. That is also why this is
+ * best-effort and swallows every failure: the disconnect the person asked for
+ * has already happened, the credential is already forgotten on our side, and
+ * the one thing a retry loop could add is a background job hammering a grant
+ * the person may have revoked from Dropbox's side themselves.
+ *
+ * The refresh token is spent to mint one fresh access token, and revoking
+ * that access token disables the pair — Dropbox's revoke endpoint takes the
+ * access token, and a possibly-expired cached one would make revocation a
+ * coin flip. After this, the app is gone from the person's connected-apps
+ * list and the next connect is a true first-time consent.
+ */
+export const revokeDropboxGrant = internalAction({
+  args: {
+    workspaceId: v.id("workspaces"),
+    encryptedRefreshToken: v.string(),
+  },
+  returns: v.null(),
+  handler: async (_ctx, args): Promise<null> => {
+    try {
+      const clientId = requireAppKey();
+      const keyset = requireKeyset();
+      const context = { workspaceId: args.workspaceId as string };
+      const refreshToken = await decryptSecret(args.encryptedRefreshToken, keyset, context);
+      const fresh = await refreshDropboxToken({ clientId, refreshToken });
+      await revokeDropboxToken({ accessToken: fresh.accessToken });
+      console.log(JSON.stringify({ event: "dropbox.grant_revoked", workspaceId: args.workspaceId }));
+    } catch (error) {
+      // Refresh failing with GRANT_REVOKED means there was nothing left to
+      // disable — the outcome revocation wanted. Anything else is logged as a
+      // slug and dropped; no secret has a path into this line.
+      console.log(
+        JSON.stringify({
+          event: "dropbox.grant_revoke_skipped",
+          workspaceId: args.workspaceId,
+          errorCode: error instanceof DropboxOAuthError ? error.errorCode : "UNEXPECTED",
+        }),
+      );
+    }
+    return null;
   },
 });
