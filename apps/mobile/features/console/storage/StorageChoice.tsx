@@ -37,6 +37,7 @@ export function StorageChoice({
   connect,
   onCancel,
   dropboxNote,
+  dropboxResumeTo,
 }: {
   /** The context being connected. `null` disables the Dropbox card only. */
   workspaceId: string | null;
@@ -45,8 +46,10 @@ export function StorageChoice({
   onCancel?: () => void;
   /** One line about what leaving for Dropbox does to the screen this is on. */
   dropboxNote?: string;
+  /** Set from first-run, so the callback can hand the person back to it. */
+  dropboxResumeTo?: "onboarding";
 }) {
-  const dropbox = useDropboxStart(workspaceId);
+  const dropbox = useDropboxStart(workspaceId, { resumeTo: dropboxResumeTo });
   return (
     <StorageChoiceBody
       dropboxReady={workspaceId !== null}

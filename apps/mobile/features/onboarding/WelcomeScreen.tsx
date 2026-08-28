@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { StyleSheet, View, ScrollView, useWindowDimensions } from "react-native";
-import { Redirect, useRouter } from "expo-router";
+import { useLocalSearchParams, Redirect, useRouter } from "expo-router";
 import { Text } from "../design/components/Text";
 import { StageBackdrop } from "../design/components/StageBackdrop";
 import { clamp, colors, fonts, layout, leading, radii, tracking } from "../design/tokens";
@@ -33,11 +33,15 @@ import { DoneStep } from "./steps/DoneStep";
  */
 export function WelcomeScreen() {
   const router = useRouter();
-  const controller = useOnboarding();
+  const params = useLocalSearchParams<{ resume?: string | string[] }>();
+  const resumeParam = Array.isArray(params.resume) ? params.resume[0] : params.resume;
+  const resuming = resumeParam === "structure";
+  const controller = useOnboarding(resuming ? { resume: "structure" } : {});
 
   const decision = resolveWelcomeRoute({
     owned: controller.owned,
     claimed: controller.claimed !== null,
+    resuming,
   });
 
   if (decision.action === "wait") return <View style={styles.ground} />;

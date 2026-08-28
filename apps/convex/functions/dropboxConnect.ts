@@ -117,6 +117,7 @@ export const parkAttempt = internalMutation({
     startedBy: v.id("users"),
     redirectUri: v.string(),
     rootPrefix: v.optional(v.string()),
+    resumeTo: v.optional(v.literal("onboarding")),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -136,6 +137,7 @@ export const parkAttempt = internalMutation({
       startedBy: args.startedBy,
       redirectUri: args.redirectUri,
       rootPrefix: args.rootPrefix,
+      resumeTo: args.resumeTo,
       expiresAt: now + ATTEMPT_TTL_MS,
       createdAt: now,
     });
@@ -173,6 +175,13 @@ export const startDropboxConnect = action({
      * behalf.
      */
     rootPrefix: v.optional(v.string()),
+    /**
+     * Set when the connect was started from first-run onboarding, so the
+     * callback can hand the person back to the steps the redirect tore them
+     * out of. Parked server-side with everything else: the redirect URI is
+     * matched exactly by Dropbox and can carry nothing.
+     */
+    resumeTo: v.optional(v.literal("onboarding")),
   },
   returns: v.object({ authorizeUrl: v.string() }),
   handler: async (ctx, args): Promise<{ authorizeUrl: string }> => {
@@ -206,6 +215,7 @@ export const startDropboxConnect = action({
       startedBy: userId,
       redirectUri: args.redirectUri,
       rootPrefix: args.rootPrefix,
+      resumeTo: args.resumeTo,
     });
 
     return {
@@ -278,14 +288,23 @@ export const startDropboxConnect = action({
  */
 export const completeDropboxConnect = action({
   args: { state: v.string(), code: v.string() },
-  returns: v.object({ workspaceId: v.id("workspaces") }),
-  handler: async (ctx, args): Promise<{ workspaceId: Id<"workspaces"> }> => {
-    const workspaceId: Id<"workspaces"> | null = await ctx.runMutation(
+  returns: v.object({
+    workspaceId: v.id("workspaces"),
+    resumeTo: v.optional(v.literal("onboarding")),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ workspaceId: Id<"workspaces">; resumeTo?: "onboarding" }> => {
+    const consumed: {
+      workspaceId: Id<"workspaces">;
+      resumeTo?: "onboarding";
+    } | null = await ctx.runMutation(
       internal.functions.dropboxConnect.consumeAttemptAndExchange,
       { hashedState: await hashToken(args.state), code: args.code },
     );
-    if (workspaceId === null) refuseAttempt();
-    return { workspaceId };
+    if (consumed === null) refuseAttempt();
+    return consumed;
   },
 });
 
@@ -298,7 +317,13 @@ export const completeDropboxConnect = action({
  */
 export const consumeAttemptAndExchange = internalMutation({
   args: { hashedState: v.string(), code: v.string() },
-  returns: v.union(v.null(), v.id("workspaces")),
+  returns: v.union(
+    v.null(),
+    v.object({
+      workspaceId: v.id("workspaces"),
+      resumeTo: v.optional(v.literal("onboarding")),
+    }),
+  ),
   handler: async (ctx, args) => {
     const attempt = await ctx.db
       .query("dropboxConnectAttempts")
@@ -327,7 +352,7 @@ export const consumeAttemptAndExchange = internalMutation({
         rootPrefix: attempt.rootPrefix,
       },
     );
-    return attempt.workspaceId;
+    return { workspaceId: attempt.workspaceId, resumeTo: attempt.resumeTo };
   },
 });
 

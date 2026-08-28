@@ -103,7 +103,7 @@ export function DropboxCallbackScreen() {
     void (async () => {
       try {
         const result = await complete({ state: callback.state, code: callback.code });
-        setAttempt({ kind: "queued", workspaceId: result.workspaceId });
+        setAttempt({ kind: "queued", workspaceId: result.workspaceId, resumeTo: result.resumeTo });
       } catch (error) {
         setAttempt({ kind: "failed", failure: describeThrownStorageError(error, "dropbox") });
       }

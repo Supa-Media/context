@@ -264,6 +264,31 @@ describe("resolveDropboxCallbackView", () => {
     expect(resolved.href).toContain("/login");
   });
 
+  /**
+   * A connect started inside first-run goes BACK to first-run. The redirect
+   * tore the person out of onboarding; routing them to settings on return is
+   * how the first live connect silently skipped the layout and agents steps.
+   */
+  test("a first-run connect resumes onboarding rather than landing in settings", () => {
+    const resolved = view({
+      attempt: { kind: "queued", workspaceId: "w1", resumeTo: "onboarding" },
+      binding: { status: "connected", provider: "dropbox" },
+      slug: "ada",
+    });
+    expect(resolved).toEqual({ kind: "connected", href: "/welcome?resume=structure" });
+  });
+
+  test("a console connect still lands in that context's settings", () => {
+    const resolved = view({
+      attempt: { kind: "queued", workspaceId: "w1" },
+      binding: { status: "connected", provider: "dropbox" },
+      slug: "ada",
+    });
+    expect(resolved.kind).toBe("connected");
+    if (resolved.kind !== "connected") throw new Error("unreachable");
+    expect(resolved.href).toContain("ada");
+  });
+
   test("before and during the exchange it says what it is doing", () => {
     expect(view({ attempt: undefined }).kind).toBe("working");
     expect(view({ attempt: { kind: "running" } }).kind).toBe("working");
