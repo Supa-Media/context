@@ -878,6 +878,35 @@ Three properties of the survey are load-bearing:
   merely less curious. Note that a thrown handler is answered with a JSON-RPC
   error over HTTP 200, so "the handshake returned 200" does not test this.
 
+### `search` and `fetch` exist because ChatGPT's chats can call nothing else
+
+Outside developer mode, ChatGPT invokes exactly two tools on a custom
+connector: ones literally named `search` and `fetch`, speaking OpenAI's
+deep-research shape (`search(query)` → one text block of JSON
+`{"results":[{id,title,text,url}]}`; `fetch(id)` → `{id,title,text,url,
+metadata}`). Every other tool on the connector — `orient` included — is
+invisible to those chats. Verified live before the pair existed: asked "who is
+my sister?", ChatGPT ranked Gmail and Contacts as the plausible sources and
+never considered this connector until the user named it, and no connect-time
+instruction could have changed that, because an instruction is only read after
+the connector's tools are reachable.
+
+So the pair is `search_notes` and `read_note` wearing that contract, and three
+things about them are load-bearing:
+
+- **One scan.** `search` and `search_notes` share `scanVisibleNotes`, so the
+  two dialects cannot disagree about what a query matches. A second scan is a
+  second place for a visibility bug.
+- **The dialect discloses nothing the ordinary tools would not.** `fetch` of a
+  private note is byte-identical to `fetch` of a path that never existed, and
+  a team search cannot surface a private note. Sabotage-tested.
+- **`url` is a `context://note/...` URI that resolves nowhere, on purpose.**
+  The contract wants a URL per result; a note has no public URL because there
+  is no public tier, and inventing an https one would imply otherwise.
+
+Renaming either tool, or "simplifying" the pair away because they duplicate
+`search_notes`/`read_note`, disconnects every ordinary ChatGPT chat.
+
 ### The hook is a capture-only OAuth client, and that is the whole design
 
 An agent can call `save_context` when it finishes, and the failure mode is not

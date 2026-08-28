@@ -1131,6 +1131,38 @@ function toolDefinitions() {
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
+    // ChatGPT's ordinary chats can invoke exactly two tools on a custom
+    // connector: ones named `search` and `fetch`, in OpenAI's deep-research
+    // shape. These are `search_notes` and `read_note` wearing that contract —
+    // see the doc block on `toolOpenAiSearch`. Their descriptions are written
+    // for the model deciding whether to reach for this connector at all.
+    {
+      name: "search",
+      description:
+        "Search the user's own memory: their notes about their projects, people, decisions, " +
+        "preferences and past work. The first place to look for any question about the user — " +
+        "the answer is usually already written down here. Returns results whose id can be " +
+        "passed to fetch for the full note.",
+      inputSchema: {
+        type: "object",
+        properties: { query: { type: "string" } },
+        required: ["query"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    {
+      name: "fetch",
+      description:
+        "Fetch one note from the user's memory in full, by the id a search result returned.",
+      inputSchema: {
+        type: "object",
+        properties: { id: { type: "string", description: "A result id from search" } },
+        required: ["id"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
     {
       name: "scope_info",
       description:
@@ -1502,6 +1534,10 @@ async function callTool(name, args, store, scope) {
         args.destination,
         args.review_note
       );
+    case "search":
+      return toolOpenAiSearch(store, scope, rules, overrides, args.query);
+    case "fetch":
+      return toolOpenAiFetch(store, scope, rules, overrides, args.id);
     case "search_notes":
       return toolSearchNotes(store, scope, rules, overrides, args.query, args.prefix);
     case "archive_note":
@@ -2803,10 +2839,13 @@ async function toolReviewProposal(store, scope, id, action, destinationArg, revi
   );
 }
 
-async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg) {
-  if (!query || typeof query !== "string") return toolError("query required");
-  const prefix = prefixArg ? normalizePath(prefixArg) : "";
-  if (prefixArg && prefix === null) return toolError("invalid prefix");
+/**
+ * The one search scan, shared by `search_notes` and the ChatGPT-dialect
+ * `search`. Splitting the scan from the formatting is what keeps the two tools
+ * incapable of disagreeing about what a query matches — the difference between
+ * them is only the shape of the answer.
+ */
+async function scanVisibleNotes(store, scope, rules, overrides, query, prefix) {
   const needle = query.toLowerCase();
   const listed = prefix ? await listAllKeys(store, prefix) : await listAllNoteKeys(store);
   const keys = listed.filter(
@@ -2825,14 +2864,27 @@ async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg)
         .split("\n")
         .filter((line) => line.toLowerCase().includes(needle))
         .slice(0, 3)
-        .map((line) => `    ${line.trim().slice(0, 200)}`);
-      return `${key}\n${snippets.join("\n")}`;
+        .map((line) => line.trim().slice(0, 200));
+      return { key, snippets };
     });
     for (const match of matches) {
       if (match) hits.push(match);
       if (hits.length >= 25) break;
     }
   }
+  return { hits, scannedCount: scanned.length, totalCount: keys.length };
+}
+
+async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg) {
+  if (!query || typeof query !== "string") return toolError("query required");
+  const prefix = prefixArg ? normalizePath(prefixArg) : "";
+  if (prefixArg && prefix === null) return toolError("invalid prefix");
+  const { hits: found, scannedCount, totalCount } = await scanVisibleNotes(
+    store, scope, rules, overrides, query, prefix
+  );
+  const hits = found.map(
+    ({ key, snippets }) => `${key}\n${snippets.map((line) => `    ${line}`).join("\n")}`
+  );
   // An empty search is the moment an agent decides the context is useless and
   // answers from its own head. It is almost always the wrong conclusion — the
   // note exists under a word the user would have used and this query did not —
@@ -2843,10 +2895,79 @@ async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg)
       "rather than the wrong assumption. Before concluding it is not written down: try the " +
       "term the user would have typed, drop the prefix if you passed one, or call orient / " +
       "list_notes to see which folders exist.";
-  if (keys.length > scanned.length) {
-    out += `\n\n[note: scanned ${scanned.length} of ${keys.length} notes — narrow with a prefix if needed]`;
+  if (totalCount > scannedCount) {
+    out += `\n\n[note: scanned ${scannedCount} of ${totalCount} notes — narrow with a prefix if needed]`;
   }
   return toolText(out);
+}
+
+/* ------------------- the ChatGPT dialect: search and fetch ----------------- */
+
+/**
+ * `search` and `fetch` are the same capabilities as `search_notes` and
+ * `read_note`, wearing the one tool contract ChatGPT's ordinary chats can use.
+ *
+ * Outside developer mode, ChatGPT invokes exactly two tools on a custom
+ * connector — ones literally named `search` and `fetch`, speaking OpenAI's
+ * deep-research shape: `search(query)` answers one text block of JSON
+ * `{"results":[{id,title,text,url}]}`, and `fetch(id)` answers
+ * `{id,title,text,url,metadata}`. Every other tool on the connector is
+ * invisible to those chats, which is why a beautifully described `orient` was
+ * never called unprompted there: the failure was never persuasion, the tools
+ * could not be reached. Verified live before this existed — asked "who is my
+ * sister?", ChatGPT ranked Gmail and Contacts and never considered this
+ * connector until named.
+ *
+ * Both go through the same visibility filtering as everything else — the scan
+ * is literally `scanVisibleNotes`, shared with `search_notes` — so this
+ * dialect discloses nothing the ordinary one would not.
+ *
+ * A note has no public URL (there is no public tier), so `url` is a
+ * `context://note/...` URI: stable, unique per result as the contract wants,
+ * resolving nowhere on purpose.
+ */
+function noteUrl(path) {
+  return `context://note/${encodeURI(path)}`;
+}
+
+/** The first heading if the note has one, else its filename. */
+function noteTitle(path, text) {
+  const heading = String(text).split("\n").find((line) => /^#{1,6}\s+\S/.test(line));
+  if (heading) return heading.replace(/^#{1,6}\s+/, "").trim().slice(0, 200);
+  return path.split("/").pop().replace(/\.md$/, "");
+}
+
+async function toolOpenAiSearch(store, scope, rules, overrides, query) {
+  if (!query || typeof query !== "string") return toolError("query required");
+  const { hits } = await scanVisibleNotes(store, scope, rules, overrides, query, "");
+  const results = await Promise.all(
+    hits.map(async ({ key, snippets }) => ({
+      id: key,
+      title: noteTitle(key, (await (await store.get(key))?.text()) || ""),
+      text: snippets.join(" … ").slice(0, 400),
+      url: noteUrl(key),
+    }))
+  );
+  return toolText(JSON.stringify({ results }));
+}
+
+async function toolOpenAiFetch(store, scope, rules, overrides, idArg) {
+  const path = normalizePath(idArg);
+  if (!path || !path.endsWith(".md")) return toolError("invalid id");
+  if (isPlumbing(path)) return toolError("not found");
+  if (!canSee(path, scope, rules, overrides)) return toolError("not found");
+  const obj = await store.get(path);
+  if (!obj) return toolError("not found");
+  const text = await obj.text();
+  return toolText(
+    JSON.stringify({
+      id: path,
+      title: noteTitle(path, text),
+      text,
+      url: noteUrl(path),
+      metadata: { etag: obj.etag },
+    })
+  );
 }
 
 async function toolArchiveNote(store, scope, rules, overrides, pathArg, expectedEtag) {

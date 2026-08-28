@@ -319,7 +319,10 @@ const noteRes = await worker.fetch(
 );
 check("notification → 202", noteRes.status === 202);
 const tools = await rpc("priv-token", "tools/list");
-check("18 tools listed", tools.result?.tools.length === 18);
+// 18 became 20 when `search` and `fetch` landed — ChatGPT's ordinary chats can
+// invoke only those two names on a custom connector, so they are the same
+// read capabilities wearing OpenAI's deep-research contract.
+check("20 tools listed", tools.result?.tools.length === 20);
 check("set_visibility tool is discoverable", tools.result?.tools.some((tool) => tool.name === "set_visibility"));
 check(
   "set_folder_visibility tool is discoverable",
@@ -967,7 +970,7 @@ check(
 check("every modern result is tagged complete", discover.body.result?.resultType === "complete");
 
 const modernList = await modernFetch({ method: "tools/list" });
-check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 18);
+check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 20);
 check(
   "modern tools/list carries the required freshness hints",
   typeof modernList.body.result?.ttlMs === "number" &&
@@ -1170,7 +1173,7 @@ for (const verb of ["GET", "DELETE"]) {
 // --- and now the half that must not have moved: legacy clients ---
 check(
   "a legacy client sending no version header still works",
-  (await rpc("priv-token", "tools/list")).result?.tools.length === 18
+  (await rpc("priv-token", "tools/list")).result?.tools.length === 20
 );
 async function legacyWithVersionHeader(version) {
   return worker.fetch(
@@ -1381,6 +1384,70 @@ check(
 check(
   "orient omits the floor caveat when nothing was truncated",
   !oPriv.includes("are floors")
+);
+
+// -- the ChatGPT dialect: search and fetch
+//
+// Outside developer mode, ChatGPT's chats can invoke exactly two tools on a
+// custom connector — ones literally named `search` and `fetch`, in OpenAI's
+// deep-research shape. Verified live before these existed: asked "who is my
+// sister?", ChatGPT ranked Gmail and Contacts as the plausible sources and
+// never considered this connector, because none of its tools were reachable.
+// These are the same read capabilities as search_notes and read_note, so the
+// checks that matter are that the shape parses and that the dialect discloses
+// nothing the ordinary tools would not.
+const openaiSearch = JSON.parse(
+  (await call("priv-token", "search", { query: "togather" })).content[0].text
+);
+check(
+  "search answers OpenAI's shape: a results array of id/title/text/url",
+  Array.isArray(openaiSearch.results) &&
+    openaiSearch.results.length > 0 &&
+    openaiSearch.results.every(
+      (r) =>
+        typeof r.id === "string" &&
+        typeof r.title === "string" &&
+        typeof r.text === "string" &&
+        typeof r.url === "string"
+    )
+);
+check(
+  "a result id round-trips through fetch",
+  await (async () => {
+    const fetched = JSON.parse(
+      (await call("priv-token", "fetch", { id: openaiSearch.results[0].id })).content[0].text
+    );
+    return (
+      fetched.id === openaiSearch.results[0].id &&
+      typeof fetched.text === "string" &&
+      fetched.text.length > 0 &&
+      typeof fetched.metadata?.etag === "string"
+    );
+  })()
+);
+// The privacy checks, which are the reason this is not just a formatter: a
+// team connection's search must not surface a private note, and fetch of a
+// private path must be byte-identical to fetching a path that never existed.
+const teamSearch = JSON.parse(
+  (await call("pub-token", "search", { query: "PRIVATEWORD" })).content[0].text
+);
+check("a team search cannot surface a private note", teamSearch.results.length === 0);
+const teamFetchPrivate = await call("pub-token", "fetch", { id: "1-projects/secret-thing/status.md" });
+const teamFetchMissing = await call("pub-token", "fetch", { id: "1-projects/never-existed.md" });
+check(
+  "fetch of a private note is indistinguishable from fetch of nothing",
+  teamFetchPrivate.isError === true &&
+    JSON.stringify(teamFetchPrivate) === JSON.stringify(teamFetchMissing)
+);
+check(
+  "fetch refuses plumbing and non-note ids",
+  (await call("priv-token", "fetch", { id: "privacy.md" })).isError === true &&
+    (await call("priv-token", "fetch", { id: ".history/index.md.x.archive.md" })).isError === true
+);
+check(
+  "the dialect is read-only, so a read-only grant keeps it",
+  (await rpc("readonly-token", "tools/list")).result.tools.some((t) => t.name === "search") &&
+    !(await call("readonly-token", "search", { query: "togather" })).isError
 );
 
 // -- the privacy tier is a property of the grant, not of the approver's role
