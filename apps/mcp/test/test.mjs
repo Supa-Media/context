@@ -968,6 +968,20 @@ check(
     discover.body.result?._meta["io.modelcontextprotocol/serverInfo"].name === "context"
 );
 check("every modern result is tagged complete", discover.body.result?.resultType === "complete");
+// `tools/list` has had this check since the modern path landed; `discover` did
+// not, and it is the one that matters more. Its `instructions` carry a sketch
+// of THIS caller's context — their front page, their folder map, their recent
+// activity — so `public` here would hand one person's notes to whoever a shared
+// intermediary served next. Two comments in `index.js` say exactly that and
+// nothing enforced it: marking discover `public` passed the whole suite.
+check(
+  "the per-caller context sketch is never marked publicly cacheable",
+  discover.body.result?.cacheScope === "private"
+);
+check(
+  "and it carries the freshness hints the revision requires at all",
+  typeof discover.body.result?.ttlMs === "number"
+);
 
 const modernList = await modernFetch({ method: "tools/list" });
 check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 20);
