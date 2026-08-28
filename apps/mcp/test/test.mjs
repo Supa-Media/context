@@ -232,7 +232,18 @@ function check(label, cond) {
 // because it takes the rest of the suite with it.
 const init = await rpc("priv-token", "initialize", { protocolVersion: "2025-06-18" });
 check("initialize echoes protocol", init.result?.protocolVersion === "2025-06-18");
-check("initialize has instructions", init.result?.instructions?.includes("PARA") === true);
+check("initialize has instructions", typeof init.result?.instructions === "string" && init.result.instructions.length > 500);
+// PARA is the default scaffold, not the format. The instructions used to state
+// that the context "is organized by the PARA method" and then tell agents to
+// file under `1-projects/` — which is wrong for every customer who chose a
+// custom layout or connected a bucket they had organized years earlier, and
+// those are the people this product exists for. It may be mentioned; it may not
+// be asserted, and it must be paired with the instruction not to assume it.
+check(
+  "the instructions do not assert a folder layout",
+  !/is organized by the PARA/i.test(init.result.instructions.replace(/\s+/g, " ")) &&
+    /Do not assume a layout/i.test(init.result.instructions.replace(/\s+/g, " "))
+);
 // A client asking for a revision from the future must get a counter-offer in a
 // normal result — never a JSON-RPC error, which is how servers actually fail to
 // connect — and the counter-offer must be the newest thing we speak, not an
@@ -266,7 +277,21 @@ check(
     typeof newestInit.result?.serverInfo.description === "string"
 );
 check("initialize prompts proactive durable memory", init.result?.instructions.includes("rediscover"));
-check("initialize prompts scoped session saving", init.result?.instructions.includes("save_context") && init.result?.instructions.includes("Default privacy is the"));
+// Compared on whitespace-normalized text: these are wrapped prose, so a phrase
+// that reads as one sentence is two lines in the string, and an `includes` on
+// the sentence fails for a reason that has nothing to do with the meaning.
+const instructionsFlat = init.result.instructions.replace(/\s+/g, " ");
+check(
+  "initialize prompts scoped session saving",
+  instructionsFlat.includes("save_context") &&
+    instructionsFlat.includes("Default privacy follows this connection")
+);
+// The argument for using this at all, which is the only reason the rest gets
+// read. Asserted because it is the part a tidy-up would cut as "not a rule".
+check(
+  "initialize makes the case rather than only stating rules",
+  /it outlives you/i.test(instructionsFlat) && /re-explain/i.test(instructionsFlat)
+);
 const noteRes = await worker.fetch(
   new Request("https://x/mcp", {
     method: "POST",
@@ -1264,7 +1289,16 @@ check(
 const oPriv = (await call("priv-token", "orient")).content[0].text;
 const oPub = (await call("pub-token", "orient")).content[0].text;
 check("private orient has private manifest", oPriv.includes("PRIVATE manifest"));
-check("orient includes agent ledger contract", oPriv.includes("Read your weekly file"));
+// Was: asserts orient tells agents to keep a ledger under `2-areas/agent-todos/`.
+// That is one customer's house rule, and this gateway serves buckets organized
+// years before it existed. The contract now points at their own front page for
+// conventions, which is where a ledger rule actually belongs — and `orient`
+// returns that front page directly above it.
+check(
+  "orient defers to the context's own conventions rather than inventing filing",
+  oPriv.includes("Follow their conventions, not a template") &&
+    !oPriv.includes("Read your weekly file")
+);
 check("team orient lacks private manifest", !oPub.includes("PRIVATE manifest"));
 check("team orient lacks secret project", !oPub.includes("secret-thing"));
 check("team orient shows team project", oPub.includes("1-projects/togather"));
