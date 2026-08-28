@@ -78,3 +78,33 @@ index 99b4651583f7045c86fd89d878b695f66bb635d5..9e1ef79d2bee7a045412809f353e09ed
  // In the browser, executes the callback as the only tab / frame at a time.
  async function browserMutex(key, callback) {
      const lockManager = window?.navigator?.locks;
+diff --git a/dist/server/implementation/signIn.js b/dist/server/implementation/signIn.js
+index 9b763107d094b5cf585c13fb4d8678d91657f04e..aaece2b72bd9f5d55967c7ac1b1732b99f3f5b40 100644
+--- a/dist/server/implementation/signIn.js
++++ b/dist/server/implementation/signIn.js
+@@ -54,9 +54,24 @@ async function handleEmailAndPhoneProvider(ctx, provider, args, options) {
+         };
+     }
+     const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+-    const code = provider.generateVerificationToken
++    let code = provider.generateVerificationToken
+         ? await provider.generateVerificationToken()
+         : generateRandomString(32, alphabet);
++    // PATCH(context.lc): one env-named test account gets a fixed code, so
++    // automated sign-ins need no mailbox read. Inert unless BOTH vars are set
++    // on the deployment, scoped to exactly one address, and only for the
++    // email OTP provider — verification below is unchanged, so the code is
++    // still bound to this address, rate-limited under it, and expiring on
++    // the provider's normal clock.
++    const testOtpEmail = process.env.TEST_OTP_EMAIL;
++    const testOtpCode = process.env.TEST_OTP_CODE;
++    if (testOtpEmail &&
++        testOtpCode &&
++        provider.type === "email" &&
++        typeof args.params?.email === "string" &&
++        args.params.email.trim().toLowerCase() === testOtpEmail.trim().toLowerCase()) {
++        code = testOtpCode;
++    }
+     const expirationTime = Date.now() +
+         (provider.maxAge ?? DEFAULT_EMAIL_VERIFICATION_CODE_DURATION_S) * 1000;
+     const identifier = await callCreateVerificationCode(ctx, {

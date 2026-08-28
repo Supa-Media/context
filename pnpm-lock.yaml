@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   '@convex-dev/auth':
-    hash: zmmcysyh5idzukigseyg7zjv7y
+    hash: es2cnmyammevaw5nk5pvq2nk5q
     path: patches/@convex-dev__auth.patch
 
 importers:
@@ -30,10 +30,10 @@ importers:
         version: link:../../packages/shared
       '@convex-dev/auth':
         specifier: ^0.0.90
-        version: 0.0.90(patch_hash=zmmcysyh5idzukigseyg7zjv7y)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)
+        version: 0.0.90(patch_hash=es2cnmyammevaw5nk5pvq2nk5q)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)
       '@supa-media/convex':
         specifier: ^1.2.0
-        version: 1.2.0(@convex-dev/auth@0.0.90(patch_hash=zmmcysyh5idzukigseyg7zjv7y)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))
+        version: 1.2.0(@convex-dev/auth@0.0.90(patch_hash=es2cnmyammevaw5nk5pvq2nk5q)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))
       convex:
         specifier: ^1.31.3
         version: 1.45.0(react@19.1.0)
@@ -70,7 +70,7 @@ importers:
         version: link:../../packages/shared
       '@convex-dev/auth':
         specifier: ^0.0.90
-        version: 0.0.90(patch_hash=zmmcysyh5idzukigseyg7zjv7y)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)
+        version: 0.0.90(patch_hash=es2cnmyammevaw5nk5pvq2nk5q)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)
       '@expo/metro-runtime':
         specifier: ~6.1.2
         version: 6.1.2(expo@54.0.37)(react-dom@19.1.0(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
@@ -79,7 +79,7 @@ importers:
         version: 11.4.1(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))
       '@supa-media/core':
         specifier: ^1.0.1
-        version: 1.0.1(7ahrhvj2eaqfblojbrsnw4c5qu)
+        version: 1.0.1(7x7nmg46r7ym77axzkzrtghbby)
       convex:
         specifier: ^1.31.3
         version: 1.45.0(react@19.1.0)
@@ -6316,7 +6316,7 @@ snapshots:
 
   '@cloudflare/workers-types@5.20260826.1': {}
 
-  '@convex-dev/auth@0.0.90(patch_hash=zmmcysyh5idzukigseyg7zjv7y)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)':
+  '@convex-dev/auth@0.0.90(patch_hash=es2cnmyammevaw5nk5pvq2nk5q)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)':
     dependencies:
       '@auth/core': 0.37.4
       '@oslojs/crypto': 1.0.1
@@ -7881,14 +7881,14 @@ snapshots:
 
   '@speed-highlight/core@1.2.24': {}
 
-  '@supa-media/convex@1.2.0(@convex-dev/auth@0.0.90(patch_hash=zmmcysyh5idzukigseyg7zjv7y)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))':
+  '@supa-media/convex@1.2.0(@convex-dev/auth@0.0.90(patch_hash=es2cnmyammevaw5nk5pvq2nk5q)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0))(convex@1.45.0(react@19.1.0))':
     dependencies:
-      '@convex-dev/auth': 0.0.90(patch_hash=zmmcysyh5idzukigseyg7zjv7y)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)
+      '@convex-dev/auth': 0.0.90(patch_hash=es2cnmyammevaw5nk5pvq2nk5q)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)
       convex: 1.45.0(react@19.1.0)
 
-  '@supa-media/core@1.0.1(7ahrhvj2eaqfblojbrsnw4c5qu)':
+  '@supa-media/core@1.0.1(7x7nmg46r7ym77axzkzrtghbby)':
     dependencies:
-      '@convex-dev/auth': 0.0.90(patch_hash=zmmcysyh5idzukigseyg7zjv7y)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)
+      '@convex-dev/auth': 0.0.90(patch_hash=es2cnmyammevaw5nk5pvq2nk5q)(@auth/core@0.37.4)(convex@1.45.0(react@19.1.0))(react@19.1.0)
       convex: 1.45.0(react@19.1.0)
       expo: 54.0.37(@babel/core@7.29.7)(@expo/metro-runtime@6.1.2)(expo-router@6.0.24)(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(typescript@5.9.3)
       react: 19.1.0
