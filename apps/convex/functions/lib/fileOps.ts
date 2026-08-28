@@ -1009,11 +1009,13 @@ function rulesSurvivorsRestOn(
         determining = rule;
       }
     }
-    // Two guards hold this together and neither is redundant: the comparison
-    // above already stops a second survivor re-pushing a rule the first one
-    // restored, and this stops a repeat when that comparison is bypassed. With
-    // both gone the delete path emits the same rule twice — `forgetPrivacy`
-    // does not run `oneRulePerPrefix`, so nothing downstream tidies it.
+    // Either of these alone is redundant given the other, and they are
+    // load-bearing as a pair: the comparison above stops a second survivor
+    // re-pushing a rule the first restored, and this stops a repeat when that
+    // comparison is bypassed. Remove BOTH and the delete path emits the same
+    // rule twice, because `forgetPrivacy` does not run `oneRulePerPrefix` and
+    // nothing downstream tidies it. Measured both ways — do not read "each is
+    // redundant" as "either may go".
     if (determining !== null && !kept.includes(determining)) kept.push(determining);
   }
   return kept;
@@ -1152,6 +1154,27 @@ export async function movePath(
   if (!canSee(from, options.scope, state.rules, state.overrides)) throw notFound();
 
   const sourceIsFolder = await isFolder(store, from);
+
+  // The header of this function says "the destination must not exist: this
+  // never merges and never overwrites". That was true of files, which the
+  // collision loop below checks key by key, and never true of folders — moving
+  // `src` onto an existing `dst` merged them, and the rename carried `src`'s
+  // folder rule onto `dst`, where it reached notes that were already there.
+  // Measured: an owner's `dst/secret.md` went from hidden to readable for the
+  // team caller who moved their own folder next to it.
+  //
+  // Refused with `notFound()` when the caller cannot see the folder, which is
+  // the shape `createFolder`'s collision check already uses and the reason it
+  // uses it: "that folder already exists" about a folder they cannot list is
+  // the disclosure, not the merge.
+  if (sourceIsFolder && (await isFolder(store, to))) {
+    if (!folderVisibleAtScope(to, options.scope, state.rules, state.overrides)) throw notFound();
+    throw new FileOpError(
+      "DESTINATION_EXISTS",
+      "That folder already exists. Moving one folder onto another would merge them.",
+    );
+  }
+
   const walk = sourceIsFolder
     ? await keysUnder(store, from, options.scope, state.rules, state.overrides)
     : { keys: [from], withheld: [] };
@@ -1170,6 +1193,17 @@ export async function movePath(
 
   for (const pair of pairs) {
     if ((await store.get(pair.destination)) !== null) {
+      // Naming the path back is safe here, and only because of what runs above.
+      // This message would otherwise answer "does this key exist" for any key
+      // the caller can name — they choose the destination folder and the file
+      // names under it. What makes it unreachable with a path they cannot see
+      // is that the destination guard has already refused everything `canSee`
+      // rejects, under the same rules this loop reads; and for a folder move,
+      // that a destination folder which already exists is refused before the
+      // walk. Instrumented and confirmed: nothing in the suite can drive a
+      // hidden path to this line. Remove either of those and it is an oracle
+      // again, which is why they have tests of their own rather than a check
+      // here that never fires.
       throw new FileOpError(
         "DESTINATION_EXISTS",
         `Something already exists at ${pair.destination}.`,
@@ -1239,6 +1273,17 @@ export async function copyPath(
 
   for (const pair of pairs) {
     if ((await store.get(pair.destination)) !== null) {
+      // Naming the path back is safe here, and only because of what runs above.
+      // This message would otherwise answer "does this key exist" for any key
+      // the caller can name — they choose the destination folder and the file
+      // names under it. What makes it unreachable with a path they cannot see
+      // is that the destination guard has already refused everything `canSee`
+      // rejects, under the same rules this loop reads; and for a folder move,
+      // that a destination folder which already exists is refused before the
+      // walk. Instrumented and confirmed: nothing in the suite can drive a
+      // hidden path to this line. Remove either of those and it is an oracle
+      // again, which is why they have tests of their own rather than a check
+      // here that never fires.
       throw new FileOpError(
         "DESTINATION_EXISTS",
         `Something already exists at ${pair.destination}.`,

@@ -2037,7 +2037,6 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const store = bucket();
     store.seed("1-projects/src/v.md", "# V\n");
     store.seed("1-projects/src/hr/secret.md", "# Salaries\n\n200k\n");
-    store.seed("1-projects/dst/hr/pre.md", "# Pre\n");
     await setFolderVisibility(store, {
       path: "1-projects/src",
       visibility: "team",
@@ -2048,6 +2047,9 @@ describe("a bulk operation acts only on what the caller can see", () => {
       visibility: "private",
       scope: "private",
     });
+    // A rule for a folder that does not exist — left behind by a delete, or
+    // hand-written. This is the only way a rename can still collide now that
+    // moving a folder onto an existing one is refused outright.
     await setFolderVisibility(store, {
       path: "1-projects/dst/hr",
       visibility: "team",
@@ -2126,6 +2128,160 @@ describe("a bulk operation acts only on what the caller can see", () => {
   });
 
   /**
+   * `movePath`'s own header says "the destination must not exist: this never
+   * merges and never overwrites". That was true of files — the collision loop
+   * checks them key by key — and never true of folders. Moving `src` onto an
+   * existing `dst` merged them, and the rename carried `src`'s folder rule onto
+   * `dst`, where it reached notes that were already there. Measured: an owner's
+   * `dst/secret.md` went from hidden to readable for the team caller who moved
+   * their own folder next to it.
+   */
+  test("a folder move does not publish what was already at the destination", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/src/plan.md", "# Plan\n");
+    store.seed("2-areas/dst/secret.md", "# Salaries\n\n200k\n");
+    await setFolderVisibility(store, {
+      path: "1-projects/src",
+      visibility: "team",
+      scope: "private",
+    });
+
+    const hiddenBefore = await capture(() =>
+      readFile(store, { path: "2-areas/dst/secret.md", scope: "team" }),
+    );
+    expect(hiddenBefore.code).toBe("FILE_NOT_FOUND");
+
+    const error = await capture(() =>
+      movePath(store, {
+        from: "1-projects/src",
+        to: "2-areas/dst",
+        scope: "team",
+        now: NOW,
+      }),
+    );
+    // The caller cannot see `2-areas/dst`, so the refusal must not admit it is
+    // there — same shape `createFolder`'s collision check uses.
+    expect(error.code).toBe("FILE_NOT_FOUND");
+    const stillHidden = await capture(() =>
+      readFile(store, { path: "2-areas/dst/secret.md", scope: "team" }),
+    );
+    expect(stillHidden.code).toBe("FILE_NOT_FOUND");
+  });
+
+  test("merging two visible folders is refused, and says so plainly", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/one/a.md", "# A\n");
+    store.seed("1-projects/two/b.md", "# B\n");
+
+    const error = await capture(() =>
+      movePath(store, { from: "1-projects/one", to: "1-projects/two", scope: "team", now: NOW }),
+    );
+    expect(error.code).toBe("DESTINATION_EXISTS");
+    expect(error.message).toContain("merge");
+    // Both folders are untouched.
+    expect(store.snapshot()["1-projects/one/a.md"]).toBeDefined();
+    expect(store.snapshot()["1-projects/two/b.md"]).toBeDefined();
+    // ...and a rename to a free name still works, which is the operation this
+    // refusal must not take away.
+    const moved = await movePath(store, {
+      from: "1-projects/one",
+      to: "1-projects/renamed",
+      scope: "team",
+      now: NOW,
+    });
+    expect(moved.paths).toEqual(["1-projects/renamed/a.md"]);
+  });
+
+  /**
+   * The collision message names the path it found, which is its whole value and
+   * also a disclosure: the caller chooses the destination folder AND the file
+   * names under it, so an unguarded message answers "does this key exist" for
+   * any key under any folder they cannot see.
+   */
+  test("the collision message never names a key the caller cannot see", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/mine.md", "# Mine\n");
+    store.seed("2-areas/vault/hit.md", "# Secret\n");
+
+    const hit = await capture(() =>
+      movePath(store, {
+        from: "1-projects/mine.md",
+        to: "2-areas/vault/hit.md",
+        scope: "team",
+        now: NOW,
+      }),
+    );
+    const miss = await capture(() =>
+      movePath(store, {
+        from: "1-projects/mine.md",
+        to: "2-areas/vault/miss.md",
+        scope: "team",
+        now: NOW,
+      }),
+    );
+    expect(errorShape(hit)).toBe(errorShape(miss));
+    expect(hit.message).not.toContain("hit.md");
+  });
+
+  /**
+   * The override half of the same question the guard answers for rules. A note
+   * carrying a `team` exception moves into a folder whose default is private:
+   * `movedOverrides` decides whether the exception is still needed by comparing
+   * against the destination's folder default, and it has to read the rule set
+   * the manifest will actually contain. Fed the undeduped one it reads `team`,
+   * drops the exception as redundant, and the mover's own note lands invisible
+   * to them with no way back — the same harm the rule half was fixed for, one
+   * line further down and never checked.
+   */
+  test("a moved exception is judged against the rules that will be written", async () => {
+    const store = bucket();
+    store.seed("1-projects/zzz/n.md", "# N\n");
+    // Three things have to line up for the two rule sets to disagree at all,
+    // and getting any of them wrong makes this test pass for free.
+    //
+    //  - The exception must be a REAL one, so the folder default is private and
+    //    the note is the unusual thing in it. `setVisibility` drops an
+    //    exception that merely restates the default.
+    //  - The destination folder must NOT exist, or the merge refusal answers
+    //    before any of this. A stale rule is enough to make the rename collide.
+    //  - The renamed rule must sort AFTER the stale one, because
+    //    `renderPrivacyRulesBlock` sorts by prefix and `visibilityOf` takes the
+    //    first of equal length. So the source has to sort after the
+    //    destination: `zzz` moves onto `aaa`, not the other way round.
+    await setFolderVisibility(store, {
+      path: "1-projects/aaa",
+      visibility: "team",
+      scope: "private",
+    });
+    await setFolderVisibility(store, {
+      path: "1-projects/zzz",
+      visibility: "private",
+      scope: "private",
+    });
+    await setVisibility(store, {
+      path: "1-projects/zzz/n.md",
+      visibility: "team",
+      scope: "private",
+    });
+
+    const moved = await movePath(store, {
+      from: "1-projects/zzz",
+      to: "1-projects/aaa",
+      scope: "private",
+      now: NOW,
+    });
+    expect(moved.paths).toEqual(["1-projects/aaa/n.md"]);
+    // The note kept the visibility it had; it did not become private because
+    // an exception was dropped as redundant against a rule that was never
+    // written.
+    const file = await readFile(store, { path: "1-projects/aaa/n.md", scope: "team" });
+    expect(file.visibility).toBe("team");
+  });
+
+  /**
    * The guard and the manifest writer have to answer from the same rule set.
    * Given the raw rename, the guard saw the first of two colliding rules
    * (`team`) while the writer kept the more private one — so the move was
@@ -2138,15 +2294,17 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const store = bucket();
     await shareProjects(store);
     store.seed("1-projects/aaa-team/plan.md", "# The team's plan\n");
-    store.seed("1-projects/zzz-hidden/secret.md", "# Salaries\n\n200k\n");
-    await setFolderVisibility(store, {
-      path: "1-projects/aaa-team",
-      visibility: "team",
-      scope: "private",
-    });
+    // The destination folder must NOT exist, or the merge refusal answers first
+    // and this proves nothing about the guard. A stale rule is enough to make
+    // the rename collide.
     await setFolderVisibility(store, {
       path: "1-projects/zzz-hidden",
       visibility: "private",
+      scope: "private",
+    });
+    await setFolderVisibility(store, {
+      path: "1-projects/aaa-team",
+      visibility: "team",
       scope: "private",
     });
 
@@ -2159,18 +2317,10 @@ describe("a bulk operation acts only on what the caller can see", () => {
       }),
     );
     expect(error.code).toBe("FILE_NOT_FOUND");
-    // The note stayed where its owner can still reach it...
+    // The note stayed where its owner can still reach it.
     expect(store.snapshot()["1-projects/aaa-team/plan.md"]).toBeDefined();
     const listing = await listFolder(store, { path: "1-projects/aaa-team", scope: "team" });
     expect(names(listing.entries)).toEqual(["plan.md"]);
-    // ...and the owner's note was never published either.
-    expect(
-      (
-        await capture(() =>
-          readFile(store, { path: "1-projects/zzz-hidden/secret.md", scope: "team" }),
-        )
-      ).code,
-    ).toBe("FILE_NOT_FOUND");
   });
 
   /**
@@ -2184,7 +2334,6 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const store = bucket();
     store.seed("1-projects/aaa/v.md", "# V\n");
     store.seed("1-projects/aaa/hr/secret.md", "# Salaries\n\n200k\n");
-    store.seed("1-projects/zzz/hr/pre.md", "# Pre\n");
     await setFolderVisibility(store, {
       path: "1-projects/aaa",
       visibility: "team",
