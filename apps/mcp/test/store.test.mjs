@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
 import { S3Store, parseListObjectsV2, deriveSigningKey } from "../src/store/s3.js";
+import { DropboxStore } from "../src/store/dropbox.js";
 import { probeStore, normalizeEtag, PROBE_PREFIX } from "../src/store/index.js";
 
 const FAKE_CONFIG = {
@@ -962,6 +963,206 @@ export async function runStoreChecks(check, gateway) {
     check(
       "search_notes accepts a folder prefix with a trailing slash",
       !/unsafe storage key|internal error|invalid prefix/.test(JSON.stringify(folderSearch))
+    );
+  }
+
+
+  /* ------------------------------- Dropbox -------------------------------- */
+
+  /**
+   * Dropbox is the one-click tier: a folder in somebody's Dropbox rather than a
+   * bucket they had to create. The point of these checks is that it is a real
+   * ContextStore and not a degraded one — above the adapter nothing may learn
+   * which backend it got.
+   */
+  const dbxJson = (body, status = 200, headers = {}) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/json", ...headers },
+    });
+
+  function dropbox(handler, overrides = {}) {
+    return new DropboxStore({
+      accessToken: "sl.FAKE-not-a-real-token",
+      fetch: fetchStub(handler),
+      sleep: async () => {},
+      ...overrides,
+    });
+  }
+
+  {
+    const store = dropbox(() => dbxJson({ rev: "0157f8" }));
+    const written = await store.put("1-projects/foo.md", "hello");
+    const call = store.fetch.calls[0];
+    const arg = JSON.parse(call.headers["Dropbox-API-Arg"]);
+    check(
+      "dropbox writes to a path, with the leading slash Dropbox requires",
+      arg.path === "/1-projects/foo.md"
+    );
+    check(
+      "dropbox never autorenames around a conflict",
+      arg.autorename === false
+    );
+    check("dropbox returns rev as the etag", written?.etag === "0157f8");
+  }
+
+  {
+    // The whole reason this adapter does not report conditionalWrite: false.
+    const store = dropbox(() => dbxJson({ rev: "b2" }));
+    await store.put("a.md", "x", { onlyIf: { etagMatches: "a1" } });
+    const arg = JSON.parse(store.fetch.calls[0].headers["Dropbox-API-Arg"]);
+    check(
+      "a conditional write becomes Dropbox's update mode carrying the rev",
+      arg.mode?.[".tag"] === "update" && arg.mode?.update === "a1"
+    );
+  }
+
+  {
+    // Dropbox says 409 for a lost race; the contract says null.
+    const store = dropbox(() =>
+      dbxJson({ error_summary: "path/conflict/file/..", error: {} }, 409)
+    );
+    const result = await store.put("a.md", "x", { onlyIf: { etagMatches: "stale" } });
+    check("a lost conditional write is null, not an exception", result === null);
+  }
+
+  {
+    let threw = null;
+    const store = dropbox(() => dbxJson({ rev: "z" }));
+    try {
+      await store.put("a.md", "x", { onlyIf: { etagMatches: "" } });
+    } catch (error) {
+      threw = error;
+    }
+    check(
+      "an onlyIf with no usable etag is refused rather than silently overwriting",
+      threw !== null && /refusing to downgrade/.test(threw.message)
+    );
+  }
+
+  {
+    // 409 is also how Dropbox says "no such file", so the tag decides, not the
+    // status — otherwise an expired token would read as an empty context.
+    const store = dropbox(() =>
+      dbxJson({ error_summary: "path/not_found/..", error: {} }, 409)
+    );
+    check("a missing object reads as null", (await store.get("gone.md")) === null);
+  }
+
+  {
+    let threw = null;
+    const store = dropbox(() =>
+      dbxJson({ error_summary: "expired_access_token/..", error: {} }, 409)
+    );
+    try {
+      await store.get("a.md");
+    } catch (error) {
+      threw = error;
+    }
+    check(
+      "a 409 that is not not_found is an error, never mistaken for absence",
+      threw !== null
+    );
+  }
+
+  {
+    const body = new TextEncoder().encode("# note").buffer;
+    const store = dropbox(
+      () =>
+        new Response(body, {
+          status: 200,
+          headers: { "Dropbox-API-Result": JSON.stringify({ rev: "77" }) },
+        })
+    );
+    const object = await store.get("a.md");
+    check("a read carries the rev and the bytes", object?.etag === "77");
+    check("a read decodes to text", (await object.text()) === "# note");
+  }
+
+  {
+    // The folder somebody chose is a rootPrefix, exactly as it is for S3, and
+    // nothing above the adapter ever sees it.
+    const store = dropbox(
+      () =>
+        dbxJson({
+          entries: [
+            { ".tag": "file", path_display: "/Context/1-projects/a.md", size: 3, server_modified: "2026-08-01T10:00:00Z" },
+            { ".tag": "folder", path_display: "/Context/2-areas" },
+          ],
+          has_more: false,
+        }),
+      { rootPrefix: "Context" }
+    );
+    const page = await store.list({ prefix: "" });
+    check(
+      "a listing is returned in the caller's own keys, with the folder stripped",
+      page.objects[0]?.key === "1-projects/a.md"
+    );
+    check(
+      "dropbox folders become delimitedPrefixes without synthesising anything",
+      page.delimitedPrefixes[0] === "2-areas/"
+    );
+    const arg = JSON.parse(store.fetch.calls[0].body);
+    check("a listing is scoped to the chosen folder", arg.path === "/Context");
+  }
+
+  {
+    const store = dropbox(() =>
+      dbxJson({ error_summary: "path/not_found/..", error: {} }, 409)
+    );
+    const page = await store.list({ prefix: "" });
+    check(
+      "a folder that does not exist yet lists empty rather than throwing",
+      page.objects.length === 0 && page.truncated === false
+    );
+  }
+
+  {
+    // Many small files is the normal shape of a context sync, so a 429 is an
+    // expected condition rather than an outage.
+    let calls = 0;
+    const waited = [];
+    const store = dropbox(
+      () => {
+        calls += 1;
+        return calls === 1
+          ? new Response("rate limited", { status: 429, headers: { "Retry-After": "3" } })
+          : dbxJson({ rev: "ok" });
+      },
+      { sleep: async (ms) => waited.push(ms) }
+    );
+    const written = await store.put("a.md", "x");
+    check("a 429 is retried rather than surfaced", written?.etag === "ok");
+    check(
+      "the retry honours Dropbox's own Retry-After",
+      waited.length === 1 && waited[0] >= 3000
+    );
+  }
+
+  {
+    // A path with an accent or an emoji is a real note name. Dropbox reads its
+    // argument out of an HTTP header, so anything non-ASCII has to be escaped
+    // rather than refused.
+    const store = dropbox(() => dbxJson({ rev: "1" }));
+    await store.put("1-projects/café-🌍.md", "x");
+    const header = store.fetch.calls[0].headers["Dropbox-API-Arg"];
+    check(
+      "a non-ASCII key is escaped into the API header rather than rejected",
+      /\\u00e9/.test(header) && !/é/.test(header)
+    );
+  }
+
+  {
+    let threw = null;
+    const store = dropbox(() => dbxJson({ rev: "1" }));
+    try {
+      await store.get("../escape.md");
+    } catch (error) {
+      threw = error;
+    }
+    check(
+      "dropbox refuses a traversing key with the same guard as every other backend",
+      threw !== null && /unsafe storage key/.test(threw.message)
     );
   }
 
