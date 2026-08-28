@@ -1,18 +1,24 @@
 /**
  * Writing the hook into the client's own settings, without breaking them.
  *
- * ## Claude Code is the one client supported, on purpose
+ * ## Three clients, and the first version of this file was wrong about that
  *
- * It has a documented `SessionEnd` hook that runs a command and hands it JSON
- * on stdin including the path to the session transcript. That is exactly the
- * shape this needs, and it is a shape I can point at in that client's own
- * documentation. The other clients on the connect screen either have no
- * end-of-session hook or have one whose contract I would be guessing at, and a
- * guessed integration that silently never fires is worse than an honest "not
- * yet" — the person believes their sessions are being saved and finds out
- * months later that none of them were.
+ * It shipped saying Claude Code was the only client with a documented
+ * end-of-session hook, and that the rest would be guesswork. That was asserted
+ * from memory rather than checked, and it is false: **Codex and Gemini CLI both
+ * ship hook systems of the same shape**, documented, with `session_id`,
+ * `transcript_path`, `cwd` and `hook_event_name` on stdin and an
+ * `additionalContext` field that injects text into the model's context at
+ * session start. Cursor has hooks too (`beforeSubmitPrompt` … `stop`) but no
+ * documented transcript path, so it is genuinely not supported yet. Hosted
+ * ChatGPT has nothing of the kind — it is a product, not a harness.
  *
- * `CLIENTS` is the seam. Adding one is a config path, a merge, and a test.
+ * The rule the wrong claim was defending still stands and is what `verified`
+ * below encodes: **a hook is only offered where its contract can be read rather
+ * than guessed.** What changed is which clients meet it.
+ *
+ * `CLIENTS` is the seam. Adding one is a config path, an event map, a merge,
+ * and a test.
  *
  * ## The merge is the risky part, not the flow
  *
@@ -27,14 +33,38 @@ import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-/** Marks the entry as ours, so re-installing replaces it and uninstall finds it. */
+/**
+ * The marker earlier versions wrote onto their hook entry.
+ *
+ * No longer written. It was an unknown property inside somebody else's config
+ * schema, and while Claude Code tolerates extra keys, Codex and Gemini CLI are
+ * two more parsers whose strictness this package cannot test — and the cost of
+ * being wrong is the person's whole settings file failing to load. Our entries
+ * are identified by the command instead, which is a string we control and which
+ * survives an endpoint or scope change just as well.
+ *
+ * Still recognised on read, so an upgrade replaces an old entry rather than
+ * stacking a second one beside it.
+ */
 export const HOOK_MARKER = "context-hook";
 
+/**
+ * All three write the same nested shape:
+ *
+ *     { "hooks": { "<Event>": [ { "hooks": [ { "type": "command", "command": … } ] } ] } }
+ *
+ * so one merge serves all of them. What differs is the file, the event names,
+ * and — the one trap — **the unit of `timeout`**: seconds for Claude Code and
+ * Codex, milliseconds for Gemini CLI. This writes no timeout at all rather than
+ * carry a number that means two different things depending on the file it
+ * lands in; every one of them has a sane default.
+ */
 export const CLIENTS = {
   "claude-code": {
     id: "claude-code",
     name: "Claude Code",
-    settingsPath: () => process.env.CONTEXT_HOOK_CLAUDE_SETTINGS || join(homedir(), ".claude", "settings.json"),
+    settingsPath: () =>
+      process.env.CONTEXT_HOOK_CLAUDE_SETTINGS || join(homedir(), ".claude", "settings.json"),
     /**
      * `SessionStart` fires on startup, resume and clear, and its output is
      * injected into the session before the first turn. `SessionEnd` hands over
@@ -42,8 +72,36 @@ export const CLIENTS = {
      * agent having to remember anything.
      */
     events: { SessionStart: "session-start", SessionEnd: "capture" },
-    merge: mergeClaudeCodeHook,
-    remove: removeClaudeCodeHook,
+    /** The transcript shape this package's parser was written against. */
+    transcriptVerified: true,
+    merge: mergeHooks,
+    remove: removeHooks,
+  },
+  codex: {
+    id: "codex",
+    name: "Codex CLI",
+    // `hooks.json` is discovered through Codex's config layer stack; the
+    // user-level layer is the one an install should touch. Codex also accepts
+    // an inline `[hooks]` table in `config.toml`, which is not used here — a
+    // TOML edit would mean parsing and rewriting a file full of settings we do
+    // not understand, where the JSON file is ours to add to.
+    settingsPath: () =>
+      process.env.CONTEXT_HOOK_CODEX_SETTINGS || join(homedir(), ".codex", "hooks.json"),
+    /** Codex calls the end of a session `Stop`, not `SessionEnd`. */
+    events: { SessionStart: "session-start", Stop: "capture" },
+    transcriptVerified: false,
+    merge: mergeHooks,
+    remove: removeHooks,
+  },
+  "gemini-cli": {
+    id: "gemini-cli",
+    name: "Gemini CLI",
+    settingsPath: () =>
+      process.env.CONTEXT_HOOK_GEMINI_SETTINGS || join(homedir(), ".gemini", "settings.json"),
+    events: { SessionStart: "session-start", SessionEnd: "capture" },
+    transcriptVerified: false,
+    merge: mergeHooks,
+    remove: removeHooks,
   },
 };
 
@@ -75,7 +133,7 @@ function shellArg(value) {
   return `'${String(value).replaceAll("'", `'\\''`)}'`;
 }
 
-function mergeClaudeCodeHook(settings, commands) {
+function mergeHooks(settings, commands) {
   const next = { ...settings };
   const hooks = { ...(next.hooks && typeof next.hooks === "object" ? next.hooks : {}) };
   for (const [event, command] of Object.entries(commands)) {
@@ -84,13 +142,13 @@ function mergeClaudeCodeHook(settings, commands) {
     // marker rather than on the exact command, so an install that changes the
     // endpoint or the scope replaces rather than duplicates.
     const kept = existing.filter((matcher) => !isOurs(matcher));
-    hooks[event] = [...kept, { hooks: [{ type: "command", command, [HOOK_MARKER]: true }] }];
+    hooks[event] = [...kept, { hooks: [{ type: "command", command }] }];
   }
   next.hooks = hooks;
   return next;
 }
 
-function removeClaudeCodeHook(settings) {
+function removeHooks(settings) {
   const next = { ...settings };
   if (!next.hooks || typeof next.hooks !== "object") return { settings: next, removed: 0 };
   const hooks = { ...next.hooks };

@@ -41,6 +41,15 @@
  *     an install that widens to read would otherwise authorize through a client
  *     that declared it wanted less.
  *
+ *  6. **Codex's end-of-session event renamed to `SessionEnd`** (it calls it
+ *     `Stop`). 3 checks failed — but only after those checks were rewritten to
+ *     read defensively. The first version indexed straight into
+ *     `codex.hooks.Stop[0]`, so the sabotage threw a TypeError, stopped the
+ *     run, and left every later check unreported: a crash is not a pass, and it
+ *     is not a usable failure either. A wrong event name is the exact shape of
+ *     "installed and never fires" this package refuses to ship, so it has to
+ *     fail by name.
+ *
  * Sabotage 2 originally failed *nothing*: `stateMatches` had unit checks and
  * its use in the flow had none, which is the shape of hole this project has
  * been caught by before. The login is now driven with a browser that comes back
@@ -56,7 +65,7 @@ import { createHash } from "node:crypto";
 import * as commands from "../src/commands.js";
 import { transcriptToMarkdown, messageFromEntry } from "../src/transcript.js";
 import { createPkce, stateMatches } from "../src/oauth.js";
-import { installHook, uninstallHook, HOOK_MARKER } from "../src/install.js";
+import { clientById, installHook, uninstallHook, HOOK_MARKER } from "../src/install.js";
 
 let failures = 0;
 function check(label, condition) {
@@ -365,10 +374,49 @@ const merged = JSON.parse(await readFile(settingsPath, "utf8"));
 check("an unrelated setting survives the merge", merged.model === "opus");
 check("the person's own SessionEnd hook survives", merged.hooks.SessionEnd.some((entry) => entry.hooks[0].command === "echo mine"));
 check("their other hook events are untouched", merged.hooks.PreToolUse.length === 1);
+// Ours is identified by the command, not by a marker property. We stopped
+// writing one: an unknown key inside somebody else's config schema is a risk
+// across three parsers whose strictness this package cannot test, and the cost
+// of being wrong is their whole settings file failing to load.
+const isOurEntry = (entry) =>
+  entry.hooks.some((hook) => String(hook.command || "").includes("@context-lc/hook"));
 check(
   "installing twice replaces our entry rather than stacking a duplicate",
-  merged.hooks.SessionEnd.filter((entry) => entry.hooks.some((hook) => hook[HOOK_MARKER])).length === 1 &&
-    merged.hooks.SessionStart.filter((entry) => entry.hooks.some((hook) => hook[HOOK_MARKER])).length === 1
+  merged.hooks.SessionEnd.filter(isOurEntry).length === 1 &&
+    merged.hooks.SessionStart.filter(isOurEntry).length === 1
+);
+check(
+  "nothing we write carries a property outside the client's own schema",
+  merged.hooks.SessionEnd.filter(isOurEntry).every((entry) =>
+    entry.hooks.every((hook) =>
+      Object.keys(hook).every((key) => ["type", "command"].includes(key))
+    )
+  ) && !JSON.stringify(merged).includes(HOOK_MARKER)
+);
+// An entry written by an older version carried the marker. It must still be
+// recognised, or an upgrade stacks a second hook beside the first and every
+// session gets posted twice.
+await writeFile(
+  settingsPath,
+  JSON.stringify({
+    // Carries the person's own hooks too, because the checks below this one
+    // assert what survives an uninstall — a fixture that quietly dropped them
+    // would make those pass for the wrong reason.
+    hooks: {
+      SessionEnd: [
+        { hooks: [{ type: "command", command: "npx -y @context-lc/hook capture --old", [HOOK_MARKER]: true }] },
+        { hooks: [{ type: "command", command: "echo mine" }] },
+      ],
+      PreToolUse: [{ hooks: [{ type: "command", command: "echo also mine" }] }],
+    },
+  })
+);
+await installHook({ clientId: "claude-code", endpoint: server.endpoint });
+const upgraded = JSON.parse(await readFile(settingsPath, "utf8"));
+check(
+  "an entry from an older version is replaced, not stacked beside",
+  upgraded.hooks.SessionEnd.filter(isOurEntry).length === 1 &&
+    upgraded.hooks.SessionEnd.some((entry) => entry.hooks[0].command === "echo mine")
 );
 
 const removal = await uninstallHook({ clientId: "claude-code" });
@@ -380,6 +428,106 @@ check(
     afterRemoval.hooks.SessionEnd[0].hooks[0].command === "echo mine" &&
     afterRemoval.hooks.PreToolUse.length === 1
 );
+
+// -- the other two clients
+//
+// The first version of this package claimed Claude Code was the only client
+// with a documented end-of-session hook. That was asserted from memory and is
+// false: Codex and Gemini CLI both ship hook systems of the same shape, with
+// `transcript_path` on stdin and `additionalContext` at session start. What
+// each one differs in is the file it lives in and what it calls the end of a
+// session — which is exactly what these check.
+const codexSettings = join(home, "codex-hooks.json");
+const geminiSettings = join(home, "gemini-settings.json");
+process.env.CONTEXT_HOOK_CODEX_SETTINGS = codexSettings;
+process.env.CONTEXT_HOOK_GEMINI_SETTINGS = geminiSettings;
+
+await writeFile(codexSettings, JSON.stringify({ hooks: { PreToolUse: [{ hooks: [{ type: "command", command: "echo theirs" }] }] } }));
+await installHook({ clientId: "codex", endpoint: server.endpoint });
+const codex = JSON.parse(await readFile(codexSettings, "utf8"));
+/**
+ * Read defensively, and that is not fussiness.
+ *
+ * The first version of these read `codex.hooks.Stop[0].hooks[0].command`
+ * directly, so sabotaging the event name threw a TypeError instead of failing
+ * a check — which stops the run and leaves every later check unreported. A
+ * crash is not a pass, but it is not a usable failure either.
+ */
+const commandFor = (config, event) =>
+  String(config?.hooks?.[event]?.[0]?.hooks?.[0]?.command || "");
+
+check(
+  "Codex gets its end-of-session hook on Stop, which is what it calls it",
+  commandFor(codex, "Stop").includes("@context-lc/hook capture") &&
+    codex.hooks.SessionEnd === undefined
+);
+check("Codex gets the session-start hook too", commandFor(codex, "SessionStart").includes("session-start"));
+check("and their own Codex hooks survive", commandFor(codex, "PreToolUse") === "echo theirs");
+
+await installHook({ clientId: "gemini-cli", endpoint: server.endpoint });
+const gemini = JSON.parse(await readFile(geminiSettings, "utf8"));
+check(
+  "Gemini CLI gets SessionStart and SessionEnd, which is what it calls it",
+  commandFor(gemini, "SessionStart").includes("session-start") &&
+    commandFor(gemini, "SessionEnd").includes("capture") &&
+    gemini.hooks.Stop === undefined
+);
+check(
+  "the installed command names the client, so capture attributes correctly",
+  commandFor(gemini, "SessionEnd").includes("--client gemini-cli") &&
+    commandFor(codex, "Stop").includes("--client codex")
+);
+// `timeout` means seconds in Claude Code and Codex and MILLISECONDS in Gemini
+// CLI. Writing a number that means two different things depending on which file
+// it lands in is how a 5-second timeout becomes 5 milliseconds, so none is
+// written and every client's own default stands.
+check(
+  "no timeout is written, because the unit differs between these files",
+  [codex, gemini, JSON.parse(await readFile(settingsPath, "utf8"))].every((config) =>
+    Object.values(config.hooks).every((matchers) =>
+      matchers.every((matcher) => matcher.hooks.every((hook) => hook.timeout === undefined))
+    )
+  )
+);
+check(
+  "installing one client does not touch another's file",
+  JSON.parse(await readFile(codexSettings, "utf8")).hooks.SessionEnd === undefined
+);
+said.length = 0;
+await commands.install({
+  endpoint: server.endpoint,
+  client: "codex",
+  configPath,
+  openBrowser: (href) => server.state.approve(href),
+  log,
+});
+// The parser was written against one client's transcript shape. Saying so is
+// the whole difference between a hook that under-captures and one that lies:
+// the session-start half needs no transcript at all, and a capture that finds
+// nothing announces it rather than going quiet.
+check(
+  "installing an unverified client says which half is unproven",
+  said.join("\n").includes("transcript parser") && said.join("\n").includes("Claude Code")
+);
+check(
+  "and the verified client is not given that caveat",
+  !firstInstallLog.includes("transcript parser")
+);
+
+const codexRemoval = await uninstallHook({ clientId: "codex" });
+check("uninstalling Codex removes both of ours and leaves theirs", codexRemoval.removed === 2);
+check(
+  "an unsupported client is refused by name, before anything is written",
+  (() => {
+    try {
+      clientById("chatgpt");
+      return false;
+    } catch (error) {
+      return error.message.includes("claude-code") && error.message.includes("codex");
+    }
+  })()
+);
+await uninstallHook({ clientId: "gemini-cli" });
 
 // -- the capture itself
 

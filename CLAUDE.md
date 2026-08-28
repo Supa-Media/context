@@ -832,11 +832,40 @@ grant, a slow gateway or a capture-only credential all come out as the
 directive, and a capture-only install does not even spend the request finding
 out it cannot read.
 
-**A hook is only offered for a client whose end-of-session event is documented.**
-Claude Code's `SessionEnd` hands over the transcript path; the others are
-guesses. A hook that silently never fires is worse than no button, because the
-person believes their sessions are being saved and finds out months later that
-none of them were.
+**A hook is only offered for a client whose contract can be read rather than
+guessed** — and the first version of that list was wrong, in a way worth
+recording because the error was not in the rule.
+
+It said Claude Code was the only client with a documented end-of-session hook.
+That was **asserted from memory and never checked**, and it is false: Codex CLI
+and Gemini CLI both ship hook systems of the same shape — a command per
+lifecycle event, `session_id`/`transcript_path`/`cwd` on stdin, and an
+`additionalContext` field at session start. The claim shipped into a doc
+comment, a README, a console string and this file before a question caught it.
+Never state what another product does or does not support without looking; a
+confident sentence about somebody else's software is the cheapest thing here to
+get wrong and the most expensive to notice.
+
+The rule itself survives intact, and still excludes two: **Cursor** has hooks
+(`beforeSubmitPrompt` … `stop`) but publishes no transcript path, so the capture
+half has nothing to read; **hosted ChatGPT** has no hook system at all. A hook
+that silently never fires is worse than no button, because the person believes
+their sessions are being saved and finds out months later that none were.
+
+Three details differ between the three that are supported, and all three are
+places to be careful: the file (`~/.claude/settings.json`, `~/.codex/hooks.json`,
+`~/.gemini/settings.json`); what the end of a session is called (Codex says
+`Stop`); and **the unit of `timeout` — seconds for Claude Code and Codex,
+milliseconds for Gemini CLI**. The installer writes no timeout at all rather
+than carry a number that means two different things depending on where it lands.
+
+It also writes **no property outside the client's own schema.** An earlier
+version stamped a marker key onto its hook entry to recognise it later; that is
+an unknown field inside somebody else's config, across three parsers whose
+strictness we cannot test, and the cost of being wrong is their whole settings
+file failing to load. Our entries are identified by the command string instead —
+still recognised on read, so an upgrade replaces an old marked entry rather than
+stacking a second one beside it.
 
 ### A guard nobody has checked is not a guard
 

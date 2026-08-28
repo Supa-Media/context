@@ -59,6 +59,13 @@ export async function install({
       : "At session start the model is told to call orient before answering."
   );
   log("When a session ends, its user-visible messages are saved to 0-inbox/.");
+  if (!clientById(clientId).transcriptVerified) {
+    log("");
+    log(`Note: this package's transcript parser was written against Claude Code's`);
+    log(`format, not ${clientById(clientId).name}'s. The session-start half does not`);
+    log("read the transcript at all and is unaffected. If a save finds nothing to");
+    log("keep it says so on the spot rather than failing quietly — tell us if it does.");
+  }
   if (!orient) {
     log("");
     log("To have the orientation itself injected instead of an instruction to fetch it,");
