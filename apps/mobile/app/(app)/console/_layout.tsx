@@ -491,6 +491,14 @@ function Rail({
         // one before it is the only one there can be.
         router.push(WELCOME_ROUTE);
       }}
+      onLeaveContext={(id) => {
+        frame.closeNav();
+        // Fire-and-watch: the membership row deleting is what removes the
+        // context from the rail, via the subscription. Land on the Map so the
+        // person is not left standing in a context they just left.
+        void data.leaveContext?.(id);
+        router.replace("/console");
+      }}
     />
   );
 }

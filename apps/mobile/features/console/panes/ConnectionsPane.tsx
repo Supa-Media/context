@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Card, Grow, Row } from "../../design/components/Card";
@@ -114,6 +115,63 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
           shareBackWith={shareBackSuggestions(data.contexts, data.members)}
         />
       </View>
+
+      {/*
+        The way all the way out. It lives on this pane because Connections is
+        already the surface about access — who has it, which clients hold it —
+        and deleting the account is revoking every one of those at once. Absent
+        in the demo, where there is no account to delete.
+      */}
+      {data.deleteAccount ? <DeleteAccountCard deleteAccount={data.deleteAccount} /> : null}
+    </View>
+  );
+}
+
+/**
+ * Deletion is two presses and says what it does first. The copy leads with
+ * the one fact people fear getting wrong: notes in their own storage are not
+ * ours to delete and stay where they are. What goes is the control plane's
+ * record — contexts, memberships, storage connections, sign-in — which is
+ * exactly what somebody re-testing onboarding wants gone.
+ */
+export function DeleteAccountCard({ deleteAccount }: { deleteAccount: () => Promise<void> }) {
+  const [arming, setArming] = useState<"idle" | "armed" | "working">("idle");
+  return (
+    <View style={styles.account}>
+      <Text variant="eyebrow" style={styles.accountHead}>
+        Account
+      </Text>
+      <Card>
+        <Row>
+          <Grow>
+            <Text variant="rowTitle">Delete this account</Text>
+            <Text variant="rowSub" style={styles.accountSub}>
+              Removes your contexts, storage connections, memberships and sign-in.
+              Notes in your own bucket or Dropbox stay exactly where they are.
+            </Text>
+          </Grow>
+          <Button
+            label={
+              arming === "working"
+                ? "Deleting…"
+                : arming === "armed"
+                  ? "Press again to delete"
+                  : "Delete account"
+            }
+            variant="danger"
+            disabled={arming === "working"}
+            testID="delete-account"
+            onPress={() => {
+              if (arming === "idle") {
+                setArming("armed");
+                return;
+              }
+              setArming("working");
+              void deleteAccount();
+            }}
+          />
+        </Row>
+      </Card>
     </View>
   );
 }
@@ -149,6 +207,9 @@ function ClientRow({ client }: { client: ConsoleClient }) {
 }
 
 const styles = StyleSheet.create({
+  account: { marginTop: 18 },
+  accountHead: { marginBottom: 8 },
+  accountSub: { maxWidth: 520 },
   eyebrow: { marginBottom: 10 },
   spaced: { marginTop: 11 },
   clientsHead: { marginBottom: 13 },
