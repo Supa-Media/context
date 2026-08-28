@@ -64,7 +64,7 @@ import { createHash } from "node:crypto";
 
 import * as commands from "../src/commands.js";
 import { transcriptToMarkdown, messageFromEntry } from "../src/transcript.js";
-import { createPkce, stateMatches } from "../src/oauth.js";
+import { createPkce, stateMatches, discover } from "../src/oauth.js";
 import { clientById, installHook, uninstallHook, HOOK_MARKER } from "../src/install.js";
 
 let failures = 0;
@@ -307,6 +307,126 @@ const said = [];
 const log = (line = "") => said.push(String(line));
 
 // -- what leaves the machine
+
+// -- an authorization server may not arrive over plain http
+//
+// `discover` follows RFC 9728: the resource names the authorization server,
+// and that server's metadata names where the code and the token go. Every one
+// of those is a string off the wire, and the credential at the end of it is
+// the one that sits unattended on a laptop. Loopback stays permitted — the
+// suite's own stub is `http://127.0.0.1`, and RFC 8252 carves it out — but a
+// routable `http://` host means the code and the PKCE verifier cross the
+// network in the clear.
+const discoveryError = async (servers, metadata) => {
+  const fetchImpl = async (target) =>
+    String(target).includes("oauth-protected-resource")
+      ? { ok: true, json: async () => ({ resource: "https://ctx.example/mcp", authorization_servers: servers }) }
+      : { ok: true, json: async () => metadata };
+  return discover("https://ctx.example/mcp", { fetchImpl }).then(
+    () => null,
+    (error) => error
+  );
+};
+const discoveryResult = async (metadata) => {
+  const fetchImpl = async (target) =>
+    String(target).includes("oauth-protected-resource")
+      ? { ok: true, json: async () => ({ resource: "https://ctx.example/mcp", authorization_servers: ["https://ctx.example"] }) }
+      : { ok: true, json: async () => metadata };
+  return discover("https://ctx.example/mcp", { fetchImpl });
+};
+const httpsMeta = (origin) => ({
+  issuer: origin,
+  authorization_endpoint: `${origin}/oauth/authorize`,
+  token_endpoint: `${origin}/oauth/token`,
+});
+// The metadata here is entirely https, so ONLY the issuer check can refuse
+// this. Written with http endpoints too, the endpoint check caught it and the
+// issuer check could be deleted with the suite still green.
+check(
+  "a routable http authorization server is refused",
+  Boolean(await discoveryError(["http://evil.example"], httpsMeta("https://ctx.example")))
+);
+// The carve-out is by resolved HOST, not by substring. This hostname is
+// routable and merely contains the loopback digits; a `includes("127.0.0.1")`
+// carve-out accepts it, and nothing else in this file would notice.
+check(
+  "a routable host that merely contains the loopback address is refused",
+  Boolean(
+    await discoveryError(
+      ["http://127.0.0.1.evil.example"],
+      httpsMeta("https://ctx.example")
+    )
+  )
+);
+// One assertion per endpoint, because a loop that checks N keys is proven by
+// N assertions and not by one: with only the token case, `authorization_endpoint`
+// could be dropped from the walk and the whole suite stayed green.
+check(
+  "an https server that names an http authorization endpoint is refused",
+  Boolean(
+    await discoveryError(["https://ctx.example"], {
+      ...httpsMeta("https://ctx.example"),
+      authorization_endpoint: "http://evil.example/oauth/authorize",
+    })
+  )
+);
+// Not in the original two-key list, and part of the same walk: `registerClient`
+// POSTs the machine name here and trusts the `client_id` that comes back.
+check(
+  "an http registration endpoint is refused too, though it carries no token",
+  Boolean(
+    await discoveryError(["https://ctx.example"], {
+      ...httpsMeta("https://ctx.example"),
+      registration_endpoint: "http://evil.example/oauth/register",
+    })
+  )
+);
+// The carve-out is "http on loopback", not "anything on loopback". Without the
+// protocol gate this passes: the host is fine and the scheme is never checked.
+check(
+  "a non-http scheme is refused even on loopback",
+  Boolean(
+    await discoveryError(["https://ctx.example"], {
+      ...httpsMeta("https://ctx.example"),
+      token_endpoint: "ftp://127.0.0.1/oauth/token",
+    })
+  )
+);
+check(
+  "an https server that names an http token endpoint is refused",
+  Boolean(
+    await discoveryError(["https://ctx.example"], {
+      ...httpsMeta("https://ctx.example"),
+      token_endpoint: "http://evil.example/oauth/token",
+    })
+  )
+);
+// The scheme loop SKIPS a non-string rather than refusing it, so the refusal
+// has to live elsewhere — and these two pin the two places it lives. Without
+// them, wrapping a URL in brackets walks past every check above: `fetch`
+// stringifies `["http://evil.example/x"]` back into that exact URL.
+check(
+  "a non-string token endpoint is refused, not stringified into the credential path",
+  Boolean(
+    await discoveryError(["https://ctx.example"], {
+      ...httpsMeta("https://ctx.example"),
+      token_endpoint: ["http://evil.example/oauth/token"],
+    })
+  )
+);
+check(
+  "a non-string registration endpoint never reaches the network",
+  (
+    await discoveryResult({
+      ...httpsMeta("https://ctx.example"),
+      registration_endpoint: ["http://evil.example/register"],
+    })
+  ).registrationEndpoint === null
+);
+check(
+  "and loopback http still works, because the carve-out is what self-hosting runs on",
+  (await discoveryError(["http://127.0.0.1:8787"], httpsMeta("http://127.0.0.1:8787"))) === null
+);
 
 const converted = transcriptToMarkdown(TRANSCRIPT);
 check("only user-visible messages survive the transcript", converted.messages === 4);

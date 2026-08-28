@@ -102,6 +102,50 @@ export function stateMatches(expected, presented) {
  * rather than us assuming the gateway is its own. Today it is, and hardcoding
  * that would break the first self-hoster who puts a real IdP in front.
  */
+/**
+ * A URL this hook is willing to send a credential to.
+ *
+ * `discover` walks strings off the wire — the resource names an authorization
+ * server, that server's metadata names where the code and the token go — and
+ * the credential at the end of the walk is the one that sits unattended on a
+ * laptop indefinitely. Nothing else in this package checked the scheme, so a
+ * gateway that answered with `http://` sent the authorization code and the
+ * PKCE verifier across the network in the clear.
+ *
+ * Loopback is carved out rather than forgotten: RFC 8252 §7.3 permits it for
+ * exactly this flow, a self-hoster's first run is `http://127.0.0.1`, and the
+ * traffic never leaves the machine. The carve-out is by resolved HOST, not by
+ * substring — `http://127.0.0.1.evil.example` is a routable host that merely
+ * contains the digits.
+ *
+ * Testing `url.hostname` rather than the raw string is also what makes the
+ * odd-but-legitimate spellings work: `127.1`, `0x7f.0.0.1`, `0177.0.0.1` and
+ * `2130706433` all normalise to `127.0.0.1`, and `[0:0:0:0:0:0:0:1]` to
+ * `[::1]`. A later "simplification" to string matching would refuse every one
+ * of them.
+ *
+ * The Set is the two literals RFC 8252 §7.3 names, plus `localhost`. What that
+ * deliberately excludes: the rest of `127.0.0.0/8`, the IPv4-mapped
+ * `[::ffff:127.0.0.1]`, the trailing-dot `localhost.`, and `0.0.0.0` — which
+ * is the unspecified address rather than a loopback one. Widening a security
+ * carve-out to cover a spelling nobody has hit is the wrong direction.
+ * `localhost` is the one entry that is a name rather than a literal, and
+ * §8.3 cautions that its resolution is not guaranteed to stay on the machine.
+ */
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
+
+export function credentialUrlOk(value) {
+  let url;
+  try {
+    url = new URL(String(value));
+  } catch {
+    return false;
+  }
+  if (url.protocol === "https:") return true;
+  if (url.protocol !== "http:") return false;
+  return LOOPBACK_HOSTS.has(url.hostname.replace(/^\[|\]$/g, ""));
+}
+
 export async function discover(endpoint, { fetchImpl = fetch } = {}) {
   const url = new URL(endpoint);
   const resourcePath = url.pathname.replace(/\/+$/, "");
@@ -119,7 +163,16 @@ export async function discover(endpoint, { fetchImpl = fetch } = {}) {
     if (!body) continue;
     resource = typeof body.resource === "string" ? body.resource : null;
     const servers = Array.isArray(body.authorization_servers) ? body.authorization_servers : [];
-    if (typeof servers[0] === "string") issuer = servers[0];
+    // Refused here rather than trusted and checked later: this value decides
+    // where the browser is sent and where the token is asked for.
+    if (typeof servers[0] === "string") {
+      if (!credentialUrlOk(servers[0])) {
+        throw new Error(
+          `the resource named an authorization server this hook will not use: ${servers[0]}`
+        );
+      }
+      issuer = servers[0];
+    }
     break;
   }
 
@@ -129,18 +182,59 @@ export async function discover(endpoint, { fetchImpl = fetch } = {}) {
     throw new Error(`the server at ${issuer} published no OAuth metadata (${response.status})`);
   }
   const metadata = await response.json();
+  // Presence AND type, and the type half is load-bearing for the same reason
+  // as the normalisation below: the scheme loop skips a non-string, so without
+  // this refusal a `token_endpoint` of `["http://evil.example/oauth/token"]`
+  // reaches `fetch`, which stringifies it back into that URL and POSTs the
+  // authorization code and the PKCE verifier there in the clear. This is the
+  // only thing standing between that array and the credential path.
   for (const key of ["authorization_endpoint", "token_endpoint"]) {
     if (typeof metadata[key] !== "string") {
       throw new Error(`OAuth metadata from ${issuer} is missing ${key}`);
     }
   }
+  // Every endpoint in the document, not a list of the two that felt important.
+  // Checked separately from the issuer because an https authorization server
+  // is free to name an http endpoint, and these are where the browser is sent
+  // and where the code and verifier are POSTed.
+  //
+  // Enumerated from the object rather than hand-picked, because a hand-picked
+  // list is a membership somebody has to remember to extend and a test has to
+  // prove. `registration_endpoint` was already outside a two-key list while
+  // being part of the same walk, and `revocation_endpoint` is returned by this
+  // function and used by nothing — a loaded gun that would POST a live token
+  // wherever the metadata said, the moment anybody wires it up.
+  //
+  // COLLECTED rather than merely checked, so that everything read out below is
+  // a validated string by construction. Checking here and then reaching back
+  // into `metadata` for the values puts the type guard in two places, which is
+  // the hand-picked membership this loop exists to remove, relocated — and
+  // forgetting it on a fifth endpoint reopens the bypass while this loop still
+  // looks total.
+  const endpoints = new Map();
+  for (const [key, value] of Object.entries(metadata)) {
+    // Skipped rather than refused: this walks a document we do not own, and an
+    // IdP publishing `null` for a feature it does not support is an ordinary
+    // shape. Hard-failing on a key the hook never reads would break a
+    // self-hosted IdP to no benefit — the same trade as reading an absent
+    // `origin` as uninformative rather than inventing a meaning for it.
+    if (!key.endsWith("_endpoint") || typeof value !== "string") continue;
+    if (!credentialUrlOk(value)) {
+      throw new Error(`OAuth metadata from ${issuer} names an insecure ${key}`);
+    }
+    endpoints.set(key, value);
+  }
   return {
     issuer,
     resource: resource || endpoint,
-    authorizationEndpoint: metadata.authorization_endpoint,
-    tokenEndpoint: metadata.token_endpoint,
-    registrationEndpoint: metadata.registration_endpoint || null,
-    revocationEndpoint: metadata.revocation_endpoint || null,
+    authorizationEndpoint: endpoints.get("authorization_endpoint"),
+    tokenEndpoint: endpoints.get("token_endpoint"),
+    // Read from the map, never from `metadata`. A non-string never entered it,
+    // so `|| null` cannot let an array through here the way it once did —
+    // `["http://evil.example/x"]` is truthy, survives `||`, and `fetch`
+    // stringifies it back into exactly that URL.
+    registrationEndpoint: endpoints.get("registration_endpoint") ?? null,
+    revocationEndpoint: endpoints.get("revocation_endpoint") ?? null,
   };
 }
 
