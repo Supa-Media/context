@@ -594,9 +594,19 @@ export const applyDropboxBinding = internalMutation({
 /**
  * Disable the grant at Dropbox after a disconnect. INTERNAL ACTION — decrypts.
  *
- * Scheduled by `disconnectStorage`, which deletes the binding row in the same
- * mutation — so the envelope travels in the args, because by the time this
- * runs there is no row left to read it from. That is also why this is
+ * The envelope travels in the args rather than being read from the row,
+ * because by the time this runs the row no longer holds it. Three callers,
+ * two different reasons: `disconnectStorage` deletes the row outright, while
+ * `applyBinding` and `applyDropboxBinding` overwrite the envelope in place.
+ * Same conclusion, and it is worth stating both — the first version of this
+ * comment gave only the delete reason, which stopped being the whole truth
+ * the moment the other two callers existed.
+ *
+ * Known and accepted: a Dropbox authorization is per *account*, so revoking
+ * it ends the app's access to that account everywhere. Somebody who connected
+ * one Dropbox to two of their own contexts loses the second when they rebind
+ * the first. No data is lost — their Dropbox is untouched and they can
+ * reconnect — but it is a real surprise, and it is unindexed to detect. That is also why this is
  * best-effort and swallows every failure: the disconnect the person asked for
  * has already happened, the credential is already forgotten on our side, and
  * the one thing a retry loop could add is a background job hammering a grant

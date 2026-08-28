@@ -401,12 +401,14 @@ describe("what a rebind leaves behind", () => {
     const keyset = requireKeyset();
     const context = { workspaceId: workspaceId as string };
     const now = Date.now();
+    const dropboxEnvelope = await encryptSecret("refresh-abc", keyset, context);
+    const bucketEnvelope = await encryptSecret("s3-secret", keyset, context);
     await t.run(async (ctx) =>
       ctx.db.insert("storageBindings", {
         workspaceId,
         provider: "dropbox" as const,
         rootPrefix: "Context/",
-        encryptedRefreshToken: await encryptSecret("refresh-abc", keyset, context),
+        encryptedRefreshToken: dropboxEnvelope,
         encryptedAccessToken: await encryptSecret("access-xyz", keyset, context),
         accessTokenExpiresAt: now + 3_600_000,
         dropboxAccountId: "dbid:AAA",
@@ -426,7 +428,7 @@ describe("what a rebind leaves behind", () => {
       region: "us-east-1",
       bucket: "my-own-bucket",
       accessKeyId: "AKIAFAKEFAKEFAKE",
-      encryptedSecretAccessKey: await encryptSecret("s3-secret", keyset, context),
+      encryptedSecretAccessKey: bucketEnvelope,
     });
 
     const scheduled = await t.run(async (ctx) => ctx.db.system.query("_scheduled_functions").collect());
@@ -434,6 +436,15 @@ describe("what a rebind leaves behind", () => {
       String(job.name).includes("revokeDropboxGrant"),
     );
     expect(revokes).toHaveLength(1);
+    // WHICH envelope, not just how many jobs. Counting alone lets
+    // `existing.encryptedRefreshToken` become `args.encryptedSecretAccessKey`
+    // — one token's difference — with the whole suite green, and that would
+    // hand a bucket secret to Dropbox's revoke endpoint. `storage.test.ts`'s
+    // disconnect test already asserts the payload; these dropped the one line
+    // that made it evidence.
+    const args = JSON.stringify(revokes[0]!.args);
+    expect(args).toContain(dropboxEnvelope);
+    expect(args).not.toContain(bucketEnvelope);
   });
 
   /**
@@ -457,11 +468,12 @@ describe("what a rebind leaves behind", () => {
     const keyset = requireKeyset();
     const context = { workspaceId: workspaceId as string };
     const now = Date.now();
+    const oldEnvelope = await encryptSecret("old-refresh", keyset, context);
     await t.run(async (ctx) =>
       ctx.db.insert("storageBindings", {
         workspaceId,
         provider: "dropbox" as const,
-        encryptedRefreshToken: await encryptSecret("old-refresh", keyset, context),
+        encryptedRefreshToken: oldEnvelope,
         encryptedAccessToken: await encryptSecret("old-access", keyset, context),
         accessTokenExpiresAt: now + 3_600_000,
         dropboxAccountId: "dbid:OLD",
@@ -473,11 +485,12 @@ describe("what a rebind leaves behind", () => {
       }),
     );
 
+    const newEnvelope = await encryptSecret("new-refresh", keyset, context);
     await t.mutation(internal.functions.dropboxConnect.applyDropboxBinding, {
       workspaceId,
       boundBy: owner,
       rootPrefix: undefined,
-      encryptedRefreshToken: await encryptSecret("new-refresh", keyset, context),
+      encryptedRefreshToken: newEnvelope,
       encryptedAccessToken: await encryptSecret("new-access", keyset, context),
       accessTokenExpiresAt: now + 3_600_000,
       dropboxAccountId: "dbid:NEW",
@@ -486,9 +499,18 @@ describe("what a rebind leaves behind", () => {
     const scheduled = await t.run(async (ctx) =>
       ctx.db.system.query("_scheduled_functions").collect(),
     );
-    expect(
-      scheduled.filter((job) => String(job.name).includes("revokeDropboxGrant")),
-    ).toHaveLength(1);
+    const revokes = scheduled.filter((job) =>
+      String(job.name).includes("revokeDropboxGrant"),
+    );
+    expect(revokes).toHaveLength(1);
+    // THE OLD one, and provably not the new one. Both envelopes are in scope
+    // here and the difference is `existing.` versus `args.` — a single token.
+    // Getting it wrong revokes the grant this reconnect just minted: the app
+    // vanishes from the person's connected-apps list, the verification
+    // scheduled right after fails, and the orphan this exists to kill lives on.
+    const args = JSON.stringify(revokes[0]!.args);
+    expect(args).toContain(oldEnvelope);
+    expect(args).not.toContain(newEnvelope);
   });
 
   test("but reconnecting the same account does not revoke it", async () => {
