@@ -86,10 +86,30 @@ export interface InvitationEmailFacts {
   inviterHandle: string | null;
   /** The context's display name. */
   workspaceName: string;
+  /**
+   * Whether the context is somebody's own or a shared one.
+   *
+   * Changes the sentence, not the facts. A personal context's display name is
+   * its owner's handle, so "@ada invited you to ada" says the same word twice
+   * and reads like a machine; and what the recipient actually gets is a
+   * *team-tier* view of somebody's own working context, which is a far more
+   * interesting thing to be offered than a name repeated back.
+   *
+   * This does disclose one bit — personal versus shared — to an address nobody
+   * has verified. It is a deliberate trade, not an oversight: see the note on
+   * `headlineFor`.
+   */
+  workspaceKind: "personal" | "shared";
   /** Where the invitation is answered. Built by `invitationUrlFor`. */
   url: string;
   /** When the invitation stops being answerable, epoch ms. */
   expiresAt: number;
+  /**
+   * When this email is being sent, epoch ms. Passed in rather than read off the
+   * clock, so the render stays pure and a test can pin the sentence instead of
+   * racing it.
+   */
+  sentAt: number;
 }
 
 export interface RenderedEmail {
@@ -149,15 +169,30 @@ export function describeInviter(
 }
 
 /**
- * The expiry, as a plain UTC date.
+ * How long the reader has, in the units a reader actually thinks in.
  *
- * Not a locale-formatted date: this runs in the Convex action runtime, in
- * `@edge-runtime/vm` under test, and the recipient's locale is not something we
- * know. `2026-09-03 (UTC)` is unambiguous everywhere and identical for
- * everybody, which also keeps two rendered bodies comparable byte for byte.
+ * This was a plain UTC date, chosen because the recipient's locale is unknown
+ * and an ISO date is unambiguous everywhere. It solved that ambiguity by making
+ * somebody do arithmetic: nobody reads a date and immediately knows whether it
+ * is soon.
+ *
+ * "in 7 days" answers the question actually being asked and still has no locale
+ * to get wrong, so it keeps the original property rather than trading it away.
+ * Two rendered bodies also still compare byte for byte, because this depends on
+ * the invitation and the clock, never on the recipient.
+ *
+ * **Counted at send time, not assumed.** The obvious version hardcodes the
+ * seven days of the invitation's TTL, and it would be wrong: an invitation
+ * whose send was skipped -- a deployment with no usable `APP_ORIGIN`, say -- is
+ * mailed later while still expiring on its original clock, so a constant would
+ * promise a week that had already partly gone. Rounded up, so a last partial
+ * day reads as a day rather than as "in 0 days".
  */
-export function formatExpiryDate(expiresAt: number): string {
-  return new Date(expiresAt).toISOString().slice(0, 10);
+export function describeExpiry(sentAt: number, expiresAt: number): string {
+  const days = Math.ceil((expiresAt - sentAt) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "in 1 day";
+  return `in ${days} days`;
 }
 
 /**
@@ -259,40 +294,203 @@ export function invitationUrlFor(
 }
 
 /**
+ * One line saying what the product is, identical for every recipient.
+ *
+ * The first version of this email had none, and it read as phishing: a bare
+ * blue link, from a domain the reader has never heard of, asking to be clicked.
+ * The fix is not more facts — the list above is closed and stays closed — it is
+ * telling somebody what they are being invited *into*, which is the same
+ * sentence for everybody and discloses nothing.
+ *
+ * It also has to dodge the vocabulary the disclosure test forbids anywhere in
+ * the body ("note", "folder", "member" among them), which is why it says
+ * markdown and storage rather than the obvious words.
+ */
+const WHAT_CONTEXT_IS =
+  "Context gives your AI assistants one place to read from — plain markdown in storage you own.";
+
+const FOOTER_LINE = "Context — free your context, share your context.";
+
+/**
+ * The headline, and the one place the two kinds of context read differently.
+ *
+ * **Personal:** "…invited you into some of their personal context." A personal
+ * context's display name *is* the owner's handle, so the obvious sentence says
+ * the same word twice — "@ada invited you to ada" — which reads like a machine
+ * filled a template. Naming what it actually is says more in fewer words.
+ *
+ * **"some" is accuracy before it is intrigue.** An invitee is granted the
+ * `team` tier, never the owner's own view, so what they get really is a subset
+ * and the email should not imply otherwise. That it also makes somebody curious
+ * about what is in there is the point — but a promise of everything would be
+ * the kind of overstatement that gets found out on the first click.
+ *
+ * **"their", never "his" or "hers".** The product stores a display name and a
+ * handle; it stores nothing about anybody's gender, and a name is not evidence
+ * of one. Guessing would misgender real people in mail sent to third parties,
+ * which is a worse failure than sounding slightly formal.
+ *
+ * **The disclosure, stated plainly.** This is the one place the body varies
+ * with a property of the workspace rather than of the invitation, so a
+ * mistyped address learns that a given name is personal rather than shared —
+ * the same bit the ingestion refusals are byte-identical in order not to
+ * publish. It is judged acceptable here and it is a different question: those
+ * refusals answer *unauthenticated probes at arbitrary names*, while this is
+ * addressed mail about a context whose owner deliberately named this recipient
+ * and which they are about to be able to read. If that trade is ever
+ * reconsidered, the fix is one branch here, not a redesign.
+ */
+function headlineFor(
+  kind: "personal" | "shared",
+  inviter: string,
+  context: string,
+): string {
+  return kind === "personal"
+    ? `${inviter} invited you to use some of their personal context`
+    : `${inviter} invited you to ${context}`;
+}
+
+/**
+ * The palette, lifted from `apps/mobile/features/design/tokens.ts`.
+ *
+ * The product is a single dark world on purpose and has no light theme. An
+ * inbox is not ours to theme, though, so this renders light by default and
+ * swaps to the product's real dark values under `prefers-color-scheme: dark`.
+ * The button inverts with it — near-black on light, near-white on dark — which
+ * is the console's own white CTA, not a second design.
+ */
+const LIGHT = {
+  bg: "#F4F4F5",
+  card: "#FFFFFF",
+  line: "#E4E4E7",
+  text: "#18181B",
+  text2: "#52525B",
+  text3: "#71717A",
+  btn: "#08080A",
+  btnInk: "#FFFFFF",
+  well: "#FAFAFA",
+} as const;
+
+/**
  * Render the email.
  *
- * Deliberately plain — one paragraph, one link, one expiry. There is no
- * unsubscribe footer because there is no list: this is a one-off message
- * somebody with a verified account addressed to this mailbox, and the recipient
- * ignoring it is the whole of the opt-out.
+ * Two alternatives, the same words. The HTML is a whole document rather than a
+ * fragment because dark mode needs a `<head>`: `color-scheme` has to be
+ * declared before a client decides whether to force-invert the thing, and the
+ * `@media (prefers-color-scheme: dark)` block has nowhere else to live.
+ *
+ * Every colour is *also* inline, because plenty of clients drop `<style>`
+ * entirely — the block only ever overrides, so a client that ignores it gets
+ * the light design rather than an unstyled one. Layout is tables and the button
+ * is a table cell with a padded anchor, for the same reason: it has to survive
+ * Outlook, which does not do padding on an `<a>`.
+ *
+ * There is no unsubscribe footer because there is no list: this is a one-off
+ * message somebody with a verified account addressed to this mailbox, and the
+ * recipient ignoring it is the whole of the opt-out.
  */
 export function renderInvitationEmail(facts: InvitationEmailFacts): RenderedEmail {
   const inviter = describeInviter(facts.inviterName, facts.inviterHandle);
   const context = sanitizeHeaderText(facts.workspaceName);
-  const expiry = formatExpiryDate(facts.expiresAt);
-  const subject = sanitizeHeaderText(
-    `${inviter} invited you to ${context} on Context`,
-  );
+  const expiry = describeExpiry(facts.sentAt, facts.expiresAt);
+  const headline = headlineFor(facts.workspaceKind, inviter, context);
+  const subject = sanitizeHeaderText(`${headline} on Context`);
 
   const text = [
-    `${inviter} invited you to ${context} on Context.`,
+    `${headline}.`,
+    "",
+    WHAT_CONTEXT_IS,
     "",
     "Open the invitation:",
     facts.url,
     "",
-    `The invitation expires on ${expiry} (UTC).`,
-    "If you were not expecting this, you can ignore this email.",
+    `This invitation expires ${expiry}. If you were not expecting it, you can ignore this email.`,
     "",
-    "Context — free your context, share your context.",
+    FOOTER_LINE,
   ].join("\n");
 
+  const safeInviter = escapeHtml(inviter);
+  const safeContext = escapeHtml(context);
+  const safeUrl = escapeHtml(facts.url);
+  const font =
+    "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+  const mono = "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
+
   const html = [
-    '<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:16px;line-height:1.5;color:#111">',
-    `<p>${escapeHtml(inviter)} invited you to <strong>${escapeHtml(context)}</strong> on Context.</p>`,
-    `<p><a href="${escapeHtml(facts.url)}">Open the invitation</a></p>`,
-    `<p style="color:#555;font-size:14px">The invitation expires on ${expiry} (UTC). If you were not expecting this, you can ignore this email.</p>`,
-    '<p style="color:#555;font-size:14px">Context — free your context, share your context.</p>',
+    "<!DOCTYPE html>",
+    '<html lang="en"><head>',
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width,initial-scale=1">',
+    '<meta name="color-scheme" content="light dark">',
+    '<meta name="supported-color-schemes" content="light dark">',
+    "<style>",
+    ":root{color-scheme:light dark;supported-color-schemes:light dark}",
+    // Overrides only. A client that drops this block still gets the light
+    // design from the inline styles below, never an unstyled one.
+    "@media (prefers-color-scheme:dark){",
+    ".bg{background:#050506!important}",
+    ".card{background:#0B0B0D!important;border-color:rgba(255,255,255,0.09)!important}",
+    ".t1{color:#F2F2F4!important}",
+    ".t2{color:#A8A8B2!important}",
+    ".t3{color:#75757F!important}",
+    ".rule{background:rgba(255,255,255,0.09)!important}",
+    ".btn{background:#F2F2F4!important}",
+    ".btn a{color:#08080A!important}",
+    ".well{background:#030304!important;border-color:rgba(255,255,255,0.07)!important}",
+    "}",
+    "@media (max-width:620px){.card{padding:26px 20px!important}.h1{font-size:22px!important}}",
+    "</style>",
+    "</head>",
+    `<body class="bg" style="margin:0;padding:0;background:${LIGHT.bg};">`,
+    // Preheader: what the inbox list shows instead of the first markup it finds.
+    `<div style="display:none;font-size:1px;color:${LIGHT.bg};line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">`,
+    `${safeInviter} — this invitation expires ${expiry}.`,
     "</div>",
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="bg" style="background:${LIGHT.bg};">`,
+    '<tr><td align="center" style="padding:32px 16px;">',
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">',
+
+    // Wordmark
+    `<tr><td class="t3" style="font-family:${font};font-size:13px;letter-spacing:0.08em;text-transform:uppercase;color:${LIGHT.text3};padding:0 4px 12px;">Context</td></tr>`,
+
+    // Card
+    '<tr><td>',
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="card" style="background:${LIGHT.card};border:1px solid ${LIGHT.line};border-radius:14px;">`,
+    '<tr><td class="card" style="padding:34px 32px;">',
+
+    `<div class="t1 h1" style="font-family:${font};font-size:24px;line-height:1.3;font-weight:600;color:${LIGHT.text};margin:0 0 10px;">`,
+    escapeHtml(headline),
+    "</div>",
+
+    `<div class="t2" style="font-family:${font};font-size:15px;line-height:1.55;color:${LIGHT.text2};margin:0 0 26px;">`,
+    escapeHtml(WHAT_CONTEXT_IS),
+    "</div>",
+
+    // Bulletproof button: padding on the cell, not on the anchor.
+    '<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>',
+    `<td class="btn" align="center" style="background:${LIGHT.btn};border-radius:10px;">`,
+    `<a href="${safeUrl}" style="display:inline-block;padding:13px 26px;font-family:${font};font-size:15px;font-weight:600;color:${LIGHT.btnInk};text-decoration:none;">Open the invitation</a>`,
+    "</td></tr></table>",
+
+    // The link in the clear. A reader who will not click an anchor from an
+    // unfamiliar domain can read where it goes, and paste it if they prefer.
+    `<div class="t3" style="font-family:${font};font-size:13px;color:${LIGHT.text3};margin:24px 0 8px;">Or paste this into your browser:</div>`,
+    `<div class="well t3" style="font-family:${mono};font-size:12px;line-height:1.5;color:${LIGHT.text3};background:${LIGHT.well};border:1px solid ${LIGHT.line};border-radius:8px;padding:10px 12px;word-break:break-all;">${safeUrl}</div>`,
+
+    `<div class="rule" style="height:1px;background:${LIGHT.line};margin:26px 0 18px;line-height:1px;font-size:0;">&nbsp;</div>`,
+
+    `<div class="t3" style="font-family:${font};font-size:13px;line-height:1.6;color:${LIGHT.text3};">`,
+    `This invitation expires ${expiry}. If you were not expecting it, you can ignore this email.`,
+    "</div>",
+
+    "</td></tr></table>",
+    "</td></tr>",
+
+    `<tr><td class="t3" style="font-family:${font};font-size:12px;line-height:1.6;color:${LIGHT.text3};padding:16px 4px 0;">${escapeHtml(FOOTER_LINE)}</td></tr>`,
+
+    "</table>",
+    "</td></tr></table>",
+    "</body></html>",
   ].join("");
 
   return { subject, html, text };
