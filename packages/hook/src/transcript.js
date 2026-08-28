@@ -42,7 +42,48 @@ export function messageFromEntry(entry) {
   // Claude Code nests the API message under `message` and marks replayed or
   // internal lines with `isMeta`/`isSidechain`. A sidechain is a subagent's
   // conversation the person never saw.
-  if (entry.isMeta === true || entry.isSidechain === true) return null;
+  // `isCompactSummary` belongs on this line rather than in the `origin` block
+  // below, and the reason is semantic rather than a matching flag name: a
+  // compaction summary is neither a user message nor an assistant one. It is
+  // harness bookkeeping — the same thing `isMeta` and `isSidechain` denote —
+  // and it is the largest single thing that can leave here. It condenses the
+  // WHOLE session, including every part this boundary drops on every other
+  // path, and it arrives as a plain string on a `user` role with no `origin`
+  // at all, so neither the type switch nor the kind check below can see it.
+  // `isVisibleInTranscriptOnly` is here because the harness's own definition of
+  // synthetic is `isMeta || isVisibleInTranscriptOnly` — this line is the hook's
+  // implementation of that idea, and carrying only half of it was an accident.
+  // Do not re-litigate it from the flag's name, which reads like a display
+  // property and is how it came to be left out the first time: the two flags
+  // are independent parameters on the message constructor, and there is a path
+  // that propagates the display flag forward with no compaction flag at all.
+  // No measured instance today; the cost of the extra term is nil and this
+  // module is deliberately lossy in exactly this direction.
+  if (
+    entry.isMeta === true ||
+    entry.isSidechain === true ||
+    entry.isCompactSummary === true ||
+    entry.isVisibleInTranscriptOnly === true
+  ) {
+    return null;
+  }
+  // `role: "user"` does not mean "the person typed this". The harness writes
+  // user turns too — task notifications carrying a subagent's entire output,
+  // system reminders, injected context — and none of it is content anybody
+  // saw. It arrives as an ordinary `text` block, so the type switch below
+  // cannot see it and the role check waves it through.
+  //
+  // Claude Code marks whose turn it is structurally, on `origin.kind`, which
+  // is what keeps this an allow-list on a field rather than the denylist over
+  // prose this module exists to avoid: a kind we do not positively recognise
+  // as the person is dropped, so a kind added later fails closed.
+  //
+  // Absent `origin` keeps the previous behaviour deliberately. The other
+  // supported clients do not write the field, and inventing a meaning for its
+  // absence would drop every message they produce.
+  const origin = entry.origin && typeof entry.origin === "object" ? entry.origin : null;
+  if (origin && typeof origin.kind === "string" && origin.kind !== "human") return null;
+
   const message = entry.message && typeof entry.message === "object" ? entry.message : entry;
   const role = typeof message.role === "string" ? message.role : entry.type;
   if (!KEPT_ROLES.has(role)) return null;

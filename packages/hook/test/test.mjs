@@ -211,12 +211,51 @@ const SECRETS = {
   toolResult: "AKIA-FAKE-KEY-DO-NOT-CAPTURE",
   sidechain: "SUBAGENT-CHATTER-DO-NOT-CAPTURE",
   meta: "REPLAYED-META-LINE-DO-NOT-CAPTURE",
+  injected: "HARNESS-INJECTED-TURN-DO-NOT-CAPTURE",
+  compactSummary: "AUTO-COMPACTION-DIGEST-DO-NOT-CAPTURE",
+  transcriptOnly: "TRANSCRIPT-ONLY-SYNTHETIC-DO-NOT-CAPTURE",
 };
 
 const TRANSCRIPT = [
   { type: "system", content: SECRETS.systemPrompt },
   { type: "user", isMeta: true, message: { role: "user", content: SECRETS.meta } },
   { type: "user", message: { role: "user", content: "Rename the orient tool." } },
+  // A turn the HARNESS wrote, not the person: role `user`, a plain `text`
+  // block, and nothing in the content to distinguish it. Claude Code marks it
+  // structurally instead — `origin.kind` — which is what makes this an
+  // allow-list on a field rather than a denylist over prose. Observed shape,
+  // not assumed: in a real 7,423-line session log, 90 of the 92 harness-written
+  // user turns carried `{"kind":"task-notification"}` and every turn the person
+  // typed carried `{"kind":"human"}` or no `origin` at all.
+  {
+    type: "user",
+    origin: { kind: "task-notification" },
+    message: { role: "user", content: SECRETS.injected },
+  },
+  // The harness's own compaction summary: a `user` role, a plain string, and
+  // NO `origin` at all — so the kind check cannot see it. It condenses the
+  // whole session, which is why it is the largest thing that can leave here.
+  // In a real log the three of these ran to 58,410 characters and carried 17
+  // references to security-review exploit detail plus the user's absolute
+  // paths.
+  // Compaction flag ONLY. The observed instances carried the display flag too,
+  // but the harness's compaction path sometimes sets `summarizeMetadata`
+  // instead — and more to the point, an entry carrying both proves neither
+  // guard: whichever term is removed, the other still drops it.
+  {
+    type: "user",
+    isCompactSummary: true,
+    message: { role: "user", content: SECRETS.compactSummary },
+  },
+  // The display flag WITHOUT the compaction flag. They co-occur on every
+  // instance measured so far, which is exactly why this entry exists: the two
+  // are independent parameters, so a guard that only knew about compaction
+  // would be one harness change away from the leak it was written to stop.
+  {
+    type: "user",
+    isVisibleInTranscriptOnly: true,
+    message: { role: "user", content: SECRETS.transcriptOnly },
+  },
   {
     type: "assistant",
     message: {
@@ -240,6 +279,16 @@ const TRANSCRIPT = [
     isSidechain: true,
     message: { role: "assistant", content: [{ type: "text", text: SECRETS.sidechain }] },
   },
+  // The positive control for the `origin` guard, and it is not decoration:
+  // every other assertion here is "this must NOT travel", so a guard tightened
+  // to drop EVERY origin-marked turn — not just the harness's — would keep the
+  // suite green while real messages silently stopped being captured. This is
+  // the only entry that fails in that direction.
+  {
+    type: "user",
+    origin: { kind: "human" },
+    message: { role: "user", content: "And keep the tests honest." },
+  },
   { type: "assistant", message: { role: "assistant", content: "Done — 484 checks pass." } },
   "{ this line is half written",
 ]
@@ -260,7 +309,11 @@ const log = (line = "") => said.push(String(line));
 // -- what leaves the machine
 
 const converted = transcriptToMarkdown(TRANSCRIPT);
-check("only user-visible messages survive the transcript", converted.messages === 3);
+check("only user-visible messages survive the transcript", converted.messages === 4);
+check(
+  "a turn the person actually typed still travels, origin and all",
+  converted.markdown.includes("And keep the tests honest.")
+);
 for (const [name, secret] of Object.entries(SECRETS)) {
   check(`the ${name} never reaches the capture`, !converted.markdown.includes(secret));
 }
