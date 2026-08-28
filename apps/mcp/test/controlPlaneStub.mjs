@@ -428,3 +428,142 @@ export function createS3Backend(endpointOrigin = "https://s3.example-object-stor
 function escapeXml(value) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
+
+/**
+ * A tiny Dropbox over in-memory maps, one per access token.
+ *
+ * Enough of `files/download`, `files/upload`, `files/delete_v2` and
+ * `files/list_folder` for the real `DropboxStore` to drive a workspace end to
+ * end. Two properties are modelled deliberately, because they are the two that
+ * a Dropbox-shaped tenancy bug would hide behind:
+ *
+ *  - **The access token selects the account, and nothing else does.** There is
+ *    no bucket name, no endpoint, and no per-tenant host: two Dropbox tenants
+ *    reach the same two URLs, and the only thing between them is the bearer
+ *    token the binding carried. An unknown token is a 401, exactly as Dropbox
+ *    answers one.
+ *  - **A missing path is a 409 with a tagged body, never a 404**, and a lost
+ *    conditional write is a 409 tagged `conflict`. A stub that answered 404
+ *    would let an adapter reading the status instead of the tag pass.
+ */
+export function createDropboxBackend() {
+  const API_ORIGIN = "https://api.dropboxapi.com";
+  const CONTENT_ORIGIN = "https://content.dropboxapi.com";
+
+  /** access token → Map(dropbox path → { body, rev }) */
+  const accounts = new Map();
+  let revCounter = 0;
+
+  /** Register an account and return its file map, so a test can seed it. */
+  function accountFor(accessToken) {
+    if (!accounts.has(accessToken)) accounts.set(accessToken, new Map());
+    return accounts.get(accessToken);
+  }
+
+  function tagged(summary, status = 409) {
+    return new Response(JSON.stringify({ error_summary: summary, error: {} }), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const notFound = () => tagged("path/not_found/...");
+  const conflict = () => tagged("path/conflict/file/...");
+
+  function json(body) {
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  function decodeBody(body) {
+    if (typeof body === "string") return body;
+    if (body instanceof Uint8Array) return new TextDecoder().decode(body);
+    return new TextDecoder().decode(new Uint8Array(body));
+  }
+
+  async function handle(url, init = {}) {
+    const path = new URL(url).pathname;
+    const headers = init.headers || {};
+    const token = String(headers.Authorization || "").replace(/^Bearer /, "");
+    // Dropbox's own answer to a token it does not know. It is *not* a 409, so
+    // an adapter that read absence off a status alone would surface an expired
+    // token as an empty context.
+    if (!accounts.has(token)) return tagged("invalid_access_token/", 401);
+    const files = accounts.get(token);
+    const arg = headers["Dropbox-API-Arg"] ? JSON.parse(headers["Dropbox-API-Arg"]) : null;
+    const body = init.body && typeof init.body === "string" ? JSON.parse(init.body) : null;
+
+    if (path === "/2/files/download") {
+      const file = files.get(arg.path);
+      if (!file) return notFound();
+      return new Response(file.body, {
+        status: 200,
+        headers: { "Dropbox-API-Result": JSON.stringify({ rev: file.rev, size: file.body.length }) },
+      });
+    }
+
+    if (path === "/2/files/upload") {
+      const current = files.get(arg.path);
+      if (arg.mode?.[".tag"] === "update" && current?.rev !== arg.mode.update) return conflict();
+      const rev = `r${++revCounter}`;
+      files.set(arg.path, { body: decodeBody(init.body), rev });
+      return json({ rev, path_display: arg.path, size: files.get(arg.path).body.length });
+    }
+
+    if (path === "/2/files/delete_v2") {
+      if (!files.has(body.path)) return notFound();
+      files.delete(body.path);
+      return json({ metadata: { path_display: body.path } });
+    }
+
+    if (path === "/2/files/list_folder") {
+      const root = body.path === "" ? "/" : `${body.path}/`;
+      const children = [...files.keys()].filter((key) => key.startsWith(root)).sort();
+      if (body.path !== "" && children.length === 0) return notFound();
+      const entries = [];
+      const folders = new Set();
+      for (const key of children) {
+        const remainder = key.slice(root.length);
+        const slash = remainder.indexOf("/");
+        if (slash === -1) {
+          entries.push({
+            ".tag": "file",
+            path_display: key,
+            size: files.get(key).body.length,
+            server_modified: "2026-08-01T10:00:00Z",
+          });
+          continue;
+        }
+        folders.add(root + remainder.slice(0, slash));
+        if (body.recursive) {
+          entries.push({
+            ".tag": "file",
+            path_display: key,
+            size: files.get(key).body.length,
+            server_modified: "2026-08-01T10:00:00Z",
+          });
+        }
+      }
+      for (const folder of folders) entries.push({ ".tag": "folder", path_display: folder });
+      return json({ entries, has_more: false, cursor: "" });
+    }
+
+    return new Response(JSON.stringify({ error_summary: "unsupported/" }), { status: 400 });
+  }
+
+  function install() {
+    const previous = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.startsWith(API_ORIGIN) || url.startsWith(CONTENT_ORIGIN)) return handle(url, init);
+      return previous ? previous(input, init) : new Response("", { status: 404 });
+    };
+    return () => {
+      globalThis.fetch = previous;
+    };
+  }
+
+  return { accounts, accountFor, handle, install };
+}

@@ -2,6 +2,7 @@ import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
 import { SUPPORTED_SCOPES, visibilityTierForGrant } from "../src/session.js";
 import { runStoreChecks } from "./store.test.mjs";
+import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
 import {
   CONTROL_PLANE_ORIGIN,
@@ -2471,6 +2472,11 @@ await runStoreChecks(check, {
   env,
   ownerToken: accessTokenFor("priv-token"),
 });
+
+// -- the binding → store table, and every way it refuses
+// Synchronous and network-free: it builds adapters and inspects them, so it
+// neither needs nor touches the control plane the checks above installed.
+runStoreFactoryChecks(check);
 
 // -- multi-tenancy, OAuth, and the ways both are supposed to fail
 //
