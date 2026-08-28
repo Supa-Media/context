@@ -287,10 +287,26 @@ check(
     instructionsFlat.includes("Default privacy follows this connection")
 );
 // The argument for using this at all, which is the only reason the rest gets
-// read. Asserted because it is the part a tidy-up would cut as "not a rule".
+// read. Asserted because it is the part a tidy-up would cut as "not a rule",
+// and because the whole payload is worthless if it opens with housekeeping.
+check(
+  "initialize leads with the instruction to orient, in the clear",
+  /READ THIS BEFORE YOU ANSWER ANYTHING ELSE/.test(instructionsFlat) &&
+    /CALL `orient` FIRST\. EVERY SESSION\./.test(instructionsFlat)
+);
 check(
   "initialize makes the case rather than only stating rules",
-  /it outlives you/i.test(instructionsFlat) && /re-explain/i.test(instructionsFlat)
+  /Skipping it is not a neutral choice/i.test(instructionsFlat) &&
+    /richest source of information about this person/i.test(instructionsFlat)
+);
+// It has to reach the model before any housekeeping does. Measured rather than
+// asserted in a comment: a later edit that reinstates a preamble above the
+// instruction is the exact regression this payload was rewritten to undo.
+check(
+  "the call to action comes before any of the rules",
+  instructionsFlat.indexOf("CALL `orient` FIRST") <
+    instructionsFlat.indexOf("FOUR RULES") &&
+    instructionsFlat.indexOf("CALL `orient` FIRST") < 500
 );
 const noteRes = await worker.fetch(
   new Request("https://x/mcp", {
