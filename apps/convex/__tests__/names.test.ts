@@ -100,6 +100,16 @@ describe("validateName (pure rules)", () => {
     }
   });
 
+  test("reserves the product vocabulary — brain, workspace, context", () => {
+    // The user-facing nouns (CLAUDE.md, "Vocabulary"). Claimed, each is an
+    // impersonation handle: `brain@context.lc` receives mail people believed
+    // was going to the product, and `@workspace/...` reads as a product path
+    // rather than a person's.
+    for (const name of ["brain", "brains", "workspace", "workspaces", "context"]) {
+      expect(RESERVED_NAMES.has(name), `${name} must stay reserved`).toBe(true);
+    }
+  });
+
   /**
    * The two addresses RFC 2142 requires a domain to keep reachable.
    *
