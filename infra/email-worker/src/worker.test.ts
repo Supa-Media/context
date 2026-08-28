@@ -669,10 +669,19 @@ describe("a Dropbox-backed context", () => {
       const target = String(url);
       const request = init as { headers: Record<string, string>; body?: Uint8Array };
       if (target.endsWith("/files/download")) {
-        // Dropbox says "no such path" as a tagged 409, never a 404.
-        return new Response(JSON.stringify({ error_summary: "path/not_found/..." }), {
-          status: 409,
-        });
+        // Dropbox says "no such path" as a tagged 409, never a 404 — and the
+        // tag is the part that decides. This fixture carried only the
+        // `error_summary` line, which satisfied a `String.includes` over the
+        // raw body and nothing else; an adapter reading the actual tag saw no
+        // tag at all and treated a missing file as a hard failure, so every
+        // capture refused. The nested union below is what Dropbox sends.
+        return new Response(
+          JSON.stringify({
+            error_summary: "path/not_found/.",
+            error: { ".tag": "path", path: { ".tag": "not_found" } },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
       }
       if (target.endsWith("/files/upload")) {
         const arg = JSON.parse(request.headers["Dropbox-API-Arg"]) as { path: string };
@@ -697,6 +706,24 @@ describe("a Dropbox-backed context", () => {
     const paths = uploads.map((upload) => upload.path);
     expect(paths.filter((path) => path.startsWith("/0-inbox/email/"))).toHaveLength(1);
     expect(paths.filter((path) => path.startsWith("/.audit/"))).toHaveLength(1);
+  });
+
+  it("writes inside the folder the customer chose, and nowhere else", async () => {
+    // The `rootPrefix` seam, which the tests above do not reach because their
+    // binding has none. It matters more here than on any other backend: an S3
+    // credential is scoped to a bucket holding nothing but this context, so the
+    // prefix is a convenience, while a Dropbox token is scoped to an ACCOUNT.
+    // That makes this seam the only thing between an ingested note and the rest
+    // of somebody's Dropbox.
+    const uploads = dropboxApi();
+    const { observed } = await run(rawMessage(), {
+      stub: { binding: { ...DROPBOX_BINDING, rootPrefix: "Context" } },
+    });
+    expect(observed.rejected).toEqual([]);
+    const paths = uploads.map((upload) => upload.path);
+    // Not vacuous: assert something was written before asserting where.
+    expect(paths.length).toBeGreaterThan(0);
+    for (const path of paths) expect(path.startsWith("/Context/")).toBe(true);
   });
 
   it("still refuses a token-less binding, with the one frozen string", async () => {
