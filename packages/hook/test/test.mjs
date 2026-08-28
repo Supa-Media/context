@@ -65,6 +65,7 @@ import { createHash } from "node:crypto";
 import * as commands from "../src/commands.js";
 import { transcriptToMarkdown, messageFromEntry } from "../src/transcript.js";
 import { createPkce, stateMatches, discover } from "../src/oauth.js";
+import { endpointKey, credentialEndpointKey, saveEndpoint } from "../src/config.js";
 import { clientById, installHook, uninstallHook, HOOK_MARKER } from "../src/install.js";
 
 let failures = 0;
@@ -342,6 +343,109 @@ const httpsMeta = (origin) => ({
 // The metadata here is entirely https, so ONLY the issuer check can refuse
 // this. Written with http endpoints too, the endpoint check caught it and the
 // issuer check could be deleted with the suite still green.
+// -- the endpoint the PERSON hands in is a credential URL too
+//
+// The checks below cover what DISCOVERY names. They do not cover the endpoint
+// discovery starts from, and that is the one the access token is sent to on
+// every capture: `capture` POSTs `Authorization: Bearer <token>` to
+// `new URL("/inbox", endpoint)`. It usually gets there without touching
+// `discover` at all — `accessTokenFor` returns a cached, unexpired token
+// before the discovery call — so a check living only in `discover` would miss
+// the common path. `endpointKey` is the choke point instead: save, load,
+// forget and the not-signed-in message all resolve through it.
+const endpointRefused = (value) => {
+  try {
+    credentialEndpointKey(value);
+    return false;
+  } catch {
+    return true;
+  }
+};
+// THE PLACEMENT IS THE CLAIM, AND THE THREE CHECKS BELOW DO NOT PROVE IT.
+// They exercise the predicate directly. What this fix actually asserts is that
+// the credential-bearing paths RESOLVE THROUGH it — and that is enforced only
+// by call-graph structure, so a `loadEndpoint` that canonicalises inline
+// instead of calling the guarded key passes every one of them while the token
+// goes out in the clear. This drives the real path end to end, and asserts the
+// shape that matters: refused AND zero network calls, because a refusal after
+// the POST would be worthless.
+{
+  const httpEndpoint = "http://evil.example/mcp";
+  const leakHome = await mkdtemp(join(tmpdir(), "context-hook-http-"));
+  const leakConfig = join(leakHome, "hook.json");
+  await writeFile(
+    leakConfig,
+    JSON.stringify({
+      endpoints: {
+        [httpEndpoint]: { accessToken: "SECRET-TOKEN", expiresAt: Date.now() + 3_600_000 },
+      },
+    }),
+    "utf8"
+  );
+  const seen = [];
+  const recordingFetch = async (target, init) => {
+    seen.push({ target: String(target), auth: init?.headers?.Authorization || null });
+    return { ok: true, status: 200, json: async () => ({}), text: async () => "" };
+  };
+  const transcript = join(leakHome, "t.jsonl");
+  await writeFile(transcript, JSON.stringify({ type: "user", message: { role: "user", content: "hi" } }), "utf8");
+  let refused = false;
+  try {
+    await commands.capture({
+      endpoint: httpEndpoint,
+      configPath: leakConfig,
+      stdin: [JSON.stringify({ transcript_path: transcript })],
+      fetchImpl: recordingFetch,
+      log: () => {},
+    });
+  } catch {
+    refused = true;
+  }
+  check(
+    "capture refuses an http endpoint without putting the token on the wire",
+    refused && seen.length === 0
+  );
+}
+
+// `authorize` checks before it discovers, and only a CALL COUNT can see that:
+// remove the guard and install still refuses — `loadEndpoint` and the metadata
+// checks both backstop it — but only after two cleartext `.well-known`
+// requests have told a passive observer that this machine is installing
+// against that endpoint. No token is involved in any variant, which is why
+// this is metadata rather than credential; it is asserted because otherwise
+// nothing at all notices the line going away.
+{
+  const seen = [];
+  let refused = false;
+  try {
+    await commands.authorize({
+      endpoint: "http://evil.example/mcp",
+      configPath: join(home, "unused.json"),
+      fetchImpl: async (target) => {
+        seen.push(String(target));
+        return { ok: false, status: 404, json: async () => ({}) };
+      },
+      log: () => {},
+    });
+  } catch {
+    refused = true;
+  }
+  check(
+    "install refuses an http endpoint before it makes any request at all",
+    refused && seen.length === 0
+  );
+}
+
+check(
+  "a plain-http endpoint is refused before a token can ever be sent to it",
+  endpointRefused("http://evil.example/mcp")
+);
+check("an https endpoint is accepted", !endpointRefused("https://ctx.example/mcp"));
+check(
+  "and a loopback endpoint is accepted, because self-hosting runs on it",
+  !endpointRefused("http://127.0.0.1:8787/mcp")
+);
+
 check(
   "a routable http authorization server is refused",
   Boolean(await discoveryError(["http://evil.example"], httpsMeta("https://ctx.example")))
