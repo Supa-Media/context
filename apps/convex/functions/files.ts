@@ -77,7 +77,7 @@ import {
   internalQuery,
 } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
-import { S3Store } from "../../mcp/src/store/s3.js";
+import { storeForBinding } from "../../mcp/src/store/factory.js";
 import {
   DELETE_CONFIRMATION,
   FileOpError,
@@ -369,19 +369,16 @@ export const runFileOperation = internalAction({
     // store.
     let store: FileStore;
     try {
-      store = new S3Store({
-        endpoint: credential.endpoint,
-        region: credential.region,
-        bucket: credential.bucket,
-        rootPrefix: credential.rootPrefix,
-        accessKeyId: credential.accessKeyId,
-        secretAccessKey: credential.secretAccessKey,
+      // One table decides which backend this workspace got — the same table
+      // the gateway uses, so the console reads and writes exactly what an AI
+      // client does. A second switch here would be the second place to forget
+      // a new backend, and the direction that forgetting fails is "built an
+      // S3 store out of a Dropbox binding".
+      //
+      // `timeoutFetch` is forwarded because a console request has somebody
+      // waiting on it; the gateway does not need one.
+      store = storeForBinding(credential, undefined, {
         fetchImpl: timeoutFetch,
-        // The stored addressing style, so the console reads and writes the same
-        // bucket the gateway does. Omitting it would leave the file editor
-        // unable to open a virtual-hosted bucket the gateway serves fine — and
-        // on the ambiguous endpoints, addressing a *different* bucket.
-        forcePathStyle: credential.forcePathStyle,
       }) as unknown as FileStore;
       // `S3Store` *declares* conditional writes because it sends `If-Match`.
       // Whether the backend honours it is a different question, and it was

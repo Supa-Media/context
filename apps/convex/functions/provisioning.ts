@@ -37,7 +37,7 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import { type ActionCtx, internalAction } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
-import { S3Store } from "../../mcp/src/store/s3.js";
+import { storeForBinding } from "../../mcp/src/store/factory.js";
 import { probeStore } from "../../mcp/src/store/index.js";
 import {
   type CustomFolder,
@@ -320,25 +320,21 @@ export const verifyStorageBinding = internalAction({
     // From here on a plaintext secret is in scope. It is used to construct one
     // store, and every string that leaves this function goes through
     // `redactSecrets` before it is recorded.
-    const secrets = [credential.secretAccessKey, credential.accessKeyId];
+    // Whatever this credential actually carries. A Dropbox one has an access
+    // token and no key pair; listing fields that do not exist would put
+    // `undefined` in the redaction set and quietly redact nothing.
+    const secrets =
+      credential.provider === "dropbox"
+        ? [credential.accessToken]
+        : [credential.secretAccessKey, credential.accessKeyId];
 
     let store: ScaffoldStore;
     try {
-      store = new S3Store({
-        endpoint: credential.endpoint,
-        region: credential.region,
-        bucket: credential.bucket,
-        rootPrefix: credential.rootPrefix,
-        accessKeyId: credential.accessKeyId,
-        secretAccessKey: credential.secretAccessKey,
-        // The stored answer to "is the bucket in the host or in the path".
-        // Passing it is what makes a virtual-hosted endpoint connectable at
-        // all, and passing the *stored* one is what makes the store this probe
-        // exercises identical to the store the gateway will build from the same
-        // row — a probe that addressed the bucket differently from the gateway
-        // would certify a configuration that does not work.
-        forcePathStyle: credential.forcePathStyle,
-      }) as unknown as ScaffoldStore;
+      // Same table the gateway builds from, so the store this probe
+      // exercises is the store that will serve the workspace. A probe that
+      // addressed the storage differently would certify a configuration that
+      // does not actually work.
+      store = storeForBinding(credential) as unknown as ScaffoldStore;
     } catch (error) {
       // Bad configuration rather than a bad bucket: an endpoint whose
       // addressing style is ambiguous, a bucket name with a slash in it.
@@ -355,7 +351,12 @@ export const verifyStorageBinding = internalAction({
         scaffolded: false,
         scaffoldReason: "not-attempted",
         error: redactSecrets(errorMessage(error), secrets),
+        // Ambiguous addressing is a question about a *bucket in a host name*.
+        // Dropbox has neither, so asking it there would classify every Dropbox
+        // configuration error as an S3 endpoint problem the owner cannot act
+        // on.
         errorCode:
+          credential.provider !== "dropbox" &&
           credential.forcePathStyle === undefined &&
           addressingIsAmbiguous(credential.endpoint, credential.bucket)
             ? "AMBIGUOUS_ADDRESSING"
@@ -381,7 +382,15 @@ export const verifyStorageBinding = internalAction({
       });
     }
 
-    const summary = summarizeProbe(probe, { bucket: credential.bucket });
+    // The bucket name only exists to name the thing in a message. A Dropbox
+    // binding has a folder instead, and saying "folder" is what stops the
+    // console telling somebody to check a bucket they never created.
+    const summary = summarizeProbe(probe, {
+      bucket:
+        credential.provider === "dropbox"
+          ? (credential.rootPrefix ?? "your Dropbox folder")
+          : credential.bucket,
+    });
 
     if (!summary.ok) {
       return await record(ctx, args, {

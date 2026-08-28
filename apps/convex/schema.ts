@@ -889,6 +889,57 @@ const schema = defineSchema({
    * revocable. Revoking ChatGPT must not log Claude out, which is why the
    * grant, not the user session, is the unit of authority.
    */
+  /**
+   * A Dropbox connect that has been started and not yet answered.
+   *
+   * ## Why this table exists at all
+   *
+   * The OAuth redirect comes back through the customer's browser, which means
+   * the only thing tying the returned code to the flow that started it is a
+   * value we minted and can recognise. Without one, an attacker completes
+   * *their own* Dropbox authorization, hands the victim the resulting callback
+   * URL, and the victim's context is bound to storage the attacker controls —
+   * silently, and permanently. Every note the victim writes then lands
+   * somewhere else. That is worse than a leaked token, and it is the reason
+   * this is a row rather than a query parameter.
+   *
+   * ## What is stored, and in what form
+   *
+   * `hashedState` is a digest, not the value: the raw `state` travels in a URL
+   * and lands in browser history, a referrer header, and possibly a proxy log,
+   * so the copy at rest is the one that must not be usable if this table
+   * leaks. Same reasoning as `oauthGrants.hashedRefreshToken`.
+   *
+   * `encryptedVerifier` is encrypted rather than hashed, because unlike a
+   * token it has to be *replayed* to Dropbox at the exchange. It is the whole
+   * proof of PKCE and it **never goes to the browser** — the client asks for a
+   * URL and gets only a URL.
+   *
+   * `workspaceId` and `startedBy` are what make the callback verifiable as the
+   * same person's flow, not merely a well-formed one.
+   */
+  dropboxConnectAttempts: defineTable({
+    /** SHA-256 of the state value. The raw value exists only in the URL. */
+    hashedState: v.string(),
+    /** The PKCE verifier, sealed with the workspace id as AAD. */
+    encryptedVerifier: v.string(),
+    workspaceId: v.id("workspaces"),
+    startedBy: v.id("users"),
+    /** The redirect the flow was started for; the exchange must reuse it. */
+    redirectUri: v.string(),
+    /** The folder the person chose, carried across the redirect. */
+    rootPrefix: v.optional(v.string()),
+    /**
+     * Short. An authorization that has not come back within a few minutes is a
+     * tab somebody abandoned, and a parked verifier is a live half-credential
+     * — there is no reason to keep one for a day.
+     */
+    expiresAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_hashed_state", ["hashedState"])
+    .index("by_expiresAt", ["expiresAt"]),
+
   oauthGrants: defineTable({
     workspaceId: v.id("workspaces"),
     userId: v.id("users"),

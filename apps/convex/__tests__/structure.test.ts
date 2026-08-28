@@ -202,6 +202,21 @@ const DECRYPT_CALL = /\bdecryptSecret\s*\(/;
 const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   "functions/storage.ts",
   "functions/cloudflare.ts",
+  // THE THIRD, AND WHAT IT OPENS.
+  //
+  // Not a storage credential and not an account credential: a **PKCE
+  // verifier**, parked for the ten minutes between sending somebody to
+  // Dropbox and their coming back. It is sealed at rest for the same reason
+  // the others are — this table would otherwise hold a live half-credential in
+  // the clear — and it is opened in exactly one place, `exchangeAndBind`,
+  // which is reachable only by a schedule edge.
+  //
+  // Worth stating plainly because the argument for a third importer is the
+  // argument the comment above says to be suspicious of: it could not call one
+  // of the two that already decrypt, because neither has anything to do with
+  // an OAuth flow, and folding it into `storage.ts` would put the connect
+  // handshake inside the module that serves credentials to the gateway.
+  "functions/dropboxConnect.ts",
 ]);
 
 /** An import of `decryptSecret`, in code rather than in prose. */
@@ -611,6 +626,18 @@ describe("no public function can reach a storage secret", () => {
       // behaviourally that the token appears in no table and in no public
       // return value.
       "functions.cloudflare.provisionCloudflareStorage",
+      // THE THIRD KIND, AND THE WEAKEST ONE.
+      //
+      // Opens the parked PKCE verifier so the authorization code can be
+      // exchanged for a Dropbox grant. What it holds is not a key to anybody's
+      // storage — a verifier is useless without the matching code, it is
+      // ten minutes old at most, and the row carrying it is deleted *before*
+      // this runs, so a replay finds nothing.
+      //
+      // It is here rather than inside `completeDropboxConnect` precisely
+      // because that one is public: reached only by a schedule edge, which is
+      // the same shape as `verifyStorageBinding`.
+      "functions.dropboxConnect.exchangeAndBind",
       // THE FILE EDITOR'S CREDENTIAL BARRIER. Builds one S3Store for one
       // file operation and hands it to lib/fileOps.ts, which never sees the
       // credential. internalAction, and the only member of

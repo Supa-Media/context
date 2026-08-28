@@ -37,6 +37,10 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { requireAuthId } from "@supa-media/convex/auth";
 import { internal } from "../_generated/api";
 import {
+  isDropboxReconnectRequired,
+  refreshDropboxToken,
+} from "./lib/dropboxOAuth";
+import {
   action,
   internalAction,
   internalMutation,
@@ -97,13 +101,17 @@ export interface BindingResult {
  * places that consume it, both of which refuse rather than half-build.
  */
 export interface SealedBinding {
-  provider: string;
+  provider: "r2" | "s3" | "b2" | "s3-compatible" | "dropbox";
   endpoint?: string;
   region?: string;
   bucket?: string;
   rootPrefix?: string;
   accessKeyId?: string;
   encryptedSecretAccessKey?: string;
+  encryptedRefreshToken?: string;
+  encryptedAccessToken?: string;
+  accessTokenExpiresAt?: number;
+  dropboxAccountId?: string;
   /** Absent means "let the adapter decide". See the schema for why. */
   forcePathStyle?: boolean;
   capabilities: StorageCapabilities;
@@ -121,8 +129,13 @@ export interface SealedBinding {
  * the row would push that guarantee onto every consumer as an optional-check
  * they would each get slightly wrong.
  */
-export interface GatewayCredential {
-  provider: string;
+export interface S3GatewayCredential {
+  /**
+   * A literal union, not `string`, so the two credential shapes actually
+   * discriminate. With `string` here, `credential.provider === "dropbox"`
+   * narrows nothing and every consumer sees a union it cannot take apart.
+   */
+  provider: "r2" | "s3" | "b2" | "s3-compatible";
   endpoint: string;
   region: string;
   bucket: string;
@@ -133,6 +146,24 @@ export interface GatewayCredential {
   capabilities: StorageCapabilities;
   status: string;
 }
+
+/**
+ * What a Dropbox-backed workspace hands the gateway.
+ *
+ * Deliberately a *different shape*, not the S3 one with holes in it. The
+ * gateway's factory refuses a binding carrying a credential its provider does
+ * not use, so a union here is what makes that refusal unreachable by accident
+ * rather than something to remember.
+ */
+export interface DropboxGatewayCredential {
+  provider: "dropbox";
+  accessToken: string;
+  rootPrefix?: string;
+  capabilities: StorageCapabilities;
+  status: string;
+}
+
+export type GatewayCredential = S3GatewayCredential | DropboxGatewayCredential;
 
 /** One batch of envelopes still sealed under an older key. */
 export interface RekeyCandidates {
@@ -764,6 +795,13 @@ export const getBindingRow = internalQuery({
       rootPrefix: v.optional(v.string()),
       accessKeyId: v.optional(v.string()),
       encryptedSecretAccessKey: v.optional(v.string()),
+      // The Dropbox columns. Absent from this validator, Convex strips them
+      // from the row and the gateway path reads a connection that looks
+      // incomplete — which is exactly how this was found.
+      encryptedRefreshToken: v.optional(v.string()),
+      encryptedAccessToken: v.optional(v.string()),
+      accessTokenExpiresAt: v.optional(v.number()),
+      dropboxAccountId: v.optional(v.string()),
       forcePathStyle: v.optional(v.boolean()),
       capabilities: v.object({ conditionalWrite: v.boolean() }),
       status: v.string(),
@@ -783,6 +821,10 @@ export const getBindingRow = internalQuery({
       rootPrefix: binding.rootPrefix,
       accessKeyId: binding.accessKeyId,
       encryptedSecretAccessKey: binding.encryptedSecretAccessKey,
+      encryptedRefreshToken: binding.encryptedRefreshToken,
+      encryptedAccessToken: binding.encryptedAccessToken,
+      accessTokenExpiresAt: binding.accessTokenExpiresAt,
+      dropboxAccountId: binding.dropboxAccountId,
       forcePathStyle: binding.forcePathStyle,
       capabilities: binding.capabilities,
       status: binding.status,
@@ -806,10 +848,19 @@ export const getBindingRow = internalQuery({
  */
 export const getBindingForGateway = internalAction({
   args: { workspaceId: v.id("workspaces") },
+  // Two shapes, not one shape with holes. The gateway's factory refuses a
+  // binding carrying a credential its provider does not use, so a union here
+  // is what makes that refusal unreachable by accident: there is no way to
+  // return a Dropbox binding with an `accessKeyId` on it.
   returns: v.union(
     v.null(),
     v.object({
-      provider: v.string(),
+      provider: v.union(
+        v.literal("r2"),
+        v.literal("s3"),
+        v.literal("b2"),
+        v.literal("s3-compatible"),
+      ),
       endpoint: v.string(),
       region: v.string(),
       bucket: v.string(),
@@ -817,6 +868,13 @@ export const getBindingForGateway = internalAction({
       accessKeyId: v.string(),
       secretAccessKey: v.string(),
       forcePathStyle: v.optional(v.boolean()),
+      capabilities: v.object({ conditionalWrite: v.boolean() }),
+      status: v.string(),
+    }),
+    v.object({
+      provider: v.literal("dropbox"),
+      accessToken: v.string(),
+      rootPrefix: v.optional(v.string()),
       capabilities: v.object({ conditionalWrite: v.boolean() }),
       status: v.string(),
     }),
@@ -829,18 +887,26 @@ export const getBindingForGateway = internalAction({
     );
     if (binding === null) return null;
 
-    // A Dropbox binding is not servable through this path yet. It is refused
-    // by name rather than falling through: the fields below are all absent for
-    // it, and a store built from undefined endpoint and undefined key is the
-    // silent wrong-bucket write this module exists to prevent. The Dropbox
-    // path — refresh the grant, hand back a short-lived access token, never
-    // the refresh token — lands with the OAuth change.
+    // Dropbox is served from a *refreshed* short-lived access token, and the
+    // payload it gets carries nothing else. Two rules meet here:
+    //
+    //  - **The refresh token never leaves the control plane.** A compromised
+    //    gateway then holds minutes of one workspace's storage rather than the
+    //    standing ability to mint tokens for it. Same reasoning as "never
+    //    cache a decrypted credential across requests", one layer up.
+    //  - **The payload is built per provider, never spread from the row.** A
+    //    workspace rebound from S3 to Dropbox can leave a stale `accessKeyId`
+    //    behind; spread, that reaches the gateway as a credential for storage
+    //    this binding no longer points at.
     if (binding.provider === "dropbox") {
-      throw new ConvexError({
-        code: "PROVIDER_NOT_SERVABLE",
-        message:
-          "This context is stored in Dropbox, which this gateway cannot serve yet.",
-      });
+      const accessToken = await dropboxAccessToken(ctx, args.workspaceId, binding);
+      return {
+        provider: "dropbox",
+        accessToken,
+        rootPrefix: binding.rootPrefix,
+        capabilities: binding.capabilities,
+        status: binding.status,
+      };
     }
 
     // Narrowed rather than asserted. These five are guaranteed together for
@@ -899,6 +965,145 @@ export const getBindingForGateway = internalAction({
       capabilities: binding.capabilities,
       status: binding.status,
     };
+  },
+});
+
+/**
+ * A usable Dropbox access token, refreshing if the cached one is near expiry.
+ *
+ * A plain function rather than its own action, deliberately: an internal
+ * action here would be a *fourth* enumerated way to reach a decrypted
+ * credential, and `__tests__/structure.test.ts` is right that each one needs
+ * the scrutiny `getBindingForGateway` got. This does the same work inside the
+ * function that already holds that permission, so the blast radius does not
+ * grow.
+ *
+ * ## Refreshed on a clock, not on a 401
+ *
+ * Finding out a token expired by failing a customer's read is a worse way to
+ * learn it: the read has already gone out, it surfaces as a storage outage,
+ * and the retry costs a round trip somebody is waiting on. Dropbox access
+ * tokens are short by design, so the expiry is stored and consulted, with a
+ * minute of margin for a request that takes a moment to arrive.
+ */
+const ACCESS_TOKEN_MARGIN_MS = 60_000;
+
+async function dropboxAccessToken(
+  ctx: { runMutation: (ref: never, args: never) => Promise<unknown> },
+  workspaceId: Id<"workspaces">,
+  binding: SealedBinding,
+): Promise<string> {
+  if (!binding.encryptedRefreshToken) {
+    throw new ConvexError({
+      code: "CREDENTIAL_UNAVAILABLE",
+      message: "This context's Dropbox connection is incomplete. Reconnect it.",
+    });
+  }
+
+  const keyset = requireKeyset();
+  const context = { workspaceId: workspaceId as string };
+  const stillFresh =
+    typeof binding.accessTokenExpiresAt === "number" &&
+    binding.accessTokenExpiresAt - Date.now() > ACCESS_TOKEN_MARGIN_MS;
+
+  if (stillFresh && binding.encryptedAccessToken) {
+    try {
+      return await decryptSecret(binding.encryptedAccessToken, keyset, context);
+    } catch {
+      // A cached token that will not open is not worth failing a read over
+      // when a new one is one call away. Fall through and refresh.
+    }
+  }
+
+  let refreshToken: string;
+  try {
+    refreshToken = await decryptSecret(binding.encryptedRefreshToken, keyset, context);
+  } catch (error) {
+    if (error instanceof CredentialCryptoError) {
+      throw new ConvexError({
+        code: "CREDENTIAL_UNAVAILABLE",
+        message:
+          "This context's Dropbox credential could not be opened. Reconnect Dropbox to replace it.",
+      });
+    }
+    throw error;
+  }
+
+  const clientId = process.env.DROPBOX_APP_KEY;
+  if (typeof clientId !== "string" || clientId.length === 0) {
+    throw new ConvexError({
+      code: "DROPBOX_NOT_CONFIGURED",
+      message: "Dropbox is not configured on this deployment.",
+    });
+  }
+
+  let refreshed;
+  try {
+    refreshed = await refreshDropboxToken({ clientId, refreshToken });
+  } catch (error) {
+    // A revoked grant is not a transient failure, and the two need different
+    // words: one is "reconnect Dropbox", the other is "try again".
+    if (isDropboxReconnectRequired(error)) {
+      throw new ConvexError({
+        code: "STORAGE_REAUTH_REQUIRED",
+        message:
+          "Dropbox access for this context was revoked. Reconnect Dropbox to restore it.",
+      });
+    }
+    throw new ConvexError({
+      code: "STORAGE_UNAVAILABLE",
+      message: "Dropbox could not be reached. Try again.",
+    });
+  }
+
+  await ctx.runMutation(
+    internal.functions.storage.recordDropboxRefresh as never,
+    {
+      workspaceId,
+      encryptedAccessToken: await encryptSecret(refreshed.accessToken, keyset, context),
+      accessTokenExpiresAt: refreshed.expiresAt,
+      encryptedRefreshToken: refreshed.refreshToken
+        ? await encryptSecret(refreshed.refreshToken, keyset, context)
+        : undefined,
+    } as never,
+  );
+
+  return refreshed.accessToken;
+}
+
+/**
+ * Persist a refreshed pair.
+ *
+ * Conditional on the binding still being Dropbox: a workspace rebound to a
+ * bucket mid-refresh must not have Dropbox tokens written back onto it.
+ */
+export const recordDropboxRefresh = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    encryptedAccessToken: v.string(),
+    accessTokenExpiresAt: v.number(),
+    encryptedRefreshToken: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const binding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (binding === null || binding.provider !== "dropbox") return null;
+
+    await ctx.db.patch(binding._id, {
+      encryptedAccessToken: args.encryptedAccessToken,
+      accessTokenExpiresAt: args.accessTokenExpiresAt,
+      // Dropbox rotates the refresh token only sometimes. Writing `undefined`
+      // over a good one would lose the grant entirely, so it is patched only
+      // when a replacement actually arrived.
+      ...(args.encryptedRefreshToken
+        ? { encryptedRefreshToken: args.encryptedRefreshToken }
+        : {}),
+      updatedAt: Date.now(),
+    });
+    return null;
   },
 });
 
