@@ -840,6 +840,197 @@ describe("archiving is the recoverable one", () => {
   });
 });
 
+/* -------------------------------------------------------------------------- */
+/*                      a destination you cannot see                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `writeFile` states the rule at its own top: creating a note somewhere a team
+ * caller cannot see means creating a note they immediately could not read, so
+ * it refuses with the same not-found as a note that is not theirs.
+ *
+ * `movePath` and `copyPath` are the two operations that never call it — they
+ * `store.put` each destination directly — and neither restated the rule. The
+ * source was guarded and the destination was not, which cost two separate
+ * things: a wider version of the oracle `createFolder` had, and a write into
+ * space the caller cannot read that the caller then cannot undo.
+ *
+ * The gateway refuses both already (`apps/mcp/src/index.js`, `move_note` and
+ * `move_folder` check the destination before reading it, and the tool
+ * description promises exactly that). These are the control plane's copy.
+ */
+describe("a destination the caller cannot see", () => {
+  /** `1-projects` shared, `2-areas` private, and one real note inside it. */
+  async function withHiddenNote(): Promise<MemoryStore & FileStore> {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("2-areas/finance/notes.md", "# Notes\n\nsalaries\n");
+    return store;
+  }
+
+  test("copying cannot confirm a note exists where the caller cannot look", async () => {
+    const store = await withHiddenNote();
+    const taken = await capture(() =>
+      copyPath(store, {
+        from: "1-projects/context-lc.md",
+        to: "2-areas/finance/notes.md",
+        scope: "team",
+      }),
+    );
+    const free = await capture(() =>
+      copyPath(store, {
+        from: "1-projects/context-lc.md",
+        to: "2-areas/finance/never-existed.md",
+        scope: "team",
+      }),
+    );
+    expect(errorShape(taken)).toBe(errorShape(free));
+    expect(taken.code).toBe("FILE_NOT_FOUND");
+    // The old message quoted the path back, which is why this asserts the text
+    // and not only the code.
+    expect(taken.message).not.toContain("2-areas/finance/notes.md");
+  });
+
+  test("moving cannot confirm one either", async () => {
+    const store = await withHiddenNote();
+    const taken = await capture(() =>
+      movePath(store, {
+        from: "1-projects/context-lc.md",
+        to: "2-areas/finance/notes.md",
+        scope: "team",
+        now: NOW,
+      }),
+    );
+    const free = await capture(() =>
+      movePath(store, {
+        from: "1-projects/context-lc.md",
+        to: "2-areas/finance/never-existed.md",
+        scope: "team",
+        now: NOW,
+      }),
+    );
+    expect(errorShape(taken)).toBe(errorShape(free));
+    expect(taken.code).toBe("FILE_NOT_FOUND");
+  });
+
+  /**
+   * The worse half. A team caller moving a shared note into a folder they
+   * cannot see takes it away from every other member — no exception is
+   * recorded, so it is simply private now — and they cannot put it back,
+   * because `canSee(from)` refuses them the source from that moment on.
+   */
+  test("a shared note cannot be moved somewhere only the owner can look", async () => {
+    const store = await withHiddenNote();
+    const error = await capture(() =>
+      movePath(store, {
+        from: "1-projects/context-lc.md",
+        to: "2-areas/finance/taken.md",
+        scope: "team",
+        now: NOW,
+      }),
+    );
+    expect(error.code).toBe("FILE_NOT_FOUND");
+    expect(store.snapshot()["2-areas/finance/taken.md"]).toBeUndefined();
+    // ...and the note is still where the rest of the team can see it.
+    const listing = await listFolder(store, { path: "1-projects", scope: "team" });
+    expect(names(listing.entries)).toContain("context-lc.md");
+  });
+
+  /**
+   * The positive controls. A guard that refused every team-scope destination
+   * would satisfy all three assertions above and break the file editor for
+   * every editor who is allowed to use it.
+   */
+  test("a move and a copy inside shared space are untouched", async () => {
+    const store = await withHiddenNote();
+    const moved = await movePath(store, {
+      from: "1-projects/context-lc.md",
+      to: "1-projects/renamed.md",
+      scope: "team",
+      now: NOW,
+    });
+    expect(moved.paths).toEqual(["1-projects/renamed.md"]);
+    const copied = await copyPath(store, {
+      from: "1-projects/renamed.md",
+      to: "1-projects/duplicate.md",
+      scope: "team",
+    });
+    expect(copied.paths).toEqual(["1-projects/duplicate.md"]);
+  });
+
+  test("the owner is not affected — private scope sees everything", async () => {
+    const store = await withHiddenNote();
+    const moved = await movePath(store, {
+      from: "1-projects/context-lc.md",
+      to: "2-areas/finance/filed.md",
+      scope: "private",
+      now: NOW,
+    });
+    expect(moved.paths).toEqual(["2-areas/finance/filed.md"]);
+  });
+
+  /**
+   * Archiving is a move, so it inherits the rule — and on the scaffold's own
+   * defaults `4-archive` is private, which means an editor can no longer
+   * archive. That is deliberate rather than incidental: archiving a shared
+   * note into a private archive is the same one-way removal as the test three
+   * above, reached through a friendlier button, and the gateway has always
+   * refused it (`archive_note` checks `visibilityOf(dest)` before writing).
+   * An owner who wants editors to archive shares `4-archive`.
+   */
+  test("archiving follows the same rule, in both directions", async () => {
+    const store = await withHiddenNote();
+    const refused = await capture(() =>
+      archivePath(store, { path: "1-projects/context-lc.md", scope: "team", now: NOW }),
+    );
+    expect(refused.code).toBe("FILE_NOT_FOUND");
+
+    await setFolderVisibility(store, {
+      path: "4-archive",
+      visibility: "team",
+      scope: "private",
+    });
+    const allowed = await archivePath(store, {
+      path: "1-projects/context-lc.md",
+      scope: "team",
+      now: NOW,
+    });
+    expect(allowed.paths[0]).toContain("4-archive/");
+
+    // And the owner could archive either way.
+    const owner = await archivePath(store, {
+      path: "1-projects/pay.md",
+      scope: "private",
+      now: NOW,
+    });
+    expect(owner.paths[0]).toContain("4-archive/");
+  });
+
+  /**
+   * `folderVisibleAtScope` keeps a private folder visible when it holds a
+   * `team` exception, or the note would be unreachable in the tree. That scan
+   * compares against `` `${folderPath}/` `` and the trailing slash is the whole
+   * of it: without it, an exception under `2-areas/finance/` would also unhide
+   * `2-areas/fin`, and every assertion in this file still passed. No other
+   * fixture here creates a `team` override, which is why this one does.
+   */
+  test("a team exception unhides its own folder and not a name it prefixes", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("2-areas/finance/public.md", "# Public\n");
+    store.seed("2-areas/fin/secret.md", "# Secret\n");
+    await setVisibility(store, {
+      path: "2-areas/finance/public.md",
+      visibility: "team",
+      scope: "private",
+    });
+
+    const listing = await listFolder(store, { path: "2-areas", scope: "team" });
+    expect(names(listing.entries)).toContain("finance");
+    expect(names(listing.entries)).not.toContain("fin");
+  });
+});
+
 describe("deleting is the permanent one", () => {
   test("without the confirmation, nothing happens", async () => {
     const store = bucket();

@@ -606,11 +606,11 @@ export async function createFolder(
   // answers `notFound()`, that reply is a confirmed hit rather than a hint.
   // Guessable names over somebody's private half is the whole attack.
   //
-  // This does not make writing at team scope disclose nothing: refusal still
-  // separates "the manifest marks this private" from "no rule reaches here",
-  // which is inherent in letting a team caller write at all and is the same
-  // residual `writeFile` has. What it closes is object existence leaking on
-  // top of that, in the private space where no rule names the folder.
+  // Refusal itself is uniform: an explicit `private` rule and no rule at all
+  // both answer `notFound()`, so it is not the refusal that discloses. What
+  // remains is that *success* still means a team rule reaches this path —
+  // the same residual `writeFile` has, and one `listFolder` already exposes
+  // by returning an empty listing rather than `notFound()` there.
   const state = await loadPrivacyState(store);
   if (!folderVisibleAtScope(folder, options.scope, state.rules, state.overrides)) {
     throw notFound();
@@ -735,6 +735,42 @@ export interface MoveResult {
 }
 
 /**
+ * A destination the caller cannot see is not a destination.
+ *
+ * `writeFile` states this rule at its own top — "creating a note somewhere a
+ * team caller cannot see means creating a note they immediately could not
+ * read" — and `movePath`/`copyPath` are the two operations that do not go
+ * through it. They `store.put` each destination directly, so the rule had to
+ * be restated here or it did not apply to them, and it did not.
+ *
+ * Two things went wrong without it, and the second is the worse one:
+ *
+ *  - The collision loop reads every destination with a raw `store.get` and
+ *    names the path back in its message, so a caller could confirm any key in
+ *    the half of the bucket they cannot list, one guess at a time. That is a
+ *    wider oracle than `createFolder`'s was: arbitrary note paths rather than
+ *    `<folder>/README.md`, and the reply quotes the path it found.
+ *  - A team caller could move a shared note *into* a folder they cannot see.
+ *    That is not a write they can undo: the note leaves every other member's
+ *    listing, no exception is recorded for it, and `canSee(from)` then refuses
+ *    to let the same caller move it back out. One editor could quietly take a
+ *    note away from everybody except the owner.
+ *
+ * The gateway has always refused both — `move_note` and `move_folder` check
+ * the destination before reading it, and say so in the tool description. This
+ * is the control plane catching up with its own other half.
+ */
+function assertDestinationsVisible(
+  destinations: readonly string[],
+  scope: Scope,
+  state: PrivacyState,
+): void {
+  for (const destination of destinations) {
+    if (!canSee(destination, scope, state.rules, state.overrides)) throw notFound();
+  }
+}
+
+/**
  * Move or rename. A rename is a move whose parent does not change, so there is
  * one implementation rather than two that can disagree.
  *
@@ -771,6 +807,12 @@ export async function movePath(
     source: key,
     destination: sourceIsFolder ? `${to}${key.slice(from.length)}` : to,
   }));
+
+  assertDestinationsVisible(
+    pairs.map((pair) => pair.destination),
+    options.scope,
+    state,
+  );
 
   for (const pair of pairs) {
     if ((await store.get(pair.destination)) !== null) {
@@ -828,6 +870,12 @@ export async function copyPath(
     source: key,
     destination: sourceIsFolder ? `${to}${key.slice(from.length)}` : to,
   }));
+
+  assertDestinationsVisible(
+    pairs.map((pair) => pair.destination),
+    options.scope,
+    state,
+  );
 
   for (const pair of pairs) {
     if ((await store.get(pair.destination)) !== null) {
