@@ -968,6 +968,21 @@ check(
     discover.body.result?._meta["io.modelcontextprotocol/serverInfo"].name === "context"
 );
 check("every modern result is tagged complete", discover.body.result?.resultType === "complete");
+// `tools/list` has had this check since the modern path landed; `discover` did
+// not, and it is the one that matters more. Its `instructions` carry a sketch
+// of THIS caller's context — their front page and their filtered folder map —
+// so `public` here would hand one person's notes to whoever a shared
+// intermediary served next. (Not recency: the sketch's own header points at
+// `orient` for that, and no timestamp enters this payload.) Two comments in `index.js` say exactly that and
+// nothing enforced it: marking discover `public` passed the whole suite.
+check(
+  "the per-caller context sketch is never marked publicly cacheable",
+  discover.body.result?.cacheScope === "private"
+);
+check(
+  "and it carries the freshness hints the revision requires at all",
+  typeof discover.body.result?.ttlMs === "number"
+);
 
 const modernList = await modernFetch({ method: "tools/list" });
 check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 20);
@@ -993,6 +1008,17 @@ const modernCall = await modernFetch({
   method: "tools/call",
   params: { name: "read_note", arguments: { path: "index.md" } },
 });
+// `tools/call` returns the note bodies themselves — strictly more sensitive
+// than the tool array or the connect sketch, and the one modern result that
+// carries no cacheability hints at all. That is the right answer, and it was
+// the answer nothing asserted: marking it `public` passed the whole suite.
+// Asserting their ABSENCE rather than their value is the point — a hint here
+// would be wrong however it was spelled.
+check(
+  "tools/call is not cacheable at all, because it carries the notes",
+  modernCall.body.result?.cacheScope === undefined &&
+    modernCall.body.result?.ttlMs === undefined
+);
 check(
   "modern tools/call reaches the same tool implementation",
   modernCall.status === 200 &&

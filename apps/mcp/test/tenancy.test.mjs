@@ -1227,6 +1227,16 @@ export async function runTenancyChecks(check) {
   check("the token response carries a bearer access token", exchanged.body.token_type === "Bearer");
   check("the token response carries a refresh token", typeof exchanged.body.refresh_token === "string");
   check("the token response declares an expiry", exchanged.body.expires_in > 0);
+  // RFC 6749 §5.1 makes this a MUST, and it is the only thing between an
+  // access token and a shared cache holding it. `oauth.js` sets it on every
+  // response it builds; nothing asserted it, so deleting the header — or
+  // worse, changing it to `public, max-age=3600` — passed the whole suite.
+  // Asserted on the *successful* exchange because that is the response that
+  // actually carries a token.
+  check(
+    "a token response is never storable by a shared cache",
+    exchanged.response.headers.get("Cache-Control") === "no-store"
+  );
 
   const replay = await postForm(env, "/oauth/token", {
     grant_type: "authorization_code",
