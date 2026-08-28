@@ -2195,35 +2195,192 @@ describe("a bulk operation acts only on what the caller can see", () => {
   });
 
   /**
-   * The collision message names the path it found, which is its whole value and
-   * also a disclosure: the caller chooses the destination folder AND the file
-   * names under it, so an unguarded message answers "does this key exist" for
-   * any key under any folder they cannot see.
+   * A carried exception must not make a folder writable.
+   *
+   * The destination guard asks `canSee(destination)`, and a move seeds the
+   * source's exception onto the destination so the note keeps its visibility —
+   * which meant a note the owner had shared out of a private folder made ANY
+   * destination pass. The caller could write into a folder they cannot list,
+   * and, because the collision check runs after the guard, could read the
+   * answer: move succeeded means nothing is there, refusal means something is.
+   * A one-bit read of any path they cared to name.
+   *
+   * The first version of this test moved a note with NO exception, so the guard
+   * answered first and the collision line was never reached — it asserted about
+   * a message that was never built. Instrumenting the file showed both
+   * collision lines were reached exactly once each across the whole suite, both
+   * at owner scope. That absence was then read as "unreachable", which is the
+   * inference `CLAUDE.md` forbids, and a false argument was written into the
+   * code on the strength of it.
    */
-  test("the collision message never names a key the caller cannot see", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    store.seed("1-projects/mine.md", "# Mine\n");
-    store.seed("2-areas/vault/hit.md", "# Secret\n");
+  test("a shared note cannot be used to probe a folder the caller cannot see", async () => {
+    async function fixture(): Promise<MemoryStore & FileStore> {
+      const store = bucket();
+      store.seed("2-areas/open.md", "# Mine\n");
+      store.seed("2-areas/hr/comp-2027.md", "# Salaries\n\n200k\n");
+      // The supported shape: the owner shares one note out of a private folder.
+      await setVisibility(store, {
+        path: "2-areas/open.md",
+        visibility: "team",
+        scope: "private",
+      });
+      return store;
+    }
+    async function attempt(destination: string) {
+      // A fresh bucket per probe. Reusing one moves the note on the first
+      // success, and every later probe then fails on the SOURCE — which reads
+      // exactly like the guard working.
+      const store = await fixture();
+      return {
+        store,
+        result: await capture(() =>
+          movePath(store, { from: "2-areas/open.md", to: destination, scope: "team", now: NOW }),
+        ),
+      };
+    }
 
-    const hit = await capture(() =>
+    const hit = await attempt("2-areas/hr/comp-2027.md");
+    const miss = await attempt("2-areas/hr/no-such-note.md");
+    expect(errorShape(hit.result)).toBe(errorShape(miss.result));
+    expect(hit.result.code).toBe("FILE_NOT_FOUND");
+    expect(hit.result.message).not.toContain("comp-2027");
+    // Nothing was written into the folder either.
+    expect(miss.store.snapshot()["2-areas/hr/no-such-note.md"]).toBeUndefined();
+
+    // The positive control the folder rule must keep working: a note renamed
+    // beside itself is still in a folder its own exception makes visible.
+    const beside = await fixture();
+    const moved = await movePath(beside, {
+      from: "2-areas/open.md",
+      to: "2-areas/open-renamed.md",
+      scope: "team",
+      now: NOW,
+    });
+    expect(moved.paths).toEqual(["2-areas/open-renamed.md"]);
+  });
+
+  test("a folder rename inside a private parent still works", async () => {
+    // ...and a folder rename is judged under the rules the move installs, which
+    // is what makes its destination folder visible. A guard that asked about
+    // the destination folder under the CURRENT manifest would refuse this.
+    const store = bucket();
+    store.seed("2-areas/shared/a.md", "# A\n");
+    await setFolderVisibility(store, {
+      path: "2-areas/shared",
+      visibility: "team",
+      scope: "private",
+    });
+    const moved = await movePath(store, {
+      from: "2-areas/shared",
+      to: "2-areas/renamed",
+      scope: "team",
+      now: NOW,
+    });
+    expect(moved.paths).toEqual(["2-areas/renamed/a.md"]);
+  });
+
+  /**
+   * The merge refusal is gated on `folderVisibleAtScope`, not on `canSee`, and
+   * the two differ for exactly the configuration this file documents at length:
+   * a private folder kept visible because it holds a `team` exception. `canSee`
+   * reads that path as a note, finds the folder default, and says no — which is
+   * fail-closed and so not a leak, but it answers `notFound()` to somebody who
+   * is looking at the folder in their own tree. The refusal a caller gets
+   * should match what they can see.
+   */
+  test("a folder visible through an exception gets the honest refusal", async () => {
+    const store = bucket();
+    store.seed("1-projects/src/a.md", "# A\n");
+    store.seed("2-areas/mixed/shared.md", "# Shared\n");
+    store.seed("2-areas/mixed/secret.md", "# Secret\n");
+    await shareProjects(store);
+    // `2-areas` is private; the folder is in the tree only because of this.
+    await setVisibility(store, {
+      path: "2-areas/mixed/shared.md",
+      visibility: "team",
+      scope: "private",
+    });
+    const listing = await listFolder(store, { path: "2-areas", scope: "team" });
+    expect(names(listing.entries)).toContain("mixed");
+
+    const error = await capture(() =>
       movePath(store, {
-        from: "1-projects/mine.md",
-        to: "2-areas/vault/hit.md",
+        from: "1-projects/src",
+        to: "2-areas/mixed",
         scope: "team",
         now: NOW,
       }),
     );
-    const miss = await capture(() =>
-      movePath(store, {
-        from: "1-projects/mine.md",
-        to: "2-areas/vault/miss.md",
-        scope: "team",
+    expect(error.code).toBe("DESTINATION_EXISTS");
+    // ...and nothing merged.
+    expect(store.snapshot()["1-projects/src/a.md"]).toBeDefined();
+    expect(store.snapshot()["2-areas/mixed/secret.md"]).toBeDefined();
+  });
+
+  /**
+   * "The destination must not exist" is about a destination of either kind.
+   * File-onto-file was always caught by the collision loop and folder-onto-
+   * folder by the merge refusal; the two crossed pairs went through and left a
+   * file key shadowing a folder prefix, which a Dropbox binding cannot even
+   * represent.
+   */
+  test("a destination that exists as the other kind is refused too", async () => {
+    const ontoFile = bucket();
+    ontoFile.seed("1-projects/src/a.md", "# A\n");
+    ontoFile.seed("1-projects/dst", "# I am a file key\n");
+    const folderOntoFile = await capture(() =>
+      movePath(ontoFile, {
+        from: "1-projects/src",
+        to: "1-projects/dst",
+        scope: "private",
         now: NOW,
       }),
     );
-    expect(errorShape(hit)).toBe(errorShape(miss));
-    expect(hit.message).not.toContain("hit.md");
+    expect(folderOntoFile.code).toBe("DESTINATION_EXISTS");
+    expect(ontoFile.snapshot()["1-projects/src/a.md"]).toBeDefined();
+
+    const ontoFolder = bucket();
+    ontoFolder.seed("1-projects/b.md", "# B\n");
+    ontoFolder.seed("1-projects/dst/inner.md", "# Inner\n");
+    const fileOntoFolder = await capture(() =>
+      movePath(ontoFolder, {
+        from: "1-projects/b.md",
+        to: "1-projects/dst",
+        scope: "private",
+        now: NOW,
+      }),
+    );
+    expect(fileOntoFolder.code).toBe("DESTINATION_EXISTS");
+    expect(ontoFolder.snapshot()["1-projects/b.md"]).toBeDefined();
+  });
+
+  /**
+   * Archiving a child and then its parent inside one millisecond lands the
+   * second archive on top of the first, which the merge refusal now stops. The
+   * archive stamp is server-generated and never caller-chosen, so giving it a
+   * free one discloses nothing and keeps "never merges" true rather than
+   * carving an exception into it.
+   */
+  test("archiving a child and then its parent in the same millisecond works", async () => {
+    const store = bucket();
+    store.seed("1-projects/proj/inner/x.md", "# X\n");
+    store.seed("1-projects/proj/y.md", "# Y\n");
+
+    const child = await archivePath(store, {
+      path: "1-projects/proj/inner",
+      scope: "private",
+      now: NOW,
+    });
+    const parent = await archivePath(store, {
+      path: "1-projects/proj",
+      scope: "private",
+      now: NOW,
+    });
+    expect(child.paths[0]).toContain("/1-projects/proj/inner/x.md");
+    expect(parent.paths[0]).toContain("/1-projects/proj/y.md");
+    // Two distinct archive trees, and the first one is intact.
+    expect(store.snapshot()[child.paths[0]!]).toBeDefined();
+    expect(store.snapshot()[parent.paths[0]!]).toBeDefined();
   });
 
   /**

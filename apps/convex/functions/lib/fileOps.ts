@@ -941,9 +941,39 @@ function assertDestinationsVisible(
   scope: Scope,
   rules: readonly PrivacyRule[],
   overrides: ReadonlyMap<string, Visibility>,
+  /**
+   * The manifest's own exceptions, for the folder half of the question.
+   *
+   * A move's `overrides` carries the exception forward onto the destination,
+   * which is right for "may this note be here" and circular for "may this
+   * caller write in this folder" — the carried entry is itself an exception
+   * under the destination folder, so `folderVisibleAtScope` would find it and
+   * say yes on the strength of the very thing being asked about. The folder
+   * question is asked of the manifest as it stands.
+   */
+  folderOverrides: ReadonlyMap<string, Visibility> = overrides,
 ): void {
   for (const destination of destinations) {
     if (!canSee(destination, scope, rules, overrides)) throw notFound();
+    // ...and the folder it lands in has to be one this caller can see.
+    //
+    // `canSee(destination)` alone is satisfied by a carried exception: a note
+    // the owner shared out of a private folder keeps its `team` marking when it
+    // moves, so it made ANY destination pass — including one inside a folder
+    // the caller cannot list. Two things followed, and only the second is
+    // obvious. The caller could write their note into somebody's private
+    // folder; and because the collision check runs after this guard, they could
+    // aim at a key and read the answer, turning "did the move succeed" into
+    // "does that note exist" for any path they cared to name.
+    //
+    // Asking about the destination's folder keeps every legitimate case: a note
+    // renamed beside itself is still in a folder its own exception makes
+    // visible, and a folder rename is judged under the rules the move installs,
+    // which is what makes the destination folder visible there.
+    const parent = parentOf(destination);
+    if (parent !== "" && !folderVisibleAtScope(parent, scope, rules, folderOverrides)) {
+      throw notFound();
+    }
   }
 }
 
@@ -1109,6 +1139,7 @@ function assertMoveDestinationsVisible(
     scope,
     oneRulePerPrefix(rulesAfterFolderMove(state.rules, folderMove)),
     overrides,
+    state.overrides,
   );
 }
 
@@ -1167,12 +1198,23 @@ export async function movePath(
   // the shape `createFolder`'s collision check already uses and the reason it
   // uses it: "that folder already exists" about a folder they cannot list is
   // the disclosure, not the merge.
-  if (sourceIsFolder && (await isFolder(store, to))) {
+  // "The destination must not exist" is about a destination of either kind. The
+  // collision loop below checks key against key, so a file onto a file was
+  // always caught; a folder onto a folder merged, and the two crossed pairs
+  // left a file key shadowing a folder prefix — a shape a Dropbox binding
+  // cannot even represent.
+  if (await isFolder(store, to)) {
     if (!folderVisibleAtScope(to, options.scope, state.rules, state.overrides)) throw notFound();
     throw new FileOpError(
       "DESTINATION_EXISTS",
-      "That folder already exists. Moving one folder onto another would merge them.",
+      sourceIsFolder
+        ? "That folder already exists. Moving one folder onto another would merge them."
+        : "A folder already exists at that path.",
     );
+  }
+  if (sourceIsFolder && (await store.get(to)) !== null) {
+    if (!canSee(to, options.scope, state.rules, state.overrides)) throw notFound();
+    throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${to}.`);
   }
 
   const walk = sourceIsFolder
@@ -1193,17 +1235,19 @@ export async function movePath(
 
   for (const pair of pairs) {
     if ((await store.get(pair.destination)) !== null) {
-      // Naming the path back is safe here, and only because of what runs above.
-      // This message would otherwise answer "does this key exist" for any key
-      // the caller can name — they choose the destination folder and the file
-      // names under it. What makes it unreachable with a path they cannot see
-      // is that the destination guard has already refused everything `canSee`
-      // rejects, under the same rules this loop reads; and for a folder move,
-      // that a destination folder which already exists is refused before the
-      // walk. Instrumented and confirmed: nothing in the suite can drive a
-      // hidden path to this line. Remove either of those and it is an oracle
-      // again, which is why they have tests of their own rather than a check
-      // here that never fires.
+      // This message names the path back, which is safe only because the guard
+      // above has established that the caller can see both the key and the
+      // folder holding it. An earlier version of this comment claimed the guard
+      // read "the same rules this loop reads" and that the line was therefore
+      // unreachable with a hidden path. That was wrong, and instrumenting it is
+      // what showed it: the guard seeds a carried exception into its override
+      // map, so a note the owner had shared out of a private folder made any
+      // destination pass, and this line then answered from the real manifest.
+      // The folder check above is what actually closes it.
+      //
+      // "No test reaches it" was the evidence for the old claim, and it was the
+      // wrong kind of evidence — the suite had no team-scope coverage of this
+      // line at all. There is one now.
       throw new FileOpError(
         "DESTINATION_EXISTS",
         `Something already exists at ${pair.destination}.`,
@@ -1273,17 +1317,19 @@ export async function copyPath(
 
   for (const pair of pairs) {
     if ((await store.get(pair.destination)) !== null) {
-      // Naming the path back is safe here, and only because of what runs above.
-      // This message would otherwise answer "does this key exist" for any key
-      // the caller can name — they choose the destination folder and the file
-      // names under it. What makes it unreachable with a path they cannot see
-      // is that the destination guard has already refused everything `canSee`
-      // rejects, under the same rules this loop reads; and for a folder move,
-      // that a destination folder which already exists is refused before the
-      // walk. Instrumented and confirmed: nothing in the suite can drive a
-      // hidden path to this line. Remove either of those and it is an oracle
-      // again, which is why they have tests of their own rather than a check
-      // here that never fires.
+      // This message names the path back, which is safe only because the guard
+      // above has established that the caller can see both the key and the
+      // folder holding it. An earlier version of this comment claimed the guard
+      // read "the same rules this loop reads" and that the line was therefore
+      // unreachable with a hidden path. That was wrong, and instrumenting it is
+      // what showed it: the guard seeds a carried exception into its override
+      // map, so a note the owner had shared out of a private folder made any
+      // destination pass, and this line then answered from the real manifest.
+      // The folder check above is what actually closes it.
+      //
+      // "No test reaches it" was the evidence for the old claim, and it was the
+      // wrong kind of evidence — the suite had no team-scope coverage of this
+      // line at all. There is one now.
       throw new FileOpError(
         "DESTINATION_EXISTS",
         `Something already exists at ${pair.destination}.`,
@@ -1341,7 +1387,19 @@ export async function archivePath(
   if (path === ARCHIVE_ROOT || path.startsWith(`${ARCHIVE_ROOT}/`)) {
     throw new FileOpError("PATH_INVALID", "That is already in the archive.");
   }
-  const destination = `${ARCHIVE_ROOT}/${timestampSlug(options.now)}/${path}`;
+  // A free destination, because `movePath` refuses to merge onto an existing
+  // folder and archiving a child and then its parent inside the same
+  // millisecond lands the second one on top of the first. The stamp is
+  // server-generated and never caller-chosen, so disambiguating it discloses
+  // nothing and keeps "never merges" true rather than carving an exception into
+  // it. Archiving twice in one millisecond is a scripted or concurrent caller,
+  // not a person clicking twice.
+  const stamp = timestampSlug(options.now);
+  let destination = `${ARCHIVE_ROOT}/${stamp}/${path}`;
+  for (let attempt = 2; attempt <= 100; attempt += 1) {
+    if (!(await isFolder(store, destination)) && (await store.get(destination)) === null) break;
+    destination = `${ARCHIVE_ROOT}/${stamp}-${attempt}/${path}`;
+  }
 
   // Archiving is a move, so it inherits the destination rule — and on the
   // scaffold's defaults `4-archive` is private, which means a team caller
