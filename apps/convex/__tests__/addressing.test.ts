@@ -302,7 +302,12 @@ describe("the answer reaches the gateway", () => {
         internal.functions.storage.getBindingForGateway,
         { workspaceId },
       );
-      expect(credential?.forcePathStyle).toBe(forcePathStyle);
+      // An S3 fixture: the credential union only carries this on the bucket
+      // shape, and a Dropbox binding reaching here would be the bug.
+      expect(credential?.provider).not.toBe("dropbox");
+      expect(
+        (credential as { forcePathStyle?: boolean } | null)?.forcePathStyle,
+      ).toBe(forcePathStyle);
       // The gateway's contract calls this field optional; absent must stay
       // absent rather than becoming a `false` that flips a path-style bucket.
       if (forcePathStyle === undefined) {

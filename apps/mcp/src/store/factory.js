@@ -129,11 +129,16 @@ const BUILDERS = new Map([
  * Turn one control-plane binding into the store that serves one request.
  *
  * @param {object} binding the binding exactly as the control plane returned it
- * @param {object} env the Worker environment, for a native R2 binding only
+ * @param {object} [env] the Worker environment, for a native R2 binding only
+ * @param {{fetchImpl?: typeof fetch}} [options] forwarded to the adapter. The
+ *   control plane builds stores from this same table — for the connect probe
+ *   and the console file browser — and needs a `fetch` with a timeout on it.
+ *   A second switch there would be the third place to forget a new backend,
+ *   which is the thing this file exists to prevent.
  * @returns {import("./index.js").ContextStore}
  * @throws {StorageUnavailable} for anything this gateway will not build
  */
-export function storeForBinding(binding, env) {
+export function storeForBinding(binding, env, options = {}) {
   if (!binding || typeof binding !== "object") throw new StorageUnavailable("malformed binding");
 
   assertNoRefreshToken(binding);
@@ -143,7 +148,7 @@ export function storeForBinding(binding, env) {
   if (!entry) throw new StorageUnavailable("unknown provider");
 
   assertNoForeignCredential(binding, entry.kind);
-  return entry.build(binding, env);
+  return entry.build(binding, env, options);
 }
 
 /**
@@ -219,7 +224,7 @@ function nativeStore(binding, env) {
  * been refused in since the gateway grew tenants — but the load-bearing line is
  * the `catch`, for the reason in the header.
  */
-function credentialedStore(binding) {
+function credentialedStore(binding, _env, options = {}) {
   const { endpoint, region, bucket, accessKeyId, secretAccessKey } = binding;
   if (
     typeof endpoint !== "string" ||
@@ -235,6 +240,7 @@ function credentialedStore(binding) {
   }
   try {
     return new S3Store({
+      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
       endpoint,
       region: typeof region === "string" && region ? region : "auto",
       bucket,
@@ -263,11 +269,12 @@ function credentialedStore(binding) {
  * adapter has no way to renew one and deliberately does not get given the means
  * to — see the header.
  */
-function dropboxStore(binding) {
+function dropboxStore(binding, _env, options = {}) {
   try {
     return new DropboxStore({
       accessToken: binding.accessToken,
       rootPrefix: binding.rootPrefix,
+      ...(options.fetchImpl ? { fetch: options.fetchImpl } : {}),
     });
   } catch {
     // The adapter refuses a missing or non-string token, and

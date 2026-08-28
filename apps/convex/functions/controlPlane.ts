@@ -482,7 +482,7 @@ function isUsable(status: BindingStatus): boolean {
 }
 
 /** Exactly the credentialed-binding payload the contract documents. */
-export interface GatewayBinding {
+export interface S3GatewayBinding {
   workspaceId: Id<"workspaces">;
   provider: string;
   endpoint: string;
@@ -500,6 +500,23 @@ export interface GatewayBinding {
   capabilities: { conditionalWrite: boolean };
   status: string;
 }
+
+/**
+ * The Dropbox payload: a short-lived access token, a folder, and nothing else.
+ *
+ * A separate shape rather than the S3 one with holes, so there is no way to
+ * hand the gateway a Dropbox binding that still carries a bucket credential.
+ */
+export interface DropboxGatewayBinding {
+  workspaceId: Id<"workspaces">;
+  provider: "dropbox";
+  accessToken: string;
+  rootPrefix?: string;
+  capabilities: { conditionalWrite: boolean };
+  status: string;
+}
+
+export type GatewayBinding = S3GatewayBinding | DropboxGatewayBinding;
 
 /**
  * Open one workspace's storage credential for the gateway. INTERNAL ACTION,
@@ -542,6 +559,14 @@ export const openStorageBinding = internalAction({
       capabilities: v.object({ conditionalWrite: v.boolean() }),
       status: v.string(),
     }),
+    v.object({
+      workspaceId: v.id("workspaces"),
+      provider: v.literal("dropbox"),
+      accessToken: v.string(),
+      rootPrefix: v.optional(v.string()),
+      capabilities: v.object({ conditionalWrite: v.boolean() }),
+      status: v.string(),
+    }),
   ),
   // Annotated, not inferred: this handler references its own module through
   // `internal.functions.controlPlane.…`, which is an inference cycle.
@@ -578,6 +603,23 @@ export const openStorageBinding = internalAction({
     }
     if (credential === null) return null;
     if (!isUsable(credential.status as BindingStatus)) return null;
+
+    // Built per provider, never spread. A workspace rebound from a bucket to
+    // Dropbox can still have an `accessKeyId` sitting on its row; spread into
+    // this payload it would reach the gateway as a credential for storage this
+    // binding no longer points at — which the gateway's factory now refuses as
+    // a cross-provider credential, so the failure would be loud rather than
+    // silent, but the payload should never have carried it.
+    if (credential.provider === "dropbox") {
+      return {
+        workspaceId: session.workspaceId,
+        provider: credential.provider,
+        accessToken: credential.accessToken,
+        rootPrefix: credential.rootPrefix,
+        capabilities: credential.capabilities,
+        status: "active",
+      };
+    }
 
     return {
       workspaceId: session.workspaceId,

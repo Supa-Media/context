@@ -22,6 +22,20 @@ import {
   setupTest,
 } from "./fixtures.helpers";
 
+/**
+ * Narrow a gateway credential to the S3 shape.
+ *
+ * The credential is a union now — a Dropbox binding carries an access token and
+ * no key pair — so a test about a bucket secret has to say it is looking at a
+ * bucket. Asserting rather than casting: if one of these fixtures ever became
+ * a Dropbox binding, this fails instead of reading `undefined`.
+ */
+function asS3(credential: unknown) {
+  const c = credential as { provider?: string; secretAccessKey?: string; forcePathStyle?: boolean };
+  expect(c?.provider).not.toBe("dropbox");
+  return c;
+}
+
 async function boundWorkspace() {
   const t = setupTest();
   const owner = await createUser(t, "owner@example.invalid");
@@ -400,7 +414,7 @@ describe("a credential cannot be moved between workspaces", () => {
       internal.functions.storage.getBindingForGateway,
       { workspaceId: aliceWs },
     );
-    expect(alices?.secretAccessKey).toBe("alice-secret-not-real-00000000000000");
+    expect(asS3(alices).secretAccessKey).toBe("alice-secret-not-real-00000000000000");
   });
 
   test("a v1 envelope is refused rather than opened unbound", async () => {
@@ -490,7 +504,7 @@ describe("rotating the encryption key", () => {
           internal.functions.storage.getBindingForGateway,
           { workspaceId },
         );
-        expect(credential?.secretAccessKey).toBe(FAKE_STORAGE.secretAccessKey);
+        expect(asS3(credential).secretAccessKey).toBe(FAKE_STORAGE.secretAccessKey);
 
         const result = await t.action(
           internal.functions.storage.rekeyStorageBindings,
@@ -522,7 +536,7 @@ describe("rotating the encryption key", () => {
           internal.functions.storage.getBindingForGateway,
           { workspaceId },
         );
-        expect(credential?.secretAccessKey).toBe(FAKE_STORAGE.secretAccessKey);
+        expect(asS3(credential).secretAccessKey).toBe(FAKE_STORAGE.secretAccessKey);
       },
     );
   });

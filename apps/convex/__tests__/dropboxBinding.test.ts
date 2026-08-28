@@ -127,19 +127,53 @@ describe("what rotation covers", () => {
 
 describe("what the gateway refuses", () => {
   /**
-   * Every S3 field is absent on a Dropbox row, so falling through would build
-   * a store from `undefined` endpoint and `undefined` key — the silent
-   * wrong-bucket write the storage module exists to prevent. It is refused by
-   * name, with a code the caller can branch on, until the OAuth path lands.
+   * The Dropbox binding is now served — from a *refreshed* short-lived access
+   * token, and the payload carries nothing else.
+   *
+   * The two rules that meet here are worth asserting rather than reading:
+   * the refresh token never reaches the gateway, and the payload is built per
+   * provider rather than spread from the row, so a workspace rebound from S3
+   * cannot leak a stale `accessKeyId` into a Dropbox binding.
    */
-  test("a Dropbox binding is refused by name, not half-served", async () => {
+  test("a Dropbox binding is served as a token and a folder, and nothing else", async () => {
     const { t, owner, workspaceId } = await scenario();
     await dropboxBound(t, workspaceId, owner);
 
-    const error = await captureError(() =>
-      t.action(internal.functions.storage.getBindingForGateway, { workspaceId }),
+    const credential = await t.action(
+      internal.functions.storage.getBindingForGateway,
+      { workspaceId },
     );
-    expect(errorCode(error)).toBe("PROVIDER_NOT_SERVABLE");
+
+    expect(credential?.provider).toBe("dropbox");
+    const serialized = JSON.stringify(credential);
+    // The long-lived credential stays in the control plane. A compromised
+    // gateway then holds minutes of one workspace's storage, not the standing
+    // ability to mint tokens for it.
+    expect(serialized).not.toContain("refresh-abc");
+    expect(serialized).not.toContain("refreshToken");
+    // And no bucket credential, because this binding has no bucket.
+    expect(serialized).not.toContain("accessKeyId");
+    expect(serialized).not.toContain("secretAccessKey");
+  });
+
+  /**
+   * A cached token that is still comfortably fresh is reused. Otherwise every
+   * request refreshes, which is a token-endpoint call per read and a rate
+   * limit waiting to happen.
+   */
+  test("a fresh cached token is reused rather than refreshed", async () => {
+    const { t, owner, workspaceId } = await scenario();
+    await dropboxBound(t, workspaceId, owner);
+
+    const credential = await t.action(
+      internal.functions.storage.getBindingForGateway,
+      { workspaceId },
+    );
+    // The fixture's token, handed straight back — no network call was needed,
+    // which is what makes this test able to run offline at all.
+    expect(
+      (credential as { accessToken?: string } | null)?.accessToken,
+    ).toBe("access-xyz");
   });
 
   test("an incomplete S3 binding is refused too, rather than papered over", async () => {
