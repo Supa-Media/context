@@ -113,6 +113,7 @@ export type FileErrorCode =
   | "PRIVACY_MANIFEST_BUSY"
   | "CONTENT_TOO_LARGE"
   | "FOLDER_TOO_LARGE"
+  | "ARCHIVE_UNAVAILABLE"
   | "CONFIRMATION_REQUIRED"
   | "NOT_A_FOLDER";
 
@@ -307,6 +308,17 @@ function folderVisibleAtScope(
   if (visibilityOf(folderPath, rules) === "team") return true;
   for (const [path, visibility] of overrides) {
     if (visibility === "team" && path.startsWith(`${folderPath}/`)) return true;
+  }
+  // A nested `team` *rule* has to count for the same reason a nested `team`
+  // exception does, and only the exceptions were being scanned. An owner who
+  // shared `2-areas/shared` out of a private `2-areas` got a folder that read
+  // fine by direct path and did not appear in the tree at all — the root
+  // listing came back empty and `2-areas` answered not-found — so the thing
+  // they had just shared was reachable only by somebody who already knew its
+  // name. The disclosure is the same one the loop above already accepts: an
+  // ancestor's name, in exchange for the shared folder being reachable.
+  for (const rule of rules) {
+    if (rule.vis === "team" && rule.prefix.startsWith(`${folderPath}/`)) return true;
   }
   return false;
 }
@@ -649,8 +661,33 @@ export function duplicateName(name: string, taken: ReadonlySet<string>): string 
   return candidate;
 }
 
-/** Every key under a folder, capped. Used by move, copy and delete. */
-async function keysUnder(store: FileStore, folder: string): Promise<string[]> {
+/**
+ * Every key under a folder *this caller can see*, capped. Move, copy and
+ * delete all walk it.
+ *
+ * The filter is the whole point and it was missing. Without it a bulk
+ * operation acts on keys its caller cannot see and then names them in its
+ * result: an editor deleting a shared folder permanently destroyed the
+ * owner's private note inside it, purged its `.history/` too, and was handed
+ * the note's path in the return value.
+ *
+ * **Filtered rather than refused**, which is the part that is not obvious.
+ * Refusing an operation because the tree holds something invisible reports
+ * that the invisible thing is there — a caller could separate "folder I can
+ * move" from "folder with a private note in it" from "folder that does not
+ * exist" and localise every private note to its folder without reading one.
+ * The gateway settled this for `move_folder` and wrote out the reasoning; this
+ * is the same decision in the control plane, so the two halves of the product
+ * answer alike. A folder holding nothing visible yields no keys, and every
+ * caller here turns that into the same `notFound()` a missing folder gets.
+ */
+async function keysUnder(
+  store: FileStore,
+  folder: string,
+  scope: Scope,
+  rules: readonly PrivacyRule[],
+  overrides: ReadonlyMap<string, Visibility>,
+): Promise<string[]> {
   const prefix = `${folder}/`;
   const keys: string[] = [];
   let cursor: string | undefined;
@@ -658,6 +695,7 @@ async function keysUnder(store: FileStore, folder: string): Promise<string[]> {
     const listing = await store.list({ prefix, cursor, limit: 1000 });
     for (const object of listing.objects ?? []) {
       if (isPlumbing(object.key)) continue;
+      if (!canSee(object.key, scope, rules, overrides)) continue;
       keys.push(object.key);
       if (keys.length > FOLDER_OPERATION_CAP) {
         throw new FileOpError(
@@ -700,6 +738,19 @@ async function historyKeysFor(
   store: FileStore,
   path: string,
   pathIsFolder: boolean,
+  /**
+   * The notes actually deleted, or `null` to sweep the whole subtree.
+   *
+   * `null` is the owner's case and keeps the original behaviour exactly,
+   * orphaned snapshots included — a folder's history is theirs and the promise
+   * that nothing survives a permanent delete is the point of this function.
+   *
+   * A team caller now deletes only what they could see, so sweeping the whole
+   * subtree would destroy the history of the private notes they left standing.
+   * The live note surviving while every version of it is purged is the same
+   * data loss wearing a smaller number.
+   */
+  deleted: readonly string[] | null,
 ): Promise<string[]> {
   // A folder's history mirrors its shape (`.history/1-projects/note.md.<stamp>.md`),
   // so the whole subtree goes. A file's history is the siblings sharing its name.
@@ -711,9 +762,14 @@ async function historyKeysFor(
     for (const object of listing.objects ?? []) {
       // For a file, a `/` in the tail would mean a directory we did not put
       // there — leave it rather than sweep something we cannot explain.
-      if (pathIsFolder || !object.key.slice(prefix.length).includes("/")) {
-        keys.push(object.key);
+      if (!(pathIsFolder || !object.key.slice(prefix.length).includes("/"))) continue;
+      if (
+        deleted !== null &&
+        !deleted.some((key) => object.key.startsWith(`${HISTORY_PREFIX}${key}.`))
+      ) {
+        continue;
       }
+      keys.push(object.key);
     }
     if (!listing.truncated || !listing.cursor) break;
     cursor = listing.cursor;
@@ -763,11 +819,63 @@ export interface MoveResult {
 function assertDestinationsVisible(
   destinations: readonly string[],
   scope: Scope,
-  state: PrivacyState,
+  rules: readonly PrivacyRule[],
+  overrides: ReadonlyMap<string, Visibility>,
 ): void {
   for (const destination of destinations) {
-    if (!canSee(destination, scope, state.rules, state.overrides)) throw notFound();
+    if (!canSee(destination, scope, rules, overrides)) throw notFound();
   }
+}
+
+/** The folder rules a folder move leaves behind. `remapPrivacy` applies this. */
+function rulesAfterFolderMove(
+  rules: readonly PrivacyRule[],
+  folderMove: { from: string; to: string } | null,
+): readonly PrivacyRule[] {
+  if (folderMove === null) return rules;
+  const { from, to } = folderMove;
+  return rules.map((rule) =>
+    rule.prefix === from || rule.prefix.startsWith(`${from}/`)
+      ? { prefix: `${to}${rule.prefix.slice(from.length)}`, vis: rule.vis }
+      : rule,
+  );
+}
+
+/**
+ * The same question, asked at the moment a *move* answers it.
+ *
+ * A move rewrites the manifest after it runs: `remapPrivacy` renames every
+ * folder rule under the source and carries each note's exception across. So
+ * judging a destination against the rules as they stand now asks the wrong
+ * question, and refuses renames that preserve visibility perfectly well — a
+ * folder holding its own `team` rule inside a private parent takes that rule
+ * with it, and the caller can see the result.
+ *
+ * The property is unchanged: a destination the caller could not see *after*
+ * the move is still refused, which is the whole point. This only measures it
+ * at the right moment.
+ *
+ * `copyPath` deliberately does not use this. `copyPrivacy` carries exceptions
+ * but not folder rules, so a copy really does land under whatever rules
+ * already reach it, and asking about the current manifest is correct there.
+ */
+function assertMoveDestinationsVisible(
+  pairs: readonly { source: string; destination: string }[],
+  scope: Scope,
+  state: PrivacyState,
+  folderMove: { from: string; to: string } | null,
+): void {
+  const overrides = new Map<string, Visibility>();
+  for (const pair of pairs) {
+    const carried = state.overrides.get(pair.source);
+    if (carried !== undefined) overrides.set(pair.destination, carried);
+  }
+  assertDestinationsVisible(
+    pairs.map((pair) => pair.destination),
+    scope,
+    rulesAfterFolderMove(state.rules, folderMove),
+    overrides,
+  );
 }
 
 /**
@@ -799,7 +907,7 @@ export async function movePath(
   if (!canSee(from, options.scope, state.rules, state.overrides)) throw notFound();
 
   const sourceIsFolder = await isFolder(store, from);
-  const sources = sourceIsFolder ? await keysUnder(store, from) : [from];
+  const sources = sourceIsFolder ? await keysUnder(store, from, options.scope, state.rules, state.overrides) : [from];
   if (!sourceIsFolder && (await store.get(from)) === null) throw notFound();
   if (sources.length === 0) throw notFound();
 
@@ -808,10 +916,11 @@ export async function movePath(
     destination: sourceIsFolder ? `${to}${key.slice(from.length)}` : to,
   }));
 
-  assertDestinationsVisible(
-    pairs.map((pair) => pair.destination),
+  assertMoveDestinationsVisible(
+    pairs,
     options.scope,
     state,
+    sourceIsFolder ? { from, to } : null,
   );
 
   for (const pair of pairs) {
@@ -863,7 +972,7 @@ export async function copyPath(
   if (!canSee(from, options.scope, state.rules, state.overrides)) throw notFound();
 
   const sourceIsFolder = await isFolder(store, from);
-  const sources = sourceIsFolder ? await keysUnder(store, from) : [from];
+  const sources = sourceIsFolder ? await keysUnder(store, from, options.scope, state.rules, state.overrides) : [from];
   if (sources.length === 0) throw notFound();
 
   const pairs = sources.map((key) => ({
@@ -874,7 +983,8 @@ export async function copyPath(
   assertDestinationsVisible(
     pairs.map((pair) => pair.destination),
     options.scope,
-    state,
+    state.rules,
+    state.overrides,
   );
 
   for (const pair of pairs) {
@@ -937,6 +1047,25 @@ export async function archivePath(
     throw new FileOpError("PATH_INVALID", "That is already in the archive.");
   }
   const destination = `${ARCHIVE_ROOT}/${timestampSlug(options.now)}/${path}`;
+
+  // Archiving is a move, so it inherits the destination rule — and on the
+  // scaffold's defaults `4-archive` is private, which means a team caller
+  // cannot archive. That is right: archiving a shared note into a private
+  // archive takes it away from everybody else, irreversibly for the person who
+  // did it. The gateway's `archive_note` has always refused it.
+  //
+  // What it must not do is inherit the *message*. "That file does not exist"
+  // about a note the caller is looking at explains nothing and points at the
+  // wrong thing. Naming `4-archive` discloses nothing they do not already
+  // hold: whether it is shared is visible in their own root listing.
+  const state = await loadPrivacyState(store);
+  if (options.scope !== "private" && visibilityOf(destination, state.rules) !== "team") {
+    throw new FileOpError(
+      "ARCHIVE_UNAVAILABLE",
+      "Archiving needs access to 4-archive, which has not been shared with you. Ask the owner to share it, or move this somewhere you can both see.",
+    );
+  }
+
   return await movePath(store, {
     from: path,
     to: destination,
@@ -997,8 +1126,14 @@ export async function deletePath(
   if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
 
   const targetIsFolder = await isFolder(store, path);
-  const keys = targetIsFolder ? await keysUnder(store, path) : [path];
+  const keys = targetIsFolder
+    ? await keysUnder(store, path, options.scope, state.rules, state.overrides)
+    : [path];
   if (!targetIsFolder && (await store.get(path)) === null) throw notFound();
+  // A folder holding nothing this caller can see is not a folder they can
+  // empty. Answering `notFound()` is byte-identical to a folder that was never
+  // there, where reporting "deleted 0 files" would say one is present.
+  if (targetIsFolder && keys.length === 0) throw notFound();
 
   for (const key of keys) await store.delete(key);
 
@@ -1007,7 +1142,12 @@ export async function deletePath(
   // name. Done after the live keys so a failure mid-purge leaves the bucket in
   // the state the *old* behaviour left it in — file gone, history behind —
   // rather than history gone and the file still sitting there.
-  for (const key of await historyKeysFor(store, path, targetIsFolder)) {
+  for (const key of await historyKeysFor(
+    store,
+    path,
+    targetIsFolder,
+    options.scope === "private" ? null : keys,
+  )) {
     await store.delete(key);
   }
 
@@ -1429,15 +1569,7 @@ async function remapPrivacy(
   if (!touchesOverride && !touchesRule) return;
 
   await mutateManifest(store, (current) => {
-    let rules = current.rules;
-    if (change.folderMove !== null) {
-      const { from, to } = change.folderMove;
-      rules = current.rules.map((rule) =>
-        rule.prefix === from || rule.prefix.startsWith(`${from}/`)
-          ? { prefix: `${to}${rule.prefix.slice(from.length)}`, vis: rule.vis }
-          : rule,
-      );
-    }
+    const rules = [...rulesAfterFolderMove(current.rules, change.folderMove)];
     let overrides = current.overrides;
     for (const move of change.moves) {
       overrides = movedOverrides(move.from, move.to, rules, overrides);
