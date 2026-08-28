@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import { PressRow } from "../design/components/Button";
 import { Text } from "../design/components/Text";
@@ -51,12 +51,22 @@ export function RightClickTarget({
 
 export function ContextRowMenu({
   slug,
+  shared = false,
   onSelect,
+  onLeave,
   onDismiss,
 }: {
   slug: string;
+  /** True under "Shared with you" — the only place Leave is offered. */
+  shared?: boolean;
   /** Receives the chosen destination; closing is the caller's move. */
   onSelect: (route: ConsoleRoute) => void;
+  /**
+   * Fires on the SECOND press of Leave. Leaving is recoverable only by being
+   * re-invited, so the first press turns the row into its own confirmation
+   * instead of acting — a dialog's worth of caution without a dialog.
+   */
+  onLeave?: () => void;
   onDismiss: () => void;
 }) {
   const ref = useRef<View>(null);
@@ -78,23 +88,51 @@ export function ContextRowMenu({
     };
   }, [onDismiss]);
 
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
+
   return (
     <View ref={ref} style={styles.menu} accessibilityRole="menu" testID="context-menu">
-      {contextMenuItems(slug).map((item) => (
-        <PressRow
-          key={item.key}
-          accessibilityLabel={item.label}
-          onPress={() => onSelect(item.route)}
-          radius={radii.sm}
-          style={styles.item}
-          hoverStyle={styles.itemHover}
-          testID={`context-menu-${item.key}`}
-        >
-          <Text variant="rail" numberOfLines={1}>
-            {item.label}
-          </Text>
-        </PressRow>
-      ))}
+      {contextMenuItems(slug, { shared }).map((item) => {
+        if (item.key === "leave") {
+          const label = confirmingLeave ? "Press again to leave" : item.label;
+          return (
+            <PressRow
+              key={item.key}
+              accessibilityLabel={label}
+              onPress={() => {
+                if (!confirmingLeave) {
+                  setConfirmingLeave(true);
+                  return;
+                }
+                onLeave?.();
+              }}
+              radius={radii.sm}
+              style={styles.item}
+              hoverStyle={styles.itemHover}
+              testID="context-menu-leave"
+            >
+              <Text variant="rail" numberOfLines={1} style={styles.leaveLabel}>
+                {label}
+              </Text>
+            </PressRow>
+          );
+        }
+        return (
+          <PressRow
+            key={item.key}
+            accessibilityLabel={item.label}
+            onPress={() => onSelect(item.route!)}
+            radius={radii.sm}
+            style={styles.item}
+            hoverStyle={styles.itemHover}
+            testID={`context-menu-${item.key}`}
+          >
+            <Text variant="rail" numberOfLines={1}>
+              {item.label}
+            </Text>
+          </PressRow>
+        );
+      })}
     </View>
   );
 }
@@ -129,4 +167,6 @@ const styles = StyleSheet.create({
     borderRadius: radii.sm,
   },
   itemHover: { backgroundColor: colors.surface3 },
+  /** Leave severs access; it reads as the one destructive row it is. */
+  leaveLabel: { color: colors.critText },
 });

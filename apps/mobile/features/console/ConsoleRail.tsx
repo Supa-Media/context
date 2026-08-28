@@ -62,6 +62,7 @@ export function ConsoleRail({
   onNavigate,
   account,
   onClaimContext,
+  onLeaveContext,
 }: {
   data: ConsoleData;
   route: ConsoleRoute;
@@ -80,6 +81,11 @@ export function ConsoleRail({
    * pretending it could parse a URL it never sees.
    */
   onClaimContext?: () => void;
+  /**
+   * Leave a context somebody shared. Receives the workspace id. Absent on
+   * the landing page's picture of the rail, where there is nothing to leave.
+   */
+  onLeaveContext?: (contextId: string) => void;
 }) {
   const icons = mode === "icons";
   const touch = mode === "sheet";
@@ -152,10 +158,19 @@ export function ConsoleRail({
                 {menuSlug === context.slug ? (
                   <ContextRowMenu
                     slug={context.slug}
+                    shared={section.key === "shared"}
                     onSelect={(target) => {
                       setMenuSlug(null);
                       onNavigate(target);
                     }}
+                    onLeave={
+                      onLeaveContext
+                        ? () => {
+                            setMenuSlug(null);
+                            onLeaveContext(context.id);
+                          }
+                        : undefined
+                    }
                     onDismiss={() => setMenuSlug(null)}
                   />
                 ) : null}

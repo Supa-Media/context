@@ -35,6 +35,17 @@ describe("what the menu offers", () => {
     // item goes where the answer actually is.
     expect(items[2].route).toEqual({ kind: "app", section: "connections" });
   });
+
+  test("a shared context also offers Leave; an owned one never does", () => {
+    // The server refuses an owner leaving (OWNER_CANNOT_LEAVE), so offering
+    // it would be a menu item whose only outcome is an error.
+    expect(contextMenuItems("agent", { shared: false }).map((i) => i.key)).not.toContain(
+      "leave",
+    );
+    const shared = contextMenuItems("friend", { shared: true });
+    expect(shared.map((i) => i.key)).toContain("leave");
+    expect(shared.find((i) => i.key === "leave")!.label).toBe("Leave @friend…");
+  });
 });
 
 /** The least ConsoleData the rail needs: its two reads are contexts and loading. */
@@ -50,11 +61,24 @@ function railData(): ConsoleData {
         kind: "personal",
         status: "ok",
       },
+      // Somebody else's context, reached by invitation — lands under
+      // "Shared with you", which is the only place Leave is offered.
+      {
+        id: "ctx-2",
+        slug: "friend",
+        displayName: "Friend",
+        role: "editor",
+        kind: "personal",
+        status: "ok",
+      },
     ],
   } as unknown as ConsoleData;
 }
 
-function mountRail(onNavigate: (route: ConsoleRoute) => void): { host: HTMLElement; root: Root } {
+function mountRail(
+  onNavigate: (route: ConsoleRoute) => void,
+  onLeaveContext?: (id: string) => void,
+): { host: HTMLElement; root: Root } {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -66,6 +90,7 @@ function mountRail(onNavigate: (route: ConsoleRoute) => void): { host: HTMLEleme
         mode: "full",
         onNavigate,
         account: null,
+        onLeaveContext,
       } as never),
     );
   });
@@ -133,6 +158,39 @@ describe("the menu, mounted for real", () => {
       act(() => {
         document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
       });
+      expect(host.querySelector('[data-testid="context-menu"]')).toBeNull();
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
+
+  test("Leave appears only on the shared context, and takes two presses", () => {
+    const left: string[] = [];
+    const { host, root } = mountRail(
+      () => {},
+      (id) => left.push(id),
+    );
+    try {
+      // The owned context has no Leave.
+      rightClick(host.querySelector('[aria-label="Open @agent"]')!);
+      expect(host.querySelector('[data-testid="context-menu-leave"]')).toBeNull();
+
+      // The shared one does — and the first press only arms it. Leaving is
+      // recoverable solely by being re-invited, so the row becomes its own
+      // confirmation instead of acting.
+      rightClick(host.querySelector('[aria-label="Open @friend"]')!);
+      const leave = host.querySelector('[data-testid="context-menu-leave"]');
+      expect(leave).not.toBeNull();
+
+      click(leave!);
+      expect(left).toEqual([]);
+      expect(host.querySelector('[data-testid="context-menu-leave"]')!.textContent).toContain(
+        "Press again",
+      );
+
+      click(host.querySelector('[data-testid="context-menu-leave"]')!);
+      expect(left).toEqual(["ctx-2"]);
       expect(host.querySelector('[data-testid="context-menu"]')).toBeNull();
     } finally {
       act(() => root.unmount());
