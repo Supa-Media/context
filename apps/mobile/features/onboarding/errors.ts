@@ -38,11 +38,11 @@ export interface CreateFailure {
 
 const BY_CODE: Record<string, { headline: string; next?: string }> = {
   WORKSPACE_LIMIT_REACHED: {
-    headline: "You already have as many contexts as one account can own",
+    headline: "You already have as many brains and workspaces as one account can own",
     next: "This is a limit on creating them, not on using them. Get in touch if you genuinely need more.",
   },
   RATE_LIMITED: {
-    headline: "That's a lot of contexts in one go",
+    headline: "That's a lot to create in one go",
     next: "Creating them is limited to a few an hour. Try again shortly.",
   },
   INVALID_DISPLAY_NAME: {
@@ -113,7 +113,7 @@ export function describeCreateFailure(error: unknown): CreateFailure {
   if (known !== undefined) return known;
 
   return {
-    headline: "We couldn't create your context",
+    headline: "We couldn't create your brain",
     next:
       message !== undefined && message.trim().length > 0
         ? message.trim()
@@ -135,6 +135,6 @@ export function describeStructureFailure(error: unknown): CreateFailure {
     next:
       (message !== undefined && message.trim().length > 0
         ? `${message.trim()} `
-        : "") + "Your context and your bucket are fine — you can make folders in the console.",
+        : "") + "Your brain and your bucket are fine — you can make folders in the console.",
   };
 }

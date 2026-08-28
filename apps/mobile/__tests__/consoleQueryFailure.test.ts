@@ -124,7 +124,7 @@ describe("a failed console query renders instead of unmounting", () => {
     expect(error).toBeNull();
     expect(data).not.toBeNull();
     expect(data!.failure).not.toBeNull();
-    expect(data!.failure!.headline).toBe("We couldn't load your contexts");
+    expect(data!.failure!.headline).toBe("We couldn't load your context");
     // And it is not pretending to still be loading — that is the quiet version
     // of the same bug: a console that spins forever on an answer that arrived.
     expect(data!.loading).toBe(false);

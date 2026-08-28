@@ -354,7 +354,7 @@ export function DeadEnd({
       </Text>
       <View style={styles.deadEndActions}>
         <Button
-          label="Set up your own context"
+          label="Set up your own brain"
           variant="decision"
           onPress={onLeaveForWelcome}
           testID="invite-welcome"

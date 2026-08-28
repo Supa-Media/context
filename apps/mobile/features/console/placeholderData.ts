@@ -458,7 +458,7 @@ const SEYI_TREE: DemoContextTree = {
   },
   defaultSelection: "1-projects/context-lc.md",
   defaultExpanded: ["1-projects"],
-  readOnlyReason: "This is a demo. Sign in to edit your own context.",
+  readOnlyReason: "This is a demo. Sign in to edit your own brain.",
 };
 
 // ── @lk — someone else's context, team access ────────────────────────────────
@@ -485,7 +485,7 @@ const LK_TREE: DemoContextTree = {
       "",
       "Music and formation, Public Worship.",
       "",
-      "You are seeing this context with **team** access, which is why it",
+      "You are seeing this brain with **team** access, which is why it",
       "looks small: private folders are not listed at all, so there is",
       "nothing here whose absence you could notice.",
       "",
@@ -543,7 +543,7 @@ const LK_TREE: DemoContextTree = {
   defaultSelection: "1-projects/worship-with-strangers.md",
   defaultExpanded: ["1-projects"],
   readOnlyReason:
-    "You have team access to this context. Anything LK keeps private is not listed here at all — that is the privacy model, not a loading state.",
+    "You have team access to this brain. Anything LK keeps private is not listed here at all — that is the privacy model, not a loading state.",
 };
 
 // ── @public-worship — shared, several members ────────────────────────────────
@@ -585,7 +585,7 @@ const PUBLIC_WORSHIP_TREE: DemoContextTree = {
       "A Christian nonprofit in New York City, founded September 2024 and",
       "operating under Global Echo Charitable's 501(c)(3).",
       "",
-      "Six people can read this context. Everything in it is team by",
+      "Six people can read this workspace. Everything in it is team by",
       "default — the exceptions are the two or three things that are not",
       "ours to publish yet.",
       "",
@@ -735,7 +735,7 @@ const PUBLIC_WORSHIP_TREE: DemoContextTree = {
   },
   defaultSelection: "1-projects/ltn-2026.md",
   defaultExpanded: ["1-projects"],
-  readOnlyReason: "This is a demo. Sign in to edit your own context.",
+  readOnlyReason: "This is a demo. Sign in to edit your own brain.",
 };
 
 /** The demo contexts, keyed by the id `useDemoConsoleData` gives them. */

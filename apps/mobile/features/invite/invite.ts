@@ -310,7 +310,7 @@ export function contextLabel(invitation: PendingInvitation): string {
  * they will see in their rail afterwards.
  */
 export function invitationLede(invitation: PendingInvitation): string {
-  return `Somebody who owns ${contextLabel(invitation)} added you to it. Accepting puts that context in your console alongside your own.`;
+  return `Somebody who owns ${contextLabel(invitation)} added you to it. Accepting puts it in your console alongside your own.`;
 }
 
 /**

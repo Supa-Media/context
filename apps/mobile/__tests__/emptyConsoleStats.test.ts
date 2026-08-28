@@ -95,7 +95,7 @@ describe("an account with no contexts is told nothing it cannot verify", () => {
     // The fix must not turn the honest stats into em dashes too — zero contexts
     // and zero connected clients are facts, and worth stating.
     const data = mountConsole();
-    expect(data.stats.find((s) => s.label === "contexts reachable")?.value).toBe("0");
+    expect(data.stats.find((s) => s.label === "in your context")?.value).toBe("0");
     expect(data.stats.find((s) => s.label === "AI clients connected")?.value).toBe("0");
   });
 });

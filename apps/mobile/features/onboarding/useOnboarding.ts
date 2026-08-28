@@ -310,7 +310,7 @@ export function useOnboarding(
 
   const connect = useCallback(
     async (values: ConnectFormValues) => {
-      if (claimed === null) throw new Error("No context to connect a bucket to.");
+      if (claimed === null) throw new Error("No brain to connect a bucket to.");
       setSubmitted(true);
       setTimedOut(false);
       clearTimer();

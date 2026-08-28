@@ -51,7 +51,7 @@ export function DoneStep({
       <Text variant="rowSub" style={styles.lede}>
         {sawAgentsStep
           ? `@${slug} is yours. Your endpoint is on the previous screen and in the console, under Connections.`
-          : `@${slug} is yours. Paste this endpoint into Claude, ChatGPT, or any other MCP client and it can read and write your context — under the rules you set.`}
+          : `@${slug} is yours. Paste this endpoint into Claude, ChatGPT, or any other MCP client and it can read and write your brain — under the rules you set.`}
       </Text>
 
       {/*
@@ -98,7 +98,7 @@ export function DoneStep({
       />
       {controller.captureReceivesMail ? (
         <Text variant="foot" style={styles.under}>
-          Forward anything here and it lands in your context. Only senders you allow can post
+          Forward anything here and it lands in your brain. Only senders you allow can post
           to it — it starts closed, with just your own account email.
         </Text>
       ) : (
@@ -119,7 +119,7 @@ export function DoneStep({
       <Card style={styles.facts}>
         <Fact
           title="index.md"
-          body="The manifest at the root of your bucket — what this context is and how it is arranged. Yours to edit."
+          body="The manifest at the root of your bucket — what this brain is and how it is arranged. Yours to edit."
         />
         <Fact
           title="privacy.md"
@@ -137,7 +137,7 @@ export function DoneStep({
 
       <View style={styles.actions}>
         <Button
-          label="Open your context"
+          label="Open your brain"
           variant="white"
           onPress={onOpenConsole}
           testID="welcome-done"

@@ -159,7 +159,7 @@ describe("a claim that fails", () => {
     const failure = describeCreateFailure(
       new ConvexError({ code: "WORKSPACE_LIMIT_REACHED", message: "too many", limit: 10 }),
     );
-    expect(failure.headline).toMatch(/as many contexts/i);
+    expect(failure.headline).toMatch(/as many brains and workspaces/i);
     expect(failure.nameRejection).toBeUndefined();
   });
 
@@ -193,7 +193,7 @@ describe("a layout that fails to land", () => {
     // The name is claimed and the bucket is connected. Folders are one click in
     // the console. This must not look like a failed signup.
     const failure = describeStructureFailure(new Error("bucket said no"));
-    expect(failure.next).toMatch(/context and your bucket are fine/i);
+    expect(failure.next).toMatch(/brain and your bucket are fine/i);
     expect(failure.next).toMatch(/bucket said no/);
   });
 });

@@ -266,7 +266,7 @@ describe("the rail's two context sections, rendered", () => {
     const app = mountConsole({ contexts: [OWN_CONTEXT, SHARED_CONTEXT] });
     const text = app.text();
 
-    expect(text).toContain("Contexts");
+    expect(text).toContain("Yours");
     expect(text).toContain("Shared with you");
     // Both rows are still reachable entries.
     expect(app.container.querySelector('[aria-label="Open @seyi"]')).not.toBeNull();
@@ -281,7 +281,7 @@ describe("the rail's two context sections, rendered", () => {
     app.unmount();
   });
 
-  test("an invited-only account sees no empty 'Contexts' section — the claim entry is its whole content", () => {
+  test("an invited-only account sees no empty 'Yours' section — the claim entry is its whole content", () => {
     const app = mountConsole({ contexts: [SHARED_CONTEXT] });
     // `offerOwnContext` answers yes for an invitee, so the group survives to
     // hold the one entry that matters to them…

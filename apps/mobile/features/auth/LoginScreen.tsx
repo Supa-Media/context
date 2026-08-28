@@ -107,7 +107,7 @@ export function LoginScreen() {
             },
           ]}
         >
-          {step === "request" ? "Sign in or create your context" : "Check your email"}
+          {step === "request" ? "Sign in or create your brain" : "Check your email"}
         </Text>
 
         <Text variant="heroSub" style={styles.sub}>
