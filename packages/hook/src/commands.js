@@ -9,7 +9,7 @@
 
 import { loadEndpoint, saveEndpoint, forgetEndpoint, defaultConfigPath, endpointKey } from "./config.js";
 import { installHook, uninstallHook, clientById } from "./install.js";
-import { orientDirective, fetchOrientation, startContext } from "./orient.js";
+import { fetchOrientation, startContext } from "./orient.js";
 import {
   HOOK_SCOPE,
   ORIENT_SCOPE,
@@ -46,7 +46,7 @@ export async function install({
 }) {
   clientById(clientId); // fail before the browser opens, not after
   const record = await authorize({ endpoint, orient, configPath, fetchImpl, openBrowser, log });
-  const { path, commands: installed } = await installHook({ clientId, endpoint, orient });
+  const { path, commands: installed } = await installHook({ clientId, endpoint });
 
   log(`Hooks installed for ${clientById(clientId).name}.`);
   log(`  settings: ${path}`);
