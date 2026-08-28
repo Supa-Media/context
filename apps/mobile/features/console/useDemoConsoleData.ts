@@ -201,7 +201,7 @@ export function useDemoConsoleData(): ConsoleData {
     selectContext,
     graph: DEMO_GRAPH,
     stats: [
-      { value: DEMO_STATS.contexts, label: "contexts reachable" },
+      { value: DEMO_STATS.contexts, label: "in your context" },
       { value: DEMO_STATS.clients, label: "AI clients connected" },
       { value: DEMO_STATS.notes, label: "notes across all" },
       { value: DEMO_STATS.bytes, label: "in your own bucket" },

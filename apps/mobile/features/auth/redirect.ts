@@ -121,7 +121,7 @@ export function landingCtaHref(state: AuthState): string {
 }
 
 export function landingCtaLabel(state: AuthState): string {
-  return state.isAuthenticated ? "Open your console" : "Create your context";
+  return state.isAuthenticated ? "Open your console" : "Create your brain";
 }
 
 /**

@@ -271,7 +271,7 @@ describe("the rail offers a context of your own when you have none", () => {
     expect(entry).not.toBeNull();
     // The label survives for a screen reader, which is the rule every other
     // rail entry follows and the one a collapsed rail would otherwise break.
-    expect(app.byLabel("Claim your name and create your own context")).not.toBeNull();
+    expect(app.byLabel("Claim your name and create your own brain")).not.toBeNull();
 
     app.unmount();
   });

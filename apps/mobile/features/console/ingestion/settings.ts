@@ -271,11 +271,11 @@ export function describeIngestionAbsence(state: IngestionState): IngestionAbsenc
   if (state.availability === "no-address") {
     return {
       reason: "no-address",
-      title: "This context does not receive email",
+      title: "This workspace does not receive email",
       // The backend's own sentence, so somebody who ever does trip
       // `INGESTION_NOT_AVAILABLE` reads the same thing twice rather than two
       // explanations that have to be reconciled.
-      text: "Only a personal context receives email. A note reaches this one when someone moves it here.",
+      text: "Only a brain receives email. A note reaches a workspace when someone moves it here.",
     };
   }
   if (state.loading || state.settings !== null) return null;
@@ -283,7 +283,7 @@ export function describeIngestionAbsence(state: IngestionState): IngestionAbsenc
     return {
       reason: "owner-only",
       title: "Only an owner sees these rules",
-      text: "Where mail lands, and who may send it, belongs to whoever owns this context.",
+      text: "Where mail lands, and who may send it, belongs to whoever owns this brain.",
     };
   }
   return {
@@ -293,7 +293,7 @@ export function describeIngestionAbsence(state: IngestionState): IngestionAbsenc
     // until you set a target folder" — a fail-closed-sounding claim about a
     // pipeline that has never run once, and one of the sentences
     // `__tests__/captureHonesty.test.ts` bans by vocabulary.
-    text: "Ingestion is off for this context — you have to set a target folder and say who may send.",
+    text: "Ingestion is off for this brain — you have to set a target folder and say who may send.",
   };
 }
 
@@ -572,7 +572,7 @@ export function describeSenderPolicy(draft: IngestionDraft): {
   if (draft.allowAnySender) {
     return {
       tone: "crit",
-      text: "Anyone who learns this address is allowed to post into this context. Nothing is checked.",
+      text: "Anyone who learns this address is allowed to post into your brain. Nothing is checked.",
     };
   }
   const entries = senderEntries(draft);

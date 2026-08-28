@@ -62,7 +62,7 @@ export function SettingsPane({ data, onClose }: { data: ConsoleData; onClose: ()
     <View>
       <PaneHead
         title={`${atName(current?.slug ?? "this context")} settings`}
-        description="This context's storage and its ingestion rules. Both belong to the context, not to your account — another context can point somewhere else entirely."
+        description="Storage and ingestion rules. They belong here, not to your account — every other brain or workspace can point somewhere else entirely."
         trailing={
           <View style={styles.headActions}>
             {/*

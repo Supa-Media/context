@@ -16,7 +16,7 @@
  * contexts to show, whenever it still has something to say — the
  * "Claim your @name" entry (which, per the durable decision in `CLAUDE.md`,
  * lives last in the Contexts group precisely because that group raises the
- * question it answers), and the "No contexts yet" empty state of an account
+ * question it answers), and the "Nothing here yet" empty state of an account
  * with nothing at all.
  */
 
@@ -43,7 +43,7 @@ export function railSections({
 
   const sections: RailSection[] = [];
   if (own.length > 0 || claimable || contexts.length === 0) {
-    sections.push({ key: "own", heading: "Contexts", contexts: own, claim: claimable });
+    sections.push({ key: "own", heading: "Yours", contexts: own, claim: claimable });
   }
   if (shared.length > 0) {
     sections.push({ key: "shared", heading: "Shared with you", contexts: shared, claim: false });

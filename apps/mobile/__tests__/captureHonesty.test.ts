@@ -614,7 +614,7 @@ describe("the gate is the control plane's answer, not a client-side guess", () =
         onOpenConsole: () => {},
       }),
     );
-    expect(done.text).toMatch(/it lands in your context/);
+    expect(done.text).toMatch(/it lands in your brain/);
     expect(done.html).toMatch(/Copy your capture address/i);
   });
 });

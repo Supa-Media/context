@@ -105,7 +105,11 @@ gone from user-facing copy instead.
 - **Context** — the aggregate: everything one person can reach through the
   endpoint — their brain, brains shared with them, and their workspaces. Also
   the product name. New copy never uses "context" for a single unit; a
-  sentence that needs "either kind" says "a brain or a workspace".
+  sentence that needs "either kind" says "a brain or a workspace". One
+  pragmatic allowance: existing unit-generic strings (permission errors,
+  refusals) at call sites that do not know the unit's `kind` may keep "this
+  context" until the site learns the kind — prefer the specific noun wherever
+  `kind` is already in hand, and never introduce new "a context" copy.
 
 One deliberate exception: copy addressed to a **connected AI client** about
 the one thing its grant reaches (gateway `instructions`, `orient`, tool

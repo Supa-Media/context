@@ -31,7 +31,7 @@ describe("railSections", () => {
       claimable: false,
     });
 
-    expect(sections.map((s) => s.heading)).toEqual(["Contexts", "Shared with you"]);
+    expect(sections.map((s) => s.heading)).toEqual(["Yours", "Shared with you"]);
     // A shared workspace you created is yours; somebody else's personal
     // context you were invited into is not — `kind` alone answers neither.
     expect(sections[0]!.contexts.map((c) => c.id)).toEqual(["own", "team"]);
@@ -40,10 +40,10 @@ describe("railSections", () => {
 
   test("an account that was never invited anywhere gets no 'Shared with you'", () => {
     const sections = railSections({ contexts: [own], claimable: false });
-    expect(sections.map((s) => s.heading)).toEqual(["Contexts"]);
+    expect(sections.map((s) => s.heading)).toEqual(["Yours"]);
   });
 
-  test("an invited-only account gets no empty 'Contexts' header", () => {
+  test("an invited-only account gets no empty 'Yours' header", () => {
     const sections = railSections({
       contexts: [guestPersonal, guestShared],
       claimable: false,
@@ -56,15 +56,15 @@ describe("railSections", () => {
     // group, because that group raises the question it answers. Omitting the
     // header would orphan the one entry an invitee has to be able to find.
     const sections = railSections({ contexts: [guestShared], claimable: true });
-    expect(sections.map((s) => s.heading)).toEqual(["Contexts", "Shared with you"]);
+    expect(sections.map((s) => s.heading)).toEqual(["Yours", "Shared with you"]);
     expect(sections[0]!.contexts).toEqual([]);
     expect(sections[0]!.claim).toBe(true);
     expect(sections[1]!.claim).toBe(false);
   });
 
-  test("an account with nothing at all keeps the 'Contexts' group for its empty state", () => {
+  test("an account with nothing at all keeps the 'Yours' group for its empty state", () => {
     const sections = railSections({ contexts: [], claimable: false });
-    expect(sections.map((s) => s.heading)).toEqual(["Contexts"]);
+    expect(sections.map((s) => s.heading)).toEqual(["Yours"]);
     expect(sections[0]!.contexts).toEqual([]);
   });
 });

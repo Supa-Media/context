@@ -19,7 +19,7 @@ describe("the landing-page continuity story", () => {
 
   test("the first AI receives explicit permission before publishing to the team", () => {
     expect(CONTINUITY_STEPS[0].prompt).toMatch(/share that with the Context team/i);
-    expect(CONTINUITY_STEPS[0].receipt).toMatch(/published to team context/i);
+    expect(CONTINUITY_STEPS[0].receipt).toMatch(/published to the team workspace/i);
   });
 
   test("later AIs name the carried thought instead of implying magic", () => {
@@ -32,7 +32,7 @@ describe("the landing-page continuity story", () => {
     const teammate = CONTINUITY_STEPS[2];
     expect(teammate.access).toBe("Team access");
     expect(teammate.reply).toMatch(/private notes were never available/i);
-    expect(teammate.receipt).toMatch(/private context hidden/i);
+    expect(teammate.receipt).toMatch(/your brain hidden/i);
   });
 
   test("the handoff is followed by an honest plain-markdown explanation", () => {
@@ -40,6 +40,6 @@ describe("the landing-page continuity story", () => {
     expect(landing).toMatch(/No magic layer/);
     expect(landing).toMatch(/Just Markdown\. Yours to touch\./);
     expect(landing).toMatch(/open in Obsidian/i);
-    expect(landing).toMatch(/write,\s*rename, move, and shape the workspace by hand/);
+    expect(landing).toMatch(/write,\s*rename, move, and shape it all by hand/);
   });
 });

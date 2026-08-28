@@ -445,7 +445,7 @@ describe("what the card says when it has no allow-list to show", () => {
     // is a setting its owner can change this afternoon; "no address" is not a
     // setting at all, and offering to fix it would be the lie.
     expect(shared!.text).not.toBe(closed!.text);
-    expect(shared!.text).toMatch(/[Oo]nly a personal context receives email/);
+    expect(shared!.text).toMatch(/[Oo]nly a brain receives email/);
     expect(shared!.text).not.toMatch(/\boff\b/i);
     expect(shared!.text).not.toMatch(/until|set a target folder|who may send/i);
     expect(closed!.text).toMatch(/^Ingestion is off/);
@@ -492,9 +492,9 @@ describe("a refusal, turned into something a person can read", () => {
     const error = new ConvexError({
       code: "INGESTION_NOT_AVAILABLE",
       message:
-        "Only a personal context receives email. Notes reach a shared context when someone moves them there.",
+        "Only a brain receives email. Notes reach a workspace when someone moves them there.",
     });
-    expect(refusalMessage(error)).toMatch(/^Only a personal context receives email\./);
+    expect(refusalMessage(error)).toMatch(/^Only a brain receives email\./);
   });
 
   test("a payload with no message falls back rather than rendering an object", () => {

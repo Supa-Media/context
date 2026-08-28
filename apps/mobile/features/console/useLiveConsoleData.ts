@@ -149,7 +149,7 @@ export function useLiveConsoleData(): ConsoleData {
   const workspaces = usable<WorkspaceSummary[]>(workspacesResult);
   const failure =
     workspacesResult instanceof Error
-      ? describeQueryFailure(workspacesResult, "your contexts")
+      ? describeQueryFailure(workspacesResult, "your context")
       : null;
 
   const [explicitContextId, setExplicitContextId] = useState<Id<"workspaces"> | null>(null);
@@ -423,7 +423,7 @@ export function useLiveConsoleData(): ConsoleData {
       ...(notes === null
         ? []
         : [{ value: formatNotesTotal(notes), label: "notes across all" }]),
-      { value: formatCount(contexts.length), label: "contexts reachable" },
+      { value: formatCount(contexts.length), label: "in your context" },
       { value: formatCount(activeGrants.length), label: "AI clients connected" },
     ],
     clients,

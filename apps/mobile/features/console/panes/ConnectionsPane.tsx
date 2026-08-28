@@ -44,9 +44,9 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
     The members card below is the one per-context thing on an otherwise
     app-level pane, so the role it needs is the *selected* context's — not a
     property of this route. No chip goes in this pane's head for the same
-    reason the switcher above it says "All contexts": a `team level only` badge
-    on a heading that spans every context you can reach would be naming a scope
-    the pane is not in.
+    reason the switcher above it says "Your context": a `team level only` badge
+    on a heading that spans everything this person can reach would be naming a
+    scope the pane is not in.
   */
   const viewerRole = selectedContext(data)?.role;
 
@@ -54,7 +54,7 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
     <View>
       <PaneHead
         title="Connections"
-        description="One URL for every AI tool, across every context you can reach. Each client gets its own grant — revoking one leaves the others working."
+        description="One URL for every AI tool, across everything you can reach. Each client gets its own grant — revoking one leaves the others working."
       />
 
       <Card>

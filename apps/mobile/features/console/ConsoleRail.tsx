@@ -120,7 +120,7 @@ export function ConsoleRail({
         </Group>
 
         {/*
-          Two groups, not one flat list: what you own under "Contexts", and
+          Two groups, not one flat list: what you own under "Yours", and
           everything you were let into under "Shared with you". A section with
           nothing to show is omitted, header and all — see `rail.ts`.
         */}
@@ -129,7 +129,7 @@ export function ConsoleRail({
             {section.key === "own" && data.contexts.length === 0 && !data.loading ? (
               icons ? null : (
                 <Text variant="rowSub" style={styles.empty}>
-                  No contexts yet
+                  Nothing here yet
                 </Text>
               )
             ) : null}
@@ -177,10 +177,10 @@ export function ConsoleRail({
               </RightClickTarget>
             ))}
             {/*
-              The way to have a context of your own, for somebody who does not.
+              The way to have a brain of your own, for somebody who does not.
 
-              It sits *in* the Contexts group and last, under the contexts you
-              can already reach, because that is the question it answers: these
+              It sits *in* the "Yours" group and last, under what you can
+              already reach, because that is the question it answers: these
               are the ones you can open, and none of them is yours. Above the
               group, or in App, it would read as a verb about the application
               rather than a gap in this list.
@@ -198,7 +198,7 @@ export function ConsoleRail({
                 glyph="+"
                 icons={icons}
                 touch={touch}
-                accessibilityLabel="Claim your name and create your own context"
+                accessibilityLabel="Claim your name and create your own brain"
                 onPress={onClaimContext!}
                 style={styles.claim}
                 labelStyle={styles.claimLabel}

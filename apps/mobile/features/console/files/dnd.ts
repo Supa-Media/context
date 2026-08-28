@@ -147,7 +147,7 @@ export function canDrop(
      */
     return {
       ok: false,
-      reason: `${contextSegment(target.slug)} is a separate context with its own bucket. Moving notes between contexts is not supported yet — open it and create the note there.`,
+      reason: `${contextSegment(target.slug)} is separate, with its own bucket. Moving notes between brains and workspaces is not supported yet — open it and create the note there.`,
     };
   }
 
