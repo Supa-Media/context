@@ -718,7 +718,7 @@ describe("provisioning a bucket in the customer's account", () => {
     // The access key id is the token's id; the secret is the hash of its value.
     expect(binding!.accessKeyId).toBe(MINTED_TOKEN_ID);
     expect(
-      await decryptSecret(binding!.encryptedSecretAccessKey, requireKeyset(), {
+      await decryptSecret(binding!.encryptedSecretAccessKey!, requireKeyset(), {
         workspaceId,
       }),
     ).toBe(await deriveS3SecretAccessKey(MINTED_TOKEN_VALUE));
