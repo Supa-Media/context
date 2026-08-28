@@ -1,0 +1,80 @@
+diff --git a/dist/react/client.js b/dist/react/client.js
+index 99b4651583f7045c86fd89d878b695f66bb635d5..9e1ef79d2bee7a045412809f353e09edeeac0c9e 100644
+--- a/dist/react/client.js
++++ b/dist/react/client.js
+@@ -172,6 +172,10 @@ export function AuthProvider({ client, serverState, onChange, shouldHandleCode,
+         logVerbose(`signed out, erasing tokens`);
+         await setToken({ shouldStore: true, tokens: null });
+     }, [setToken, client]);
++    // PATCH(context.lc): the last JWT a forced fetch handed out. Guards the
++    // reuse path below from ever returning the same token twice in a row —
++    // if the server rejected it, the next forced fetch must really rotate.
++    const lastForcedToken = useRef(null);
+     const fetchAccessToken = useCallback(async ({ forceRefreshToken }) => {
+         if (forceRefreshToken) {
+             const tokenBeforeLockAquisition = token.current;
+@@ -185,10 +189,32 @@ export function AuthProvider({ client, serverState, onChange, shouldHandleCode,
+                 }
+                 const refreshToken = (await storageGet(REFRESH_TOKEN_STORAGE_KEY)) ?? null;
+                 if (refreshToken !== null) {
++                    // PATCH(context.lc): every cold load force-rotates the
++                    // single-use refresh token; a navigation that interrupts
++                    // the localStorage save leaves the old one behind, and
++                    // presenting it after the 10s reuse window reads as theft
++                    // and kills the whole session tree. So: if the stored JWT
++                    // is still comfortably valid, hand it back instead of
++                    // rotating. Rotation still happens near expiry (the
++                    // validity check fails) and on server rejection (the
++                    // lastForcedToken check fails).
++                    const storedJwt = (await storageGet(JWT_STORAGE_KEY)) ?? null;
++                    if (storedJwt !== null &&
++                        storedJwt !== lastForcedToken.current &&
++                        jwtValidForAtLeast(storedJwt, REUSE_MIN_VALIDITY_MS)) {
++                        lastForcedToken.current = storedJwt;
++                        logVerbose(`reusing stored token, skipping refresh token rotation`);
++                        await setToken({
++                            shouldStore: false,
++                            tokens: { token: storedJwt },
++                        });
++                        return storedJwt;
++                    }
+                     setIsRefreshingToken(true);
+                     await verifyCodeAndSetToken({ refreshToken }).finally(() => {
+                         setIsRefreshingToken(false);
+                     });
++                    lastForcedToken.current = token.current;
+                     logVerbose(`returning retrieved token, is null: ${tokenAfterLockAquisition === null}`);
+                     return token.current;
+                 }
+@@ -200,7 +226,7 @@ export function AuthProvider({ client, serverState, onChange, shouldHandleCode,
+             });
+         }
+         return token.current;
+-    }, [verifyCodeAndSetToken, signOut, storageGet]);
++    }, [verifyCodeAndSetToken, signOut, storageGet, setToken]);
+     const signingInWithCodeFromURL = useRef(false);
+     useEffect(() => {
+         // Has to happen in useEffect to avoid SSR.
+@@ -304,6 +330,22 @@ function useInMemoryStorage() {
+         },
+     });
+ }
++// PATCH(context.lc): a stored JWT must have at least this long to live before
++// a forced fetch will reuse it instead of rotating the refresh token.
++const REUSE_MIN_VALIDITY_MS = 60000;
++// PATCH(context.lc): true when the JWT's exp claim is more than marginMs away.
++// Anything unparseable counts as expired, which falls back to a real rotation.
++function jwtValidForAtLeast(jwt, marginMs) {
++    try {
++        const payload = jwt.split(".")[1];
++        const claims = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
++        return (typeof claims.exp === "number" &&
++            claims.exp * 1000 - Date.now() > marginMs);
++    }
++    catch {
++        return false;
++    }
++}
+ // In the browser, executes the callback as the only tab / frame at a time.
+ async function browserMutex(key, callback) {
+     const lockManager = window?.navigator?.locks;

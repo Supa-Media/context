@@ -28,7 +28,13 @@ module.exports = {
   // node_modules" would then hand Jest an untransformed `export`. Letting the
   // `expo` package itself through the transform is the same fix `jest-expo`
   // applies; everything else in node_modules stays untouched.
-  transformIgnorePatterns: ["/node_modules/(?!(\\.pnpm/)?expo(@|/))"],
+  // `@convex-dev/auth` (and its ESM-only dep `is-network-error`) are let
+  // through for the same reason: `authTokenReuse.test.ts` mounts the patched
+  // auth client (see `patches/`) to prove a cold load no longer spends the
+  // refresh token, and the package ships ESM that node's require can't read.
+  transformIgnorePatterns: [
+    "/node_modules/(?!(\\.pnpm/)?(expo(@|/)|@convex-dev(\\+|/)auth|is-network-error))",
+  ],
   // Render React Native components as `react-native-web` does, which is how
   // this app already ships to the browser. It costs no new dependency and no
   // native mocks: `react-native-web`'s `main` is a CommonJS build, so it needs

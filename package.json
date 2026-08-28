@@ -20,5 +20,10 @@
   "engines": {
     "node": ">=22",
     "pnpm": ">=9"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "@convex-dev/auth": "patches/@convex-dev__auth.patch"
+    }
   }
 }
