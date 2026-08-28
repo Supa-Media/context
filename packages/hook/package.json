@@ -1,0 +1,15 @@
+{
+  "name": "@context-lc/hook",
+  "version": "0.1.0",
+  "description": "Save what an AI coding session learned into your Context, automatically, when the session ends",
+  "license": "MIT",
+  "type": "module",
+  "bin": { "context-hook": "./bin/context-hook.mjs" },
+  "files": ["bin", "src", "README.md"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node test/test.mjs",
+    "typecheck": "echo \"no typecheck (plain JS, no dependencies)\" && exit 0",
+    "lint": "echo \"no lint configured yet\" && exit 0"
+  }
+}

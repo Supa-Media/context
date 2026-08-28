@@ -71,6 +71,13 @@ export interface ProviderLink {
 }
 
 /** One field the client's form (or the person's shell) is going to want. */
+/** How a client is made to save its own sessions when they end. */
+export interface ProviderHook {
+  /** One line on what it will do, in the person's terms. */
+  note: string;
+  command: (endpoint: string) => string;
+}
+
 export interface ProviderField {
   id: string;
   label: string;
@@ -108,6 +115,16 @@ export interface ClientProvider {
    * this at all. This is the only place those caveats are written.
    */
   note: string;
+  /**
+   * The session-end hook, for the clients that have one.
+   *
+   * Absent on most of them, and that absence is the honest part: a hook needs a
+   * documented end-of-session event that hands over the transcript, and a
+   * guessed integration that silently never fires is worse than no button —
+   * the person believes their sessions are being saved and finds out months
+   * later that none of them were.
+   */
+  hook?: ProviderHook;
   link: (endpoint: string) => ProviderLink;
   fields: (endpoint: string) => readonly ProviderField[];
 }
@@ -264,6 +281,10 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     name: "Claude Code",
     form: "command",
     note: "One command in your terminal, then /mcp inside Claude Code to sign in.",
+    hook: {
+      note: "Signs in once, then saves each session's user-visible messages to 0-inbox/ when it ends. It asks for capture access only — it can add to your inbox and cannot read a single note.",
+      command: (endpoint) => `npx -y @context-lc/hook install --endpoint ${shellQuote(endpoint)}`,
+    },
     link: () => ({
       kind: "docs",
       label: "Claude Code MCP docs",

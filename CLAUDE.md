@@ -72,6 +72,8 @@ apps/web/        landing page
 apps/mcp/        Cloudflare Worker: MCP gateway, privacy engine, tools,
                  storage adapter, email ingestion
 packages/shared/ types and constants shared across apps
+packages/hook/   `npx @context-lc/hook` — the session-end hook that saves a
+                 coding session without the agent having to remember to
 ```
 
 ### The gateway (`apps/mcp`)
@@ -767,6 +769,51 @@ Three properties of the survey are load-bearing:
   handshake. A client that gets the static instructions is fully working and
   merely less curious. Note that a thrown handler is answered with a JSON-RPC
   error over HTTP 200, so "the handshake returned 200" does not test this.
+
+### The hook is a capture-only OAuth client, and that is the whole design
+
+An agent can call `save_context` when it finishes, and the failure mode is not
+refusal — it is a long session that ends without one, where the thing worth
+keeping was in the part nobody wrote down. The hook is the safety net, and
+because it runs unattended it is the one credential in this system that sits on
+somebody's laptop indefinitely.
+
+So it asks for `context:capture` and nothing else. That grant writes to
+`0-inbox/` and **cannot read a single note** — no search, no listing, no
+existence oracle. The obvious upgrade, `context:write`, would let the hook
+honour the user's own save destination instead of always landing in the inbox,
+and it would also mean a stale credential on an old laptop can read every
+private note its owner has ever written. That trade only goes one way, and a
+capture landing in `0-inbox/` is not even a compromise: it is what that folder
+is for.
+
+It authenticates with the ordinary authorization-code flow over a loopback
+redirect, which the gateway already supported — `redirectUriMatches` implements
+the RFC 8252 §7.3 port exception precisely so native clients can do this. The
+three alternatives were considered and are worse: a dashboard-minted long-lived
+token is a bearer secret with no client identity behind it, so revoking it is
+all-or-nothing; reusing the token the AI client already holds would require
+reading another application's credential store; and token-in-URL is already the
+compatibility fallback and never the boundary.
+
+Each machine registers its own client, so revoking the laptop you lost does not
+sign out the one on your desk.
+
+**The capture boundary is an allow-list, and it is the most security-sensitive
+code in the package.** A session log holds the system prompt, the model's
+reasoning, every tool call and result, and the contents of files read along the
+way. A message travels only if its role is `user` or `assistant` *and* its
+content block is declared `type: "text"`. Switching on the declared type rather
+than reaching for any `.text` present is what stops a `tool_result` — whose
+nested blocks also have a `.text` — from being posted; the fishing version
+passes every test written with plain string messages, which is why the suite
+seeds a log carrying six distinct marker strings and asserts each one absent.
+
+**A hook is only offered for a client whose end-of-session event is documented.**
+Claude Code's `SessionEnd` hands over the transcript path; the others are
+guesses. A hook that silently never fires is worse than no button, because the
+person believes their sessions are being saved and finds out months later that
+none of them were.
 
 ### A guard nobody has checked is not a guard
 

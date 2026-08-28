@@ -57,6 +57,13 @@ const AFTER_SENTENCE =
  * failure is the one that would matter: a row that claims a connection nobody
  * made is a person concluding their tool is set up when it is not.
  *
+ * ## Hooks are a second, separate panel
+ *
+ * Connecting a client lets an agent *choose* to save what it learned. A hook
+ * saves the session whether it chose to or not, which is a different promise
+ * and a different install — so it is its own button, on the rows that have one,
+ * and absent on the rows that do not rather than present and inert.
+ *
  * ## Connecting a second account is the same button
  *
  * People have a work ChatGPT and a personal one, two Claude accounts, a client
@@ -64,6 +71,8 @@ const AFTER_SENTENCE =
  * there is nothing to disable once one exists — the button just says what
  * pressing it does now, and the count says how many there already are.
  */
+type Panel = { id: string; section: "details" | "hook" } | null;
+
 export function ConnectClients({
   endpoint,
   clients = [],
@@ -71,7 +80,7 @@ export function ConnectClients({
   endpoint: string;
   clients?: readonly { name: string }[];
 }) {
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [panel, setPanel] = useState<Panel>(null);
   const counts = connectedCountsByProvider(clients);
 
   return (
@@ -86,8 +95,14 @@ export function ConnectClients({
           provider={provider}
           endpoint={endpoint}
           connected={counts[provider.id] || 0}
-          open={openId === provider.id}
-          onToggle={() => setOpenId(openId === provider.id ? null : provider.id)}
+          panel={panel?.id === provider.id ? panel.section : null}
+          onToggle={(section) =>
+            setPanel(
+              panel?.id === provider.id && panel.section === section
+                ? null
+                : { id: provider.id, section },
+            )
+          }
         />
       ))}
     </Card>
@@ -98,14 +113,14 @@ function ProviderRow({
   provider,
   endpoint,
   connected,
-  open,
+  panel,
   onToggle,
 }: {
   provider: ClientProvider;
   endpoint: string;
   connected: number;
-  open: boolean;
-  onToggle: () => void;
+  panel: "details" | "hook" | null;
+  onToggle: (section: "details" | "hook") => void;
 }) {
   const link = provider.link(endpoint);
   const fields = provider.fields(endpoint);
@@ -131,14 +146,26 @@ function ProviderRow({
         ) : null}
 
         <View style={styles.actions}>
+          {provider.hook ? (
+            <Button
+              label={panel === "hook" ? "Hide" : "Hooks"}
+              accessibilityLabel={
+                panel === "hook"
+                  ? `Hide how to save ${provider.name} sessions automatically`
+                  : `Show how to save ${provider.name} sessions automatically`
+              }
+              onPress={() => onToggle("hook")}
+              testID={`provider-${provider.id}-hook-toggle`}
+            />
+          ) : null}
           <Button
-            label={open ? "Hide" : "Details"}
+            label={panel === "details" ? "Hide" : "Details"}
             accessibilityLabel={
-              open
+              panel === "details"
                 ? `Hide how to connect ${provider.name}`
                 : `Show how to connect ${provider.name}`
             }
-            onPress={onToggle}
+            onPress={() => onToggle("details")}
             testID={`provider-${provider.id}-toggle`}
           />
           <Button
@@ -159,7 +186,26 @@ function ProviderRow({
         </View>
       </Row>
 
-      {open ? (
+      {panel === "hook" && provider.hook ? (
+        <View style={styles.details} testID={`provider-${provider.id}-hook`}>
+          <Text variant="rowSub" style={styles.note}>
+            {provider.hook.note}
+          </Text>
+          <Text variant="foot" style={styles.caption}>
+            Run this in your terminal.
+          </Text>
+          <View style={styles.field}>
+            <Text variant="eyebrow">Install the hook</Text>
+            <CopyField
+              value={provider.hook.command(endpoint)}
+              label={`Copy the hook install command for ${provider.name}`}
+              testID={`provider-${provider.id}-hook-command`}
+            />
+          </View>
+        </View>
+      ) : null}
+
+      {panel === "details" ? (
         <View style={styles.details} testID={`provider-${provider.id}-details`}>
           {/*
             The caveat that used to sit on the row. It is the only place a plan

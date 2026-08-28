@@ -219,6 +219,55 @@ describe("what is already connected", () => {
   });
 });
 
+describe("the hooks panel", () => {
+  test("only clients with a real hook offer one", () => {
+    const screen = mount();
+    for (const provider of CLIENT_PROVIDERS) {
+      const button = screen.q(`provider-${provider.id}-hook-toggle`);
+      // Present exactly where a hook exists. A button on a client whose
+      // end-of-session event we would be guessing at is worse than none: the
+      // person believes their sessions are being saved and finds out months
+      // later that none of them were.
+      expect(button === null).toBe(provider.hook === undefined);
+    }
+    screen.unmount();
+  });
+
+  test("it carries the install command for the endpoint the pane was given", () => {
+    const screen = mount();
+    screen.click("provider-claude-code-hook-toggle");
+
+    const command = screen.q("provider-claude-code-hook-command");
+    expect(command).not.toBeNull();
+    expect(command!.textContent).toContain("@context-lc/hook install");
+    expect(command!.textContent).toContain(ENDPOINT);
+    screen.unmount();
+  });
+
+  test("hooks and details are separate panels, and one at a time", () => {
+    const screen = mount();
+
+    screen.click("provider-claude-code-hook-toggle");
+    expect(screen.q("provider-claude-code-hook")).not.toBeNull();
+    expect(screen.q("provider-claude-code-details")).toBeNull();
+
+    screen.click("provider-claude-code-toggle");
+    expect(screen.q("provider-claude-code-details")).not.toBeNull();
+    expect(screen.q("provider-claude-code-hook")).toBeNull();
+
+    screen.click("provider-claude-code-toggle");
+    expect(screen.q("provider-claude-code-details")).toBeNull();
+    screen.unmount();
+  });
+
+  test("the hook panel says what access it asks for", () => {
+    const screen = mount();
+    screen.click("provider-claude-code-hook-toggle");
+    expect(screen.text()).toContain("capture access only");
+    screen.unmount();
+  });
+});
+
 describe("pressing the link button", () => {
   test("a hosted connector page opens in a new tab", () => {
     const screen = mount();

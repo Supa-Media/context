@@ -110,6 +110,30 @@ anything, so an imported context may have no `index.md` at all. `orient` then
 says so and tells the agent what it's for, which is usually enough to get one
 written.
 
+## Sessions save themselves
+
+`orient` gets an agent to read your context. The other half is getting what it
+learned back in, and the honest position is that agents forget: a long session
+ends, and the decision worth keeping was never written down.
+
+Two answers, and you want both:
+
+- **`save_context`**, a tool the agent calls when it finishes. What it does is
+  yours to define — put a `## Save context` section in your `index.md` with a
+  `destination:` line and whatever procedure you want followed, and `orient`
+  hands it to every agent that connects.
+- **A session-end hook**, for when the agent does not call it:
+
+  ```sh
+  npx -y @context-lc/hook install
+  ```
+
+  Signs you in once and adds a `SessionEnd` hook to Claude Code. From then on a
+  session's user-visible messages land in `0-inbox/` on their own. It asks for
+  capture access only — it can add to your inbox and cannot read a single note —
+  and it shows up in Connections like any other client, revocable on its own.
+  See [`packages/hook`](packages/hook).
+
 ## Privacy tiers
 
 Every note is `private` or `team`. Folder defaults live in a `privacy.md`
@@ -128,6 +152,7 @@ anonymous tier.
 | `apps/mobile/`    | Expo app (iOS, Android, web) — onboarding and dashboard         |
 | `apps/mcp/`       | The MCP gateway Worker — tools, privacy engine, storage adapter |
 | `packages/shared/`| Types and constants shared across apps                          |
+| `packages/hook/`  | `npx @context-lc/hook` — the session-end hook                    |
 
 ## Development
 
