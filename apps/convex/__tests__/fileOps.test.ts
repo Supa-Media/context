@@ -550,6 +550,48 @@ describe("creating a folder", () => {
     );
     expect(error.code).toBe("DESTINATION_EXISTS");
   });
+
+  /**
+   * "That folder already exists" is a true sentence and, said to someone who
+   * cannot see the folder, it is also a disclosure. Both existing tests above
+   * run at `private` scope, so the whole team-scope population of this
+   * operation was untested — and it answered `DESTINATION_EXISTS` for a folder
+   * the same caller's `listFolder` refuses to admit is there.
+   *
+   * The damage is that a miss is uniform. Every name that is not there answers
+   * `FILE_NOT_FOUND`, so any other answer is a confirmed hit, and the names
+   * worth guessing in somebody's private half are short words: a client, an
+   * employer, a diagnosis, a legal matter. No manifest rule names `finance`
+   * here — this is object existence leaking on its own, not the rule set.
+   */
+  test("a hidden folder is not confirmed by trying to create it", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("2-areas/finance/README.md", "# Finance\n");
+
+    // The premise: at team scope `2-areas` is not in the tree at all.
+    const root = await listFolder(store, { path: "", scope: "team" });
+    expect(names(root.entries)).not.toContain("2-areas");
+
+    const hit = await capture(() =>
+      createFolder(store, { path: "2-areas/finance", scope: "team", now: NOW }),
+    );
+    const miss = await capture(() =>
+      createFolder(store, { path: "2-areas/never-existed", scope: "team", now: NOW }),
+    );
+    expect(errorShape(hit)).toBe(errorShape(miss));
+    expect(hit.code).toBe("FILE_NOT_FOUND");
+
+    // ...and the refusal is not a blanket one. A guard that refused every
+    // team-scope creation would satisfy the two assertions above while
+    // breaking the operation for every editor who is allowed to use it.
+    const allowed = await createFolder(store, {
+      path: "1-projects/new-thing",
+      scope: "team",
+      now: NOW,
+    });
+    expect(allowed.readme).toBe("1-projects/new-thing/README.md");
+  });
 });
 
 describe("duplicate names", () => {

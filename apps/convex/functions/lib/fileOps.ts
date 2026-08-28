@@ -599,6 +599,23 @@ export async function createFolder(
       "Paths beginning with a dot are reserved for history and audit.",
     );
   }
+  // A caller who cannot see this folder must not be told it is there.
+  // `store.get` below is a raw bucket read, so without this the collision
+  // check answers "that folder already exists" for a folder `listFolder`
+  // refuses to admit exists — and because every name that is *not* there
+  // answers `notFound()`, that reply is a confirmed hit rather than a hint.
+  // Guessable names over somebody's private half is the whole attack.
+  //
+  // This does not make writing at team scope disclose nothing: refusal still
+  // separates "the manifest marks this private" from "no rule reaches here",
+  // which is inherent in letting a team caller write at all and is the same
+  // residual `writeFile` has. What it closes is object existence leaking on
+  // top of that, in the private space where no rule names the folder.
+  const state = await loadPrivacyState(store);
+  if (!folderVisibleAtScope(folder, options.scope, state.rules, state.overrides)) {
+    throw notFound();
+  }
+
   const readme = joinPath(folder, "README.md");
   const existing = await store.get(readme);
   if (existing !== null) {
