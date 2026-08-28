@@ -51,12 +51,28 @@ export interface ConsoleStorage {
   connected: boolean;
   /** `unverified` | `connected` | `error`, straight from the row. */
   status: string;
+  /**
+   * `r2` | `s3` | `b2` | `s3-compatible` | `dropbox`, straight from the row.
+   *
+   * Read as a value, not matched against a closed union, for the same reason
+   * `status` is: a deployment newer than this bundle can send a provider this
+   * client has never heard of, and the honest response is to print it rather
+   * than to crash or to claim it is something else.
+   */
   provider: string;
-  bucket: string;
-  endpoint: string;
-  region: string;
+  /**
+   * The four S3 fields, **all optional**, because a Dropbox binding has none
+   * of them: there is no bucket, no endpoint, no region, and no access key to
+   * mask. `getStorageBinding` returns them as absent, and absent has to stay
+   * absent all the way to the screen — a `""` here would draw an empty
+   * labelled well, which reads as a field somebody failed to fill in rather
+   * than one that does not exist for this backend.
+   */
+  bucket?: string;
+  endpoint?: string;
+  region?: string;
   rootPrefix?: string;
-  accessKey: string;
+  accessKey?: string;
   /** Real, from the connect-time capability probe. */
   conditionalWrite: boolean;
   /**

@@ -95,6 +95,66 @@ const BY_CODE: Record<string, Omit<StorageFailure, "detail">> = {
     headline: "Your session ended",
     next: "Sign in again and retry.",
   },
+
+  // ── Dropbox connect (`functions/dropboxConnect.ts`, `functions/storage.ts`) ──
+  //
+  // The control plane collapses "no such attempt", "expired" and "not yours"
+  // into one code on purpose — telling them apart says whether a given state
+  // value was ever real, which is the only thing a replay wants to know. So
+  // there is one sentence here too, and it names the class of thing rather
+  // than this attempt.
+  CONNECT_ATTEMPT_INVALID: {
+    headline: "That Dropbox connection has expired",
+    next: "A connection has to be finished within a few minutes of starting it, and each one works once. Start it again from your context's storage settings — nothing was changed.",
+  },
+  NOT_OWNER: {
+    headline: "Only an owner can connect this context's storage",
+    next: "Ask an owner of this context to connect it.",
+  },
+  DROPBOX_NOT_CONFIGURED: {
+    headline: "Dropbox isn't set up on this deployment",
+    next: "Nothing you did caused this. Connecting a bucket you own still works, and is the path that answers to nobody but you.",
+  },
+  STORAGE_REAUTH_REQUIRED: {
+    headline: "Dropbox access for this context was revoked",
+    next: "Reconnect Dropbox from this context's storage settings. Your folder and everything in it are untouched.",
+  },
+  STORAGE_UNAVAILABLE: {
+    headline: "We couldn't reach Dropbox",
+    next: "Nothing about your connection changed. Try again in a moment.",
+  },
+};
+
+/**
+ * The codes whose *fix* is different on Dropbox, overriding `BY_CODE`.
+ *
+ * Not a stylistic difference: the shared copy for these tells somebody to
+ * paste an access key and secret, and a Dropbox binding has never had either.
+ * Advice naming a credential that does not exist is worse than no advice —
+ * it sends a person looking for a field that is not on the screen, and it is
+ * exactly the habit ("re-enter your credential to fix an unrelated problem")
+ * that `reverifyStorage` was written to stop training.
+ *
+ * Only the codes that actually differ are listed. Everything else falls
+ * through to `BY_CODE`, so this cannot silently fork the whole table.
+ */
+const DROPBOX_BY_CODE: Record<string, Omit<StorageFailure, "detail">> = {
+  UNREACHABLE: {
+    headline: "We couldn't list your Dropbox folder",
+    next: "Check that Context is still connected in your Dropbox account settings, then reconnect it here.",
+  },
+  NOT_WRITABLE: {
+    headline: "Your Dropbox folder can be read but not written to",
+    next: "Dropbox is usually saying the account is out of space. Free some up, then re-verify.",
+  },
+  CREDENTIAL_UNAVAILABLE: {
+    headline: "We can't open the stored Dropbox credential any more",
+    next: "Reconnect Dropbox to replace it. Your folder and everything in it are untouched.",
+  },
+  STORAGE_NOT_CONNECTED: {
+    headline: "This Dropbox folder hasn't verified yet",
+    next: "Run Re-verify, or reconnect Dropbox.",
+  },
 };
 
 /**
@@ -103,23 +163,36 @@ const BY_CODE: Record<string, Omit<StorageFailure, "detail">> = {
  * Either may be absent. With neither, the caller gets an honest shrug rather
  * than a blank panel — a binding in `error` with nothing recorded is itself
  * information.
+ *
+ * `provider` is the binding's own `provider` string when the caller knows it.
+ * It selects nothing but the handful of overrides in `DROPBOX_BY_CODE`;
+ * omitting it gets the bucket wording, which is right for every S3-compatible
+ * binding and is the only wording that existed before Dropbox.
  */
 export function describeStorageFailure(
   errorCode: string | undefined,
   message: string | undefined,
+  provider?: string,
 ): StorageFailure {
-  const known = errorCode === undefined ? undefined : BY_CODE[errorCode];
+  const table = provider === "dropbox" ? { ...BY_CODE, ...DROPBOX_BY_CODE } : BY_CODE;
+  const known = errorCode === undefined ? undefined : table[errorCode];
   const detail = message === undefined || message.trim().length === 0 ? undefined : message.trim();
 
   if (known !== undefined) return { ...known, detail };
 
-  if (detail !== undefined) {
-    return { headline: "Your bucket didn't check out", detail };
-  }
+  const headline =
+    provider === "dropbox"
+      ? "Your Dropbox folder didn't check out"
+      : "Your bucket didn't check out";
+
+  if (detail !== undefined) return { headline, detail };
 
   return {
-    headline: "Your bucket didn't check out",
-    next: "Run Re-verify to try again, or reconnect with fresh credentials.",
+    headline,
+    next:
+      provider === "dropbox"
+        ? "Run Re-verify to try again, or reconnect Dropbox."
+        : "Run Re-verify to try again, or reconnect with fresh credentials.",
   };
 }
 
@@ -155,9 +228,12 @@ export function convexErrorParts(error: unknown): {
 }
 
 /** `describeStorageFailure` applied straight to something that was thrown. */
-export function describeThrownStorageError(error: unknown): StorageFailure {
+export function describeThrownStorageError(
+  error: unknown,
+  provider?: string,
+): StorageFailure {
   const { code, message } = convexErrorParts(error);
-  return describeStorageFailure(code, message);
+  return describeStorageFailure(code, message, provider);
 }
 
 /**
