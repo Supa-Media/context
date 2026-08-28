@@ -15,6 +15,7 @@ import { loadedFolders } from "../files/browser";
 import { IngestionCard } from "../ingestion/IngestionCard";
 import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageActions } from "../types";
 import { ConnectForm } from "../storage/ConnectForm";
+import { StorageChoice } from "../storage/StorageChoice";
 import { forcePathStyleToAddressing } from "../storage/connect";
 import { describeStorageFailure } from "../storage/errors";
 import { useReverify } from "../storage/useReverify";
@@ -61,7 +62,7 @@ export function SettingsPane({ data, onClose }: { data: ConsoleData; onClose: ()
     <View>
       <PaneHead
         title={`${atName(current?.slug ?? "this context")} settings`}
-        description="This context's bucket and its ingestion rules. Both belong to the context, not to your account — another context can point somewhere else entirely."
+        description="This context's storage and its ingestion rules. Both belong to the context, not to your account — another context can point somewhere else entirely."
         trailing={
           <View style={styles.headActions}>
             {/*
@@ -84,9 +85,17 @@ export function SettingsPane({ data, onClose }: { data: ConsoleData; onClose: ()
       <Text variant="eyebrow" style={styles.sectionHead}>
         Storage
       </Text>
+      {/*
+        The sentence has to name the thing the reader can actually go and do,
+        and that differs by backend: an S3 owner revokes a key at their
+        provider, a Dropbox owner unlinks Context in their Dropbox account.
+        Telling the second to revoke a key sends them looking for a screen that
+        does not exist.
+      */}
       <Text variant="paneSub" style={styles.sectionSub}>
-        Your bucket, your credentials. Revoke the key at your provider and Context loses
-        access immediately — no export needed.
+        {storage?.provider === "dropbox"
+          ? "Your Dropbox, your folder. Unlink Context in your Dropbox account settings and it loses access immediately — every file stays exactly where it is."
+          : "Your bucket, your credentials. Revoke the key at your provider and Context loses access immediately — no export needed."}
       </Text>
 
       {storage === null ? (
@@ -98,36 +107,62 @@ export function SettingsPane({ data, onClose }: { data: ConsoleData; onClose: ()
             </View>
           </Card>
         ) : actions ? (
-          <ConnectForm connect={actions.connect} />
+          <StorageChoice workspaceId={actions.workspaceId} connect={actions.connect} />
         ) : (
           <Card>
-            <Text variant="rowTitle">No bucket connected</Text>
+            <Text variant="rowTitle">No storage connected</Text>
             <Text variant="rowSub" style={styles.rowSub}>
               {data.demo
-                ? "Context stores nothing of its own. Connect an S3-compatible bucket you own and every note stays in it."
-                : "Only an owner of this context can connect a bucket to it."}
+                ? "Context stores nothing of its own. Point it at a folder in your Dropbox, or at an S3-compatible bucket you own, and every note stays there."
+                : "Only an owner of this context can connect storage to it."}
             </Text>
           </Card>
         )
       ) : rebinding && actions ? (
-        <ConnectForm
-          connect={async (values) => {
-            const result = await actions.connect(values);
-            setRebinding(false);
-            return result;
-          }}
-          // Everything but the credential is prefilled: rotating a key should
-          // not mean retyping an endpoint. The secret is never sent back down
-          // from the control plane, so it is the one field that starts empty.
-          initial={{
-            endpoint: storage.endpoint,
-            region: storage.region,
-            bucket: storage.bucket,
-            rootPrefix: storage.rootPrefix ?? "",
-            forcePathStyle: storage.forcePathStyle ?? null,
-          }}
-          onCancel={() => setRebinding(false)}
-        />
+        // Two different jobs behind one flag, decided by what is connected now.
+        //
+        // Rotating an S3 key must not mean retyping an endpoint, so that path
+        // gets the form back with everything but the secret prefilled. A
+        // Dropbox binding has no key to rotate and nothing to prefill — what
+        // its owner wants is either the same consent screen again or a bucket
+        // instead, which is exactly the pair `StorageChoice` draws.
+        storage.provider === "dropbox" ? (
+          <StorageChoice
+            workspaceId={actions.workspaceId}
+            connect={async (values) => {
+              const result = await actions.connect(values);
+              setRebinding(false);
+              return result;
+            }}
+            onCancel={() => setRebinding(false)}
+          />
+        ) : (
+          <ConnectForm
+            connect={async (values) => {
+              const result = await actions.connect(values);
+              setRebinding(false);
+              return result;
+            }}
+            // Everything but the credential is prefilled: rotating a key should
+            // not mean retyping an endpoint. The secret is never sent back down
+            // from the control plane, so it is the one field that starts empty.
+            //
+            // `?? ""` on all three, and it is load-bearing rather than tidy.
+            // These three became optional when Dropbox arrived, and `initial`
+            // is spread *over* `emptyConnectForm()` — so an explicit
+            // `undefined` wins, and `values.endpoint.trim()` throws on the
+            // next render. `Partial<ConnectFormValues>` accepts `undefined`
+            // happily, so the type checker has nothing to say about it.
+            initial={{
+              endpoint: storage.endpoint ?? "",
+              region: storage.region ?? "",
+              bucket: storage.bucket ?? "",
+              rootPrefix: storage.rootPrefix ?? "",
+              forcePathStyle: storage.forcePathStyle ?? null,
+            }}
+            onCancel={() => setRebinding(false)}
+          />
+        )
       ) : (
         <BindingCard
           storage={storage}
@@ -204,14 +239,32 @@ function BindingCard({
   const [disconnecting, setDisconnecting] = useState(false);
 
   const addressing = forcePathStyleToAddressing(storage.forcePathStyle);
+  const isDropbox = storage.provider === "dropbox";
 
-  const fields = [
-    { label: "Provider", value: storage.provider },
-    { label: "Bucket", value: storage.bucket },
-    { label: "Endpoint", value: storage.endpoint },
-    { label: "Access key", value: storage.accessKey },
+  /**
+   * Only the fields this backend actually has.
+   *
+   * Built by pushing what is present rather than by listing four and letting
+   * three of them be `undefined`: a Dropbox binding has no bucket, endpoint,
+   * region or access key, and an empty labelled well reads as a field somebody
+   * failed to fill in rather than one that does not exist here. Same rule the
+   * capability rows below follow — absent, never a placeholder.
+   */
+  const fields: Array<{ label: string; value: string }> = [
+    { label: "Provider", value: isDropbox ? "Dropbox" : storage.provider },
   ];
-  if (storage.rootPrefix) fields.push({ label: "Root prefix", value: storage.rootPrefix });
+  if (storage.bucket) fields.push({ label: "Bucket", value: storage.bucket });
+  if (storage.endpoint) fields.push({ label: "Endpoint", value: storage.endpoint });
+  if (storage.accessKey) fields.push({ label: "Access key", value: storage.accessKey });
+  if (storage.rootPrefix) {
+    fields.push({ label: isDropbox ? "Folder" : "Root prefix", value: storage.rootPrefix });
+  } else if (isDropbox) {
+    // Worth a row of its own rather than an absence: "which folder is this?"
+    // is the first question somebody has about a Dropbox connection, and the
+    // answer — the app folder Dropbox made for us, not their whole account —
+    // is the thing the consent screen promised.
+    fields.push({ label: "Folder", value: "Context's own app folder" });
+  }
   // Shown only when somebody actually had to answer it — the same restraint the
   // connect form applies to asking.
   if (addressing !== null) {
@@ -223,7 +276,7 @@ function BindingCard({
 
   const failure =
     storage.status === "error"
-      ? describeStorageFailure(storage.errorCode, storage.lastError)
+      ? describeStorageFailure(storage.errorCode, storage.lastError, storage.provider)
       : null;
 
   return (
@@ -344,9 +397,19 @@ function BindingCard({
           }
           testID="storage-reverify"
         />
+        {/*
+          One button, two honest labels. A Dropbox binding has no key to
+          rotate, so offering "Rotate key" against one would name a credential
+          that has never existed for it — the same lie the failure copy avoids
+          by not telling a Dropbox owner to paste an access key.
+        */}
         <Button
-          label="Rotate key"
-          accessibilityLabel="Paste a new access key and secret"
+          label={isDropbox ? "Reconnect" : "Rotate key"}
+          accessibilityLabel={
+            isDropbox
+              ? "Reconnect Dropbox, or connect a bucket instead"
+              : "Paste a new access key and secret"
+          }
           disabled={actions === undefined || disconnecting}
           onPress={onRebind}
           testID="storage-rebind"

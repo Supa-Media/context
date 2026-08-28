@@ -1,3 +1,4 @@
+import { describe, expect, test } from "@jest/globals";
 import { normalizeSignInEmail } from "../features/auth/email";
 
 /**

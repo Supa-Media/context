@@ -35,6 +35,16 @@ export interface WatchedBinding {
   status: string;
   lastError?: string;
   errorCode?: string;
+  /**
+   * Which backend this row is for, when the caller knows.
+   *
+   * Only ever used to pick the wording of a failure. A Dropbox binding
+   * described with the bucket copy tells somebody to paste an access key they
+   * have never had — see `DROPBOX_BY_CODE` in `../console/storage/errors.ts`.
+   * Absent gets the bucket wording, which is what every caller got before
+   * Dropbox existed.
+   */
+  provider?: string;
 }
 
 /**
@@ -75,7 +85,10 @@ export function connectProgress({
   if (binding.status === "connected") return { kind: "connected" };
 
   if (binding.status === "error") {
-    return { kind: "failed", failure: describeStorageFailure(binding.errorCode, binding.lastError) };
+    return {
+      kind: "failed",
+      failure: describeStorageFailure(binding.errorCode, binding.lastError, binding.provider),
+    };
   }
 
   // `unverified`, or a status this client has not heard of. Either way the

@@ -163,16 +163,30 @@ export function validateConnectForm(values: ConnectFormValues): ConnectErrors {
   if (values.accessKeyId.trim().length === 0) errors.accessKeyId = "Required.";
   if (values.secretAccessKey.length === 0) errors.secretAccessKey = "Required.";
 
-  const prefix = values.rootPrefix.trim();
-  if (prefix.length > 0) {
-    if (prefix.startsWith("/")) {
-      errors.rootPrefix = "No leading slash — it's a folder inside the bucket, like `context/`.";
-    } else if (prefix.split("/").includes("..")) {
-      errors.rootPrefix = "No `..` segments.";
-    }
-  }
+  const prefix = validateRootPrefix(values.rootPrefix);
+  if (prefix !== undefined) errors.rootPrefix = prefix;
 
   return errors;
+}
+
+/**
+ * A root prefix, checked. `undefined` means there is nothing wrong with it —
+ * including when it is empty, because a root prefix is always optional.
+ *
+ * Its own function because the Dropbox card asks the same question with
+ * different words: `CLAUDE.md` permits a root prefix **the customer chose**
+ * and forbids us deriving one, so both surfaces have to accept a typed folder
+ * and both have to refuse the same shapes. Two copies of "no leading slash, no
+ * `..`" is two chances for one of them to drift into accepting a traversal.
+ */
+export function validateRootPrefix(value: string, container = "bucket"): string | undefined {
+  const prefix = value.trim();
+  if (prefix.length === 0) return undefined;
+  if (prefix.startsWith("/")) {
+    return `No leading slash — it's a folder inside the ${container}, like \`context/\`.`;
+  }
+  if (prefix.split("/").includes("..")) return "No `..` segments.";
+  return undefined;
 }
 
 export function hasErrors(errors: ConnectErrors): boolean {

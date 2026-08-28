@@ -3,7 +3,7 @@ import { Button } from "../../design/components/Button";
 import { FormError, Notice } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
 import { colors, leading } from "../../design/tokens";
-import { ConnectForm } from "../../console/storage/ConnectForm";
+import { StorageChoice } from "../../console/storage/StorageChoice";
 import { connectProgressLabel } from "../verify";
 import type { OnboardingController } from "../useOnboarding";
 
@@ -44,11 +44,22 @@ export function StorageStep({ controller }: { controller: OnboardingController }
       {connectState.kind === "connected" ? (
         <Notice tone="ok">
           <Text variant="check" role="status" style={styles.okText}>
-            Your bucket is connected — we can list it and write to it.
+            Your storage is connected — we can list it and write to it.
           </Text>
         </Notice>
       ) : (
-        <ConnectForm connect={controller.connect} />
+        <StorageChoice
+          workspaceId={controller.claimed?.workspaceId ?? null}
+          connect={controller.connect}
+          // Said here rather than discovered afterwards. The Dropbox flow is a
+          // redirect: it takes the browser to Dropbox and brings it back to
+          // `/connect/dropbox`, not to this screen, so the two steps after this
+          // one do not happen. The folder still gets the standard layout —
+          // `verifyStorageBinding` scaffolds an empty one either way — but the
+          // choice and the seed prompt are skipped, and somebody should know
+          // that before they press it rather than after.
+          dropboxNote="Connecting Dropbox leaves this page: you finish on Dropbox and come back to your console, so the two steps after this one are skipped. Connecting a bucket keeps you here."
+        />
       )}
 
       {progress ? (

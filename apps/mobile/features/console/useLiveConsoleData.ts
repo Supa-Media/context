@@ -69,11 +69,17 @@ interface WorkspaceSummary {
 
 interface StorageBinding {
   provider: string;
-  endpoint: string;
-  region: string;
-  bucket: string;
+  /**
+   * Optional, because a Dropbox binding has none of them — see the validator
+   * on `getStorageBinding`. `maskedAccessKeyId` in particular is `undefined`
+   * rather than an empty string, so that the console renders nothing instead
+   * of a masked credential that does not exist.
+   */
+  endpoint?: string;
+  region?: string;
+  bucket?: string;
   rootPrefix?: string;
-  maskedAccessKeyId: string;
+  maskedAccessKeyId?: string;
   forcePathStyle?: boolean;
   capabilities: { conditionalWrite: boolean };
   status: string;
