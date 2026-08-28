@@ -667,6 +667,50 @@ export const removeMember = mutation({
 });
 
 /**
+ * Walk out of somebody else's context.
+ *
+ * `removeMember` is the owner showing somebody the door; this is the person
+ * leaving on their own — the door has to open from both sides, and until it
+ * did, an invitee who wanted out had to ask the owner to evict them.
+ *
+ * An owner cannot leave. For a personal context that would orphan it
+ * outright, and for a shared one it is an ownership transfer wearing a
+ * different name — the same unrecoverable step `removeMember` refuses to
+ * smuggle in. Leaving takes nothing with it: notes the person wrote stay
+ * exactly where they are, because they live in the context's storage, not in
+ * the membership row.
+ */
+export const leaveWorkspace = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ left: v.boolean() }),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+
+    const membership = await getMembership(ctx, args.workspaceId, userId);
+    if (membership === null) return { left: false };
+
+    if (membership.role === "owner") {
+      throw new ConvexError({
+        code: "OWNER_CANNOT_LEAVE",
+        message:
+          "You own this context, so leaving would orphan it. Transferring ownership is a separate step, and is not built yet.",
+      });
+    }
+
+    await ctx.db.delete(membership._id);
+
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: userId,
+      action: "member.left",
+      details: { previousRole: membership.role },
+    });
+
+    return { left: true };
+  },
+});
+
+/**
  * Change what somebody may do in a context. Owner-only.
  *
  * `editor` and `member` only — the same closed set `inviteMember` offers, for

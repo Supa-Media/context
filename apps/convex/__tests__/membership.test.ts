@@ -583,3 +583,55 @@ describe("a context has exactly one owner, always", () => {
     expect(members.filter((m) => m.role === "owner")).toHaveLength(1);
   });
 });
+
+describe("leaving a context is the member's own move", () => {
+  test("an editor can walk out, and the audit says they left rather than were removed", async () => {
+    const { t, owner, editor, workspaceId } = await team();
+
+    expect(
+      await asUser(t, editor).mutation(api.functions.workspaces.leaveWorkspace, {
+        workspaceId,
+      }),
+    ).toEqual({ left: true });
+
+    // Gone means gone: the workspace no longer answers to them at all.
+    expect(
+      errorCode(
+        await captureError(() =>
+          asUser(t, editor).query(api.functions.workspaces.getWorkspace, {
+            workspaceId,
+          }),
+        ),
+      ),
+    ).toBe("WORKSPACE_NOT_FOUND");
+
+    // "member.left", not "member.removed" — who initiated it is exactly what
+    // an audit trail exists to answer.
+    const events = await asUser(t, owner).query(api.functions.audit.listEvents, {
+      workspaceId,
+    });
+    expect(events.map((event) => event.action)).toContain("member.left");
+  });
+
+  test("an owner cannot leave — that would be an ownership transfer in disguise", async () => {
+    const { t, owner, workspaceId } = await team();
+    expect(
+      errorCode(
+        await captureError(() =>
+          asUser(t, owner).mutation(api.functions.workspaces.leaveWorkspace, {
+            workspaceId,
+          }),
+        ),
+      ),
+    ).toBe("OWNER_CANNOT_LEAVE");
+  });
+
+  test("leaving a context you were never in is a quiet no", async () => {
+    const { t, mallory, workspaceId } = await team();
+    expect(
+      await asUser(t, mallory).mutation(api.functions.workspaces.leaveWorkspace, {
+        workspaceId,
+      }),
+    ).toEqual({ left: false });
+  });
+});

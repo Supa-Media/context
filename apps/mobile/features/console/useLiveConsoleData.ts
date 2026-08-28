@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import { useAuthActions } from "@convex-dev/auth/react";
 import {
   useAction,
   useMutation,
@@ -190,6 +191,12 @@ export function useLiveConsoleData(): ConsoleData {
   const bindStorage = useAction(api.functions.storage.bindStorage);
   const reverifyStorage = useMutation(api.functions.storage.reverifyStorage);
   const disconnectStorage = useMutation(api.functions.storage.disconnectStorage);
+  const leaveWorkspace = useMutation(api.functions.workspaces.leaveWorkspace);
+  const deleteAccountMutation = useMutation(api.functions.account.deleteAccount);
+  // Not destructured: the context is undefined in test harnesses that
+  // mount this hook without ConvexAuthProvider, and the account block owns
+  // ordinary sign-out anyway — this reference exists only for deletion.
+  const authActions = useAuthActions();
 
   // An authenticated session resolves to a *set* of contexts. Default to the
   // first rather than assuming there is exactly one — and drop an explicit
@@ -387,6 +394,20 @@ export function useLiveConsoleData(): ConsoleData {
     selectedContextId,
     selectContext,
     graph,
+    // Walking out of a shared context is the member's own move — the server
+    // refuses it for owners (`OWNER_CANNOT_LEAVE`), so the rail only offers
+    // it under "Shared with you". The subscription drops the context from
+    // `contexts` on its own once the membership row is gone.
+    leaveContext: (id: string) =>
+      leaveWorkspace({ workspaceId: id as Id<"workspaces"> }),
+    // Everything on the control plane goes; the person's own storage is not
+    // ours to touch. The local sign-out afterwards clears the tokens for a
+    // session whose server rows the mutation just deleted — its own signOut
+    // call failing server-side is expected and swallowed by the auth client.
+    deleteAccount: async () => {
+      await deleteAccountMutation({});
+      await authActions?.signOut();
+    },
     // Three tiles, not the mockup's four. "in your own bucket" is still gone:
     // nothing measures a bucket's size, so there is no honest value to put in
     // it, and #20's fix — delete the tile rather than print a constant or a

@@ -173,6 +173,19 @@ export interface ConsoleData {
   contexts: ConsoleContext[];
   selectedContextId: string | null;
   selectContext: (id: string) => void;
+  /**
+   * Leave a context somebody shared. Absent in the read-only demo, which has
+   * no memberships to sever. The server refuses it for owners.
+   */
+  leaveContext?: (id: string) => Promise<{ left: boolean }>;
+  /**
+   * Delete the signed-in account: sole-owned contexts and their bindings,
+   * memberships, sign-in — everything on the control plane. Notes in the
+   * person's own storage stay exactly where they are; we never held them.
+   * Absent in the read-only demo. Resolves after local sign-out, so the
+   * caller has nothing to route — the auth gate does it.
+   */
+  deleteAccount?: () => Promise<void>;
   graph: MapGraph;
   stats: ConsoleStat[];
   clients: ConsoleClient[];

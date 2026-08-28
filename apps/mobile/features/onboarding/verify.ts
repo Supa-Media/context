@@ -45,6 +45,15 @@ export interface WatchedBinding {
    * Dropbox existed.
    */
   provider?: string;
+  /**
+   * How many notes the verification walk found, when it has run and the
+   * caller may know (the count is owner-only — see `getStorageBinding`).
+   * Zero is a measured emptiness; absent means "not counted", and the two
+   * must never be conflated — a rule the schema states and the Dropbox
+   * callback now leans on to decide whether a fresh store needs the
+   * structure walk-through.
+   */
+  noteCount?: number;
 }
 
 /**

@@ -10,6 +10,7 @@
 
 import type * as auth from "../auth.js";
 import type * as crons from "../crons.js";
+import type * as functions_account from "../functions/account.js";
 import type * as functions_audit from "../functions/audit.js";
 import type * as functions_authorizations from "../functions/authorizations.js";
 import type * as functions_cloudflare from "../functions/cloudflare.js";
@@ -56,6 +57,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   crons: typeof crons;
+  "functions/account": typeof functions_account;
   "functions/audit": typeof functions_audit;
   "functions/authorizations": typeof functions_authorizations;
   "functions/cloudflare": typeof functions_cloudflare;

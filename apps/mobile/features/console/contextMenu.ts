@@ -25,15 +25,33 @@ import type { ConsoleRoute } from "./nav";
  * contents are testable without a renderer and the rail only draws.
  */
 export interface ContextMenuItem {
-  key: "open" | "settings" | "sharing";
+  key: "open" | "settings" | "sharing" | "leave";
   label: string;
-  route: ConsoleRoute;
+  /** Absent on `leave`, which is an action on the membership, not a place. */
+  route?: ConsoleRoute;
 }
 
-export function contextMenuItems(slug: string): ContextMenuItem[] {
+export function contextMenuItems(
+  slug: string,
+  options: {
+    /**
+     * True for a context under "Shared with you" — somebody else's, reached
+     * by invitation. Only there does **Leave** appear: an owner walking out
+     * of their own context is an ownership transfer wearing a different
+     * name, and the server refuses it (`OWNER_CANNOT_LEAVE`), so the menu
+     * does not offer it. The door out of an invitation, though, has to open
+     * from the invitee's side — before this, getting out meant asking the
+     * owner to evict you.
+     */
+    shared?: boolean;
+  } = {},
+): ContextMenuItem[] {
   return [
     { key: "open", label: "Open", route: { kind: "context", slug, view: "browse" } },
     { key: "settings", label: "Settings…", route: { kind: "context", slug, view: "settings" } },
     { key: "sharing", label: "Manage sharing…", route: { kind: "app", section: "connections" } },
+    ...(options.shared
+      ? [{ key: "leave" as const, label: `Leave @${slug}…` }]
+      : []),
   ];
 }

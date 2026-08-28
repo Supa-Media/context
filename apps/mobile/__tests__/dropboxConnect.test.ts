@@ -278,6 +278,25 @@ describe("resolveDropboxCallbackView", () => {
     expect(resolved).toEqual({ kind: "connected", href: "/welcome?resume=structure" });
   });
 
+  /**
+   * A reconnect that lands on an EMPTY store gets the setup walk-through.
+   *
+   * Seen live: Seyi disconnected, reconnected a fresh Dropbox, and was
+   * dropped into settings with no "choose PARA or your own layout" step —
+   * the structure question only existed inside first-run. Zero is a
+   * *measured* fact (the probe walked the folder and found nothing), so it
+   * routes to the structure step; an ABSENT count keeps the settings path,
+   * because absent must never become zero.
+   */
+  test("a connect that finds an empty store resumes the structure step", () => {
+    const resolved = view({
+      attempt: { kind: "queued", workspaceId: "w1" },
+      binding: { status: "connected", provider: "dropbox", noteCount: 0 },
+      slug: "ada",
+    });
+    expect(resolved).toEqual({ kind: "connected", href: "/welcome?resume=structure" });
+  });
+
   test("a console connect still lands in that context's settings", () => {
     const resolved = view({
       attempt: { kind: "queued", workspaceId: "w1" },
