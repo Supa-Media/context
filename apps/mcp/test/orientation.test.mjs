@@ -270,6 +270,98 @@ export async function runOrientationChecks(check) {
     );
     check("the owner sees the same folder counted", /^- 3-resources\/ — 1 note$/m.test(owner));
 
+    // -- save_context takes its orders from index.md
+    //
+    // The destination used to be `4-archive/chat-history/`, hardcoded, which is
+    // a folder a custom layout may never have made and a word ("archive") for
+    // where things go to stop mattering. What the person wants done at the end
+    // of a session is theirs to write, in the file they already own.
+    const save = async (token, args) => {
+      const { body } = await rpc(env, token, "tools/call", {
+        name: "save_context",
+        arguments: { platform: "claude", content: "## User\nhi\n\n## Assistant\nhello", ...args },
+      });
+      return body?.result?.content?.[0]?.text || "";
+    };
+
+    // No procedure yet, and this fixture's manifest declares no 4-archive: the
+    // fallback must not invent one.
+    const assumed = await save(OWNER_TOKEN, {});
+    check(
+      "with no procedure and no 4-archive, a session lands in the inbox",
+      /^saved: 0-inbox\/sessions\/claude\//m.test(assumed)
+    );
+    check(
+      "an assumed destination says it was assumed, and how to change it",
+      assumed.includes("destination: assumed") && assumed.includes("## Save context")
+    );
+
+    bucket.seed(
+      "index.md",
+      "# The front page\n\nShipping the gateway.\n\n" +
+        "## Save context\n\ndestination: 2-areas/sessions\n\n" +
+        "Three bullets of what we decided. Only keep the transcript if I asked for it.\n\n" +
+        "## Something else\n\nNot part of the procedure.\n"
+    );
+
+    const directed = await save(OWNER_TOKEN, {});
+    check(
+      "a destination in index.md decides where a session lands",
+      /^saved: 2-areas\/sessions\/claude\//m.test(directed)
+    );
+    check(
+      "a followed destination is reported as the user's, not assumed",
+      directed.includes("from this context's own save procedure") &&
+        !directed.includes("destination: assumed")
+    );
+    check(
+      "the procedure's prose comes back with the confirmation",
+      directed.includes("Three bullets of what we decided") &&
+        !directed.includes("Not part of the procedure")
+    );
+
+    const oriented = await orientText(env, OWNER_TOKEN);
+    check(
+      "orient carries the save procedure so an agent knows it before it needs it",
+      oriented.includes("## Before this session ends") &&
+        oriented.includes("Three bullets of what we decided") &&
+        oriented.includes("`2-areas/sessions/`")
+    );
+    check(
+      "the user's own procedure comes before the generic contract",
+      oriented.indexOf("## Before this session ends") < oriented.indexOf("## Working here")
+    );
+
+    // A path that does not survive normalization is a typo in a file the person
+    // can see and fix. Writing their sessions somewhere adjacent to what they
+    // asked for is the worst of the available outcomes, so it is refused and
+    // the fallback stands.
+    bucket.seed("index.md", "# Front\n\n## Save context\n\ndestination: ../../etc\n");
+    const rejected = await save(OWNER_TOKEN, {});
+    check(
+      "a destination that is not a safe folder path is refused, not repaired",
+      /^saved: 0-inbox\/sessions\/claude\//m.test(rejected) && rejected.includes("assumed")
+    );
+    bucket.seed("index.md", "# Front\n\n## Save context\n\ndestination: notes/one.md\n");
+    check(
+      "a destination naming a note rather than a folder is refused",
+      /^saved: 0-inbox\/sessions\/claude\//m.test(await save(OWNER_TOKEN, {}))
+    );
+
+    // The rename must not cost anybody a session: a client holding the cached
+    // tool list is still calling `archive_chat`, with `history` rather than
+    // `content`.
+    const { body: legacy } = await rpc(env, OWNER_TOKEN, "tools/call", {
+      name: "archive_chat",
+      arguments: { platform: "codex", history: "## User\nold client" },
+    });
+    check(
+      "the previous tool name and argument still save a session",
+      /^saved: /m.test(legacy?.result?.content?.[0]?.text || "")
+    );
+
+    bucket.seed("index.md", "# The front page\n\nShipping the gateway.");
+
     // -- the connect-time sketch, and the handshake it must never endanger
     const connect = async (token) => {
       const { status, body } = await rpc(env, token, "initialize", {

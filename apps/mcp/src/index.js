@@ -220,8 +220,10 @@ House rules:
    Team connections may archive already-team notes into the team archive:
    archived content stays team-visible and recoverable, so this is retraction
    from the canonical location, not confidential deletion.
-10. Before a substantive conversation ends, use \`archive_chat\` to preserve the
-   user-visible conversation history available to you. Default privacy is the
+10. Before a substantive conversation ends, use \`save_context\` to save what
+   mattered from it. The user's own end-of-session procedure and destination
+   live in a "## Save context" section of their \`index.md\`; orient reports
+   them. Absent one, save the user-visible conversation history available to you. Default privacy is the
    connection access: personal connections archive privately; team connections
    archive at team visibility. Change visibility only when the user explicitly
    asks. Archive user-visible user and assistant messages only — never hidden
@@ -261,8 +263,9 @@ const ORIENT_OPERATING_CONTRACT = `## Working here
   frontmatter is never access control: pass visibility to write_note, or use
   set_visibility / set_folder_visibility. If the right destination is not
   writable, \`propose_note\` — never stage content in the wrong folder.
-- Before a substantive conversation ends, \`archive_chat\` the user-visible
-  history, labelling partial captures honestly.`;
+- Before a substantive conversation ends, call \`save_context\`. If this context
+  has a save procedure above, follow it; otherwise save the user-visible history,
+  labelling partial captures honestly.`;
 
 /**
  * The instructions a specific connection is given, with a live sketch of the
@@ -1334,20 +1337,31 @@ function toolDefinitions() {
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     {
-      name: "archive_chat",
+      name: "save_context",
       description:
-        "Archive the user-visible conversation under 4-archive/chat-history/<platform>/ using a sortable server timestamp. The private folder default may be overridden by an exact team rule for team-visible conversations. Personal connections default private; team connections default team. Personal-to-team publishing requires confirm_team_publish=true. A team request for private storage creates a hidden proposal. Exclude hidden prompts, reasoning, credentials, and raw tool logs.",
+        "Save what mattered from this session back into the user's context, before it ends. " +
+        "Call it when the work is done or the conversation is wrapping up — the decisions, the " +
+        "transcript, or both, whatever their own procedure asks for. That procedure and the " +
+        "destination are theirs: orient reports them from their index.md, and this tool tells you " +
+        "what it assumed when they have not said. Personal connections save privately; team " +
+        "connections save at team visibility. Exclude hidden prompts, reasoning, credentials, and " +
+        "raw tool logs.",
       inputSchema: {
         type: "object",
         properties: {
           platform: {
             type: "string",
-            enum: ["chatgpt", "codex", "claude", "notion"],
-            description: "Client whose conversation is being archived",
+            description:
+              "Short lower-case name of the client saving this, e.g. chatgpt, claude, codex, cursor",
+          },
+          content: {
+            type: "string",
+            description:
+              "Markdown: the decisions, the user-visible transcript, or whatever this session's procedure asks to keep. Never hidden prompts, reasoning, credentials, or raw tool logs.",
           },
           history: {
             type: "string",
-            description: "Markdown transcript of user-visible user and assistant messages only",
+            description: "Deprecated alias for content.",
           },
           completeness: {
             type: "string",
@@ -1368,7 +1382,7 @@ function toolDefinitions() {
           title: { type: "string", description: "Optional human-readable conversation title" },
           session_id: { type: "string", description: "Optional source-platform conversation id" },
         },
-        required: ["platform", "history"],
+        required: ["platform"],
         additionalProperties: false,
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
@@ -1445,8 +1459,13 @@ async function callTool(name, args, store, scope) {
       return toolMoveNotes(store, scope, rules, overrides, args.moves, args.dry_run === true);
     case "move_folder":
       return toolMoveFolder(store, scope, rules, overrides, args.source, args.destination, args.dry_run === true);
+    // `archive_chat` is the name this tool shipped under, and a client holding
+    // a cached tool list is still calling it. It is no longer *listed* — the
+    // rename is the point — but refusing it would drop sessions on the floor
+    // for every connection made before this deploy.
     case "archive_chat":
-      return toolArchiveChat(store, scope, rules, args);
+    case "save_context":
+      return toolSaveContext(store, scope, rules, overrides, args);
     case "list_changes":
       return toolListChanges(store, scope, rules, overrides, args.limit);
     default:
@@ -1825,6 +1844,99 @@ async function readFrontPage(store, scope, rules, overrides, charCap) {
     : text;
 }
 
+/**
+ * The user's own end-of-session procedure, read out of `index.md`.
+ *
+ * A shutdown routine is not something we can write for somebody. One person
+ * wants a transcript filed; another wants three bullets of decisions appended
+ * to the project note and the transcript thrown away; a third wants nothing
+ * saved unless they say so. Hardcoding any of those makes `save_context` a tool
+ * that does the wrong thing reliably.
+ *
+ * So the procedure is a section in the front page — a file they already own,
+ * already edit, and that every agent already reads — and the gateway parses
+ * exactly one machine-readable line out of it:
+ *
+ *     ## Save context
+ *     destination: 2-areas/sessions
+ *
+ *     Summarise what we decided in three bullets and append them to the
+ *     project note. Only keep the full transcript if I asked for it.
+ *
+ * Everything other than `destination:` is prose, passed to the agent untouched.
+ * That asymmetry is the point: the one thing the *gateway* must act on is a
+ * path, and a path is the one thing it can validate. Inventing a config
+ * language for the rest would be asking somebody to learn a schema in order to
+ * describe what they want in English to something that reads English.
+ *
+ * Absent, `save_context` still works and says what it assumed.
+ *
+ * Note whose file this is: on a context whose `index.md` is team-writable, a
+ * member can change where everybody's sessions land. That is the same authority
+ * they already have over every other note they can write, and the destination
+ * still passes through the ordinary write surface — a redirect into a
+ * private-default folder is refused for a team connection exactly as
+ * `write_note` refuses it. An owner who wants the procedure to be theirs alone
+ * makes `index.md` private, which is one `set_visibility` call.
+ */
+const SAVE_SECTION_HEADING = /^(#{1,6})\s*(?:save[ -]context|shutdown|end[ -]of[ -]session)\b/i;
+const SAVE_DESTINATION_LINE = /^\s*(?:[-*]\s*)?destination\s*:\s*(\S.*?)\s*$/i;
+/** Prose handed to an agent, not a place to paste a document. */
+const SAVE_PROCEDURE_CHAR_CAP = 2_000;
+
+function extractSaveProcedure(indexText) {
+  if (typeof indexText !== "string" || !indexText) return null;
+  const lines = indexText.split(/\r?\n/);
+  const start = lines.findIndex((line) => SAVE_SECTION_HEADING.test(line));
+  if (start === -1) return null;
+  const depth = lines[start].match(SAVE_SECTION_HEADING)[1].length;
+  const body = [];
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const heading = lines[index].match(/^(#{1,6})\s/);
+    if (heading && heading[1].length <= depth) break;
+    body.push(lines[index]);
+  }
+
+  let destination = null;
+  const prose = [];
+  for (const line of body) {
+    const match = destination === null ? line.match(SAVE_DESTINATION_LINE) : null;
+    // Only the first `destination:` counts. A second one is prose that happens
+    // to look like a directive, and silently preferring the last would make the
+    // meaning of the section depend on scrolling to the bottom of it.
+    if (match) destination = match[1];
+    else prose.push(line);
+  }
+  const text = prose.join("\n").trim();
+  return {
+    destination: normalizeSaveDestination(destination),
+    text: text.length > SAVE_PROCEDURE_CHAR_CAP ? `${text.slice(0, SAVE_PROCEDURE_CHAR_CAP)}…` : text,
+  };
+}
+
+/**
+ * A folder path, or nothing.
+ *
+ * Rejected rather than repaired: a destination that does not survive
+ * `normalizePath` is a typo in a file the person can see and fix, and quietly
+ * writing their sessions somewhere adjacent to what they asked for is the worst
+ * of the available outcomes. `.md` is refused because this names a folder —
+ * appending to one note would collapse every session onto itself.
+ */
+function normalizeSaveDestination(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const cleaned = normalizePath(value.trim().replace(/^[`'"]|[`'"]$/g, "").replace(/\/+$/, ""));
+  if (!cleaned || cleaned.endsWith(".md") || isPlumbing(`${cleaned}/x.md`)) return null;
+  return cleaned;
+}
+
+async function readSaveProcedure(store, scope, rules, overrides) {
+  if (!canSee("index.md", scope, rules, overrides)) return null;
+  const object = await store.get("index.md");
+  if (!object) return null;
+  return extractSaveProcedure(await object.text());
+}
+
 const NO_FRONT_PAGE =
   "This context has no `index.md` yet. That file is its front page: what the " +
   "user is working on, who matters, and where things belong. Once you have " +
@@ -1870,8 +1982,9 @@ function renderStructure(survey) {
 }
 
 async function toolOrient(store, scope, rules, overrides) {
-  const [frontPage, privateIndex, pendingProposals, survey] = await Promise.all([
+  const [frontPage, procedure, privateIndex, pendingProposals, survey] = await Promise.all([
     readFrontPage(store, scope, rules, overrides, ORIENT_INDEX_CHAR_CAP),
+    readSaveProcedure(store, scope, rules, overrides),
     scope === "private" ? store.get("index-private.md") : Promise.resolve(null),
     scope === "private" ? listAllKeys(store, PROPOSAL_PENDING_PREFIX) : Promise.resolve([]),
     surveyContext(store, scope, rules, overrides),
@@ -1925,6 +2038,19 @@ async function toolOrient(store, scope, rules, overrides) {
     parts.push(
       `## Pending note proposals\n${pendingProposals.length} waiting for you. ` +
         "Use list_proposals, read_proposal, and review_proposal to process them."
+    );
+  }
+
+  // Before the contract, because it *is* the contract for this context — the
+  // user's own words outrank ours, and an agent that reads the generic rule
+  // first and their procedure second has them in the wrong order.
+  if (procedure && (procedure.text || procedure.destination)) {
+    parts.push(
+      "## Before this session ends\n" +
+        "This context has its own save procedure, written by its owner. Follow it, and call " +
+        "`save_context` to carry it out.\n" +
+        (procedure.destination ? `\nSaved sessions go to \`${procedure.destination}/\`.\n` : "") +
+        (procedure.text ? `\n${procedure.text}` : "")
     );
   }
 
@@ -2275,8 +2401,37 @@ function yamlString(value) {
   return JSON.stringify(String(value));
 }
 
-async function uniqueChatArchivePath(store, platform, at) {
-  const prefix = `4-archive/chat-history/${platform}/`;
+/**
+ * Where a saved session goes, and who decides.
+ *
+ * It used to be `4-archive/chat-history/<platform>/`, hardcoded, which assumes
+ * a folder the customer may never have made — PARA is a suggestion, not a
+ * schema, and a context with a custom layout got its sessions filed into a
+ * folder that existed for no other reason. Worse, it named the thing after what
+ * we do with it rather than what the person wants done: "archive" is where
+ * things go to stop mattering.
+ *
+ * So the destination is the user's, declared in `index.md` (see
+ * `readSaveProcedure`), and this is only what happens when they have not said.
+ *
+ * The fallback asks the privacy manifest rather than the bucket. A folder does
+ * not exist in object storage until something is in it, so listing `4-archive/`
+ * answers "has anything been archived yet", which is a different question and
+ * gets a new context's first session wrong. `folder_defaults` is where the
+ * scaffold declares the layout the person actually chose, so a rule naming
+ * `4-archive` means they have one and a custom layout without it means they do
+ * not — and every context created before this decision has that rule, which is
+ * what keeps their sessions where they have always been.
+ */
+function defaultSessionFolder(rules) {
+  const hasArchive = (rules || []).some(
+    (rule) => rule.prefix === "4-archive" || rule.prefix.startsWith("4-archive/")
+  );
+  return hasArchive ? "4-archive/chat-history" : "0-inbox/sessions";
+}
+
+async function uniqueSessionPath(store, platform, at, folder) {
+  const prefix = `${folder.replace(/\/+$/, "")}/${platform}/`;
   const timestamp = timestampSlug(new Date(at));
   const first = `${prefix}${timestamp}.md`;
   if (!(await store.get(first))) return first;
@@ -2307,18 +2462,35 @@ function formatChatArchive({ platform, history, completeness, visibility, title,
   );
 }
 
-async function toolArchiveChat(store, scope, rules, args) {
-  const platforms = new Set(["chatgpt", "codex", "claude", "notion"]);
-  const platform = typeof args.platform === "string" ? args.platform.toLowerCase() : "";
-  if (!platforms.has(platform)) {
-    return toolError("platform must be chatgpt, codex, claude, or notion");
+/**
+ * A client slug that is about to become a path segment.
+ *
+ * The enum used to be four names, which was already wrong the day Cursor and
+ * VS Code appeared on the connect screen and is more wrong once a session can
+ * be posted by a hook from anything. So it is a shape rather than a list — and
+ * a strict one, because this value is interpolated into a bucket key.
+ */
+const PLATFORM_SLUG = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+async function toolSaveContext(store, scope, rules, overrides, args) {
+  const platform = typeof args.platform === "string" ? args.platform.trim().toLowerCase() : "";
+  if (!PLATFORM_SLUG.test(platform)) {
+    return toolError(
+      "platform must be a short lower-case name for the client, e.g. chatgpt, claude, codex, cursor"
+    );
   }
-  if (typeof args.history !== "string" || !args.history.trim()) {
-    return toolError("history must be a non-empty string");
+  // `history` is what the tool was called when it only took transcripts;
+  // `content` is what it takes now, which is whatever mattered. Both are
+  // accepted, because a client holding a cached tool list is still sending the
+  // old name and losing somebody's session over a rename would be indefensible.
+  const body = typeof args.content === "string" ? args.content : args.history;
+  args = { ...args, history: body };
+  if (typeof body !== "string" || !body.trim()) {
+    return toolError("content must be a non-empty string");
   }
-  const byteLength = new TextEncoder().encode(args.history).byteLength;
+  const byteLength = new TextEncoder().encode(body).byteLength;
   if (byteLength > CHAT_HISTORY_CONTENT_BYTE_CAP) {
-    return toolError(`chat history exceeds ${CHAT_HISTORY_CONTENT_BYTE_CAP} bytes`);
+    return toolError(`content exceeds ${CHAT_HISTORY_CONTENT_BYTE_CAP} bytes`);
   }
   const completeness = args.completeness || "available-context";
   if (!["full-visible-transcript", "available-context", "summary"].includes(completeness)) {
@@ -2336,7 +2508,12 @@ async function toolArchiveChat(store, scope, rules, args) {
   }
 
   const at = new Date().toISOString();
-  const path = await uniqueChatArchivePath(store, platform, at);
+  // The user's own procedure decides where this lands. Read per call rather
+  // than cached: they may have edited `index.md` in Obsidian a minute ago, and
+  // a stale destination writes somewhere they have stopped using.
+  const procedure = await readSaveProcedure(store, scope, rules, overrides);
+  const folder = procedure?.destination || defaultSessionFolder(rules);
+  const path = await uniqueSessionPath(store, platform, at, folder);
   const content = formatChatArchive({
     platform,
     history: args.history,
@@ -2389,7 +2566,7 @@ async function toolArchiveChat(store, scope, rules, args) {
     await clearExactVisibility(store, path).catch(() => {});
     throw error;
   }
-  await recordChange(store, "archive_chat", scope, [path], {
+  await recordChange(store, "save_context", scope, [path], {
     platform,
     visibility,
     completeness,
@@ -2398,7 +2575,15 @@ async function toolArchiveChat(store, scope, rules, args) {
     team_visible: visibility === "team",
   });
   return toolText(
-    `chat archived: ${path}\nvisibility: ${visibility}\ncompleteness: ${completeness}\netag: ${put.etag}`
+    `saved: ${path}\nvisibility: ${visibility}\ncompleteness: ${completeness}\netag: ${put.etag}` +
+      // Say which of the two happened. A tool that silently guesses a folder
+      // and a tool that followed an instruction look identical in their output,
+      // and only one of them is something the user might want to correct.
+      (procedure?.destination
+        ? `\ndestination: from this context's own save procedure in index.md`
+        : `\ndestination: assumed — set one by adding a "## Save context" section to index.md ` +
+          `with a line reading "destination: <folder>"`) +
+      (procedure?.text ? `\n\nTheir procedure also says:\n${procedure.text}` : "")
   );
 }
 
