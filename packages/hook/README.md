@@ -1,15 +1,46 @@
 # @context-lc/hook
 
-Saves what an AI coding session learned into your [Context](https://context.lc),
-automatically, when the session ends.
+Brackets an AI coding session with your [Context](https://context.lc): the
+orientation goes in at the start, what was learned comes back at the end, and
+neither depends on the agent remembering to.
 
 ```sh
 npx -y @context-lc/hook install
 ```
 
-That signs you in once in your browser and adds a `SessionEnd` hook to
-`~/.claude/settings.json`. From then on, when a Claude Code session ends, its
-user-visible messages are saved to `0-inbox/` in your own bucket.
+That signs you in once in your browser and adds two hooks to
+`~/.claude/settings.json`:
+
+- **`SessionStart`** puts orientation in front of the model before it answers
+  anything, so reading your context stops depending on the agent choosing to.
+- **`SessionEnd`** saves the session's user-visible messages to `0-inbox/`, so
+  writing back stops depending on it too.
+
+## The session-start hook, and the one real choice in this package
+
+Claude Code injects a `SessionStart` hook's output into the session before the
+first turn. That is the only mechanism here that does not rely on an agent
+deciding anything, and there are two versions of it:
+
+**By default it injects an instruction** — that this context exists, that the
+answer is probably already in it, and to call `orient` before answering. It
+needs no read access and it is strictly stronger than a tool description,
+because it is in the conversation rather than in a list the model may skim.
+
+**With `--orient` it injects your actual orientation**, fetched at session
+start: your front page, what you touched recently, your folders. This is the
+strongest version and it costs something real — reading requires read access on
+a credential that lives on your laptop unattended. That is why it is a flag you
+type rather than a default you discover later.
+
+```sh
+npx -y @context-lc/hook install --orient
+```
+
+Neither version ever asks for `context:private`. A hook that could read every
+note you marked private is past what convenience is worth, so on a
+mostly-private context the injected orientation is thin — and says so, rather
+than implying your context is empty.
 
 ## Why this exists
 
@@ -39,13 +70,18 @@ out thin, and thin is the right failure.
 
 ## What it can do to your context
 
-Nothing except add to your inbox.
+By default, nothing except add to your inbox.
 
 The hook asks for `context:capture` and no other scope. That grant can write a
 capture and **cannot read a single note** — it cannot search, cannot list, and
 cannot tell you whether a note exists. A stolen credential from this file is
 worth very little, which is the point: it sits on a laptop, unattended, for a
 long time.
+
+`--orient` widens that to `context:read` so the start hook can fetch your
+orientation. That is a real widening and the reason it is a flag: the same
+credential can then read your team-visible notes. It still never asks for
+`context:private`, so notes you marked private stay out of reach either way.
 
 It appears in Connections in the Context console like any other client, under
 the name `Context hook (<your hostname>)`, and is revoked there on its own.

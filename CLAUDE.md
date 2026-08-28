@@ -809,6 +809,29 @@ nested blocks also have a `.text` — from being posted; the fishing version
 passes every test written with plain string messages, which is why the suite
 seeds a log carrying six distinct marker strings and asserts each one absent.
 
+**The session-start hook is where the scope question actually bites.** Claude
+Code injects a `SessionStart` hook's output into the session before the first
+turn, which is the only mechanism anywhere in this product that does not depend
+on an agent deciding something — and it is therefore the strongest available
+answer to "connected agents never call `orient`". Fetching a real orientation
+needs read access, on the credential that sits unattended on a laptop, so there
+are two versions and the default is the narrow one: capture-only injects an
+instruction to call `orient`, and `--orient` injects the orientation itself.
+
+Three things hold that line. The wider mode is a flag somebody types, never a
+default they discover afterwards. A change of scope **re-registers the client**
+rather than re-authorizing the one that declared it wanted less. And neither
+mode ever requests `context:private` — a hook that could read every note its
+owner marked private is past what any convenience is worth, and the cost is
+paid honestly: on a mostly-private context the injected orientation is thin and
+says so.
+
+Both hooks fail towards doing nothing loudly rather than something wrong
+quietly. The start hook runs before the person has typed anything, so a revoked
+grant, a slow gateway or a capture-only credential all come out as the
+directive, and a capture-only install does not even spend the request finding
+out it cannot read.
+
 **A hook is only offered for a client whose end-of-session event is documented.**
 Claude Code's `SessionEnd` hands over the transcript path; the others are
 guesses. A hook that silently never fires is worse than no button, because the

@@ -282,7 +282,7 @@ export const CLIENT_PROVIDERS: readonly ClientProvider[] = [
     form: "command",
     note: "One command in your terminal, then /mcp inside Claude Code to sign in.",
     hook: {
-      note: "Signs in once, then saves each session's user-visible messages to 0-inbox/ when it ends. It asks for capture access only — it can add to your inbox and cannot read a single note.",
+      note: "Signs in once, then brackets every session: at the start the model is told to orient before answering, and at the end the session's user-visible messages are saved to 0-inbox/. It asks for capture access only — it can add to your inbox and cannot read a single note. Add --orient to have your actual orientation injected at session start instead, which asks for read access on a credential that lives on your machine unattended.",
       command: (endpoint) => `npx -y @context-lc/hook install --endpoint ${shellQuote(endpoint)}`,
     },
     link: () => ({

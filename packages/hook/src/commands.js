@@ -9,8 +9,10 @@
 
 import { loadEndpoint, saveEndpoint, forgetEndpoint, defaultConfigPath, endpointKey } from "./config.js";
 import { installHook, uninstallHook, clientById } from "./install.js";
+import { orientDirective, fetchOrientation, startContext } from "./orient.js";
 import {
   HOOK_SCOPE,
+  ORIENT_SCOPE,
   authorizeUrl,
   createPkce,
   discover,
@@ -36,39 +38,56 @@ import { hostname } from "node:os";
 export async function install({
   endpoint,
   client: clientId = "claude-code",
+  orient = false,
   configPath = defaultConfigPath(),
   fetchImpl = fetch,
   openBrowser,
   log = console.log,
 }) {
   clientById(clientId); // fail before the browser opens, not after
-  const record = await authorize({ endpoint, configPath, fetchImpl, openBrowser, log });
-  const { path, command } = await installHook({ clientId, endpoint });
+  const record = await authorize({ endpoint, orient, configPath, fetchImpl, openBrowser, log });
+  const { path, commands: installed } = await installHook({ clientId, endpoint, orient });
 
-  log(`Hook installed for ${clientById(clientId).name}.`);
+  log(`Hooks installed for ${clientById(clientId).name}.`);
   log(`  settings: ${path}`);
-  log(`  command:  ${command}`);
-  log(`  scope:    ${record.scope || HOOK_SCOPE}`);
+  for (const [event, command] of Object.entries(installed)) log(`  ${event}: ${command}`);
+  log(`  scope:    ${record.scope || (orient ? ORIENT_SCOPE : HOOK_SCOPE)}`);
   log("");
+  log(
+    orient
+      ? "At session start your orientation is put in front of the model before it answers."
+      : "At session start the model is told to call orient before answering."
+  );
   log("When a session ends, its user-visible messages are saved to 0-inbox/.");
+  if (!orient) {
+    log("");
+    log("To have the orientation itself injected instead of an instruction to fetch it,");
+    log("re-run with --orient. That asks for read access, on a credential that lives on");
+    log("this machine unattended — your call to make, not a default.");
+  }
   log("Revoke it any time from Connections in the Context console.");
-  return { path, command };
+  return { path, commands: installed };
 }
 
 /** The OAuth half on its own, for re-authorizing without touching settings. */
 export async function authorize({
   endpoint,
+  orient = false,
   configPath = defaultConfigPath(),
   fetchImpl = fetch,
   openBrowser,
   log = console.log,
 }) {
   const discovery = await discover(endpoint, { fetchImpl });
+  const scope = orient ? ORIENT_SCOPE : HOOK_SCOPE;
   const existing = await loadEndpoint(endpoint, configPath);
-  let clientId = existing?.clientId;
+  // A change of scope is a new authorization, and re-using a client registered
+  // for the narrower one would ask for something it never declared. Widening
+  // silently is the thing this whole flow exists to not do.
+  let clientId = existing?.scope === scope ? existing.clientId : null;
   if (!clientId) {
     const registration = await registerClient(discovery, {
-      clientName: `Context hook (${hostname()})`,
+      clientName: `Context hook (${hostname()})${orient ? " — orienting" : ""}`,
       fetchImpl,
     });
     clientId = registration.clientId;
@@ -82,7 +101,7 @@ export async function authorize({
     redirectUri: listener.redirectUri,
     challenge: pkce.challenge,
     state,
-    scope: HOOK_SCOPE,
+    scope,
   });
 
   log("Opening your browser to approve this hook…");
@@ -121,7 +140,7 @@ export async function authorize({
       refreshToken: tokens.refreshToken,
       accessToken: tokens.accessToken,
       expiresAt: tokens.expiresAt,
-      scope: tokens.scope || HOOK_SCOPE,
+      scope: tokens.scope || scope,
       issuer: discovery.issuer,
     },
     configPath
@@ -229,6 +248,49 @@ export async function capture({
   return { saved: true, messages, truncated };
 }
 
+/**
+ * What the `SessionStart` hook runs. Prints the block Claude Code injects.
+ *
+ * Every failure path ends in the directive rather than in nothing, and never in
+ * an error: this runs before a person has typed anything, and a hook that
+ * prints a stack trace over the top of their opening prompt has made the
+ * session worse than not being installed. Not signed in, no read scope, gateway
+ * down, token revoked — all of them come out as "call orient first", which is
+ * still better than silence.
+ */
+export async function sessionStart({
+  endpoint,
+  configPath = defaultConfigPath(),
+  stdin = process.stdin,
+  fetchImpl = fetch,
+  emit = (text) => process.stdout.write(text),
+}) {
+  await readJsonStdin(stdin); // drained: Claude Code closes the pipe on our exit
+  let orientation = null;
+  try {
+    const record = await loadEndpoint(endpoint, configPath);
+    // No point spending a round trip to be told no. A capture-only grant cannot
+    // read, and asking anyway would put an error in the logs on every session.
+    if (record && String(record.scope || "").includes("context:read")) {
+      const token = await accessTokenFor({ endpoint, configPath, fetchImpl });
+      orientation = await fetchOrientation({ endpoint, token, fetchImpl });
+    }
+  } catch {
+    orientation = null;
+  }
+
+  const context = startContext({ orientation });
+  // The documented JSON form rather than bare stdout: `additionalContext` is
+  // the field Claude Code injects, and plain text is a looser contract that has
+  // meant different things across versions.
+  emit(
+    `${JSON.stringify({
+      hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: context },
+    })}\n`
+  );
+  return { injected: context, live: Boolean(orientation) };
+}
+
 export async function status({ endpoint, configPath = defaultConfigPath(), log = console.log }) {
   const record = await loadEndpoint(endpoint, configPath);
   if (!record) {
@@ -236,8 +298,10 @@ export async function status({ endpoint, configPath = defaultConfigPath(), log =
     return { signedIn: false };
   }
   // Never the tokens themselves. There is a test asserting that.
+  const scope = record.scope || HOOK_SCOPE;
   log(`Signed in for ${endpointKey(endpoint)}`);
-  log(`  scope:   ${record.scope || HOOK_SCOPE}`);
+  log(`  scope:   ${scope}`);
+  log(`  start:   ${scope.includes("context:read") ? "injects your orientation" : "tells the agent to call orient"}`);
   log(`  client:  ${record.clientId}`);
   log(`  expires: ${record.expiresAt ? new Date(record.expiresAt).toISOString() : "unknown"}`);
   return { signedIn: true };

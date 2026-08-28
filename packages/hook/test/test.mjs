@@ -34,6 +34,13 @@
  *     clobbering everything is idempotent too; the two checks look like a pair
  *     and only one of them is load-bearing here.
  *
+ *  4. **The start hook attempting a read on a capture-only grant** (the scope
+ *     gate removed). 3 checks failed: the injection stopped falling back to the
+ *     directive, and a request was spent being told no on every session.
+ *  5. **Reusing the registered client across a scope change.** 1 check failed —
+ *     an install that widens to read would otherwise authorize through a client
+ *     that declared it wanted less.
+ *
  * Sabotage 2 originally failed *nothing*: `stateMatches` had unit checks and
  * its use in the flow had none, which is the shape of hole this project has
  * been caught by before. The login is now driven with a browser that comes back
@@ -72,6 +79,8 @@ async function startStubServer() {
     codes: new Map(),
     refreshTokens: new Map(),
     captures: [],
+    mcpCalls: [],
+    orientFails: false,
     /** Every Authorization header the gateway half was shown. */
     seenTokens: [],
     rotate: true,
@@ -136,6 +145,17 @@ async function startStubServer() {
         refresh_token: "refresh_1",
         expires_in: 3600,
         scope: issued.scope,
+      });
+    }
+    if (url.pathname === "/mcp") {
+      state.seenTokens.push(request.headers.authorization || "");
+      const rpc = JSON.parse(await readBody());
+      state.mcpCalls.push(rpc);
+      if (state.orientFails) return send(500, { error: "boom" });
+      return send(200, {
+        jsonrpc: "2.0",
+        id: rpc.id,
+        result: { content: [{ type: "text", text: "# Orientation\n\n12 notes visible." }] },
       });
     }
     if (url.pathname === "/inbox") {
@@ -267,6 +287,11 @@ await commands.install({
   log,
 });
 
+// Snapshotted before anything else clears `said`: the capture-only install is
+// where the wider option has to be offered, and by the time the orient install
+// runs below this log is long gone.
+const firstInstallLog = said.join("\n");
+
 const authorize = server.state.lastAuthorize;
 check("the hook registers itself as its own client", server.state.registered.length === 1);
 check(
@@ -314,6 +339,10 @@ check(
   settings.hooks.SessionEnd[0].hooks[0].command.includes("@context-lc/hook capture")
 );
 check(
+  "and as a SessionStart command, so orientation does not depend on the agent",
+  settings.hooks.SessionStart[0].hooks[0].command.includes("@context-lc/hook session-start")
+);
+check(
   "the installed command carries the endpoint but never the credential",
   settings.hooks.SessionEnd[0].hooks[0].command.includes(server.endpoint) &&
     !JSON.stringify(settings).includes(record.refreshToken)
@@ -338,12 +367,13 @@ check("the person's own SessionEnd hook survives", merged.hooks.SessionEnd.some(
 check("their other hook events are untouched", merged.hooks.PreToolUse.length === 1);
 check(
   "installing twice replaces our entry rather than stacking a duplicate",
-  merged.hooks.SessionEnd.filter((entry) => entry.hooks.some((hook) => hook[HOOK_MARKER])).length === 1
+  merged.hooks.SessionEnd.filter((entry) => entry.hooks.some((hook) => hook[HOOK_MARKER])).length === 1 &&
+    merged.hooks.SessionStart.filter((entry) => entry.hooks.some((hook) => hook[HOOK_MARKER])).length === 1
 );
 
 const removal = await uninstallHook({ clientId: "claude-code" });
 const afterRemoval = JSON.parse(await readFile(settingsPath, "utf8"));
-check("uninstall removes ours", removal.removed === 1);
+check("uninstall removes both of ours", removal.removed === 2);
 check(
   "and leaves theirs exactly as it was",
   afterRemoval.hooks.SessionEnd.length === 1 &&
@@ -413,6 +443,99 @@ const emptyCapture = await commands.capture({
   log,
 });
 check("a session with nothing user-visible in it saves nothing", emptyCapture.saved === false);
+
+// -- session start: orientation that does not depend on the agent asking
+
+let injected = "";
+const emit = (text) => {
+  injected = text;
+};
+const startWith = async (stdinValue = JSON.stringify({ session_id: "s1", source: "startup" })) => {
+  injected = "";
+  const result = await commands.sessionStart({
+    endpoint: server.endpoint,
+    configPath,
+    stdin: [stdinValue],
+    emit,
+  });
+  return { result, payload: JSON.parse(injected) };
+};
+
+// The install so far is capture-only, which cannot read a note — so the start
+// hook must not even try, and must still say something useful.
+const capturedStart = await startWith();
+check(
+  "a start hook emits the documented additionalContext envelope",
+  capturedStart.payload.hookSpecificOutput.hookEventName === "SessionStart" &&
+    typeof capturedStart.payload.hookSpecificOutput.additionalContext === "string"
+);
+check(
+  "a capture-only install injects the instruction to orient",
+  capturedStart.result.live === false &&
+    capturedStart.payload.hookSpecificOutput.additionalContext.includes("call the `orient` tool")
+);
+check(
+  "and it does not spend a request finding out it cannot read",
+  server.state.mcpCalls.length === 0
+);
+
+// Opting in to reading is a new authorization, not a settings change.
+const beforeOptIn = JSON.parse(await readFile(configPath, "utf8")).endpoints[`${server.origin}/mcp`];
+said.length = 0;
+await commands.install({
+  endpoint: server.endpoint,
+  orient: true,
+  configPath,
+  openBrowser: (href) => server.state.approve(href),
+  log,
+});
+const optedIn = JSON.parse(await readFile(configPath, "utf8")).endpoints[`${server.origin}/mcp`];
+check("opting in to orientation asks for read access", optedIn.scope.includes("context:read"));
+check(
+  "it never asks for the private tier",
+  !optedIn.scope.includes("context:private") &&
+    !server.state.lastAuthorize.searchParams.get("scope").includes("context:private")
+);
+check(
+  "a scope change re-registers rather than reusing a client that asked for less",
+  optedIn.clientId !== beforeOptIn.clientId
+);
+check(
+  "the capture-only install tells you the wider option exists and what it costs",
+  firstInstallLog.includes("--orient") && firstInstallLog.includes("unattended")
+);
+
+const liveStart = await startWith();
+check("with read access the orientation itself is injected", liveStart.result.live === true);
+check(
+  "and it is the gateway's own orient output",
+  liveStart.payload.hookSpecificOutput.additionalContext.includes("12 notes visible.")
+);
+check(
+  "it is labelled as a snapshot rather than passed off as live",
+  /as of the moment this session started/.test(
+    liveStart.payload.hookSpecificOutput.additionalContext
+  )
+);
+check(
+  "it was fetched with one plain tools/call and no handshake",
+  server.state.mcpCalls.length === 1 &&
+    server.state.mcpCalls[0].method === "tools/call" &&
+    server.state.mcpCalls[0].params.name === "orient"
+);
+
+// The failure that matters: this runs before the person has typed anything.
+server.state.orientFails = true;
+const failedStart = await startWith();
+check(
+  "a gateway that will not answer falls back to the instruction",
+  failedStart.result.live === false &&
+    failedStart.payload.hookSpecificOutput.additionalContext.includes("call the `orient` tool")
+);
+server.state.orientFails = false;
+
+const emptyStart = await startWith("");
+check("a start hook with no payload still injects something", emptyStart.result.injected.length > 0);
 
 // -- state, the CSRF defence
 //

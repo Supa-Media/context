@@ -42,8 +42,27 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 
-/** The one scope a hook asks for. See the header. */
+/**
+ * The scopes a hook asks for, and the choice between them.
+ *
+ * **Capture** is the default and the one to prefer: it writes to `0-inbox/` and
+ * reads nothing at all — no search, no listing, no existence oracle.
+ *
+ * **Orienting** is opt-in, and it is a real widening rather than a setting. A
+ * session-start hook can put the person's actual context in front of the model
+ * before it answers anything, which is the strongest fix there is for an agent
+ * that never reaches for `orient` — but reading requires read access, and this
+ * credential sits unattended on a laptop. `--orient` at install time is where
+ * that trade is made, out loud, by the person whose notes they are.
+ *
+ * `context:private` is never requested by either. A hook that could read every
+ * note its owner marked private is past what any convenience is worth, and the
+ * consequence is honest rather than hidden: on a mostly-private context the
+ * injected orientation is thin, and it says so rather than implying the context
+ * is empty.
+ */
 export const HOOK_SCOPE = "context:capture";
+export const ORIENT_SCOPE = "context:read context:capture";
 
 /** How long a person gets to finish the browser half before we give up. */
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;

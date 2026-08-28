@@ -35,6 +35,13 @@ export const CLIENTS = {
     id: "claude-code",
     name: "Claude Code",
     settingsPath: () => process.env.CONTEXT_HOOK_CLAUDE_SETTINGS || join(homedir(), ".claude", "settings.json"),
+    /**
+     * `SessionStart` fires on startup, resume and clear, and its output is
+     * injected into the session before the first turn. `SessionEnd` hands over
+     * the transcript path. Between them they bracket the session without the
+     * agent having to remember anything.
+     */
+    events: { SessionStart: "session-start", SessionEnd: "capture" },
     merge: mergeClaudeCodeHook,
     remove: removeClaudeCodeHook,
   },
@@ -59,8 +66,8 @@ export function clientById(id) {
  * config file, so a settings file somebody pastes into an issue carries no
  * secret.
  */
-export function hookCommand({ endpoint, client }) {
-  return `npx -y @context-lc/hook capture --client ${shellArg(client)} --endpoint ${shellArg(endpoint)}`;
+export function hookCommand({ endpoint, client, command = "capture" }) {
+  return `npx -y @context-lc/hook ${command} --client ${shellArg(client)} --endpoint ${shellArg(endpoint)}`;
 }
 
 function shellArg(value) {
@@ -68,18 +75,17 @@ function shellArg(value) {
   return `'${String(value).replaceAll("'", `'\\''`)}'`;
 }
 
-function mergeClaudeCodeHook(settings, command) {
+function mergeClaudeCodeHook(settings, commands) {
   const next = { ...settings };
   const hooks = { ...(next.hooks && typeof next.hooks === "object" ? next.hooks : {}) };
-  const existing = Array.isArray(hooks.SessionEnd) ? hooks.SessionEnd : [];
-  // Drop any previous entry of ours before adding this one. Matching on the
-  // marker rather than on the exact command, so an install that changes the
-  // endpoint replaces rather than duplicates.
-  const kept = existing.filter((matcher) => !isOurs(matcher));
-  hooks.SessionEnd = [
-    ...kept,
-    { hooks: [{ type: "command", command, [HOOK_MARKER]: true }] },
-  ];
+  for (const [event, command] of Object.entries(commands)) {
+    const existing = Array.isArray(hooks[event]) ? hooks[event] : [];
+    // Drop any previous entry of ours before adding this one. Matching on the
+    // marker rather than on the exact command, so an install that changes the
+    // endpoint or the scope replaces rather than duplicates.
+    const kept = existing.filter((matcher) => !isOurs(matcher));
+    hooks[event] = [...kept, { hooks: [{ type: "command", command, [HOOK_MARKER]: true }] }];
+  }
   next.hooks = hooks;
   return next;
 }
@@ -88,11 +94,17 @@ function removeClaudeCodeHook(settings) {
   const next = { ...settings };
   if (!next.hooks || typeof next.hooks !== "object") return { settings: next, removed: 0 };
   const hooks = { ...next.hooks };
-  const existing = Array.isArray(hooks.SessionEnd) ? hooks.SessionEnd : [];
-  const kept = existing.filter((matcher) => !isOurs(matcher));
-  const removed = existing.length - kept.length;
-  if (kept.length) hooks.SessionEnd = kept;
-  else delete hooks.SessionEnd;
+  let removed = 0;
+  // Every event, not just the ones we would install today: somebody upgrading
+  // from a version that installed a different set must not be left with an
+  // orphan entry that no uninstall will ever find again.
+  for (const [event, matchers] of Object.entries(hooks)) {
+    if (!Array.isArray(matchers)) continue;
+    const kept = matchers.filter((matcher) => !isOurs(matcher));
+    removed += matchers.length - kept.length;
+    if (kept.length) hooks[event] = kept;
+    else delete hooks[event];
+  }
   // Leave no empty `hooks: {}` behind if we were the only thing in it.
   if (Object.keys(hooks).length) next.hooks = hooks;
   else delete next.hooks;
@@ -145,9 +157,14 @@ export async function installHook({ clientId, endpoint }) {
   const client = clientById(clientId);
   const path = client.settingsPath();
   const settings = await readJsonFile(path);
-  const command = hookCommand({ endpoint, client: clientId });
-  await writeJsonFile(path, client.merge(settings, command));
-  return { path, command };
+  const commands = Object.fromEntries(
+    Object.entries(client.events).map(([event, command]) => [
+      event,
+      hookCommand({ endpoint, client: clientId, command }),
+    ])
+  );
+  await writeJsonFile(path, client.merge(settings, commands));
+  return { path, commands };
 }
 
 export async function uninstallHook({ clientId }) {
