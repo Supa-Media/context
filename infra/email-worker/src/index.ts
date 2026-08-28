@@ -103,11 +103,10 @@ import { DEFAULT_MIME_LIMITS } from "./mime";
 import { REFUSAL } from "./refusal";
 import { senderIsAllowed, type IngestionPolicy } from "./policy";
 import type { AttachmentPolicy } from "./note";
-// The gateway's storage adapter, imported rather than reimplemented. Tenancy is
-// bucket-level: neither adapter namespaces a key, and the customer's optional
+// The gateway's store factory, imported rather than reimplemented. Tenancy is
+// bucket-level: no adapter namespaces a key, and the customer's optional
 // rootPrefix is applied inside them and invisible here.
-import { R2Store } from "../../../apps/mcp/src/store/r2.js";
-import { S3Store } from "../../../apps/mcp/src/store/s3.js";
+import { storeForBinding } from "../../../apps/mcp/src/store/factory.js";
 
 // `REFUSAL` and `DEFAULT_TARGET_FOLDER` used to be re-exported from here for
 // the tests' convenience. They are not any more, and must not be again: a
@@ -221,60 +220,27 @@ interface ContextStore {
 }
 
 /**
- * Turn a binding into a store, with the same two locks the gateway applies.
+ * Turn a binding into a store — via the gateway's own factory, never a local
+ * switch.
+ *
+ * A hand-rolled subset of the factory lived here until 2026-08-28, knowing
+ * only `r2-binding` and S3-shaped credentials; a Dropbox binding fell through
+ * to the S3 field check and every message to that context bounced as
+ * `storage_unavailable`. The factory's header explains why no second provider
+ * switch may exist — this Worker is the case study. Its `r2-binding` path
+ * applies the same two locks the local branch did: the `NATIVE_BINDINGS`
+ * allow-list, and the named binding actually being a bucket.
  *
  * Returns `null` rather than throwing, because every failure here collapses to
  * the same refusal anyway and a thrown error is one more thing that could
- * escape with a credential in its message.
+ * escape with a credential in its message — the factory's `StorageUnavailable`
+ * and the adapters' own validation errors can both quote configuration.
  */
 function storeFor(binding: Record<string, unknown>, env: Env): ContextStore | null {
   if (binding.status !== "active") return null;
-
-  if (binding.provider === "r2-binding") {
-    // The one path where a control-plane answer names something inside *our*
-    // Worker. Two locks: the name must be in an operator-set allow-list, and it
-    // must actually be a bucket. Without the allow-list this would be a way to
-    // reach any R2 bucket this Worker can see, from the control plane.
-    const name = binding.bindingName;
-    if (typeof name !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(name)) return null;
-    const allowed = String(env.NATIVE_BINDINGS || "")
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean);
-    if (!allowed.includes(name)) return null;
-    const bucket = env[name] as { get?: unknown; put?: unknown } | undefined;
-    if (!bucket || typeof bucket.get !== "function" || typeof bucket.put !== "function") return null;
-    try {
-      return new R2Store(bucket as unknown as R2Bucket, {
-        rootPrefix: binding.rootPrefix as string | undefined,
-      }) as unknown as ContextStore;
-    } catch {
-      return null;
-    }
-  }
-
-  const { endpoint, bucket, accessKeyId, secretAccessKey } = binding as Record<string, unknown>;
-  if (
-    typeof endpoint !== "string" || !endpoint ||
-    typeof bucket !== "string" || !bucket ||
-    typeof accessKeyId !== "string" || !accessKeyId ||
-    typeof secretAccessKey !== "string" || !secretAccessKey
-  ) {
-    return null;
-  }
   try {
-    return new S3Store({
-      endpoint,
-      region: typeof binding.region === "string" && binding.region ? binding.region : "auto",
-      bucket,
-      accessKeyId,
-      secretAccessKey,
-      rootPrefix: binding.rootPrefix as string | undefined,
-      forcePathStyle: binding.forcePathStyle as boolean | undefined,
-    }) as unknown as ContextStore;
+    return storeForBinding(binding, env) as unknown as ContextStore;
   } catch {
-    // The adapter's own validation failed. Its message can quote configuration,
-    // so it is dropped rather than relayed.
     return null;
   }
 }
