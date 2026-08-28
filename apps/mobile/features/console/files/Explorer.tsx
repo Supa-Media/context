@@ -133,6 +133,7 @@ export function Explorer({
       const items = itemsFor({
         target: { kind: "row", row },
         canEdit: files.canEdit,
+        canSetVisibility: files.canSetVisibility,
         clipboard: files.clipboard,
         platform,
         // Read, never assumed. `menu.ts` defaults this to Apple, which prints
