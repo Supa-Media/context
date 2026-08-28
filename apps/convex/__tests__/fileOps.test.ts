@@ -38,6 +38,7 @@ import {
   listFolder,
   movePath,
   readFile,
+  resetPrivacyManifest,
   setFolderVisibility,
   setVisibility,
   writeFile,
@@ -1191,5 +1192,224 @@ describe("changing visibility goes through the manifest", () => {
     expect(parsed.rules.find((rule) => rule.prefix === "1-projects")?.vis).toBe("team");
     // The interfering change survived too — that is what "retried" means.
     expect(parsed.rules.find((rule) => rule.prefix === "3-resources")?.vis).toBe("team");
+  });
+});
+
+/**
+ * REPAIRING A BROKEN privacy.md.
+ *
+ * The tests above establish that a manifest which does not parse fails closed
+ * and that every write to it is refused — which, before `resetPrivacyManifest`,
+ * meant a bucket in that state had no way out through this product at all. The
+ * gateway is no help either: `write_note` answers "that path is reserved" for
+ * `privacy.md`, and `set_folder_visibility` answers "privacy.md is required
+ * before folder visibility can be changed". So the console told people to do
+ * something neither of its two write paths permits.
+ *
+ * What follows is the repair, and the four properties that keep it from being
+ * a way to flatten somebody's access map: it refuses a manifest that parses, it
+ * writes every folder private, it needs owner clearance, and it keeps the file
+ * it replaced.
+ */
+describe("resetting a privacy.md that cannot be read", () => {
+  /** A bucket whose manifest is unparseable — the state the console warns on. */
+  function brokenBucket(): MemoryStore & FileStore {
+    const store = bucket();
+    store.seed(PRIVACY_KEY, "folder_defaults:\n  1-projects: team\n");
+    return store;
+  }
+
+  test("the state it repairs is exactly the state the console warns about", async () => {
+    const store = brokenBucket();
+    expect((await listFolder(store, { path: "", scope: "private" })).manifestUsable).toBe(false);
+
+    await resetPrivacyManifest(store, { scope: "private", now: NOW });
+
+    expect((await listFolder(store, { path: "", scope: "private" })).manifestUsable).toBe(true);
+  });
+
+  test("what it writes parses, and the gateway agrees that it does", async () => {
+    const store = brokenBucket();
+    await resetPrivacyManifest(store, { scope: "private", now: NOW });
+
+    const text = store.snapshot()[PRIVACY_KEY];
+    // Ours, and then the gateway's own parser out of its source — the same
+    // differential check `scaffold.test.ts` makes, because a manifest only this
+    // repo can read is not a repair.
+    expect(() => parsePrivacyManifest(text)).not.toThrow();
+    expect(() => gatewayInternals().parsePrivacyManifest(text)).not.toThrow();
+  });
+
+  test("it declares the folders the bucket actually has, not the five PARA ones", async () => {
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed(PRIVACY_KEY, "# broken\n");
+    store.seed("Journal/2026-01-01.md", "# a day\n");
+    store.seed("Clients/acme.md", "# Acme\n");
+    store.seed("inbox.md", "# loose at the root\n");
+
+    const result = await resetPrivacyManifest(store, { scope: "private", now: NOW });
+
+    expect(result.folders).toEqual(["Clients", "Journal"]);
+    const parsed = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    expect(parsed.rules.map((rule) => rule.prefix).sort()).toEqual(["Clients", "Journal"]);
+    // A person who wants to share `Journal` now has a line to change. Handing
+    // them `0-inbox … 4-archive` would have given them five lines for folders
+    // they do not have and none for the two they do.
+  });
+
+  test("nothing becomes visible: every folder is written private", async () => {
+    const store = brokenBucket();
+    // The broken file *says* `1-projects: team`. Reading it as anything but a
+    // failure is the bug this whole path exists to avoid, so the repair must
+    // not resurrect that line either.
+    await resetPrivacyManifest(store, { scope: "private", now: NOW });
+
+    const parsed = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    expect(parsed.rules.every((rule) => rule.vis === "private")).toBe(true);
+    expect(parsed.overrides.size).toBe(0);
+    // The observable consequence, which is the assertion that matters: a
+    // team-scoped caller could see nothing before the repair and can see
+    // nothing after it.
+    expect((await listFolder(store, { path: "", scope: "team" })).entries).toEqual([]);
+  });
+
+  test("plumbing folders never reach the manifest, which would make it unparseable", async () => {
+    const store = brokenBucket();
+    store.seed(".obsidian/workspace.json", "{}\n");
+
+    const result = await resetPrivacyManifest(store, { scope: "private", now: NOW });
+
+    expect(result.folders).not.toContain(".history");
+    expect(result.folders).not.toContain(".obsidian");
+    // Belt and braces: the parser rejects a dot-segment rule outright, so a
+    // leak here would produce a manifest that does not parse — a repair that
+    // leaves the bucket exactly as broken as it found it.
+    expect(() => parsePrivacyManifest(store.snapshot()[PRIVACY_KEY])).not.toThrow();
+  });
+
+  test("a folder whose name cannot be a rule is dropped, not written into the file", async () => {
+    // Bucket keys are far more permissive than a manifest line. A colon breaks
+    // `parsePrivacyManifest`'s rule pattern outright, so one such folder would
+    // make the repair write a file that does not parse — leaving the bucket
+    // exactly as broken as it found it, with the person's one exit spent.
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed(PRIVACY_KEY, "# broken\n");
+    store.seed("2026: notes/a.md", "# a\n");
+    // The second name is here to keep the guard honest about *how* it decides.
+    // A colon blacklist would pass every other assertion in this file, and it
+    // would let this one through: `  2026#notes: private` loses everything
+    // after the `#` to the parser's comment stripper, leaving `2026` with no
+    // colon on it, which the parser rejects outright. Only asking the real
+    // parser catches both.
+    store.seed("2026#notes/a.md", "# a\n");
+    store.seed("1-projects/a.md", "# a\n");
+
+    const result = await resetPrivacyManifest(store, { scope: "private", now: NOW });
+
+    expect(result.folders).toEqual(["1-projects"]);
+    expect(result.partial).toBe(true);
+    expect(() => parsePrivacyManifest(store.snapshot()[PRIVACY_KEY])).not.toThrow();
+  });
+
+  test("a folder name cannot inject rules into the manifest", async () => {
+    // A newline is a legal S3 key character and nothing between the bucket and
+    // this function has to have come through our own path validation — Obsidian
+    // sync, rclone, and the provider's console all write keys directly. A name
+    // carrying its own line break would otherwise append whatever it liked to
+    // `folder_defaults`, and the useful thing to append is `: team`.
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed(PRIVACY_KEY, "# broken\n");
+    store.seed("innocent\n  2-areas: team\n#/a.md", "# a\n");
+    store.seed("2-areas/secret.md", "# secret\n");
+
+    await resetPrivacyManifest(store, { scope: "private", now: NOW });
+
+    const parsed = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    // Not "the file contains no `team`" — the manifest's own prose explains
+    // what `team` means, and asserting on the whole text would pass or fail on
+    // the wording rather than on the rules.
+    expect(parsed.rules.every((rule) => rule.vis === "private")).toBe(true);
+    // `2-areas` is a real folder here and rightly gets a line; what the
+    // injection was for is that the line say `team`. It says `private`.
+    expect(parsed.rules.find((rule) => rule.prefix === "2-areas")?.vis).toBe("private");
+    expect(parsed.overrides.size).toBe(0);
+    // The observable consequence: the note the injected rule was reaching for
+    // is still invisible to a team-scoped caller.
+    expect((await listFolder(store, { path: "", scope: "team" })).entries).toEqual([]);
+  });
+
+  test("a complete walk of ordinary folders is not reported as partial", async () => {
+    const store = brokenBucket();
+    const result = await resetPrivacyManifest(store, { scope: "private", now: NOW });
+    expect(result.partial).toBe(false);
+  });
+
+  test("the unreadable file is kept, so a typo does not cost forty rules", async () => {
+    const store = brokenBucket();
+    const original = store.snapshot()[PRIVACY_KEY];
+
+    const result = await resetPrivacyManifest(store, { scope: "private", now: NOW });
+
+    expect(result.backedUpTo).not.toBeNull();
+    expect(result.backedUpTo!.startsWith(".history/")).toBe(true);
+    expect(store.snapshot()[result.backedUpTo!]).toBe(original);
+  });
+
+  test("a bucket with no manifest at all is repaired, and has nothing to keep", async () => {
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed("1-projects/a.md", "# A\n");
+
+    const result = await resetPrivacyManifest(store, { scope: "private", now: NOW });
+
+    expect(result.backedUpTo).toBeNull();
+    expect(historyKeys(store)).toEqual([]);
+    // And the thing that was impossible a moment ago now works.
+    await setFolderVisibility(store, { path: "1-projects", visibility: "team", scope: "private" });
+    expect(parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]).rules).toContainEqual({
+      prefix: "1-projects",
+      vis: "team",
+    });
+  });
+
+  test("a manifest that parses is refused — this is not a way to flatten one", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    const before = store.snapshot()[PRIVACY_KEY];
+
+    const error = await capture(() => resetPrivacyManifest(store, { scope: "private", now: NOW }));
+
+    expect(error.code).toBe("PRIVACY_MANIFEST_USABLE");
+    expect(store.snapshot()[PRIVACY_KEY]).toBe(before);
+    expect(historyKeys(store).some((key) => key.includes(PRIVACY_KEY))).toBe(false);
+  });
+
+  test("a team-scoped caller cannot rewrite the access map that governs them", async () => {
+    const store = brokenBucket();
+    const before = store.snapshot()[PRIVACY_KEY];
+
+    const error = await capture(() => resetPrivacyManifest(store, { scope: "team", now: NOW }));
+
+    expect(error.code).toBe("PRIVACY_MANIFEST_READ_ONLY");
+    expect(store.snapshot()[PRIVACY_KEY]).toBe(before);
+  });
+
+  test("a repair that lands between our read and our write loses, rather than clobbering", async () => {
+    const store = brokenBucket();
+    const realGet = store.get.bind(store);
+    let interfered = false;
+    store.get = async (key: string) => {
+      const object = await realGet(key);
+      if (key === PRIVACY_KEY && !interfered) {
+        interfered = true;
+        // Somebody fixed it by hand in Obsidian while we were deciding to.
+        store.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
+      }
+      return object;
+    };
+
+    const error = await capture(() => resetPrivacyManifest(store, { scope: "private", now: NOW }));
+
+    expect(error.code).toBe("CONFLICT");
+    expect(store.snapshot()[PRIVACY_KEY]).toBe(renderPrivacyManifest("para"));
   });
 });

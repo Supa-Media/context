@@ -110,6 +110,48 @@ export function ownedContexts(
 }
 
 /**
+ * Should the console offer to create this person a context of their own?
+ *
+ * The gap this closes is the other half of the bug the two gates above fix.
+ * `needsOnboarding` deliberately *renders* for somebody who can reach a
+ * context they do not own — being sent to "claim your name" instead of the
+ * invitation that brought them here throws away the referral, and it says so:
+ * "prompting them to build their own belongs on a banner rather than in a
+ * redirect." There was then no banner, and no rail entry, and no route to
+ * `/welcome` from anywhere inside the app. Somebody invited into another
+ * person's context could read it and could not discover that having one of
+ * their own was a thing the product did.
+ *
+ * `/welcome` itself was always ready for them — `resolveWelcomeRoute` asks
+ * about contexts **owned**, so it renders for an invitee at zero. Only the way
+ * in was missing.
+ *
+ * Two things this must not do:
+ *
+ *  - **Offer it while the list is loading.** `undefined` is not "owns
+ *    nothing", and a "claim your name" that appears for a moment on every cold
+ *    load in front of somebody who has had a context for a year is the same
+ *    class of mistake as redirecting them to onboarding.
+ *  - **Offer it to somebody who already owns one.** Onboarding is not
+ *    re-runnable and `createWorkspace` writes exactly one personal context;
+ *    the entry would lead to a screen that redirects straight back.
+ */
+export function offerOwnContext({
+  contexts,
+  loading,
+}: {
+  /** The console's context list, or `undefined` before it lands. */
+  contexts: readonly WorkspaceStandingRow[] | undefined;
+  /** True while the first round trip is outstanding. */
+  loading: boolean;
+}): boolean {
+  if (loading) return false;
+  const owned = ownedContexts(contexts);
+  if (owned === undefined) return false;
+  return owned === 0;
+}
+
+/**
  * Turn the two subscriptions into a standing, or `undefined` if either is
  * still outstanding.
  *

@@ -121,6 +121,8 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       archive: noop,
       destroy: noop,
       setVisibility: noop,
+      resetPrivacy: noop,
+      canResetPrivacy: false,
     }),
     [editor, expanded, select, selectedPath, toggleFolder, tree],
   );

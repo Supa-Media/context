@@ -365,6 +365,27 @@ export function renderPrivacyManifest(
     template === "para"
       ? [...PARA_FOLDERS]
       : customFolders.map((entry) => entry.folder);
+  return renderPrivacyManifestForFolders(folders);
+}
+
+/**
+ * The same manifest, for a folder list nobody chose from a template.
+ *
+ * Split out for `resetPrivacyManifest` in `lib/fileOps.ts`, which repairs a
+ * bucket whose `privacy.md` is missing or unparseable and therefore has to
+ * declare the folders that are *actually there* rather than the five PARA ones
+ * a scaffold would have written. One renderer for both, so a repaired manifest
+ * and a scaffolded one are the same file — the reason `renderStartingRulesBlock`
+ * was shared with the console's visibility controls in the first place.
+ *
+ * **Every folder is `private`, and that is not a parameter.** The caller is
+ * always replacing a manifest that was failing closed, so all-private is the
+ * only rewrite under which nothing changes hands. A repair that took a
+ * visibility argument would be a way to publish a whole bucket by fixing a typo.
+ */
+export function renderPrivacyManifestForFolders(
+  folders: readonly string[],
+): string {
   return [
     "---",
     "role: privacy-manifest",

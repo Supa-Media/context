@@ -1,10 +1,18 @@
 import type { ReactNode } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import {
+  ScrollView,
+  StyleSheet,
+  View,
+  type StyleProp,
+  type TextStyle,
+  type ViewStyle,
+} from "react-native";
 import { PressRow } from "../design/components/Button";
 import { Dot } from "../design/components/Dot";
 import { Text } from "../design/components/Text";
 import { gradient } from "../design/css";
 import { colors, layout, radii, space } from "../design/tokens";
+import { offerOwnContext } from "../onboarding/route";
 import { atName } from "./format";
 import { APP_SECTIONS, selectContextRoute, type ConsoleRoute } from "./nav";
 import type { ConsoleData } from "./types";
@@ -51,6 +59,7 @@ export function ConsoleRail({
   mode,
   onNavigate,
   account,
+  onClaimContext,
 }: {
   data: ConsoleData;
   route: ConsoleRoute;
@@ -58,9 +67,24 @@ export function ConsoleRail({
   onNavigate: (route: ConsoleRoute) => void;
   /** The account block. Passed in so the rail never imports auth. */
   account: ReactNode;
+  /**
+   * Start the flow that gives this person a context of their own.
+   *
+   * Absent on the landing page's copy of the rail, which is a picture and has
+   * nowhere to send anybody, and absent for anyone who already owns one — the
+   * decision is `offerOwnContext`, not this prop. Passed in rather than routed
+   * here because `/welcome` is outside the console, so it is not a
+   * `ConsoleRoute` and putting it in that union would mean `routeForPath`
+   * pretending it could parse a URL it never sees.
+   */
+  onClaimContext?: () => void;
 }) {
   const icons = mode === "icons";
   const touch = mode === "sheet";
+  const claimable = onClaimContext !== undefined && offerOwnContext({
+    contexts: data.contexts,
+    loading: data.loading,
+  });
 
   return (
     <View style={styles.rail}>
@@ -108,6 +132,35 @@ export function ConsoleRail({
               leading={<Dot tone={context.status} />}
             />
           ))}
+          {/*
+            The way to have a context of your own, for somebody who does not.
+
+            It sits *in* the Contexts group and last, under the contexts you
+            can already reach, because that is the question it answers: these
+            are the ones you can open, and none of them is yours. Above the
+            group, or in App, it would read as a verb about the application
+            rather than a gap in this list.
+
+            It is drawn accented rather than as another quiet row on purpose.
+            The person this is for arrived through somebody else's invitation
+            and has no reason to suspect the product does anything else; a row
+            that matched its neighbours would be discoverable only by reading
+            every word in the rail. This is the one entry that has to be
+            noticed, and it stops existing the moment it is used.
+          */}
+          {claimable ? (
+            <RailEntry
+              label="Claim your @name"
+              glyph="+"
+              icons={icons}
+              touch={touch}
+              accessibilityLabel="Claim your name and create your own context"
+              onPress={onClaimContext!}
+              style={styles.claim}
+              labelStyle={styles.claimLabel}
+              testID="rail-claim-context"
+            />
+          ) : null}
         </Group>
       </ScrollView>
 
@@ -154,6 +207,9 @@ function RailEntry({
   leading,
   role = "button",
   accessibilityLabel,
+  style,
+  labelStyle,
+  testID,
 }: {
   label: string;
   glyph: string;
@@ -165,6 +221,10 @@ function RailEntry({
   leading?: ReactNode;
   role?: "button" | "tab";
   accessibilityLabel?: string;
+  /** Painted over the sizing style, so a mode never loses its target size. */
+  style?: StyleProp<ViewStyle>;
+  labelStyle?: StyleProp<TextStyle>;
+  testID?: string;
 }) {
   return (
     <PressRow
@@ -175,18 +235,23 @@ function RailEntry({
       selected={selected}
       onPress={onPress}
       radius={radii.md}
-      style={icons ? styles.entryIcons : touch ? styles.entryTouch : styles.entry}
+      style={[icons ? styles.entryIcons : touch ? styles.entryTouch : styles.entry, style]}
       hoverStyle={styles.entryHover}
       selectedStyle={styles.entryOn}
+      testID={testID}
     >
       {icons ? (
-        <Text style={[styles.glyph, selected && styles.glyphOn]} aria-hidden>
+        <Text style={[styles.glyph, selected && styles.glyphOn, labelStyle]} aria-hidden>
           {glyph}
         </Text>
       ) : (
         <>
           {leading}
-          <Text variant="rail" style={selected ? styles.entryOnLabel : undefined} numberOfLines={1}>
+          <Text
+            variant="rail"
+            style={[selected ? styles.entryOnLabel : undefined, labelStyle]}
+            numberOfLines={1}
+          >
             {label}
           </Text>
         </>
@@ -321,6 +386,20 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
   },
   entryHover: { backgroundColor: colors.surface2 },
+  /**
+   * The one rail entry that is allowed to ask for attention.
+   *
+   * A tinted wash and an accent hairline — the same pair the hint notices use
+   * — rather than a filled button. `entryOn` is the *selected* treatment and
+   * borrowing it would say "you are here" about a route nobody is on.
+   */
+  claim: {
+    marginTop: space.x2,
+    backgroundColor: colors.hintWash,
+    borderWidth: 1,
+    borderColor: colors.hintBorder,
+  },
+  claimLabel: { color: colors.hintStrong },
   entryOn: { backgroundColor: colors.accentDim },
   entryOnLabel: { color: colors.accentText },
   glyph: { color: colors.text2, fontSize: 14 },

@@ -133,12 +133,40 @@ export function BrowsePane({
 
           {manifestBroken ? (
             <View style={[styles.notice, styles.noticeWarn]}>
+              {/*
+                This used to end "Write a valid privacy.md at the root of the
+                bucket, or ask a connected AI client to", and **neither was
+                possible**. Every write path in the product refuses that key:
+                the console's own `writeFile` answers
+                PRIVACY_MANIFEST_READ_ONLY, the gateway's `write_note` answers
+                "that path is reserved", and `set_folder_visibility` answers
+                "privacy.md is required before folder visibility can be
+                changed". The only exit was rclone or the provider's web
+                console — so the sentence sent people to try two things that
+                cannot work, in a state where nothing else works either.
+
+                The button is the exit. It is absent rather than disabled for
+                anyone who is not the owner, so the copy has to carry both
+                cases: an editor reads the same explanation and is told whose
+                fix it is.
+              */}
               <Text variant="hint" style={styles.noticeWarnText}>
                 privacy.md is missing or could not be read, so everything is treated as private
                 and nothing can be shared until it is fixed. Nothing is exposed by this — it
-                fails closed. Write a valid privacy.md at the root of the bucket, or ask a
-                connected AI client to, and sharing works again.
+                fails closed.{" "}
+                {files.canResetPrivacy
+                  ? "Resetting it writes a fresh one declaring the folders this bucket has, every one of them private, and keeps the unreadable file in .history/. Nothing becomes visible to anybody; you choose what to share afterwards."
+                  : "Only the owner of this context can rewrite it — ask them to reset it from their console, or fix it in the bucket directly."}
               </Text>
+              {files.canResetPrivacy ? (
+                <Button
+                  label="Reset privacy.md"
+                  onPress={files.resetPrivacy}
+                  disabled={files.busy}
+                  style={styles.dismiss}
+                  testID="browse-reset-privacy"
+                />
+              ) : null}
             </View>
           ) : null}
 

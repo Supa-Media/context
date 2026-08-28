@@ -350,6 +350,11 @@ export function useLiveConsoleData(): ConsoleData {
   const files = useFileBrowser({
     workspaceId: selectedContextId,
     canEdit,
+    // Not `canEdit`: an `editor` may write notes and may not rewrite the access
+    // map that decides which notes they can see at all. Same rule as
+    // `storageActions`, and the same reason — the control is absent rather than
+    // present and refused.
+    isOwner: selected?.role === "owner",
     readOnlyReason:
       selected === null
         ? undefined

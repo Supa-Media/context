@@ -1,5 +1,11 @@
 import { useState, type ReactNode } from "react";
-import { Pressable, StyleSheet, View, type ViewStyle } from "react-native";
+import {
+  Pressable,
+  StyleSheet,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
 import { colors, radii } from "../tokens";
 import { FocusRing } from "./FocusRing";
 import { Text, type TextVariant } from "./Text";
@@ -214,7 +220,12 @@ export function PressRow({
   selected?: boolean;
   accessibilityLabel: string;
   role?: "button" | "tab" | "link";
-  style?: ViewStyle;
+  /**
+   * `StyleProp`, not a bare `ViewStyle`, so a caller can layer an accent over
+   * the sizing style a mode picked. The three below stay bare objects: they are
+   * *states*, and each is applied whole or not at all.
+   */
+  style?: StyleProp<ViewStyle>;
   hoverStyle?: ViewStyle;
   selectedStyle?: ViewStyle;
   radius?: number;

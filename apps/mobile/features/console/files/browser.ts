@@ -95,6 +95,25 @@ export interface FileBrowser {
   /** Permanent. The UI must have confirmed it in words before calling this. */
   destroy: (path: string) => void;
   setVisibility: (path: string, kind: "file" | "folder", visibility: Visibility) => void;
+  /**
+   * Write a working `privacy.md` over one that is missing or unreadable.
+   *
+   * Present on every browser and inert on most of them, like every other
+   * mutating method here — and the UI decides whether to offer it from
+   * `canResetPrivacy` rather than from whether calling it would throw.
+   */
+  resetPrivacy: () => void;
+  /**
+   * Whether that control should exist at all.
+   *
+   * Three things have to be true and none of them is `canEdit`: the manifest
+   * has to be broken (a reset is refused on one that parses), the caller has to
+   * be the owner (rewriting the access map is not an editor's to do), and this
+   * has to be a console that can act. An editor sees the banner explaining why
+   * nothing can be shared and no button, which is honest — the fix is theirs to
+   * ask for, not theirs to make.
+   */
+  canResetPrivacy: boolean;
 }
 
 /** Every folder currently loaded, for the move dialog's destination list. */

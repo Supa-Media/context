@@ -90,6 +90,7 @@ import {
   listFolder,
   movePath,
   readFile,
+  resetPrivacyManifest,
   setFolderVisibility,
   setVisibility,
   writeFile,
@@ -178,6 +179,22 @@ const folderCreatedValidator = v.object({
   readme: v.string(),
 });
 
+const privacyResetValidator = v.object({
+  kind: v.literal("privacyReset"),
+  path: v.string(),
+  folders: v.array(v.string()),
+  /**
+   * A `.history/` key, and the one place the console is told one.
+   *
+   * Shown because "we replaced your file" and "we replaced your file and here
+   * is where the old one went" are different sentences to somebody whose
+   * manifest had forty rules in it.
+   */
+  backedUpTo: v.union(v.string(), v.null()),
+  /** `folders` is short: the walk hit its cap, or a name could not be a rule. */
+  partial: v.boolean(),
+});
+
 const operationResultValidator = v.union(
   listingValidator,
   fileValidator,
@@ -186,6 +203,7 @@ const operationResultValidator = v.union(
   deletedValidator,
   visibilityResultValidator,
   folderCreatedValidator,
+  privacyResetValidator,
 );
 
 const operationValidator = v.union(
@@ -217,6 +235,7 @@ const operationValidator = v.union(
     path: v.string(),
     visibility: visibilityValidator,
   }),
+  v.object({ kind: v.literal("resetPrivacy") }),
 );
 
 type FileOperation =
@@ -230,7 +249,8 @@ type FileOperation =
   | { kind: "archive"; path: string }
   | { kind: "delete"; path: string; confirmation: string }
   | { kind: "setVisibility"; path: string; visibility: "private" | "team" }
-  | { kind: "setFolderVisibility"; path: string; visibility: "private" | "team" };
+  | { kind: "setFolderVisibility"; path: string; visibility: "private" | "team" }
+  | { kind: "resetPrivacy" };
 
 type OperationResult =
   | {
@@ -276,7 +296,14 @@ type OperationResult =
       inherited: "private" | "team";
       exception: boolean;
     }
-  | { kind: "folderCreated"; path: string; readme: string };
+  | { kind: "folderCreated"; path: string; readme: string }
+  | {
+      kind: "privacyReset";
+      path: string;
+      folders: string[];
+      backedUpTo: string | null;
+      partial: boolean;
+    };
 
 /* -------------------------------------------------------------------------- */
 /*                               authorization                                */
@@ -507,6 +534,10 @@ export async function executeOperation(
           scope,
         });
         return { kind: "visibility", ...result };
+      }
+      case "resetPrivacy": {
+        const result = await resetPrivacyManifest(store, { scope, now });
+        return { kind: "privacyReset", ...result };
       }
     }
   } catch (error) {
@@ -941,6 +972,56 @@ export const setDirectoryVisibility = action({
       action: "visibility.folder",
       paths: [result.path],
       details: { visibility: result.visibility },
+    });
+    return result;
+  },
+});
+
+/**
+ * Write a working `privacy.md` over a missing or unreadable one.
+ *
+ * Owner-only, and the one operation here that is. Every other write is an
+ * editor's to make; this one replaces the file that decides what an editor is
+ * allowed to see at all, and an editor rewriting it would be deciding their own
+ * clearance. `authorizeFileAccess` with `minimum: "owner"` is also what makes
+ * the scope handed down `private`, which `resetPrivacyManifest` requires.
+ *
+ * It cannot touch a manifest that parses — see `lib/fileOps.ts` for why that
+ * check, rather than this one, is the safety argument — and what it writes is
+ * every folder `private`, so a person cannot use it to publish anything.
+ */
+export const resetPrivacy = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: privacyResetValidator,
+  handler: async (
+      ctx,
+      args,
+    ): Promise<Extract<OperationResult, { kind: "privacyReset" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      operation: { kind: "resetPrivacy" },
+    })) as Extract<OperationResult, { kind: "privacyReset" }>;
+
+    await ctx.runMutation(internal.functions.audit.recordEvent, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      action: "privacy.reset",
+      paths: [result.path],
+      // The folder *names* are metadata the audit log already records for every
+      // other operation, and the count is what says how much of a map was
+      // rebuilt. No rule is recorded because there is only one: private.
+      details: {
+        folders: result.folders.length,
+        partial: result.partial,
+        restored: result.backedUpTo !== null,
+      },
     });
     return result;
   },
