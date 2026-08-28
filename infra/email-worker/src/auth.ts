@@ -448,6 +448,29 @@ type Alignment =
   | { ok: true; method: "dmarc" | "dkim" | "spf" }
   | { ok: false; reason: "unaligned" | "not_authenticated" };
 
+/**
+ * Does this set of clauses contain a **veto** — a clause whose presence makes
+ * `evaluateAlignment` refuse without consulting anything after it?
+ *
+ * There is exactly one: a `dmarc=pass` naming a `header.from` other than the
+ * message's From domain. That branch returns `unaligned` and never falls
+ * through to `dkim` or `spf`, which is correct for an intact header — a DMARC
+ * verdict about somebody else's From is not evidence about this one.
+ *
+ * It matters here because reading a folded verdict short (rule 1a) assumes
+ * truncation can only ever *weaken* what the header proves. That holds for
+ * every clause except this one: cut a veto off with the fold and the same
+ * header stops refusing and starts passing.
+ */
+function vetoesAlignment(results: AuthMethodResult[], fromDomain: string): boolean {
+  // `find`, matching `evaluateAlignment` — the first `dmarc` clause is the one
+  // that decides there, so it is the one that decides here.
+  const dmarc = results.find((entry) => entry.method === "dmarc");
+  if (!dmarc || dmarc.result !== "pass") return false;
+  const claimed = dmarc.properties["header.from"];
+  return !!claimed && !sameDomain(claimed, fromDomain);
+}
+
 function evaluateAlignment(results: AuthMethodResult[], fromDomain: string): Alignment {
   const find = (method: string) => results.find((entry) => entry.method === method);
 
@@ -768,6 +791,47 @@ function evaluateSender(input: VerifySenderInput): SenderVerdict {
   const parsed = parseAuthenticationResults(topmost);
   if (!parsed) return { ok: false, reason: "unparseable_authentication_results" };
 
+  // Rule 3b: a veto that fell after the fold means the short read cannot stand.
+  // Stated here beside rule 1a, whose one unsound direction it closes; applied
+  // below rule 3, for the ordering reason at the end of this block.
+  //
+  // Rule 1a is sound because truncation can only remove clauses, and removing a
+  // clause can only make the header prove less. That is true of every clause
+  // but one — see `vetoesAlignment`. A `dmarc=pass` for someone else's
+  // `header.from` refuses outright, so losing it turns a refusal into a pass:
+  // strictly the wrong direction, and the only place in this file where reading
+  // less makes us believe more.
+  //
+  // Reading the *whole* value to find it is safe in a way reading it to make a
+  // verdict is not: the extra clauses are sender-influenced, and this consults
+  // them only to refuse. A sender who splices a veto in refuses their own
+  // message, which is a self-inflicted denial and not a bypass.
+  //
+  // Whether Cloudflare ever wraps its header between a passing clause and a
+  // vetoing one is unknown — the same unverified assumption about another
+  // system's formatting that rule 1a itself runs on. So this is defence in
+  // depth, and it costs one parse of a string already in memory.
+  //
+  // One condition, not two. The obvious spelling also asks that the *truncated*
+  // read lack the veto — "it was cut off" — and that clause is unreachable: if
+  // the first line carries the veto too, `evaluateAlignment` already returns
+  // `unaligned`, which `verifySender` rewrites to this same reason because the
+  // header was folded. Identical answer either way. It was written that way
+  // first, and sabotaging it changed no test — which is the signal that it was
+  // redundant rather than the signal that a test was missing.
+  //
+  // It runs *after* rules 2 and 3, and that is not tidiness. `FOLD_MAY_EXPLAIN`
+  // deliberately excludes `foreign_authserv_id` and
+  // `ambiguous_authentication_results`, because neither is a finding a fold
+  // could have caused. Checking the veto first would hand every one of those
+  // refusals this reason instead — and a sender who prepends a foreign header,
+  // folded, with a veto clause after the fold would downgrade the loudest red
+  // flag this file raises ("a verdict written by an authority we do not
+  // recognise, which is what a sender writing their own verdict looks like")
+  // into its documented shrug ("our own server folded its verdict"). The
+  // sender would be choosing the label on their own message. Order is the
+  // whole guard here.
+
   // Rule 2: the topmost verdict must be from the authority we configured. A
   // sender who prepends their own with a different authserv-id fails here
   // rather than being skipped over in search of a friendlier one — searching
@@ -783,6 +847,16 @@ function evaluateSender(input: VerifySenderInput): SenderVerdict {
     if (other && other.authservId === authServiceId) ours += 1;
   }
   if (ours > 1) return { ok: false, reason: "ambiguous_authentication_results" };
+
+  // Rule 3b, whose reasoning is set out above rule 2: a veto that only appears
+  // in the untruncated header. Placed here so it can never pre-empt a refusal
+  // that a fold cannot explain.
+  if (folded) {
+    const whole = parseAuthenticationResults(headers[0]!);
+    if (whole && vetoesAlignment(whole.results, fromDomain)) {
+      return { ok: false, reason: "folded_authentication_results" };
+    }
+  }
 
   // ── Our MTA's own verdict. Unchanged, and always asked first. ─────────────
   //

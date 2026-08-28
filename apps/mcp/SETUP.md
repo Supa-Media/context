@@ -167,9 +167,11 @@ sections are commented out because they are self-host-only.
 Set `PUBLIC_ORIGIN` in `[vars]` to the origin you will serve on. Every URL in
 both discovery documents is built from it, including the authorization endpoint
 a client sends a person's browser to, so a wrong value is a security problem and
-not a cosmetic one. Unset, the worker falls back to the request's `Host` header,
-which is fine for `wrangler dev` and a workers.dev URL and wrong behind anything
-that rewrites `Host`.
+not a cosmetic one. Unset, discovery URLs fall back to the request's `Host`
+header, which is fine for `wrangler dev` and a workers.dev URL and wrong behind
+anything that rewrites `Host`. That fallback applies to discovery URLs only —
+the browser-origin allowlist never uses it, for the reason under
+`ALLOWED_ORIGINS` below.
 
 ### 3. Set the two required secrets
 
@@ -334,7 +336,12 @@ ALLOWED_ORIGINS = "https://console.example.com"
 ```
 
 Matching is exact — scheme, host and port, no wildcards. This deployment's own
-origin is always allowed and does not need listing.
+origin is allowed without being listed **when `PUBLIC_ORIGIN` declares it**. It
+is deliberately not derived from the request's `Host`: under that fallback the
+allowlist would be whatever a caller claimed, so a rebinding page sending
+`Host: attacker.example` and `Origin: https://attacker.example` would match
+itself. If you leave `PUBLIC_ORIGIN` unset and serve a browser console from the
+gateway's own origin, list that origin here.
 
 **Leaving it unset is safe and is the right default.** Claude Desktop, Codex
 CLI, Claude Code and the MCP SDKs are not browsers and send no `Origin` at all;

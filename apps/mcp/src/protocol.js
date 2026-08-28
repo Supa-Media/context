@@ -261,7 +261,19 @@ export function modernHeaderMismatch(request, msg) {
     return "Mcp-Method header does not match the method in the request body";
   }
 
-  const nameSource = NAME_HEADER_SOURCE[method];
+  // `Object.hasOwn`, not a bare lookup: `method` is attacker-controlled, and a
+  // plain object literal resolves `__proto__`, `valueOf`, `hasOwnProperty` and
+  // friends through `Object.prototype`. Each of those is truthy, so the `if`
+  // below took them for a rule and called them — `nameSource is not a function`
+  // for `__proto__`, and for the genuinely-callable ones a `this`-less invoke
+  // that throws its own TypeError. That throw escaped `fetch` (the try in
+  // `handleModernMcp` starts *after* this call), so a bodyless 500 replaced the
+  // JSON-RPC error the modern contract requires. The legacy path is a `switch`
+  // and was never affected — the divergence was in error handling, not
+  // authority, which is exactly the per-era drift CLAUDE.md warns about.
+  const nameSource = Object.hasOwn(NAME_HEADER_SOURCE, method)
+    ? NAME_HEADER_SOURCE[method]
+    : undefined;
   if (nameSource) {
     const bodyName = nameSource(msg?.params);
     const headerName = request.headers.get("Mcp-Name");

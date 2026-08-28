@@ -607,10 +607,155 @@ check(
     })
   ).status === 200
 );
+// The self-origin is whatever the deployment DECLARED, never whatever `Host`
+// the caller claimed. With no `PUBLIC_ORIGIN` there is no declared origin, so
+// there is no self to allow — which is what "unconfigured means non-browser
+// clients only" has always claimed and did not do. Before this, `publicOrigin`
+// fell back to the request's own `Host`, so the allowlist became a function of
+// attacker input in exactly the rebinding case the file exists to stop: a page
+// sending `Host: x` and `Origin: https://x` matched itself.
 check(
-  "the gateway's own origin is always permitted",
-  (await transportRequest("https://x", { useEnv: noAllowlistEnv })).status === 200
+  "with no PUBLIC_ORIGIN, a browser origin matching the claimed Host is refused",
+  (await transportRequest("https://x", { useEnv: noAllowlistEnv })).status === 403
 );
+check(
+  "a declared PUBLIC_ORIGIN is still permitted without being listed",
+  (
+    await transportRequest("https://x", {
+      useEnv: { ...noAllowlistEnv, PUBLIC_ORIGIN: "https://x" },
+    })
+  ).status === 200
+);
+// Named for what it actually asserts. It was "a claimed Host cannot smuggle
+// itself past a declared PUBLIC_ORIGIN", which passes against the pre-fix code
+// too — `publicOrigin()` always preferred `env.PUBLIC_ORIGIN` when one was set,
+// so the `Host` fallback this change removes was never reached on this path.
+// The check above it is the one that fails on revert; a name promising more
+// than the assertion delivers is how a guard comes to look covered.
+check(
+  "a declared PUBLIC_ORIGIN admits itself and nothing else",
+  (
+    await transportRequest("https://x", {
+      useEnv: { ...noAllowlistEnv, PUBLIC_ORIGIN: "https://mcp.context.test" },
+    })
+  ).status === 403
+);
+check(
+  "tightening the self-origin leaves non-browser clients alone",
+  (await transportRequest(undefined, { useEnv: noAllowlistEnv })).status === 200
+);
+
+// -- the top-level catch
+//
+// The guard `index.js` grew for the two throws that reached the runtime as a
+// bodyless 1101. Untested it is an assertion in a comment: deleting the whole
+// `try`/`catch` left all 457 checks green, which is precisely the shape this
+// repo's "a guard nobody has checked is not a guard" rule names.
+//
+// `env` is a proxy that throws on first touch, so the throw originates inside
+// `route()` rather than being handed to the catch directly.
+const throwingEnv = new Proxy(
+  {},
+  {
+    get() {
+      throw new TypeError("secret-bucket-key-abc123 not readable");
+    },
+  }
+);
+const loggedLines = [];
+const realConsoleError = console.error;
+console.error = (...parts) => loggedLines.push(parts.join(" "));
+// Caught here, not left to propagate. Removing the guard makes `fetch` throw,
+// and an uncaught throw at this line kills the process — exit 1, zero FAIL,
+// which is the "looks like detection and is the opposite" shape the header of
+// this file warns about. A null response turns it into four named failures.
+let caughtRes = null;
+try {
+  caughtRes = await worker.fetch(new Request("https://x/mcp", { method: "POST" }), throwingEnv, {
+    waitUntil() {},
+  });
+} catch {
+  caughtRes = null;
+} finally {
+  console.error = realConsoleError;
+}
+check("an unhandled throw becomes a 500, not a dead request", caughtRes?.status === 500);
+const caughtBody = caughtRes ? await caughtRes.text() : "";
+check("the 500 says nothing about what threw", caughtBody === '{"error":"server_error"}');
+check(
+  "and the thrown message reaches neither body nor headers",
+  caughtRes !== null &&
+    !caughtBody.includes("secret-bucket-key-abc123") &&
+    ![...caughtRes.headers.values()].some((v) => v.includes("secret-bucket-key-abc123"))
+);
+// Catching removes the throw from Cloudflare's exception stream, and this
+// Worker logs nowhere else. A silent catch would trade a dead request for an
+// invisible one.
+check(
+  "the operator gets the error class, and only the class",
+  loggedLines.length === 1 &&
+    loggedLines[0].includes("TypeError") &&
+    !loggedLines[0].includes("secret-bucket-key-abc123")
+);
+
+// The log line must not be able to defeat the catch it lives in. Both cases
+// need our own code to throw a non-Error, which nothing does today — every
+// `throw` in `src/` raises an `Error` subclass. That is a fact about code
+// somebody will edit, so it is asserted rather than audited.
+async function fetchThrowing(thrown) {
+  const lines = [];
+  const real = console.error;
+  console.error = (...parts) => lines.push(parts.join(" "));
+  let res = null;
+  try {
+    res = await worker.fetch(
+      new Request("https://x/mcp", { method: "POST" }),
+      new Proxy({}, { get() { throw thrown; } }),
+      { waitUntil() {} }
+    );
+  } catch {
+    res = null;
+  } finally {
+    console.error = real;
+  }
+  return { status: res?.status ?? null, logged: lines.join(" | ") };
+}
+
+// A plain object carrying its own `constructor.name` — read unguarded, that
+// name is printed verbatim, and it is whatever the thrower put there.
+const forgedClass = await fetchThrowing({
+  constructor: { name: "secret-bucket-key-abc123" },
+  name: "secret-bucket-key-abc123",
+});
+check("a thrown non-Error cannot name its own class in the log", forgedClass.status === 500);
+check(
+  "and nothing it carries is printed",
+  !forgedClass.logged.includes("secret-bucket-key-abc123") && forgedClass.logged.includes("object")
+);
+
+// Reading a property can throw. Unguarded that throw escapes `fetch` and the
+// request dies as a bodyless 1101 — the guard undone by the input it is for.
+const hostileGetter = await fetchThrowing(
+  new Proxy(new TypeError("boom"), {
+    get(target, prop) {
+      if (prop === "name" || prop === "constructor") throw new Error("nope");
+      return Reflect.get(target, prop);
+    },
+  })
+);
+check("a throw while reading the error still answers 500", hostileGetter.status === 500);
+
+// A thrown string, number, null: no class to read at all.
+for (const [label, thrown] of [
+  ["a string", "secret-bucket-key-abc123"],
+  ["null", null],
+]) {
+  const res = await fetchThrowing(thrown);
+  check(
+    `a thrown ${label} still answers 500 and logs nothing of it`,
+    res.status === 500 && !res.logged.includes("secret-bucket-key-abc123")
+  );
+}
 
 // The refusal must not become the oracle the rest of the gateway avoids being.
 const refusalFingerprints = await Promise.all([
@@ -835,6 +980,34 @@ for (const [label, options] of headerMismatchCases) {
     res.status === 400 && res.body?.error?.code === -32020
   );
 }
+// A method name inherited from Object.prototype must be an ordinary unknown
+// method, not a crash. `NAME_HEADER_SOURCE` is a plain object literal, so a
+// bare lookup resolved `__proto__`, `valueOf` and friends through the
+// prototype: each is truthy, so the mirrored-header check took it for a rule
+// and called it. That threw *outside* the try in `handleModernMcp`, escaped
+// `fetch`, and returned a bodyless 500 in place of the JSON-RPC error the
+// modern contract requires. The legacy path is a `switch` and never was
+// affected — so this is per-era divergence, the shape CLAUDE.md warns about.
+for (const prototypeMethod of [
+  "__proto__",
+  "valueOf",
+  "hasOwnProperty",
+  "__defineGetter__",
+  "constructor",
+  "toString",
+]) {
+  const modernRes = await modernFetch({ method: prototypeMethod });
+  check(
+    `a prototype-named method (${prototypeMethod}) is method-not-found on the modern path, not a crash`,
+    modernRes.status !== 500 && modernRes.body?.error?.code === -32601
+  );
+  const legacyRes = await rpc("priv-token", prototypeMethod, {});
+  check(
+    `and the legacy path answers it identically (${prototypeMethod})`,
+    legacyRes?.error?.code === -32601
+  );
+}
+
 // A non-ASCII tool name travels base64-wrapped; the server must decode before
 // comparing, or a legal name looks like an attack.
 check(

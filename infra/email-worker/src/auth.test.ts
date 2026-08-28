@@ -949,3 +949,111 @@ describe("domainOf", () => {
     expect(domainOf("@nope")).toBe("");
   });
 });
+
+/**
+ * Reading a folded verdict short assumes truncation can only ever weaken it.
+ * `evaluateAlignment` has one branch where that is false.
+ *
+ * A `dmarc=pass` whose `header.from` names a domain other than the message's
+ * From is a hard refusal — it returns `unaligned` and never falls through to
+ * the `dkim` and `spf` checks after it. So that clause is a **veto**, and a
+ * veto is the one kind of clause whose removal makes the verdict *stronger*.
+ *
+ * Cut it off with the fold and the same header stops refusing and starts
+ * passing. Whether Cloudflare ever wraps its own header between those two
+ * clauses is not known — the same unverified assumption about another system's
+ * formatting the fold rule has run on since #35 — so this is defence in depth
+ * rather than a demonstrated delivery. The guard costs one parse of a string we
+ * already hold and can only ever refuse, so the risk runs the safe way.
+ */
+describe("a folded verdict cannot be read into a stronger claim", () => {
+  const AUTHSERV = "mx.cloudflare.net";
+  const FIRST_LINE = `${AUTHSERV}; dkim=pass header.d=victim.test`;
+  const VETO = "dmarc=pass header.from=other.test";
+
+  const ask = (full: string, firstLine: string, folded: boolean) =>
+    verifySender({
+      authenticationResults: [full],
+      authenticationResultsFolded: [folded],
+      authenticationResultsFirstLine: [firstLine],
+      arcAuthenticationResults: [],
+      fromAddress: "alice@victim.test",
+      authServiceId: AUTHSERV,
+    });
+
+  it("refuses the intact header, which is the answer being preserved", () => {
+    const full = `${FIRST_LINE}; ${VETO}`;
+    expect(ask(full, full, false)).toEqual({ ok: false, reason: "unaligned" });
+  });
+
+  it("does not turn that refusal into a pass when the veto falls after the fold", () => {
+    expect(ask(`${FIRST_LINE}; ${VETO}`, FIRST_LINE, true).ok).toBe(false);
+  });
+
+  it("still reads a folded header short when nothing was vetoing", () => {
+    // The whole point of #52: an ordinary long header keeps working. Only a
+    // clause that would have *refused* stops the short read.
+    const full = `${FIRST_LINE}; spf=pass smtp.mailfrom=bounce@victim.test`;
+    expect(ask(full, FIRST_LINE, true)).toEqual({
+      ok: true,
+      address: "alice@victim.test",
+      domain: "victim.test",
+      method: "dkim",
+    });
+  });
+
+  it("does not veto a `dmarc=pass` that simply omits `header.from`", () => {
+    // `evaluateAlignment` treats an absent `header.from` as "not a mismatch" —
+    // some MTAs omit it, and DMARC is defined against the From domain anyway.
+    // The veto must agree. Sabotage: drop the `!!claimed` guard, so the
+    // comparison runs against `""`, and this refuses every folded header from
+    // an MTA with that formatting — i.e. it labels ordinary mail unverified,
+    // which is the production symptom #52 exists to remove.
+    const full = `${FIRST_LINE}; dmarc=pass`;
+    expect(ask(full, FIRST_LINE, true)).toEqual({
+      ok: true,
+      address: "alice@victim.test",
+      domain: "victim.test",
+      method: "dkim",
+    });
+  });
+
+  /**
+   * Where the veto runs, which is a different property from what it says.
+   *
+   * `FOLD_MAY_EXPLAIN` names the three reasons a fold could itself have caused.
+   * `foreign_authserv_id` and `ambiguous_authentication_results` are
+   * deliberately not among them — the authserv-id is the first token of the
+   * first line, so it is never truncated away, and a duplicate header is a
+   * finding about a *different* header. A veto checked before those two rules
+   * would relabel both, and the sender chooses whether there is a veto.
+   */
+  describe("and cannot be used to relabel a refusal a fold could not have caused", () => {
+    const FOREIGN = "evil.example; dkim=pass header.d=victim.test";
+
+    it("still reports a foreign authserv-id, not the fold", () => {
+      // The downgrade an attacker wants: from "a verdict written by an
+      // authority we do not recognise, which is what a sender writing their
+      // own verdict looks like" to "our own server folded its verdict", which
+      // this file's own prose treats as a shrug.
+      expect(ask(`${FOREIGN}; ${VETO}`, FOREIGN, true)).toEqual({
+        ok: false,
+        reason: "foreign_authserv_id",
+      });
+    });
+
+    it("still reports two verdicts claiming our authority, not the fold", () => {
+      const first = `${FIRST_LINE}; ${VETO}`;
+      expect(
+        verifySender({
+          authenticationResults: [first, `${AUTHSERV}; dkim=pass header.d=victim.test`],
+          authenticationResultsFolded: [true, false],
+          authenticationResultsFirstLine: [FIRST_LINE, ""],
+          arcAuthenticationResults: [],
+          fromAddress: "alice@victim.test",
+          authServiceId: AUTHSERV,
+        }),
+      ).toEqual({ ok: false, reason: "ambiguous_authentication_results" });
+    });
+  });
+});
