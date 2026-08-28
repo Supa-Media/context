@@ -216,42 +216,45 @@ describe("which redirect URIs this deployment answers on", () => {
 
 describe("who may answer a connect", () => {
   /**
-   * THE ANTI-CSRF BINDING, and the sabotage is one line: delete
-   * `if (attempt.startedBy !== args.userId) return null;`.
+   * `#76` removed the `startedBy` check on the callback, deliberately, and the
+   * reasoning above `completeDropboxConnect` holds: an interceptor of the full
+   * callback URL can complete — or, by failing the exchange, burn — the
+   * victim's *own* connect, which was the victim's intent anyway. Availability,
+   * not access. The check cost the flow one more way to fail for its owner, and
+   * on the first real run it was the only thing that did.
    *
-   * Without it the attacker parks their own attempt, hands the victim the
-   * callback URL, and the victim's browser completes it — silently rebinding
-   * the victim's context to the attacker's Dropbox. Every note written
-   * afterwards lands in the attacker's account.
+   * What makes that safe is what this block pins instead: the binding goes to
+   * the workspace the ATTEMPT names, with the starter as `boundBy`, and a
+   * caller supplies neither. The attack the check appeared to stop — an
+   * attacker's workspace binding to the victim's Dropbox — was never stopped by
+   * it (the attacker really did start their own attempt); it is stopped by the
+   * redirect pin above.
    */
-  test("a callback answered by somebody else is refused", async () => {
+  test("the workspace and the actor come from the attempt, never from the caller", async () => {
     const { t, owner, workspaceId } = await scenario();
-    const stranger = await createUser(t, "stranger@example.invalid");
     const state = await parkedAttempt(t, workspaceId, owner);
 
     const consumed = await t.mutation(
       internal.functions.dropboxConnect.consumeAttemptAndExchange,
-      { hashedState: await hashToken(state), userId: stranger, code: "code-1" },
+      { hashedState: await hashToken(state), code: "code-1" },
     );
-    expect(consumed).toBe(null);
+    expect(consumed?.workspaceId).toBe(workspaceId);
   });
 
   /**
    * Sabotage: move the `ctx.db.delete` after the exchange, or drop it.
    * Deleting before it is used means a code that fails at the exchange has
    * still spent its attempt — otherwise one intercepted callback URL becomes
-   * unlimited attempts at the same state.
+   * unlimited attempts at the same state. This matters MORE since `#76`, not
+   * less: it is now the only thing bounding what an interceptor can do.
    */
-  test("an attempt is spent by being answered, whoever answers it", async () => {
+  test("an attempt is spent by being answered", async () => {
     const { t, owner, workspaceId } = await scenario();
-    const stranger = await createUser(t, "stranger@example.invalid");
     const state = await parkedAttempt(t, workspaceId, owner);
     const hashedState = await hashToken(state);
 
-    // Refused — but spent.
     await t.mutation(internal.functions.dropboxConnect.consumeAttemptAndExchange, {
       hashedState,
-      userId: stranger,
       code: "code-1",
     });
     const remaining = await t.run(async (ctx) =>
@@ -259,11 +262,9 @@ describe("who may answer a connect", () => {
     );
     expect(remaining).toHaveLength(0);
 
-    // And the rightful owner replaying the same state finds nothing, which is
-    // the same absence a forged state gets.
     const replay = await t.mutation(
       internal.functions.dropboxConnect.consumeAttemptAndExchange,
-      { hashedState, userId: owner, code: "code-1" },
+      { hashedState, code: "code-1" },
     );
     expect(replay).toBe(null);
   });
@@ -276,36 +277,35 @@ describe("who may answer a connect", () => {
     });
     const consumed = await t.mutation(
       internal.functions.dropboxConnect.consumeAttemptAndExchange,
-      { hashedState: await hashToken(state), userId: owner, code: "code-1" },
+      { hashedState: await hashToken(state), code: "code-1" },
     );
     expect(consumed).toBe(null);
   });
 
   /**
-   * Every refusal is the same refusal.
-   *
-   * Never-issued, not-yours, already-answered and expired must be one answer,
-   * for the reason `invitationNotFound()` gives one file over: a refusal that
-   * distinguishes them tells the caller which of those four things is true
-   * about somebody else's flow.
+   * Every refusal is the same refusal — never-issued, already-answered and
+   * expired are one absence, for the reason `invitationNotFound()` gives one
+   * file over.
    */
-  test("never-issued, not-yours, spent and expired are one answer", async () => {
+  test("never-issued, spent and expired are one answer", async () => {
     const { t, owner, workspaceId } = await scenario();
-    const stranger = await createUser(t, "stranger@example.invalid");
-
     const answers: unknown[] = [];
+
     answers.push(
       await t.mutation(internal.functions.dropboxConnect.consumeAttemptAndExchange, {
         hashedState: await hashToken("never-issued-at-all"),
-        userId: owner,
         code: "c",
       }),
     );
-    const notYours = await parkedAttempt(t, workspaceId, owner);
+    const spent = await parkedAttempt(t, workspaceId, owner);
+    const spentHash = await hashToken(spent);
+    await t.mutation(internal.functions.dropboxConnect.consumeAttemptAndExchange, {
+      hashedState: spentHash,
+      code: "c",
+    });
     answers.push(
       await t.mutation(internal.functions.dropboxConnect.consumeAttemptAndExchange, {
-        hashedState: await hashToken(notYours),
-        userId: stranger,
+        hashedState: spentHash,
         code: "c",
       }),
     );
@@ -313,7 +313,6 @@ describe("who may answer a connect", () => {
     answers.push(
       await t.mutation(internal.functions.dropboxConnect.consumeAttemptAndExchange, {
         hashedState: await hashToken(expired),
-        userId: owner,
         code: "c",
       }),
     );
