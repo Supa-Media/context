@@ -11,18 +11,19 @@ scratch.
 
 ## The deal
 
-**You keep your data.** Your notes are plain Markdown in a bucket *you* own —
-Cloudflare R2, AWS S3, Backblaze B2, any S3-compatible storage. You paste a
-scoped key; we read and write through it. Revoke the key and we're gone, and
-every file is still sitting in your bucket, still readable, still yours.
+**You keep your data.** Connect Dropbox in one click, or bring a bucket you own
+outright — Cloudflare R2, AWS S3, Backblaze B2, or any S3-compatible storage.
+Either way, your notes stay plain Markdown in a storage account you control.
+Disconnect Context and every file is still there, still readable, still yours.
 
 That's not a feature we might remove later. It's the architecture:
 
 - **Plain files are canonical.** Markdown you can open in Obsidian, grep, or
   `rclone` out. Never a proprietary database that becomes the only copy.
-- **Tenancy is bucket-level.** We never rewrite your keys or namespace your
-  paths. A bucket already laid out this way just works — connect it and nothing
-  about it changes.
+- **Your storage keeps its native shape.** In Dropbox, the context is an
+  ordinary folder. In object storage, tenancy is bucket-level: we never rewrite
+  your keys or namespace your paths. Existing contexts connect without a
+  migration.
 - **The gateway is portable.** `apps/mcp` is a self-contained Cloudflare Worker.
   If Context.LC disappears tomorrow, deploy it yourself and your bucket keeps
   working.
@@ -42,17 +43,17 @@ That's not a feature we might remove later. It's the architecture:
 └────────────────────┘      │  storage bindings    │      │  3-resources/      │
                             ├──────────────────────┤      │  4-archive/        │
                             │  MCP gateway         │─────▶│  index.md          │
-                            │  (Cloudflare Worker) │ your │  privacy.md        │
-                            └──────────────────────┘ keys │  .history/         │
+                            │  (Cloudflare Worker) │OAuth │  privacy.md        │
+                            └──────────────────────┘/keys │  .history/         │
                                                           │  .audit/           │
                                                           └────────────────────┘
      control plane holds metadata only — never your notes, never a second copy
 ```
 
 Two planes, and the split is the whole point. The **control plane** knows who
-you are, which bucket is yours, and which AI clients you've authorized. The
-**data plane** is your bucket. Delete your Context account and the control plane
-forgets you; the data plane is untouched.
+you are, which storage is yours, and which AI clients you've authorized. The
+**data plane** is your Dropbox folder or bucket. Delete your Context account and
+the control plane forgets you; the data plane is untouched.
 
 ## Structure your context however you like
 
