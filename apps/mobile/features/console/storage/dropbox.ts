@@ -181,8 +181,12 @@ export type DropboxStartState =
 export type DropboxCallbackView =
   /** Auth is still resolving. Render nothing rather than flashing a screen. */
   | { kind: "wait" }
-  /** Signed out. The code and state ride along so a reload does not lose them. */
-  | { kind: "signIn"; href: string }
+  /**
+   * Queued by a signed-out finisher. The exchange needs no session — PKCE
+   * binds the code to the parked attempt — but *watching* the result does,
+   * so the honest terminal state is "finishing; sign in to see it land".
+   */
+  | { kind: "finishing"; href: string }
   /** They pressed Cancel on Dropbox's own screen. */
   | { kind: "cancelled" }
   /** No code and no refusal — there is nothing here to finish. */
@@ -222,14 +226,13 @@ export function resolveDropboxCallbackView(inputs: {
   if (inputs.callback.kind === "cancelled") return { kind: "cancelled" };
   if (inputs.callback.kind === "incomplete") return { kind: "incomplete" };
 
-  if (inputs.auth.isLoading) return { kind: "wait" };
-  if (!inputs.auth.isAuthenticated) {
-    // The code travels in `next`. It is already in this URL bar, so nothing is
-    // newly exposed, and dropping it would strand somebody whose session
-    // expired while they were on Dropbox's screen.
-    return { kind: "signIn", href: loginHref(dropboxCallbackHref(inputs.callback)) };
-  }
-
+  // THERE IS DELIBERATELY NO SIGN-IN WALL HERE. The first live run lost the
+  // session on the OAuth round trip (a refresh-token rotation dropped
+  // mid-redirect reads as reuse and kills the grant), and the email OTP that
+  // followed cost more time than Dropbox's single-use code lives — the wall
+  // was the only thing that made the connect fail. The exchange needs no
+  // session: PKCE binds the code to the parked attempt, and the attempt
+  // already names the workspace and the person. See `completeDropboxConnect`.
   if (inputs.attempt === undefined || inputs.attempt.kind === "running") {
     return { kind: "working", message: "Finishing the connection with Dropbox…" };
   }
@@ -237,7 +240,16 @@ export function resolveDropboxCallbackView(inputs: {
     return { kind: "failed", failure: inputs.attempt.failure };
   }
 
-  // Queued. The exchange, the binding write and the probe all happen out of
+  // Queued. Watching the result is the one part that does need a session —
+  // `getStorageBinding` answers only the workspace's own members — so a
+  // signed-out finisher gets the truth instead of a watch that cannot run:
+  // the connection is finishing server-side, and their console will show it.
+  if (inputs.auth.isLoading) return { kind: "wait" };
+  if (!inputs.auth.isAuthenticated) {
+    return { kind: "finishing", href: loginHref(CONSOLE_ROUTE) };
+  }
+
+  // The exchange, the binding write and the probe all happen out of
   // reach of this caller — `completeDropboxConnect` schedules them so that no
   // public function ever has a credential in scope — so the row is the only
   // thing that can say what happened. Same watch the bucket path already runs

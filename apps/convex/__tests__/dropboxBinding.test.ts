@@ -236,3 +236,57 @@ describe("what the console may see", () => {
     expect(JSON.stringify(view)).not.toContain("v2:");
   });
 });
+
+describe("a connect that fails after 'started'", () => {
+  /**
+   * `exchangeAndBind` is scheduled, so a throw reaches nobody — the caller was
+   * told "started" and is watching the binding. Seen live on the first real
+   * run: the sign-in wall cost enough time that Dropbox's single-use code
+   * expired, the exchange threw, and the screen sat on "still checking" over a
+   * connection that had already failed for good. The failure is now written
+   * where the watcher is looking.
+   */
+  test("a failed exchange writes an error the watcher can see", async () => {
+    const { t, owner, workspaceId } = await scenario();
+    await t.mutation(internal.functions.dropboxConnect.recordConnectFailure, {
+      workspaceId,
+      boundBy: owner,
+      errorCode: "DROPBOX_CODE_EXPIRED",
+    });
+
+    const binding = await t.run((ctx) =>
+      ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique(),
+    );
+    expect(binding?.status).toBe("error");
+    expect(binding?.errorCode).toBe("DROPBOX_CODE_EXPIRED");
+    // The message says what to do, not what went wrong internally.
+    expect(binding?.lastError).toContain("Connect Dropbox again");
+    // And no credential fields exist on it, so the gateway refuses it loudly
+    // rather than half-serving.
+    expect(binding?.encryptedRefreshToken).toBeUndefined();
+  });
+
+  test("a failed reconnect never clobbers storage that still works", async () => {
+    const { t, owner, workspaceId } = await scenario();
+    await dropboxBound(t, workspaceId, owner); // status: connected
+
+    await t.mutation(internal.functions.dropboxConnect.recordConnectFailure, {
+      workspaceId,
+      boundBy: owner,
+      errorCode: "DROPBOX_EXCHANGE_FAILED",
+    });
+
+    const binding = await t.run((ctx) =>
+      ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique(),
+    );
+    // Untouched: the person still has the context they had.
+    expect(binding?.status).toBe("connected");
+    expect(binding?.errorCode).toBeUndefined();
+  });
+});

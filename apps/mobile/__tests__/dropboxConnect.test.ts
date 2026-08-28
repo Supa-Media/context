@@ -232,21 +232,36 @@ describe("resolveDropboxCallbackView", () => {
     );
   });
 
-  test("auth still resolving renders nothing rather than flashing a screen", () => {
-    expect(view({ auth: { isLoading: true, isAuthenticated: false } }).kind).toBe("wait");
+  /**
+   * THERE IS NO SIGN-IN WALL, and this pins its absence.
+   *
+   * The first live run lost the session on the OAuth round trip, and the wall
+   * that used to be here cost enough OTP time that Dropbox's single-use code
+   * expired — it was the only thing that made the connect fail. The exchange
+   * needs no session (PKCE binds the code to the parked attempt), so a
+   * signed-out arrival starts working immediately instead of being sent to
+   * `/login`.
+   */
+  test("a signed-out arrival starts the exchange, never a sign-in wall", () => {
+    const resolved = view({ auth: { isLoading: false, isAuthenticated: false } });
+    expect(resolved.kind).toBe("working");
+    // Even while auth is still resolving: the exchange does not wait on it.
+    expect(view({ auth: { isLoading: true, isAuthenticated: false } }).kind).toBe("working");
   });
 
   /**
-   * The code and the state exist in this URL for about a minute and nowhere
-   * else. A bare `/login` drops them, and the person comes back to a page that
-   * has nothing to finish.
+   * The one part that does need a session is *watching* the binding, which is
+   * members-only. A signed-out finisher gets the honest terminal state — the
+   * connection is finishing server-side — with a way into their console.
    */
-  test("signed out carries the code and state through sign-in", () => {
-    const resolved = view({ auth: { isLoading: false, isAuthenticated: false } });
-    expect(resolved.kind).toBe("signIn");
-    if (resolved.kind !== "signIn") throw new Error("unreachable");
-    const next = new URL(resolved.href, "https://context.lc").searchParams.get("next");
-    expect(next).toBe("/connect/dropbox?code=codeexample&state=stateexample");
+  test("queued while signed out says it is finishing, and offers sign-in", () => {
+    const resolved = view({
+      auth: { isLoading: false, isAuthenticated: false },
+      attempt: { kind: "queued", workspaceId: "w1" },
+    });
+    expect(resolved.kind).toBe("finishing");
+    if (resolved.kind !== "finishing") throw new Error("unreachable");
+    expect(resolved.href).toContain("/login");
   });
 
   test("before and during the exchange it says what it is doing", () => {

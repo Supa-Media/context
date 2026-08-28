@@ -1,26 +1,36 @@
-import { StyleSheet, View } from "react-native";
+import { useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { FormError } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
-import { leading } from "../../design/tokens";
+import { colors, leading, radii } from "../../design/tokens";
 import { ConnectForm } from "./ConnectForm";
-import { DropboxCard } from "./DropboxCard";
+import { DROPBOX_REDIRECT_ORIGINS } from "./dropbox";
 import { useDropboxStart } from "./useDropboxStart";
 import type { ConnectFormValues } from "./connect";
 
 /**
- * The two ways to give a context somewhere to keep its notes, on one screen.
+ * Two square cards, and nothing else until one is chosen.
  *
- * **Both, at once, neither hidden.** Not a segmented control with one path
- * behind a tab and not a "advanced" link under the easy one: the choice is a
- * real trade and each side is right for a different person, so burying either
- * would be making the decision for them. Dropbox is first because it is the
- * one that asks nothing of somebody who has never made a bucket; the bucket is
- * underneath in full, with its own heading and its own copy about what happens
- * to the credential.
+ * This replaces a screen that showed the Dropbox pitch, a paragraph of
+ * trade-off prose, and the whole bucket form at once. Seyi's verdict on it:
+ * too robust — "just two options, simple square cards next to each other".
+ * The details belong behind the click, not in front of it.
  *
- * The reason this is a choice at all: R2 wants a payment method before it will
- * hand out a free bucket, and that is the largest wall in the funnel. It is
- * not a reason to stop recommending a bucket to anybody who wants the storage
- * to answer to nobody but them.
+ * **The bucket is first.** It is the path we recommend — storage that answers
+ * to nobody but its owner, revocable at a provider they pay themselves,
+ * syncable to Obsidian where it already lives. Dropbox is the tier for
+ * somebody who will never make a bucket, and second position is part of
+ * saying so.
+ *
+ * **Pressing Dropbox goes, it does not reveal.** There is nothing to ask —
+ * the app is folder-scoped, so there is no folder question and no credential
+ * to paste — and a card that expanded into one more button would be a step
+ * that exists only to be clicked through. The one case with something to show
+ * is an origin Dropbox will not redirect back to (a native build, an
+ * unregistered host); pressing there explains instead of leaving for an error
+ * page. The second-context folder question this screen used to carry is gone
+ * with the prose: `rootPrefix` still exists end to end, and the rare person
+ * who needs it is not served by every first-run seeing the question.
  */
 export function StorageChoice({
   workspaceId,
@@ -28,7 +38,7 @@ export function StorageChoice({
   onCancel,
   dropboxNote,
 }: {
-  /** The context being connected. `null` disables the Dropbox button only. */
+  /** The context being connected. `null` disables the Dropbox card only. */
   workspaceId: string | null;
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   /** Present when this is replacing a binding rather than making the first one. */
@@ -37,26 +47,178 @@ export function StorageChoice({
   dropboxNote?: string;
 }) {
   const dropbox = useDropboxStart(workspaceId);
+  return (
+    <StorageChoiceBody
+      dropboxReady={workspaceId !== null}
+      redirectUri={dropbox.redirectUri}
+      dropboxState={dropbox.state}
+      startDropbox={dropbox.start}
+      connect={connect}
+      onCancel={onCancel}
+      dropboxNote={dropboxNote}
+    />
+  );
+}
+
+/**
+ * The screen itself, hooks already resolved — what the suite drives directly,
+ * exactly as `DropboxCallbackBody` is.
+ */
+export function StorageChoiceBody({
+  dropboxReady,
+  redirectUri,
+  dropboxState,
+  startDropbox,
+  connect,
+  onCancel,
+  dropboxNote,
+}: {
+  dropboxReady: boolean;
+  redirectUri: string | null;
+  dropboxState: import("./dropbox").DropboxStartState;
+  startDropbox: () => void;
+  connect: (values: ConnectFormValues) => Promise<{ status: string }>;
+  onCancel?: () => void;
+  dropboxNote?: string;
+}) {
+  const [bucketOpen, setBucketOpen] = useState(false);
+  const [dropboxBlocked, setDropboxBlocked] = useState(false);
+
+  const starting = dropboxState.kind === "starting";
 
   return (
     <View style={styles.stack}>
-      <DropboxCard
-        redirectUri={dropbox.redirectUri}
-        state={dropbox.state}
-        start={dropbox.start}
-        note={dropboxNote}
-      />
-      <Text variant="foot" style={styles.divider}>
-        Or bring storage you own outright. Both keep plain Markdown you can read without
-        us; the difference is whose account the bytes sit in, and only one of these lets
-        you revoke us at a provider you pay yourself.
-      </Text>
-      <ConnectForm connect={connect} onCancel={onCancel} />
+      <View style={styles.cards}>
+        <ChoiceCard
+          testID="choose-bucket"
+          title="Connect an S3 bucket"
+          sub="Storage you own outright. Works with R2, S3, B2 — and syncs to Obsidian."
+          badge="Recommended"
+          selected={bucketOpen}
+          onPress={() => setBucketOpen((open) => !open)}
+        />
+        <ChoiceCard
+          testID="choose-dropbox"
+          title="Connect Dropbox"
+          sub="One click. Context gets its own folder — the rest stays invisible to us."
+          selected={false}
+          busy={starting}
+          disabled={!dropboxReady || starting}
+          onPress={() => {
+            if (redirectUri === null) {
+              // Explain rather than leave for Dropbox's own error page.
+              setDropboxBlocked(true);
+              return;
+            }
+            startDropbox();
+          }}
+        />
+      </View>
+
+      {dropboxBlocked && redirectUri === null ? (
+        <Text variant="foot" role="status" style={styles.note} testID="dropbox-unavailable">
+          Connecting Dropbox happens in a browser at{" "}
+          {DROPBOX_REDIRECT_ORIGINS.join(" or ")} — open one of those and this card works.
+          A bucket connects from anywhere, including here.
+        </Text>
+      ) : null}
+      {dropboxNote && !dropboxBlocked ? (
+        <Text variant="foot" style={styles.note}>
+          {dropboxNote}
+        </Text>
+      ) : null}
+      {dropboxState.kind === "failed" ? (
+        <FormError
+          headline={dropboxState.failure.headline}
+          next={[dropboxState.failure.next, dropboxState.failure.detail]
+            .filter(Boolean)
+            .join(" ")}
+        />
+      ) : null}
+
+      {bucketOpen ? <ConnectForm connect={connect} onCancel={onCancel} /> : null}
     </View>
+  );
+}
+
+/**
+ * One square-ish option. A `Pressable` rather than a `Card`, because the whole
+ * face is the control — and `minWidth` + `flexWrap` on the row above is what
+ * stacks them on a phone without a width branch (`useWindowDimensions` is 0 in
+ * jsdom, so a width branch would also make every test silently take the phone
+ * path).
+ */
+function ChoiceCard({
+  title,
+  sub,
+  badge,
+  selected,
+  busy,
+  disabled,
+  onPress,
+  testID,
+}: {
+  title: string;
+  sub: string;
+  badge?: string;
+  selected: boolean;
+  busy?: boolean;
+  disabled?: boolean;
+  onPress: () => void;
+  testID: string;
+}) {
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityState={{ selected, disabled: Boolean(disabled), busy: Boolean(busy) }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.choice,
+        selected && styles.choiceSelected,
+        pressed && styles.choicePressed,
+        disabled && styles.choiceDisabled,
+      ]}
+    >
+      {badge ? (
+        <Text variant="foot" style={styles.badge}>
+          {badge}
+        </Text>
+      ) : null}
+      <Text variant="rowTitle">{title}</Text>
+      <Text variant="rowSub" style={styles.sub}>
+        {sub}
+      </Text>
+      {busy ? <ActivityIndicator size="small" color={colors.text2} style={styles.busy} /> : null}
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   stack: { gap: 14 },
-  divider: { lineHeight: leading(12.5, 1.7), marginTop: 2 },
+  cards: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  choice: {
+    flexGrow: 1,
+    flexBasis: 220,
+    minHeight: 132,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radii.card,
+    backgroundColor: colors.surface2,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+  },
+  choiceSelected: { borderColor: colors.lineStrong, backgroundColor: colors.surface3 },
+  choicePressed: { backgroundColor: colors.surface3 },
+  choiceDisabled: { opacity: 0.55 },
+  badge: { color: colors.okText },
+  sub: { lineHeight: leading(13, 1.55) },
+  busy: { position: "absolute", top: 14, right: 14 },
+  note: { lineHeight: leading(12.5, 1.7) },
 });
