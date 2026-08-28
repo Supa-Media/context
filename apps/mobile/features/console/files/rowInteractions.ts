@@ -1,4 +1,11 @@
-import type { DragModifier } from "./dnd";
+import {
+  LONG_PRESS_MS,
+  type RowInteractionOptions,
+  type RowInteractions,
+} from "./rowInteractionContract";
+
+export type { RowInteractionOptions, RowInteractions } from "./rowInteractionContract";
+export { LONG_PRESS_MS } from "./rowInteractionContract";
 
 /**
  * Right-click, long-press and drag on a tree row — the native half.
@@ -20,48 +27,6 @@ import type { DragModifier } from "./dnd";
  * options a native build cannot honour are accepted and ignored rather than
  * removed from the type, so the call sites stay identical.
  */
-export interface RowInteractionOptions {
-  path: string;
-  /**
-   * Raise the menu. The anchor is where the pointer was; touch ignores it.
-   *
-   * Optional, and its absence is the whole answer: a row with no menu — the
-   * read-only landing demo, a surface with nothing to offer this row — gets no
-   * gesture wired for one, rather than a gesture that fires into nothing. Both
-   * halves honour that, and each in the way its platform needs: this one
-   * offers no `onLongPress`, and the web half leaves `contextmenu`
-   * un-suppressed so the browser's own menu still opens.
-   */
-  onMenu?: (anchor: { x: number; y: number }) => void;
-  /** False for `privacy.md`, and for a read-only console. */
-  canDrag: boolean;
-  canDrop: boolean;
-  onDragStart: (path: string) => void;
-  onDragOver: (path: string, modifiers: readonly DragModifier[]) => void;
-  onDragLeave: (path: string) => void;
-  onDrop: (path: string, modifiers: readonly DragModifier[]) => void;
-  onDragEnd: () => void;
-}
-
-export interface RowInteractions {
-  /** Spread onto the row's `Pressable`. */
-  pressableProps: {
-    onLongPress?: () => void;
-    delayLongPress?: number;
-  };
-  /** Attached to the row's outer view on web; unused here. */
-  ref?: (node: unknown) => void;
-}
-
-/**
- * 400ms rather than React Native's 500ms default.
- *
- * Long enough not to fire while somebody is scrolling the tree with a drag,
- * short enough that the sheet does not feel like it is deciding whether to
- * appear. iOS's own context menus sit around here.
- */
-export const LONG_PRESS_MS = 400;
-
 export function useRowInteractions(options: RowInteractionOptions): RowInteractions {
   const onMenu = options.onMenu;
   // A long press with nowhere to send it would open nothing *and* swallow the

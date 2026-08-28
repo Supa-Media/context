@@ -21,6 +21,7 @@ import {
 import { useDemoConsoleData } from "../console/useDemoConsoleData";
 import { ConsoleHalo, StageBackdrop } from "../design/components/StageBackdrop";
 import { FloatingTiles } from "./FloatingTiles";
+import { ContinuityDemo } from "./ContinuityDemo";
 import { heroHeadingWidth } from "./hero";
 
 /** github.com/Supa-Media/context — the repo this page is built from. */
@@ -137,9 +138,9 @@ export function Landing() {
                 { fontSize: subSize, lineHeight: leading(subSize, 1.55) },
               ]}
             >
-              One MCP endpoint for ChatGPT, Claude, Codex, Notion AI and whatever comes next
-              — backed by plain markdown in a bucket you own. Revoke the key and we&apos;re
-              gone.
+              One MCP endpoint gives ChatGPT, Claude, Codex, Notion AI and whatever comes
+              next the context they should have—and nothing they shouldn&apos;t. Connect Dropbox
+              in one click, or bring your own bucket for maximum control.
             </Text>
 
             <View style={styles.actions}>
@@ -185,6 +186,39 @@ export function Landing() {
             </View>
           </View>
 
+          <ContinuityDemo />
+
+          <View style={styles.markdownBridge} testID="markdown-bridge">
+            <View style={styles.markdownCopy}>
+              <Text variant="eyebrow" style={styles.markdownEyebrow}>
+                No magic layer
+              </Text>
+              <Text style={styles.markdownTitle}>Just Markdown. Yours to touch.</Text>
+              <Text style={styles.markdownBody}>
+                Context stores ordinary files and folders—the same building blocks you already
+                know from Obsidian. Let an AI organize them, or open the editor yourself to write,
+                rename, move, and shape the workspace by hand.
+              </Text>
+            </View>
+
+            <View style={styles.markdownProof}>
+              <View style={styles.markdownProofHead}>
+                <View style={styles.markdownProofDot} />
+                <Text style={styles.markdownProofLabel}>your-context/</Text>
+                <Text variant="meta">plain files</Text>
+              </View>
+              <Text style={styles.fileLine}>├── 1-projects/</Text>
+              <Text style={styles.fileLine}>├── 2-areas/</Text>
+              <Text style={styles.fileLine}>├── 3-resources/</Text>
+              <Text style={styles.fileLine}>│   └── product-direction.md</Text>
+              <Text style={styles.fileLine}>└── inbox.md</Text>
+              <View style={styles.proofRule} />
+              <Text style={styles.proofCaption}>
+                Edit here · open in Obsidian · sync or self-host
+              </Text>
+            </View>
+          </View>
+
           <View style={styles.consoleStage}>
             <ConsoleHalo />
             <ConsoleShell data={demo} route={route} onNavigate={setRoute}>
@@ -209,7 +243,7 @@ export function Landing() {
 
           <View style={styles.foot}>
             <Text variant="foot">Demo — sign in for your own context</Text>
-            <Text variant="foot">Free. You bring the bucket.</Text>
+            <Text variant="foot">Dropbox in one click · or bring your own bucket</Text>
             <Text variant="foot">MIT · self-hostable</Text>
           </View>
         </View>
@@ -312,10 +346,93 @@ const styles = StyleSheet.create({
   },
   soon: { opacity: 0.7 },
 
+  markdownBridge: {
+    marginTop: 68,
+    paddingVertical: 34,
+    paddingHorizontal: 36,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    borderRadius: radii.panel,
+    backgroundColor: "rgba(255,255,255,.025)",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 38,
+  },
+  markdownCopy: {
+    flex: 1.3,
+    minWidth: 260,
+  },
+  markdownEyebrow: { color: colors.accentText },
+  markdownTitle: {
+    marginTop: 11,
+    fontFamily: fonts.display,
+    fontSize: 32,
+    lineHeight: 37,
+    letterSpacing: -0.7,
+    fontWeight: "600",
+    color: colors.text,
+  },
+  markdownBody: {
+    marginTop: 14,
+    maxWidth: 580,
+    fontFamily: fonts.body,
+    fontSize: 15,
+    lineHeight: 24,
+    color: colors.text2,
+  },
+  markdownProof: {
+    flex: 0.85,
+    minWidth: 260,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: colors.hintBorder,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+  },
+  markdownProofHead: {
+    marginBottom: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  markdownProofDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: colors.ok,
+  },
+  markdownProofLabel: {
+    flex: 1,
+    fontFamily: fonts.mono,
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: colors.text,
+  },
+  fileLine: {
+    fontFamily: fonts.mono,
+    fontSize: 12.5,
+    lineHeight: 22,
+    color: colors.text2,
+  },
+  proofRule: {
+    height: 1,
+    marginTop: 14,
+    marginBottom: 12,
+    backgroundColor: colors.line,
+  },
+  proofCaption: {
+    fontFamily: fonts.body,
+    fontSize: 11.5,
+    lineHeight: 17,
+    color: colors.muted,
+  },
+
   /** `.consolestage` */
   consoleStage: {
     position: "relative",
-    marginTop: 104,
+    marginTop: 72,
     paddingBottom: 70,
   },
   /** `.foot` */
