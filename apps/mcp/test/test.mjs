@@ -1008,6 +1008,17 @@ const modernCall = await modernFetch({
   method: "tools/call",
   params: { name: "read_note", arguments: { path: "index.md" } },
 });
+// `tools/call` returns the note bodies themselves — strictly more sensitive
+// than the tool array or the connect sketch, and the one modern result that
+// carries no cacheability hints at all. That is the right answer, and it was
+// the answer nothing asserted: marking it `public` passed the whole suite.
+// Asserting their ABSENCE rather than their value is the point — a hint here
+// would be wrong however it was spelled.
+check(
+  "tools/call is not cacheable at all, because it carries the notes",
+  modernCall.body.result?.cacheScope === undefined &&
+    modernCall.body.result?.ttlMs === undefined
+);
 check(
   "modern tools/call reaches the same tool implementation",
   modernCall.status === 200 &&

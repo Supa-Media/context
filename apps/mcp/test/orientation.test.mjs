@@ -417,6 +417,49 @@ export async function runOrientationChecks(check) {
       /snapshot taken when this connection opened/.test(ownerConnect.instructions)
     );
 
+    // THE SKETCH IS FILTERED, AND ONLY AN OWNER CONNECTION HAD EVER PROVED IT.
+    //
+    // `instructionsForSession` runs its folder prefixes through `canSee` and
+    // its root notes through `isVisibleNote`, and the function's own comment
+    // says a team connection "is told exactly what a team connection may
+    // know". Nothing checked it: `connect` was only ever called with the owner
+    // and the broken token, so removing BOTH filters left all 615 checks
+    // green while a colleague's system prompt gained the owner's private root
+    // folders on every conversation — silently, before they had called
+    // anything.
+    //
+    // This manifest is `default_visibility: private` with named team folders,
+    // so the three below are private by three different routes: `0-inbox/` by
+    // the default, `1-projects\legacy/` because a backslash is not a path
+    // separator and it is therefore its own unlisted root, and `privacy.md`
+    // because it is plumbing.
+    const teamConnect = await connect(TEAM_TOKEN);
+    check(
+      "a team connection still gets a sketch",
+      teamConnect.status === 200 &&
+        teamConnect.ok &&
+        teamConnect.instructions.includes("WHAT IS IN HERE")
+    );
+    check(
+      "and it names the folders that connection may see",
+      teamConnect.instructions.includes("1-projects/") &&
+        teamConnect.instructions.includes("2-areas/") &&
+        teamConnect.instructions.includes("3-resources/")
+    );
+    check(
+      "but never one it may not — the sketch is `canSee`-filtered, not raw",
+      !teamConnect.instructions.includes("0-inbox/") &&
+        !teamConnect.instructions.includes("1-projects\\legacy/") &&
+        !teamConnect.instructions.includes("privacy.md")
+    );
+    // The owner's own sketch is the control: these are absent above because
+    // they are filtered, not because the bucket lacks them.
+    check(
+      "and the owner's sketch does carry them, so the filter is what removed them",
+      ownerConnect.instructions.includes("0-inbox/") &&
+        ownerConnect.instructions.includes("1-projects\\legacy/")
+    );
+
     const deadConnect = await connect(BROKEN_TOKEN);
     check(
       "an unreachable bucket still completes the handshake",
