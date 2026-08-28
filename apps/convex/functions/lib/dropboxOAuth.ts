@@ -62,7 +62,7 @@
  *  - RFC 7636 (PKCE), RFC 6749 §5.2 (token error responses)
  */
 
-import { redirectUriIsAcceptable } from "./gatewayAuth";
+import { APP_ORIGIN_ENV_VAR, redirectUriIsAcceptable } from "./gatewayAuth";
 
 /* -------------------------------------------------------------------------- */
 /* Endpoints and scopes                                                       */
@@ -204,6 +204,66 @@ export async function createPkcePair(): Promise<PkcePair> {
  * it. Today it is a configured constant and not attacker-controlled; the check
  * costs one branch and means it stays safe if that ever stops being true.
  */
+/**
+ * Is this a redirect URI *we* would ever send somebody to?
+ *
+ * `redirectUriIsAcceptable` answers a different question — is the URI
+ * well-formed and not plaintext-http off-loopback — and every `https:` URL on
+ * the internet passes it. That is right for a registered OAuth client, whose
+ * URI was checked against `client.redirectUris` when it registered. It is not
+ * enough here, because the caller supplies this one directly and nothing else
+ * constrains it.
+ *
+ * Unconstrained, the flow is a confused deputy with our consent screen on the
+ * front of it — the shape `controlPlane.ts` names in exactly those words. An
+ * attacker starts a connect against *their own* workspace with their own
+ * `redirectUri`, sends the victim the authorize URL, and the victim sees a
+ * genuine `www.dropbox.com` consent screen for the real Context app. The code
+ * comes back to the attacker carrying the attacker's `state`, they complete
+ * the flow as themselves, and their workspace is now bound to the victim's
+ * Dropbox — with a long-lived refresh token for it in our control plane. The
+ * `startedBy` check does not stop this: the attacker really is the person who
+ * started that attempt.
+ *
+ * Today Dropbox refuses a `redirect_uri` that is not registered in the app
+ * console, so the attack needs a URI the operator registered. That mitigation
+ * lives entirely in a third party's configuration, which is not where this
+ * product keeps its security boundaries. With the redirect pinned to our own
+ * origin the code lands in the victim's browser on our callback, and their
+ * session cannot complete somebody else's attempt.
+ *
+ * Loopback stays allowed unconditionally, for `convex dev` against a local
+ * console. An unset `APP_ORIGIN` therefore means loopback only, which is
+ * fail-closed and matches how the gateway treats an unset `PUBLIC_ORIGIN`.
+ */
+export function dropboxRedirectAllowed(
+  redirectUri: string,
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  if (!redirectUriIsAcceptable(redirectUri)) return false;
+  let presented: URL;
+  try {
+    presented = new URL(redirectUri);
+  } catch {
+    return false;
+  }
+  const loopback = new Set(["127.0.0.1", "[::1]", "::1", "localhost"]);
+  if (loopback.has(presented.hostname)) return true;
+
+  const configured = env[APP_ORIGIN_ENV_VAR];
+  if (typeof configured !== "string" || configured.length === 0) return false;
+  let allowed: URL;
+  try {
+    allowed = new URL(configured);
+  } catch {
+    return false;
+  }
+  // Exact origin, for the same reason `redirectUriMatches` and the gateway's
+  // origin allowlist are exact: scheme, host and port, no wildcards and no
+  // suffix matching, so `context.lc.evil.example` is not `context.lc`.
+  return allowed.protocol === "https:" && presented.origin === allowed.origin;
+}
+
 export function dropboxAuthorizeUrl(options: {
   clientId: string;
   redirectUri: string;

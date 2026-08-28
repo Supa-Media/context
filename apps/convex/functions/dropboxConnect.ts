@@ -50,6 +50,7 @@ import {
   createPkcePair,
   dropboxAuthorizeUrl,
   exchangeDropboxCode,
+  dropboxRedirectAllowed,
   isDropboxReconnectRequired,
   refreshDropboxToken,
   revokeDropboxToken,
@@ -197,6 +198,19 @@ export const startDropboxConnect = action({
       throw new ConvexError({
         code: "NOT_OWNER",
         message: "Only the owner of a context can connect its storage.",
+      });
+    }
+
+    // Refused here, before anything is parked and before an authorize URL
+    // exists. See `dropboxRedirectAllowed`: an arbitrary redirect turns this
+    // into a confused deputy with our consent screen on the front of it, and
+    // the `startedBy` check below cannot catch it because the attacker really
+    // did start their own attempt. This is not a tenancy answer and leaks
+    // nothing about anybody else, so it says what is wrong.
+    if (!dropboxRedirectAllowed(args.redirectUri)) {
+      throw new ConvexError({
+        code: "REDIRECT_URI_NOT_ALLOWED",
+        message: "That redirect URI is not one this deployment answers on.",
       });
     }
 
@@ -514,6 +528,27 @@ export const applyDropboxBinding = internalMutation({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .unique();
 
+    // A reconnect that lands on a DIFFERENT Dropbox account orphans the old
+    // one: the envelope below is about to be overwritten, and the old
+    // authorization stays live in an account nobody is pointing at any more.
+    // Same reasoning `disconnectStorage` gives for scheduling this — forgetting
+    // our copy is only half of ending the relationship.
+    //
+    // Only when the account differs. Revoking on a same-account reconnect
+    // would spend a token from the same authorization the new one came out of,
+    // and that is not a thing to guess at: `dropboxAccountId` exists to tell
+    // the two cases apart, which is what the schema's comment says it is for.
+    if (
+      existing?.provider === "dropbox" &&
+      existing.encryptedRefreshToken !== undefined &&
+      existing.dropboxAccountId !== args.dropboxAccountId
+    ) {
+      await ctx.scheduler.runAfter(0, internal.functions.dropboxConnect.revokeDropboxGrant, {
+        workspaceId: args.workspaceId,
+        encryptedRefreshToken: existing.encryptedRefreshToken,
+      });
+    }
+
     const fields = {
       workspaceId: args.workspaceId,
       provider: "dropbox" as const,
@@ -559,13 +594,26 @@ export const applyDropboxBinding = internalMutation({
 /**
  * Disable the grant at Dropbox after a disconnect. INTERNAL ACTION — decrypts.
  *
- * Scheduled by `disconnectStorage`, which deletes the binding row in the same
- * mutation — so the envelope travels in the args, because by the time this
- * runs there is no row left to read it from. That is also why this is
- * best-effort and swallows every failure: the disconnect the person asked for
- * has already happened, the credential is already forgotten on our side, and
- * the one thing a retry loop could add is a background job hammering a grant
- * the person may have revoked from Dropbox's side themselves.
+ * The envelope travels in the args rather than being read from the row,
+ * because by the time this runs the row no longer holds it. Three callers,
+ * three different reasons: `disconnectStorage` deletes the row outright,
+ * `applyBinding` erases the field, and `applyDropboxBinding` writes another
+ * account's envelope over it. Same conclusion each time, and worth stating
+ * all three — the first version of this comment gave only the delete reason,
+ * which stopped being the whole truth the moment the other callers existed.
+ *
+ * Known and accepted: a Dropbox authorization is per *account*, so revoking
+ * it ends the app's access to that account everywhere. Somebody who connected
+ * one Dropbox to two of their own contexts loses the second when they rebind
+ * the first. No data is lost — their Dropbox is untouched and they can
+ * reconnect — but it is a real surprise, and there is no index on
+ * `dropboxAccountId` with which to find the other binding cheaply.
+ *
+ * This is best-effort and swallows every failure: the disconnect the person
+ * asked for has already happened, the credential is already forgotten on our
+ * side, and the one thing a retry loop could add is a background job
+ * hammering a grant the person may have revoked from Dropbox's side
+ * themselves.
  *
  * The refresh token is spent to mint one fresh access token, and revoking
  * that access token disables the pair — Dropbox's revoke endpoint takes the
