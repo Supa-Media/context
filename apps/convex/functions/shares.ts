@@ -54,12 +54,15 @@
  */
 
 import { ConvexError, v } from "convex/values";
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { requireAuthId } from "@supa-media/convex/auth";
-import { mutation, query } from "../_generated/server";
-import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { internal } from "../_generated/api";
+import { action, internalQuery, mutation, query } from "../_generated/server";
+import type { ActionCtx, MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import { normalizePath } from "./lib/fileOps";
+import { linkedNotePaths } from "./lib/noteLinks";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { identifiersForUser, resolveAddressedUser } from "./lib/identities";
 import {
@@ -535,3 +538,244 @@ export const listSharedWithMe = query({
     return summaries;
   },
 });
+
+/* -------------------------------------------------------------------------- */
+/*                              the read path                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What a share reaches: the note it names, plus the notes that note links to.
+ *
+ * One hop, not a graph walk, and that boundary is a decision rather than a
+ * first draft. The handoff proposed following links from "already authorized"
+ * notes with a depth cap, which sounds equivalent and is not: at depth two, a
+ * note the owner linked to becomes a *source* of authorization, so anybody with
+ * `editor` on this context can extend somebody else's share by adding a link to
+ * a note that was never part of it. Depth one keeps the whole grant a function
+ * of one note the owner chose and read.
+ *
+ * It is also the only version that can be stated to a person in one sentence —
+ * "they can read this note and the notes it links to" — and a sharing rule
+ * nobody can predict is a sharing rule nobody can use safely.
+ *
+ * If a packet ever needs to be deeper than this, the answer is the explicit
+ * allowlist the handoff names as the fallback, not a bigger number here.
+ */
+const SHARE_TRAVERSAL_DEPTH = 1;
+
+/**
+ * One answer for every way a share read can fail to be authorized.
+ *
+ * Revoked, expired, never issued, addressed to somebody else, entry note
+ * deleted, entry note no longer `team`-visible, target not linked from the
+ * entry note — all of it is one sentence. Somebody holding a link who could
+ * tell "the owner revoked this" from "the owner made it private" from "the note
+ * moved" has learned three different things about a context they are not in.
+ *
+ * Deliberately NOT used for infrastructure failure. A bucket that is
+ * unreachable is not an authorization answer, and reporting it as one would
+ * tell a viewer their access was withdrawn when it was not — see
+ * `readSharedNote`.
+ */
+function shareUnavailable(): ConvexError<{ code: string; message: string }> {
+  return new ConvexError({
+    code: "SHARE_UNAVAILABLE",
+    message: "This shared note is not available.",
+  });
+}
+
+/**
+ * Resolve a token to the grant it represents, for the read path.
+ *
+ * INTERNAL. `actorUserId` is supplied by the calling public action, which read
+ * it from the session — the same arrangement `authorizeFileAccess` uses, and
+ * safe for the same reason: an internal function is unreachable from any
+ * client, so there is nobody who could pass a forged one.
+ *
+ * Returns `null` rather than throwing so the caller raises one uniform error
+ * for this and for every later refusal; two error shapes on one path is how a
+ * distinction gets reintroduced by accident.
+ */
+export const authorizeShareRead = internalQuery({
+  args: { actorUserId: v.id("users"), token: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      shareId: v.id("noteShares"),
+      workspaceId: v.id("workspaces"),
+      entryPath: v.string(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const share = await ctx.db
+      .query("noteShares")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .unique();
+    if (share === null || !isLive(share, now)) return null;
+
+    const addressed = await resolveAddressedUser(ctx, {
+      kind: share.recipientKind,
+      value: share.recipient,
+    });
+    if (addressed === null || addressed !== args.actorUserId) return null;
+
+    return {
+      shareId: share._id,
+      workspaceId: share.workspaceId,
+      entryPath: share.entryPath,
+    };
+  },
+});
+
+/**
+ * Read a note through a share.
+ *
+ * The whole authorization argument, in the order it happens:
+ *
+ *  1. **The caller is signed in.** A share URL is a locator, never a
+ *     credential; there is no unauthenticated path to note content anywhere in
+ *     this product and this must not become the first one.
+ *  2. **The token resolves to a live grant addressed to this caller.**
+ *  3. **The read runs at `team` scope.** Not the caller's role — they have no
+ *     role here, they are not a member — but the fixed tier a share can ever
+ *     reach. `readFile` then puts the path through the live `privacy.md`, so a
+ *     note that was `team` when the share was created and is private now reads
+ *     as absent. That is why nothing is stored about visibility at creation
+ *     time: this is the only place the answer can be current.
+ *  4. **A target that is not the entry note must be linked from it**, and the
+ *     link is extracted server-side from the entry note's own text. The client
+ *     saying "the entry note links to this" authorizes nothing.
+ *
+ * Step 4 reads the entry note first, which also re-checks step 3 on it: a share
+ * whose entry note has been made private grants nothing, including the notes it
+ * used to link to.
+ *
+ * ## Two failure shapes, on purpose
+ *
+ * Every authorization refusal is one `SHARE_UNAVAILABLE`. A storage failure is
+ * not flattened into it: a viewer told "not available" during a bucket outage
+ * would reasonably conclude their access was withdrawn, go and ask the owner,
+ * and be told it was not. `STORAGE_*` says try again, and says nothing about
+ * the note — the bucket's own error text is never forwarded (`toConvexError`).
+ */
+export const readSharedNote = action({
+  args: {
+    token: v.string(),
+    /** Omit for the entry note. Anything else must be linked from it. */
+    path: v.optional(v.string()),
+  },
+  returns: v.object({
+    path: v.string(),
+    text: v.string(),
+    /** The entry note this share is rooted at, so the viewer can offer a way back. */
+    entryPath: v.string(),
+    /** Paths the viewer may follow from here — the entry note's links, resolved. */
+    links: v.array(v.string()),
+  }),
+  // Annotated rather than inferred: this action calls another function in the
+  // same deployment, which is the inference cycle `runFileOperation` has.
+  // Without it the whole generated `api` degrades to `any` and every other
+  // test file starts reporting implicit-any on unrelated callbacks.
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    path: string;
+    text: string;
+    entryPath: string;
+    links: string[];
+  }> => {
+    const actorUserId = await shareCallerId(ctx);
+
+    const grant = await ctx.runQuery(internal.functions.shares.authorizeShareRead, {
+      actorUserId,
+      token: args.token,
+    });
+    if (grant === null) throw shareUnavailable();
+
+    const requested =
+      args.path === undefined ? grant.entryPath : normalizePath(args.path);
+    if (requested === null) throw shareUnavailable();
+
+    // The entry note is read on every request. It is what step 3 is checked
+    // against, and — for a linked target — it is the only thing that authorizes
+    // the hop. Reading it twice when it is itself the target is one extra bucket
+    // GET on the cheapest possible read, and the alternative is a branch that
+    // decides when authorization can be skipped.
+    const entry = await readThroughShare(ctx, grant.workspaceId, grant.entryPath);
+    const links = linkedNotePaths(entry.text, grant.entryPath);
+
+    if (requested !== grant.entryPath) {
+      // `SHARE_TRAVERSAL_DEPTH` is 1: the entry note's own links and nothing
+      // further. See the constant.
+      if (!links.includes(requested)) throw shareUnavailable();
+      const target = await readThroughShare(ctx, grant.workspaceId, requested);
+      return {
+        path: requested,
+        text: target.text,
+        entryPath: grant.entryPath,
+        links,
+      };
+    }
+
+    return {
+      path: grant.entryPath,
+      text: entry.text,
+      entryPath: grant.entryPath,
+      links,
+    };
+  },
+});
+
+/**
+ * The signed-in caller, refused the way a share refuses.
+ *
+ * `NOT_AUTHENTICATED` rather than `SHARE_UNAVAILABLE`, because "sign in" is
+ * something the person can act on and it discloses nothing: they are being told
+ * about their own session, not about the share. The viewer page sends them to
+ * sign-in and back.
+ */
+async function shareCallerId(ctx: ActionCtx): Promise<Id<"users">> {
+  const userId = await getAuthUserId(ctx);
+  if (userId === null) {
+    throw new ConvexError({ code: "NOT_AUTHENTICATED", message: "Not authenticated" });
+  }
+  return userId as Id<"users">;
+}
+
+/**
+ * One note, at `team` scope, through the existing credential barrier.
+ *
+ * `runFileOperation` is the one function in this codebase that opens a bucket
+ * credential, and this deliberately reuses it rather than adding a second: the
+ * barrier set in `__tests__/structure.test.ts` is pinned to one member, and
+ * "the share read path needs its own" would be exactly the reasoning that
+ * turns an enumeration into an amnesty.
+ *
+ * A missing or invisible note becomes `SHARE_UNAVAILABLE`; anything else — a
+ * bucket that is unreachable, a binding that is gone — is passed through. See
+ * `readSharedNote` for why those two are not one answer.
+ */
+async function readThroughShare(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  path: string,
+): Promise<{ text: string }> {
+  try {
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "team",
+      operation: { kind: "read", path },
+    });
+    if (result.kind !== "file") throw shareUnavailable();
+    return { text: result.text };
+  } catch (error) {
+    const code =
+      error instanceof ConvexError
+        ? (error.data as { code?: string } | undefined)?.code
+        : undefined;
+    if (code === "FILE_NOT_FOUND" || code === "PATH_INVALID") throw shareUnavailable();
+    throw error;
+  }
+}
