@@ -33,10 +33,16 @@
 
 /// <reference types="vite/client" />
 
+import { readFileSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { resolvePersonalContextForIngestion } from "../functions/lib/ingestionStore";
+import {
+  DEFAULT_MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENT_BYTES_CEILING,
+} from "../functions/lib/ingestion";
 import {
   TEST_EMAIL_WORKER_SECRET,
   TEST_GATEWAY_SECRET,
@@ -224,6 +230,41 @@ describe("resolving a name that may receive mail", () => {
     });
     expect(typeof body.ingestion.ticket).toBe("string");
     expect(body.ingestion.ticket.length).toBeGreaterThan(0);
+  });
+
+  test("the attachment policy is the owner's stored one, not a constant", async () => {
+    const { t, ownerId, workspaceId } = await ready();
+
+    // The seeded default, which is what the hardcoded constant used to return.
+    const seeded = await (await resolve(t, "seyi")).json();
+    expect(seeded.ingestion.attachmentPolicy).toBe("list");
+    expect(seeded.ingestion.maxAttachmentBytes).toBe(DEFAULT_MAX_ATTACHMENT_BYTES);
+
+    await asUser(t, ownerId).mutation(api.functions.ingestion.updateIngestionSettings, {
+      workspaceId,
+      attachmentPolicy: "store",
+      maxAttachmentBytes: 1_500_000,
+    });
+
+    // If this still said "list" the setting would be decorative: the console
+    // would show storing enabled and the worker would keep describing only.
+    const stored = await (await resolve(t, "seyi")).json();
+    expect(stored.ingestion.attachmentPolicy).toBe("store");
+    expect(stored.ingestion.maxAttachmentBytes).toBe(1_500_000);
+  });
+
+  test("the configurable ceiling never exceeds what the gateway will serve back", async () => {
+    // Storing an attachment larger than `read_image` will return puts bytes in
+    // the customer's bucket that nothing in Context can ever read — the
+    // broken-link failure this feature exists to avoid. The two numbers live in
+    // different packages, because the gateway is dependency-free on purpose, so
+    // this check is the only thing keeping them honest.
+    const gateway = readFileSync(resolvePath(__dirname, "../../mcp/src/index.js"), "utf8");
+    const declared = gateway.match(/const MAX_INLINE_IMAGE_BYTES = ([\d_]+);/);
+    expect(declared, "MAX_INLINE_IMAGE_BYTES is no longer declared in apps/mcp").not.toBeNull();
+
+    const servable = Number(declared![1]!.replace(/_/g, ""));
+    expect(MAX_ATTACHMENT_BYTES_CEILING).toBeLessThanOrEqual(servable);
   });
 
   test("hands back no credential — that is what the second call is for", async () => {

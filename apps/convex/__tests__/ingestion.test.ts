@@ -13,8 +13,12 @@ import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import {
+  ATTACHMENT_POLICIES,
+  DEFAULT_ATTACHMENT_POLICY,
+  DEFAULT_MAX_ATTACHMENT_BYTES,
   MAX_ALLOWED_DOMAINS,
   MAX_ALLOWED_SENDERS,
+  MAX_ATTACHMENT_BYTES_CEILING,
   senderIsAllowed,
 } from "../functions/lib/ingestion";
 import {
@@ -63,6 +67,12 @@ describe("the seeded default", () => {
       allowedSenders: [OWNER_EMAIL],
       allowedDomains: [],
       allowAnySender: false,
+      // Exactly what the pipeline did while this was a hardcoded constant:
+      // describe an attachment, write none of it. Making the policy
+      // configurable must not change what an existing context does on the day
+      // it ships.
+      attachmentPolicy: "list",
+      maxAttachmentBytes: DEFAULT_MAX_ATTACHMENT_BYTES,
     });
   });
 
@@ -325,6 +335,8 @@ describe("updating", () => {
       allowedSenders: [OWNER_EMAIL],
       allowedDomains: ["publicworship.life"],
       allowAnySender: false,
+      attachmentPolicy: DEFAULT_ATTACHMENT_POLICY,
+      maxAttachmentBytes: DEFAULT_MAX_ATTACHMENT_BYTES,
     });
   });
 
@@ -506,6 +518,8 @@ describe("isolation", () => {
       allowedSenders: ["bob@example.test"],
       allowedDomains: [],
       allowAnySender: false,
+      attachmentPolicy: DEFAULT_ATTACHMENT_POLICY,
+      maxAttachmentBytes: DEFAULT_MAX_ATTACHMENT_BYTES,
     });
 
     const error = await captureError(() => get(t, bobId, alice));
@@ -632,5 +646,213 @@ describe("the audit trail", () => {
       workspaceId,
     });
     expect(rows.map((event) => event.action)).toContain("ingestion.settings.updated");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/** Read the stored policy without going through the personal-context gate. */
+async function storedPolicy(t: TestConvex, workspaceId: Id<"workspaces">) {
+  return await t.run(async (ctx) => {
+    const row = await ctx.db
+      .query("ingestionSettings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .unique();
+    return row?.attachmentPolicy ?? DEFAULT_ATTACHMENT_POLICY;
+  });
+}
+
+/**
+ * The attachment policy.
+ *
+ * Seyi asked for this to sit beside the sender allowlist — "the same way where
+ * people set emails and things that are allowed to send, they could also set
+ * the policy for attachments". So it is the same shape: owner-only, optional in
+ * every argument, refused rather than repaired, and audited.
+ *
+ * The reason it is a *setting* and not a constant is that it governs writing
+ * bytes a stranger chose into a bucket we do not own. That is the sentence in
+ * `ingestionGateway.ts` which deferred it in the first place, and it is still
+ * true — the answer is that the owner decides, not that we decide for them.
+ */
+describe("the attachment policy", () => {
+  test("an owner can turn storing on, and it round-trips", async () => {
+    const { t, ownerId, workspaceId } = await scenario();
+
+    const saved = await asUser(t, ownerId).mutation(
+      api.functions.ingestion.updateIngestionSettings,
+      { workspaceId, attachmentPolicy: "store" },
+    );
+
+    expect(saved.attachmentPolicy).toBe("store");
+    expect((await get(t, ownerId, workspaceId))?.attachmentPolicy).toBe("store");
+  });
+
+  test("every policy the worker understands is accepted, and nothing else is", async () => {
+    const { t, ownerId, workspaceId } = await scenario();
+
+    for (const policy of ATTACHMENT_POLICIES) {
+      const saved = await asUser(t, ownerId).mutation(
+        api.functions.ingestion.updateIngestionSettings,
+        { workspaceId, attachmentPolicy: policy },
+      );
+      expect(saved.attachmentPolicy).toBe(policy);
+    }
+
+    // Refused, not coerced to a default. A silently-repaired policy is a
+    // silently-different one, exactly as with a malformed sender address.
+    for (const bogus of ["Store", "keep", "", "store ", "ignore;store"]) {
+      const error = await captureError(() =>
+        asUser(t, ownerId).mutation(api.functions.ingestion.updateIngestionSettings, {
+          workspaceId,
+          attachmentPolicy: bogus,
+        }),
+      );
+      expect(errorCode(error)).toBe("INGESTION_INVALID_ATTACHMENT_POLICY");
+    }
+
+    expect((await get(t, ownerId, workspaceId))?.attachmentPolicy).toBe(
+      ATTACHMENT_POLICIES[ATTACHMENT_POLICIES.length - 1],
+    );
+  });
+
+  test("a size cap is accepted up to the ceiling and refused above it", async () => {
+    const { t, ownerId, workspaceId } = await scenario();
+
+    const saved = await asUser(t, ownerId).mutation(
+      api.functions.ingestion.updateIngestionSettings,
+      { workspaceId, maxAttachmentBytes: MAX_ATTACHMENT_BYTES_CEILING },
+    );
+    expect(saved.maxAttachmentBytes).toBe(MAX_ATTACHMENT_BYTES_CEILING);
+
+    for (const bad of [MAX_ATTACHMENT_BYTES_CEILING + 1, 0, -1, 1.5, Number.NaN]) {
+      const error = await captureError(() =>
+        asUser(t, ownerId).mutation(api.functions.ingestion.updateIngestionSettings, {
+          workspaceId,
+          maxAttachmentBytes: bad,
+        }),
+      );
+      expect(errorCode(error)).toBe("INGESTION_INVALID_ATTACHMENT_SIZE");
+    }
+
+    expect((await get(t, ownerId, workspaceId))?.maxAttachmentBytes).toBe(
+      MAX_ATTACHMENT_BYTES_CEILING,
+    );
+  });
+
+  test("omitting a field leaves it alone, so an older client cannot blank it", async () => {
+    const { t, ownerId, workspaceId } = await scenario();
+
+    await asUser(t, ownerId).mutation(api.functions.ingestion.updateIngestionSettings, {
+      workspaceId,
+      attachmentPolicy: "store",
+      maxAttachmentBytes: 1_000_000,
+    });
+    // A client that predates these fields sends only what it knows about.
+    await asUser(t, ownerId).mutation(api.functions.ingestion.updateIngestionSettings, {
+      workspaceId,
+      allowedDomains: ["example.test"],
+    });
+
+    const settings = await get(t, ownerId, workspaceId);
+    expect(settings?.attachmentPolicy).toBe("store");
+    expect(settings?.maxAttachmentBytes).toBe(1_000_000);
+  });
+
+  test("a row written before these fields existed reads as the closed default", async () => {
+    const { t, ownerId, workspaceId } = await scenario();
+
+    // Strip the fields, reproducing a row from before this change shipped.
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("ingestionSettings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(row!._id, {
+        attachmentPolicy: undefined,
+        maxAttachmentBytes: undefined,
+      });
+    });
+
+    const settings = await get(t, ownerId, workspaceId);
+    expect(settings?.attachmentPolicy).toBe(DEFAULT_ATTACHMENT_POLICY);
+    expect(settings?.maxAttachmentBytes).toBe(DEFAULT_MAX_ATTACHMENT_BYTES);
+  });
+
+  test("turning storing on is recorded as its own fact in the audit trail", async () => {
+    const { t, ownerId, workspaceId } = await scenario();
+
+    await asUser(t, ownerId).mutation(api.functions.ingestion.updateIngestionSettings, {
+      workspaceId,
+      attachmentPolicy: "store",
+    });
+
+    const events = await t.run((ctx) => ctx.db.query("auditEvents").collect());
+    const updated = events.filter((e) => e.action === "ingestion.settings.updated");
+    const details = updated[updated.length - 1]!.details as Record<string, unknown>;
+
+    // "Somebody may now write bytes into this bucket" is a different fact from
+    // "somebody new may send mail", and a trail that folded them together would
+    // make the first one invisible.
+    expect(details.attachmentPolicyBefore).toBe("list");
+    expect(details.attachmentPolicyAfter).toBe("store");
+    expect(details.attachmentStorageEnabled).toBe(true);
+  });
+
+  test("a stranger cannot change it, and is not told the context exists", async () => {
+    const { t, workspaceId } = await scenario();
+    const strangerId = await createUser(t, "stranger@example.test");
+
+    const error = await captureError(() =>
+      asUser(t, strangerId).mutation(api.functions.ingestion.updateIngestionSettings, {
+        workspaceId,
+        attachmentPolicy: "store",
+      }),
+    );
+
+    expect(errorCode(error)).toBe("WORKSPACE_NOT_FOUND");
+    expect(await storedPolicy(t, workspaceId)).toBe(DEFAULT_ATTACHMENT_POLICY);
+  });
+
+  test("a member who is not the owner cannot change it", async () => {
+    const { t, workspaceId } = await scenario();
+    const memberId = await createUser(t, "member@example.test");
+    await addMember(t, workspaceId, memberId, "editor");
+
+    const error = await captureError(() =>
+      asUser(t, memberId).mutation(api.functions.ingestion.updateIngestionSettings, {
+        workspaceId,
+        attachmentPolicy: "store",
+      }),
+    );
+
+    // A member of this context, so the honest answer is "not your call" rather
+    // than the existence-hiding WORKSPACE_NOT_FOUND a stranger gets.
+    expect(errorCode(error)).toBe("INSUFFICIENT_ROLE");
+    // Read the row directly, not through the query: see the next test for why.
+    expect(await storedPolicy(t, workspaceId)).toBe(DEFAULT_ATTACHMENT_POLICY);
+  });
+
+  test("adding a second member takes the whole policy away, attachments included", async () => {
+    const { t, ownerId, workspaceId } = await scenario();
+    expect((await get(t, ownerId, workspaceId))?.attachmentPolicy).toBe("list");
+
+    await addMember(t, workspaceId, await createUser(t, "member@example.test"), "editor");
+
+    // "Personal" is established structurally — exactly one member, who is the
+    // owner — rather than by trusting the `kind` label, so a context stops being
+    // personal the moment somebody else joins it. Mail cannot reach a shared
+    // context at all, so there is no attachment policy to read either. Worth
+    // asserting out loud: it is correct, and it will surprise whoever first adds
+    // a collaborator to their own context.
+    expect(await get(t, ownerId, workspaceId)).toBeNull();
+
+    const error = await captureError(() =>
+      asUser(t, ownerId).mutation(api.functions.ingestion.updateIngestionSettings, {
+        workspaceId,
+        attachmentPolicy: "store",
+      }),
+    );
+    expect(errorCode(error)).toBe("INGESTION_NOT_AVAILABLE");
   });
 });

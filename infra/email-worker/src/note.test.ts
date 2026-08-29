@@ -373,13 +373,49 @@ describe("attachments", () => {
     expect(note).toContain("`report.pdf` — application/pdf, 12.1 KB");
   });
 
-  it("links them and repeats the warning when they are stored", () => {
+  it("embeds them and repeats the warning when they are stored", () => {
+    const stored = ".images/" + "a".repeat(64) + ".png";
     const note = render({
-      attachments: [{ ...attachment, storedPath: "0-inbox/email/attachments/abc-report.pdf" }],
+      attachments: [{ ...attachment, contentType: "image/png", storedPath: stored }],
       attachmentPolicy: "store",
     });
-    expect(note).toContain("(0-inbox/email/attachments/abc-report.pdf)");
+    // An embed, not a bare link: everything storable is an image.
+    expect(note).toContain(`![report.pdf](${stored})`);
     expect(note).toContain("came from the same untrusted sender");
+  });
+
+  it("does not claim to have stored an attachment it only described", () => {
+    // Under `store`, anything the gateway cannot serve back stays
+    // described-only. A heading that said "Attachments" over a PDF nobody
+    // stored would be the console-lying-about-the-bucket mistake again, in a
+    // file the owner reads instead of a screen.
+    const note = render({
+      attachments: [attachment],
+      attachmentPolicy: "store",
+    });
+    expect(note).toContain("not stored");
+    expect(note).not.toContain("came from the same untrusted sender");
+  });
+
+  it("says which half is which when only some attachments were stored", () => {
+    const stored = ".images/" + "b".repeat(64) + ".png";
+    const note = render({
+      attachments: [
+        attachment,
+        {
+          filename: "shot.png",
+          contentType: "image/png",
+          size: 2048,
+          storedPath: stored,
+        },
+      ],
+      attachmentPolicy: "store",
+    });
+
+    expect(note).toContain(`![shot.png](${stored})`);
+    expect(note).toContain("`report.pdf`");
+    // The one sentence that keeps the note honest about the mixed case.
+    expect(note).toContain("not stored");
   });
 
   it("mentions nothing at all under the ignore policy", () => {

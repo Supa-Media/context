@@ -29,13 +29,14 @@
  *
  * Every test here runs offline against a stubbed `fetch`.
  */
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, test, vi } from "vitest";
 import {
   assertPersonalContext,
   ControlPlaneError,
   createIngestControlPlane,
   type ControlPlaneEnv,
 } from "./controlPlane";
+import { DEFAULT_MIME_LIMITS, MAX_ATTACHMENT_BYTES_HARD_CAP } from "./mime";
 
 const ENV: ControlPlaneEnv = {
   CONTROL_PLANE_URL: "https://control-plane.test",
@@ -77,6 +78,74 @@ function client(payload: unknown) {
   const { sent, fetchImpl } = stubFetch(payload);
   return { sent, plane: createIngestControlPlane(ENV, { fetchImpl }) };
 }
+
+/**
+ * The per-attachment cap is the owner's, not the worker's.
+ *
+ * `DEFAULT_MIME_LIMITS` is a floor to fall back to when the control plane says
+ * nothing — a deployment that ignored the configured value would make the
+ * console's attachment setting decorative in the direction that matters,
+ * writing more of a stranger's bytes into the customer's bucket than they
+ * agreed to.
+ */
+describe("the attachment size cap", () => {
+  test("an owner's cap is read from the resolve response", async () => {
+    const { plane } = client({ ingestion: ingestion({ maxAttachmentBytes: 1_234_567 }) });
+
+    const resolved = await plane.resolveIngestion("seyi", 4096, "alice@example.com");
+
+    expect(resolved?.maxAttachmentBytes).toBe(1_234_567);
+  });
+
+  test("a control plane that says nothing falls back to the worker's own limit", async () => {
+    const { plane } = client({ ingestion: ingestion() });
+
+    const resolved = await plane.resolveIngestion("seyi", 4096, "alice@example.com");
+
+    expect(resolved?.maxAttachmentBytes).toBe(DEFAULT_MIME_LIMITS.maxAttachmentBytes);
+  });
+
+  test("an owner may raise the cap above the fallback, up to the hard ceiling", async () => {
+    // The fallback is what a worker uses when nobody has said anything; it is
+    // not a ceiling. Clamping the owner's value to it would make the setting
+    // able only to lower, so a console offering 5 MB would quietly deliver 2.
+    const { plane } = client({
+      ingestion: ingestion({ maxAttachmentBytes: MAX_ATTACHMENT_BYTES_HARD_CAP }),
+    });
+
+    const resolved = await plane.resolveIngestion("seyi", 4096, "alice@example.com");
+
+    expect(MAX_ATTACHMENT_BYTES_HARD_CAP).toBeGreaterThan(
+      DEFAULT_MIME_LIMITS.maxAttachmentBytes,
+    );
+    expect(resolved?.maxAttachmentBytes).toBe(MAX_ATTACHMENT_BYTES_HARD_CAP);
+  });
+
+  test("a cap beyond the worker's hard ceiling is clamped, not honoured", async () => {
+    // The control plane validates this too, and the worker does not take that
+    // on faith: this is the allocation that actually happens, so a wrong or
+    // compromised control-plane answer must not turn one message into an
+    // unbounded buffer here.
+    const { plane } = client({
+      ingestion: ingestion({ maxAttachmentBytes: MAX_ATTACHMENT_BYTES_HARD_CAP * 100 }),
+    });
+
+    const resolved = await plane.resolveIngestion("seyi", 4096, "alice@example.com");
+
+    expect(resolved?.maxAttachmentBytes).toBe(MAX_ATTACHMENT_BYTES_HARD_CAP);
+  });
+
+  test("a nonsense cap is refused rather than trusted", async () => {
+    for (const bad of [0, -1, "2000000", null, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const { plane } = client({ ingestion: ingestion({ maxAttachmentBytes: bad }) });
+
+      const resolved = await plane.resolveIngestion("seyi", 4096, "alice@example.com");
+
+      // Fail to the worker's own floor, never to "unbounded".
+      expect(resolved?.maxAttachmentBytes).toBe(DEFAULT_MIME_LIMITS.maxAttachmentBytes);
+    }
+  });
+});
 
 /* --------------------------- what goes over the wire ----------------------- */
 

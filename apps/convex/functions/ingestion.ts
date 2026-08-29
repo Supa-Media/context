@@ -49,13 +49,18 @@ import { mutation, query } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import {
+  DEFAULT_ATTACHMENT_POLICY,
+  DEFAULT_MAX_ATTACHMENT_BYTES,
   DEFAULT_TARGET_FOLDER,
   MAX_ALLOWED_DOMAINS,
   MAX_ALLOWED_SENDERS,
+  MAX_ATTACHMENT_BYTES_CEILING,
   describeFolderRejection,
   ingestionAddressFor,
   ingestionIsReceiving,
+  normalizeAttachmentPolicy,
   normalizeDomainEntry,
+  normalizeMaxAttachmentBytes,
   normalizeSenderEntry,
   normalizeTargetFolder,
 } from "./lib/ingestion";
@@ -95,6 +100,13 @@ const settingsValidator = v.object({
   allowedSenders: v.array(v.string()),
   allowedDomains: v.array(v.string()),
   allowAnySender: v.boolean(),
+  /**
+   * Always present here even though the row's fields are optional. A client
+   * reading `undefined` would have to know the defaults to render the setting,
+   * and a second copy of a default is a second thing to keep in step.
+   */
+  attachmentPolicy: v.string(),
+  maxAttachmentBytes: v.number(),
 });
 
 function present(workspace: Doc<"workspaces">, row: Doc<"ingestionSettings">) {
@@ -105,6 +117,8 @@ function present(workspace: Doc<"workspaces">, row: Doc<"ingestionSettings">) {
     allowedSenders: row.allowedSenders,
     allowedDomains: row.allowedDomains,
     allowAnySender: row.allowAnySender,
+    attachmentPolicy: row.attachmentPolicy ?? DEFAULT_ATTACHMENT_POLICY,
+    maxAttachmentBytes: row.maxAttachmentBytes ?? DEFAULT_MAX_ATTACHMENT_BYTES,
   };
 }
 
@@ -175,6 +189,8 @@ export const updateIngestionSettings = mutation({
     allowedSenders: v.optional(v.array(v.string())),
     allowedDomains: v.optional(v.array(v.string())),
     allowAnySender: v.optional(v.boolean()),
+    attachmentPolicy: v.optional(v.string()),
+    maxAttachmentBytes: v.optional(v.number()),
   },
   returns: settingsValidator,
   handler: async (ctx, args) => {
@@ -209,6 +225,9 @@ export const updateIngestionSettings = mutation({
       allowedSenders: existing?.allowedSenders ?? [],
       allowedDomains: existing?.allowedDomains ?? [],
       allowAnySender: existing?.allowAnySender ?? false,
+      attachmentPolicy: existing?.attachmentPolicy ?? DEFAULT_ATTACHMENT_POLICY,
+      maxAttachmentBytes:
+        existing?.maxAttachmentBytes ?? DEFAULT_MAX_ATTACHMENT_BYTES,
     };
 
     const targetFolder =
@@ -228,6 +247,20 @@ export const updateIngestionSettings = mutation({
 
     const allowAnySender = args.allowAnySender ?? before.allowAnySender;
 
+    // Refused, not repaired — the same rule the sender list follows, and for
+    // the same reason. An owner who typed a policy this deployment does not
+    // understand and got a green checkmark would believe attachments were being
+    // handled a way they are not.
+    const attachmentPolicy =
+      args.attachmentPolicy === undefined
+        ? before.attachmentPolicy
+        : requireAttachmentPolicy(args.attachmentPolicy);
+
+    const maxAttachmentBytes =
+      args.maxAttachmentBytes === undefined
+        ? before.maxAttachmentBytes
+        : requireMaxAttachmentBytes(args.maxAttachmentBytes);
+
     const now = Date.now();
     if (existing === null) {
       await ctx.db.insert("ingestionSettings", {
@@ -236,6 +269,8 @@ export const updateIngestionSettings = mutation({
         allowedSenders,
         allowedDomains,
         allowAnySender,
+        attachmentPolicy,
+        maxAttachmentBytes,
         updatedBy: userId,
         createdAt: now,
         updatedAt: now,
@@ -246,6 +281,8 @@ export const updateIngestionSettings = mutation({
         allowedSenders,
         allowedDomains,
         allowAnySender,
+        attachmentPolicy,
+        maxAttachmentBytes,
         updatedBy: userId,
         updatedAt: now,
       });
@@ -274,6 +311,17 @@ export const updateIngestionSettings = mutation({
         domainsRemoved: countAdded(allowedDomains, before.allowedDomains),
         allowAnySenderBefore: before.allowAnySender,
         allowAnySenderAfter: allowAnySender,
+        // Recorded as its own fact. "Bytes a stranger chose may now be written
+        // into this bucket" is a different question from "somebody new may send
+        // mail", and a trail that folded the two together would make the first
+        // one invisible — which is precisely the change an owner would want to
+        // find later.
+        attachmentPolicyBefore: before.attachmentPolicy,
+        attachmentPolicyAfter: attachmentPolicy,
+        attachmentStorageEnabled:
+          attachmentPolicy === "store" && before.attachmentPolicy !== "store",
+        maxAttachmentBytesBefore: before.maxAttachmentBytes,
+        maxAttachmentBytesAfter: maxAttachmentBytes,
         // The one flag a human scanning the trail actually cares about: did
         // this change let somebody new in? Recorded rather than derived at read
         // time so it cannot be lost when a display changes.
@@ -291,6 +339,8 @@ export const updateIngestionSettings = mutation({
       allowedSenders,
       allowedDomains,
       allowAnySender,
+      attachmentPolicy,
+      maxAttachmentBytes,
     };
   },
 });
@@ -298,6 +348,34 @@ export const updateIngestionSettings = mutation({
 /* -------------------------------------------------------------------------- */
 /*                                 validation                                 */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * Each rejection names the offending value, which is safe — the caller just
+ * sent it — and gives an owner something to correct rather than a shrug.
+ */
+function requireAttachmentPolicy(raw: string): string {
+  const policy = normalizeAttachmentPolicy(raw);
+  if (policy === null) {
+    throw new ConvexError({
+      code: "INGESTION_INVALID_ATTACHMENT_POLICY",
+      message: `"${raw}" is not an attachment policy. Use ignore, list, or store.`,
+    });
+  }
+  return policy;
+}
+
+function requireMaxAttachmentBytes(raw: number): number {
+  const bytes = normalizeMaxAttachmentBytes(raw);
+  if (bytes === null) {
+    throw new ConvexError({
+      code: "INGESTION_INVALID_ATTACHMENT_SIZE",
+      message:
+        `${raw} is not a usable attachment size. Give a whole number of bytes ` +
+        `between 1 and ${MAX_ATTACHMENT_BYTES_CEILING}.`,
+    });
+  }
+  return bytes;
+}
 
 function requireTargetFolder(raw: string): string {
   const validation = normalizeTargetFolder(raw);
