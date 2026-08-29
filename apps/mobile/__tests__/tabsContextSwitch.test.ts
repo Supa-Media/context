@@ -316,13 +316,28 @@ describe("the console frame keys its tabs on the open context", () => {
       join(__dirname, "..", "app", "(app)", "console", "_layout.tsx"),
       "utf8",
     );
-    // A regex over comment-stripped source, not `toContain`. A bare substring
-    // check is satisfied by the literal appearing in a `//` comment above a call
-    // that passes something else — CLAUDE.md records that exact failure ("an
-    // import guard that read English prose as code") — and is broken by a
-    // reformat that changes nothing, which is what prettier does the day a third
-    // argument arrives.
-    const code = layout.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
-    expect(code).toMatch(/useTabs\(\s*data\.files\s*,\s*data\.selectedContextId\s*,?\s*\)/);
+    // Comments **and string literals** stripped, and the call counted rather
+    // than merely found. Each of those closes a hole the previous shape had:
+    //
+    //  - a `toContain` is satisfied by the literal sitting in a `//` comment
+    //    above a call that passes something else, which is CLAUDE.md's "an
+    //    import guard that read English prose as code";
+    //  - stripping only comments leaves the same trick available in a string,
+    //    `const wiring = "useTabs(data.files, data.selectedContextId)"`, which
+    //    is prose read as code by the same mechanism;
+    //  - and presence *anywhere* never establishes that the call the component
+    //    makes is the wired one — a dead helper appended to the file satisfies
+    //    it while the real call passes a constant. Hence exactly one.
+    //
+    // Both defeats were demonstrated against the previous version, with the
+    // whole suite green while `useTabs` received a constant.
+    const code = layout
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/[^\n]*/g, "")
+      .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
+      .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+      .replace(/`(?:[^`\\]|\\.)*`/g, "``");
+    expect(code.match(/useTabs\s*\(/g) ?? []).toHaveLength(1);
+    expect(code).toMatch(/useTabs\s*\(\s*data\.files\s*,\s*data\.selectedContextId\s*,?\s*\)/);
   });
 });

@@ -113,7 +113,8 @@ export function useTabs(
    * check it would wipe a strip that the `opened` effect has already filled,
    * because both run in the same commit.
    *
-   * That is also why this effect is declared **last**, which is the opposite of
+   * That is also why this effect is declared after the `opened` one — last of
+   * the three that dispatch — which is the opposite of
    * what a latent bug here argues for. A render that both switched context and
    * opened a note in one commit would open the tab and then have this wipe it,
    * with `opened` never re-running because `[openPath]` did not change — and

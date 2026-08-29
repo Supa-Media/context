@@ -77,12 +77,22 @@ export type TabsAction =
   /** Deleted, archived, or moved away — the path no longer resolves. */
   | { type: "removed"; path: string }
   /**
-   * A different context is open. Everything goes: tabs, drafts, and the reopen
-   * stack.
+   * A different context is open. Every tab goes, and so does the reopen stack.
    *
-   * Not a loop of `removed`, which would push each path onto `closed` and leave
-   * ⌘⇧T able to resurrect a note from the context the person just left. The
+   * The stack is the point, and neither of the two obvious loops gets there.
+   * `closed` **adds** each path to it. `removed` **scrubs** the one path it is
+   * given — see its case below, and the test that pins it — but leaves
+   * everything the person had already closed with ⌘W *before* the switch, so
+   * ⌘⇧T afterwards puts a note name from the previous context back on screen.
+   * Only clearing the whole thing works, which is what this action is for: the
    * strip is about *this* context or it is about nothing.
+   *
+   * Not drafts — a `Tab` is `{ path, preview, dirty }` and holds no text.
+   * `TabsState` never sees a draft; that lives in `useFileBrowser`'s editor,
+   * which its own reset effect clears on the same key. Worth saying because
+   * this file's header promises per-tab drafts eventually, and on the day they
+   * arrive this action silently becomes an unsaved-work discard on every
+   * context switch.
    */
   | { type: "reset" };
 
@@ -295,10 +305,18 @@ export function tabLabel(state: TabsState, path: string): string {
  * `buildTreeRows` (draws a truncated folder as complete, and can draw "Empty"
  * for one whose whole first page was filtered by `canSee`), `namesIn` (tells
  * `describeNameProblem` a taken name is free), `findEntry`, `countLoaded`,
- * `itemsFromListings`, and — the one worth naming individually —
- * **`loadedFolders`, which feeds `SettingsPane`'s folder visibility list**, so
- * a truncated root listing quietly drops folders from the screen where the
- * owner decides who may see them. None is a regression and none is disclosure;
+ * `itemsFromListings`, and `loadedFolders` (the move dialog's destination list,
+ * and `IngestionCard`'s one-tap capture targets — the latter already
+ * deliberately partial, `.slice(0, 6)` beside a free-text field).
+ *
+ * An earlier version of this sentence called `loadedFolders` "the one worth
+ * naming individually" because it "feeds `SettingsPane`'s folder visibility
+ * list". There is no such list: folder visibility is set from the tree, through
+ * `cycleVisibility` behind `canSetVisibility`, and `SettingsPane` has no
+ * visibility control at all. That claim came from a review note and was written
+ * in as fact without being checked — **a fabricated access-control consequence,
+ * in a public repository, inside a commit about comments the code contradicts.**
+ * None of these is a regression and none is disclosure;
  * every one of them is "a short list printed as a complete one", the rule
  * CLAUDE.md states for `noteCountTruncated` and `resetPrivacyManifest.partial`.
  */

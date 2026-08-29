@@ -526,7 +526,7 @@ describe("a context switch empties the strip", () => {
    * carried in from A — harmless against the server, which answers a uniform
    * `FILE_NOT_FOUND`, but under PARA those paths collide by design.
    */
-  test("every tab, its history and its drafts go", () => {
+  test("every tab and the whole reopen stack go", () => {
     const before = run(
       pinned("1-projects/deals/acquisition.md", "2-areas/health.md"),
       { type: "edited", path: "1-projects/deals/acquisition.md" },
