@@ -911,70 +911,95 @@ export interface MoveResult {
 }
 
 /**
- * A destination the caller cannot see is not a destination.
+ * May this caller write here, and be told what is already here?
  *
- * `writeFile` states this rule at its own top — "creating a note somewhere a
- * team caller cannot see means creating a note they immediately could not
- * read" — and `movePath`/`copyPath` are the two operations that do not go
- * through it. They `store.put` each destination directly, so the rule had to
- * be restated here or it did not apply to them, and it did not.
+ * The gateway's `move_note` asks exactly this, in exactly this way, and three
+ * earlier answers on this branch were wrong in three different directions:
  *
- * Two things went wrong without it, and the second is the worse one:
+ *  - `canSee(destination)` alone. A move carries the source's exception onto
+ *    the destination so the note keeps its visibility, which made the check
+ *    true for ANY destination — a note the owner had shared out of a private
+ *    folder was a key that opened every folder.
+ *  - `canSee` plus `folderVisibleAtScope(parentOf(destination))`.
+ *    `folderVisibleAtScope` answers "should this folder appear in the tree",
+ *    and it says yes when ANY `team` exception exists anywhere beneath it —
+ *    that is its documented job, so a folder is reachable in the tree the
+ *    moment one note in it is shared. Reusing it as a write predicate reopened
+ *    the whole subtree: one shared note under `2-areas/deep/sub/` made every
+ *    path under `2-areas/` probeable again.
+ *  - And it skipped the bucket root entirely, because `parentOf` returns `""`
+ *    there and the check was guarded on that. The root is where `index.md`,
+ *    `privacy.md` and `todo.md` live; a team caller could probe them and, on a
+ *    bucket without one, create `index.md` — the front page the product says it
+ *    never generates.
  *
- *  - The collision loop reads every destination with a raw `store.get` and
- *    names the path back in its message, so a caller could confirm any key in
- *    the half of the bucket they cannot list, one guess at a time. That is a
- *    wider oracle than `createFolder`'s was: arbitrary note paths rather than
- *    `<folder>/README.md`, and the reply quotes the path it found.
- *  - A team caller could move a shared note *into* a folder they cannot see.
- *    That is not a write they can undo: the note leaves every other member's
- *    listing, no exception is recorded for it, and `canSee(from)` then refuses
- *    to let the same caller move it back out. One editor could quietly take a
- *    note away from everybody except the owner.
+ * So the question is asked of the destination path itself, against the folder
+ * defaults as they will stand, and it has one answer at the root as everywhere
+ * else: no rule reaches it, so it is private, so a team caller may not land
+ * there. `visibilityOf` rather than `effectiveVisibility` because an exception
+ * is about one note and this is about a place — and a destination that already
+ * carries an exception is refused outright, so a caller can never land on a
+ * note whose visibility is unusual, nor learn from the attempt that it is.
  *
- * The gateway has always refused both — `move_note` and `move_folder` check
- * the destination before reading it, and say so in the tool description. This
- * is the control plane catching up with its own other half.
+ * The cost, which is a real behaviour change: a team caller can no longer move
+ * or rename a shared note that lives inside a private folder, because the place
+ * it would land is private even though the note is not. The gateway has always
+ * refused that, and every time this branch has diverged from the gateway it has
+ * been the branch that was wrong.
  */
 function assertDestinationsVisible(
   destinations: readonly string[],
   scope: Scope,
   rules: readonly PrivacyRule[],
   overrides: ReadonlyMap<string, Visibility>,
-  /**
-   * The manifest's own exceptions, for the folder half of the question.
-   *
-   * A move's `overrides` carries the exception forward onto the destination,
-   * which is right for "may this note be here" and circular for "may this
-   * caller write in this folder" — the carried entry is itself an exception
-   * under the destination folder, so `folderVisibleAtScope` would find it and
-   * say yes on the strength of the very thing being asked about. The folder
-   * question is asked of the manifest as it stands.
-   */
-  folderOverrides: ReadonlyMap<string, Visibility> = overrides,
 ): void {
   for (const destination of destinations) {
-    if (!canSee(destination, scope, rules, overrides)) throw notFound();
-    // ...and the folder it lands in has to be one this caller can see.
+    if (scope === "private") continue;
+    // The place, then the note that may already be in it.
     //
-    // `canSee(destination)` alone is satisfied by a carried exception: a note
-    // the owner shared out of a private folder keeps its `team` marking when it
-    // moves, so it made ANY destination pass — including one inside a folder
-    // the caller cannot list. Two things followed, and only the second is
-    // obvious. The caller could write their note into somebody's private
-    // folder; and because the collision check runs after this guard, they could
-    // aim at a key and read the answer, turning "did the move succeed" into
-    // "does that note exist" for any path they cared to name.
+    // `visibilityOf` and not `effectiveVisibility`: they differ only when the
+    // destination carries an exception, and the line below refuses that case
+    // outright — so swapping them changes no outcome, which is measured rather
+    // than assumed. They are kept apart because they answer different
+    // questions, and the second is what stops a caller landing on a note whose
+    // visibility is unusual, or learning from the attempt that one is there.
     //
-    // Asking about the destination's folder keeps every legitimate case: a note
-    // renamed beside itself is still in a folder its own exception makes
-    // visible, and a folder rename is judged under the rules the move installs,
-    // which is what makes the destination folder visible there.
-    const parent = parentOf(destination);
-    if (parent !== "" && !folderVisibleAtScope(parent, scope, rules, folderOverrides)) {
-      throw notFound();
-    }
+    // No plumbing check: `assertWritablePath` has already refused a reserved
+    // `to`, and every destination is `to` plus a suffix taken from a source key
+    // the walk kept, which filtered plumbing out. A dot segment cannot appear.
+    // Instrumented before this was written, rather than after.
+    if (visibilityOf(destination, rules) !== "team") throw notFound();
+    if (overrides.has(destination)) throw notFound();
   }
+}
+
+/**
+ * The same question, asked against the rules a *move* will leave behind.
+ *
+ * A move rewrites the manifest after it runs — `remapPrivacy` renames every
+ * folder rule under the source — so judging a destination against the rules as
+ * they stand refuses renames that preserve visibility perfectly well: a folder
+ * holding its own `team` rule inside a private parent takes that rule with it.
+ * The overrides are the manifest's own, never a map the move is building; a
+ * guard that reads its own seeding answers on the strength of the thing being
+ * asked about.
+ *
+ * `copyPath` deliberately does not use this. `copyPrivacy` carries exceptions
+ * but not folder rules, so a copy really does land under whatever rules already
+ * reach it.
+ */
+function assertMoveDestinationsVisible(
+  pairs: readonly { source: string; destination: string }[],
+  scope: Scope,
+  state: PrivacyState,
+  folderMove: { from: string; to: string } | null,
+): void {
+  assertDestinationsVisible(
+    pairs.map((pair) => pair.destination),
+    scope,
+    oneRulePerPrefix(rulesAfterFolderMove(state.rules, folderMove)),
+    state.overrides,
+  );
 }
 
 /**
@@ -1088,58 +1113,6 @@ function rulesAfterFolderMove(
     rule.prefix === from || rule.prefix.startsWith(`${from}/`)
       ? { prefix: `${to}${rule.prefix.slice(from.length)}`, vis: rule.vis }
       : rule,
-  );
-}
-
-/**
- * The same question, asked at the moment a *move* answers it.
- *
- * A move rewrites the manifest after it runs: `remapPrivacy` renames every
- * folder rule under the source and carries each note's exception across. So
- * judging a destination against the rules as they stand now asks the wrong
- * question, and refuses renames that preserve visibility perfectly well — a
- * folder holding its own `team` rule inside a private parent takes that rule
- * with it, and the caller can see the result.
- *
- * The property is unchanged: a destination the caller could not see *after*
- * the move is still refused, which is the whole point. This only measures it
- * at the right moment.
- *
- * `copyPath` deliberately does not use this. `copyPrivacy` carries exceptions
- * but not folder rules, so a copy really does land under whatever rules
- * already reach it, and asking about the current manifest is correct there.
- */
-function assertMoveDestinationsVisible(
-  pairs: readonly { source: string; destination: string }[],
-  scope: Scope,
-  state: PrivacyState,
-  folderMove: { from: string; to: string } | null,
-): void {
-  // Seeded from the manifest, not built empty. A fresh map holds only what the
-  // move carries and therefore cannot see an exception already sitting on a
-  // destination — which put back, exactly, the oracle this guard exists to
-  // close: a destination hidden by its own `private` exception answered
-  // "something already exists at <path>" again while a free name succeeded.
-  const overrides = new Map<string, Visibility>(state.overrides);
-  for (const pair of pairs) {
-    const carried = state.overrides.get(pair.source);
-    if (carried !== undefined) overrides.set(pair.destination, carried);
-  }
-  // Deduped, because that is what `remapPrivacy` writes. Judging against the
-  // raw rename let the two disagree: the rename can leave two rules on one
-  // prefix, `visibilityOf` takes the first of equal length, and the writer
-  // takes the more private — so a guard reading the first said `team` while the
-  // file ended up `private`. The move was allowed and then made invisible to
-  // the person who made it, who could not undo it either, because `canSee`
-  // refuses them the source from that moment. That is the harm this guard's own
-  // comment says it exists to prevent, reintroduced by the fix for the
-  // duplicate line.
-  assertDestinationsVisible(
-    pairs.map((pair) => pair.destination),
-    scope,
-    oneRulePerPrefix(rulesAfterFolderMove(state.rules, folderMove)),
-    overrides,
-    state.overrides,
   );
 }
 

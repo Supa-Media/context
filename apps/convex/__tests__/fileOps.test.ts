@@ -1082,7 +1082,18 @@ describe("a destination the caller cannot see", () => {
     expect(names(listing.entries)).toEqual(["plan.md"]);
   });
 
-  test("a note carrying a team exception can be renamed inside a private folder", async () => {
+  /**
+   * A shared note inside a private folder is a note the caller may READ and a
+   * place they may not WRITE, and those are different questions. The console
+   * used to answer the second with the first, which is what made a shared note
+   * into a key that opened every folder. It now answers the way the gateway's
+   * `move_note` always has.
+   *
+   * This is a deliberate behaviour change: a team caller can no longer rename
+   * such a note in place. The two halves of the product now agree, and the
+   * owner is unaffected.
+   */
+  test("a shared note inside a private folder cannot be moved by a team caller", async () => {
     const store = bucket();
     store.seed("2-areas/open.md", "# Open\n");
     await setVisibility(store, {
@@ -1090,13 +1101,30 @@ describe("a destination the caller cannot see", () => {
       visibility: "team",
       scope: "private",
     });
+    // They can read it — that is the whole point of the exception.
+    const readable = await readFile(store, { path: "2-areas/open.md", scope: "team" });
+    expect(readable.visibility).toBe("team");
+
+    const refused = await capture(() =>
+      movePath(store, {
+        from: "2-areas/open.md",
+        to: "2-areas/open-renamed.md",
+        scope: "team",
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("FILE_NOT_FOUND");
+
+    // The owner can, and the note keeps its exception.
     const moved = await movePath(store, {
       from: "2-areas/open.md",
       to: "2-areas/open-renamed.md",
-      scope: "team",
+      scope: "private",
       now: NOW,
     });
     expect(moved.paths).toEqual(["2-areas/open-renamed.md"]);
+    const after = await readFile(store, { path: "2-areas/open-renamed.md", scope: "team" });
+    expect(after.visibility).toBe("team");
   });
 
   /**
@@ -1124,30 +1152,48 @@ describe("a destination the caller cannot see", () => {
   });
 
   /**
-   * The console's predicate is `canSee`, which honours an exact-note exception.
-   * The gateway's is `visibilityOf(dest) !== "team"` plus a refusal when any
-   * override touches the destination, which is stricter. They are allowed to
-   * differ — this pins the case where they do, so swapping one for the other
-   * is a decision somebody makes rather than a silent change.
+   * A destination that already carries an exception is refused outright, so a
+   * caller can never land on a note whose visibility is unusual — nor learn
+   * from the attempt that it is. The gateway refuses this too.
    */
-  test("an exception makes a destination writable that the folder default would not", async () => {
+  test("a destination carrying its own exception is refused", async () => {
     const store = bucket();
-    store.seed("2-areas/open.md", "# Open\n");
+    await shareProjects(store);
+    store.seed("1-projects/mine.md", "# Mine\n");
+    store.seed("1-projects/held-back.md", "# Held back\n");
     await setVisibility(store, {
-      path: "2-areas/open.md",
-      visibility: "team",
+      path: "1-projects/held-back.md",
+      visibility: "private",
       scope: "private",
     });
-    // The folder default is private, so `visibilityOf` alone would refuse this.
+
+    const taken = await capture(() =>
+      movePath(store, {
+        from: "1-projects/mine.md",
+        to: "1-projects/held-back.md",
+        scope: "team",
+        now: NOW,
+      }),
+    );
+    const free = await capture(() =>
+      movePath(store, {
+        from: "1-projects/mine.md",
+        to: "2-areas/never.md",
+        scope: "team",
+        now: NOW,
+      }),
+    );
+    expect(errorShape(taken)).toBe(errorShape(free));
+    expect(taken.message).not.toContain("held-back");
+
+    // ...and an ordinary move inside the shared folder still works.
     const moved = await movePath(store, {
-      from: "2-areas/open.md",
-      to: "2-areas/open-2.md",
+      from: "1-projects/mine.md",
+      to: "1-projects/renamed.md",
       scope: "team",
       now: NOW,
     });
-    expect(moved.paths).toEqual(["2-areas/open-2.md"]);
-    const file = await readFile(store, { path: "2-areas/open-2.md", scope: "team" });
-    expect(file.visibility).toBe("team");
+    expect(moved.paths).toEqual(["1-projects/renamed.md"]);
   });
 
   /**
@@ -2226,11 +2272,15 @@ describe("a bulk operation acts only on what the caller can see", () => {
       });
       return store;
     }
-    async function attempt(destination: string) {
+    async function attempt(
+      destination: string,
+      extra?: (store: MemoryStore & FileStore) => void,
+    ) {
       // A fresh bucket per probe. Reusing one moves the note on the first
       // success, and every later probe then fails on the SOURCE — which reads
       // exactly like the guard working.
       const store = await fixture();
+      extra?.(store);
       return {
         store,
         result: await capture(() =>
@@ -2247,16 +2297,40 @@ describe("a bulk operation acts only on what the caller can see", () => {
     // Nothing was written into the folder either.
     expect(miss.store.snapshot()["2-areas/hr/no-such-note.md"]).toBeUndefined();
 
-    // The positive control the folder rule must keep working: a note renamed
-    // beside itself is still in a folder its own exception makes visible.
-    const beside = await fixture();
-    const moved = await movePath(beside, {
-      from: "2-areas/open.md",
-      to: "2-areas/open-renamed.md",
+    // The bucket root is a folder like any other, and it was the one the guard
+    // used to skip — `parentOf` returns "" there. `index.md`, `privacy.md` and
+    // `todo.md` live at the root, and on a bucket with no front page a team
+    // caller could create one.
+    const root = await attempt("index.md");
+    expect(errorShape(root.result)).toBe(errorShape(hit.result));
+    // The front page is untouched, not overwritten by the moved note.
+    expect(root.store.snapshot()["index.md"]).toBe("# Context\n");
+    // ...and a free root name is refused too, so nothing new lands there
+    // either — on a bucket with no front page this is how one got created.
+    const freeRoot = await attempt("2027-plan.md");
+    expect(errorShape(freeRoot.result)).toBe(errorShape(hit.result));
+    expect(freeRoot.store.snapshot()["2027-plan.md"]).toBeUndefined();
+
+    // One shared note anywhere beneath a folder used to be enough to reopen the
+    // whole subtree, because the predicate asked whether the folder renders in
+    // the tree rather than whether this is a place the caller may write. Both
+    // shapes must answer alike.
+    const shared = await attempt("2-areas/hr/comp-2027.md", (store) =>
+      store.seed("2-areas/hr/also-shared.md", "# Also shared\n"),
+    );
+    expect(errorShape(shared.result)).toBe(errorShape(hit.result));
+
+    // The positive control: a move inside a folder whose default really is
+    // team. Refusing everything would satisfy every assertion above.
+    const allowed = bucket();
+    await shareProjects(allowed);
+    const moved = await movePath(allowed, {
+      from: "1-projects/context-lc.md",
+      to: "1-projects/renamed.md",
       scope: "team",
       now: NOW,
     });
-    expect(moved.paths).toEqual(["2-areas/open-renamed.md"]);
+    expect(moved.paths).toEqual(["1-projects/renamed.md"]);
   });
 
   test("a folder rename inside a private parent still works", async () => {
