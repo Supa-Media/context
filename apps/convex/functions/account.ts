@@ -322,15 +322,24 @@ async function deleteWorkspaceCascade(
   // reachable by a person the sweeps above never touch, and — unlike an
   // invitation — it does not expire by default. Revoked rows go too: they are
   // this context's disclosure record, and there is nobody left to read it.
+  //
+  // Drained in pages for the same reason and with the same caveat as
+  // `revokeSharesAddressedTo`: it bounds what is materialised at once, not the
+  // total, and completeness is what matters — `MAX_ACTIVE_SHARES` caps only
+  // *active* rows, so revoked ones accumulate for the life of a context and a
+  // heavy sharer could otherwise make their own context undeletable.
   for (const status of ["active", "revoked"] as const) {
-    const shares = await ctx.db
-      .query("noteShares")
-      .withIndex("by_workspace_status", (q) =>
-        q.eq("workspaceId", workspaceId).eq("status", status),
-      )
-      .collect();
-    for (const share of shares) {
-      await ctx.db.delete(share._id);
+    for (;;) {
+      const page = await ctx.db
+        .query("noteShares")
+        .withIndex("by_workspace_status", (q) =>
+          q.eq("workspaceId", workspaceId).eq("status", status),
+        )
+        .take(SHARE_REVOKE_PAGE);
+      for (const share of page) {
+        await ctx.db.delete(share._id);
+      }
+      if (page.length < SHARE_REVOKE_PAGE) break;
     }
   }
 
@@ -415,21 +424,43 @@ async function voidCapabilitiesAddressedTo(ctx: MutationCtx, name: string): Prom
  * Every standing note share addressed to one identifier, revoked.
  *
  * Revoked rather than deleted, which is the one place this differs from the
- * invitations above, and for a reason rather than a preference: the share lives
- * in a workspace that SURVIVES, whose owner has a list of what they have
- * disclosed and to whom. A row that vanishes takes that record with it; a
- * revoked one is already how this table says "no longer live" — `isLive`
- * refuses it, all three recipient channels drop it, and a re-share mints a
- * fresh token rather than reviving this one.
+ * invitations above. The reason is the re-share path, not a record: the row is
+ * what `findShareFor` matches on `by_workspace_entry_recipient`, so keeping it
+ * means sharing that note with that identifier again re-uses one row and mints
+ * a fresh token, rather than leaving two rows an owner cannot tell apart. And
+ * `revoked` is already how this table says "no longer live" — `isLive` refuses
+ * it and all three recipient channels drop it.
  *
- * **Bounded, because the key is chosen by whoever addresses a share.** Anybody
- * with an account can aim shares at one handle, and `deleteAccount` is a single
- * transaction — an unbounded `.collect()` here would let a stranger make
- * somebody else's account undeletable. Same rule `MAX_SHARES_RETURNED` follows
- * in `shares.ts`: a read whose cost is set by other people's rows gets a
- * ceiling. Draining in pages rather than truncating, because unlike a listing
- * this must not leave a live capability behind; the loop terminates because
- * every page it reads it also takes out of the index it is reading.
+ * **It is not a disclosure record for the owner, and an earlier version of
+ * this comment said it was.** Nothing reads a revoked row: `listShares`
+ * queries `status: "active"` and is the only read by workspace, and no audit
+ * event is written here — so from the owner's side a swept share simply stops
+ * being listed. Whether that should instead write a `share.revoked` event into
+ * a workspace whose owner is not the acting person is a real question about
+ * what an account deletion may tell third parties, and it is left open rather
+ * than answered in passing.
+ *
+ * **Complete, and therefore deliberately unbounded.** An earlier version of
+ * this comment called the paging a bound, citing `MAX_SHARES_RETURNED`'s rule
+ * that a read whose cost is set by other people's rows gets a ceiling. That
+ * was wrong and a review caught it: `.take()` in a loop reads and writes
+ * exactly the same total documents as `.collect()`. It bounds how much is
+ * materialised at once, which is worth having, and it bounds nothing else.
+ *
+ * The ceiling is not available here, and that is the trade rather than an
+ * oversight. A listing that stops early shows fewer rows; a sweep that stops
+ * early **leaves a live capability addressed to an identifier somebody else is
+ * about to hold** — the whole failure this function exists to prevent. So it
+ * drains until the index is empty. The loop terminates because every page it
+ * reads it also removes from the range it is reading.
+ *
+ * What that leaves open is real and is recorded rather than papered over:
+ * `createShare` has no rate limit, and one account can aim
+ * `MAX_WORKSPACES_PER_USER` × `MAX_ACTIVE_SHARES` rows at a single identifier,
+ * so enough of them could push a victim's `deleteAccount` — one transaction —
+ * past what it can write. That is an availability problem with a live
+ * capability on the other side of the trade, and the direction chosen here is
+ * the one that never leaves the capability standing.
  */
 async function revokeSharesAddressedTo(
   ctx: MutationCtx,
@@ -451,5 +482,12 @@ async function revokeSharesAddressedTo(
   }
 }
 
-/** One page of the drain above. Small: a transaction is a budget, not a stream. */
-const SHARE_REVOKE_PAGE = 100;
+/**
+ * One page of the drain above.
+ *
+ * Exported so a test can seed one row more than a page and prove the loop
+ * comes back for the rest. Without that, truncating the drain — one line —
+ * passes the entire suite while leaving a live capability behind, which is
+ * measured in `shares.test.ts`.
+ */
+export const SHARE_REVOKE_PAGE = 100;

@@ -30,6 +30,7 @@
 import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
+import { SHARE_REVOKE_PAGE } from "../functions/account";
 import {
   addMember,
   asUser,
@@ -558,7 +559,7 @@ describe("the audit trail", () => {
  * same consequence: the identifier can change hands while the capability sits
  * there waiting.
  *
- * `account.ts` already knows this. `voidPendingInvitationsTo` exists for it,
+ * `account.ts` already knows this. `voidCapabilitiesAddressedTo` exists for it,
  * and its doc comment is the argument in full — *"a freed name must inherit
  * nothing… a stranger walking into a context that was shared with a person who
  * no longer exists"*. It covers `workspaceInvitations`. A share is a second,
@@ -812,6 +813,96 @@ describe("each half of the share sweep, isolated", () => {
     expect(
       await asUser(t, successor).query(api.functions.shares.listSharedWithMe, {}),
     ).toHaveLength(1);
+  });
+
+  test("every share addressed to the identifier goes, not just the first page", async () => {
+    const t = setupTest();
+    const { ownerId, lkId, workspaceId } = await scenario(t);
+
+    // **The completeness half, which nothing held.** The drain reads a page,
+    // revokes it, and comes back; truncating it to a single `.take()` is one
+    // line, and with a single share per recipient — the most any other test in
+    // this suite creates — the whole suite still passes. What that regression
+    // buys an attacker is not subtle: the rows past the first page stay
+    // `active`, so the next holder of the handle is handed live tokens by their
+    // own inbox, which is precisely what the block above exists to prevent.
+    //
+    // Seeded directly because the point is the page boundary, not the mint
+    // path, and `MAX_ACTIVE_SHARES` would otherwise decide how many fit.
+    const extra = SHARE_REVOKE_PAGE + 1;
+    await t.run(async (ctx) => {
+      for (let i = 0; i < extra; i += 1) {
+        await ctx.db.insert("noteShares", {
+          workspaceId,
+          entryPath: `1-projects/bulk/note-${i}.md`,
+          recipientKind: "name",
+          recipient: "lk",
+          createdBy: ownerId,
+          token: `token-${i}`.padEnd(64, "0"),
+          status: "active",
+          titleInPreview: true,
+          createdAt: Date.now(),
+        });
+      }
+    });
+
+    await asUser(t, lkId).mutation(api.functions.account.deleteAccount, {});
+
+    const left = await t.run((ctx) =>
+      ctx.db
+        .query("noteShares")
+        .withIndex("by_recipient", (q) =>
+          q.eq("recipientKind", "name").eq("recipient", "lk").eq("status", "active"),
+        )
+        .collect(),
+    );
+    expect(left).toEqual([]);
+
+    // And the successor's inbox agrees, which is the shape the attack takes.
+    const successor = await createUser(t, "successor@example.invalid");
+    await createWorkspace(t, successor, "lk");
+    expect(
+      await asUser(t, successor).query(api.functions.shares.listSharedWithMe, {}),
+    ).toEqual([]);
+  });
+
+  test("destroying a context takes every page of its shares, not just the first", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+
+    // The sibling of the test above, and it exists because the sibling was
+    // missed: the cascade's own drain was added while fixing a review finding
+    // *about* the other drain, and truncating it passed all 1230 checks. A row
+    // left here points at a workspace that no longer exists, which is the
+    // dangling-capability half of what this block is for.
+    // A page-plus-one of EACH status. The first version of this test seeded
+    // that many rows *in total* and split them across the two, so neither
+    // status reached the page size and the truncation it was written for went
+    // undetected — the sabotage passed. The cascade loops per status, so the
+    // boundary has to be crossed per status.
+    const extra = SHARE_REVOKE_PAGE + 1;
+    await t.run(async (ctx) => {
+      for (const status of ["active", "revoked"] as const) {
+        for (let i = 0; i < extra; i += 1) {
+          await ctx.db.insert("noteShares", {
+            workspaceId,
+            entryPath: `1-projects/bulk/${status}-${i}.md`,
+            recipientKind: "name",
+            recipient: `recipient-${status}-${i}`,
+            createdBy: ownerId,
+            token: `cascade-${status}-${i}`.padEnd(64, "0"),
+            status,
+            titleInPreview: true,
+            createdAt: Date.now(),
+            ...(status === "revoked" ? { revokedAt: Date.now() } : {}),
+          });
+        }
+      }
+    });
+
+    await asUser(t, ownerId).mutation(api.functions.account.deleteAccount, {});
+
+    expect(await t.run((ctx) => ctx.db.query("noteShares").collect())).toEqual([]);
   });
 
   test("a share addressed to an email does not follow the address to its next holder", async () => {

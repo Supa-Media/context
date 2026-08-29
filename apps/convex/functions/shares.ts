@@ -126,7 +126,7 @@ function isLive(share: Doc<"noteShares">, now: number): boolean {
  *
  * ## Why redemption re-checks at all, when the teardown sweeps
  *
- * `deleteWorkspaceCascade` now takes this table with it, and a freed name
+ * `deleteWorkspaceCascade` now takes this table with it, and a freed identifier
  * revokes the shares addressed to it. Neither is what this function is for.
  * The rule this codebase already follows is **sweep at teardown AND re-check at
  * redemption**: the cascade is allowed to omit `oauthAuthorizations` only
@@ -135,6 +135,15 @@ function isLive(share: Doc<"noteShares">, now: number): boolean {
  * added to the schema and not to the teardown is a mistake somebody will make
  * again — it is how this one was found — so the capability must not depend on
  * the sweep having been remembered.
+ *
+ * **How much of that is true here, exactly.** The context and sharer checks
+ * below hold for every share. The identifier check does not: it can only fire
+ * on a row carrying a pin, and a share written to a handle nobody held yet
+ * carries none by design — so do rows written before the field existed. For
+ * those the sweep is the only control, which is why its completeness is
+ * test-held rather than assumed. Saying "belt and braces" about a population
+ * wearing one belt is the kind of claim this file is otherwise careful not to
+ * make.
  *
  * ## The handle has to be the same handle
  *
@@ -148,6 +157,14 @@ function isLive(share: Doc<"noteShares">, now: number): boolean {
  * was written against, or nothing if the handle was free. The schema carries
  * the reasoning, including why the obvious cheaper version ("the claim must
  * predate the share") breaks sharing with somebody who has not signed up yet.
+ *
+ * `claimedAt` is not a unique key, and `claim._creationTime` would be. It is
+ * deliberately not used: a system field can be rewritten by a restore or a
+ * migration, and every share on the platform would then fail closed at once,
+ * silently. `claimedAt` is ours, written once by `claimName`, and the case it
+ * cannot separate is two claims of the *same* handle inside one millisecond —
+ * which needs a deletion and a re-claim in two transactions a millisecond
+ * apart. That residue is smaller than the tail risk of the alternative.
  *
  * There is no equivalent for an email-addressed share: `emailVerificationTime`
  * is re-stamped on every verifying sign-in, so it pins nothing. The teardown
@@ -187,7 +204,7 @@ async function shareStillStands(
   const sharer = await getMembership(ctx, share.workspaceId, share.createdBy);
   if (sharer === null || sharer.role !== "owner") return null;
 
-  if (share.recipientKind === "name") {
+  if (share.recipientKind === "name" && share.recipientHeldSince !== undefined) {
     const claim = await findName(ctx, share.recipient);
     // `claim?.` rather than an early null check, which would look like a guard
     // and not be one: an unclaimed handle is already refused below, because
@@ -206,9 +223,7 @@ async function shareStillStands(
     // that comparison made it permanently unredeemable the moment the intended
     // recipient signed up — silently, on both sides, with re-sharing unable to
     // repair it because the active-row branch freezes `createdAt`.
-    if (share.recipientHeldSince !== undefined && claim?.claimedAt !== share.recipientHeldSince) {
-      return null;
-    }
+    if (claim?.claimedAt !== share.recipientHeldSince) return null;
   }
 
   // Last, and the authority on who an identifier belongs to.
