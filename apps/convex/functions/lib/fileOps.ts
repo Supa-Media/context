@@ -2258,11 +2258,19 @@ export const STORABLE_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set([
  * bucket. The leaf rule is the gateway's, deliberately: a key this writes and
  * `read_image` cannot name is bytes nobody can ever get back out.
  *
- * **That rule had one of its two halves.** `imageRefFor` requires the character
- * class below *and* a `.` past position 0 *and* an extension in
- * `IMAGE_MIME_TYPES`; only the first was enforced here, so `writeImage` would
- * happily resolve for `abc`, `abc.txt` and `abc.svg` — measured, returning
- * `{ key: ".images/abc" }` — every one of which `read_image` refuses forever.
+ * **That rule had one of its FOUR gates.** `imageRefFor` refuses a `..`
+ * anywhere in the raw value, then requires the character class below, then a
+ * `.` past position 0, then an extension in `IMAGE_MIME_TYPES`. Only the
+ * character class was enforced here, so `writeImage` would happily resolve for
+ * `abc`, `abc.txt` and `abc.svg` — measured, returning `{ key: ".images/abc" }`
+ * — every one of which `read_image` refuses forever.
+ *
+ * (An earlier version of this comment said "two halves" and enumerated three
+ * gates as the whole rule. It omitted `..`, and the code omitted it too, so
+ * `a..png` and `abc..jpeg` still resolved and still wrote bytes the gateway
+ * would never hand back. A comment that enumerates somebody else's rule is a
+ * claim about their code, and this one was made by reading three lines of
+ * four.)
  * Latent rather than live: this function has no production call site. Which is
  * a fact about today, and the reason to close it now rather than when one
  * appears.
@@ -2278,12 +2286,23 @@ export async function writeImage(
   // `MAX_INLINE_IMAGE_BYTES` already has. (It says so now. When this comment
   // was first written it named a test that did not exist, for either half of
   // the rule below.)
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(leaf) || leaf.length > 200) {
+  //             `..` first, as the gateway does. It survives the character
+  // class — `.` is in it — so nothing below would catch it.
+  if (
+    leaf.includes("..") ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(leaf) ||
+    leaf.length > 200
+  ) {
     throw new FileOpError("PATH_INVALID", "That is not a valid stored-object name.");
   }
-  // The second half. `imageRefFor` resolves the mime type from the extension,
-  // so a leaf without one, or with one the gateway cannot serve, names an
-  // object no tool can ever return.
+  // The last two gates. `imageRefFor` resolves the mime type from the
+  // extension, so a leaf without one, or with one the gateway cannot serve,
+  // names an object no tool can ever return.
+  //
+  // `dot <= 0` is not a subsumed backstop and is pinned by its own case: with
+  // it gone, `slice(-1 + 1)` is the whole leaf, so a leaf that IS an extension
+  // name — `png`, `jpeg` — passes the set lookup and writes `.images/png`,
+  // which `imageRefFor` refuses because it finds no dot at all.
   const dot = leaf.lastIndexOf(".");
   if (dot <= 0 || !STORABLE_IMAGE_EXTENSIONS.has(leaf.slice(dot + 1).toLowerCase())) {
     throw new FileOpError(
