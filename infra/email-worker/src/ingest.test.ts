@@ -751,7 +751,6 @@ describe("stored attachments", () => {
       [...block![1]!.matchAll(/\["([a-z0-9]+)",/g)].map((m) => m[1]!),
     );
 
-
     expect(servable.size).toBeGreaterThan(0);
     for (const extension of STORABLE_IMAGE_TYPES.values()) {
       expect(servable, `the gateway will not serve .${extension}`).toContain(extension);
@@ -768,9 +767,14 @@ describe("stored attachments", () => {
     // one shape of attachment into a capture failure, which is exactly the
     // direction nobody would test for.
     //
-    // A real import, not a source scrape: this side is not dependency-free,
-    // and `../../../apps/mcp/src/store/index.js` is already what the worker
-    // builds its store from.
+    // A real import where the neighbour above has to scrape, and the reason is
+    // not dependency-freeness — `import()` of the gateway's source works fine
+    // from here, and `src/index.ts` already imports its store factory in
+    // production. The difference is one word in the gateway: `export const
+    // WRITABLE_CONTENT_TYPES` is exported and `const IMAGE_MIME_TYPES` is not,
+    // so one can be read and the other must be parsed out of the text. Prefer
+    // the import wherever the gateway exports the thing; a regex over source is
+    // a last resort, not a house style.
     const { WRITABLE_CONTENT_TYPES } = await import(
       "../../../apps/mcp/src/store/index.js"
     );
