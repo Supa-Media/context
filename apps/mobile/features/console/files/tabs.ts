@@ -32,6 +32,7 @@
  */
 
 import { baseName, parentPath } from "./paths";
+import type { FolderListing } from "./types";
 
 export interface Tab {
   path: string;
@@ -74,7 +75,26 @@ export type TabsAction =
   /** A rename must follow the tab, draft and all. */
   | { type: "renamed"; from: string; to: string }
   /** Deleted, archived, or moved away — the path no longer resolves. */
-  | { type: "removed"; path: string };
+  | { type: "removed"; path: string }
+  /**
+   * A different context is open. Every tab goes, and so does the reopen stack.
+   *
+   * The stack is the point, and neither of the two obvious loops gets there.
+   * `closed` **adds** each path to it. `removed` **scrubs** the one path it is
+   * given — see its case below, and the test that pins it — but leaves
+   * everything the person had already closed with ⌘W *before* the switch, so
+   * ⌘⇧T afterwards puts a note name from the previous context back on screen.
+   * Only clearing the whole thing works, which is what this action is for: the
+   * strip is about *this* context or it is about nothing.
+   *
+   * Not drafts — a `Tab` is `{ path, preview, dirty }` and holds no text.
+   * `TabsState` never sees a draft; that lives in `useFileBrowser`'s editor,
+   * which its own reset effect clears on the same key. Worth saying because
+   * this file's header promises per-tab drafts eventually, and on the day they
+   * arrive this action silently becomes an unsaved-work discard on every
+   * context switch.
+   */
+  | { type: "reset" };
 
 /** Newest first, deduplicated, capped. */
 function remember(closed: readonly string[], paths: readonly string[]): string[] {
@@ -139,6 +159,8 @@ function amend(state: TabsState, path: string, change: Partial<Tab>): TabsState 
 
 export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
   switch (action.type) {
+    case "reset":
+      return emptyTabs;
     case "opened":
       return open(state, action.path, action.mode);
 
@@ -256,4 +278,59 @@ export function tabLabel(state: TabsState, path: string): string {
   if (!ambiguous) return name;
   const folder = parentPath(path);
   return folder === "" ? name : `${baseName(folder)}/${name}`;
+}
+
+/**
+ * Which open tabs a changed set of listings says are gone.
+ *
+ * Pure, and here rather than inside `useTabs`' effect, because `#102`
+ * established that in this console every guard expressed as a pure module is
+ * held by a test and every guard inside a hook is not — 13-for-13 against
+ * 0-for-14. Both rules below were in the second group.
+ *
+ * **Two different things mean "we have not looked".** A folder with no listing
+ * at all is the obvious one: closing on it would shut every tab whenever a
+ * folder collapsed. A folder whose listing is `truncated` is the one that was
+ * missed — `fileOps.ts` sets that flag whenever the walk stopped short, which
+ * includes a store reporting another page and offering no cursor, a
+ * *first-page* condition on B2, Wasabi, MinIO or any proxy. Such a listing is
+ * loaded and incomplete, so the old rule read "absent from the page" as
+ * "deleted" and closed the tab of a note that still exists — after which the
+ * tree, drawing the same short listing, could not reach it either.
+ *
+ * The flag has been measured by the server and carried to the client all along
+ * with no consumer anywhere in `apps/mobile`. **This is now its only one**, and
+ * that is a statement about this function rather than about the flag: several
+ * readers of the same short listing are still blind to it, including
+ * `buildTreeRows` (draws a truncated folder as complete, and can draw "Empty"
+ * for one whose whole first page was filtered by `canSee`), `namesIn`, whose callers all read one page as
+ * the whole folder — `collision` on create and rename, `describeMoveProblem` on
+ * move, `planPaste` on paste, `copyTo`, and both drop paths in `dnd.ts`, `findEntry`, `countLoaded`,
+ * `itemsFromListings`, and `loadedFolders` (the move dialog's destination list,
+ * and `IngestionCard`'s one-tap capture targets — the latter already
+ * deliberately partial, `.slice(0, 6)` beside a free-text field).
+ *
+ * An earlier version of this sentence called `loadedFolders` "the one worth
+ * naming individually" because it "feeds `SettingsPane`'s folder visibility
+ * list". There is no such list: folder visibility is set from the tree, through
+ * `cycleVisibility` behind `canSetVisibility`, and `SettingsPane` has no
+ * visibility control at all. That claim came from a review note and was written
+ * in as fact without being checked — **a fabricated access-control consequence,
+ * in a public repository, inside a commit about comments the code contradicts.**
+ * None of these is a regression and none is disclosure;
+ * every one of them is "a short list printed as a complete one", the rule
+ * CLAUDE.md states for `noteCountTruncated` and `resetPrivacyManifest.partial`.
+ */
+export function tabsToClose(
+  tabs: readonly Tab[],
+  listings: Readonly<Record<string, FolderListing | undefined>>,
+): string[] {
+  const gone: string[] = [];
+  for (const tab of tabs) {
+    const folder = parentPath(tab.path);
+    const listing = listings[folder];
+    if (listing === undefined || listing.truncated) continue;
+    if (!listing.entries.some((entry) => entry.path === tab.path)) gone.push(tab.path);
+  }
+  return gone;
 }

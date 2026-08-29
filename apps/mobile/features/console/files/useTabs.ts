@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import type { FileBrowser } from "./browser";
-import { emptyTabs, tabsReducer, type TabsState } from "./tabs";
+import { emptyTabs, tabsReducer, tabsToClose, type TabsState } from "./tabs";
 
 /**
  * The tab strip, wired to the file browser.
@@ -36,7 +36,25 @@ import { emptyTabs, tabsReducer, type TabsState } from "./tabs";
  * Removing it belongs to the change that is confident the drafts survive; this
  * hook is what makes that true.
  */
-export function useTabs(files: FileBrowser): {
+export function useTabs(
+  files: FileBrowser,
+  /**
+   * Which context these tabs belong to. Changing it empties the strip.
+   *
+   * This was missing entirely: `useTabs` was called once, above the `[slug]`
+   * segment, and nothing cleared it on a switch. Pruning could not stand in for
+   * it — the rule is "a folder that is loaded and does not hold this note", and
+   * a *subfolder* of the previous context is never loaded in the next one, so
+   * those tabs survived indefinitely. The strip then showed note names from the
+   * person's own brain while they were inside somebody else's workspace, which
+   * is precisely what `useFileBrowser`'s reset effect exists to prevent for the
+   * tree, the selection and the editor.
+   *
+   * `null` is the landing page, and is a context like any other here: leaving a
+   * context for it must not keep the strip either.
+   */
+  contextKey: string | null,
+): {
   state: TabsState;
   activate: (path: string) => void;
   /** Keep this tab: what "Open in new tab" means when the default is a preview. */
@@ -80,23 +98,46 @@ export function useTabs(files: FileBrowser): {
    * tab whenever a folder collapsed.
    */
   const listings = files.listings;
-  const known = useRef<ReadonlySet<string>>(new Set());
   useEffect(() => {
-    const present = new Set<string>();
-    const loadedFolders = new Set<string>();
-    for (const [folder, listing] of Object.entries(listings)) {
-      if (listing === undefined) continue;
-      loadedFolders.add(folder);
-      for (const entry of listing.entries) present.add(entry.path);
-    }
-    known.current = present;
-
-    for (const tab of state.tabs) {
-      const folder = tab.path.includes("/") ? tab.path.slice(0, tab.path.lastIndexOf("/")) : "";
-      if (!loadedFolders.has(folder)) continue;
-      if (!present.has(tab.path)) dispatch({ type: "removed", path: tab.path });
+    for (const path of tabsToClose(state.tabs, listings)) {
+      dispatch({ type: "removed", path });
     }
   }, [listings, state.tabs]);
+
+  /**
+   * The switch itself, keyed on the context rather than on `files`.
+   *
+   * `files` is memoized over some thirty dependencies, so it is stable across a
+   * bare re-render — but it changes on any listing, editor, selection, clipboard
+   * or notice change, none of which is a context switch. The context id is the
+   * only thing that means what this effect needs.
+   *
+   * The ref is seeded with the *initial* `contextKey`, so the equality check is
+   * what stops a reset **on mount**: the effect runs there too, and the `opened`
+   * effect above has already filled the strip by then. No caller produces a
+   * mount with a note open today — `ConsoleRoute` has no note path and
+   * `useFileBrowser` starts at `emptyEditor` — but a hook must not rest on the
+   * timing of its only caller, and the check is held by a test either way.
+   *
+   * **The declaration order is a measured trade, not tidiness.** A render that
+   * both switched context and opened a note in one commit would open the tab and
+   * then have this wipe it, since `opened` never re-runs on an unchanged
+   * `[openPath]`. Declaring this effect before `opened` fixes that — and takes
+   * the check above from one failing test to zero, because a reset that runs
+   * before anything filled the strip is a no-op at mount either way. Nothing
+   * reaches the latent bug today (`useFileBrowser` nulls the editor on the same
+   * key), so the order stays: a tested guard beats an untestable one closing an
+   * unreachable path.
+   */
+  const openContext = useRef(contextKey);
+  useEffect(() => {
+    if (openContext.current === contextKey) return;
+    // Moving the ref forward is what makes the NEXT switch fire. Pinned at the
+    // first key, A->B resets and B->A does not — which is this file's own bug
+    // back, on the most ordinary navigation a context rail produces.
+    openContext.current = contextKey;
+    dispatch({ type: "reset" });
+  }, [contextKey]);
 
   const activate = useCallback(
     (path: string) => {

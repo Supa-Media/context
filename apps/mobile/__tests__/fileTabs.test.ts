@@ -12,6 +12,7 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
+import type { FolderListing } from "../features/console/files/types";
 import {
   MAX_REOPENABLE,
   dirtyCount,
@@ -19,6 +20,7 @@ import {
   tabAt,
   tabLabel,
   tabsReducer,
+  tabsToClose,
   type TabsAction,
   type TabsState,
 } from "../features/console/files/tabs";
@@ -432,5 +434,112 @@ describe("nothing is mutated in place", () => {
     expect(emptyTabs.tabs).toEqual([]);
     expect(emptyTabs.activePath).toBeNull();
     expect(state).not.toBe(emptyTabs);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                      what a changed listing may close                      */
+/* -------------------------------------------------------------------------- */
+
+function listing(path: string, names: string[], truncated = false): FolderListing {
+  return {
+    path,
+    folderDefault: "private",
+    entries: names.map((name) => ({
+      kind: "file" as const,
+      path: path === "" ? name : `${path}/${name}`,
+      name,
+      visibility: "private" as const,
+      inherited: "private" as const,
+      exception: false,
+      readOnly: false,
+    })),
+    truncated,
+    manifestUsable: true,
+  };
+}
+
+/**
+ * The pruning decision, which used to live inside `useTabs`' effect.
+ *
+ * It is here for the reason `#102` established: **a guard nobody can reach is a
+ * guard nobody is holding.** A full sabotage sweep of the console found every
+ * pure-module guard held by a test and every hook or component guard unheld,
+ * 13-for-13 against 0-for-14, and this was one of the fourteen — both its
+ * "unloaded means we have not looked" rule and, once `truncated` is honoured,
+ * the rule below it.
+ */
+describe("tabsToClose", () => {
+  test("a tab whose folder is loaded and does not hold it is closed", () => {
+    const state = pinned("1-projects/gone.md", "1-projects/still-here.md");
+    expect(tabsToClose(state.tabs, { "1-projects": listing("1-projects", ["still-here.md"]) })).toEqual([
+      "1-projects/gone.md",
+    ]);
+  });
+
+  test("an unloaded folder means 'we have not looked', never 'it is gone'", () => {
+    // Closing on an unloaded folder would shut every tab whenever one collapsed.
+    const state = pinned("1-projects/deals/x.md");
+    expect(tabsToClose(state.tabs, { "1-projects": listing("1-projects", []) })).toEqual([]);
+    expect(tabsToClose(state.tabs, {})).toEqual([]);
+  });
+
+  test("a TRUNCATED folder means the same thing, and did not used to", () => {
+    // `fileOps.ts` sets `truncated` whenever the store reports another page and
+    // offers no cursor — a FIRST-PAGE condition on B2, Wasabi, MinIO or any
+    // proxy, not just a folder past the budget. The listing is loaded and the
+    // note is absent from it, so the old rule closed the tab of a note that
+    // exists, and the tree could not reach it either. `truncated` was measured
+    // by the server, carried to the client, and read by nobody.
+    const state = pinned("1-projects/beyond-the-page.md");
+    const short = listing("1-projects", ["a.md"], true);
+    expect(tabsToClose(state.tabs, { "1-projects": short })).toEqual([]);
+    // The control: the same short listing, honestly complete, does close it.
+    expect(
+      tabsToClose(state.tabs, { "1-projects": listing("1-projects", ["a.md"]) }),
+    ).toEqual(["1-projects/beyond-the-page.md"]);
+  });
+
+  test("a root-level tab is judged against the root listing", () => {
+    const state = pinned("index.md");
+    expect(tabsToClose(state.tabs, { "": listing("", ["other.md"]) })).toEqual(["index.md"]);
+    expect(tabsToClose(state.tabs, { "": listing("", ["index.md"]) })).toEqual([]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                        switching to another context                        */
+/* -------------------------------------------------------------------------- */
+
+describe("a context switch empties the strip", () => {
+  /**
+   * `useTabs` was called once, outside any per-context key, and nothing cleared
+   * it. Its only pruning path requires the tab's folder to be *loaded* in the
+   * new context — and a subfolder of the old one never is — so tabs survived
+   * indefinitely.
+   *
+   * Two things were wrong with that. The strip displayed note names from the
+   * person's own brain while they were inside somebody else's shared workspace,
+   * which is the failure `useDemoFileBrowser` names in its own comment and the
+   * one `useFileBrowser`'s reset effect exists to prevent for the tree, the
+   * selection and the editor. And clicking such a tab read context B at a path
+   * carried in from A — harmless against the server, which answers a uniform
+   * `FILE_NOT_FOUND`, but under PARA those paths collide by design.
+   */
+  test("every tab and the whole reopen stack go", () => {
+    const before = run(
+      pinned("1-projects/deals/acquisition.md", "2-areas/health.md"),
+      { type: "edited", path: "1-projects/deals/acquisition.md" },
+      { type: "closed", path: "2-areas/health.md" },
+    );
+    expect(before.tabs.length).toBeGreaterThan(0);
+    expect(before.closed.length).toBeGreaterThan(0);
+
+    const after = tabsReducer(before, { type: "reset" });
+    expect(after).toEqual(emptyTabs);
+    // The reopen stack too: ⌘⇧T must not resurrect a note from the context the
+    // person just left, which is the same rule `tabs.ts` already follows when a
+    // path stops resolving.
+    expect(after.closed).toEqual([]);
   });
 });
