@@ -56,6 +56,18 @@ describe("toFileError", () => {
     });
   });
 
+  test("a non-string code is replaced, not passed through", () => {
+    // The `code` narrowing was unheld: swapping it for a cast passed all 1506.
+    // It matters because `code` is branched on — `refresh` drops a listing on
+    // `FILE_NOT_FOUND` — so a payload whose `code` is not a string must not
+    // reach that comparison wearing whatever type it arrived as.
+    const shown = toFileError(
+      new ConvexError({ code: { toString: () => "FILE_NOT_FOUND" }, message: "gone" } as never),
+    );
+    expect(shown.code).toBe("UNKNOWN");
+    expect(typeof shown.code).toBe("string");
+  });
+
   test("a conflict carries its etag, and only when it is a string", () => {
     expect(
       toFileError(new ConvexError({ code: "CONFLICT", message: "Someone else saved.", currentEtag: "e7" }))

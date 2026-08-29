@@ -81,9 +81,15 @@ import { getMembership, requireWorkspaceRole } from "./lib/workspaceAuth";
  * context may have outstanding.
  *
  * Same reasoning as `MAX_INVITATIONS_RETURNED`: an unbounded `.collect()` is a
- * read whose cost is set by whoever can insert rows. The active cap also bounds
- * the table, because supersession means at most one row exists per
- * `(workspace, note, recipient)` however many times the owner clicks Share.
+ * read whose cost is set by whoever can insert rows.
+ *
+ * **The active cap does not bound the table, and this comment used to say it
+ * did.** Supersession means at most one row per `(workspace, note, recipient)`,
+ * so clicking Share twice makes one row — but the tuple space itself is
+ * unbounded: share note A, revoke, share note B, revoke, forever. Only *active*
+ * rows are capped, and revoked ones accumulate for the life of a context. The
+ * teardown in `account.ts` sweeps both statuses and says the same thing about
+ * its own cost.
  */
 const MAX_SHARES_RETURNED = 200;
 const MAX_ACTIVE_SHARES = 100;
@@ -112,13 +118,23 @@ function isLive(share: Doc<"noteShares">, now: number): boolean {
 /**
  * Whether this share still stands, for this caller, right now.
  *
- * **The one predicate, read by all three channels.** `resolveShare` answers a
- * link somebody was sent; `listSharedWithMe` is the recipient's own inbox and
- * is the channel that needs no link at all; `authorizeShareRead` is what stands
- * between a token and the note's bytes. Three copies of this reasoning would be
- * three places for it to drift, and it already had: the inbox handed somebody a
- * token the link would have refused, and the read path — added later, in `#104`
- * — kept a shorter copy than either.
+ * **The one predicate, read by all three channels that answer a caller.**
+ * `resolveShare` answers a link somebody was sent; `listSharedWithMe` is the
+ * recipient's own inbox and is the channel that needs no link at all;
+ * `authorizeShareRead` is what stands between a token and the note's bytes.
+ * Three copies of this reasoning would be three places for it to drift, and it
+ * already had: the inbox handed somebody a token the link would have refused,
+ * and the read path — added later, in `#104` — kept a shorter copy than either.
+ *
+ * **`previewTitleForToken` is a fourth reader of these rows and deliberately
+ * does not come through here**, which is worth writing down rather than
+ * leaving for the next person to rediscover as a bug. It is unauthenticated,
+ * so there is no caller for this function to check anything against; it
+ * returns only the owner-chosen title, which whoever holds the link already
+ * has by design; and it checks `isLive`, which the teardown sets — so the
+ * states this predicate exists to catch are unreachable there through any
+ * public path. A reviewer cleared it on exactly that reasoning and the
+ * reasoning was recorded nowhere, which is how an exemption becomes a hole.
  *
  * Returns the workspace when the share stands, `null` otherwise. `null` is the
  * only failure value: every reason a share does not stand must be

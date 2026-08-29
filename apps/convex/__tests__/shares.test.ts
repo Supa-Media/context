@@ -30,7 +30,7 @@
 import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { SHARE_REVOKE_PAGE } from "../functions/account";
+import { SWEEP_COMPLETENESS_ROWS } from "../functions/account";
 import {
   addMember,
   asUser,
@@ -819,17 +819,16 @@ describe("each half of the share sweep, isolated", () => {
     const t = setupTest();
     const { ownerId, lkId, workspaceId } = await scenario(t);
 
-    // **The completeness half, which nothing held.** The drain reads a page,
-    // revokes it, and comes back; truncating it to a single `.take()` is one
-    // line, and with a single share per recipient — the most any other test in
-    // this suite creates — the whole suite still passes. What that regression
-    // buys an attacker is not subtle: the rows past the first page stay
-    // `active`, so the next holder of the handle is handed live tokens by their
-    // own inbox, which is precisely what the block above exists to prevent.
+    // **The completeness half, which nothing held.** Every other test in this
+    // suite aims one share at one recipient, so a sweep that stopped after the
+    // first row — or the first hundred — passed everything. What that buys an
+    // attacker is not subtle: the rows it skips stay `active`, so the next
+    // holder of the handle is handed live tokens by their own inbox, which is
+    // precisely what the block above exists to prevent.
     //
-    // Seeded directly because the point is the page boundary, not the mint
-    // path, and `MAX_ACTIVE_SHARES` would otherwise decide how many fit.
-    const extra = SHARE_REVOKE_PAGE + 1;
+    // Seeded directly because the point is the count, not the mint path, and
+    // `MAX_ACTIVE_SHARES` would otherwise decide how many fit.
+    const extra = SWEEP_COMPLETENESS_ROWS;
     await t.run(async (ctx) => {
       for (let i = 0; i < extra; i += 1) {
         await ctx.db.insert("noteShares", {
@@ -871,16 +870,16 @@ describe("each half of the share sweep, isolated", () => {
     const { ownerId, workspaceId } = await scenario(t);
 
     // The sibling of the test above, and it exists because the sibling was
-    // missed: the cascade's own drain was added while fixing a review finding
-    // *about* the other drain, and truncating it passed all 1230 checks. A row
-    // left here points at a workspace that no longer exists, which is the
+    // missed: this loop was reworked while fixing a review finding *about* the
+    // other one, and truncating it passed all 1230 checks. A row left here
+    // points at a workspace that no longer exists, which is the
     // dangling-capability half of what this block is for.
-    // A page-plus-one of EACH status. The first version of this test seeded
-    // that many rows *in total* and split them across the two, so neither
-    // status reached the page size and the truncation it was written for went
-    // undetected — the sabotage passed. The cascade loops per status, so the
-    // boundary has to be crossed per status.
-    const extra = SHARE_REVOKE_PAGE + 1;
+    // A full count of EACH status. The first version of this test seeded that
+    // many rows *in total* and split them across the two, so neither status
+    // reached the threshold the truncation it was written for needed — and the
+    // sabotage passed. The cascade loops per status, so each status has to
+    // carry enough on its own.
+    const extra = SWEEP_COMPLETENESS_ROWS;
     await t.run(async (ctx) => {
       for (const status of ["active", "revoked"] as const) {
         for (let i = 0; i < extra; i += 1) {
@@ -924,6 +923,20 @@ describe("each half of the share sweep, isolated", () => {
     const rows = await t.run((ctx) => ctx.db.query("noteShares").collect());
     expect(rows).toHaveLength(1);
     expect(rows[0].status).toBe("revoked");
+
+    // And the next holder of the address, which is what "does not follow" in
+    // this test's own name means. Asserting only the status literal would let
+    // the sweep write `revoked` somewhere nothing reads and still pass.
+    const successor = await createUser(t, "successor@example.invalid");
+    await t.run(async (ctx) => {
+      await ctx.db.patch(successor, {
+        email: "mail-only@example.invalid",
+        emailVerificationTime: Date.now(),
+      });
+    });
+    expect(
+      await asUser(t, successor).query(api.functions.shares.listSharedWithMe, {}),
+    ).toEqual([]);
   });
 
   test("a sharer who is no longer the owner cannot keep disclosing", async () => {
