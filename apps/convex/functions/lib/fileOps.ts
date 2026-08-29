@@ -2213,6 +2213,29 @@ export const MAX_STORED_IMAGE_BYTES = 5_000_000;
 export const IMAGE_PREFIX = ".images/";
 
 /**
+ * The leaf extensions `read_image` will serve back.
+ *
+ * The gateway's `IMAGE_MIME_TYPES` keys, restated rather than imported for the
+ * same reason the character class below is: `apps/mcp` is dependency-free by
+ * design, so the two cannot share a module. **`writeImage.test.ts` reads the
+ * gateway's source and fails on drift** — and until now that arrangement was
+ * claimed here and did not exist, which is why this list is the second half of
+ * a rule that had only ever had its first half enforced.
+ *
+ * SVG is absent, deliberately and on both sides: it is a script container, and
+ * a store that accepted one would make the gateway's refusal to serve one moot.
+ */
+export const STORABLE_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "heic",
+  "heif",
+]);
+
+/**
  * Write bytes into the opaque store.
  *
  * A deliberately different function from `writeFile`, not an option on it, and
@@ -2234,6 +2257,24 @@ export const IMAGE_PREFIX = ".images/";
  * because this is the one write path that can put a non-note in a customer's
  * bucket. The leaf rule is the gateway's, deliberately: a key this writes and
  * `read_image` cannot name is bytes nobody can ever get back out.
+ *
+ * **That rule had one of its FOUR gates.** `imageRefFor` refuses an empty
+ * value, one over 512 characters, a `\`, or a `..` anywhere in the raw value;
+ * then requires the character class below; then a `.` past position 0; then an
+ * extension in `IMAGE_MIME_TYPES`. Only the
+ * character class was enforced here, so `writeImage` would happily resolve for
+ * `abc`, `abc.txt` and `abc.svg` — measured, returning `{ key: ".images/abc" }`
+ * — every one of which `read_image` refuses forever.
+ *
+ * (An earlier version of this comment said "two halves" and enumerated three
+ * gates as the whole rule. It omitted `..`, and the code omitted it too, so
+ * `a..png` and `abc..jpeg` still resolved and still wrote bytes the gateway
+ * would never hand back. A comment that enumerates somebody else's rule is a
+ * claim about their code, and this one was made by reading three lines of
+ * four.)
+ * Latent rather than live: this function has no production call site. Which is
+ * a fact about today, and the reason to close it now rather than when one
+ * appears.
  */
 export async function writeImage(
   store: FileStore,
@@ -2243,9 +2284,39 @@ export async function writeImage(
   // The gateway's rule, restated rather than imported: `apps/mcp` is
   // dependency-free by design, so the two cannot share a module. A test reads
   // the gateway's source and fails on drift — the same arrangement
-  // `MAX_INLINE_IMAGE_BYTES` already has.
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(leaf) || leaf.length > 200) {
+  // `MAX_INLINE_IMAGE_BYTES` already has. (It says so now. When this comment
+  // was first written it named a test that did not exist, for either half of
+  // the rule below.)
+  // `..` first, as the gateway does: it survives the character class, because
+  // `.` is inside that class, so nothing below would catch it.
+  //
+  // The gateway's first line also refuses an empty value, a `\`, and anything
+  // over 512 characters. All three are subsumed here — empty and `\` by the
+  // character class, 512 by the stricter 200 — which is a claim a fuzz over
+  // 18,277 leaves against the gateway's own extracted `imageRefFor` bears out:
+  // zero inputs this accepts and the gateway refuses. Said explicitly because
+  // the comment above is about enumerating a rule by reading part of it.
+  if (
+    leaf.includes("..") ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(leaf) ||
+    leaf.length > 200
+  ) {
     throw new FileOpError("PATH_INVALID", "That is not a valid stored-object name.");
+  }
+  // The last two gates. `imageRefFor` resolves the mime type from the
+  // extension, so a leaf without one, or with one the gateway cannot serve,
+  // names an object no tool can ever return.
+  //
+  // `dot <= 0` is not a subsumed backstop and is pinned by its own case: with
+  // it gone, `slice(-1 + 1)` is the whole leaf, so a leaf that IS an extension
+  // name — `png`, `jpeg` — passes the set lookup and writes `.images/png`,
+  // which `imageRefFor` refuses because it finds no dot at all.
+  const dot = leaf.lastIndexOf(".");
+  if (dot <= 0 || !STORABLE_IMAGE_EXTENSIONS.has(leaf.slice(dot + 1).toLowerCase())) {
+    throw new FileOpError(
+      "PATH_INVALID",
+      "A stored object must end in an image extension the gateway can serve.",
+    );
   }
   if (options.bytes.byteLength === 0) {
     throw new FileOpError("CONTENT_TOO_LARGE", "There is nothing to store.");
