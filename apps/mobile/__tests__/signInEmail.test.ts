@@ -19,13 +19,30 @@ import { normalizeSignInEmail } from "../features/auth/email";
  * when it insists a mirror be "asserted against the control plane's rather
  * than claimed in a comment".
  *
- * The same assertion now exists in `apps/convex/__tests__/invitations.test.ts`,
- * and **the duplication is deliberate, because of which CI job runs when.**
- * Measured: `ci / Test Convex Backend` is skipped on mobile-only pull requests
- * and `ci / Test Mobile App` is skipped on convex-only ones. One copy therefore
- * closes one direction only — the copy here catches this side drifting, the
- * copy there catches `parseInvitee` drifting. Neither is redundant until a
- * cross-package job runs both, which is the open row this pair works around.
+ * The same assertion exists in `apps/convex/__tests__/invitations.test.ts`,
+ * and **that copy is the one CI depends on.** It runs on every pull request,
+ * whatever it touches, because `gateway-contracts.yml` carries no `paths`
+ * filter and runs the whole control-plane suite — so it catches either side
+ * drifting, in both directions.
+ *
+ * This copy is therefore **redundant for CI, and kept for speed**: somebody
+ * changing `normalizeSignInEmail` sees it fail in `jest` in under a second
+ * without running the control plane's suite. That is worth eight lines; it is
+ * not worth a claim it does not support.
+ *
+ * (An earlier version of this note said the two copies each closed a direction
+ * nothing else closed, citing a measurement that `ci / Test Convex Backend` is
+ * skipped on mobile-only pull requests. That measurement was real and is still
+ * true of *that* job — and it was taken five hours before
+ * `gateway-contracts.yml` existed, which is the thing that makes the convex
+ * copy universal. **A CI fact measured yesterday is not a CI fact.**)
+ *
+ * **What is asserted is narrower than the sentence above**, and deliberately:
+ * the table covers addresses `parseInvitee` *accepts*, where the two agree by
+ * construction. Outside it they genuinely diverge — `parseInvitee` refuses an
+ * over-length or pattern-failing address that `normalizeSignInEmail` will
+ * happily normalise — so this is a drift detector, not a proof of the
+ * invariant.
  */
 describe("the address that reaches auth", () => {
   // The mirror, asserted. See the note above on why this is duplicated in the
@@ -34,6 +51,7 @@ describe("the address that reaches auth", () => {
     "LK@Example.Invalid",
     "  lk@example.invalid  ",
     "MiXeD.CaSe+tag@Example.Invalid",
+    "\tada@example.invalid\n",
     "ALLCAPS@EXAMPLE.INVALID",
   ])("agrees with the invitee parser on %j", (raw) => {
     const parsed = parseInvitee(raw);

@@ -133,16 +133,30 @@ describe("parsing an invitee", () => {
    * `CLAUDE.md` names when it insists the consent-scope mirror be "asserted
    * against the control plane's rather than claimed in a comment".
    *
-   * It lives on the control plane's side deliberately. The risk is
-   * `parseInvitee` drifting, and `ci / Test Mobile App` is skipped on
-   * convex-only pull requests — so the same assertion in the mobile package
-   * would be silent on exactly the change it exists to catch. The convex suite
-   * already reaches into the mobile app (see `dropboxConnect.test.ts`), so the
-   * direction costs nothing new.
+   * **This is the copy CI depends on, and it covers both directions.**
+   * `gateway-contracts.yml` carries no `paths` filter and runs this whole
+   * suite on every pull request, so a change to either implementation reaches
+   * it — including a mobile-only change, which `ci / Test Convex Backend`
+   * would skip. A second copy lives in `signInEmail.test.ts` for fast local
+   * feedback, not because anything here fails to cover it.
    *
-   * The failure it prevents is the one that file already describes: one human
-   * ends up with two accounts and the invitation lands on the one they cannot
-   * sign in to.
+   * The convex suite already reaches into the mobile app (see
+   * `dropboxConnect.test.ts`), so the import costs nothing new.
+   *
+   * **What is asserted is narrower than the invariant named above.** The guard
+   * below means the table only covers addresses `parseInvitee` *accepts*, and
+   * over that domain the two agree by construction — both are
+   * `trim()` + `toLowerCase()`. Outside it they diverge today:
+   * `parseInvitee` refuses an over-length or pattern-failing address that
+   * `normalizeSignInEmail` normalises without complaint. So this is a drift
+   * detector for the shared domain, not a proof of the invariant, and the
+   * durable repair is a single `normalizeEmail` in `packages/shared` that both
+   * call — the same move `gateway-contracts.yml`'s header prescribes for the
+   * Dropbox constants. Filed, not done here.
+   *
+   * The failure it prevents is the one `signInEmail.test.ts` already describes:
+   * one human ends up with two accounts and the invitation lands on the one
+   * they cannot sign in to.
    */
   test.each([
     "LK@Example.Invalid",
