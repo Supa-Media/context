@@ -75,12 +75,31 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # A FULL install, not `--filter @context/convex...`.
+      #
+      # The filtered version was the first thing tried here and it failed in
+      # CI, which is worth recording because the reason is not obvious and
+      # somebody will try to narrow this again: **the control plane's suite is
+      # not self-contained.** `__tests__/dropboxConnect.test.ts` imports
+      # `../../mobile/features/console/storage/dropbox`, so vitest resolves
+      # `apps/mobile/tsconfig.json`, which extends `expo/tsconfig.base` — and
+      # with only the control plane's dependencies present that resolution
+      # fails, taking the whole file down before a single assertion runs:
+      #
+      #   TSConfckParseError: failed to resolve "extends":"expo/tsconfig.base"
+      #   Test Files  1 failed | 39 passed (40)
+      #
+      # Enumerating a second `--filter` for the mobile app would fix today's
+      # failure and is the same mistake in a different place: a hand-written
+      # list of what the suite reaches into, which the next cross-package
+      # import silently invalidates. That is precisely what this job exists to
+      # stop happening.
+      #
       # @supa-media/* come from GitHub Packages, a private registry, so
       # GITHUB_TOKEN must be present for `pnpm install` to auth (see .npmrc).
-      # This is email-worker.yml's recipe, which already runs on every pull
-      # request in this repository, including ones that touch only apps/mcp.
+      # This is deploy-convex.yml's recipe.
       - name: Install
-        run: pnpm install --filter @context/convex... --frozen-lockfile
+        run: pnpm install --frozen-lockfile
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
