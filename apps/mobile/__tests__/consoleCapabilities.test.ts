@@ -1,5 +1,9 @@
 import { describe, expect, test } from "@jest/globals";
-import { capabilitiesForRole } from "../features/console/capabilities";
+import {
+  canResetPrivacy,
+  canSetVisibility,
+  capabilitiesForRole,
+} from "../features/console/capabilities";
 
 /**
  * The console's role → capability table, which had no test at all while it
@@ -28,5 +32,36 @@ describe("capabilitiesForRole", () => {
     for (const role of [undefined, "", "viewer", "admin", "Owner", "OWNER", "owner "]) {
       expect(capabilitiesForRole(role)).toEqual({ canEdit: false, isOwner: false });
     }
+  });
+});
+
+describe("canSetVisibility", () => {
+  test("only the owner, and only where the console can act at all", () => {
+    // The table, not one instance of it. Both halves are load-bearing and
+    // neither implies the other.
+    expect(canSetVisibility(capabilitiesForRole("owner"))).toBe(true);
+    expect(canSetVisibility(capabilitiesForRole("editor"))).toBe(false);
+    expect(canSetVisibility(capabilitiesForRole("member"))).toBe(false);
+    expect(canSetVisibility(capabilitiesForRole(undefined))).toBe(false);
+    // A console that cannot act offers nothing, whoever is looking. This is
+    // the landing page, where `canEdit` is false by construction.
+    expect(canSetVisibility({ canEdit: false, isOwner: true })).toBe(false);
+  });
+});
+
+describe("canResetPrivacy", () => {
+  test("owner, able to act, and only over a manifest that is actually broken", () => {
+    const owner = capabilitiesForRole("owner");
+    expect(canResetPrivacy(owner, false)).toBe(true);
+    // A manifest that parses: `resetPrivacyManifest` refuses it outright, so
+    // offering the button produces nothing but a refusal.
+    expect(canResetPrivacy(owner, true)).toBe(false);
+    // Still loading. Not "broken" — a repair button that flashes during load is
+    // the console's version of a floor printed as a total.
+    expect(canResetPrivacy(owner, undefined)).toBe(false);
+    // Rewriting the access map is not an editor's to do.
+    expect(canResetPrivacy(capabilitiesForRole("editor"), false)).toBe(false);
+    expect(canResetPrivacy(capabilitiesForRole("member"), false)).toBe(false);
+    expect(canResetPrivacy({ canEdit: false, isOwner: true }, false)).toBe(false);
   });
 });

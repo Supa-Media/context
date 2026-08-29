@@ -12,6 +12,7 @@ import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-c
 import { Explorer } from "../features/console/files/Explorer";
 import type { FileBrowser } from "../features/console/files/browser";
 import type { FolderListing } from "../features/console/files/types";
+import { emptyEditor } from "../features/console/files/editor";
 
 /**
  * **A capability read inside a callback but absent from its dependency array is
@@ -70,6 +71,8 @@ const noop = () => {};
 
 /** A browser that differs from render to render in exactly one field. */
 function browser(canSetVisibility: boolean): FileBrowser {
+  // Typed, not cast. A cast here would let the fixture drift away from
+  // `FileBrowser` silently, which is exactly what it had already done.
   return {
     canEdit: true,
     loading: false,
@@ -79,7 +82,14 @@ function browser(canSetVisibility: boolean): FileBrowser {
     toggleFolder: noop,
     selectedPath: null,
     select: noop,
-    editor: { path: null, draft: "", saved: "", etag: null, dirty: false, saving: false, conflict: null, readOnly: false, visibility: "private", inherited: "private", exception: false },
+    // `emptyEditor` rather than a hand-written literal. The first version of
+    // this fixture was copied from a shape `EditorState` no longer has — it was
+    // missing `status` and `baseline` and carried four fields that are gone —
+    // and only the `as unknown as` cast below hid it. `Explorer` does not read
+    // `files.editor` today; the day it does, a stale fixture would hand it
+    // `undefined` and this security regression test would pass for the wrong
+    // reason.
+    editor: emptyEditor,
     setDraft: noop,
     save: noop,
     useTheirs: noop,
@@ -105,7 +115,7 @@ function browser(canSetVisibility: boolean): FileBrowser {
     resetPrivacy: noop,
     canResetPrivacy: false,
     canSetVisibility,
-  } as unknown as FileBrowser;
+  };
 }
 
 function mountExplorer(): {

@@ -49,3 +49,40 @@ export function capabilitiesForRole(role: string | undefined): ConsoleCapabiliti
     isOwner: role === "owner",
   };
 }
+
+/**
+ * Whether the tree's visibility markers are controls rather than facts.
+ *
+ * Both halves matter and neither implies the other: a console that cannot act
+ * at all must offer nothing, and an editor who can act must still not be
+ * offered a clearance decision. The server says the same thing with
+ * `minimum: "owner"` on `setNoteVisibility` and `setDirectoryVisibility`.
+ *
+ * This lived inline in `useFileBrowser` and was **the capability the console's
+ * one real authorization defect was about** — and dropping its `isOwner` half
+ * there failed nothing across 1476 checks, because a hook that also calls a
+ * dozen Convex hooks is not somewhere a test can reach.
+ */
+export function canSetVisibility(caps: ConsoleCapabilities): boolean {
+  return caps.canEdit && caps.isOwner;
+}
+
+/**
+ * Whether to offer the repair for a `privacy.md` that will not parse.
+ *
+ * Three things, and the third is the one that is easy to drop: the console has
+ * to be able to act, the caller has to be the owner — rewriting the access map
+ * is not an editor's to do — **and the manifest has to actually be broken**,
+ * because `resetPrivacyManifest` refuses one that parses (`PRIVACY_MANIFEST_USABLE`).
+ * Offering it otherwise is a button whose only outcome is a refusal.
+ *
+ * `manifestUsable` is `undefined` while the root listing is still loading, and
+ * that must read as "do not offer" rather than "broken" — a repair button that
+ * flashes during load is the console's version of a floor printed as a total.
+ */
+export function canResetPrivacy(
+  caps: ConsoleCapabilities,
+  manifestUsable: boolean | undefined,
+): boolean {
+  return caps.canEdit && caps.isOwner && manifestUsable === false;
+}

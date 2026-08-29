@@ -284,20 +284,43 @@ describe("read access and write access are different grants", () => {
    * Mutating each of the ten in turn — `editor` to `member`, `owner` to
    * `editor` — found **four that produced zero failures across all 1123
    * checks**: `copyEntry`, `duplicateEntry`, `archiveEntry` and `resetPrivacy`.
-   * The first three are the only thing standing between a read-only member and
-   * a write into somebody else's context; they were added after this list was
-   * written and never added to it.
+   * All four were added after this list was written and never added to it.
    *
-   * `resetPrivacy` is the belt of a belt-and-braces that CLAUDE.md states
-   * deliberately — "checked at the action (`minimum: "owner"`) and again in the
-   * module a test can drive without a session". The braces held it, which is
-   * why nothing failed. A belt nobody has pulled on is still worth a test: the
-   * whole point of two checks is that either may be the one that survives a
-   * refactor.
+   * **They are not the same kind of hole, and the difference is measured rather
+   * than assumed.** With its bar lowered to `member`:
+   *
+   *  - `copyEntry` and `duplicateEntry` **resolve**, and the key lands
+   *    (`1-projects/copied.md`, `1-projects/shared copy.md`). The role gate is
+   *    the only thing between a read tier and a write.
+   *  - `archiveEntry` is refused `ARCHIVE_UNAVAILABLE` — by `archivePath`'s own
+   *    scope gate, because `4-archive` is private by default and a team-scope
+   *    caller cannot write into a folder they cannot see. Its role gate is
+   *    load-bearing only where the owner has shared `4-archive`, which is why
+   *    this test now shares it: with that done, the archive key lands too.
+   *  - `resetPrivacy` is refused `PRIVACY_MANIFEST_READ_ONLY` by the module —
+   *    the belt-and-braces CLAUDE.md states deliberately, "checked at the action
+   *    (`minimum: "owner"`) and again in the module a test can drive without a
+   *    session". The braces held it; only the belt was unheld.
+   *
+   * An earlier version of this comment said the first three were "the only
+   * thing standing between a read-only member and a write". That was true of
+   * two of them. Getting it wrong here is worse than elsewhere, because the
+   * distinction it missed is the one the same comment draws for `resetPrivacy`
+   * two paragraphs down.
    */
   test("a read-only member cannot delete, move, or change visibility either", async () => {
     const f = await fixture();
     await share(f);
+    // `4-archive` shared too, so `archiveEntry`'s destination is reachable at
+    // team scope and its role gate becomes the only remaining bar. Without it
+    // the archive is refused by `archivePath` whatever its clearance says, and
+    // both the third clause of the assertion below and the claim above would be
+    // untestable. Verified by lowering all three bars: the three keys land.
+    await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
+      workspaceId: f.workspaceId,
+      path: "4-archive",
+      visibility: "team",
+    });
     const as = asUser(f.t, f.reader);
     for (const call of [
       () =>
@@ -344,10 +367,14 @@ describe("read access and write access are different grants", () => {
     }
     expect(f.backend.snapshot()["1-projects/shared.md"]).toBe("# Shared\n");
     // Nothing arrived anywhere either — a refusal that still wrote the
-    // destination would pass every assertion above.
+    // destination would pass every assertion above. Every clause can fire:
+    // with the three role gates lowered this filter returns
+    // `["1-projects/copied.md", "1-projects/shared copy.md",
+    //   "4-archive/<stamp>/1-projects/shared.md"]`.
     expect(
       Object.keys(f.backend.snapshot()).filter(
-        (key) => key.includes("copied") || key.includes("copy") || key.startsWith("4-archive/2"),
+        (key) =>
+          key.includes("copied") || key.includes(" copy") || key.startsWith("4-archive/2"),
       ),
     ).toEqual([]);
   });
