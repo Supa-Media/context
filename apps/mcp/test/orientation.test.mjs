@@ -255,6 +255,59 @@ export async function runOrientationChecks(check) {
     );
     check("orient carries the customer's own front page", owner.includes("Shipping the gateway."));
 
+    // A store that reports another page and then offers no continuation token.
+    // `IsTruncated` and `NextContinuationToken` are read from independent tags
+    // in `store/s3.js` with nothing checking they agree, so this pair is what a
+    // slightly-wrong endpoint produces. `listBoundedKeys` computed its cursor as
+    // `page.truncated ? page.cursor : undefined` and left `truncated` false, so
+    // the walk stopped and orient printed a short count as an exact total —
+    // "never a total" is the rule the whole survey is built on.
+    const stalling = {
+      ...bucket,
+      list: async (options) => {
+        const page = await bucket.list(options);
+        // Only the flat per-folder walk, so the folder map itself is unaffected
+        // and this probe changes exactly one thing.
+        return !options?.delimiter && options?.prefix === "2-areas/"
+          ? { ...page, truncated: true, cursor: undefined }
+          : page;
+      },
+    };
+    const stalled = await orientText({ ...env, LARGE_BUCKET: stalling }, OWNER_TOKEN);
+    check(
+      "a folder whose walk the store would not finish is a floor, not a total",
+      /^- 2-areas\/ — \d+\+ notes$/m.test(stalled) && !/^- 2-areas\/ — \d+ notes$/m.test(stalled)
+    );
+    // NOT asserted on `stalled`: the LARGE_BUCKET fixture already seeds 5001
+    // keys under `1-projects/bulk/`, so its total is a floor in the honest run
+    // too. A check that passes on `main`, with the fix, and with the fix
+    // reverted is a green check that did not execute anything — the same
+    // vacuity as an assertion on a path that had already moved away. The floor
+    // marker on the folder line above is the one that isolates this stall; the
+    // total is proved on a bucket small enough for it to mean something.
+    const smallBucket = createBucket();
+    smallBucket.seed("privacy.md", PRIVACY_MANIFEST);
+    smallBucket.seed("2-areas/handbook.md", "team reference", new Date("2024-06-01T00:00:00Z"));
+    const smallEnv = { ...env, LARGE_BUCKET: smallBucket };
+    const honest = await orientText(smallEnv, OWNER_TOKEN);
+    check(
+      "a small context that walks cleanly prints an exact total",
+      /^1 notes visible/m.test(honest)
+    );
+    const smallStalling = {
+      ...smallBucket,
+      list: async (options) => {
+        const page = await smallBucket.list(options);
+        return !options?.delimiter && options?.prefix === "2-areas/"
+          ? { ...page, truncated: true, cursor: undefined }
+          : page;
+      },
+    };
+    check(
+      "and the same context on a stalling store prints a floor instead",
+      /^1\+ notes visible/m.test(await orientText({ ...env, LARGE_BUCKET: smallStalling }, OWNER_TOKEN))
+    );
+
     const member = await orientText(env, TEAM_TOKEN);
     check("a team connection is not shown a private folder's notes", !member.includes("old-secret"));
     check(

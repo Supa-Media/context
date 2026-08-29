@@ -879,6 +879,26 @@ export async function runStoreChecks(check, gateway) {
     /repeated a pagination cursor/.test(repeatedCursor.error?.message || "")
   );
 
+  // A third shape, and the one the two above do not cover: the backend says
+  // there IS another page and then hands over no continuation token. `truncated`
+  // and `cursor` are read from independent tags in `store/s3.js` — `IsTruncated`
+  // from one element, `NextContinuationToken` from another, with nothing
+  // checking they agree — so this pair is what a slightly-wrong endpoint
+  // actually produces. `nextListCursor` folded it in with a finished listing,
+  // so `listAllKeys` returned a SHORT key set that read exactly like a complete
+  // one, and its own doc comment ("throws rather than truncate, which is right
+  // for a search or a move — a partial answer there is a wrong answer") was
+  // false on precisely this store. `move_folder` and `set_folder_visibility`
+  // build their key sets from it.
+  const noContinuation = await hostileCall(
+    async () => ({ objects: [], truncated: true }),
+    { query: "anything", prefix: "1-projects" }
+  );
+  check(
+    "a backend that reports another page but offers no cursor stops the listing",
+    /did not finish|incomplete listing/i.test(noContinuation.error?.message || "")
+  );
+
   let advancing = 0;
   const runawayPages = await hostileCall(
     async () => ({ objects: [], truncated: true, cursor: `page-${++advancing}` }),

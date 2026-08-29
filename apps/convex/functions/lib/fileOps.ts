@@ -120,6 +120,8 @@ export type FileErrorCode =
   | "PRIVACY_MANIFEST_BUSY"
   | "CONTENT_TOO_LARGE"
   | "FOLDER_TOO_LARGE"
+  /** The store would not hand over the whole listing. Not the folder's fault. */
+  | "LISTING_INCOMPLETE"
   | "ARCHIVE_UNAVAILABLE"
   | "CONFIRMATION_REQUIRED"
   | "NOT_A_FOLDER";
@@ -402,7 +404,27 @@ export async function listFolder(
       });
     }
 
-    if (!listing.truncated || !listing.cursor) break;
+    // `truncated` and `cursor` come from two independent tags and nothing makes
+    // them agree: `readTag` in `apps/mcp/src/store/s3.js` reads `IsTruncated`
+    // from one element and `NextContinuationToken` from another, so a store
+    // that sets the first without the second arrives here as
+    // `{ truncated: true, cursor: undefined }`. Every walk in this file used to
+    // fold that into one `||` with a finished listing, which is the opposite
+    // reading: not finished, unable to continue. The endpoint belongs to the
+    // customer, so the store answering slightly wrong is a provider or proxy
+    // they chose, publishing their own notes — B2, Wasabi, MinIO and anything
+    // a self-hosted gateway points at are all in scope, and "only a
+    // nonconforming store does this" is the reasoning that put it here.
+    //
+    // The five other walks below share this shape. Where they can still refuse
+    // they refuse; the two that report — this one and `rootFolders` — say the
+    // listing is short, because a floor printed as a total is #25 with a
+    // measurement in front of it.
+    if (!listing.truncated) break;
+    if (!listing.cursor) {
+      truncated = true;
+      break;
+    }
     cursor = listing.cursor;
     if (page === LIST_PAGE_CAP - 1) truncated = true;
   }
@@ -668,6 +690,7 @@ async function namesInUse(store: FileStore, folder: string): Promise<Set<string>
   const names = new Set<string>();
   let cursor: string | undefined;
   let complete = false;
+  let stop: WalkStop = "budget";
   const seen = new Set<string>();
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
     const listing = await store.list({ prefix, delimiter: "/", cursor, limit: 1000 });
@@ -680,17 +703,27 @@ async function namesInUse(store: FileStore, folder: string): Promise<Set<string>
     for (const raw of listing.delimitedPrefixes ?? []) {
       names.add(baseName(raw.replace(/\/+$/, "")));
     }
-    if (!listing.truncated || !listing.cursor) {
+    // Truncated-with-no-cursor is not finished, it is unable to continue — see
+    // `listFolder`. Folding the two into one `||` set `complete` on a short
+    // walk, which is the row-83 defect reachable a second way.
+    if (!listing.truncated) {
       complete = true;
       break;
     }
-    if (seen.has(listing.cursor)) break;
+    if (!listing.cursor) {
+      stop = "store";
+      break;
+    }
+    if (seen.has(listing.cursor)) {
+      stop = "store";
+      break;
+    }
     seen.add(listing.cursor);
     cursor = listing.cursor;
   }
   if (!complete) {
-    throw new FileOpError(
-      "FOLDER_TOO_LARGE",
+    throw walkStopped(
+      stop,
       "That folder holds too many files to duplicate into safely. Move some of them first.",
     );
   }
@@ -714,6 +747,30 @@ export function duplicateName(name: string, taken: ReadonlySet<string>): string 
     counter += 1;
   }
   return candidate;
+}
+
+/**
+ * Why a bounded walk stopped short — which is not one question but two, and
+ * they need different answers.
+ *
+ * "Too many files" is about the customer's folder, and splitting it is a real
+ * remedy. A store that says `IsTruncated: true` and then offers no continuation
+ * token, or replays one it already gave, is about their storage endpoint: the
+ * folder may hold three files, and splitting it will never produce the token,
+ * so `FOLDER_TOO_LARGE` sends them round a remedy that cannot terminate. One
+ * code told them the wrong thing in the second case, which is a smaller version
+ * of the same habit as reporting a floor as a total — the message has to admit
+ * what actually happened.
+ */
+type WalkStop = "budget" | "store";
+
+function walkStopped(stop: WalkStop, tooLarge: string): FileOpError {
+  return stop === "budget"
+    ? new FileOpError("FOLDER_TOO_LARGE", tooLarge)
+    : new FileOpError(
+        "LISTING_INCOMPLETE",
+        "Your storage provider did not return the whole folder listing, so nothing was changed. That is the bucket's endpoint rather than the folder — retrying may help; splitting the folder will not.",
+      );
 }
 
 /**
@@ -758,6 +815,7 @@ async function keysUnder(
   // returned a short list that read exactly like a complete one — and the
   // manifest bookkeeping below rewrites rules on the strength of it.
   let complete = false;
+  let stop: WalkStop = "budget";
   let cursor: string | undefined;
   const seen = new Set<string>();
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
@@ -776,15 +834,25 @@ async function keysUnder(
         );
       }
     }
-    if (!listing.truncated || !listing.cursor) {
+    // Truncated-with-no-cursor is not finished, it is unable to continue — see
+    // `listFolder`. Folding the two into one `||` set `complete` on a short
+    // walk, which is the row-83 defect reachable a second way.
+    if (!listing.truncated) {
       complete = true;
+      break;
+    }
+    if (!listing.cursor) {
+      stop = "store";
       break;
     }
     // A store that repeats a cursor will never finish, and the page budget
     // would spend itself before saying so. Comparing against the previous
     // cursor alone is defeated by a store alternating two of them, so this
     // keeps the set - which is what the gateway's `nextListCursor` does.
-    if (seen.has(listing.cursor)) break;
+    if (seen.has(listing.cursor)) {
+      stop = "store";
+      break;
+    }
     seen.add(listing.cursor);
     cursor = listing.cursor;
   }
@@ -793,8 +861,8 @@ async function keysUnder(
   // safely: it moves some of a folder while the manifest is rewritten as
   // though all of it went, and nothing downstream can tell.
   if (!complete) {
-    throw new FileOpError(
-      "FOLDER_TOO_LARGE",
+    throw walkStopped(
+      stop,
       "That folder holds too many files to move or delete in one go. Do it in smaller pieces.",
     );
   }
@@ -812,6 +880,7 @@ async function namesExtending(store: FileStore, path: string): Promise<string[]>
   const keys: string[] = [];
   let cursor: string | undefined;
   let complete = false;
+  let stop: WalkStop = "budget";
   const seen = new Set<string>();
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
     const listing = await store.list({ prefix: `${path}.`, cursor, limit: 1000 });
@@ -819,11 +888,21 @@ async function namesExtending(store: FileStore, path: string): Promise<string[]>
       if (object.key === path || isPlumbing(object.key)) continue;
       keys.push(object.key);
     }
-    if (!listing.truncated || !listing.cursor) {
+    // Truncated-with-no-cursor is not finished, it is unable to continue — see
+    // `listFolder`. Folding the two into one `||` set `complete` on a short
+    // walk, which is the row-83 defect reachable a second way.
+    if (!listing.truncated) {
       complete = true;
       break;
     }
-    if (seen.has(listing.cursor)) break;
+    if (!listing.cursor) {
+      stop = "store";
+      break;
+    }
+    if (seen.has(listing.cursor)) {
+      stop = "store";
+      break;
+    }
     seen.add(listing.cursor);
     cursor = listing.cursor;
   }
@@ -832,8 +911,8 @@ async function namesExtending(store: FileStore, path: string): Promise<string[]>
   // same mistake, three functions apart. A short answer here silently drops a
   // survivor, and a dropped survivor has its history swept.
   if (!complete) {
-    throw new FileOpError(
-      "FOLDER_TOO_LARGE",
+    throw walkStopped(
+      stop,
       "Too many files share that name for it to be deleted safely. Rename or remove some of them first.",
     );
   }
@@ -939,6 +1018,20 @@ async function historyKeysFor(
       }
       keys.push(object.key);
     }
+    // The one walk with nowhere to put the answer. Its only caller has already
+    // deleted the live keys by the time it runs, so it cannot refuse, and
+    // `DeleteResult` carries only `paths` — there is no `truncated` to report
+    // through. A short walk here leaves snapshots of a note somebody
+    // permanently deleted, which is the lie the delete copy must not tell.
+    //
+    // Already reachable at `LIST_PAGE_CAP`, and the fold below does not widen
+    // it as much as it looks: on a store that misreports consistently,
+    // `deletePath` never gets this far, because `keysUnder` (folder) or
+    // `namesExtending` (file) refuses first. What is left needs a store that
+    // misbehaves only under `.history/`, or only sometimes — narrow, but not
+    // nothing, and stating "not made worse" flatly would be the overclaim.
+    // Left as it is rather than papered over: the fix is to resolve the history
+    // before the live keys go, which is a bigger change than this one.
     if (!listing.truncated || !listing.cursor) break;
     cursor = listing.cursor;
   }
@@ -1403,6 +1496,25 @@ export async function duplicatePath(
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
   const parent = parentOf(path);
+
+  // Before the listing, not after it — and in `copyPath`'s order, which is
+  // `assertWritablePath` and then `canSee`. Both of those run on this same path
+  // a few lines below, so no input is accepted or refused that was not already,
+  // and keeping the order keeps every refusal byte-identical too: dropping
+  // `assertWritablePath` here made Duplicate the only operation in this file
+  // that answered `FILE_NOT_FOUND` for a dot-prefixed path where `writeFile`,
+  // `movePath`, `copyPath` and `deletePath` all answer `PATH_INVALID`.
+  //
+  // What changes is only what happens *before* a refusal. A caller who cannot
+  // see `path` no longer causes a full walk of its parent on the strength of a
+  // name they typed — and no longer reads that folder's *size* off the answer:
+  // `namesInUse` refuses a walk it could not finish, so a parent too large to
+  // list came back `FOLDER_TOO_LARGE` while a small one came back
+  // `FILE_NOT_FOUND`, for two notes the caller could see neither of.
+  assertWritablePath(path);
+  const state = await loadPrivacyState(store);
+  if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+
   // Every name in use, not every name this caller can see.
   //
   // Picking from the visible siblings alone chooses a name a hidden note may
@@ -1747,7 +1859,11 @@ async function rootFolders(
       }
       seen.add(folder);
     }
-    if (!listing.truncated || !listing.cursor) break;
+    if (!listing.truncated) break;
+    if (!listing.cursor) {
+      partial = true;
+      break;
+    }
     cursor = listing.cursor;
     if (page === LIST_PAGE_CAP - 1) partial = true;
   }
