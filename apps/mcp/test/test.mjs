@@ -2914,19 +2914,30 @@ check("an image no named note references resolves nothing", refusalText(orphan) 
 // non-markdown object as the "note", reads it, and answers on whether its bytes
 // contain the leaf.
 //
-// **What that is worth, corrected after a review measured it.** The first
-// version of this comment called it "a one-bit oracle over files no note tool
-// will open", on the strength of `read_note` refusing a `.csv`. It does not:
-// `toolReadNote` is `normalizePath` + `canSee` with no `.md` gate at all, and
-// returns the whole file at either scope. So the mutated `read_image` discloses
-// a strict subset of what `read_note` already grants on the same key — one bit
-// about something wholly readable. **The sentence was asserted, not measured.**
+// **What that is worth. Two reviews, and the second measured what the first two
+// versions of this comment only asserted.** Version one called it "a one-bit
+// oracle over files no note tool will open", on the strength of `read_note`
+// refusing a `.csv` — it does not, `toolReadNote` is `normalizePath` + `canSee`
+// with no `.md` gate. Version two corrected that into "a strict subset of what
+// `read_note` already grants — one bit about something wholly readable", which
+// is wrong in the other direction and by more.
 //
-// What the check is actually worth is consistency and depth: `list_notes`,
-// `search_notes` and the ChatGPT-dialect `fetch` all `.md`-gate and all refuse
-// this object, so `read_image` matching them is what stops it becoming the odd
-// one out — and `#116` made non-note objects something a bucket now genuinely
-// holds. That is a smaller claim than the first one and it is the true one.
+// What the mutated tool returns is the **image's bytes**, at private and team
+// scope alike, and nothing else in the gateway can return them. The image lives
+// under `.images/`, a dot-prefixed segment, so `isPlumbing` refuses it and
+// `read_note` of that key answers `not found` at every scope. The `note`
+// argument is the *only* authorization the image store has — the neighbouring
+// check above says so in its own words, an image no named note references
+// resolves nothing — and the `.md` gate is what stops any object the caller can
+// see from being that note. The chain needs no prior knowledge of the hash:
+// read the `.csv` (ungated, as above), take the leaf out of its text, pass the
+// `.csv` as the note.
+//
+// It is not `#116` that made this reachable, which version two also claimed.
+// `writeImage` writes only under `.images/`, and a plumbing key can never be
+// the `note` argument. A non-`.md` object on the *note* surface arrives the way
+// the repo already documents keys arriving — Obsidian's sync, rclone, the
+// provider's own console — none of which pass through our path validation.
 //
 // The object below is seeded to *contain* the leaf, so the reference check
 // cannot be what refuses it and only the `.md` check can.
