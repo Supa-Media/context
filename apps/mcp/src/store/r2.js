@@ -17,6 +17,7 @@ import {
   normalizeEtag,
   normalizeRootPrefix,
   stripListResult,
+  assertWritableContentType,
 } from "./index.js";
 
 export class R2Store {
@@ -60,7 +61,15 @@ export class R2Store {
       }
       assertSafeEtag(normalizeEtag(expected));
     }
-    return this.bucket.put(applyRootPrefix(this.rootPrefix, assertSafeKey(key)), value, options);
+    // R2 carries the content type in `httpMetadata` rather than a header, and
+    // the same allow-list applies — the two adapters must agree about what a
+    // bucket may be made to hold. `options` is forwarded whole so `onlyIf`
+    // keeps working; only the metadata is added.
+    const contentType = assertWritableContentType(options?.contentType);
+    return this.bucket.put(applyRootPrefix(this.rootPrefix, assertSafeKey(key)), value, {
+      ...options,
+      httpMetadata: { ...options?.httpMetadata, contentType },
+    });
   }
 
   async delete(key) {
