@@ -39,40 +39,64 @@
  *   node scripts/gateway-contract-tests.mjs --self-test # prove the detector works
  */
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const TESTS_DIR = "apps/convex/__tests__";
 
-/** A quoted path — any quote style — pointing anywhere under the gateway's src. */
+/**
+ * A path under the gateway's `src/`, in a position that READS it.
+ *
+ * Two versions of this were wrong in opposite directions, and the second was
+ * worse. The first matched only `mcp/src/index.js` plus one hardcoded helper,
+ * and missed `addressing.test.ts` and `writeImage.test.ts`, which import from
+ * `mcp/src/store/`. Widening it to any quoted path under `mcp/src` — backticks
+ * included, because a template literal is a quote — then counted **prose**:
+ * this repository documents in JSDoc with backticked paths, so
+ * `controlPlane.test.ts`, `noteCount.test.ts` and `structure.test.ts` all
+ * qualified on comments that read a file they never touch. Eleven, of which
+ * three were documentation.
+ *
+ * The fix that suggests itself — require the path to follow `from`, `import`,
+ * `readFileSync` — does not work either, in both directions. **English uses
+ * the word "from":** `structure.test.ts` says *"Nine from
+ * `apps/mcp/src/controlPlane.js`"* in a doc comment and matches. And a real
+ * read can nest the path out of reach: `ingestionGateway.test.ts` writes
+ * `readFileSync(resolvePath(__dirname, "../../mcp/src/index.js"))`, where no
+ * keyword sits adjacent to the quote.
+ *
+ * What separates the two cleanly here is the quote character. Code in this
+ * package imports with `"` or `'`; the prose is backticked, because that is
+ * the house documentation style. So: a straight-quoted path under `mcp/src`,
+ * on one line. Both real shapes match, all three prose files do not.
+ *
+ * It still matches text rather than resolving it, so a path built at runtime
+ * or aliased slips through. Stated rather than papered over: the workflow runs
+ * the whole suite, so a miss here costs a name in a listing, not coverage.
+ */
 export function readsGatewaySource(source) {
   if (typeof source !== "string") return false;
-  return /["'`][^"'`]*mcp\/src\/[^"'`]*["'`]/.test(source);
+  return /["'][^"'\n]*mcp\/src\/[^"'\n]*["']/.test(source);
 }
 
 /**
  * A test qualifies if it reads the gateway's source, or imports a helper that
  * does — and **which helpers those are is derived too.**
  *
- * The first version matched `mcp/src/index.js` plus one helper named in the
- * script. Review measured that false against files present in the tree that
- * day: `addressing.test.ts` imports `../../mcp/src/store/s3.js` and
- * `writeImage.test.ts` imports `../../mcp/src/store/index.js`; neither
- * matched, and `addressing.test.ts` catches a sabotage none of the six did.
- * The obvious widening — qualify on any `*.helpers` import — was worse in the
- * other direction: nearly every test here imports some local helper, so it
- * matched 34 of 40 files. So the helpers are filtered to the ones that
- * themselves read the gateway, which today is exactly one.
- *
- * It matches the written import path rather than resolving it, so a
- * `readFileSync(join(GATEWAY_DIR, …))` or a path alias still slips through.
- * Stated rather than papered over: the workflow runs the whole suite, so a
- * miss here costs a name in a listing, not a gap in coverage.
+ * The obvious alternative, qualifying on any `*.helpers` import, matched 34 of
+ * 40 files: nearly every test here imports some local helper. Deriving the
+ * list keeps it to helpers that themselves read the gateway, which today is
+ * exactly one — and note that the derivation is only as sound as
+ * `readsGatewaySource`. When that accepted prose, a single backticked path in
+ * `fixtures.helpers.ts` — which nearly everything imports — took this listing
+ * to 35 of 40. Measured, not imagined.
  */
 export function importsGatewayHelper(source, helpers) {
   if (typeof source !== "string") return false;
-  return helpers.some((name) => new RegExp(`["'\`][^"'\`]*${name}["'\`]`).test(source));
+  return helpers.some((name) =>
+    new RegExp(`["'\`][^"'\`]*${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["'\`]`).test(source)
+  );
 }
 
 function walk(dir) {
@@ -105,13 +129,20 @@ export function gatewayContractTests(dir = TESTS_DIR) {
 function selfTest() {
   const cases = [
     ['const g = readFileSync(resolvePath(__dirname, "../../mcp/src/index.js"), "utf8");', true],
-    // Both of these are real files the first version of this detector missed.
+    // Real files the first version of this detector missed.
     ['import { S3Store } from "../../mcp/src/store/s3.js";', true],
     ['import { WRITABLE_CONTENT_TYPES } from "../../mcp/src/store/index.js";', true],
-    ["import x from `../../mcp/src/session.js`;", true],
-    // A path in prose is not a read. That distinction is why
-    // check-gateway-imports.mjs stopped being a grep.
+    // A real read with the path nested out of reach of any keyword —
+    // ingestionGateway.test.ts's actual shape.
+    ['readFileSync(resolvePath(__dirname, "../../mcp/src/index.js"), "utf8")', true],
+    // A multi-line import, writeImage.test.ts's actual shape.
+    ['import {\n  IMAGE_PREFIX,\n} from "../../mcp/src/store/index.js";', true],
+    // PROSE IS NOT A READ, and every one of these was counted as one by a
+    // previous version. The house style documents paths in backticks, and
+    // English uses the word "from", so a read-context rule matched the third.
     ["// the gateway refuses both already (apps/mcp/src/index.js, move_note)", false],
+    [" * See `apps/mcp/src/index.js` for the gateway side.", false],
+    [" * Nine from `apps/mcp/src/controlPlane.js` (the MCP gateway) and three", false],
     ['import { api } from "../convex/_generated/api";', false],
     // A helper import is not a gateway read on its own — nearly every test
     // here imports one, and qualifying on that matched 34 of 40 files.
@@ -142,14 +173,47 @@ function selfTest() {
     }
   }
 
+  // THE WIRING, not just the two functions. Removing the helper derivation
+  // (`helpers = []`) left both function-level blocks above passing while the
+  // listing silently dropped from 8 to 6, losing exactly the files that
+  // qualify only through the hop. Two proven functions with an unproven join
+  // is a guard nobody has checked, one level up.
+  const listed = gatewayContractTests();
+  for (const required of [
+    "__tests__/onboarding.test.ts", // helper hop only
+    "__tests__/addressing.test.ts", // direct read only
+  ]) {
+    if (!listed.includes(required)) {
+      console.error(`FAIL wiring: ${required} is not in the derived list`);
+      failed = true;
+    }
+  }
+  // And the prose files must stay out of it.
+  for (const excluded of ["__tests__/structure.test.ts", "__tests__/noteCount.test.ts"]) {
+    if (listed.includes(excluded)) {
+      console.error(`FAIL wiring: ${excluded} mentions a path in prose and is not a read`);
+      failed = true;
+    }
+  }
+
   if (failed) process.exit(1);
-  console.log("ok   detector self-test passed");
+  console.log(`ok   detector self-test passed (${listed.length} contract tests)`);
 }
 
 // Only when run as a command. The functions above are exported so a test can
 // drive them, and a module that prints and can `process.exit(1)` merely
 // because it was imported is a module nobody can safely reuse.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+//
+// `realpathSync` is load-bearing and was missing: the ESM loader resolves
+// symlinks in `import.meta.url`, while `process.argv[1]` is only made
+// absolute. So invoking this through ANY symlink in its path — an npm or pnpm
+// bin shim, a mounted checkout — made both comparisons false and the whole
+// script a no-op that exits 0. Measured: `node /tmp/link-to-this.mjs` printed
+// nothing, and `--self-test` through the same link reported nothing and
+// succeeded. **A check that is green because it did not execute, inside the
+// job written to stop checks being green because they did not execute.**
+const invokedAs = process.argv[1] ? realpathSync(process.argv[1]) : null;
+if (invokedAs && import.meta.url === pathToFileURL(invokedAs).href) {
   const args = process.argv.slice(2);
   if (args.includes("--self-test")) {
     selfTest();

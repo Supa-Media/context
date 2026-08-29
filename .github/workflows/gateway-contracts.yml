@@ -1,10 +1,14 @@
 # The control-plane checks that are really checks OF THE GATEWAY.
 #
-# Eleven files under apps/convex/__tests__ depend on apps/mcp/src: nine read a
-# path under it directly, and six import `gatewayFormat.helpers.ts`, which
-# evaluates the gateway's real module and exposes its private helpers —
-# parsePrivacyManifest, visibilityOf, effectiveVisibility, isPlumbing, canSee.
-# (The two sets overlap; run scripts/gateway-contract-tests.mjs for the list.)
+# Eight files under apps/convex/__tests__ depend on apps/mcp/src: four read a
+# path under it in code (addressing, ingestionGateway, scaffold, writeImage),
+# and six import `gatewayFormat.helpers.ts`, which evaluates the gateway's real
+# module and exposes its private helpers — parsePrivacyManifest, visibilityOf,
+# effectiveVisibility, isPlumbing, canSee. Two are in both sets. Run
+# scripts/gateway-contract-tests.mjs for the current list rather than trusting
+# this number; an earlier version of this comment said eleven, because the
+# detector was counting backticked paths in doc comments as reads.
+#
 # `ingestionGateway.test.ts` additionally scrapes MAX_INLINE_IMAGE_BYTES out of
 # the text, and `addressing.test.ts` mirrors the S3 adapter's ambiguity rule.
 #
@@ -19,9 +23,10 @@
 # Measured before this file existed. Adding one named export to
 # apps/mcp/src/index.js leaves the gateway's own suite reporting ALL PASS, and
 # in the control-plane suite fails 5 files / 12 checks — fileOps and
-# privacyEngine fail to collect at all, scaffold (8), provisioning (2) and
-# onboarding (2) fail after collecting, and ingestionGateway is unaffected
-# because it scrapes a constant rather than evaluating the module. The message
+# privacyEngine fail to collect at all, taking ~198 checks with them (1271 run
+# becomes 1073), scaffold (8), provisioning (2) and onboarding (2) fail after
+# collecting, and ingestionGateway is unaffected because it scrapes a constant
+# rather than evaluating the module. The message
 # it prints is "update gatewayFormat.helpers.ts rather than weakening the
 # assertion" — written for exactly this situation, and impossible to receive,
 # because the job that would print it never ran. `ci / Test Convex Backend` was
