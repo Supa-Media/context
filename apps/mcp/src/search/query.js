@@ -190,6 +190,66 @@ export function computeRanks(index) {
   }
 }
 
+/**
+ * The index restricted to the docs `isVisible` accepts, for scoring one
+ * caller's query.
+ *
+ * The index holds text drawn from private notes, which CONTRACT.md permits
+ * because it lives inside the customer's own bucket. What it does not permit is
+ * anything derived from those notes reaching a caller who cannot read them —
+ * and `searchIndex` derives more than its result rows from the corpus. `N`,
+ * every term's `df`, `avglen` and each doc's `rank` are read over every doc in
+ * the index, so three things about a team connection's own answer were a
+ * function of notes it cannot see:
+ *
+ * 1. **Whether a query term expands at all.** Prefix and fuzzy expansion fire
+ *    only at `df === 0`. Ask for `quokka`, having planted `quokkatron` in a note
+ *    you *can* see, and the visible note is returned when no private note holds
+ *    the exact word and withheld when one does. That is a test for an arbitrary
+ *    word in somebody else's private notes, answered by the caller's own hits.
+ * 2. **The order of the results it can see**, through `df` and `N` in `idf`.
+ * 3. **The order again**, through `rank` — PageRank computed over a link graph
+ *    including notes the caller cannot read.
+ *
+ * Filtering `docs` closes all three, because every other corpus statistic in
+ * `searchIndex` is derived from it: `validPostings` already drops postings
+ * whose doc is absent, so `df`, the expansion triggers and the candidate caps
+ * all narrow with no further filtering, and `terms` can be shared as it is.
+ * `rank` is the exception — it is precomputed at index time — so it is
+ * recomputed here over the visible subgraph. `computeRanks` writes `rank` onto
+ * the doc objects it is given, hence the copies. Nothing today outlives the
+ * request (`syncIndex` builds a fresh index per call and keeps no module-level
+ * cache — checked, not assumed), so the copy is not load-bearing yet; it is
+ * what stops a future cache from turning one caller's view into the ranks
+ * every later caller scores against.
+ *
+ * An owner sees every note, so the common case allocates nothing and returns
+ * the index it was given. A narrowed caller pays one pass over the docs plus
+ * `PAGERANK_ITERATIONS` over the visible subgraph, per query.
+ *
+ * @param {{ docs: Map, terms: Map }} index
+ * @param {(path: string) => boolean} isVisible
+ */
+export function visibleIndex(index, isVisible) {
+  if (!index || !(index.docs instanceof Map) || typeof isVisible !== "function") return index;
+  let hidesSomething = false;
+  for (const path of index.docs.keys()) {
+    if (!isVisible(path)) {
+      hidesSomething = true;
+      break;
+    }
+  }
+  if (!hidesSomething) return index;
+
+  const docs = new Map();
+  for (const [path, doc] of index.docs) {
+    if (isVisible(path)) docs.set(path, { ...doc });
+  }
+  const view = { ...index, docs };
+  computeRanks(view);
+  return view;
+}
+
 /** Sum of each field's token count over every doc, guarded against n = 0. */
 function computeAvgLen(docs, paths) {
   const sums = { title: 0, headings: 0, tags: 0, body: 0 };

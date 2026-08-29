@@ -67,7 +67,7 @@ import {
 } from "./session.js";
 import { enforceOrigin, isTransportPath } from "./origin.js";
 import { createSearchBudget, syncIndex } from "./search/maintain.js";
-import { searchIndex } from "./search/query.js";
+import { searchIndex, visibleIndex } from "./search/query.js";
 import { termsOf } from "./search/text.js";
 import {
   ERROR_HEADER_MISMATCH,
@@ -3272,7 +3272,18 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
   }
 
   if (synced && synced.index.docs.size > 0) {
-    const ranked = searchIndex(synced.index, query);
+    // Scored against this caller's own view of the index, never the whole one.
+    // The filter below is what keeps index data out of the response; this is
+    // what keeps the corpus *statistics* — every term's df, N, avglen and each
+    // doc's PageRank — from being a function of notes the caller cannot read.
+    // Without it, whether a query term expanded at all was one bit about the
+    // private half of the bucket, readable off the caller's own hits. Both
+    // remain: a view that filtered but was ranked and then not filtered again
+    // would be one guard where the response needs two.
+    const ranked = searchIndex(
+      visibleIndex(synced.index, (path) => canSee(path, scope, rules, overrides)),
+      query
+    );
     const visible = ranked.filter(
       ({ path }) =>
         canSee(path, scope, rules, overrides) && (!prefix || path.startsWith(prefix))
@@ -3298,12 +3309,17 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
       hits,
       matchCount: visible.length,
       // The floor is read off the *visible* list and never off `ranked`.
-      // "the ranked list was full" is a fact about the whole index, private
-      // notes included, so a team connection holding one visible hit would
-      // learn one bit about the fifty it cannot see. The cost is an
-      // understatement in one shape — an owner with 50+ private matches and a
-      // couple of team ones — and understating what a caller can see is the
-      // direction this is allowed to be wrong in.
+      // It was written when "the ranked list was full" was a fact about the
+      // whole index, private notes included, so a team connection holding one
+      // visible hit would learn one bit about the fifty it cannot see. Since
+      // `visibleIndex` that is no longer what `ranked` means — it is already
+      // this caller's own corpus, and the two lists now differ only by
+      // `prefix`. The line stays exactly as it was for two reasons: a count
+      // narrowed to a folder must not report a fullness that came from outside
+      // it, and this is the one of the two that does not depend on
+      // `visibleIndex` being right. Its cost is unchanged and still the
+      // acceptable direction — it can understate what a caller can see, never
+      // overstate it.
       matchCountIsFloor: visible.length >= SEARCH_INDEX_RANK_CAP,
       indexIncomplete: synced.pending > 0 || synced.listingTruncated,
       degraded: false,

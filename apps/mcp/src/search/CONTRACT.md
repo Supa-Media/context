@@ -20,11 +20,22 @@ derivative of versioned files is waste.
 **The index contains text drawn from private notes.** That is acceptable where
 it lives — inside the customer's own bucket, beside those notes — and never
 acceptable in what leaves the gateway: every result path is filtered through
-`canSee` at query time, snippets are cut from a fresh `store.get` of notes the
-caller may read (never from index data), and fuzzy/prefix expansions are query
-rewrites, not output. Nothing derived from a term's presence in the vocabulary
-may reach a caller who could not read every note — a "did you mean" built from
-vocabulary is an oracle for private note content and must not be added.
+`canSee` at query time, and snippets are cut from a fresh `store.get` of notes
+the caller may read, never from index data. Nothing derived from a term's
+presence in the vocabulary may reach a caller who could not read every note — a
+"did you mean" built from vocabulary is an oracle for private note content and
+must not be added.
+
+**A query is scored against the caller's own view of the index, not the whole
+one** (`visibleIndex`). An earlier version of this paragraph said instead that
+"fuzzy/prefix expansions are query rewrites, not output", and that step is what
+licensed the bug: expansion fires only at `df === 0`, df was counted over every
+doc, so whether a visible note came back was a function of whether some private
+note held the exact query word. A rewrite whose *trigger* is private content is
+an output channel however it is spelled. The same is true of `N`, `avglen` and
+`rank`, which reorder the results a caller *can* see. `visibleIndex` narrows
+`docs`, which narrows all four, and recomputes `rank` over the visible subgraph
+because that one is stored rather than derived at query time.
 
 ## In-memory shape
 
@@ -89,6 +100,10 @@ index is a rebuild, never a throw and never a partial read.
 
 BM25F, simplified (field-weighted tf folded before saturation):
 
+**Every corpus statistic below — `N`, `df`, `avglen`, `rank` — is read over the
+`index` argument, which is the caller's view rather than the stored index. The
+constants are pinned; the corpus they are computed against is per-caller.**
+
 - weights: title 4.0 · tags 3.0 · headings 2.5 · body 1.0
 - length normalization b: title 0.4 · tags 0.3 · headings 0.5 · body 0.75
 - k1 = 1.2
@@ -111,6 +126,10 @@ BM25F, simplified (field-weighted tf folded before saturation):
   such.
 - `searchIndex(index, query, { now }) → [{ path, score, matchedTerms }]`,
   sorted desc, ties by path, capped at 50. Empty/stopword-only query → [].
+- `visibleIndex(index, isVisible) → index'`, the docs `isVisible` accepts, with
+  `rank` recomputed over their subgraph and `terms` shared unchanged
+  (`searchIndex` already drops postings whose doc is absent). Returns `index`
+  itself when nothing is hidden.
 
 ## Maintenance (maintain.js) — the sync loop
 
