@@ -72,6 +72,7 @@ import {
   type Invitee,
 } from "./lib/invitees";
 import { isPlumbing } from "./lib/privacy";
+import { normalizePreviewTitle, titleFromPath } from "./lib/shareTitle";
 import { getMembership, requireWorkspaceRole } from "./lib/workspaceAuth";
 
 /**
@@ -195,6 +196,7 @@ const shareSummary = v.object({
   recipient: v.string(),
   entryPath: v.string(),
   titleInPreview: v.boolean(),
+  previewTitle: v.optional(v.string()),
   createdBy: v.id("users"),
   createdAt: v.number(),
   expiresAt: v.optional(v.number()),
@@ -220,6 +222,11 @@ export const createShare = mutation({
     recipient: v.string(),
     /** Defaults to `true`. See the schema for what this discloses. */
     titleInPreview: v.optional(v.boolean()),
+    /**
+     * The title the link unfurls with. Defaults to the note's filename, made
+     * readable. Never read from the note's contents — see `lib/shareTitle.ts`.
+     */
+    previewTitle: v.optional(v.string()),
     expiresAt: v.optional(v.number()),
   },
   returns: v.object({ token: v.string() }),
@@ -234,6 +241,13 @@ export const createShare = mutation({
     if (!parsed.ok) throw inviteeRejectionError(parsed.reason);
 
     const now = Date.now();
+    // `??` rather than a plain default: an owner who typed a title that
+    // normalises to nothing gets the filename, not an empty card.
+    const chosenTitle =
+      args.previewTitle === undefined
+        ? titleFromPath(pathCheck.path)
+        : (normalizePreviewTitle(args.previewTitle) ?? titleFromPath(pathCheck.path));
+
     const existing = await findShareFor(
       ctx,
       args.workspaceId,
@@ -247,6 +261,7 @@ export const createShare = mutation({
       // must not quietly break a link somebody is holding.
       await ctx.db.patch(existing._id, {
         titleInPreview: args.titleInPreview ?? existing.titleInPreview,
+        previewTitle: chosenTitle ?? existing.previewTitle,
         // `??`, not a plain assignment. Re-sharing without naming an expiry
         // must not silently turn a share the owner time-boxed into a permanent
         // one — the direction an omitted argument fails has to be "less
@@ -269,6 +284,7 @@ export const createShare = mutation({
         status: "active",
         token,
         titleInPreview: args.titleInPreview ?? true,
+        previewTitle: chosenTitle ?? undefined,
         expiresAt: args.expiresAt,
         createdBy: userId,
         createdAt: now,
@@ -284,6 +300,7 @@ export const createShare = mutation({
         token,
         status: "active",
         titleInPreview: args.titleInPreview ?? true,
+        previewTitle: chosenTitle ?? undefined,
         expiresAt: args.expiresAt,
         createdAt: now,
       });
@@ -362,6 +379,7 @@ export const listShares = query({
         recipient: formatInvitee({ kind: row.recipientKind, value: row.recipient }),
         entryPath: row.entryPath,
         titleInPreview: row.titleInPreview,
+        previewTitle: row.previewTitle,
         createdBy: row.createdBy,
         createdAt: row.createdAt,
         expiresAt: row.expiresAt,
@@ -779,3 +797,64 @@ async function readThroughShare(
     throw error;
   }
 }
+
+/**
+ * The title a share's link unfurls with, for the edge router. NO SESSION.
+ *
+ * This is the only function in this product that returns anything derived from
+ * a workspace to an unauthenticated caller, so the reasoning is written down
+ * rather than assumed.
+ *
+ * ## Why it may exist at all
+ *
+ * `infra/router/src/preview.ts` freezes every name-bearing path to one card,
+ * because `/@seyi` is **guessable** and a nicer preview would be an existence
+ * oracle for usernames. A share URL is not guessable: it carries 32 bytes from
+ * `crypto.getRandomValues` that the owner deliberately handed to somebody. The
+ * rule the frozen card protects is intact; this is a different input.
+ *
+ * The trade was made explicitly by the product owner and is worth restating
+ * because it is a real cost: **anybody holding the URL learns the title without
+ * signing in** — everyone in the Slack channel it was pasted into, everyone on
+ * the email thread, and the corporate link scanner that follows it. That is the
+ * price of a link people will actually click, and it is per-share revocable
+ * (`titleInPreview`).
+ *
+ * ## What holds the line
+ *
+ *  - **The title is never note content.** It is owner-chosen or derived from
+ *    the filename, so an unfurl never reads the customer's bucket. See
+ *    `lib/shareTitle.ts`.
+ *  - **One shape, always.** Unknown token, revoked share, expired share,
+ *    `titleInPreview` off, a share whose title normalised to nothing — every
+ *    one of them is `{ title: null }`. A crawler cannot tell revoked from
+ *    never-issued, which is what stops an unfurl from reporting that an owner
+ *    has acted.
+ *  - **Nothing else is returned.** Not the workspace, the slug, the owner, the
+ *    path, the recipient, or the dates. Adding a field here publishes it to the
+ *    internet.
+ *
+ * ## What does not hold the line, and is not claimed to
+ *
+ * Timing. One indexed lookup happens either way, so the difference is small,
+ * but this is not constant-time and should not be described as such. It is
+ * acceptable for the reason `resolveInvitationForCaller` gives about its own
+ * asymmetry: reaching a live row at all requires already holding a real token,
+ * and somebody who holds one learns nothing from how long the answer took.
+ */
+export const previewTitleForToken = query({
+  args: { token: v.string() },
+  returns: v.object({ title: v.union(v.string(), v.null()) }),
+  handler: async (ctx, args) => {
+    const share = await ctx.db
+      .query("noteShares")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .unique();
+
+    if (share === null) return { title: null };
+    if (!isLive(share, Date.now())) return { title: null };
+    if (!share.titleInPreview) return { title: null };
+
+    return { title: share.previewTitle ?? null };
+  },
+});

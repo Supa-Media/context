@@ -264,6 +264,97 @@ export function renderPreviewHtml(meta: PreviewMeta): string {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
+ * SHARE LINKS — the one deliberate exception, and why it is not a hole
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Where a shared note lives: `/s/<token>`.
+ *
+ * Deliberately not `/share/…`, which is in the byte-identity set above and
+ * stays there. A new prefix means the frozen-card guarantee for every existing
+ * path is untouched by this feature rather than carved out of.
+ */
+export const SHARE_PREFIX = "/s/";
+
+/**
+ * The share token in a path, or `null`.
+ *
+ * Shape-checked here, before anything is fetched, and the shape is exact: 64
+ * lowercase hex characters, which is what `randomOpaqueToken()` produces in the
+ * control plane. Three things follow from checking rather than forwarding:
+ *
+ *  - Nothing an attacker types reaches an upstream. A path is either a
+ *    well-formed token or it is not a share link at all.
+ *  - `/s/`, `/s/x/y`, and `/s/../../etc` are not share links, so they fall
+ *    through to GENERIC_PREVIEW like everything else.
+ *  - A malformed token costs no round trip, so the obvious probe — hammer `/s/`
+ *    with garbage and time the answers — never reaches the lookup.
+ */
+export function shareTokenFrom(pathname: string): string | null {
+  if (!pathname.startsWith(SHARE_PREFIX)) return null;
+  const rest = normalisePath(pathname).slice(SHARE_PREFIX.length);
+  return /^[0-9a-f]{64}$/.test(rest) ? rest : null;
+}
+
+/**
+ * The card a shared link unfurls with.
+ *
+ * ## Why this is allowed to say something when nothing else is
+ *
+ * The rule above — one frozen card for every name-bearing path — exists because
+ * `/@seyi` is **guessable**. A nicer preview of it would hand anyone an
+ * existence oracle for usernames, which is exactly what the control plane's
+ * byte-identical errors are built to deny.
+ *
+ * A share token is not guessable. It is 32 bytes from `crypto.getRandomValues`
+ * that the owner deliberately handed to one person, and `shareTokenFrom` above
+ * refuses to forward anything that is not shaped like one. So the premise the
+ * frozen card protects — "the requester may not have been meant to have this
+ * URL" — does not hold here, and the product need it blocks is real: a link
+ * that unfurls as bare branding does not get clicked, and a share nobody opens
+ * is a share that did not happen.
+ *
+ * The trade was made explicitly, and it is a real cost: **anyone holding the
+ * URL learns the title without signing in.** Everyone in the channel it was
+ * pasted into, everyone on the forwarded thread, the corporate link scanner.
+ * Note *content* still requires authentication and a live grant; the owner can
+ * turn the title off per share; and revoking makes the card frozen again.
+ *
+ * ## What it still refuses to do
+ *
+ *  - **`title` only.** No owner, no context name, no path, no folder, no date,
+ *    no counts. The upstream returns exactly one field for this reason.
+ *  - **The canonical URL stays the site root.** Echoing the requested path back
+ *    would make two share links differ by their own bytes, which is the leak
+ *    the whole file is built to avoid.
+ *  - **`noindex, nofollow` stays.** A share is not search-engine material, and
+ *    this is the half of "not published" that survives the card getting a
+ *    title.
+ *  - **The image is unchanged.** A per-share picture would leak through the
+ *    pixels what the text withholds.
+ *
+ * A `null` title — unknown token, revoked, expired, title switched off — is
+ * GENERIC_PREVIEW, byte for byte. That is what keeps revocation invisible: a
+ * crawler cannot tell a share that was taken back from one that never existed.
+ */
+export function previewForShare(title: string | null | undefined): PreviewMeta {
+  const clean = title?.trim();
+  if (!clean) return GENERIC_PREVIEW;
+
+  return {
+    ...GENERIC_PREVIEW,
+    // Bounded before it is escaped, mirroring MAX_PREVIEW_TITLE in the control
+    // plane. Bounded in both places on purpose: this one is what protects the
+    // response when the upstream is wrong, and an edge that trusts its upstream
+    // to have been careful is an edge with no bound at all.
+    title: `${clean.slice(0, 60)} — Context`,
+    description:
+      "Shared with you on Context. Sign in to read it — plain markdown in a " +
+      "bucket its owner controls.",
+  };
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
  * THE OPT-IN SEAM — shape only. Nothing below is wired up, on purpose.
  * ──────────────────────────────────────────────────────────────────────────── */
 
