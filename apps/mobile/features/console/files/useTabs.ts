@@ -110,10 +110,27 @@ export function useTabs(
    *
    * The ref is seeded with the *initial* `contextKey`, so the equality check is
    * what stops a reset **on mount** — the effect runs there too, and without the
-   * check it would wipe a strip that the `opened` effect above has already
-   * filled, because that effect is declared first and both run in the same
-   * commit. `useTabs` is mounted with a note already open every time somebody
-   * reloads the console on a note.
+   * check it would wipe a strip that the `opened` effect has already filled,
+   * because both run in the same commit.
+   *
+   * That is also why this effect is declared **last**, which is the opposite of
+   * what a latent bug here argues for. A render that both switched context and
+   * opened a note in one commit would open the tab and then have this wipe it,
+   * with `opened` never re-running because `[openPath]` did not change — and
+   * declaring this effect first fixes exactly that. It also **measurably
+   * destroys the check above**: a reset that runs before anything has filled the
+   * strip is a no-op at mount whether the check is there or not, and sabotaging
+   * it goes from one failing test to none. No caller reaches the latent bug
+   * today — `useFileBrowser` nulls the editor on the same key — so the order
+   * stays, and the trade is written down rather than quietly taken: a live,
+   * tested guard beats an untestable one closing an unreachable path.
+   *
+   * No caller produces that state *today*: `ConsoleRoute` carries a slug and a
+   * view but no note path, nothing persists an open note across a reload, and
+   * `useFileBrowser` starts at `emptyEditor` with the note arriving several
+   * commits later. The check is here because a hook must not depend on the
+   * timing of its only caller — one prop-derived editor, or one restored
+   * session, and mount arrives with a tab to lose.
    *
    * An earlier version of this comment claimed the opposite — that the effect
    * "only runs when the key has already changed", so the check "fails nothing"
@@ -121,9 +138,10 @@ export function useTabs(
    * sentence directly above it. It looked true because at mount the state is
    * already `emptyTabs`, so the redundant `reset` hits `useReducer`'s bail-out
    * and nothing is visibly lost; give the mount a tab to lose and it is
-   * immediate. Tenth comment in this repository to argue for behaviour the code
-   * does not have, and the first one written while claiming to be careful about
-   * exactly that.
+   * immediate. One of a long line of comments here that argued for behaviour the
+   * code does not have — the running count is in the security register, not
+   * asserted from a comment that nothing can audit — and the first written while
+   * claiming to be careful about exactly that.
    */
   const openContext = useRef(contextKey);
   useEffect(() => {

@@ -111,7 +111,10 @@ function mountTabs(): {
     openPath?: string | null,
   ) => void;
   open: (path: string) => void;
+  close: (path: string) => void;
+  reopen: () => void;
   openPaths: () => string[];
+  closedStack: () => string[];
 } {
   let live: ReturnType<typeof useTabs> | null = null;
   function Probe({
@@ -143,7 +146,16 @@ function mountTabs(): {
       act(() => {
         live?.pin(path);
       }),
+    close: (path: string) =>
+      act(() => {
+        live?.close(path);
+      }),
+    reopen: () =>
+      act(() => {
+        live?.reopen();
+      }),
     openPaths: () => (live?.state.tabs ?? []).map((tab) => tab.path),
+    closedStack: () => [...(live?.state.closed ?? [])],
   };
 }
 
@@ -253,6 +265,39 @@ describe("the guards inside the switch", () => {
     probe.render("workspace-a", { "": listing("", ["stays.md"]) });
     expect(probe.openPaths()).toEqual(["stays.md"]);
   });
+
+  /**
+   * Which ACTION the switch sends, not merely that the strip ends up empty.
+   *
+   * Clearing the tabs with a per-tab `closed` or `removed` loop leaves the strip
+   * looking right and every other test here green — 1495 of them — while the
+   * previous context's note paths sit in the reopen stack. ⌘⇧T then puts one
+   * back on screen, which is the failure this whole change exists to remove.
+   *
+   * `fileTabs.test.ts` asserts `reset` empties `closed`, and cannot reach this:
+   * it dispatches the action directly, so it proves the reducer and says nothing
+   * about what the hook chooses to send. That is the same "well-tested pure
+   * module beside an unheld call site" gap the last round found here twice, on
+   * the one clause written to close it.
+   */
+  test("the reopen stack does not survive the switch either", () => {
+    const probe = mountTabs();
+    probe.render("workspace-a", { "": listing("", ["a1.md", "a2.md"]) });
+    probe.open("a1.md");
+    probe.open("a2.md");
+    probe.close("a1.md");
+    // Closed with ⌘W, so it IS on the stack — without this the assertion below
+    // would hold over an empty stack and prove nothing.
+    expect(probe.closedStack()).toEqual(["a1.md"]);
+
+    probe.render("workspace-b", { "": listing("", ["b1.md"]) });
+    expect(probe.openPaths()).toEqual([]);
+    expect(probe.closedStack()).toEqual([]);
+
+    // And the control the stack exists for: ⌘⇧T brings back nothing.
+    probe.reopen();
+    expect(probe.openPaths()).toEqual([]);
+  });
 });
 
 /**
@@ -271,6 +316,13 @@ describe("the console frame keys its tabs on the open context", () => {
       join(__dirname, "..", "app", "(app)", "console", "_layout.tsx"),
       "utf8",
     );
-    expect(layout).toContain("useTabs(data.files, data.selectedContextId)");
+    // A regex over comment-stripped source, not `toContain`. A bare substring
+    // check is satisfied by the literal appearing in a `//` comment above a call
+    // that passes something else — CLAUDE.md records that exact failure ("an
+    // import guard that read English prose as code") — and is broken by a
+    // reformat that changes nothing, which is what prettier does the day a third
+    // argument arrives.
+    const code = layout.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(code).toMatch(/useTabs\(\s*data\.files\s*,\s*data\.selectedContextId\s*,?\s*\)/);
   });
 });

@@ -290,14 +290,17 @@ export function tabLabel(state: TabsState, path: string): string {
  *
  * The flag has been measured by the server and carried to the client all along
  * with no consumer anywhere in `apps/mobile`. **This is now its only one**, and
- * that is a statement about this function rather than about the flag: three
- * other readers of the same short listing are still blind to it —
- * `buildTreeRows` draws a truncated folder as complete (and can draw "Empty"
- * for one whose whole first page was filtered), `namesIn` tells
- * `describeNameProblem` a taken name is free, and `itemsFromListings` returns a
- * short palette. None is a regression and none is disclosure; all three are
- * "a short list printed as a complete one", which is the rule CLAUDE.md states
- * for `noteCountTruncated` and `resetPrivacyManifest.partial`.
+ * that is a statement about this function rather than about the flag: several
+ * readers of the same short listing are still blind to it, including
+ * `buildTreeRows` (draws a truncated folder as complete, and can draw "Empty"
+ * for one whose whole first page was filtered by `canSee`), `namesIn` (tells
+ * `describeNameProblem` a taken name is free), `findEntry`, `countLoaded`,
+ * `itemsFromListings`, and — the one worth naming individually —
+ * **`loadedFolders`, which feeds `SettingsPane`'s folder visibility list**, so
+ * a truncated root listing quietly drops folders from the screen where the
+ * owner decides who may see them. None is a regression and none is disclosure;
+ * every one of them is "a short list printed as a complete one", the rule
+ * CLAUDE.md states for `noteCountTruncated` and `resetPrivacyManifest.partial`.
  */
 export function tabsToClose(
   tabs: readonly Tab[],
