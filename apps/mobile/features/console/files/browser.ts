@@ -137,7 +137,6 @@ export function loadedFolders(
   return [...folders].sort();
 }
 
-
 /**
  * What a thrown thing is allowed to say on somebody's screen.
  *
@@ -145,7 +144,7 @@ export function loadedFolders(
  * console renders — every notice, save failure and toast in `useFileBrowser`
  * comes through here. It lives in this module rather than in the hook because
  * a decision no test can reach is a decision nothing is holding, and this one
- * had seven call sites and no test at all.
+ * had six call sites and no test at all.
  *
  * The rule is the one `../failure.ts` states for the query side: **never a raw
  * runtime string as the headline — that is how a stack trace ends up in a

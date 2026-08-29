@@ -6,7 +6,7 @@ import { toFileError } from "../features/console/files/browser";
  * **What a thrown thing is allowed to say on somebody's screen.**
  *
  * `toFileError` is the single funnel between anything the file actions throw
- * and the copy the console renders — seven call sites in `useFileBrowser`, and
+ * and the copy the console renders — six call sites in `useFileBrowser`, and
  * every notice, save failure and toast comes through it. Nothing tested it.
  *
  * The rule it enforces is the one `console/failure.ts` states in its own

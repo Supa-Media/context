@@ -112,12 +112,13 @@ function isLive(share: Doc<"noteShares">, now: number): boolean {
 /**
  * Whether this share still stands, for this caller, right now.
  *
- * **The one predicate, read by both channels.** `resolveShare` answers a link
- * somebody was sent; `listSharedWithMe` is the recipient's own inbox and is the
- * channel that needs no link at all. Two copies of this reasoning would be two
- * places for it to drift, and the direction that drift fails is "the inbox
- * hands somebody a token the link would have refused" — which is exactly how
- * the freed-name case was found.
+ * **The one predicate, read by all three channels.** `resolveShare` answers a
+ * link somebody was sent; `listSharedWithMe` is the recipient's own inbox and
+ * is the channel that needs no link at all; `authorizeShareRead` is what stands
+ * between a token and the note's bytes. Three copies of this reasoning would be
+ * three places for it to drift, and it already had: the inbox handed somebody a
+ * token the link would have refused, and the read path — added later, in `#104`
+ * — kept a shorter copy than either.
  *
  * Returns the workspace when the share stands, `null` otherwise. `null` is the
  * only failure value: every reason a share does not stand must be
@@ -135,7 +136,7 @@ function isLive(share: Doc<"noteShares">, now: number): boolean {
  * again — it is how this one was found — so the capability must not depend on
  * the sweep having been remembered.
  *
- * ## The claim has to predate the share
+ * ## The handle has to be the same handle
  *
  * A share is addressed to a **string**, and resolved only here. That is
  * deliberate, for `inviteMember`'s anti-enumeration reason, and it is what lets
@@ -143,18 +144,20 @@ function isLive(share: Doc<"noteShares">, now: number): boolean {
  * account, somebody else claims `lk`, and every share addressed to `@lk`
  * resolves to a stranger.
  *
- * So a name-addressed share additionally requires that the current claim on
- * that handle is **older than the share**. The same shape of argument the
- * Cloudflare provisioning path uses for a bucket it may reuse: a claim made
- * after the share was created cannot be the claim the sharer was addressing.
- * `claimedAt` is written once by `claimName` and never moved — there is no
- * rename path — so this is a fact about the claim, not a guess.
+ * So a name-addressed share is pinned to `recipientHeldSince` — the claim it
+ * was written against, or nothing if the handle was free. The schema carries
+ * the reasoning, including why the obvious cheaper version ("the claim must
+ * predate the share") breaks sharing with somebody who has not signed up yet.
  *
- * There is no equivalent for an email-addressed share, and that is stated
- * rather than quietly skipped: a mailbox can also change hands, and nothing
- * here can see when it did. That is a live design question about how long a
- * share addressed to an address should stand, not something to settle inside a
- * predicate.
+ * There is no equivalent for an email-addressed share: `emailVerificationTime`
+ * is re-stamped on every verifying sign-in, so it pins nothing. The teardown
+ * sweep covers the case that actually occurs here — an account deleted, its
+ * address free, a stranger verifying it — and what remains open is a mailbox
+ * changing hands outside Context entirely, which no check inside this function
+ * can see. That is a live design question about how long a share to an address
+ * should stand, and it is a *gap*, not a decision: `shares.test.ts` pins both
+ * the sweep and the residue rather than leaving this paragraph as the only
+ * record.
  */
 async function shareStillStands(
   ctx: QueryCtx,
@@ -186,15 +189,26 @@ async function shareStillStands(
 
   if (share.recipientKind === "name") {
     const claim = await findName(ctx, share.recipient);
-    // Strictly after, so a tie stands. `>=` was tried first, on the usual
-    // reasoning that an ambiguous case should fail closed, and it refused two
-    // legitimate shares in this repo's own fixtures — a claim and a share
-    // landing in the same millisecond is routine when nothing is waiting on a
-    // person. It is also unreachable as an attack: the case this closes is a
-    // handle **re-claimed after** the share was written, which is at minimum an
-    // account deletion apart, so a tie can only be a claim that was already
-    // there.
-    if (claim === null || claim.claimedAt > share.createdAt) return null;
+    // `claim?.` rather than an early null check, which would look like a guard
+    // and not be one: an unclaimed handle is already refused below, because
+    // `resolveAddressedUser` resolves it to nobody. Written this way the line
+    // does exactly one job — compare the pin — and a missing claim fails it for
+    // the same reason a wrong one does.
+    //
+    // Pinned to the claim the share was addressed to, when there was one. An
+    // absent pin means nobody held the handle at share time, so the first
+    // person to claim it is who the sharer meant — see the schema.
+    //
+    // This began as `claim.claimedAt > share.createdAt`, i.e. "a claim made
+    // after the share cannot be the claim the sharer addressed". That is false
+    // for the one case it most needed to be true for, and a review caught it:
+    // a share written to a handle nobody holds yet is a supported flow, and
+    // that comparison made it permanently unredeemable the moment the intended
+    // recipient signed up — silently, on both sides, with re-sharing unable to
+    // repair it because the active-row branch freezes `createdAt`.
+    if (share.recipientHeldSince !== undefined && claim?.claimedAt !== share.recipientHeldSince) {
+      return null;
+    }
   }
 
   // Last, and the authority on who an identifier belongs to.
@@ -376,6 +390,16 @@ export const createShare = mutation({
     // comment: this is what makes returning it safe.
     const token = randomOpaqueToken();
 
+    // Which claim this share is being written against, if any. One indexed
+    // lookup that happens whether or not the handle is taken, and whose answer
+    // never leaves this function — it is not returned, and `shareSummary` does
+    // not carry it. Recording *when* the handle was taken is not resolving it
+    // to a person, which is the line `inviteMember` draws and this keeps.
+    const heldSince =
+      parsed.invitee.kind === "name"
+        ? (await findName(ctx, parsed.invitee.value))?.claimedAt
+        : undefined;
+
     if (existing !== null) {
       // Revoked, and now re-shared. A **new** token, so the link that was
       // revoked stays dead — otherwise "revoke" would have meant "pause".
@@ -387,6 +411,10 @@ export const createShare = mutation({
         expiresAt: args.expiresAt,
         createdBy: userId,
         createdAt: now,
+        // Re-pinned with the token and the date, because this is a new grant
+        // in every other respect. Carrying the old pin forward would address a
+        // fresh share to a claim that may no longer exist.
+        recipientHeldSince: heldSince,
         revokedAt: undefined,
       });
     } else {
@@ -395,6 +423,7 @@ export const createShare = mutation({
         entryPath: pathCheck.path,
         recipientKind: parsed.invitee.kind,
         recipient: parsed.invitee.value,
+        recipientHeldSince: heldSince,
         createdBy: userId,
         token,
         status: "active",

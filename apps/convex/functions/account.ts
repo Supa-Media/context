@@ -103,6 +103,21 @@ export const deleteAccount = mutation({
       }
     }
 
+    // The address, which `deleteAccount` frees exactly as it frees a handle —
+    // the `users` row goes below, and `resolveAddressedUser` then resolves the
+    // address to whoever verifies it next. There is no claim date to pin an
+    // email share against (`emailVerificationTime` is re-stamped on every
+    // verifying sign-in), so unlike a handle this sweep is the whole control,
+    // and the residue — a mailbox changing hands outside Context — is recorded
+    // in `shares.ts` and pinned by a test rather than left to a comment.
+    //
+    // Unverified addresses are skipped because they are not identifiers:
+    // `resolveAddressedUser` refuses them, so nothing was ever addressed here.
+    const me = await ctx.db.get(userId);
+    if (me?.email !== undefined && me.emailVerificationTime !== undefined) {
+      await revokeSharesAddressedTo(ctx, "email", me.email.toLowerCase());
+    }
+
     // The user's own name claims. Nothing writes a `kind: "user"` row today
     // (see functions/invitations.ts), so this is usually a no-op — but the
     // schema supports them and a claimed username must not outlive the person.
@@ -393,21 +408,48 @@ async function voidCapabilitiesAddressedTo(ctx: MutationCtx, name: string): Prom
     await ctx.db.delete(invitation._id);
   }
 
-  // Revoked rather than deleted, which is the one place this differs from the
-  // invitations above, and for a reason rather than a preference: the share
-  // lives in a workspace that SURVIVES, whose owner has a list of what they
-  // have disclosed and to whom. A row that vanishes takes that record with it;
-  // a revoked one is already how this table says "no longer live" — `isLive`
-  // refuses it, both recipient channels drop it, and a re-share mints a fresh
-  // token rather than reviving this one.
+  await revokeSharesAddressedTo(ctx, "name", name);
+}
+
+/**
+ * Every standing note share addressed to one identifier, revoked.
+ *
+ * Revoked rather than deleted, which is the one place this differs from the
+ * invitations above, and for a reason rather than a preference: the share lives
+ * in a workspace that SURVIVES, whose owner has a list of what they have
+ * disclosed and to whom. A row that vanishes takes that record with it; a
+ * revoked one is already how this table says "no longer live" — `isLive`
+ * refuses it, all three recipient channels drop it, and a re-share mints a
+ * fresh token rather than reviving this one.
+ *
+ * **Bounded, because the key is chosen by whoever addresses a share.** Anybody
+ * with an account can aim shares at one handle, and `deleteAccount` is a single
+ * transaction — an unbounded `.collect()` here would let a stranger make
+ * somebody else's account undeletable. Same rule `MAX_SHARES_RETURNED` follows
+ * in `shares.ts`: a read whose cost is set by other people's rows gets a
+ * ceiling. Draining in pages rather than truncating, because unlike a listing
+ * this must not leave a live capability behind; the loop terminates because
+ * every page it reads it also takes out of the index it is reading.
+ */
+async function revokeSharesAddressedTo(
+  ctx: MutationCtx,
+  kind: "name" | "email",
+  value: string,
+): Promise<void> {
   const now = Date.now();
-  const standing = await ctx.db
-    .query("noteShares")
-    .withIndex("by_recipient", (q) =>
-      q.eq("recipientKind", "name").eq("recipient", name).eq("status", "active"),
-    )
-    .collect();
-  for (const share of standing) {
-    await ctx.db.patch(share._id, { status: "revoked", revokedAt: now });
+  for (;;) {
+    const page = await ctx.db
+      .query("noteShares")
+      .withIndex("by_recipient", (q) =>
+        q.eq("recipientKind", kind).eq("recipient", value).eq("status", "active"),
+      )
+      .take(SHARE_REVOKE_PAGE);
+    for (const share of page) {
+      await ctx.db.patch(share._id, { status: "revoked", revokedAt: now });
+    }
+    if (page.length < SHARE_REVOKE_PAGE) return;
   }
 }
+
+/** One page of the drain above. Small: a transaction is a budget, not a stream. */
+const SHARE_REVOKE_PAGE = 100;

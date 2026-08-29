@@ -134,13 +134,36 @@ async function settle() {
   });
 }
 
-/** Assert on whatever copy a call site produced. */
-function expectSafe(shown: string | null | undefined) {
+/**
+ * Assert on whatever copy a call site produced.
+ *
+ * `threw` is the anti-vacuity witness, and it is not decoration. Every
+ * assertion below is satisfied by *any* throw that is not the marker — and a
+ * mock keyed on an action name that does not exist throws a `TypeError` from
+ * `actions[name]!(args)`, which travels this very funnel and produces exactly
+ * this generic string. An earlier draft of this file mocked a nonexistent
+ * `renameEntry`, and the mutating-operation test passed without the marker
+ * error ever being raised. So each test records that its own rejection fired.
+ */
+function expectSafe(shown: string | null | undefined, threw: () => boolean) {
+  expect(threw()).toBe(true);
   expect(shown).toBeTruthy();
   expect(shown).not.toContain("example.invalid");
   expect(shown).not.toContain("X-Amz-Signature");
   expect(shown).not.toContain("bucket-9f3");
   expect(shown).toBe(GENERIC);
+}
+
+/** A rejection that records having been asked for. */
+function throwsMarker(): { fn: () => Promise<never>; fired: () => boolean } {
+  let fired = false;
+  return {
+    fn: async () => {
+      fired = true;
+      throw new Error(MARKER);
+    },
+    fired: () => fired,
+  };
 }
 
 describe("a raw storage failure at each call site that renders", () => {
@@ -163,35 +186,35 @@ describe("a raw storage failure at each call site that renders", () => {
   });
 
   test("the root listing load", async () => {
-    actions[name("listFiles")] = async () => {
-      throw new Error(MARKER);
-    };
+    const boom = throwsMarker();
+    actions[name("listFiles")] = boom.fn;
     unmount = mount();
     await settle();
-    expectSafe(browser.notice);
+    expectSafe(browser.notice, boom.fired);
   });
 
   test("opening a note", async () => {
     unmount = mount();
     await settle();
-    actions[name("readNote")] = async () => {
-      throw new Error(MARKER);
-    };
+    const boom = throwsMarker();
+    actions[name("readNote")] = boom.fn;
     await act(async () => {
       browser.select(NOTE_PATH);
     });
     await settle();
-    expectSafe(browser.notice);
+    expectSafe(browser.notice, boom.fired);
   });
 
   test("a mutating operation, which is every toolbar action", async () => {
+    const boom = throwsMarker();
+    actions[name("moveEntry")] = boom.fn;
     unmount = mount();
     await settle();
     await act(async () => {
       browser.rename(NOTE_PATH, "renamed.md");
     });
     await settle();
-    expectSafe(browser.notice);
+    expectSafe(browser.notice, boom.fired);
   });
 
   test("saving a note, which reports through the editor rather than the notice", async () => {
@@ -202,12 +225,14 @@ describe("a raw storage failure at each call site that renders", () => {
     });
     await settle();
     act(() => browser.setDraft("# note\n\nedited\n"));
+    const boom = throwsMarker();
+    actions[name("writeNote")] = boom.fn;
     await act(async () => {
       browser.save();
     });
     await settle();
     expect(browser.editor.status).toBe("error");
-    expectSafe(browser.editor.message);
+    expectSafe(browser.editor.message, boom.fired);
   });
 
   test("taking the server's version after a conflict", async () => {
@@ -217,14 +242,13 @@ describe("a raw storage failure at each call site that renders", () => {
       browser.select(NOTE_PATH);
     });
     await settle();
-    actions[name("readNote")] = async () => {
-      throw new Error(MARKER);
-    };
+    const boom = throwsMarker();
+    actions[name("readNote")] = boom.fn;
     await act(async () => {
       browser.useTheirs();
     });
     await settle();
-    expectSafe(browser.notice);
+    expectSafe(browser.notice, boom.fired);
   });
 
   test("a plain object claiming FILE_NOT_FOUND does not silently drop a listing", async () => {

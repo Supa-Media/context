@@ -711,51 +711,67 @@ describe("each half of the share sweep, isolated", () => {
     expect(rows[0].revokedAt).toBeGreaterThan(0);
   });
 
-  test("a claim younger than the share it inherits cannot redeem it", async () => {
+  test("sharing with somebody who has not signed up yet still works when they do", async () => {
     const t = setupTest();
     const { ownerId, workspaceId } = await scenario(t);
 
-    // The sweep is out of the picture entirely: nothing is deleted here. The
-    // share is simply addressed to a handle whose current claim was made
-    // afterwards — which is the only thing distinguishing the person it was
-    // written for from whoever holds the name now.
+    // **The case a bare "the claim must predate the share" comparison breaks,
+    // and it is a headline flow, not a corner.** `createShare` deliberately
+    // accepts a handle nobody holds — a share with `@nobody` must look exactly
+    // like a share with a real person — and `listSharedWithMe` exists so that
+    // "somebody addressed by `@name` who never got the link must still be able
+    // to find what was shared with them". Both are meaningless if claiming the
+    // handle afterwards is what kills the share.
+    //
+    // It also fails **silently on both sides**: the recipient sees an empty
+    // inbox, the owner still sees the share listed as live, and re-sharing
+    // cannot repair it because the active-row branch freezes `createdAt`.
     const { token } = await share(t, ownerId, workspaceId, "@newcomer");
     const newcomer = await createUser(t, "newcomer@example.invalid");
     await createWorkspace(t, newcomer, "newcomer");
-    // Move the claim a second later, the way the file's expiry tests move an
-    // `expiresAt`. Everything here runs inside one millisecond otherwise, and a
-    // test that depends on which side of a tick two writes land on is a test
-    // that will one day pass for the wrong reason.
-    await t.run(async (ctx) => {
-      const claim = await ctx.db
-        .query("names")
-        .withIndex("by_name", (q) => q.eq("name", "newcomer"))
-        .unique();
-      await ctx.db.patch(claim!._id, { claimedAt: Date.now() + 1_000 });
-    });
 
     expect(
       await asUser(t, newcomer).query(api.functions.shares.resolveShare, { token }),
-    ).toBeNull();
-    // And the inbox agrees with the link. It is the channel that needs no link,
-    // so it must never be the softer of the two.
+    ).not.toBeNull();
     expect(
       await asUser(t, newcomer).query(api.functions.shares.listSharedWithMe, {}),
+    ).toHaveLength(1);
+    // The same order through `inviteMember` has always worked; the two must not
+    // diverge, because the module comment says they are the same shape.
+    expect(
+      await asUser(t, newcomer).query(api.functions.invitations.listMyInvitations, {}),
     ).toEqual([]);
   });
 
-  test("a claim older than the share still redeems it — the check is not a blanket refusal", async () => {
+  test("a handle that changed hands after the share was written does not carry it", async () => {
     const t = setupTest();
     const { ownerId, lkId, workspaceId } = await scenario(t);
-    // `@lk` claimed their handle before the share was written, which is the
-    // ordinary ordering — stated explicitly for the reason above.
+    const { token } = await share(t, ownerId, workspaceId, "@lk");
+
+    // The sweep is deliberately taken out of the picture: the row is put back
+    // to `active` after the deletion, so only the redemption side can refuse.
+    // This is the half that has to hold when a future table slips the cascade.
+    await asUser(t, lkId).mutation(api.functions.account.deleteAccount, {});
     await t.run(async (ctx) => {
-      const claim = await ctx.db
-        .query("names")
-        .withIndex("by_name", (q) => q.eq("name", "lk"))
-        .unique();
-      await ctx.db.patch(claim!._id, { claimedAt: Date.now() - 1_000 });
+      for (const row of await ctx.db.query("noteShares").collect()) {
+        await ctx.db.patch(row._id, { status: "active", revokedAt: undefined });
+      }
     });
+
+    const successor = await createUser(t, "successor@example.invalid");
+    await createWorkspace(t, successor, "lk");
+
+    expect(
+      await asUser(t, successor).query(api.functions.shares.resolveShare, { token }),
+    ).toBeNull();
+    expect(
+      await asUser(t, successor).query(api.functions.shares.listSharedWithMe, {}),
+    ).toEqual([]);
+  });
+
+  test("the person the handle already belonged to still redeems it", async () => {
+    const t = setupTest();
+    const { ownerId, lkId, workspaceId } = await scenario(t);
     const { token } = await share(t, ownerId, workspaceId, "@lk");
 
     expect(
@@ -764,6 +780,59 @@ describe("each half of the share sweep, isolated", () => {
     expect(
       await asUser(t, lkId).query(api.functions.shares.listSharedWithMe, {}),
     ).toHaveLength(1);
+  });
+
+  test("re-sharing after a revoke addresses whoever holds the handle now", async () => {
+    const t = setupTest();
+    const { ownerId, lkId, workspaceId } = await scenario(t);
+    await share(t, ownerId, workspaceId, "@lk");
+    const listed = await asUser(t, ownerId).query(api.functions.shares.listShares, {
+      workspaceId,
+    });
+    await asUser(t, ownerId).mutation(api.functions.shares.revokeShare, {
+      shareId: listed[0].shareId,
+    });
+
+    // The handle changes hands while the row sits revoked.
+    await asUser(t, lkId).mutation(api.functions.account.deleteAccount, {});
+    const successor = await createUser(t, "successor@example.invalid");
+    await createWorkspace(t, successor, "lk");
+
+    // The owner shares again, knowingly, with whoever `@lk` is today. A revoked
+    // row is re-used for the new grant, so its pin has to be rewritten with the
+    // token and the date — carrying the old one forward would address a fresh
+    // share to a claim that no longer exists, and refuse the person the owner
+    // just chose.
+    const { token } = await share(t, ownerId, workspaceId, "@lk");
+    expect(token).not.toBe(listed[0].token);
+
+    expect(
+      await asUser(t, successor).query(api.functions.shares.resolveShare, { token }),
+    ).not.toBeNull();
+    expect(
+      await asUser(t, successor).query(api.functions.shares.listSharedWithMe, {}),
+    ).toHaveLength(1);
+  });
+
+  test("a share addressed to an email does not follow the address to its next holder", async () => {
+    const t = setupTest();
+    const { ownerId, mailOnlyId, workspaceId } = await scenario(t);
+    await share(t, ownerId, workspaceId, "mail-only@example.invalid");
+
+    // Control: it reaches the mailbox's holder.
+    expect(
+      await asUser(t, mailOnlyId).query(api.functions.shares.listSharedWithMe, {}),
+    ).toHaveLength(1);
+
+    // Deleting the account frees the address, exactly as it frees a handle.
+    // There is no claim date to compare for an address — `emailVerificationTime`
+    // is re-stamped on every verifying sign-in — so the sweep is the whole
+    // control here, and it has to fire.
+    await asUser(t, mailOnlyId).mutation(api.functions.account.deleteAccount, {});
+
+    const rows = await t.run((ctx) => ctx.db.query("noteShares").collect());
+    expect(rows).toHaveLength(1);
+    expect(rows[0].status).toBe("revoked");
   });
 
   test("a sharer who is no longer the owner cannot keep disclosing", async () => {
