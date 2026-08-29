@@ -26,9 +26,28 @@
  *    query term outranks a doc matching only one" and "a doc matching every
  *    phrase term outranks one missing a phrase term" — both flipped to the
  *    partial-match doc winning.
+ * 3. **`rankedVisibleTo`'s `isVisible(path)` forced true.** Broke the two
+ *    checks below that drive it with an unnarrowed list. Nothing else moved,
+ *    here or in the whole suite — which is the reason those checks exist:
+ *    `visibleIndex` narrows the corpus in front of this filter, so in
+ *    production it never sees a path it must refuse, and breaking it is
+ *    invisible from outside.
+ * 4. **`visibleIndex`'s `hidesSomething` forced false** (identity always
+ *    returned). Broke **six**: the three end-to-end channel checks in
+ *    searchIntegration.test.mjs, and all three view checks below — a view that
+ *    hides something is a different object, holding only what the predicate
+ *    accepted, and not writing its ranks back. An earlier version of this line
+ *    said four, which was counted rather than run, in a record whose whole
+ *    purpose is that it was run.
  */
 
-import { parseQuery, computeRanks, searchIndex } from "../src/search/query.js";
+import {
+  computeRanks,
+  parseQuery,
+  rankedVisibleTo,
+  searchIndex,
+  visibleIndex,
+} from "../src/search/query.js";
 import { termsOf } from "../src/search/text.js";
 
 // -- fixture builder ---------------------------------------------------
@@ -98,6 +117,65 @@ function attempt(fn) {
 }
 
 export async function runSearchQueryChecks(check) {
+  // -- the caller's view of the index, and the filter behind it -----------
+  //
+  // Two guards, and after `visibleIndex` landed the second could not be
+  // reached by any end-to-end test: the corpus is narrowed before scoring, so
+  // no path that must be refused ever arrives at the filter. Driving it here
+  // with a list that was deliberately not narrowed is what keeps it a guard
+  // rather than a decoration.
+  {
+    const isVisible = (path) => !path.startsWith("1-projects/vault/");
+    const unnarrowed = [
+      { path: "1-projects/alpha/notes.md", score: 9, matchedTerms: ["x"] },
+      { path: "1-projects/vault/secret.md", score: 8, matchedTerms: ["x"] },
+      { path: "2-areas/handbook.md", score: 7, matchedTerms: ["x"] },
+    ];
+
+    const kept = rankedVisibleTo(unnarrowed, isVisible).map((r) => r.path);
+    check(
+      "a ranked list the view did not narrow is still filtered before it leaves",
+      !kept.includes("1-projects/vault/secret.md")
+    );
+    check(
+      "...and the visible entries survive it, so this is not a blanket refusal",
+      kept.length === 2 &&
+        kept.includes("1-projects/alpha/notes.md") &&
+        kept.includes("2-areas/handbook.md")
+    );
+    check(
+      "a prefix narrows the same list without being a visibility rule",
+      rankedVisibleTo(unnarrowed, isVisible, "2-areas/").map((r) => r.path).join() ===
+        "2-areas/handbook.md"
+    );
+
+    const idx = buildIndex([
+      { path: "a.md", title: "alpha", body: "shared word", links: ["b.md"] },
+      { path: "b.md", title: "beta", body: "shared word", links: [] },
+    ]);
+    computeRanks(idx);
+
+    check(
+      "a view that hides nothing is the index itself, not a copy of it",
+      visibleIndex(idx, () => true) === idx
+    );
+
+    const before = JSON.stringify([...idx.docs].map(([p, d]) => [p, d.rank]));
+    const view = visibleIndex(idx, (path) => path === "b.md");
+    check("a view that hides something is a different object", view !== idx);
+    check("...holding only what the predicate accepted", [...view.docs.keys()].join() === "b.md");
+    check(
+      "...and does not write its recomputed ranks back onto the index it came from",
+      JSON.stringify([...idx.docs].map(([p, d]) => [p, d.rank])) === before &&
+        idx.docs.get("b.md") !== view.docs.get("b.md")
+    );
+    check(
+      "a predicate that cannot answer refuses rather than returning everything",
+      attempt(() => visibleIndex(idx, undefined)).threw &&
+        attempt(() => visibleIndex(idx, "notafunction")).threw
+    );
+  }
+
   // -- parseQuery ---------------------------------------------------
 
   {

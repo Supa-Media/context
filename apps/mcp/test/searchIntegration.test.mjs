@@ -16,11 +16,15 @@
  * 1. **The op count is bounded.** One search stays inside
  *    `SEARCH_SUBREQUEST_BUDGET` on a bucket of 65 notes, and the second search
  *    reads note bodies only for the hits it returns.
- * 2. **The index is not a privacy hole.** It holds text drawn from private
- *    notes — fine inside the customer's own bucket, never fine in what leaves
- *    the gateway. A team-scope search over a term that appears in both a team
- *    note and a private one must surface one path, one snippet set, and a
- *    count of exactly one.
+ * 2. **The index is not a privacy hole**, in two senses that need separate
+ *    checks. It holds text drawn from private notes — fine inside the
+ *    customer's own bucket, never fine in what leaves the gateway — so a
+ *    team-scope search over a term appearing in both a team note and a private
+ *    one must surface one path, one snippet set, and a count of exactly one.
+ *    That is the *content* line, and it was held from the start. The
+ *    *inference* line is the other question and was held by nothing: a team
+ *    connection's own answer must not change when a note it cannot see
+ *    changes. Three channels did — see block (d2).
  * 3. **Every incompleteness is said out loud.** A backfill that ran out of
  *    budget, a listing that could not finish, an index that had to be rebuilt,
  *    a conditional write somebody else won — none of them may quietly return
@@ -48,6 +52,29 @@
  *    honest about), and `syncIndex`'s own `pending`. A 60-note probe spent 75
  *    store ops in one search against a limit of 50 — the original bug,
  *    reproduced.
+ * 4. **`visibleIndex` made to return the index it was given** (the early-out
+ *    condition forced true, not a deletion). 3 checks failed, one per channel:
+ *    the expansion oracle, the idf reorder and the rank reorder. Every other
+ *    privacy check in the suite stayed green, which is the finding — the
+ *    *content* line was held all along and the *inference* line was held by
+ *    nothing.
+ * 5. **`computeRanks(view)` alone skipped**, the view still filtered. Exactly 1
+ *    check failed, the rank one. That is the half filtering cannot close, so it
+ *    is the half that needed its own check rather than riding on the other two.
+ *
+ * 6. **The output filter neutered** (`rankedVisibleTo`'s predicate forced
+ *    true). At base that failed **ten** checks across this file and the shared
+ *    suite. At head, with `visibleIndex` in front of it, it failed **zero** —
+ *    which is what a review caught, and it is row 127's shape exactly: *two
+ *    guards that mask one another are one guard with a spare.* Narrowing the
+ *    corpus made the filter correct and untestable in the same commit. It is a
+ *    separate function with its own checks in searchQuery.test.mjs now, driven
+ *    with a list the view deliberately did not narrow; the same sabotage fails
+ *    2 there.
+ *
+ * The three channels above were all measured *before* the fix and all three
+ * failed, end to end through the worker with a real `context:read` editor
+ * grant — not reasoned about from the source.
  */
 
 import worker from "../src/index.js";
@@ -265,8 +292,11 @@ export async function runSearchIntegrationChecks(check) {
     bucket.seed("privacy.md", PRIVACY_MANIFEST);
     bucket.seed("index.md", "# Front page\n\nThe map of everything.");
     // The term is in the title so this note outranks any number of body-only
-    // matches — the floor check at the end of this block needs it to stay
-    // inside `searchIndex`'s 50-result cap however much private noise is added.
+    // matches — the owner's floor check at the end of this block needs it to
+    // stay inside `searchIndex`'s 50-result cap however much private noise is
+    // added. That crowding is the owner's own now: since `visibleIndex`, a team
+    // connection is scored against a corpus the private notes are not in, so
+    // they cannot push a visible note out of its ranked list at all.
     bucket.seed(
       "1-projects/alpha/protocol.md",
       "# ZEBRAFISH protocol\n\nThe ZEBRAFISH protocol is how alpha ships.\n"
@@ -440,10 +470,19 @@ export async function runSearchIntegrationChecks(check) {
     );
 
     // The count's floor is read off what the caller can see, and this is the
-    // channel that leaks by arithmetic rather than by content. Fifty-odd
-    // private notes carrying the same term fill `searchIndex`'s ranked list; a
-    // "+" on a team connection's count would be one bit about every one of them
-    // — the same subtraction the census is owner-only to prevent.
+    // channel that leaks by arithmetic rather than by content: a "+" on a team
+    // connection's count over one visible hit would be one bit about every
+    // private note that filled the list — the same subtraction the census is
+    // owner-only to prevent.
+    //
+    // The fifty-five below no longer *can* fill a team connection's ranked
+    // list: since `visibleIndex` that list is scored over a corpus they are not
+    // in. So this block now proves the arithmetic guard on the owner's side and
+    // the emptiness of the channel on the team side, which is why both checks
+    // stay. (An earlier version of this comment survived the fix that made it
+    // false, in the same commit that corrected its twin ninety lines above —
+    // caught by review, and the third time a retracted sentence has outlived
+    // its own retraction here.)
     for (let n = 0; n < 55; n += 1) {
       bucket.seed(
         `1-projects/vault/bulk-${String(n).padStart(3, "0")}.md`,
@@ -458,12 +497,131 @@ export async function runSearchIntegrationChecks(check) {
     const teamAfterBulk = await searchText(env, TEAM_TOKEN, { query: "zebrafish" });
     const ownerAfterBulk = await searchText(env, OWNER_TOKEN, { query: "zebrafish" });
     check(
-      "a ranked list full of private matches puts no floor marker on a team connection's count",
+      "a bucket full of private matches puts no floor marker on a team connection's count",
       /^1 matching note$/m.test(teamAfterBulk) && !teamAfterBulk.includes("+ matching")
     );
     check(
       "while the connection that can see them is told its own count is a floor",
       /^50\+ matching notes/m.test(ownerAfterBulk)
+    );
+
+    // (d2) THE INFERENCE LINE. Everything above asks what index *data* reaches a
+    // team connection. This asks the other question: does the SHAPE of a team
+    // connection's own answer change when a note it cannot see changes? Both
+    // channels below are the corpus statistics — `N`, `df`, `avglen` — which
+    // `searchIndex` reads over every doc in the index, private ones included.
+    //
+    // CONTRACT.md § the index contains text drawn from private notes already
+    // forbids this in its own words: "Nothing derived from a term's presence in
+    // the vocabulary may reach a caller who could not read every note." It then
+    // reasons that "fuzzy/prefix expansions are query rewrites, not output" —
+    // which is the step that does not hold. A rewrite whose *trigger* is a
+    // private note's contents is an output channel however it is spelled.
+
+    // Channel one: whether an expansion fires at all. `searchIndex` expands a
+    // query term only when its df is zero, and df is counted over the whole
+    // index. So planting a word in a note the caller can see, and asking for a
+    // prefix of it, turns the team connection's own answer into a test for
+    // whether that exact prefix appears in some note it cannot see.
+    bucket.seed(
+      "1-projects/alpha/marsupials.md",
+      "# Field notes\n\nThe QUOKKATRON survey ran all summer.\n"
+    );
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const pass = await syncIndex(bucketStore, { budget: createSearchBudget(300) });
+      if (pass.pending === 0) break;
+    }
+    const teamBeforePlant = await searchText(env, TEAM_TOKEN, { query: "quokka" });
+    bucket.seed(
+      "1-projects/vault/expedition.md",
+      "# Vault\n\nThe QUOKKA itself is filed privately and must never leave.\n"
+    );
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const pass = await syncIndex(bucketStore, { budget: createSearchBudget(300) });
+      if (pass.pending === 0) break;
+    }
+    const teamAfterPlant = await searchText(env, TEAM_TOKEN, { query: "quokka" });
+    check(
+      "a private note appearing does not change what a team connection's own query answers",
+      teamBeforePlant === teamAfterPlant
+    );
+    check(
+      "and the answer it does not change is a real one, not two identical refusals",
+      teamBeforePlant.includes("1-projects/alpha/marsupials.md")
+    );
+    check(
+      "while the connection that can see the private note still finds it",
+      (await searchText(env, OWNER_TOKEN, { query: "quokka" })).includes(
+        "1-projects/vault/expedition.md"
+      )
+    );
+
+    // Channel two: the order of results the caller *can* see. Two visible notes
+    // match one query term each; their scores differ only by idf, which is a
+    // function of N and of each term's df across the whole corpus. Private
+    // notes carrying one of the two terms push that term's idf down and reorder
+    // a list every path in which the caller may read.
+    bucket.seed("2-areas/aa-wombat.md", "# Wombat census\n\nCounting burrows.\n");
+    bucket.seed("2-areas/zz-numbat.md", "# Numbat census\n\nCounting termites.\n");
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const pass = await syncIndex(bucketStore, { budget: createSearchBudget(300) });
+      if (pass.pending === 0) break;
+    }
+    const orderOf = (text) =>
+      (text.match(/^2-areas\/(?:aa-wombat|zz-numbat)\.md$/gm) || []).join(",");
+    const teamOrderBefore = orderOf(await searchText(env, TEAM_TOKEN, { query: "wombat numbat" }));
+    for (let n = 0; n < 8; n += 1) {
+      bucket.seed(
+        `1-projects/vault/wombat-${n}.md`,
+        `# Vault wombat ${n}\n\nA private WOMBAT sighting, number ${n}.\n`
+      );
+    }
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const pass = await syncIndex(bucketStore, { budget: createSearchBudget(300) });
+      if (pass.pending === 0) break;
+    }
+    const teamOrderAfter = orderOf(await searchText(env, TEAM_TOKEN, { query: "wombat numbat" }));
+    check(
+      "and notes it cannot see do not reorder the ones it can",
+      teamOrderBefore === teamOrderAfter
+    );
+    check(
+      "with both of those visible notes actually in the ranking, so the order is an order",
+      teamOrderBefore.split(",").length === 2
+    );
+
+    // Channel three: the same reordering through `rank` rather than `idf`. This
+    // one is separate because it is the one `visibleIndex` cannot close by
+    // filtering — PageRank is computed once at index time over the whole link
+    // graph and stored on the doc — so it is the half that has to be recomputed
+    // on the visible subgraph, and the half a test has to hold on its own. The
+    // two notes below carry one term between them, so idf is a common factor
+    // and nothing but the link graph can separate them.
+    bucket.seed("2-areas/aa-bilby.md", "# Bilby east\n\nEastern BILBY survey.\n");
+    bucket.seed("2-areas/zz-bilby.md", "# Bilby west\n\nWestern BILBY survey.\n");
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const pass = await syncIndex(bucketStore, { budget: createSearchBudget(300) });
+      if (pass.pending === 0) break;
+    }
+    const bilbyOrder = (text) =>
+      (text.match(/^2-areas\/(?:aa|zz)-bilby\.md$/gm) || []).join(",");
+    const teamBilbyBefore = bilbyOrder(await searchText(env, TEAM_TOKEN, { query: "bilby" }));
+    // Private notes carrying no query term at all, so the only thing they can
+    // move is the graph.
+    for (let n = 0; n < 6; n += 1) {
+      bucket.seed(
+        `1-projects/vault/citation-${n}.md`,
+        `# Citation ${n}\n\nSee [the west](../../2-areas/zz-bilby.md) for the private workup.\n`
+      );
+    }
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const pass = await syncIndex(bucketStore, { budget: createSearchBudget(300) });
+      if (pass.pending === 0) break;
+    }
+    const teamBilbyAfter = bilbyOrder(await searchText(env, TEAM_TOKEN, { query: "bilby" }));
+    check(
+      "and private notes citing a visible one do not promote it for a team connection",
+      teamBilbyBefore === teamBilbyAfter && teamBilbyBefore.split(",").length === 2
     );
 
     // -- (c)/(h) a bucket too large to index in one pass ---------------------
