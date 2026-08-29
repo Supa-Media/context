@@ -111,7 +111,12 @@ export default function ConsoleLayout() {
     here: ⌘W, ⌘⇧T and ⌘1–9 are frame-level chords, and a tab model living one
     level down would have to be reached through a ref or duplicated.
   */
-  const tabs = useTabs(data.files);
+  // Keyed on the context, so switching workspaces empties the strip. Without
+  // it, tabs from the previous context survived — pruning cannot close them,
+  // because a subfolder of the context you left is never loaded in the one you
+  // arrive at — and the strip showed one context's note names under another
+  // context's name.
+  const tabs = useTabs(data.files, data.selectedContextId);
   const current = selectedContext(data);
   const insideContext = route.kind === "context";
   const browsing = route.kind === "context" && route.view === "browse";

@@ -32,6 +32,7 @@
  */
 
 import { baseName, parentPath } from "./paths";
+import type { FolderListing } from "./types";
 
 export interface Tab {
   path: string;
@@ -74,7 +75,16 @@ export type TabsAction =
   /** A rename must follow the tab, draft and all. */
   | { type: "renamed"; from: string; to: string }
   /** Deleted, archived, or moved away — the path no longer resolves. */
-  | { type: "removed"; path: string };
+  | { type: "removed"; path: string }
+  /**
+   * A different context is open. Everything goes: tabs, drafts, and the reopen
+   * stack.
+   *
+   * Not a loop of `removed`, which would push each path onto `closed` and leave
+   * ⌘⇧T able to resurrect a note from the context the person just left. The
+   * strip is about *this* context or it is about nothing.
+   */
+  | { type: "reset" };
 
 /** Newest first, deduplicated, capped. */
 function remember(closed: readonly string[], paths: readonly string[]): string[] {
@@ -139,6 +149,8 @@ function amend(state: TabsState, path: string, change: Partial<Tab>): TabsState 
 
 export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
   switch (action.type) {
+    case "reset":
+      return emptyTabs;
     case "opened":
       return open(state, action.path, action.mode);
 
@@ -256,4 +268,40 @@ export function tabLabel(state: TabsState, path: string): string {
   if (!ambiguous) return name;
   const folder = parentPath(path);
   return folder === "" ? name : `${baseName(folder)}/${name}`;
+}
+
+
+/**
+ * Which open tabs a changed set of listings says are gone.
+ *
+ * Pure, and here rather than inside `useTabs`' effect, because `#102`
+ * established that in this console every guard expressed as a pure module is
+ * held by a test and every guard inside a hook is not — 13-for-13 against
+ * 0-for-14. Both rules below were in the second group.
+ *
+ * **Two different things mean "we have not looked".** A folder with no listing
+ * at all is the obvious one: closing on it would shut every tab whenever a
+ * folder collapsed. A folder whose listing is `truncated` is the one that was
+ * missed — `fileOps.ts` sets that flag whenever the walk stopped short, which
+ * includes a store reporting another page and offering no cursor, a
+ * *first-page* condition on B2, Wasabi, MinIO or any proxy. Such a listing is
+ * loaded and incomplete, so the old rule read "absent from the page" as
+ * "deleted" and closed the tab of a note that still exists — after which the
+ * tree, drawing the same short listing, could not reach it either.
+ *
+ * The flag has been measured by the server and carried to the client all along.
+ * Nothing read it.
+ */
+export function tabsToClose(
+  tabs: readonly Tab[],
+  listings: Readonly<Record<string, FolderListing | undefined>>,
+): string[] {
+  const gone: string[] = [];
+  for (const tab of tabs) {
+    const folder = tab.path.includes("/") ? tab.path.slice(0, tab.path.lastIndexOf("/")) : "";
+    const listing = listings[folder];
+    if (listing === undefined || listing.truncated) continue;
+    if (!listing.entries.some((entry) => entry.path === tab.path)) gone.push(tab.path);
+  }
+  return gone;
 }

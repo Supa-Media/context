@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import type { FileBrowser } from "./browser";
-import { emptyTabs, tabsReducer, type TabsState } from "./tabs";
+import { emptyTabs, tabsReducer, tabsToClose, type TabsState } from "./tabs";
 
 /**
  * The tab strip, wired to the file browser.
@@ -36,7 +36,25 @@ import { emptyTabs, tabsReducer, type TabsState } from "./tabs";
  * Removing it belongs to the change that is confident the drafts survive; this
  * hook is what makes that true.
  */
-export function useTabs(files: FileBrowser): {
+export function useTabs(
+  files: FileBrowser,
+  /**
+   * Which context these tabs belong to. Changing it empties the strip.
+   *
+   * This was missing entirely: `useTabs` was called once, above the `[slug]`
+   * segment, and nothing cleared it on a switch. Pruning could not stand in for
+   * it — the rule is "a folder that is loaded and does not hold this note", and
+   * a *subfolder* of the previous context is never loaded in the next one, so
+   * those tabs survived indefinitely. The strip then showed note names from the
+   * person's own brain while they were inside somebody else's workspace, which
+   * is precisely what `useFileBrowser`'s reset effect exists to prevent for the
+   * tree, the selection and the editor.
+   *
+   * `null` is the landing page, and is a context like any other here: leaving a
+   * context for it must not keep the strip either.
+   */
+  contextKey: string | null,
+): {
   state: TabsState;
   activate: (path: string) => void;
   /** Keep this tab: what "Open in new tab" means when the default is a preview. */
@@ -91,12 +109,36 @@ export function useTabs(files: FileBrowser): {
     }
     known.current = present;
 
-    for (const tab of state.tabs) {
-      const folder = tab.path.includes("/") ? tab.path.slice(0, tab.path.lastIndexOf("/")) : "";
-      if (!loadedFolders.has(folder)) continue;
-      if (!present.has(tab.path)) dispatch({ type: "removed", path: tab.path });
+    for (const path of tabsToClose(state.tabs, listings)) {
+      dispatch({ type: "removed", path });
     }
   }, [listings, state.tabs]);
+
+  /**
+   * The switch itself. Keyed on the context rather than on `files`, because
+   * `files` changes identity on every render and the strip must survive that.
+   *
+   * The ref is seeded with the *initial* `contextKey`, so the equality check is
+   * what stops a reset on mount, rather than a separate "is this the first run"
+   * sentinel doing the same job in a second branch.
+   *
+   * **And that check is not covered by a test, deliberately said rather than
+   * papered over.** Given `[contextKey]` deps, the effect only runs when the key
+   * has already changed, so on every path React currently takes the comparison
+   * is false and the reset would happen anyway. What it is actually for is a
+   * re-run with the key *unchanged* — StrictMode's double invocation, or Fast
+   * Refresh — which nothing in this app produces today and no test here
+   * simulates. Removing it fails nothing, and that is the truth about it: it is
+   * belt to a brace, kept for the same reason `rowInteractions.web.ts` and
+   * `useReverify.ts` both guard against double-invocation, and claimed as
+   * nothing more.
+   */
+  const openContext = useRef(contextKey);
+  useEffect(() => {
+    if (openContext.current === contextKey) return;
+    openContext.current = contextKey;
+    dispatch({ type: "reset" });
+  }, [contextKey]);
 
   const activate = useCallback(
     (path: string) => {
