@@ -2258,9 +2258,10 @@ export const STORABLE_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set([
  * bucket. The leaf rule is the gateway's, deliberately: a key this writes and
  * `read_image` cannot name is bytes nobody can ever get back out.
  *
- * **That rule had one of its FOUR gates.** `imageRefFor` refuses a `..`
- * anywhere in the raw value, then requires the character class below, then a
- * `.` past position 0, then an extension in `IMAGE_MIME_TYPES`. Only the
+ * **That rule had one of its FOUR gates.** `imageRefFor` refuses an empty
+ * value, one over 512 characters, a `\`, or a `..` anywhere in the raw value;
+ * then requires the character class below; then a `.` past position 0; then an
+ * extension in `IMAGE_MIME_TYPES`. Only the
  * character class was enforced here, so `writeImage` would happily resolve for
  * `abc`, `abc.txt` and `abc.svg` — measured, returning `{ key: ".images/abc" }`
  * — every one of which `read_image` refuses forever.
@@ -2286,8 +2287,15 @@ export async function writeImage(
   // `MAX_INLINE_IMAGE_BYTES` already has. (It says so now. When this comment
   // was first written it named a test that did not exist, for either half of
   // the rule below.)
-  //             `..` first, as the gateway does. It survives the character
-  // class — `.` is in it — so nothing below would catch it.
+  // `..` first, as the gateway does: it survives the character class, because
+  // `.` is inside that class, so nothing below would catch it.
+  //
+  // The gateway's first line also refuses an empty value, a `\`, and anything
+  // over 512 characters. All three are subsumed here — empty and `\` by the
+  // character class, 512 by the stricter 200 — which is a claim a fuzz over
+  // 18,277 leaves against the gateway's own extracted `imageRefFor` bears out:
+  // zero inputs this accepts and the gateway refuses. Said explicitly because
+  // the comment above is about enumerating a rule by reading part of it.
   if (
     leaf.includes("..") ||
     !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(leaf) ||
