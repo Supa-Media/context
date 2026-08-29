@@ -2187,3 +2187,86 @@ async function forgetPrivacy(
     return { rules, overrides };
   });
 }
+
+/* -------------------------------------------------------------------------- */
+/*                          writing something that is not a note              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The most one stored image may be.
+ *
+ * Deliberately its own number rather than `MAX_NOTE_BYTES`. They are the same
+ * today and mean different things: one bounds a document a person typed, the
+ * other bounds bytes a machine produced, and tying them together means changing
+ * the note limit silently changes what a bucket may be made to hold.
+ */
+export const MAX_STORED_IMAGE_BYTES = 5_000_000;
+
+/**
+ * Where objects that are not notes live: `.images/`, opaque and unlistable.
+ *
+ * Dot-prefixed, so `isPlumbing` hides it from every listing, every search and
+ * Obsidian itself. That opacity is the point of the location — see the comment
+ * on `IMAGE_PREFIX` in the gateway, which reads the same store from the other
+ * side.
+ */
+export const IMAGE_PREFIX = ".images/";
+
+/**
+ * Write bytes into the opaque store.
+ *
+ * A deliberately different function from `writeFile`, not an option on it, and
+ * the differences are all the reasons it exists:
+ *
+ *  - **No `.md`, no `privacy.md` check, no visibility check.** An image has no
+ *    visibility of its own — it borrows the visibility of whatever note
+ *    references it, which is what keeps it from drifting out of sync with the
+ *    access map. Asking `canSee` about a key under `.images/` would be asking a
+ *    question the manifest has no answer to, and inventing one is how the two
+ *    start disagreeing.
+ *  - **No history.** `.history/` exists so a person can recover a document they
+ *    edited. These keys are content-addressed: a different image is a different
+ *    key, so there is no previous version of one to keep.
+ *  - **No conditional write.** For the same reason. Writing the same key twice
+ *    is writing the same bytes twice.
+ *
+ * What it does enforce is the shape of the key and the type of the object,
+ * because this is the one write path that can put a non-note in a customer's
+ * bucket. The leaf rule is the gateway's, deliberately: a key this writes and
+ * `read_image` cannot name is bytes nobody can ever get back out.
+ */
+export async function writeImage(
+  store: FileStore,
+  options: { leaf: string; bytes: Uint8Array; contentType: string },
+): Promise<{ key: string; etag: string }> {
+  const leaf = options.leaf;
+  // The gateway's rule, restated rather than imported: `apps/mcp` is
+  // dependency-free by design, so the two cannot share a module. A test reads
+  // the gateway's source and fails on drift — the same arrangement
+  // `MAX_INLINE_IMAGE_BYTES` already has.
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(leaf) || leaf.length > 200) {
+    throw new FileOpError("PATH_INVALID", "That is not a valid stored-object name.");
+  }
+  if (options.bytes.byteLength === 0) {
+    throw new FileOpError("CONTENT_TOO_LARGE", "There is nothing to store.");
+  }
+  if (options.bytes.byteLength > MAX_STORED_IMAGE_BYTES) {
+    throw new FileOpError(
+      "CONTENT_TOO_LARGE",
+      `A stored image must be at most ${MAX_STORED_IMAGE_BYTES} bytes.`,
+    );
+  }
+
+  const key = `${IMAGE_PREFIX}${leaf}`;
+  // `assertWritableContentType` in the store layer is the authority and will
+  // refuse anything outside the allow-list; this is not a second guess at it,
+  // only the value being passed through.
+  const put = await store.put(key, options.bytes, { contentType: options.contentType });
+  if (put === null) {
+    // `null` is the conditional-write refusal, and this write is not
+    // conditional — so reaching it means the adapter's contract changed under
+    // us. `CONFLICT` is the honest code: something else wrote that key.
+    throw new FileOpError("CONFLICT", "Your bucket did not accept that write.");
+  }
+  return { key, etag: put.etag };
+}

@@ -21,6 +21,7 @@ import {
   normalizeEtag,
   normalizeRootPrefix,
   stripListResult,
+  assertWritableContentType,
 } from "./index.js";
 
 const ALGORITHM = "AWS4-HMAC-SHA256";
@@ -160,7 +161,10 @@ export class S3Store {
   }
 
   async put(key, value, options = {}) {
-    const headers = { "content-type": "text/markdown; charset=utf-8" };
+    // Validated against an allow-list, not sanitised: this lands in a request
+    // header, so the only safe input is one that cannot be chosen freely. See
+    // `assertWritableContentType`.
+    const headers = { "content-type": assertWritableContentType(options?.contentType) };
     // Validated, not just normalized: this value is interpolated into a header,
     // and a CR/LF or a quote in it would rewrite the request. Etags reaching
     // here come from response headers today, which cannot carry CRLF — that

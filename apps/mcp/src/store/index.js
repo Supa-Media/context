@@ -88,6 +88,57 @@ export function assertSafeEtag(value) {
   return value;
 }
 
+/**
+ * What a stored object may be written as.
+ *
+ * **An enumeration, never free text, and that is a security property rather
+ * than tidiness.** The chosen value is interpolated straight into S3's
+ * `content-type` request header, so a caller-supplied string is header
+ * injection by the same route `assertSafeEtag` exists to close one function
+ * above. An allow-list means there is no string an attacker can reach this
+ * with at all.
+ *
+ * Markdown is the default and stays the default: a `put` that names nothing
+ * behaves exactly as every `put` in this codebase did before this map existed,
+ * so adding it changes no existing write.
+ *
+ * The image types are the ones `read_image` will hand back
+ * (`IMAGE_MIME_TYPES` in `src/index.js`). Writing a type the gateway cannot
+ * serve would put bytes in a customer's bucket that nothing can ever read out
+ * — and **SVG is deliberately absent from both**: it is a script container, and
+ * the gateway refuses to serve one for that reason. A store that would accept
+ * it is a store that makes the refusal moot.
+ */
+export const MARKDOWN_CONTENT_TYPE = "text/markdown; charset=utf-8";
+
+export const WRITABLE_CONTENT_TYPES = new Set([
+  MARKDOWN_CONTENT_TYPE,
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+]);
+
+/**
+ * The content type for a write, or a throw.
+ *
+ * Absent means markdown, which is what every caller predating this meant.
+ * Anything not in the set is refused rather than sanitised: a sanitiser is a
+ * guess about a header grammar, and there is no reason to accept a type the
+ * gateway could not serve back.
+ */
+export function assertWritableContentType(value) {
+  if (value === undefined || value === null) return MARKDOWN_CONTENT_TYPE;
+  if (typeof value !== "string" || !WRITABLE_CONTENT_TYPES.has(value)) {
+    throw new Error(
+      "unsupported content type: a stored object must be markdown or an image type the gateway can serve",
+    );
+  }
+  return value;
+}
+
 const MAX_ETAG_LENGTH = 256;
 /** S3 caps object keys at 1024 characters; anything longer is a bug or an attack. */
 const MAX_KEY_LENGTH = 1024;

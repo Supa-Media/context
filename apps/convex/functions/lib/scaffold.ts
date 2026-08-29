@@ -71,8 +71,13 @@ export interface ScaffoldStore {
   get(key: string): Promise<{ etag: string; text(): Promise<string> } | null>;
   put(
     key: string,
-    value: string,
-    options?: { onlyIf?: { etagMatches: string } },
+    /**
+     * Markdown, or the bytes of something the gateway can serve back. Bytes
+     * require a `contentType`; a string without one is markdown, which is what
+     * every write in this codebase meant before images existed.
+     */
+    value: string | ArrayBuffer | Uint8Array,
+    options?: { onlyIf?: { etagMatches: string }; contentType?: string },
   ): Promise<{ etag: string } | null>;
   list(options?: {
     prefix?: string;

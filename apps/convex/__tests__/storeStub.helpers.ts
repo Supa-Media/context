@@ -24,9 +24,49 @@
 
 import type { ScaffoldStore } from "../functions/lib/scaffold";
 
+/**
+ * What the stub holds.
+ *
+ * **Bytes, not a string.** The first version of this stub stored `body: string`
+ * and every non-string `put` was decoded with `TextDecoder` on the way in — so
+ * a PNG round-tripped through UTF-8 replacement characters and came back
+ * corrupt. That is lossless only for text, which made binary writes untestable
+ * *and* would have made a broken one pass, because the assertion and the bug
+ * shared one corruption. The MCP suite hit exactly this and fixed it first; the
+ * same trap was waiting here.
+ *
+ * `text()` decodes on the way out, so every existing markdown assertion is
+ * unchanged.
+ */
 interface StoredValue {
-  body: string;
+  bytes: Uint8Array;
   etag: string;
+  /**
+   * The same object decoded as UTF-8.
+   *
+   * A getter rather than a stored field, so the bytes stay the single source of
+   * truth and no write can leave the two disagreeing. Every markdown assertion
+   * in this suite reads `.body`; a test about an image must read `.bytes`,
+   * because a PNG decoded as text is mojibake.
+   */
+  readonly body: string;
+}
+
+function stored(value: string | ArrayBuffer | Uint8Array, etag: string): StoredValue {
+  const bytes = toBytes(value);
+  return {
+    bytes,
+    etag,
+    get body() {
+      return new TextDecoder().decode(bytes);
+    },
+  };
+}
+
+/** Whatever a caller wrote, as bytes, without guessing at an encoding. */
+function toBytes(value: string | ArrayBuffer | Uint8Array): Uint8Array {
+  if (typeof value === "string") return new TextEncoder().encode(value);
+  return value instanceof Uint8Array ? value : new Uint8Array(value);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -35,8 +75,13 @@ interface StoredValue {
 
 export interface MemoryStore extends ScaffoldStore {
   objects: Map<string, StoredValue>;
-  seed(key: string, body: string): void;
+  seed(key: string, body: string | ArrayBuffer | Uint8Array): void;
   snapshot(): Record<string, string>;
+  /**
+   * The raw bytes at a key, for the assertions `snapshot()` cannot make. A PNG
+   * decoded as UTF-8 is mojibake, so a test about an image compares these.
+   */
+  bytesOf(key: string): Uint8Array | null;
   /**
    * `delete` and `capabilities` complete the `ContextStore` surface, so this
    * stub also satisfies `lib/fileOps.ts`'s `FileStore`. `capabilities` is
@@ -71,20 +116,36 @@ export function memoryStore(
     objects,
     capabilities: { conditionalWrite: options.ignoreIfMatch !== true },
     seed(key, body) {
-      objects.set(key, { body, etag: `m${++counter}` });
+      objects.set(key, stored(body, `m${++counter}`));
     },
     async delete(key) {
       objects.delete(key);
     },
+    /**
+     * Text, for the assertions that compare markdown. A binary object read
+     * through here is mojibake by construction — read it with `bytesOf` and
+     * compare bytes, the way a test about an image has to.
+     */
     snapshot() {
       return Object.fromEntries(
         [...objects.entries()].map(([key, value]) => [key, value.body]),
       );
     },
+    bytesOf(key) {
+      return objects.get(key)?.bytes ?? null;
+    },
     async get(key) {
       const value = objects.get(key);
       if (!value) return null;
-      return { etag: value.etag, text: async () => value.body };
+      return {
+        etag: value.etag,
+        text: async () => new TextDecoder().decode(value.bytes),
+        arrayBuffer: async () =>
+          value.bytes.buffer.slice(
+            value.bytes.byteOffset,
+            value.bytes.byteOffset + value.bytes.byteLength,
+          ) as ArrayBuffer,
+      };
     },
     async put(key, body, putOptions) {
       if (options.refuseWrite?.(key)) {
@@ -95,7 +156,7 @@ export function memoryStore(
         return null;
       }
       const etag = `m${++counter}`;
-      objects.set(key, { body, etag });
+      objects.set(key, stored(body, etag));
       return { etag };
     },
     async list(listOptions) {
@@ -198,8 +259,13 @@ export interface MemoryS3Options {
 export interface MemoryS3 {
   objects: Map<string, StoredValue>;
   requests: { method: string; key: string }[];
-  seed(key: string, body: string): void;
+  seed(key: string, body: string | ArrayBuffer | Uint8Array): void;
   snapshot(): Record<string, string>;
+  /**
+   * The raw bytes at a key, for the assertions `snapshot()` cannot make. A PNG
+   * decoded as UTF-8 is mojibake, so a test about an image compares these.
+   */
+  bytesOf(key: string): Uint8Array | null;
   fetchImpl: (input: URL | RequestInfo, init?: RequestInit) => Promise<Response>;
 }
 
@@ -271,7 +337,10 @@ export function memoryS3(
     if (method === "GET") {
       const value = objects.get(key);
       if (!value) return new Response("", { status: 404 });
-      return new Response(value.body, { headers: { etag: `"${value.etag}"` } });
+      // The bytes, not the decoded text — a GET of a PNG must return the PNG.
+      return new Response(value.bytes as unknown as BodyInit, {
+        headers: { etag: `"${value.etag}"` },
+      });
     }
 
     if (method === "PUT") {
@@ -289,13 +358,12 @@ export function memoryS3(
       ) {
         return new Response("", { status: 412 });
       }
-      const body = init.body;
-      const text =
-        typeof body === "string"
-          ? body
-          : new TextDecoder().decode(body as Uint8Array);
+      // Kept as bytes. Decoding the request body to text here was the same
+      // lossy round trip the in-memory stub above had: correct for markdown,
+      // silently corrupting for a PNG, and — because the assertion would read
+      // it back through the same decode — invisible to a test.
       const etag = `m${++counter}`;
-      objects.set(key, { body: text, etag });
+      objects.set(key, stored(init.body as string | Uint8Array, etag));
       return new Response("", { status: 200, headers: { etag: `"${etag}"` } });
     }
 
@@ -313,12 +381,20 @@ export function memoryS3(
     objects,
     requests,
     seed(key, body) {
-      objects.set(key, { body, etag: `m${++counter}` });
+      objects.set(key, stored(body, `m${++counter}`));
     },
+    /**
+     * Text, for the assertions that compare markdown. A binary object read
+     * through here is mojibake by construction — read it with `bytesOf` and
+     * compare bytes, the way a test about an image has to.
+     */
     snapshot() {
       return Object.fromEntries(
         [...objects.entries()].map(([key, value]) => [key, value.body]),
       );
+    },
+    bytesOf(key) {
+      return objects.get(key)?.bytes ?? null;
     },
     fetchImpl,
   };

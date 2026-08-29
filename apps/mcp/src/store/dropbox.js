@@ -293,6 +293,12 @@ export class DropboxStore {
       conditional = true;
     }
 
+    // Dropbox has no content type on upload — `/files/upload` takes
+    // `application/octet-stream` and Dropbox infers the rest from the
+    // extension on the way out. So a `contentType` option is accepted and
+    // deliberately unused here rather than refused: the three adapters share
+    // one call signature, and a store that threw on an option its siblings
+    // honour would make "which backend am I on?" a caller's problem.
     const body = typeof value === "string" ? new TextEncoder().encode(value) : value;
     const response = await this._request(`${CONTENT_BASE}/files/upload`, {
       method: "POST",
