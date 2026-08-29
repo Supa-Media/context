@@ -2962,6 +2962,38 @@ check(
   refusalText(scriptObject) === REFUSAL
 );
 
+// -- SVG is an image everywhere except here
+//
+// The check above cannot cover this one, and that is the whole reason it needs
+// its own. `.sh` is refused because nothing would call it an image; `.svg` is
+// refused *although* it is one. It is a script container — an `<svg>` can carry
+// `<script>` and event handlers — and this gateway hands bytes plus a MIME type
+// to a client that renders what it is given. `image/svg+xml` in the type map is
+// therefore a one-line XSS in whatever displays it.
+//
+// This was found by sabotage during review: adding `["svg", "image/svg+xml"]`
+// to IMAGE_MIME_TYPES turned nothing red across the whole suite, even though
+// "SVG is deliberately not storable and not servable" was written down as a
+// decision. A decision nothing enforces is a comment.
+const SVG_OBJECT = `${"d".repeat(64)}.svg`;
+await contextStore.put(
+  `.images/${SVG_OBJECT}`,
+  new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
+);
+await contextStore.put(
+  "1-projects/portable/with-svg.md",
+  `# team note\n\n![a diagram](.images/${SVG_OBJECT})\n`
+);
+const svgObject = await call("priv-token", "read_image", {
+  note: "1-projects/portable/with-svg.md",
+  image: `.images/${SVG_OBJECT}`,
+});
+check("an SVG is never served, however it is referenced", refusalText(svgObject) === REFUSAL);
+check(
+  "and no response ever claims the SVG media type",
+  !JSON.stringify(svgObject).includes("svg+xml")
+);
+
 // -- the chunked base64 path, and the inline ceiling
 //
 // `base64FromBytes` walks the image in 32KB chunks because String.fromCharCode

@@ -833,26 +833,39 @@ describe("the attachment policy", () => {
     expect(await storedPolicy(t, workspaceId)).toBe(DEFAULT_ATTACHMENT_POLICY);
   });
 
-  test("adding a second member takes the whole policy away, attachments included", async () => {
+  /**
+   * This test used to assert the opposite, and the reversal is the point.
+   *
+   * When the attachment policy was written, "personal" was established by
+   * counting **members** — exactly one, who is the owner — so inviting somebody
+   * into your own context silently took ingestion away, attachments included.
+   * That was recorded here as correct-but-surprising.
+   *
+   * The owner reversed it deliberately (see "Sharing a personal context does not
+   * kill its capture address" in CLAUDE.md): sharing your context is a headline
+   * flow and must not cost you your capture address, and because every ingestion
+   * refusal is byte-identical, nobody was ever told it had stopped. What holds
+   * the original risk instead is that the policy stays **owner-only in both
+   * directions** — the test above this one — and that every capture is
+   * attributed to the sole owner.
+   *
+   * So the assertion is inverted rather than deleted. Re-tightening this to a
+   * member count would re-break a flow somebody already decided to keep, and a
+   * test asserting the old rule is how that would come back.
+   */
+  test("adding a second member leaves the policy alone — sharing does not cost capture", async () => {
     const { t, ownerId, workspaceId } = await scenario();
     expect((await get(t, ownerId, workspaceId))?.attachmentPolicy).toBe("list");
 
     await addMember(t, workspaceId, await createUser(t, "member@example.test"), "editor");
 
-    // "Personal" is established structurally — exactly one member, who is the
-    // owner — rather than by trusting the `kind` label, so a context stops being
-    // personal the moment somebody else joins it. Mail cannot reach a shared
-    // context at all, so there is no attachment policy to read either. Worth
-    // asserting out loud: it is correct, and it will surprise whoever first adds
-    // a collaborator to their own context.
-    expect(await get(t, ownerId, workspaceId)).toBeNull();
+    expect((await get(t, ownerId, workspaceId))?.attachmentPolicy).toBe("list");
 
-    const error = await captureError(() =>
-      asUser(t, ownerId).mutation(api.functions.ingestion.updateIngestionSettings, {
-        workspaceId,
-        attachmentPolicy: "store",
-      }),
-    );
-    expect(errorCode(error)).toBe("INGESTION_NOT_AVAILABLE");
+    // And the owner can still change it, because they are still the sole owner.
+    await asUser(t, ownerId).mutation(api.functions.ingestion.updateIngestionSettings, {
+      workspaceId,
+      attachmentPolicy: "store",
+    });
+    expect(await storedPolicy(t, workspaceId)).toBe("store");
   });
 });
