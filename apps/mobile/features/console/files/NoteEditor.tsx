@@ -1,22 +1,33 @@
-import { ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { colors, fonts, leading, radii } from "../../design/tokens";
+import { colors, fonts, radii } from "../../design/tokens";
 import { saveButton, type EditorState } from "./editor";
+import { LiveEditor } from "./LiveEditor";
 import { highlightMarkdown } from "./highlight";
 
 /**
- * The note itself: plain markdown in a textarea.
+ * The note itself: markdown, drawn as the document it is.
  *
- * Not a WYSIWYG, on purpose. The canonical thing in this product is a markdown
- * file the customer owns and also opens in Obsidian; an editor that renders
- * something other than the file is an editor that can disagree with it. The
- * well, the mono face and the tinting are the mockup's `.note pre`, so the
- * surface reads the same — it is just now editable.
+ * This used to say "not a WYSIWYG, on purpose", and the reasoning it gave is
+ * still exactly right — the canonical thing in this product is a markdown file
+ * the customer owns and also opens in Obsidian, and **an editor that renders
+ * something other than the file is an editor that can disagree with it.**
+ *
+ * What changed is that the rule no longer implies a plain textarea. `LiveEditor`
+ * on web is CodeMirror in Obsidian's Live Preview mode: the buffer *is* the
+ * markdown, styled where it sits, with the markup hidden only while the cursor
+ * is elsewhere. Nothing parses the document into another model and serializes it
+ * back, so there is no serializer that could disagree with the file — the
+ * property this comment was protecting is stronger now, not weaker. A block
+ * editor (Yoopta, TipTap) would have broken it, which is why this is not one.
+ *
+ * On native `LiveEditor` is the textarea this always was. CodeMirror is a DOM
+ * library and the alternatives are worse than the gap; see `LiveEditor.tsx`.
  *
  * Read-only notes (`privacy.md`, and the whole landing-page demo) render as the
- * mockup's tinted preview rather than a disabled textarea, because a disabled
- * textarea looks broken and a preview looks deliberate.
+ * mockup's tinted preview rather than a disabled editor, because a disabled
+ * editor looks broken and a preview looks deliberate.
  */
 export function NoteEditor({
   state,
@@ -43,15 +54,12 @@ export function NoteEditor({
       {state.readOnly ? <ManifestNotice /> : null}
 
       {editable ? (
-        <TextInput
-          multiline
+        <LiveEditor
           value={state.draft}
-          onChangeText={onChange}
-          style={styles.editor}
+          editable
+          onChange={onChange}
+          onSave={onSave}
           accessibilityLabel={`${state.path} markdown`}
-          spellCheck={false}
-          autoCapitalize="none"
-          autoCorrect={false}
         />
       ) : (
         <ScrollView style={styles.preview} contentContainerStyle={styles.previewContent}>
@@ -149,29 +157,6 @@ function statusLine(state: EditorState): string {
 const styles = StyleSheet.create({
   wrap: { gap: 12, flex: 1, minHeight: 0 },
 
-  /**
-   * `.note pre`, made editable — and now filling the region it is given.
-   *
-   * `flex: 1` rather than the old `flexGrow` with a `minHeight`: the editor
-   * used to sit in a card on a scrolling page, where growing past a few hundred
-   * pixels just made the page longer. It owns a region now, so anything short
-   * of filling it leaves dead space under the document and a text box that
-   * stops in the middle of the screen.
-   */
-  editor: {
-    flex: 1,
-    minHeight: 160,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radii.lg,
-    backgroundColor: colors.well,
-    color: colors.text2,
-    fontFamily: fonts.mono,
-    fontSize: 12.5,
-    lineHeight: leading(12.5, 1.7),
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-  },
   preview: {
     flex: 1,
     minHeight: 0,

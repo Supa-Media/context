@@ -16,10 +16,17 @@
     "build:production": "eas build --profile production"
   },
   "dependencies": {
+    "@codemirror/commands": "^6",
+    "@codemirror/lang-markdown": "^6",
+    "@codemirror/language": "^6",
+    "@codemirror/state": "^6",
+    "@codemirror/view": "^6",
     "@context/convex": "workspace:*",
     "@context/shared": "workspace:*",
     "@convex-dev/auth": "^0.0.90",
     "@expo/metro-runtime": "~6.1.2",
+    "@lezer/common": "^1",
+    "@lezer/markdown": "^1",
     "@react-native-community/netinfo": "11.4.1",
     "@supa-media/core": "^1.0.2",
     "convex": "^1.31.3",
