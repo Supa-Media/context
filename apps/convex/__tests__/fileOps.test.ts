@@ -1073,7 +1073,7 @@ describe("a destination the caller cannot see", () => {
     const moved = await movePath(store, {
       from: "2-areas/shared",
       to: "2-areas/shared-renamed",
-      scope: "team",
+      scope: "private",
       now: NOW,
     });
     expect(moved.paths).toEqual(["2-areas/shared-renamed/plan.md"]);
@@ -1734,7 +1734,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const moved = await movePath(store, {
       from: "2-areas/whole",
       to: "2-areas/whole-2",
-      scope: "team",
+      scope: "private",
       now: NOW,
     });
     expect(moved.paths).toEqual(["2-areas/whole-2/note.md"]);
@@ -1750,7 +1750,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
    * what the filtering above exists not to distinguish. So a rule stays only
    * where removing it would change what a survivor is.
    */
-  test("a folder that hides something moves exactly like one that does not", async () => {
+  test("a folder that hides something is refused exactly like one that does not", async () => {
     async function rename(hides: boolean) {
       const store = bucket();
       store.seed("2-areas/shared/a.md", "# A\n");
@@ -1770,18 +1770,25 @@ describe("a bulk operation acts only on what the caller can see", () => {
       // The caller sees the same folder either way before they act.
       const before = await listFolder(store, { path: "2-areas/shared", scope: "team" });
       expect(names(before.entries)).toEqual(["a.md"]);
-      const moved = await movePath(store, {
-        from: "2-areas/shared",
-        to: "2-areas/renamed",
-        scope: "team",
-        now: NOW,
-      });
-      return { store, moved };
+      return {
+        store,
+        result: await capture(() =>
+          movePath(store, {
+            from: "2-areas/shared",
+            to: "2-areas/renamed",
+            scope: "team",
+            now: NOW,
+          }),
+        ),
+      };
     }
 
     const clean = await rename(false);
     const hiding = await rename(true);
-    expect(hiding.moved.paths).toEqual(clean.moved.paths);
+    // Both refused, and refused identically — the folder is inside a private
+    // parent, so the destination is a place this caller may not write.
+    expect(errorShape(hiding.result)).toBe(errorShape(clean.result));
+    expect(clean.result.code).toBe("FILE_NOT_FOUND");
 
     // ...and the note it hid is still hidden, and still where it was.
     const leak = await capture(() =>
@@ -1909,13 +1916,13 @@ describe("a bulk operation acts only on what the caller can see", () => {
     const moved = await movePath(store, {
       from: "2-areas/shared",
       to: "2-areas/shared-2",
-      scope: "team",
+      scope: "private",
       now: NOW,
     });
     // The guard allowed it, so the mover must be able to read the result.
     const readBack = await readFile(store, {
       path: moved.paths[0]!,
-      scope: "team",
+      scope: "private",
     });
     expect(readBack.text).toContain("# A");
   });
@@ -2003,7 +2010,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
     await movePath(store, {
       from: "2-areas/shared",
       to: "2-areas/renamed",
-      scope: "team",
+      scope: "private",
       now: NOW,
     });
     const manifest = store.snapshot()[PRIVACY_KEY] as string;
@@ -2333,24 +2340,64 @@ describe("a bulk operation acts only on what the caller can see", () => {
     expect(moved.paths).toEqual(["1-projects/renamed.md"]);
   });
 
-  test("a folder rename inside a private parent still works", async () => {
-    // ...and a folder rename is judged under the rules the move installs, which
-    // is what makes its destination folder visible. A guard that asked about
-    // the destination folder under the CURRENT manifest would refuse this.
-    const store = bucket();
-    store.seed("2-areas/shared/a.md", "# A\n");
-    await setFolderVisibility(store, {
-      path: "2-areas/shared",
-      visibility: "team",
-      scope: "private",
-    });
-    const moved = await movePath(store, {
-      from: "2-areas/shared",
-      to: "2-areas/renamed",
+  test("one shared folder is not a probe for every hidden folder", async () => {
+    // This test used to assert the opposite, and its comment argued for it: "a
+    // folder rename is judged under the rules the move installs, which is what
+    // makes its destination folder visible." That is a guard reading its own
+    // seeding. The rule the move installs cannot be the reason the move is
+    // allowed — and the benign rename it blessed and the hostile probe below
+    // are the same operation with a different name typed into it, so nothing
+    // could have permitted one and refused the other.
+    //
+    // A team caller holding one shared folder could aim it at any path and read
+    // the answer, and on success `remapPrivacy` wrote `<their guess>: team`
+    // into the manifest — an editor setting folder visibility inside the
+    // owner's private tree, which `setFolderVisibility` reserves to the owner.
+    async function probe(destination: string) {
+      const store = bucket();
+      store.seed("2-areas/shared-project/plan.md", "# Plan\n");
+      store.seed("2-areas/finance/salary.md", "# Salaries\n\n200k\n");
+      await setFolderVisibility(store, {
+        path: "2-areas/shared-project",
+        visibility: "team",
+        scope: "private",
+      });
+      return {
+        store,
+        result: await capture(() =>
+          movePath(store, {
+            from: "2-areas/shared-project",
+            to: destination,
+            scope: "team",
+            now: NOW,
+          }),
+        ),
+      };
+    }
+
+    const hit = await probe("2-areas/finance");
+    const miss = await probe("2-areas/divorce");
+    const fresh = await probe("brand-new-top-level");
+    expect(errorShape(hit.result)).toBe(errorShape(miss.result));
+    expect(errorShape(fresh.result)).toBe(errorShape(miss.result));
+    expect(hit.result.code).toBe("FILE_NOT_FOUND");
+
+    // Nothing landed, and no rule was written into the owner's private tree.
+    expect(miss.store.snapshot()["2-areas/divorce/plan.md"]).toBeUndefined();
+    const manifest = miss.store.snapshot()[PRIVACY_KEY] as string;
+    expect(manifest).not.toContain("2-areas/divorce");
+
+    // The control: the same folder renamed inside shared space still moves.
+    const allowed = bucket();
+    await shareProjects(allowed);
+    allowed.seed("1-projects/proj/plan.md", "# Plan\n");
+    const moved = await movePath(allowed, {
+      from: "1-projects/proj",
+      to: "1-projects/proj-renamed",
       scope: "team",
       now: NOW,
     });
-    expect(moved.paths).toEqual(["2-areas/renamed/a.md"]);
+    expect(moved.paths).toEqual(["1-projects/proj-renamed/plan.md"]);
   });
 
   /**
@@ -2398,6 +2445,131 @@ describe("a bulk operation acts only on what the caller can see", () => {
    * file key shadowing a folder prefix, which a Dropbox binding cannot even
    * represent.
    */
+  /**
+   * `privacy.md` is the access map for the whole context, readable only at
+   * owner scope — and `copyPath` checked `assertWritablePath` on its
+   * destination and never on its source, so an owner could copy it into a
+   * shared folder and hand every member the complete list of their private
+   * folders by name. `movePath` has always guarded both ends. Measured before
+   * the fix: 935 bytes of `folder_defaults`, readable at team scope.
+   */
+  test("the privacy manifest cannot be copied out of itself", async () => {
+    const store = bucket();
+    await shareProjects(store);
+
+    const copied = await capture(() =>
+      copyPath(store, { from: PRIVACY_KEY, to: "1-projects/leaked.md", scope: "private" }),
+    );
+    expect(copied.code).toBe("PRIVACY_MANIFEST_READ_ONLY");
+    expect(store.snapshot()["1-projects/leaked.md"]).toBeUndefined();
+
+    // The same refusal `movePath` already gave, and the same one a duplicate
+    // gets, since it routes through here.
+    const duplicated = await capture(() =>
+      duplicatePath(store, { path: PRIVACY_KEY, scope: "private" }),
+    );
+    expect(duplicated.code).toBe("PRIVACY_MANIFEST_READ_ONLY");
+  });
+
+  /**
+   * The name a duplicate picks has to consider names it cannot see. Choosing
+   * from the visible siblings alone lands on a name a hidden note may hold,
+   * `copyPath` then refuses it, and Duplicate answers "that file does not
+   * exist" if and only if a private note occupies the "… copy" name — which a
+   * team caller can aim by writing the name they want to test first.
+   */
+  test("duplicating steps over a name only a hidden note holds", async () => {
+    async function duplicate(hidden: boolean) {
+      const store = bucket();
+      await shareProjects(store);
+      store.seed("1-projects/note.md", "# Note\n");
+      if (hidden) {
+        store.seed("1-projects/note copy.md", "# Held back\n");
+        await setVisibility(store, {
+          path: "1-projects/note copy.md",
+          visibility: "private",
+          scope: "private",
+        });
+      }
+      return duplicatePath(store, { path: "1-projects/note.md", scope: "team" });
+    }
+
+    // Both succeed; only the name differs, which is what a duplicate is for.
+    expect((await duplicate(false)).paths).toEqual(["1-projects/note copy.md"]);
+    expect((await duplicate(true)).paths).toEqual(["1-projects/note copy 2.md"]);
+  });
+
+  /**
+   * The guard's own two lines, each pinned. Both survived mutation until now:
+   * `overrides.has(d)` narrowed to `=== "private"` changed no test, and
+   * `visibilityOf(d)` widened to `visibilityOf(parentOf(d))` changed no test.
+   * Neither is a large hole; both are the central expression of a security
+   * predicate, and this repo's rule is that a guard nobody has checked is not a
+   * guard.
+   */
+  test("a destination carrying a redundant team exception is refused too", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/mine.md", "# Mine\n");
+    // An exception that merely restates the folder default is unusual but
+    // legal — `setVisibility` drops it, so write it through the manifest.
+    const manifest = store.snapshot()[PRIVACY_KEY] as string;
+    store.seed(
+      PRIVACY_KEY,
+      manifest.replace(
+        "<!-- END BRAIN PRIVACY RULES -->",
+        "  1-projects/echo.md: team\n<!-- END BRAIN PRIVACY RULES -->",
+      ),
+    );
+
+    const refused = await capture(() =>
+      movePath(store, {
+        from: "1-projects/mine.md",
+        to: "1-projects/echo.md",
+        scope: "team",
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("FILE_NOT_FOUND");
+  });
+
+  test("the destination is judged, not the folder above it", async () => {
+    // The two predicates agree almost everywhere, because a note usually
+    // inherits from its parent. They part when a rule's prefix IS the
+    // destination path — a folder rule sitting on a note-shaped name, which a
+    // hand-edited manifest or a folder named like a note produces. Judging the
+    // parent then reads `1-projects: team` and lets the write through to a path
+    // the manifest marks private.
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/mine.md", "# Mine\n");
+    await setFolderVisibility(store, {
+      path: "1-projects/target.md",
+      visibility: "private",
+      scope: "private",
+    });
+
+    const refused = await capture(() =>
+      movePath(store, {
+        from: "1-projects/mine.md",
+        to: "1-projects/target.md",
+        scope: "team",
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("FILE_NOT_FOUND");
+    expect(store.snapshot()["1-projects/target.md"]).toBeUndefined();
+
+    // The control: an ordinary destination in the same folder still moves.
+    const moved = await movePath(store, {
+      from: "1-projects/mine.md",
+      to: "1-projects/ordinary.md",
+      scope: "team",
+      now: NOW,
+    });
+    expect(moved.paths).toEqual(["1-projects/ordinary.md"]);
+  });
+
   test("a destination that exists as the other kind is refused too", async () => {
     const ontoFile = bucket();
     ontoFile.seed("1-projects/src/a.md", "# A\n");

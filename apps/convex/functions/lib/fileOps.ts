@@ -649,6 +649,28 @@ export async function createFolder(
   return { path: folder, readme };
 }
 
+/** Every immediate child name under a folder, visible or not. */
+async function namesInUse(store: FileStore, folder: string): Promise<Set<string>> {
+  const prefix = folder === "" ? "" : `${folder}/`;
+  const names = new Set<string>();
+  let cursor: string | undefined;
+  const seen = new Set<string>();
+  for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+    const listing = await store.list({ prefix, delimiter: "/", cursor, limit: 1000 });
+    for (const object of listing.objects ?? []) {
+      if (object.key !== prefix) names.add(baseName(object.key));
+    }
+    for (const raw of listing.delimitedPrefixes ?? []) {
+      names.add(baseName(raw.replace(/\/+$/, "")));
+    }
+    if (!listing.truncated || !listing.cursor) break;
+    if (seen.has(listing.cursor)) break;
+    seen.add(listing.cursor);
+    cursor = listing.cursor;
+  }
+  return names;
+}
+
 /**
  * "foo.md" → "foo copy.md" → "foo copy 2.md".
  *
@@ -962,7 +984,15 @@ function assertDestinationsVisible(
     // outright — so swapping them changes no outcome, which is measured rather
     // than assumed. They are kept apart because they answer different
     // questions, and the second is what stops a caller landing on a note whose
-    // visibility is unusual, or learning from the attempt that one is there.
+    // visibility is unusual.
+    //
+    // It does NOT stop them learning that one is there. A refusal where a free
+    // name would have succeeded says an exception exists at that path, and that
+    // is inherent to per-note exceptions rather than a hole here: `writeFile`
+    // has the same shape and says so, and the gateway's `move_note` has it too.
+    // An earlier version of this comment claimed otherwise. What is bounded is
+    // the folder: the line above means a caller can only learn this about
+    // places they may already write.
     //
     // No plumbing check: `assertWritablePath` has already refused a reserved
     // `to`, and every destination is `to` plus a suffix taken from a source key
@@ -974,30 +1004,39 @@ function assertDestinationsVisible(
 }
 
 /**
- * The same question, asked against the rules a *move* will leave behind.
+ * The same question, asked of the manifest as it stands.
  *
- * A move rewrites the manifest after it runs — `remapPrivacy` renames every
- * folder rule under the source — so judging a destination against the rules as
- * they stand refuses renames that preserve visibility perfectly well: a folder
- * holding its own `team` rule inside a private parent takes that rule with it.
- * The overrides are the manifest's own, never a map the move is building; a
- * guard that reads its own seeding answers on the strength of the thing being
- * asked about.
+ * This used to be asked of the rules the move would LEAVE BEHIND, so that a
+ * folder carrying its own `team` rule could be renamed inside a private parent
+ * — the rule travels, so the caller can still see the result. That reasoning is
+ * wrong in the one way this file has now been wrong four times: the predicate
+ * was satisfied by the rule the move itself installs. A guard that reads its
+ * own seeding answers on the strength of the thing being asked about, which is
+ * exactly what the comment on `assertDestinationsVisible` said had been
+ * eliminated — for the overrides, while the rules kept doing it.
  *
- * `copyPath` deliberately does not use this. `copyPrivacy` carries exceptions
- * but not folder rules, so a copy really does land under whatever rules already
- * reach it.
+ * What it cost: a team caller holding one shared folder could move it at any
+ * hidden path and read the answer. An existing folder they could not see
+ * refused; a free name succeeded. One guess at a time over the owner's entire
+ * hidden namespace — and on success the move landed, `remapPrivacy` wrote
+ * `<their guess>: team` into `privacy.md`, and an EDITOR had thereby set folder
+ * visibility inside the owner's private tree, which `setFolderVisibility`
+ * reserves to the owner.
+ *
+ * The benign rename and the hostile probe are the same operation with a
+ * different name typed into it, so no predicate separates them. The rename goes.
+ * The gateway's `move_folder` has always judged the destination against current
+ * rules and has never renamed a folder rule.
  */
 function assertMoveDestinationsVisible(
   pairs: readonly { source: string; destination: string }[],
   scope: Scope,
   state: PrivacyState,
-  folderMove: { from: string; to: string } | null,
 ): void {
   assertDestinationsVisible(
     pairs.map((pair) => pair.destination),
     scope,
-    oneRulePerPrefix(rulesAfterFolderMove(state.rules, folderMove)),
+    state.rules,
     state.overrides,
   );
 }
@@ -1204,7 +1243,7 @@ export async function movePath(
     destination: sourceIsFolder ? `${to}${key.slice(from.length)}` : to,
   }));
 
-  assertMoveDestinationsVisible(pairs, options.scope, state, folderMove);
+  assertMoveDestinationsVisible(pairs, options.scope, state);
 
   for (const pair of pairs) {
     if ((await store.get(pair.destination)) !== null) {
@@ -1260,6 +1299,13 @@ export async function copyPath(
 ): Promise<MoveResult> {
   const from = requirePath(options.from);
   const to = requirePath(options.to);
+  // Both ends, which `movePath` has always done and this had not. `privacy.md`
+  // is the access map for the whole context, and it is readable at owner scope
+  // — so an owner could copy it into a shared folder and hand every member the
+  // complete list of their private folders by name. Measured before this line:
+  // 935 bytes of `folder_defaults` readable at team scope. The manifest is
+  // `isPlumbing`, so this is the same refusal every other reserved path gets.
+  assertWritablePath(from);
   assertWritablePath(to);
   if (to === from || to.startsWith(`${from}/`)) {
     throw new FileOpError("PATH_INVALID", "A folder cannot be copied inside itself.");
@@ -1331,8 +1377,15 @@ export async function duplicatePath(
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
   const parent = parentOf(path);
-  const siblings = await listFolder(store, { path: parent, scope: options.scope });
-  const taken = new Set(siblings.entries.map((entry) => entry.name));
+  // Every name in use, not every name this caller can see.
+  //
+  // Picking from the visible siblings alone chooses a name a hidden note may
+  // already hold, and `copyPath`'s guard then refuses it — so Duplicate
+  // answered "that file does not exist" if and only if a private note occupied
+  // the "… copy" name, and the caller could aim it by writing the name they
+  // wanted to test first. Reading the raw listing here discloses nothing: the
+  // names never leave this function, and what comes back is a free name.
+  const taken = await namesInUse(store, parent);
   const destination = joinPath(parent, duplicateName(baseName(path), taken));
   return await copyPath(store, { from: path, to: destination, scope: options.scope });
 }
