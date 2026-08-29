@@ -2912,9 +2912,21 @@ check("an image no named note references resolves nothing", refusalText(orphan) 
 // *any* non-plumbing key, and at team scope it asks the folder's visibility —
 // neither asks whether the key is a note. So without it `read_image` accepts a
 // non-markdown object as the "note", reads it, and answers on whether its bytes
-// contain the leaf. Every other read path in this gateway is `.md`-gated, so
-// that is a one-bit oracle over files no note tool will open: `read_note`
-// refuses a `.csv`, and this would report whether one mentions a given hash.
+// contain the leaf.
+//
+// **What that is worth, corrected after a review measured it.** The first
+// version of this comment called it "a one-bit oracle over files no note tool
+// will open", on the strength of `read_note` refusing a `.csv`. It does not:
+// `toolReadNote` is `normalizePath` + `canSee` with no `.md` gate at all, and
+// returns the whole file at either scope. So the mutated `read_image` discloses
+// a strict subset of what `read_note` already grants on the same key — one bit
+// about something wholly readable. **The sentence was asserted, not measured.**
+//
+// What the check is actually worth is consistency and depth: `list_notes`,
+// `search_notes` and the ChatGPT-dialect `fetch` all `.md`-gate and all refuse
+// this object, so `read_image` matching them is what stops it becoming the odd
+// one out — and `#116` made non-note objects something a bucket now genuinely
+// holds. That is a smaller claim than the first one and it is the true one.
 //
 // The object below is seeded to *contain* the leaf, so the reference check
 // cannot be what refuses it and only the `.md` check can.
