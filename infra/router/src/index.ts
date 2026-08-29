@@ -9,6 +9,7 @@
  * turns a decision into an actual Response.
  */
 import { previewForShare, renderPreviewHtml } from "./preview";
+import { renderShareCard } from "./ogCard";
 import { route, type Upstream } from "./route";
 // Bundled as bytes by the `Data` rule in wrangler.jsonc, so the OpenGraph card
 // ships with the Worker. Deliberately not an Expo bundle asset: the one thing
@@ -61,7 +62,7 @@ const VAR_NAME: Record<Upstream, string> = {
 };
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const decision = route(
       new URL(request.url),
       request.headers.get("User-Agent"),
@@ -94,6 +95,7 @@ export default {
         // rather than an error or a partial one.
         const meta = previewForShare(
           await shareTitle(decision.token, readOrigin(env.CONVEX_ORIGIN)),
+          decision.token,
         );
         return new Response(renderPreviewHtml(meta), {
           status: 200,
@@ -110,6 +112,9 @@ export default {
           },
         });
       }
+
+      case "share-card":
+        return await shareCardResponse(decision.token, env, ctx);
 
       case "og-card":
         return new Response(ogCard, {
@@ -224,4 +229,83 @@ async function shareTitle(
   } catch {
     return null;
   }
+}
+
+/**
+ * How long a rendered card sits in the edge cache.
+ *
+ * An hour, not a year, and the short TTL is not the invalidation strategy — the
+ * title hash in the URL is (see `shareCardPath`). The Workers Cache API is
+ * per-datacenter and `cache.delete` purges only the colo the Worker ran in, so
+ * there is no global purge to reach for. An hour just bounds how long a colo
+ * keeps serving a card whose share was revoked a moment ago; the URL changing
+ * is what makes an *edited* title take effect at once.
+ */
+const CARD_CACHE_SECONDS = 3600;
+
+/**
+ * The card image for one share.
+ *
+ * Every failure lands on the static product card with a 200. That is the whole
+ * design: a crawler that receives a 5xx shows **no card at all**, which is a
+ * worse outcome than a generic one, and it is the outcome an unhandled throw
+ * would produce. So the rules are:
+ *
+ *  - No title (revoked, expired, title switched off, control plane unreachable)
+ *    → static card. Identical to what `previewForShare(null)` does for the
+ *    tags, which is what keeps revocation invisible.
+ *  - A title with a glyph our fonts cannot draw → static card, because satori
+ *    would silently render tofu rather than fail.
+ *  - Anything thrown → static card.
+ *
+ * **The `?v=` parameter is never read.** The title is re-resolved from the
+ * token on every render. An endpoint that drew the text it was handed would
+ * make context.lc an arbitrary-text image generator carrying our own branding,
+ * which is a phishing asset rather than a feature.
+ */
+async function shareCardResponse(
+  token: string,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  const cache = caches.default;
+  // Keyed on the full URL, so the `?v=` hash separates one title's card from
+  // the next without either of them needing to be purged.
+  const cacheKey = new Request(`https://context.lc/og/s/${token}.png`);
+
+  const cached = await cache.match(cacheKey);
+  if (cached) return cached;
+
+  const response = await renderedCard(token, env);
+  if (response.ok) ctx.waitUntil(cache.put(cacheKey, response.clone()));
+  return response;
+}
+
+async function renderedCard(token: string, env: Env): Promise<Response> {
+  try {
+    const title = await shareTitle(token, readOrigin(env.CONVEX_ORIGIN));
+    if (title !== null) {
+      const rendered = await renderShareCard(title);
+      // `null` means a glyph we cannot draw — an expected answer, not a fault.
+      if (rendered !== null) return withCardHeaders(rendered);
+    }
+  } catch {
+    // Fall through. A crawler cannot act on an error and a 5xx shows no card.
+  }
+  return staticCard();
+}
+
+function staticCard(): Response {
+  return withCardHeaders(new Response(ogCard));
+}
+
+function withCardHeaders(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.set("Content-Type", "image/png");
+  headers.set("Cache-Control", `public, max-age=${CARD_CACHE_SECONDS}`);
+  // The same refusal the share preview HTML carries. A card with a title on it
+  // is still not search-engine material.
+  headers.set("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
+  headers.set("X-Content-Type-Options", "nosniff");
+  return new Response(response.body, { status: 200, headers });
 }

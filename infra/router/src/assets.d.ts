@@ -9,3 +9,13 @@ declare module "*.png" {
   const data: ArrayBuffer;
   export default data;
 }
+
+/**
+ * The two typefaces the dynamic share card is drawn with, bundled by the same
+ * `Data` rule. Latin subsets straight from Google Fonts — 90 KB and 49 KB, and
+ * about 128 KB gzipped together.
+ */
+declare module "*.ttf" {
+  const data: ArrayBuffer;
+  export default data;
+}

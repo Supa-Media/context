@@ -34,10 +34,15 @@
   // one request every link-preview crawler is guaranteed to make should not
   // depend on an upstream that might be mid-deploy. src/assets.d.ts declares
   // the type for tsc, which knows nothing about this rule.
+  // `nodejs_compat` is required by @cf-wasm/og, which reaches for a handful of
+  // Node built-ins on the way to satori and resvg. It adds no runtime network
+  // access and no dependency of its own.
+  "compatibility_flags": ["nodejs_compat"],
+
   "rules": [
     {
       "type": "Data",
-      "globs": ["**/*.png"],
+      "globs": ["**/*.png", "**/*.ttf"],
       "fallthrough": false
     }
   ],

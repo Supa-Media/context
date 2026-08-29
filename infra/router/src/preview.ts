@@ -80,6 +80,14 @@ export interface PreviewMeta {
   readonly canonical: string;
   /** `og:image` alt text. Describes the card, never the page's subject. */
   readonly imageAlt: string;
+  /**
+   * The card image. Defaults to the static product card.
+   *
+   * A share whose title can be drawn points at a per-share PNG instead — see
+   * `previewForShare`. Everything else on the domain keeps the one frozen
+   * image, which is what the nine-variant byte-identity test above pins.
+   */
+  readonly imageUrl?: string;
   /** `<meta name="robots">`, when the route should stay out of search. */
   readonly robots?: string;
 }
@@ -200,6 +208,7 @@ export function escapeHtml(value: string): string {
  * path and there is no path here worth the exception.
  */
 export function renderPreviewHtml(meta: PreviewMeta): string {
+  const imageUrl = escapeHtml(meta.imageUrl ?? OG_CARD_URL);
   const title = escapeHtml(meta.title);
   const description = escapeHtml(meta.description);
   const canonical = escapeHtml(meta.canonical);
@@ -222,8 +231,8 @@ export function renderPreviewHtml(meta: PreviewMeta): string {
   <meta property="og:title" content="${title}">
   <meta property="og:description" content="${description}">
   <meta property="og:url" content="${canonical}">
-  <meta property="og:image" content="${OG_CARD_URL}">
-  <meta property="og:image:secure_url" content="${OG_CARD_URL}">
+  <meta property="og:image" content="${imageUrl}">
+  <meta property="og:image:secure_url" content="${imageUrl}">
   <meta property="og:image:type" content="image/png">
   <meta property="og:image:width" content="${OG_CARD_WIDTH}">
   <meta property="og:image:height" content="${OG_CARD_HEIGHT}">
@@ -232,7 +241,7 @@ export function renderPreviewHtml(meta: PreviewMeta): string {
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${title}">
   <meta name="twitter:description" content="${description}">
-  <meta name="twitter:image" content="${OG_CARD_URL}">
+  <meta name="twitter:image" content="${imageUrl}">
   <meta name="twitter:image:alt" content="${imageAlt}">
 
   <meta name="color-scheme" content="dark">
@@ -337,21 +346,84 @@ export function shareTokenFrom(pathname: string): string | null {
  * GENERIC_PREVIEW, byte for byte. That is what keeps revocation invisible: a
  * crawler cannot tell a share that was taken back from one that never existed.
  */
-export function previewForShare(title: string | null | undefined): PreviewMeta {
+export function previewForShare(
+  title: string | null | undefined,
+  token?: string,
+): PreviewMeta {
   const clean = title?.trim();
   if (!clean) return GENERIC_PREVIEW;
 
+  // Bounded before it is escaped, mirroring MAX_PREVIEW_TITLE in the control
+  // plane. Bounded in both places on purpose: this one is what protects the
+  // response when the upstream is wrong, and an edge that trusts its upstream
+  // to have been careful is an edge with no bound at all.
+  const bounded = clean.slice(0, 60);
+
   return {
     ...GENERIC_PREVIEW,
-    // Bounded before it is escaped, mirroring MAX_PREVIEW_TITLE in the control
-    // plane. Bounded in both places on purpose: this one is what protects the
-    // response when the upstream is wrong, and an edge that trusts its upstream
-    // to have been careful is an edge with no bound at all.
-    title: `${clean.slice(0, 60)} — Context`,
+    title: `${bounded} — Context`,
     description:
       "Shared with you on Context. Sign in to read it — plain markdown in a " +
       "bucket its owner controls.",
+    /**
+     * The title is drawn into the card image too, not only into the tags.
+     *
+     * The `v=` is a **cache key, never an input.** The renderer re-resolves the
+     * title from the token and ignores this parameter entirely — see
+     * `shareCardPath`. That is the single most important property of this URL:
+     * an endpoint that drew whatever text it was handed would turn context.lc
+     * into an arbitrary-text image generator on our own domain, wearing our
+     * branding, which is a ready-made phishing asset.
+     */
+    imageUrl: token === undefined ? undefined : `${ORIGIN}${shareCardPath(token, bounded)}`,
   };
+}
+
+/**
+ * Where a share's card image lives, with a content hash as a cache-buster.
+ *
+ * The hash exists because the Workers Cache API is **per-datacenter**, and
+ * `cache.delete` only purges the colo the Worker ran in — so a card cannot be
+ * globally invalidated. Putting the title's hash in the path sidesteps that
+ * entirely: a changed title is simply a different URL, and the old one is never
+ * requested again.
+ */
+export function shareCardPath(token: string, title: string): string {
+  return `${SHARE_CARD_PREFIX}${token}.png?v=${hashTitle(title)}`;
+}
+
+export const SHARE_CARD_PREFIX = "/og/s/";
+
+/**
+ * A short, stable digest of the title.
+ *
+ * FNV-1a, not a cryptographic hash, and it does not need to be: it is a cache
+ * key. A collision means one card is served a little longer than it should be,
+ * which is the same outcome as the CDN caches above already produce.
+ */
+export function hashTitle(title: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < title.length; i += 1) {
+    hash ^= title.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+/**
+ * The share token in a card path, or `null`.
+ *
+ * The same exact shape check `shareTokenFrom` applies, for the same reason: a
+ * path is either a well-formed token or it is not a card, so nothing an
+ * attacker types reaches an upstream and a malformed probe never buys a round
+ * trip to time.
+ */
+export function shareCardTokenFrom(pathname: string): string | null {
+  if (!pathname.startsWith(SHARE_CARD_PREFIX)) return null;
+  const rest = pathname.slice(SHARE_CARD_PREFIX.length);
+  if (!rest.endsWith(".png")) return null;
+  const token = rest.slice(0, -".png".length);
+  return /^[0-9a-f]{64}$/.test(token) ? token : null;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
