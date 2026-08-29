@@ -86,3 +86,26 @@ export function canResetPrivacy(
 ): boolean {
   return caps.canEdit && caps.isOwner && manifestUsable === false;
 }
+
+/**
+ * Whether a Share control exists at all.
+ *
+ * The same two halves as `canSetVisibility`, and for the same reason rather
+ * than by copying: sharing a note is a decision about **who reads it**, which
+ * is exactly the authority PR #93/#95 took away from editors on three other
+ * surfaces. An editor may write a note and may not hand it to somebody outside
+ * the context; `createShare` refuses them with `minimum: "owner"` whatever this
+ * returns.
+ *
+ * It is a separate function from `canSetVisibility` even though the expression
+ * is identical today, because the two answer different questions and will not
+ * necessarily stay identical — collapsing them would mean a future decision to
+ * let editors share silently also handed them the access map.
+ *
+ * Pure and here rather than inline in `useFileBrowser`, for the reason at the
+ * top of this file: the console's one real authorization defect lived inline in
+ * that hook and survived a full sabotage sweep untouched.
+ */
+export function canShare(caps: ConsoleCapabilities): boolean {
+  return caps.canEdit && caps.isOwner;
+}

@@ -100,6 +100,11 @@ function browser(
     resetPrivacy: noop,
     canResetPrivacy: false,
     canSetVisibility: false,
+    canShare: false,
+    shares: undefined,
+    share: () => {},
+    revokeShare: () => {},
+    setSharePreviewTitle: () => {},
   };
 }
 

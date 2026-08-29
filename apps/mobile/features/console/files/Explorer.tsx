@@ -9,6 +9,8 @@ import { colors, radii, space } from "../../design/tokens";
 import { useFrame } from "../../app/AppFrame";
 import { loadedFolders, type FileBrowser } from "./browser";
 import { Confirm, DeleteForever, MovePicker, NamePrompt } from "./Dialogs";
+import { ShareDialog } from "./ShareDialog";
+import { consoleOrigin } from "./shareOrigin";
 import { canDrop as verdictFor, type DragSource } from "./dnd";
 import { FileTree, type TreeDragHandlers } from "./FileTree";
 import { itemsFor, type MenuActionId } from "./menu";
@@ -134,6 +136,7 @@ export function Explorer({
         target: { kind: "row", row },
         canEdit: files.canEdit,
         canSetVisibility: files.canSetVisibility,
+        canShare: files.canShare,
         clipboard: files.clipboard,
         platform,
         // Read, never assumed. `menu.ts` defaults this to Apple, which prints
@@ -153,7 +156,12 @@ export function Explorer({
     // the first context's ownership and offered the owner-only submenu to
     // somebody the server refuses. eslint reported it as a warning throughout;
     // `lint` exits 0 on warnings.
-    [files.canEdit, files.canSetVisibility, files.clipboard, platform],
+    // `files.canShare` belongs here for exactly the reason `canSetVisibility`
+    // does, one paragraph up: it is `canEdit && isOwner`, so it moves
+    // independently of `canEdit`, and a stale copy offers an owner-only control
+    // to somebody the server refuses. `explorerMenuStaleGate.test.ts` is what
+    // holds both.
+    [files.canEdit, files.canSetVisibility, files.canShare, files.clipboard, platform],
   );
 
   const runAction = useCallback(
@@ -190,6 +198,9 @@ export function Explorer({
           return;
         case "delete":
           setDialog({ kind: "delete", path, isFolder: row.kind === "folder" });
+          return;
+        case "share":
+          setDialog({ kind: "share", path });
           return;
         case "duplicate":
           files.duplicate(path);
@@ -446,6 +457,7 @@ export type Dialog =
   | { kind: "move"; path: string }
   | { kind: "archive"; path: string }
   | { kind: "delete"; path: string; isFolder: boolean }
+  | { kind: "share"; path: string }
   | null;
 
 /**
@@ -519,6 +531,24 @@ export function ExplorerDialogs({
             onClose();
             files.move(dialog.path, folder);
           }}
+        />
+      );
+    case "share":
+      return (
+        <ShareDialog
+          path={dialog.path}
+          shares={files.shares}
+          origin={consoleOrigin()}
+          onShare={(recipient) => files.share(dialog.path, recipient)}
+          onRevoke={(shareId) => files.revokeShare(shareId)}
+          onSetPreviewTitle={(recipient, on) =>
+            files.setSharePreviewTitle(dialog.path, recipient, on)
+          }
+          // Deliberately does NOT close on share or revoke. Both are things an
+          // owner does several of in a row, and a dialog that vanishes after
+          // the first one makes them reopen it to check it worked — which is
+          // also the moment they share it twice.
+          onClose={onClose}
         />
       );
     case "archive":

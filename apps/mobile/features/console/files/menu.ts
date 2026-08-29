@@ -54,6 +54,7 @@ export type MenuActionId =
   | "paste"
   | "copyPath"
   | "copyAtPath"
+  | "share"
   /**
    * The submenu's own id, and deliberately not one of the three below.
    *
@@ -100,6 +101,14 @@ export interface MenuContext {
    * scope gate in lib/fileOps) refuses it regardless of what this menu says.
    */
   canSetVisibility: boolean;
+  /**
+   * Whether Share is offered. Owner-only, and absent rather than disabled —
+   * the same rule as `canSetVisibility` above, and for the same reason:
+   * handing a note to somebody outside the context is a decision about who
+   * reads it, which is not an editor's to make. The server refuses them with
+   * `minimum: "owner"` regardless of what this menu says.
+   */
+  canShare: boolean;
   clipboard: Clipboard | null;
   /** Web prints shortcuts; touch does not, and touch has no "open in new tab". */
   platform: "web" | "touch";
@@ -415,6 +424,15 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
       makeItem(context, "copyPath", single === null ? `Copy ${count} paths` : "Copy path"),
       ...(single === null ? [] : [makeItem(context, "copyAtPath", "Copy @path")]),
     ],
+
+    // Share takes one note and has no plural: a share is addressed to one
+    // person over one path, and "Share 3 items" is three separate grants with
+    // three separate links, which is a batch job nobody asked for. A folder is
+    // omitted rather than refused, because `createShare` has no folder form at
+    // all — see `SHARE_TRAVERSAL_DEPTH` in `functions/shares.ts`.
+    context.canShare && single !== null && single.kind === "file"
+      ? [makeItem(context, "share", "Share…")]
+      : [],
 
     // A mixed selection gets no visibility submenu: "Follow folder" means
     // nothing for a folder, and a submenu that applies to some of what is

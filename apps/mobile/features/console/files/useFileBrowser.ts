@@ -20,11 +20,12 @@
  */
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { useAction } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import type { FileBrowser } from "./browser";
+import type { NoteShare } from "./shares";
 import { afterPaste, planPaste, put, type Clipboard } from "./clipboard";
 import {
   SAVE_TIMEOUT_MS,
@@ -44,7 +45,7 @@ import {
 import { raceTimeout } from "../storage/timeout";
 import { findEntry, foldersToRefresh, namesIn } from "./tree";
 import type { FileError, FolderListing, OpenNote, Visibility } from "./types";
-import { canResetPrivacy, canSetVisibility } from "../capabilities";
+import { canResetPrivacy, canSetVisibility, canShare } from "../capabilities";
 
 /** The literal the backend requires before it will delete anything. */
 const DELETE_CONFIRMATION = "permanently delete";
@@ -672,6 +673,96 @@ export function useFileBrowser(options: {
     void refresh(missing.filter((folder) => listings[folder] === undefined));
   }, [expanded, listings, refresh, selectedPath]);
 
+  /* ------------------------------- sharing ------------------------------- */
+
+  const mayShare = canShare({
+    canEdit: options.canEdit,
+    isOwner: options.isOwner === true,
+  });
+
+  /**
+   * `"skip"` unless this console may share, and that is not an optimisation.
+   *
+   * `listShares` is `minimum: "owner"`, so subscribing as an editor throws — and
+   * a Convex query that throws does so *during render*, which takes down the
+   * whole console rather than hiding one dialog. The capability decides whether
+   * to ask, exactly as it decides whether to draw the control.
+   */
+  const shares = useQuery(
+    api.functions.shares.listShares,
+    mayShare && workspaceId !== null ? { workspaceId } : "skip",
+  ) as readonly NoteShare[] | undefined;
+
+  const createShare = useMutation(api.functions.shares.createShare);
+  const revokeShareMutation = useMutation(api.functions.shares.revokeShare);
+
+  /**
+   * Run a share mutation and put whatever it says in the notice line.
+   *
+   * The refusals here are ones the person can act on — a malformed `@name`, a
+   * path that is not a note, too many shares outstanding — so the server's own
+   * message is shown rather than replaced with a generic one. `toFileError` is
+   * the same reader every other operation in this file uses.
+   */
+  const runShare = useCallback(
+    async (work: () => Promise<unknown>, done: string | null) => {
+      if (!mayShare || workspaceId === null) return;
+      try {
+        await work();
+        if (done !== null) setNotice(done);
+      } catch (error) {
+        setNotice(toFileError(error).message);
+      }
+    },
+    [mayShare, workspaceId],
+  );
+
+  const share = useCallback(
+    (path: string, recipient: string, titleInPreview?: boolean) => {
+      if (workspaceId === null) return;
+      void runShare(
+        () =>
+          createShare({
+            workspaceId,
+            path,
+            recipient,
+            ...(titleInPreview === undefined ? {} : { titleInPreview }),
+          }),
+        `Shared with ${recipient}.`,
+      );
+    },
+    [createShare, runShare, workspaceId],
+  );
+
+  const revokeShare = useCallback(
+    (shareId: string) => {
+      void runShare(
+        () => revokeShareMutation({ shareId: shareId as Id<"noteShares"> }),
+        "Access revoked. That link no longer works.",
+      );
+    },
+    [revokeShareMutation, runShare],
+  );
+
+  /**
+   * Toggling the preview title goes through `createShare`, which supersedes an
+   * existing share **in place and keeps its token**. So this changes what a
+   * crawler is told without breaking a link the owner has already sent — which
+   * a revoke-and-reshare would not, because that deliberately mints a new one.
+   */
+  const setSharePreviewTitle = useCallback(
+    (path: string, recipient: string, titleInPreview: boolean) => {
+      if (workspaceId === null) return;
+      void runShare(
+        () => createShare({ workspaceId, path, recipient, titleInPreview }),
+        titleInPreview
+          ? "The link will show the note's name."
+          : "The link will show nothing about the note.",
+      );
+    },
+    [createShare, runShare, workspaceId],
+  );
+
   return useMemo(
     () => ({
       canEdit: options.canEdit,
@@ -720,6 +811,11 @@ export function useFileBrowser(options: {
         canEdit: options.canEdit,
         isOwner: options.isOwner === true,
       }),
+      canShare: mayShare,
+      shares,
+      share,
+      revokeShare,
+      setSharePreviewTitle,
     }),
     [
       archive,
@@ -750,6 +846,11 @@ export function useFileBrowser(options: {
       selectedPath,
       setDraft,
       setVisibility,
+      share,
+      revokeShare,
+      setSharePreviewTitle,
+      shares,
+      mayShare,
       toggleFolder,
       useTheirs,
     ],

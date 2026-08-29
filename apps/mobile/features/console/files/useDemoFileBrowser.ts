@@ -123,7 +123,15 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       setVisibility: noop,
       resetPrivacy: noop,
       canResetPrivacy: false,
-    canSetVisibility: false,
+      canSetVisibility: false,
+      // The landing page's console cannot share, and `shares` is `undefined`
+      // rather than `[]` for the reason `browser.ts` gives: `[]` means "nobody
+      // has access", which is a different claim from "this console never asked".
+      canShare: false,
+      shares: undefined,
+      share: noop,
+      revokeShare: noop,
+      setSharePreviewTitle: noop,
     }),
     [editor, expanded, select, selectedPath, toggleFolder, tree],
   );
