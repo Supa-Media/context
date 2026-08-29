@@ -165,10 +165,18 @@ describe("the guards that decide whether the server is called at all", () => {
     await settle();
 
     // The interface carries every mutating method on a read-only browser and
-    // they are inert — `browser.ts` says so in its own header. Inert has to
-    // mean "the server never hears about it", not "the server says no": a
-    // landing-page visitor holds no workspace credential, and a Delete that
-    // reached `deleteEntry` would be relying on the backend to save us.
+    // they are inert — `browser.ts` says so in its own header.
+    //
+    // **Who is actually behind `canEdit: false` here**, since an earlier
+    // version of this comment guessed and guessed wrong: not a landing-page
+    // visitor. `useFileBrowser` has exactly one non-test call site
+    // (`useLiveConsoleData.ts`), and the marketing console runs
+    // `useDemoFileBrowser` instead. It is a signed-in workspace **member**,
+    // who does hold a credential — and `deleteEntry` would refuse them at
+    // `minimum: "editor"`. So the server backstop exists, and the reason this
+    // guard is worth holding is narrower and true: a request that cannot
+    // succeed surfaces as "that did not work", which reads as a broken console
+    // rather than as a permission they do not have.
     expect(called("deleteEntry")).toHaveLength(0);
     expect(called("moveEntry")).toHaveLength(0);
   });
@@ -176,14 +184,19 @@ describe("the guards that decide whether the server is called at all", () => {
   test("…and the same calls on an editable console do reach it", async () => {
     // The positive control. Without it the test above passes on a hook that
     // never calls anything, which is exactly how a mocked action goes stale.
+    // Both calls, because the test above asserts on both — a control that
+    // exercised only `destroy` would leave the `moveEntry` assertion able to
+    // rot without anything noticing.
     unmount = mount({ canEdit: true });
     await settle();
 
     await act(async () => {
       browser.destroy(NOTE);
+      browser.rename(NOTE, "renamed.md");
     });
     await settle();
     expect(called("deleteEntry")).toHaveLength(1);
+    expect(called("moveEntry")).toHaveLength(1);
   });
 
   test("the delete confirmation is the literal the backend demands", async () => {
@@ -194,10 +207,25 @@ describe("the guards that decide whether the server is called at all", () => {
     });
     await settle();
 
-    // `deleteEntry` refuses anything but this exact string. The console is the
-    // only caller that supplies it, so a typo here turns every delete into a
-    // refusal the UI reports as "that did not work" — and nothing else in the
-    // repo pins the two spellings together.
+    // `deleteEntry` refuses anything but this exact string, and the console is
+    // the only caller that supplies it, so a typo turns every delete into a
+    // refusal the UI reports as "that did not work".
+    //
+    // **What this pins, exactly**, because the first version of this comment
+    // claimed more: it pins the *hook's* literal, and nothing here pins it to
+    // the server's. Measured — changing `DELETE_CONFIRMATION` in
+    // `functions/lib/fileOps.ts` leaves the whole mobile suite green. The
+    // server's own copy is pinned incidentally, by a hardcoded literal in
+    // `shareRead.test.ts`, so a one-sided rename does turn CI red — but on an
+    // unrelated share test, and a deliberate rename updating both would break
+    // the console silently.
+    //
+    // Importing the server constant here is the obvious fix and does not work:
+    // `functions/files.ts` pulls `@convex-dev/auth/server`, which does not
+    // resolve under this file's jsdom environment (`consoleVisibility.test.ts`
+    // gets away with the same import because it runs under node). Closing it
+    // properly means moving the literal somewhere both sides can reach, which
+    // is a change to production layout and not this test's to make.
     expect(called("deleteEntry")[0].args).toMatchObject({
       path: NOTE,
       confirmation: "permanently delete",
