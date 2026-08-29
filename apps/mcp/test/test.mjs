@@ -12,25 +12,39 @@ import {
 } from "./controlPlaneStub.mjs";
 
 // --- in-memory R2 stub, wrapped in the same adapter the worker builds ---
+//
+// Objects are held as bytes, not as strings. This stub used to decode every
+// non-string `put` with a `TextDecoder` and re-encode it on the way out, which
+// is lossless only for text: any byte sequence that is not valid UTF-8 came
+// back as U+FFFD. That made it impossible to test a stored image at all, and
+// worse, it would have made a broken binary write *pass*. Bytes in, bytes out;
+// `text()` decodes on demand, exactly as R2 does.
 const objects = new Map();
 let etagCounter = 0;
+const encoder = new TextEncoder();
 const bucket = {
   async get(key) {
     if (!objects.has(key)) return null;
-    const { body, etag } = objects.get(key);
+    const { bytes, etag } = objects.get(key);
     return {
       etag,
-      text: async () => body,
-      arrayBuffer: async () => new TextEncoder().encode(body).buffer,
+      text: async () => new TextDecoder().decode(bytes),
+      // A fresh copy per call: a caller that mutates what it reads must not be
+      // able to rewrite the stored object through the back door.
+      arrayBuffer: async () => bytes.slice().buffer,
     };
   },
   async put(key, value, options = {}) {
     const expected = options?.onlyIf?.etagMatches;
     if (expected && objects.get(key)?.etag !== expected) return null;
-    const body =
-      typeof value === "string" ? value : new TextDecoder().decode(value);
+    const bytes =
+      typeof value === "string"
+        ? encoder.encode(value)
+        : value instanceof Uint8Array
+          ? new Uint8Array(value)
+          : new Uint8Array(value);
     const etag = `e${++etagCounter}`;
-    objects.set(key, { body, etag });
+    objects.set(key, { bytes, etag });
     return { etag };
   },
   async delete(key) {
@@ -40,10 +54,21 @@ const bucket = {
     const listed = [...objects.keys()]
       .filter((k) => !prefix || k.startsWith(prefix))
       .sort()
-      .map((key) => ({ key, size: objects.get(key).body.length, uploaded: new Date() }));
+      .map((key) => ({ key, size: objects.get(key).bytes.length, uploaded: new Date() }));
     return { objects: listed, truncated: false };
   },
 };
+
+/**
+ * Decode a stored object for an assertion. The stub holds bytes, so the checks
+ * that used to reach in for `.body` decode here instead of each doing it.
+ * Returns undefined for a key that was never written, so `?.includes(...)` at a
+ * call site still short-circuits rather than throwing.
+ */
+function storedText(key) {
+  const entry = objects.get(key);
+  return entry ? new TextDecoder().decode(entry.bytes) : undefined;
+}
 
 // Seeds and assertions go through the ContextStore, so the suite exercises the
 // same adapter the worker uses rather than the raw binding.
@@ -356,8 +381,9 @@ check("notification → 202", noteRes.status === 202);
 const tools = await rpc("priv-token", "tools/list");
 // 18 became 20 when `search` and `fetch` landed — ChatGPT's ordinary chats can
 // invoke only those two names on a custom connector, so they are the same
-// read capabilities wearing OpenAI's deep-research contract.
-check("20 tools listed", tools.result?.tools.length === 20);
+// read capabilities wearing OpenAI's deep-research contract. 21 with
+// `read_image`, which is a read capability over the same access map.
+check("21 tools listed", tools.result?.tools.length === 21);
 check("set_visibility tool is discoverable", tools.result?.tools.some((tool) => tool.name === "set_visibility"));
 check(
   "set_folder_visibility tool is discoverable",
@@ -1021,7 +1047,7 @@ check(
 );
 
 const modernList = await modernFetch({ method: "tools/list" });
-check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 20);
+check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 21);
 check(
   "modern tools/list carries the required freshness hints",
   typeof modernList.body.result?.ttlMs === "number" &&
@@ -1247,7 +1273,7 @@ for (const verb of ["GET", "DELETE"]) {
 // --- and now the half that must not have moved: legacy clients ---
 check(
   "a legacy client sending no version header still works",
-  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 20
+  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 21
 );
 async function legacyWithVersionHeader(version) {
   return worker.fetch(
@@ -1740,7 +1766,7 @@ const makeFolderPrivate = await call("priv-token", "set_folder_visibility", {
 });
 const makeFolderPrivateText = makeFolderPrivate.content[0].text;
 const privateFolderPrivacyEtag = makeFolderPrivateText.match(/new_privacy_etag: (\S+)/)?.[1];
-const privacyAfterFolderPrivate = await objects.get("privacy.md").body;
+const privacyAfterFolderPrivate = storedText("privacy.md");
 check(
   "personal MCP atomically makes a folder private and hides every inherited note from team",
   !makeFolderPrivate.isError &&
@@ -1780,7 +1806,7 @@ check(
   "confirmed inheritance change republishes the folder and removes its direct rule",
   !publishFolderWithConfirmation.isError &&
     succeeded(await call("team-token", "read_note", { path: managedTeamPath })) &&
-    !objects.get("privacy.md").body.includes(`  ${managedFolder}: private`)
+    !storedText("privacy.md").includes(`  ${managedFolder}: private`)
 );
 const teamCannotChangeFolderVisibility = await call("team-token", "set_folder_visibility", {
   path: managedFolder,
@@ -2146,8 +2172,8 @@ check(
   "private connection defaults chat history to private",
   !privateChatArchive.isError &&
     privateChatPath?.startsWith("4-archive/chat-history/codex/") &&
-    objects.get(privateChatPath)?.body.includes('visibility: "private"') &&
-    objects.get(privateChatPath)?.body.includes('completeness: "full-visible-transcript"')
+    storedText(privateChatPath).includes('visibility: "private"') &&
+    storedText(privateChatPath).includes('completeness: "full-visible-transcript"')
 );
 const publicReadPrivateChat = await call("pub-token", "read_note", { path: privateChatPath });
 check("team connection cannot discover private chat history", publicReadPrivateChat.isError && publicReadPrivateChat.content[0].text === "not found");
@@ -2176,8 +2202,8 @@ check(
   "team connection defaults chat history to team and labels partial context",
   !publicChatArchive.isError &&
     publicChatPath?.startsWith("4-archive/chat-history/claude/") &&
-    objects.get(publicChatPath)?.body.includes('visibility: "team"') &&
-    objects.get(publicChatPath)?.body.includes('completeness: "available-context"')
+    storedText(publicChatPath).includes('visibility: "team"') &&
+    storedText(publicChatPath).includes('completeness: "available-context"')
 );
 
 const publicPrivateChat = await call("pub-token", "save_context", {
@@ -2510,7 +2536,7 @@ const granolaRequest = () =>
   });
 const granolaInbox = await worker.fetch(granolaRequest(), env, { waitUntil() {} });
 const granolaBody = await granolaInbox.json();
-const granolaNote = objects.get(granolaBody.path)?.body || "";
+const granolaNote = storedText(granolaBody.path) || "";
 check(
   "structured Granola capture preserves context",
   granolaBody.ok &&
@@ -2620,7 +2646,7 @@ const granolaWebhook = await worker.fetch(await signedGranolaRequest(granolaEven
 });
 await Promise.all(granolaWork);
 const nativeGranolaNotes = [...objects.entries()].filter(([key]) => key.startsWith("0-inbox/granola/"));
-const nativeGranolaText = nativeGranolaNotes.map(([, value]) => value.body).join("\n");
+const nativeGranolaText = nativeGranolaNotes.map(([key]) => storedText(key)).join("\n");
 check(
   "signed Granola webhook fetches and files the full note",
   granolaWebhook.status === 202 &&
@@ -2667,7 +2693,7 @@ globalThis.fetch = async () =>
   );
 await worker.scheduled({}, env, { waitUntil: (p) => p });
 await new Promise((r) => setTimeout(r, 50));
-const cal = objects.get("2-areas/calendar/next-14-days.md")?.body || "";
+const cal = storedText("2-areas/calendar/next-14-days.md") || "";
 check("cron writes calendar note", cal.includes("Team sync") && cal.includes("@ HQ") && cal.includes("14:00"));
 
 function icsStamp(date) {
@@ -2741,7 +2767,7 @@ globalThis.fetch = async () =>
   );
 await worker.scheduled({}, env, { waitUntil: (p) => p });
 await new Promise((r) => setTimeout(r, 50));
-const recurringCal = objects.get("2-areas/calendar/next-14-days.md")?.body || "";
+const recurringCal = storedText("2-areas/calendar/next-14-days.md") || "";
 const targetSection = recurringCal
   .split(`## ${weeklyTarget.toISOString().slice(0, 10)}\n`)[1]
   ?.split("\n## ")[0] || "";
@@ -2755,6 +2781,392 @@ check("cron honors recurrence BYSETPOS", recurringCal.includes("13:00 — Positi
 check("cron honors recurrence UNTIL", !recurringCal.includes("Expired recurrence"));
 check("cron expands yearly recurrence", recurringCal.includes("12:00 — Yearly reminder"));
 check("calendar note reports recurring support", recurringCal.includes("Common recurring-event rules are expanded"));
+
+// -- images: resolve-by-reference over an opaque, unlistable store
+//
+// The calendar cron checks above replace globalThis.fetch to serve an ICS feed;
+// these checks authenticate for real, so the control plane goes back first.
+controlPlane.install();
+//
+// The premise of the whole feature. `.images/` is plumbing, so it is invisible
+// to every listing and unreadable by every note tool — that part is free. What
+// is not free is reaching an image *at all* without reopening any of it, and
+// this is the only path that does: name a note you can already see, and that
+// note must name the image.
+//
+// Every refusal below is the same three bytes. "no such image", "no such note",
+// "you cannot see that note" and "that note does not reference this image" must
+// be indistinguishable, or the tool becomes an existence oracle over a store
+// whose entire point is that it cannot be enumerated.
+const PNG_BYTES = new Uint8Array([
+  // A real PNG header, then bytes that are deliberately not valid UTF-8. If the
+  // pipeline mangles them the base64 comparison below fails loudly, which is
+  // exactly what the old string-backed stub could not do.
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0xc0, 0x80, 0x01,
+]);
+const PNG_BASE64 = Buffer.from(PNG_BYTES).toString("base64");
+const TEAM_IMAGE = `${"a".repeat(64)}.png`;
+const PRIVATE_IMAGE = `${"b".repeat(64)}.png`;
+const ORPHAN_IMAGE = `${"c".repeat(64)}.png`;
+const SHARED_IMAGE = `${"d".repeat(64)}.png`;
+const SCRIPT_OBJECT = `${"e".repeat(64)}.sh`;
+
+for (const leaf of [TEAM_IMAGE, PRIVATE_IMAGE, ORPHAN_IMAGE, SHARED_IMAGE, SCRIPT_OBJECT]) {
+  await contextStore.put(`.images/${leaf}`, PNG_BYTES);
+}
+// Markdown inside the image store. Not note surface, at any scope: it must be
+// unlistable and unsearchable exactly like the binaries beside it.
+await contextStore.put(".images/stray.md", "# IMAGESTOREMARKER\n");
+// 1-projects is a team-default folder; 1-projects/secret-thing is private.
+await contextStore.put(
+  "1-projects/portable/with-image.md",
+  `# team note\n\n![a screenshot](.images/${TEAM_IMAGE})\n`
+);
+await contextStore.put(
+  "1-projects/secret-thing/with-image.md",
+  `# private note\n\n![a screenshot](.images/${PRIVATE_IMAGE})\n`
+);
+// One image, two notes, two visibilities. The consequence is asserted below
+// rather than left to be discovered.
+await contextStore.put(
+  "1-projects/portable/shared-image.md",
+  `# team half\n\n![shared](.images/${SHARED_IMAGE})\n`
+);
+await contextStore.put(
+  "1-projects/secret-thing/shared-image.md",
+  `# private half\n\n![shared](.images/${SHARED_IMAGE})\n`
+);
+await contextStore.put(
+  "1-projects/portable/with-script.md",
+  `# team note\n\n[not an image](.images/${SCRIPT_OBJECT})\n`
+);
+await contextStore.put("1-projects/portable/no-image.md", "# team note with no image at all\n");
+
+const imageTools = await rpc("priv-token", "tools/list");
+check(
+  "read_image is discoverable and read-only",
+  imageTools.result?.tools.find((tool) => tool.name === "read_image")?.annotations?.readOnlyHint === true
+);
+check(
+  "a read-only grant may still resolve images",
+  (await modernFetch({ method: "tools/list", token: "readonly-token" })).body.result?.tools.some(
+    (tool) => tool.name === "read_image"
+  )
+);
+
+const okImage = await call("priv-token", "read_image", {
+  note: "1-projects/portable/with-image.md",
+  image: `.images/${TEAM_IMAGE}`,
+});
+const okImageBlock = okImage.content?.find((block) => block.type === "image");
+check(
+  "a note the caller can see resolves the image it references",
+  !okImage.isError && okImageBlock?.mimeType === "image/png"
+);
+check(
+  "the bytes survive the round trip exactly",
+  okImageBlock?.data === PNG_BASE64
+);
+check(
+  "the leaf alone resolves as well as the full plumbing path",
+  (await call("priv-token", "read_image", {
+    note: "1-projects/portable/with-image.md",
+    image: TEAM_IMAGE,
+  })).content?.find((block) => block.type === "image")?.data === PNG_BASE64
+);
+
+// -- the refusals, all identical
+const REFUSAL = "not found";
+const refusalText = (result) => (result.isError ? result.content?.[0]?.text : `RESOLVED:${JSON.stringify(result)}`);
+const bareHash = await call("priv-token", "read_image", { image: `.images/${TEAM_IMAGE}` });
+check("an image cannot be resolved without naming a note", refusalText(bareHash) === REFUSAL);
+const unreferenced = await call("priv-token", "read_image", {
+  note: "1-projects/portable/no-image.md",
+  image: `.images/${TEAM_IMAGE}`,
+});
+check(
+  "a note that does not reference the image resolves nothing",
+  refusalText(unreferenced) === REFUSAL
+);
+const orphan = await call("priv-token", "read_image", {
+  note: "1-projects/portable/with-image.md",
+  image: `.images/${ORPHAN_IMAGE}`,
+});
+check("an image no named note references resolves nothing", refusalText(orphan) === REFUSAL);
+const teamReachingIntoPrivate = await call("team-token", "read_image", {
+  note: "1-projects/secret-thing/with-image.md",
+  image: `.images/${PRIVATE_IMAGE}`,
+});
+check(
+  "a note the caller cannot see resolves nothing",
+  refusalText(teamReachingIntoPrivate) === REFUSAL
+);
+const missingNote = await call("priv-token", "read_image", {
+  note: "1-projects/portable/does-not-exist.md",
+  image: `.images/${TEAM_IMAGE}`,
+});
+check("a note that does not exist resolves nothing", refusalText(missingNote) === REFUSAL);
+const missingImage = await call("priv-token", "read_image", {
+  note: "1-projects/portable/with-image.md",
+  image: `.images/${"f".repeat(64)}.png`,
+});
+check("an image that does not exist resolves nothing", refusalText(missingImage) === REFUSAL);
+check(
+  "every image refusal is byte-identical, so nothing can be distinguished",
+  new Set([
+    refusalText(bareHash),
+    refusalText(unreferenced),
+    refusalText(orphan),
+    refusalText(teamReachingIntoPrivate),
+    refusalText(missingNote),
+    refusalText(missingImage),
+  ]).size === 1
+);
+
+// -- read_image is not a general object reader
+//
+// The sharpest way this tool could go wrong: it reads bytes by key, and every
+// other read path in this gateway is gated on `.md` + canSee. If `image` were
+// allowed to name anything, a note saying "privacy.md" would exfiltrate the
+// manifest, and "../" would walk out of the store entirely.
+//
+// Each of these is asked through a note that *does* name the target, so the
+// reference check cannot be what refuses them. Without that the checks pass on
+// the strength of a different guard and prove nothing about this one — which is
+// how they were first written, and sabotaging the key shape did not turn a
+// single one red.
+const HOSTILE_TARGETS = [
+  ["the privacy manifest", "privacy.md"],
+  ["a note", "1-projects/secret-thing/status.md"],
+  ["a traversal attempt", "../../privacy.md"],
+  ["other plumbing", ".history/1-projects/portable/with-image.md"],
+  ["a nested path inside the image store", ".images/nested/../../privacy.md"],
+];
+await contextStore.put(
+  "1-projects/portable/hostile-refs.md",
+  `# team note\n\n${HOSTILE_TARGETS.map(([, target]) => `![x](${target})`).join("\n")}\n`
+);
+for (const [label, target] of HOSTILE_TARGETS) {
+  const attempt = await call("priv-token", "read_image", {
+    note: "1-projects/portable/hostile-refs.md",
+    image: target,
+  });
+  check(`read_image cannot be pointed at ${label}`, refusalText(attempt) === REFUSAL);
+}
+const scriptObject = await call("priv-token", "read_image", {
+  note: "1-projects/portable/with-script.md",
+  image: `.images/${SCRIPT_OBJECT}`,
+});
+check(
+  "an object in .images that is not an image type resolves nothing",
+  refusalText(scriptObject) === REFUSAL
+);
+
+// -- SVG is an image everywhere except here
+//
+// The check above cannot cover this one, and that is the whole reason it needs
+// its own. `.sh` is refused because nothing would call it an image; `.svg` is
+// refused *although* it is one. It is a script container — an `<svg>` can carry
+// `<script>` and event handlers — and this gateway hands bytes plus a MIME type
+// to a client that renders what it is given. `image/svg+xml` in the type map is
+// therefore a one-line XSS in whatever displays it.
+//
+// This was found by sabotage during review: adding `["svg", "image/svg+xml"]`
+// to IMAGE_MIME_TYPES turned nothing red across the whole suite, even though
+// "SVG is deliberately not storable and not servable" was written down as a
+// decision. A decision nothing enforces is a comment.
+const SVG_OBJECT = `${"d".repeat(64)}.svg`;
+await contextStore.put(
+  `.images/${SVG_OBJECT}`,
+  new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
+);
+await contextStore.put(
+  "1-projects/portable/with-svg.md",
+  `# team note\n\n![a diagram](.images/${SVG_OBJECT})\n`
+);
+const svgObject = await call("priv-token", "read_image", {
+  note: "1-projects/portable/with-svg.md",
+  image: `.images/${SVG_OBJECT}`,
+});
+check("an SVG is never served, however it is referenced", refusalText(svgObject) === REFUSAL);
+check(
+  "and no response ever claims the SVG media type",
+  !JSON.stringify(svgObject).includes("svg+xml")
+);
+
+// -- the chunked base64 path, and the inline ceiling
+//
+// `base64FromBytes` walks the image in 32KB chunks because String.fromCharCode
+// cannot be handed a megabyte of arguments. A 13-byte fixture never reaches the
+// second chunk, so it cannot tell a correct loop from an off-by-one one: this
+// image crosses the boundary and carries every byte value, so a truncating or
+// overlapping chunk changes the base64 and the check goes red.
+const BIG_IMAGE = `${"1".repeat(64)}.jpg`;
+const BIG_BYTES = new Uint8Array(70_000);
+for (let i = 0; i < BIG_BYTES.length; i += 1) BIG_BYTES[i] = (i * 31 + 7) % 256;
+await contextStore.put(`.images/${BIG_IMAGE}`, BIG_BYTES);
+await contextStore.put(
+  "1-projects/portable/big-image.md",
+  `# team note\n\n![big](.images/${BIG_IMAGE})\n`
+);
+const bigImage = await call("priv-token", "read_image", {
+  note: "1-projects/portable/big-image.md",
+  image: `.images/${BIG_IMAGE}`,
+});
+check(
+  "an image larger than one base64 chunk round-trips byte for byte",
+  bigImage.content?.find((block) => block.type === "image")?.data ===
+    Buffer.from(BIG_BYTES).toString("base64")
+);
+check(
+  "the mime type follows the extension, not a guess",
+  bigImage.content?.find((block) => block.type === "image")?.mimeType === "image/jpeg"
+);
+
+// The one refusal that is allowed to say what it is. Reaching it already proves
+// the caller can see a note referencing the image, so there is nothing left to
+// conceal — and a silent "not found" here would send someone hunting for a
+// missing object that is present and merely too big.
+const HUGE_IMAGE = `${"2".repeat(64)}.png`;
+await contextStore.put(`.images/${HUGE_IMAGE}`, new Uint8Array(5_000_001));
+await contextStore.put(
+  "1-projects/portable/huge-image.md",
+  `# team note\n\n![huge](.images/${HUGE_IMAGE})\n`
+);
+const hugeImage = await call("priv-token", "read_image", {
+  note: "1-projects/portable/huge-image.md",
+  image: `.images/${HUGE_IMAGE}`,
+});
+check(
+  "an oversized image is refused by size, and says so rather than hiding",
+  hugeImage.isError === true && hugeImage.content[0].text.includes("too large")
+);
+check(
+  "...but a caller who cannot see the note still only gets not found",
+  refusalText(
+    await call("team-token", "read_image", {
+      note: "1-projects/secret-thing/with-image.md",
+      image: `.images/${PRIVATE_IMAGE}`,
+    })
+  ) === REFUSAL
+);
+
+// The image store is flat. A nested key inside it is not addressable, so the
+// leaf can never be a path — the check that stops `.images/a/b.png` is the same
+// one that stops `.images/../../privacy.md` once the traversal filter is gone.
+await contextStore.put(`.images/nested/${TEAM_IMAGE}`, PNG_BYTES);
+await contextStore.put(
+  "1-projects/portable/nested-ref.md",
+  `# team note\n\n![nested](.images/nested/${TEAM_IMAGE})\n`
+);
+check(
+  "a nested key inside the image store is not addressable",
+  refusalText(
+    await call("priv-token", "read_image", {
+      note: "1-projects/portable/nested-ref.md",
+      image: `.images/nested/${TEAM_IMAGE}`,
+    })
+  ) === REFUSAL
+);
+
+// -- derived visibility, stated out loud
+//
+// An image has no visibility of its own; it borrows the visibility of whatever
+// note reaches it. So one image referenced by both a private note and a team
+// note is reachable by the team connection — through the team note, and only
+// through it. That is correct (the team note has to display it) and it is the
+// single most surprising consequence of the design, which is why it is a named
+// check rather than a footnote.
+const teamViaTeamNote = await call("team-token", "read_image", {
+  note: "1-projects/portable/shared-image.md",
+  image: `.images/${SHARED_IMAGE}`,
+});
+check(
+  "an image referenced by both a private and a team note is team-reachable via the team note",
+  !teamViaTeamNote.isError &&
+    teamViaTeamNote.content?.find((block) => block.type === "image")?.data === PNG_BASE64
+);
+check(
+  "...and still unreachable through the private note that also references it",
+  refusalText(
+    await call("team-token", "read_image", {
+      note: "1-projects/secret-thing/shared-image.md",
+      image: `.images/${SHARED_IMAGE}`,
+    })
+  ) === REFUSAL
+);
+
+// -- the contract with the email worker
+//
+// The two halves of this feature live in different packages and neither can
+// import the other. The worker decides the key and writes the link; the gateway
+// decides what it will resolve. If those drift, mail silently produces images
+// nothing can fetch — and every test on both sides stays green, because each
+// one is right about its own half.
+//
+// So this asserts the join: a note in exactly the shape
+// `renderCaptureNote` emits, resolving through the real tool.
+const CAPTURE_IMAGE = `${"9".repeat(64)}.png`;
+await contextStore.put(`.images/${CAPTURE_IMAGE}`, PNG_BYTES);
+await contextStore.put(
+  "1-projects/portable/email-capture.md",
+  [
+    "---",
+    'source: "email"',
+    "attachments: 1",
+    "---",
+    "",
+    "## Attachments",
+    "",
+    // Byte-for-byte the line infra/email-worker/src/note.ts writes.
+    `- ![shot.png](.images/${CAPTURE_IMAGE}) — image/png, 1.2 KB`,
+    "",
+    "_Attachment files came from the same untrusted sender as the text above._",
+    "",
+  ].join("\n")
+);
+const fromCapture = await call("priv-token", "read_image", {
+  note: "1-projects/portable/email-capture.md",
+  image: `.images/${CAPTURE_IMAGE}`,
+});
+check(
+  "an image the email worker stored resolves from the note it wrote",
+  !fromCapture.isError &&
+    fromCapture.content?.find((block) => block.type === "image")?.data === PNG_BASE64
+);
+check(
+  "...and the capture note itself is still an ordinary readable note",
+  !(await call("priv-token", "read_note", { path: "1-projects/portable/email-capture.md" })).isError
+);
+
+// -- the store stays opaque
+//
+// Adding a way in must not have added a way to enumerate. These are the same
+// guarantees `isPlumbing` gave before this tool existed, re-asserted after it.
+const listedAfterImages = await call("priv-token", "list_notes", {});
+check(
+  "no image appears in a listing, at any scope",
+  !listedAfterImages.content[0].text.includes(".images/")
+);
+check(
+  "an image prefix lists nothing rather than listing the store",
+  !(await call("priv-token", "list_notes", { prefix: ".images" })).content[0].text.includes(TEAM_IMAGE)
+);
+// Searching for the hash *does* match the note that references it, which is
+// right. The guarantee is about the store itself: markdown sitting inside
+// `.images/` is not note surface and must never be searchable. (Seeded at the
+// top of this section, so the listing checks above cover it as well.)
+check(
+  "search never reaches inside the image store",
+  !(await call("priv-token", "search_notes", { query: "IMAGESTOREMARKER" })).content[0].text.includes(
+    "IMAGESTOREMARKER"
+  )
+);
+check(
+  "read_note still cannot read an image",
+  (await call("priv-token", "read_note", { path: `.images/${TEAM_IMAGE}` })).isError === true
+);
+
 
 // -- storage adapters: signing, listing, rootPrefix, capability probe
 // The cron checks above replaced globalThis.fetch wholesale to serve an ICS

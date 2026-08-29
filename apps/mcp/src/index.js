@@ -793,6 +793,113 @@ function isPlumbing(key) {
   );
 }
 
+/**
+ * The opaque image store.
+ *
+ * `.images/` is dot-prefixed, so `isPlumbing` already hides it from every
+ * listing, every search and every note tool, at every scope. That is the whole
+ * point of the location and it must not be relaxed: making `.images/`
+ * non-plumbing would put every stored image into listings and defeat the
+ * design. `read_image` is the one deliberate way back in, and it is narrow by
+ * construction — see `toolReadImage`.
+ */
+const IMAGE_PREFIX = ".images/";
+
+/**
+ * The types an image may be returned as, and the only extensions `read_image`
+ * will resolve at all.
+ *
+ * SVG is absent on purpose. An SVG is a script container, and what this tool
+ * returns is rendered by whatever client asked for it; a stored `.svg` is
+ * unreachable rather than special-cased, which is the safe direction. The
+ * customer's own bucket may still hold one — we simply will not hand it out.
+ */
+const IMAGE_MIME_TYPES = new Map([
+  ["png", "image/png"],
+  ["jpg", "image/jpeg"],
+  ["jpeg", "image/jpeg"],
+  ["gif", "image/gif"],
+  ["webp", "image/webp"],
+  ["heic", "image/heic"],
+  ["heif", "image/heif"],
+]);
+
+/**
+ * A ceiling on what one call will inline. Base64 inflates by 4/3 and a Worker
+ * response is not unbounded, so this is a real limit rather than a policy one.
+ * Reaching it requires already having proved visibility, so unlike every other
+ * refusal in `toolReadImage` it may say what happened.
+ */
+const MAX_INLINE_IMAGE_BYTES = 5_000_000;
+
+/**
+ * Turn whatever the caller passed as `image` into the one key it may mean.
+ *
+ * Accepts `.images/<leaf>` or the bare `<leaf>`, and nothing else. This is the
+ * function that stops `read_image` from being a general object reader: every
+ * other read path in this gateway is gated on `.md` plus `canSee`, and this one
+ * reads raw bytes by key, so if `image` could name an arbitrary object then a
+ * note reading "privacy.md" would exfiltrate the manifest and "../" would walk
+ * out of the store. The leaf is a single path segment with an image extension —
+ * no slashes, no dots leading anywhere, nothing outside `.images/`.
+ *
+ * Returns null for anything else; the caller turns null into the same "not
+ * found" as every other failure.
+ */
+function imageRefFor(value) {
+  if (typeof value !== "string") return null;
+  const raw = value.trim();
+  // A backstop, and honestly labelled as one: with the character class below in
+  // place this line can never be the thing that refuses anything, because "/"
+  // and "\\" are already outside it and a leading "." already fails it. It
+  // earns its keep only if that class is ever loosened — and loosening it is
+  // itself caught, by the nested-key check in the suite. Sabotaging this line
+  // alone turns nothing red; that is the expected result, not a missing test.
+  if (!raw || raw.length > 512 || raw.includes("..") || raw.includes("\\")) return null;
+  const leaf = raw.startsWith(IMAGE_PREFIX) ? raw.slice(IMAGE_PREFIX.length) : raw;
+  // One segment, and the load-bearing line here. The character class excludes
+  // "/" so nothing nested and nothing outside `.images/` can be named, and it
+  // requires an alphanumeric first character so the leaf cannot itself be
+  // plumbing. This is what stops `read_image` being a general object reader.
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(leaf)) return null;
+  const dot = leaf.lastIndexOf(".");
+  if (dot <= 0) return null;
+  const mimeType = IMAGE_MIME_TYPES.get(leaf.slice(dot + 1).toLowerCase());
+  if (!mimeType) return null;
+  return { key: IMAGE_PREFIX + leaf, leaf, mimeType };
+}
+
+/**
+ * Does this note reference this image?
+ *
+ * Deliberately broad: any mention of the leaf anywhere in the note. A stricter
+ * definition — "must be a markdown image link" — is tempting and wrong here,
+ * because these notes are edited in Obsidian, in rclone, in a text editor, by
+ * people who will reformat a link without knowing it is load-bearing. The
+ * failure mode of strict is an image that silently stops loading; the failure
+ * mode of broad is that somebody who can already write a note can name a hash
+ * they already know.
+ *
+ * That second one is worth stating plainly rather than pretending away: in a
+ * content-addressed store the hash *is* the capability. Learning it requires
+ * either seeing a note that references it or already holding the exact bytes.
+ * Neither is a disclosure this tool creates, and the store is never listable,
+ * so there is nowhere to learn a hash you were not already entitled to.
+ */
+function noteReferencesImage(noteText, image) {
+  return noteText.includes(image.leaf);
+}
+
+/** Base64 without a dependency, chunked so a large image cannot blow the stack. */
+function base64FromBytes(bytes) {
+  let binary = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
 function canSee(key, scope, rules, overrides) {
   if (key === PRIVACY_KEY) return scope === "private";
   if (isPlumbing(key)) return false; // plumbing is not part of the note surface for any tool
@@ -1204,6 +1311,27 @@ function toolDefinitions() {
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
+      name: "read_image",
+      description:
+        "Fetch one image that a note references. Images live in an opaque store that is never listed or searched, so an image is reachable only through a note you can already read: pass that note's path and the image reference as it appears in it. Returns the image inline.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          note: {
+            type: "string",
+            description: "Path of a note you can read that references the image, e.g. '0-inbox/email/capture.md'",
+          },
+          image: {
+            type: "string",
+            description: "The image as the note names it, e.g. '.images/<hash>.png' (the bare filename also works)",
+          },
+        },
+        required: ["note", "image"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    {
       name: "write_note",
       description:
         "Create or update a markdown note — this is how what you learned in this session survives " +
@@ -1513,6 +1641,8 @@ async function callTool(name, args, store, scope) {
       return toolListNotes(store, scope, rules, overrides, args.prefix);
     case "read_note":
       return toolReadNote(store, scope, rules, overrides, args.path);
+    case "read_image":
+      return toolReadImage(store, scope, rules, overrides, args);
     case "write_note":
       return toolWriteNote(store, scope, rules, overrides, args);
     case "set_visibility":
@@ -2274,6 +2404,60 @@ async function toolReadNote(store, scope, rules, overrides, pathArg) {
   return toolText(
     `etag: ${obj.etag}\npath: ${path}\nvisibility: ${effectiveVisibility(path, rules, overrides)}\n\n${text}`
   );
+}
+
+/**
+ * Resolve one image, and only through a note that reaches it.
+ *
+ * An image has no visibility of its own. It borrows the visibility of whatever
+ * note names it, which is the property that makes the image store safe to have
+ * at all: there is nothing here that can drift out of sync with `privacy.md`,
+ * because there is nothing here that `privacy.md` does not already decide.
+ *
+ * The caller must therefore name a note, that note must be one they can already
+ * see, and it must reference the image. A bare hash resolves nothing — accepting
+ * one would turn this into an enumeration oracle over a store whose entire
+ * design is that it cannot be enumerated, which is the same class of bug closed
+ * for `move_folder` in #33.
+ *
+ * One consequence, stated here so it is a decision rather than a discovery: an
+ * image referenced by both a private note and a team note is reachable by a team
+ * connection *through the team note*. That is correct — the team note has to
+ * display it — and it is asserted out loud in the suite.
+ *
+ * Every refusal below is the same three bytes. "no such image", "no such note",
+ * "you cannot see that note" and "that note does not reference this image" are
+ * indistinguishable, for the reason every other refusal in this gateway is.
+ */
+async function toolReadImage(store, scope, rules, overrides, args) {
+  const notFound = toolError("not found");
+  const notePath = normalizePath(args.note);
+  const image = imageRefFor(args.image);
+  if (!notePath || !notePath.endsWith(".md") || !image) return notFound;
+  if (!canSee(notePath, scope, rules, overrides)) return notFound;
+  const note = await store.get(notePath);
+  if (!note) return notFound;
+  if (!noteReferencesImage(await note.text(), image)) return notFound;
+  const object = await store.get(image.key);
+  if (!object) return notFound;
+  const bytes = new Uint8Array(await object.arrayBuffer());
+  // Past this point the caller has already proved they can see a note that
+  // references this image, so there is nothing left to conceal and a size
+  // refusal can say what it is.
+  if (bytes.byteLength > MAX_INLINE_IMAGE_BYTES) {
+    return toolError(
+      `image too large to return inline: ${bytes.byteLength} bytes, limit ${MAX_INLINE_IMAGE_BYTES}`
+    );
+  }
+  return {
+    content: [
+      {
+        type: "text",
+        text: `image: ${image.key}\nreferenced by: ${notePath}\nbytes: ${bytes.byteLength}`,
+      },
+      { type: "image", data: base64FromBytes(bytes), mimeType: image.mimeType },
+    ],
+  };
 }
 
 function normalizeVisibility(value) {

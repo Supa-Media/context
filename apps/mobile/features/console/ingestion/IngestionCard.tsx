@@ -10,7 +10,9 @@ import { Text } from "../../design/components/Text";
 import { colors } from "../../design/tokens";
 import { useCopy } from "../../design/useCopy";
 import {
+  ATTACHMENT_POLICIES,
   addSender,
+  describeAttachmentPolicy,
   describeDraftProblem,
   describeIngestionAbsence,
   describeSenderPolicy,
@@ -24,6 +26,7 @@ import {
   removeSender,
   senderEntries,
   senderLabel,
+  type AttachmentPolicy,
   type IngestionDraft,
   type IngestionState,
   type SenderEntry,
@@ -309,6 +312,42 @@ export function IngestionCard({
               </Text>
             </View>
           )}
+
+          {canEdit ? (
+            <ChoiceGroup
+              label="What happens to attachments"
+              hint="Files arrive from the same unverified sender as the text. This is what Context does with them."
+              value={shown.attachmentPolicy}
+              onChange={(value) =>
+                setDraft((current) =>
+                  current === null
+                    ? current
+                    : { ...current, attachmentPolicy: value as AttachmentPolicy },
+                )
+              }
+              options={ATTACHMENT_POLICIES.map((policy) => ({
+                value: policy,
+                ...describeAttachmentPolicy(policy),
+              }))}
+              testID="ingestion-attachments"
+            />
+          ) : (
+            <View style={styles.readOnlyBlock}>
+              <Text variant="eyebrow">Attachments</Text>
+              <Text variant="rowSub">
+                {describeAttachmentPolicy(shown.attachmentPolicy).label}
+              </Text>
+            </View>
+          )}
+
+          {shown.attachmentPolicy === "store" ? (
+            <Notice tone="warn">
+              <Text variant="check" style={styles.warnText}>
+                Images sent to this address are written into your bucket. They came from
+                whoever sent the mail, and nothing checked them.
+              </Text>
+            </Notice>
+          ) : null}
 
           {shown.allowAnySender ? (
             <Notice tone="warn">
