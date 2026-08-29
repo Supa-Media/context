@@ -1,0 +1,94 @@
+# The control-plane checks that are really checks OF THE GATEWAY.
+#
+# Six files under apps/convex/__tests__ read apps/mcp/src/index.js as their
+# source of truth. `gatewayFormat.helpers.ts` evaluates the gateway's real
+# module and exposes its private helpers — parsePrivacyManifest, visibilityOf,
+# effectiveVisibility, isPlumbing, canSee — and `ingestionGateway.test.ts`
+# scrapes MAX_INLINE_IMAGE_BYTES out of the text. They are the only checks
+# anywhere that the gateway's privacy engine still agrees with the control
+# plane's, and the only thing holding the two copies of the image ceiling
+# together.
+#
+# They live in the control plane's package, and the control plane's CI job is
+# filtered on `apps/convex/**`. So on a pull request that changes only
+# apps/mcp, every one of them was skipped: THE CROSS-PACKAGE GUARDS ON THE
+# GATEWAY WERE SILENT ON EXACTLY THE PULL REQUESTS THAT CHANGE THE GATEWAY.
+#
+# Measured before this file existed: adding one named export to
+# apps/mcp/src/index.js leaves the gateway's own suite reporting ALL PASS, and
+# makes all six control-plane files fail to collect — with the message "update
+# gatewayFormat.helpers.ts rather than weakening the assertion", an instruction
+# nobody could receive, because the job that would print it never ran.
+# `ci / Test Convex Backend` was skipped on both of the two pull requests that
+# most recently modified that file.
+#
+# mcp.yml's header records the same shape one layer down: the gateway's own
+# suite never ran, for the same reason, until it was moved out of the
+# framework's filtered pipeline. This is the half of that lesson that was not
+# carried across, and it is the third instance of "a check that is green
+# because it did not execute" in this directory's history.
+#
+# It is a separate workflow from mcp.yml on purpose. mcp.yml states that it
+# "runs on bare node with no install step, because apps/mcp has no
+# dependencies and we intend to keep it that way"; this job needs the control
+# plane's dependencies, and putting it there would make that sentence false.
+name: Gateway Contracts
+
+# No `paths:` filter on pull_request, deliberately — the same reasoning as
+# mcp.yml and email-worker.yml. A filtered-out required check never reports and
+# leaves the pull request pending forever. Here it is also the specific bug
+# this workflow exists to fix, so a filter would be self-defeating.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - "apps/mcp/**"
+      - "apps/convex/**"
+      - ".github/workflows/gateway-contracts.yml"
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  contracts:
+    name: Gateway contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      # The detector self-tests, and fails when it finds nothing. A scan that
+      # matches no files is not a pass — it is this job quietly becoming
+      # decorative, which is the failure it was written to catch.
+      - name: The cross-package contract still exists
+        run: |
+          node scripts/gateway-contract-tests.mjs --self-test
+          node scripts/gateway-contract-tests.mjs
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # @supa-media/* come from GitHub Packages, a private registry, so
+      # GITHUB_TOKEN must be present for `pnpm install` to auth (see .npmrc).
+      # This is email-worker.yml's recipe, which already runs on every pull
+      # request in this repository, including ones that touch only apps/mcp.
+      - name: Install
+        run: pnpm install --filter @context/convex... --frozen-lockfile
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The whole control-plane suite, not only the six files named above. The
+      # narrower run is about four times faster and would reintroduce this
+      # job's own bug one level up: a list that misses the seventh contract
+      # test somebody adds next month. Ten seconds is not worth being wrong
+      # about.
+      - name: Control-plane suite, against this commit's gateway
+        working-directory: apps/convex
+        run: npx vitest run
