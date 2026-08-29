@@ -47,13 +47,41 @@ function stateFor(doc: string, cursor?: number | [number, number]): EditorState 
   });
 }
 
+/**
+ * What the reader actually sees: the document with every hidden range removed.
+ *
+ * Asserting on this rather than on the list of hidden strings is what would
+ * have caught the two bugs above. "The brackets are hidden" was true while
+ * `proposal.md` sat visible next to the label.
+ */
+function visibleText(doc: string, cursor?: number | [number, number]): string {
+  const state = stateFor(doc, cursor);
+  const selection = state.selection.ranges.map((r) => ({ from: r.from, to: r.to }));
+  const hidden = hiddenMarkRanges(
+    syntaxTree(state),
+    selection,
+    state.doc.length,
+    state.doc,
+  );
+  let out = "";
+  let at = 0;
+  for (const range of [...hidden].sort((a, b) => a.from - b.from)) {
+    out += state.doc.sliceString(at, range.from);
+    at = Math.max(at, range.to);
+  }
+  return out + state.doc.sliceString(at);
+}
+
 /** The text actually hidden from the reader, as strings. */
 function hiddenText(doc: string, cursor?: number | [number, number]): string[] {
   const state = stateFor(doc, cursor);
   const selection = state.selection.ranges.map((r) => ({ from: r.from, to: r.to }));
-  return hiddenMarkRanges(syntaxTree(state), selection, state.doc.length).map(
-    (range) => state.doc.sliceString(range.from, range.to),
-  );
+  return hiddenMarkRanges(
+    syntaxTree(state),
+    selection,
+    state.doc.length,
+    state.doc,
+  ).map((range) => state.doc.sliceString(range.from, range.to));
 }
 
 describe("markup hides when the cursor is elsewhere", () => {
@@ -61,7 +89,8 @@ describe("markup hides when the cursor is elsewhere", () => {
     // The cursor is on the second line — a document that is nothing but the
     // heading has no "elsewhere", because the end of the doc is the node's own
     // inclusive boundary and therefore reveals it.
-    expect(hiddenText("# Chapter transition\n\nbody", 100)).toEqual(["#"]);
+    // `"# "` — the hash *and* the space after it. See the heading tests below.
+    expect(hiddenText("# Chapter transition\n\nbody", 100)).toEqual(["# "]);
   });
 
   test("both pairs of asterisks on a bold run are hidden", () => {
@@ -79,12 +108,41 @@ describe("markup hides when the cursor is elsewhere", () => {
     ]);
   });
 
-  test("a link keeps its label and hides its plumbing", () => {
-    const hidden = hiddenText("see [the proposal](proposal.md) now", 0);
-    expect(hidden.join("")).toContain("[");
-    expect(hidden.join("")).toContain("]");
-    // The label itself is never hidden — that is the text the reader reads.
-    expect(hidden).not.toContain("the proposal");
+  /**
+   * Both of the cases below shipped broken and were caught by *looking at a
+   * screenshot*, not by a test. They are asserted on the rendered result now,
+   * which is what the reader actually sees, rather than on the list of hidden
+   * strings — the old test compared hidden strings and passed while the bug was
+   * plainly visible on screen.
+   */
+  test("a link shows its label and NOT its target", () => {
+    const doc = "see [the proposal](proposal.md) now";
+    // The bug: "see the proposalproposal.md now". The URL is a `URL` node
+    // rather than a `LinkMark`, so hiding only marks left the target glued to
+    // the label.
+    expect(visibleText(doc, 0)).toBe("see the proposal now");
+  });
+
+  test("an autolink keeps its URL, because the URL is the label", () => {
+    const doc = "see <https://example.invalid/x> now";
+    expect(visibleText(doc, 0)).toContain("https://example.invalid/x");
+  });
+
+  test("a heading loses its hashes AND the space after them", () => {
+    // The bug: every heading rendered indented by one character, because the
+    // space between `##` and the text is syntax and was left behind.
+    expect(visibleText("## What LK asked for\n\nbody", 100)).toContain(
+      "What LK asked for",
+    );
+    expect(visibleText("## What LK asked for\n\nbody", 100)).not.toContain(
+      " What LK asked for",
+    );
+  });
+
+  test("a heading with two deliberate spaces keeps the second", () => {
+    // One space is syntax; a second is somebody's formatting, and eating it
+    // would change more than the markup.
+    expect(visibleText("##  spaced\n\nbody", 100)).toContain(" spaced");
   });
 });
 
