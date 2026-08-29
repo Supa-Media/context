@@ -925,8 +925,11 @@ describe("each half of the share sweep, isolated", () => {
     expect(rows[0].status).toBe("revoked");
 
     // And the next holder of the address, which is what "does not follow" in
-    // this test's own name means. Asserting only the status literal would let
-    // the sweep write `revoked` somewhere nothing reads and still pass.
+    // this test's own name means. Today this cannot fail while the assertion
+    // above passes — the schema validator would reject a misnamed field — so it
+    // is an end-to-end anchor rather than an independent guard, and it is here
+    // because the status literal is a proxy for this and the proxy is what the
+    // test's name promises.
     const successor = await createUser(t, "successor@example.invalid");
     await t.run(async (ctx) => {
       await ctx.db.patch(successor, {

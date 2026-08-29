@@ -463,9 +463,15 @@ async function voidCapabilitiesAddressedTo(ctx: MutationCtx, name: string): Prom
  *
  * So what stays open is real: `createShare` has no rate limit, and one account
  * can aim `MAX_WORKSPACES_PER_USER` × `MAX_ACTIVE_SHARES` rows at a single
- * identifier, which could push a victim's `deleteAccount` past what one
- * transaction can write. `auditEvents` in the same function is unbounded and
- * larger per context, so this is not even the binding constraint.
+ * identifier — multiplied by however many accounts an attacker makes, since
+ * accounts are free.
+ *
+ * `deleteWorkspaceCascade` sweeps `auditEvents` unbounded too, and for an
+ * established account that is the larger read. **That is not a reason to think
+ * this one is handled**, and an earlier version of this comment came close to
+ * saying so: the audit trail grows with the victim's own history, while these
+ * rows are written by strangers, so for a new account they are the only
+ * attacker-controlled term in the sum.
  */
 async function revokeSharesAddressedTo(
   ctx: MutationCtx,

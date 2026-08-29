@@ -524,6 +524,16 @@ async function assertShareCapacity(
  * Expired rows are filtered rather than swept. A share with no expiry is the
  * default, so there is no backlog to sweep, and a listing that showed a dead
  * grant as live would be worse than one that runs a comparison.
+ *
+ * **This deliberately does not go through `shareStillStands`, and the omission
+ * is not the drift that function's own doc describes.** That predicate answers
+ * "may this caller redeem this share"; the caller here is the owner, who is
+ * redeeming nothing. Running it would hide a share addressed to a handle nobody
+ * has claimed yet — a supported flow — from the only person who can revoke it,
+ * and worse, hiding it *because* the handle is unclaimed would turn an owner's
+ * own share list into an existence oracle for the recipient. Recorded here
+ * because the next reader will otherwise see a missing call and take it for the
+ * bug that `authorizeShareRead` actually had.
  */
 export const listShares = query({
   args: { workspaceId: v.id("workspaces") },
@@ -987,7 +997,10 @@ async function readThroughShare(
  *
  *  - **The title is never note content.** It is owner-chosen or derived from
  *    the filename, so an unfurl never reads the customer's bucket. See
- *    `lib/shareTitle.ts`.
+ *    `lib/shareTitle.ts`. It is also **stored at share time**, so revoking and
+ *    expiring freeze the card and making the note private does not: the read
+ *    path re-checks the live manifest on every request, this does not, and it
+ *    has nothing to re-check against. Revocation is the control here.
  *  - **One shape, always.** Unknown token, revoked share, expired share,
  *    `titleInPreview` off, a share whose title normalised to nothing — every
  *    one of them is `{ title: null }`. A crawler cannot tell revoked from
