@@ -53,9 +53,14 @@ import type { SyntaxNode, Tree } from "@lezer/common";
  * GFM, because that is what the bucket already contains: these notes are
  * written in Obsidian and synced as plain files, and they use tables, task
  * lists and strikethrough. Parsing a narrower dialect would not corrupt
- * anything — nothing here serializes — but it would draw a table as plain text
- * and leave `~~struck~~` showing its tildes, which reads as the editor being
- * broken.
+ * anything — nothing here serializes — but it would leave `~~struck~~` showing
+ * its tildes, which reads as the editor being broken.
+ *
+ * A table is *parsed* and is still drawn as its own pipes and dashes. Turning
+ * one into a laid-out grid means a block widget that replaces a range of lines,
+ * which is a different and much larger piece of work than decorating inline
+ * marks — and a half-drawn table is worse than an honest monospace one. Noted
+ * as a gap rather than claimed as working.
  *
  * Exported so `__tests__/livePreview.test.ts` builds its states with the same
  * configuration the editor ships. A test that parsed a different dialect from
@@ -83,6 +88,28 @@ const HIDDEN_MARKS: ReadonlySet<string> = new Set([
   "LinkMark",
   "CodeMark",
 ]);
+
+/**
+ * Nodes that are not *marks* but are still plumbing, hidden under the same
+ * rule.
+ *
+ * `[label](target.md)` parses as LinkMark `[`, the label, LinkMark `](`, a
+ * **URL** node, LinkMark `)`. Hiding only the marks leaves the target glued to
+ * the label — "a link to the proposalproposal.md" — which is what shipped
+ * before a screenshot caught it. The URL is what the link points at, not what
+ * the author wrote for a reader to read.
+ *
+ * Guarded by the parent check in `isHiddenPlumbing`: an Autolink is a bare URL
+ * that IS its own label, and hiding that one leaves an empty link.
+ */
+const HIDDEN_PLUMBING: ReadonlySet<string> = new Set(["URL", "LinkTitle"]);
+
+function isHiddenPlumbing(node: SyntaxNode): boolean {
+  if (!HIDDEN_PLUMBING.has(node.name)) return false;
+  const parent = node.parent;
+  // Only inside a real `[…](…)`. An Autolink's URL is the visible text.
+  return parent !== null && (parent.name === "Link" || parent.name === "Image");
+}
 
 /**
  * Nodes whose whole extent is the "reveal unit" for the marks inside them.
@@ -116,6 +143,21 @@ function isRevealContainer(name: string): boolean {
 export interface TextRange {
   readonly from: number;
   readonly to: number;
+}
+
+/**
+ * Extend a mark's end over the single space that follows it.
+ *
+ * Only one space, and only if it is there. `##  Two spaces` is somebody's
+ * deliberate formatting and eating both would change what the reader sees by
+ * more than the syntax.
+ */
+function swallowTrailingSpace(
+  doc: { sliceString: (from: number, to: number) => string } | undefined,
+  to: number,
+): number {
+  if (doc === undefined) return to;
+  return doc.sliceString(to, to + 1) === " " ? to + 1 : to;
 }
 
 /**
@@ -166,6 +208,7 @@ export function hiddenMarkRanges(
   tree: Tree,
   selection: readonly TextRange[],
   docLength: number,
+  doc?: { sliceString: (from: number, to: number) => string },
 ): TextRange[] {
   const hidden: TextRange[] = [];
 
@@ -173,7 +216,8 @@ export function hiddenMarkRanges(
     from: 0,
     to: docLength,
     enter(node) {
-      if (!HIDDEN_MARKS.has(node.name)) return;
+      const isMark = HIDDEN_MARKS.has(node.name);
+      if (!isMark && !isHiddenPlumbing(node.node)) return;
       // A zero-width mark is nothing to hide, and an empty replace decoration
       // at the same position as another is a CodeMirror range-set error rather
       // than a no-op.
@@ -182,7 +226,14 @@ export function hiddenMarkRanges(
       const unit = revealUnitFor(node.node);
       if (selectionTouches(unit, selection)) return;
 
-      hidden.push({ from: node.from, to: node.to });
+      hidden.push({
+        from: node.from,
+        // A heading's `##` is followed by a space that is part of the syntax,
+        // not the text. Hiding the hashes alone leaves every heading indented
+        // by one character — visible as soon as you look at a rendered note,
+        // and invisible to a test that only compares hidden strings.
+        to: node.name === "HeaderMark" ? swallowTrailingSpace(doc, node.to) : node.to,
+      });
     },
   });
 
@@ -255,7 +306,7 @@ export function decorationsFor(state: EditorState): DecorationSet {
     },
   });
 
-  const hides = hiddenMarkRanges(tree, selection, state.doc.length).map((range) =>
+  const hides = hiddenMarkRanges(tree, selection, state.doc.length, state.doc).map((range) =>
     hideMark.range(range.from, range.to),
   );
 
