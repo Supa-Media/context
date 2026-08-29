@@ -84,7 +84,19 @@ export async function countNotes(
 
   let notes = 0;
   let pages = 0;
-  /** A folder the adapter refused. The total is a floor, not a failure. */
+  /**
+   * The total is a floor rather than a failure. Two ways that happens and they
+   * are both this flag: a folder the adapter refused, and a store that reported
+   * another page and then offered nowhere to go.
+   *
+   * That second one arrives as `{ truncated: true, cursor: undefined }`, because
+   * `readTag` in `apps/mcp/src/store/s3.js` reads `IsTruncated` and
+   * `NextContinuationToken` from independent tags with no cross-check. Folded
+   * into one `||` with a finished listing it ended the walk *and* reported
+   * `truncated: false` — a floor printed as an exact total, which is the whole
+   * of issue #25. The inner walk below is flat on 1000-key pages, so any folder
+   * past one page is in scope on a real bucket.
+   */
   let unwalked = false;
   const folders: string[] = [];
 
@@ -106,7 +118,13 @@ export async function countNotes(
       for (const prefix of listing.delimitedPrefixes ?? []) {
         if (!isPlumbingKey(prefix)) folders.push(prefix);
       }
-      if (!listing.truncated || !listing.cursor) break;
+      if (!listing.truncated) break;
+      if (!listing.cursor) {
+        // Short at the ROOT, so whole folders are missing from `folders` and
+        // their notes are never counted at all.
+        unwalked = true;
+        break;
+      }
       cursor = listing.cursor;
     }
 
@@ -136,7 +154,11 @@ export async function countNotes(
           for (const object of listing.objects ?? []) {
             if (isNoteKey(object.key)) notes += 1;
           }
-          if (!listing.truncated || !listing.cursor) break;
+          if (!listing.truncated) break;
+          if (!listing.cursor) {
+            unwalked = true;
+            break;
+          }
           folderCursor = listing.cursor;
         }
       } catch {

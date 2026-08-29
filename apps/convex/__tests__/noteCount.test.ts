@@ -143,6 +143,70 @@ describe("countNotes", () => {
   });
 
   /**
+   * A store that reports another page and offers nowhere to go.
+   *
+   * `truncated` and `cursor` reach this module from two independent tags —
+   * `readTag` in `apps/mcp/src/store/s3.js` reads `IsTruncated` from one element
+   * and `NextContinuationToken` from another, and nothing checks they agree.
+   * `!listing.truncated || !listing.cursor` treated that pair as a finished
+   * listing, so the walk stopped **and reported `truncated: false`**: a floor
+   * printed as an exact total, which is issue #25 with a measurement in front
+   * of it and what four paragraphs of "The note count is measured" forbid.
+   *
+   * The inner per-folder walk is flat on 1000-key pages, so any folder holding
+   * more than one page is in scope on a real bucket — this is not reserved for
+   * exotic stores.
+   */
+  test("a store that will not continue makes the total a floor", async () => {
+    // Two walks, so two probes. Stalling both at once proves only the outcome:
+    // either line setting the flag satisfies it, so either could be reverted
+    // with nothing catching it. Each probe below stalls exactly one.
+    const seed = () => {
+      const store = memoryStore();
+      for (let i = 0; i < 25; i += 1) store.seed(`1-projects/n${i}.md`, "#");
+      return store;
+    };
+    const stallWhen = (
+      store: ReturnType<typeof memoryStore>,
+      predicate: (options?: { prefix?: string; delimiter?: string }) => boolean,
+    ) => ({
+      ...store,
+      list: async (options?: { prefix?: string; delimiter?: string; cursor?: string }) => {
+        const page = await store.list(options);
+        return predicate(options) ? { ...page, truncated: true, cursor: undefined } : page;
+      },
+    });
+
+    // The delimited walk at the root. Short here means whole folders are never
+    // even discovered, so their notes are not merely uncounted — they are
+    // invisible to the count entirely.
+    const outer = seed();
+    const outerCount = await countNotes(
+      stallWhen(outer, (options) => options?.delimiter === "/"),
+      { pageCap: 20, pageSize: 10 },
+    );
+    expect(outerCount).not.toBeNull();
+    expect(outerCount!.truncated).toBe(true);
+
+    // The flat walk inside each folder — the one that runs on 1000-key pages
+    // against a real bucket, so any folder past one page is in scope.
+    const inner = seed();
+    const innerCount = await countNotes(
+      stallWhen(inner, (options) => options?.delimiter !== "/"),
+      { pageCap: 20, pageSize: 10 },
+    );
+    expect(innerCount).not.toBeNull();
+    expect(innerCount!.truncated).toBe(true);
+    expect(innerCount!.notes).toBeLessThan(25);
+
+    // The positive control: the same bucket, an honest store, an exact total.
+    expect(await countNotes(seed(), { pageCap: 20, pageSize: 10 })).toEqual({
+      notes: 25,
+      truncated: false,
+    });
+  });
+
+  /**
    * One folder the adapter will not walk must not cost the whole count.
    *
    * The prefix passed back to `store.list` is a folder name the *customer*

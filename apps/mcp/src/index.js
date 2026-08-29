@@ -1614,8 +1614,20 @@ function normalizePath(p) {
  * shapes are caught here and reported as themselves.
  */
 function nextListCursor(page, seen) {
-  const cursor = page.truncated ? page.cursor : undefined;
-  if (!cursor) return undefined;
+  if (!page.truncated) return undefined;
+  // Truncated with nowhere to go. `truncated` and `cursor` are read from
+  // independent tags in `store/s3.js` — `IsTruncated` from one element,
+  // `NextContinuationToken` from another, and nothing checks they agree — so
+  // this pair is what a slightly-wrong endpoint produces, not a hypothetical.
+  // Folded in with a finished listing (`page.truncated ? page.cursor :
+  // undefined` then `if (!cursor) return undefined`) it ended the walk
+  // silently, so `listAllKeys` returned a SHORT key set that read exactly like
+  // a complete one — and `move_folder` and `set_folder_visibility` build their
+  // key sets from it. Refused as itself, like the two shapes below.
+  if (!page.cursor) {
+    throw new Error("storage listing did not finish and offered no continuation token");
+  }
+  const cursor = page.cursor;
   if (seen.has(cursor)) {
     throw new Error("storage listing repeated a pagination cursor; refusing to loop");
   }
@@ -1681,10 +1693,14 @@ async function listAllNoteKeys(store) {
  * List note keys under one folder, spending at most `pageCap` pages.
  *
  * `listAllKeys` throws rather than truncate, which is right for a search or a
- * move — a partial answer there is a wrong answer. Orientation is the opposite
- * case: a context too large to walk still has a shape worth describing, so this
- * stops early and *says so*, and every caller has to carry the `truncated` flag
- * into what it prints.
+ * move — a partial answer there is a wrong answer. That sentence was false for
+ * one shape until `nextListCursor` was fixed: a page reporting `truncated` with
+ * no continuation token ended the walk silently and returned a short list.
+ * Orientation is the opposite case: a context too large to walk still has a
+ * shape worth describing, so this stops early and *says so*, and every caller
+ * has to carry the `truncated` flag into what it prints — including for that
+ * same shape, which used to leave `truncated` false and print a floor as a
+ * total.
  */
 async function listBoundedKeys(store, prefix, pageCap) {
   const keys = [];
@@ -1698,6 +1714,13 @@ async function listBoundedKeys(store, prefix, pageCap) {
       keys.push({ key: object.key, uploaded: object.uploaded });
     }
     pages += 1;
+    if (page.truncated && !page.cursor) {
+      // Another page promised and no way to ask for it. This one reports rather
+      // than throws, because that is what orientation is for.
+      truncated = true;
+      cursor = undefined;
+      break;
+    }
     cursor = page.truncated ? page.cursor : undefined;
     if (cursor && pages >= pageCap) {
       truncated = true;

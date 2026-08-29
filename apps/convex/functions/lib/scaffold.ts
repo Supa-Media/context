@@ -623,10 +623,20 @@ export async function hasExistingContext(store: ScaffoldStore): Promise<boolean>
     for (const prefix of listing.delimitedPrefixes ?? []) {
       if (!isPlumbingKey(prefix)) return true;
     }
-    if (!listing.truncated || !listing.cursor) break;
+    if (!listing.truncated) return false;
+    // A walk that did not finish knows nothing, and `false` here is the
+    // fail-open answer: "no context, scaffold away", over a bucket we could not
+    // see the end of. Two ways to not finish and both used to fall out of the
+    // loop into `return false`: the page cap, and a store that reports another
+    // page and then offers no continuation token — `readTag` in
+    // `apps/mcp/src/store/s3.js` reads `IsTruncated` and
+    // `NextContinuationToken` from independent tags with no cross-check, so
+    // `{ truncated: true, cursor: undefined }` really does arrive here.
+    if (!listing.cursor) return true;
     cursor = listing.cursor;
   }
-  return false;
+  // The page cap, reached. Same reasoning: unfinished means occupied.
+  return true;
 }
 
 /**
@@ -702,10 +712,14 @@ export async function hasForeignContent(
         // Ours by name. Now prove what is under it is ours by content.
         if (await walk(found, undefined)) return true;
       }
-      if (!listing.truncated || !listing.cursor) break;
+      if (!listing.truncated) return false;
+      // Unfinished means "assume foreign", for the same reason
+      // `hasExistingContext` assumes occupied: `false` is the answer that lets
+      // a scaffold run over somebody's bucket.
+      if (!listing.cursor) return true;
       cursor = listing.cursor;
     }
-    return false;
+    return true;
   };
 
   return await walk("", "/");

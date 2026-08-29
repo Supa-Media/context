@@ -1874,7 +1874,11 @@ describe("a bulk operation acts only on what the caller can see", () => {
         confirmation: DELETE_CONFIRMATION,
       }),
     );
-    expect(error.code).toBe("FOLDER_TOO_LARGE");
+    // A store fault, not a folder that is too big — and it says so. Telling
+    // somebody with four notes to "do it in smaller pieces" sends them round a
+    // remedy that cannot terminate, because splitting a folder will never make
+    // a store hand over a continuation token it does not have.
+    expect(error.code).toBe("LISTING_INCOMPLETE");
     // Three calls, not a hundred: pong, ping, then pong again is a repeat.
     expect(calls).toBeLessThanOrEqual(4);
   });
@@ -1899,7 +1903,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
         confirmation: DELETE_CONFIRMATION,
       }),
     );
-    expect(error.code).toBe("FOLDER_TOO_LARGE");
+    expect(error.code).toBe("LISTING_INCOMPLETE");
     // Two calls: the first hands out "same", the second returns it unchanged.
     expect(calls).toBeLessThanOrEqual(3);
   });
@@ -2048,13 +2052,24 @@ describe("a bulk operation acts only on what the caller can see", () => {
     });
     const manifest = store.snapshot()[PRIVACY_KEY] as string;
     expect(manifest).toContain("2-areas/renamed: team");
-    // The old prefix keeps no rule: its survivor is held back by its own
-    // exception and never rested on the folder default.
+    // The old prefix keeps no rule. Not because a survivor did not need it —
+    // there is no survivor here, the walk is at owner scope and both notes
+    // moved. The rule follows the folder, and nothing is left pointing at an
+    // empty prefix. (Two earlier comments here described a survivor held back
+    // by its exception. There is none: the keys afterwards are `privacy.md`,
+    // `2-areas/renamed/a.md` and `2-areas/renamed/x.md`.)
     expect(manifest).not.toContain("2-areas/shared: team");
-    // ...and the survivor is still private, which is the property that matters.
+    expect(store.snapshot()["2-areas/shared/x.md"]).toBeUndefined();
+    // The exception travelled with it, so the note is private at its new path.
+    // Asserting the OLD path was unreadable proved nothing — it had moved away,
+    // so it was unreadable for the trivial reason and stayed unreadable with
+    // the exception dropped entirely.
     expect(
-      (await capture(() => readFile(store, { path: "2-areas/shared/x.md", scope: "team" }))).code,
+      (await capture(() => readFile(store, { path: "2-areas/renamed/x.md", scope: "team" }))).code,
     ).toBe("FILE_NOT_FOUND");
+    expect((await readFile(store, { path: "2-areas/renamed/x.md", scope: "private" })).text).toBe(
+      "# X\n",
+    );
   });
 
   /**
@@ -3674,7 +3689,7 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
       }),
     );
 
-    expect(error.code).toBe("FOLDER_TOO_LARGE");
+    expect(error.code).toBe("LISTING_INCOMPLETE");
     expect(store.snapshot()["1-projects/huge/aaa.md"]).toBeDefined();
     const leak = await capture(() =>
       readFile(store, { path: "1-projects/huge/zdeep/secret.md", scope: "team" }),
@@ -3701,7 +3716,7 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
       }),
     );
 
-    expect(error.code).toBe("FOLDER_TOO_LARGE");
+    expect(error.code).toBe("LISTING_INCOMPLETE");
     expect(store.snapshot()["1-projects/context-lc.md"]).toBeDefined();
     // The neighbour nobody asked to delete, and its history.
     expect(store.snapshot()["1-projects/context-lc.md.notes.md"]).toBeDefined();
@@ -3721,7 +3736,7 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
       duplicatePath(stalling(store), { path: "1-projects/context-lc.md", scope: "team" }),
     );
 
-    expect(error.code).toBe("FOLDER_TOO_LARGE");
+    expect(error.code).toBe("LISTING_INCOMPLETE");
   });
 
   test("a listing that could not finish says so", async () => {
@@ -3736,24 +3751,69 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
 
   test("a path the caller cannot see is refused before its parent is walked", async () => {
     // `duplicatePath` listed the parent folder to pick a free name, and did it
-    // before anything had checked the path the caller named. With a store that
-    // cannot finish a listing, that ordering is observable: the caller gets
-    // `FOLDER_TOO_LARGE` for a private note and `FILE_NOT_FOUND` for one that
-    // was never there, which is an existence oracle keyed on a path they hold
-    // no visibility over. The listing itself is the other half — a full walk of
-    // a folder the caller cannot see, run on the strength of a name they typed.
+    // before anything had checked the path the caller named.
+    //
+    // What that discloses is the parent's **size**, not its existence — the two
+    // paths below differ in which folder they name, and both folders are ones
+    // this caller cannot see into. `namesInUse` refuses a walk it could not
+    // finish, so the big one answered `LISTING_INCOMPLETE` and the small one
+    // `FILE_NOT_FOUND`. (An earlier version of this comment claimed the
+    // difference was hidden-versus-absent, which is wrong: those two share a
+    // parent, so no ordering can separate them. A comment about what a test
+    // proves is a claim with nothing checking it — this one is measured.)
+    //
+    // The other half is that a full walk of a folder the caller cannot see ran
+    // at all, on the strength of a name they typed.
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("2-areas/big/x.md", "# X\n");
+    store.seed("2-areas/small/x.md", "# X\n");
+
+    // Only the big folder stalls. Everything else lists normally, so the two
+    // probes differ in exactly one thing.
+    const lopsided: FileStore = {
+      ...store,
+      list: async (options) => {
+        const page = await store.list(options);
+        return options?.prefix === "2-areas/big/"
+          ? { ...page, truncated: true, cursor: undefined }
+          : page;
+      },
+    };
+
+    const big = await capture(() =>
+      duplicatePath(lopsided, { path: "2-areas/big/x.md", scope: "team" }),
+    );
+    const small = await capture(() =>
+      duplicatePath(lopsided, { path: "2-areas/small/x.md", scope: "team" }),
+    );
+
+    expect(big.code).toBe("FILE_NOT_FOUND");
+    expect(errorShape(big)).toBe(errorShape(small));
+  });
+
+  test("duplicate refuses a reserved path the way every other operation does", async () => {
+    // Putting the visibility check first is only safe in `copyPath`'s order,
+    // which is `assertWritablePath` and then `canSee`. Dropped, it made
+    // Duplicate the one operation in this file answering `FILE_NOT_FOUND` for a
+    // dot-prefixed path — a difference with no security in either direction and
+    // every chance of confusing somebody reading two error messages side by
+    // side. Pinned against `copyPath`, so the two cannot drift again.
     const store = bucket();
     await shareProjects(store);
 
-    const hidden = await capture(() =>
-      duplicatePath(stalling(store), { path: "2-areas/health.md", scope: "team" }),
-    );
-    const absent = await capture(() =>
-      duplicatePath(stalling(store), { path: "2-areas/never-existed.md", scope: "team" }),
-    );
-
-    expect(hidden.code).toBe("FILE_NOT_FOUND");
-    expect(errorShape(hidden)).toBe(errorShape(absent));
+    for (const [path, scope] of [
+      [PRIVACY_KEY, "team"],
+      [PRIVACY_KEY, "private"],
+      [".history/1-projects/context-lc.md.old.md", "private"],
+      [".history/1-projects/context-lc.md.old.md", "team"],
+    ] as const) {
+      const viaDuplicate = await capture(() => duplicatePath(store, { path, scope }));
+      const viaCopy = await capture(() =>
+        copyPath(store, { from: path, to: "1-projects/anywhere.md", scope }),
+      );
+      expect(errorShape(viaDuplicate)).toBe(errorShape(viaCopy));
+    }
   });
 
   test("a manifest repair that could not see every folder is partial", async () => {

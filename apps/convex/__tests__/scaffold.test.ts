@@ -25,6 +25,7 @@ import {
   PRIVACY_KEY,
   type ScaffoldStore,
   hasExistingContext,
+  hasForeignContent,
   renderPrivacyManifest,
   scaffoldContext,
   validateCustomFolders,
@@ -588,6 +589,80 @@ describe("an existing context is never overwritten", () => {
       reason: "existing-context",
     });
     expect(store.snapshot()).toEqual(before);
+  });
+
+  /**
+   * A store that reports another page and offers nowhere to go.
+   *
+   * `truncated` and `cursor` come from two independent tags — `readTag` in
+   * `apps/mcp/src/store/s3.js` reads `IsTruncated` from one element and
+   * `NextContinuationToken` from another, with no cross-check — so
+   * `{ truncated: true, cursor: undefined }` reaches both detectors. Folded into
+   * one `||` with a finished listing, the walk ended and answered **false**,
+   * which for these two is the fail-open direction: "no context here, scaffold
+   * away" and "nothing foreign here". A walk that did not finish knows nothing,
+   * and the only answer it may give is the refusing one.
+   *
+   * The page cap fell out the same way, and that is fixed here too.
+   */
+  test("a listing that could not finish is read as occupied, not as empty", async () => {
+    // The bucket holds ONLY plumbing, so the delimited root page collapses to
+    // `.history/` and the detector reaches the pagination check rather than
+    // returning `true` on the first non-plumbing entry it sees. A bucket with a
+    // visible folder proves nothing here: it answers `true` before the walk
+    // ever paginates, which is how the first version of this test passed with
+    // the fix reverted.
+    const store = memoryStore();
+    store.seed(".history/1-projects/their-note.md.old.md", "# theirs\n");
+
+    const stalling = {
+      ...store,
+      list: async (options?: Record<string, unknown>) => ({
+        ...(await store.list(options as never)),
+        // The real bucket is answered honestly; the store just never admits it
+        // is done. Everything the walk *did* see is still returned.
+        truncated: true,
+        cursor: undefined,
+      }),
+    } as unknown as ScaffoldStore;
+
+    expect(await hasExistingContext(stalling)).toBe(true);
+    // The positive control, on the same bucket: an honest store still reaches
+    // the end and reports it empty, so the stall is what changed the answer.
+    expect(await hasExistingContext(store as unknown as ScaffoldStore)).toBe(false);
+
+    // And the resume detector, which answers the harder question over the same
+    // walk. An empty bucket with a store like this is still "do not touch".
+    const empty = memoryStore();
+    const emptyStalling = {
+      ...empty,
+      list: async (options?: Record<string, unknown>) => ({
+        ...(await empty.list(options as never)),
+        truncated: true,
+        cursor: undefined,
+      }),
+    } as unknown as ScaffoldStore;
+
+    expect(await hasForeignContent(emptyStalling, [])).toBe(true);
+    // ...and the scaffold that rides on it does nothing.
+    const result = await scaffoldContext(emptyStalling, {
+      structureTemplate: "para",
+      resume: true,
+    });
+    expect(result.scaffolded).toBe(false);
+    expect(result.reason).toBe("existing-context");
+    expect(empty.objects.size).toBe(0);
+  });
+
+  /**
+   * The positive control for the test above: an ordinary store that finishes
+   * still answers "empty" for an empty bucket. Without this, making the two
+   * detectors return `true` unconditionally would pass.
+   */
+  test("an honest store still reports an empty bucket as empty", async () => {
+    const store = memoryStore();
+    expect(await hasExistingContext(store)).toBe(false);
+    expect(await hasForeignContent(store, [])).toBe(false);
   });
 
   /**

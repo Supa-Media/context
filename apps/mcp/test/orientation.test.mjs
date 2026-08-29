@@ -255,6 +255,34 @@ export async function runOrientationChecks(check) {
     );
     check("orient carries the customer's own front page", owner.includes("Shipping the gateway."));
 
+    // A store that reports another page and then offers no continuation token.
+    // `IsTruncated` and `NextContinuationToken` are read from independent tags
+    // in `store/s3.js` with nothing checking they agree, so this pair is what a
+    // slightly-wrong endpoint produces. `listBoundedKeys` computed its cursor as
+    // `page.truncated ? page.cursor : undefined` and left `truncated` false, so
+    // the walk stopped and orient printed a short count as an exact total —
+    // "never a total" is the rule the whole survey is built on.
+    const stalling = {
+      ...bucket,
+      list: async (options) => {
+        const page = await bucket.list(options);
+        // Only the flat per-folder walk, so the folder map itself is unaffected
+        // and this probe changes exactly one thing.
+        return !options?.delimiter && options?.prefix === "2-areas/"
+          ? { ...page, truncated: true, cursor: undefined }
+          : page;
+      },
+    };
+    const stalled = await orientText({ ...env, LARGE_BUCKET: stalling }, OWNER_TOKEN);
+    check(
+      "a folder whose walk the store would not finish is a floor, not a total",
+      /^- 2-areas\/ — \d+\+ notes$/m.test(stalled) && !/^- 2-areas\/ — \d+ notes$/m.test(stalled)
+    );
+    check(
+      "and the total carries the same floor",
+      /notes visible/.test(stalled) && /\d\+ notes visible/.test(stalled)
+    );
+
     const member = await orientText(env, TEAM_TOKEN);
     check("a team connection is not shown a private folder's notes", !member.includes("old-secret"));
     check(
