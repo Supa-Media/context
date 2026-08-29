@@ -1,4 +1,6 @@
 import { describe, expect, test } from "@jest/globals";
+import { parseInvitee } from "@context/convex/functions/lib/invitees";
+
 import { normalizeSignInEmail } from "../features/auth/email";
 
 /**
@@ -10,8 +12,64 @@ import { normalizeSignInEmail } from "../features/auth/email";
  * When they disagree, one human ends up with two accounts and the invitation
  * lands on the one they cannot sign in to — see the block comment on
  * `normalizeSignInEmail` for the full chain.
+ *
+ * **That last sentence used to be the whole of it: a two-package invariant
+ * named in prose, with only this side imported.** Both halves were pinned to
+ * their own literals and neither to the other, which is what `CLAUDE.md` means
+ * when it insists a mirror be "asserted against the control plane's rather
+ * than claimed in a comment".
+ *
+ * The same assertion exists in `apps/convex/__tests__/invitations.test.ts`,
+ * and **that copy is the one CI depends on.** It runs on every pull request
+ * into `main`, whatever it touches, because `gateway-contracts.yml` carries no
+ * `paths` filter and runs the whole control-plane suite — so it catches either
+ * side drifting, in both directions. (`branches: [main]` filters on the base,
+ * so a pull request stacked onto a feature branch runs neither that workflow
+ * nor `ci.yml`, and nothing covers the pair there.)
+ *
+ * This copy is therefore **redundant for CI, and kept for speed**: somebody
+ * changing `normalizeSignInEmail` sees it fail in `jest` in 0.6s rather than
+ * running the control plane's ~10s suite, and this is the file where the
+ * invariant is stated in prose, so the assertion belongs beside it.
+ *
+ * **What it costs is an unguarded sync.** Two identical tables in two packages,
+ * with nothing pinning them to each other — the sentence this test exists to
+ * fix, one level up. Not hypothetical: they drifted inside this change's own
+ * commits, one shipping four rows here against five there. Edit them in pairs
+ * until the `packages/shared` repair retires both.
+ *
+ * (An earlier version of this note said the two copies each closed a direction
+ * nothing else closed, citing a measurement that `ci / Test Convex Backend` is
+ * skipped on mobile-only pull requests. That measurement was real and is still
+ * true of *that* job — and it was taken five hours before
+ * `gateway-contracts.yml` existed, which is the thing that makes the convex
+ * copy universal. **A CI fact measured yesterday is not a CI fact.**)
+ *
+ * **What is asserted is narrower than the sentence above**, and deliberately:
+ * the table covers addresses `parseInvitee` *accepts*, where the two agree by
+ * construction. Outside it they genuinely diverge — `parseInvitee` refuses an
+ * over-length or pattern-failing address that `normalizeSignInEmail` will
+ * happily normalise — so this is a drift detector, not a proof of the
+ * invariant.
  */
 describe("the address that reaches auth", () => {
+  // The mirror, asserted. See the note above on why this is duplicated in the
+  // control plane's suite rather than living in one place.
+  test.each([
+    "LK@Example.Invalid",
+    "  lk@example.invalid  ",
+    "MiXeD.CaSe+tag@Example.Invalid",
+    "\tada@example.invalid\n",
+    "ALLCAPS@EXAMPLE.INVALID",
+  ])("agrees with the invitee parser on %j", (raw) => {
+    const parsed = parseInvitee(raw);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok || parsed.invitee.kind !== "email") {
+      throw new Error("fixture is not an email address");
+    }
+    expect(normalizeSignInEmail(raw)).toBe(parsed.invitee.value);
+  });
+
   test("matches what an invitation to the same person is addressed to", () => {
     // The exact pair that breaks: an invitation is stored lowercase, so a
     // mixed-case account is invisible to the lookup that decides whether to

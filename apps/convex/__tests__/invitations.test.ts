@@ -24,6 +24,8 @@ import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { formatInvitee, parseInvitee } from "../functions/lib/invitees";
+// The mobile half of a two-package invariant — see the test that uses it.
+import { normalizeSignInEmail } from "../../mobile/features/auth/email";
 import {
   addMember,
   asUser,
@@ -117,6 +119,66 @@ describe("parsing an invitee", () => {
       ok: true,
       invitee: { kind: "email", value: "lk@example.invalid" },
     });
+  });
+
+  /**
+   * The invariant that spans two packages, asserted rather than claimed.
+   *
+   * `apps/mobile/__tests__/signInEmail.test.ts` states it in its own header —
+   * *"the address handed to `signIn` must be the same string an invitation to
+   * them would have been addressed to. `parseInvitee` … trims and lowercases;
+   * so does this"* — and then imports only the mobile side and asserts its own
+   * literals. This file asserts its own literals too. **Both halves were
+   * pinned, and neither was pinned to the other**, which is the shape
+   * `CLAUDE.md` names when it insists the consent-scope mirror be "asserted
+   * against the control plane's rather than claimed in a comment".
+   *
+   * **This is the copy CI depends on, and it covers both directions.**
+   * `gateway-contracts.yml` carries no `paths` filter and runs this whole
+   * suite on every pull request **into `main`**, so a change to either
+   * implementation reaches it — including a mobile-only change, which
+   * `ci / Test Convex Backend` would skip. (`branches: [main]` filters on the
+   * base, so a pull request stacked onto a feature branch runs neither this
+   * nor `ci.yml`; nothing covers the pair there.)
+   *
+   * A second copy lives in `signInEmail.test.ts` for fast local feedback — 0.6s
+   * in `jest` against ~10s for this suite — not because anything here fails to
+   * cover it. **That copy costs an unguarded sync**: two identical fixture
+   * tables in two packages with nothing pinning them to each other, which is
+   * the sentence this test exists to fix, one level up. It is not
+   * hypothetical — they drifted inside this change's own commits, one shipping
+   * four rows against five. The `packages/shared` repair below is what retires
+   * the duplication; until it lands, the tables must be edited in pairs.
+   *
+   * The convex suite already reaches into the mobile app (see
+   * `dropboxConnect.test.ts`), so the import costs nothing new.
+   *
+   * **What is asserted is narrower than the invariant named above.** The guard
+   * below means the table only covers addresses `parseInvitee` *accepts*, and
+   * over that domain the two agree by construction — both are
+   * `trim()` + `toLowerCase()`. Outside it they diverge today:
+   * `parseInvitee` refuses an over-length or pattern-failing address that
+   * `normalizeSignInEmail` normalises without complaint. So this is a drift
+   * detector for the shared domain, not a proof of the invariant, and the
+   * durable repair is a single `normalizeEmail` in `packages/shared` that both
+   * call — the same move `gateway-contracts.yml`'s header prescribes for the
+   * Dropbox constants. Filed, not done here.
+   *
+   * The failure it prevents is the one `signInEmail.test.ts` already describes:
+   * one human ends up with two accounts and the invitation lands on the one
+   * they cannot sign in to.
+   */
+  test.each([
+    "LK@Example.Invalid",
+    "  lk@example.invalid  ",
+    "MiXeD.CaSe+tag@Example.Invalid",
+    "\tada@example.invalid\n",
+    "ALLCAPS@EXAMPLE.INVALID",
+  ])("the sign-in normalizer agrees with the invitee parser on %j", (raw) => {
+    const parsed = parseInvitee(raw);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok || parsed.invitee.kind !== "email") throw new Error("fixture is not an email");
+    expect(normalizeSignInEmail(raw)).toBe(parsed.invitee.value);
   });
 
   test("the sigil is positional, so a handle can never be read as an address", () => {
