@@ -51,8 +51,13 @@ import { emptyEditor } from "../features/console/files/editor";
  * exclusion list below already reaches into it. It is the drag path's
  * self-into-self refusal wearing a different UI — `loadedFolders` does no
  * filtering of its own, so this line is the only thing keeping a folder off its
- * own destination list — and nothing in the repository mounted
- * `ExplorerDialogs` at all.
+ * own destination list — and nothing had ever put it in a state where
+ * `MovePicker` renders. (`Explorer` mounts `ExplorerDialogs` unconditionally,
+ * so plenty of things mount it; what nothing did was hand it a non-null
+ * `dialog`. An earlier version of this paragraph said nothing mounted it at
+ * all, which was read off "no test imports it" without opening the parent that
+ * renders it — the third time in this file's history that a claim was asserted
+ * from one fact and contradicted by the file next door.)
  *
  * | Line | Condition | |
  * | --- | --- | --- |
@@ -490,7 +495,6 @@ describe("what may be dragged, and what may be dropped on", () => {
     drag(rowNode(editor.container, "note.md"), rowNode(editor.container, "other.md"));
     expect(editor.calls.entries).toEqual([]);
   });
-
 });
 
 /**
@@ -498,8 +502,8 @@ describe("what may be dragged, and what may be dropped on", () => {
  *
  * It is exported from the same module and takes no frame context, so it needs
  * no `AppFrame` — but `MovePicker` renders through `Shell`, which reaches for
- * safe-area insets on the web build, so the provider is here for the same
- * reason it is in `mountExplorer`.
+ * safe-area insets on the web build, so it needs `METRICS` for the reason given
+ * there.
  */
 function mountMoveDialog(path: string): { container: HTMLElement; calls: Calls } {
   const calls: Calls = { entries: [], props: [] };
@@ -526,11 +530,30 @@ function mountMoveDialog(path: string): { container: HTMLElement; calls: Calls }
   return { container, calls };
 }
 
+/** `MovePicker`'s label for the root, which is not a path. */
+const ROOT_LABEL = "the root of your context";
+
+/**
+ * Every folder path the fixture contains, derived rather than listed.
+ *
+ * `loadedFolders` can only ever return `""` plus the `kind: "folder"` entries of
+ * the listings it is given, so this set is exactly the space the dialog's list
+ * is drawn from — which makes the filter below complete by construction. The
+ * first version matched `/^[0-9]-/` instead and would have silently dropped a
+ * leaked `Journal/` or `Clients/`, the folder names `CLAUDE.md`'s
+ * `resetPrivacyManifest` decision exists because real brains actually have.
+ */
+const EVERY_FOLDER = new Set(
+  [ROOT_LISTING, PROJECTS_LISTING].flatMap((listing) =>
+    listing.entries.filter((entry) => entry.kind === "folder").map((entry) => entry.path),
+  ),
+);
+
 /** Every destination the dialog is offering, in the order it offers them. */
 function offeredFolders(): string[] {
   return [...document.body.querySelectorAll("[aria-label]")]
     .map((node) => node.getAttribute("aria-label") ?? "")
-    .filter((label) => label === "the root of your context" || /^[0-9]-/.test(label));
+    .filter((label) => label === ROOT_LABEL || EVERY_FOLDER.has(label));
 }
 
 function press(label: string): void {
@@ -553,7 +576,7 @@ describe("the move dialog does not offer a folder itself or its own descendants"
     // filtering of its own, so the two that are missing are missing because of
     // the filter under test.
     mountMoveDialog("1-projects");
-    expect(offeredFolders()).toEqual(["the root of your context", "2-areas"]);
+    expect(offeredFolders()).toEqual([ROOT_LABEL, "2-areas"]);
   });
 
   test("choosing an offered destination moves; the dialog's list is the only gate", () => {
