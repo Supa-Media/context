@@ -751,9 +751,35 @@ describe("stored attachments", () => {
       [...block![1]!.matchAll(/\["([a-z0-9]+)",/g)].map((m) => m[1]!),
     );
 
+
     expect(servable.size).toBeGreaterThan(0);
     for (const extension of STORABLE_IMAGE_TYPES.values()) {
       expect(servable, `the gateway will not serve .${extension}`).toContain(extension);
+    }
+  });
+
+  it("and only content types the store adapter will accept", async () => {
+    // The other end of the same journey, and the one nothing checked. The
+    // extension decides whether `read_image` can hand the bytes *back*; the
+    // content type decides whether the bucket accepts them at all —
+    // `assertWritableContentType` throws on anything outside its allow-list,
+    // and the throw would land inside `handleEmail` on a real message rather
+    // than here. Adding a type to the map below without adding it there turns
+    // one shape of attachment into a capture failure, which is exactly the
+    // direction nobody would test for.
+    //
+    // A real import, not a source scrape: this side is not dependency-free,
+    // and `../../../apps/mcp/src/store/index.js` is already what the worker
+    // builds its store from.
+    const { WRITABLE_CONTENT_TYPES } = await import(
+      "../../../apps/mcp/src/store/index.js"
+    );
+    expect(WRITABLE_CONTENT_TYPES.size).toBeGreaterThan(0);
+    for (const contentType of STORABLE_IMAGE_TYPES.keys()) {
+      expect(
+        [...WRITABLE_CONTENT_TYPES],
+        `the store will not accept ${contentType}`,
+      ).toContain(contentType);
     }
   });
 });
