@@ -13,6 +13,7 @@ import { describeQueryFailure } from "./failure";
 import { EMPTY_QUERY_SPEC } from "./querySpec";
 import { useFileBrowser } from "./files/useFileBrowser";
 import { ingestionAvailabilityFor } from "./ingestion/settings";
+import { capabilitiesForRole } from "./capabilities";
 import { useIngestionSettings } from "./ingestion/useIngestionSettings";
 import { useMembers } from "./members/useMembers";
 import { toBindStorageArgs, type Provider } from "./storage/connect";
@@ -318,14 +319,19 @@ export function useLiveConsoleData(): ConsoleData {
   // Read access and write access are different grants (CLAUDE.md, "The
   // workspace model"), so a `member` gets a console with no Save button rather
   // than one whose every save is refused.
-  const canEdit = selected !== null && (selected.role === "owner" || selected.role === "editor");
+  //
+  // Derived in `capabilities.ts` rather than here, and every site below reads
+  // it from there. Inline, the two expressions were unreachable by any test —
+  // mutating `canEdit` to accept any role, and `isOwner` to a constant `true`,
+  // each passed the entire suite.
+  const { canEdit, isOwner } = capabilitiesForRole(selected?.role);
 
   // `bindStorage`, `reverifyStorage` and `disconnectStorage` are all owner-only
   // on the backend, so the whole object is absent for anyone else rather than
   // present-and-disabled. A control that is never offered cannot mislead; a
   // disabled one that an editor could reasonably expect to work does.
   const storageActions: StorageActions | undefined =
-    selectedContextId === null || selected?.role !== "owner"
+    selectedContextId === null || !isOwner
       ? undefined
       : {
           workspaceId: selectedContextId,
@@ -347,7 +353,7 @@ export function useLiveConsoleData(): ConsoleData {
   const ingestion = useIngestionSettings({
     workspaceId: selectedContextId,
     availability: ingestionAvailabilityFor(selected?.kind),
-    canEdit: selected?.role === "owner",
+    canEdit: isOwner,
   });
 
   const members = useMembers({
@@ -362,7 +368,7 @@ export function useLiveConsoleData(): ConsoleData {
     // map that decides which notes they can see at all. Same rule as
     // `storageActions`, and the same reason — the control is absent rather than
     // present and refused.
-    isOwner: selected?.role === "owner",
+    isOwner,
     readOnlyReason:
       selected === null
         ? undefined
