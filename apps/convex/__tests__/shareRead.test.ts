@@ -468,3 +468,75 @@ describe("note content does not stay in the control plane", () => {
     expect(dump).not.toContain(PRIVATE_MARKER);
   });
 });
+
+/**
+ * THE READ PATH IS A THIRD PLACE THAT DECIDES WHO MAY REDEEM A SHARE.
+ *
+ * `resolveShare` answers a link, `listSharedWithMe` is the recipient's inbox,
+ * and `authorizeShareRead` is what stands between a token and the note's bytes.
+ * All three were asking the same question — is this share live, and is this
+ * caller the identity it names — in three separate copies.
+ *
+ * That is the shape `CLAUDE.md` names for the gateway: *"Authority is decided
+ * once, never per protocol era. A scope check implemented separately for a new
+ * protocol revision is a scope check that will drift."* Here the drift had
+ * already happened by the time it was noticed: the sweep and the re-check that
+ * close a freed handle went into two of the three, and this one — the only one
+ * that returns note **content** — kept the older, softer copy.
+ *
+ * So these are the same two cases `shares.test.ts` proves for the token, run
+ * against the bytes.
+ */
+describe("a share that no longer stands reaches no content either", () => {
+  test("the successor to a freed handle reads nothing", async () => {
+    const f = await fixture();
+    const token = await shareEntry(f);
+
+    // Control: the person it was addressed to gets the note.
+    const before = await read(f, f.lk, token);
+    expect(before.text).toContain("Chapter transition");
+
+    // `@lk` gives up their account; a stranger claims the freed handle.
+    await asUser(f.t, f.lk).mutation(api.functions.account.deleteAccount, {});
+    const successor = await createUser(f.t, "successor@example.invalid");
+    await createWorkspace(f.t, successor, "lk");
+
+    // Not a softer refusal than the token path's — the same one, and no bytes.
+    const error = await captureError(() => read(f, successor, token));
+    expect(errorCode(error)).toBe("SHARE_UNAVAILABLE");
+  });
+
+  test("a share whose context was destroyed reaches nothing", async () => {
+    const f = await fixture();
+    const token = await shareEntry(f);
+    expect((await read(f, f.lk, token)).text).toContain("Chapter transition");
+
+    // Only the workspace document goes, so a row the cascade missed is what is
+    // being tested rather than the cascade itself.
+    await f.t.run(async (ctx) => {
+      await ctx.db.delete(f.workspaceId);
+    });
+
+    const error = await captureError(() => read(f, f.lk, token));
+    expect(errorCode(error)).toBe("SHARE_UNAVAILABLE");
+  });
+
+  test("a sharer who is no longer the owner cannot keep serving bytes", async () => {
+    const f = await fixture();
+    const token = await shareEntry(f);
+    expect((await read(f, f.lk, token)).text).toContain("Chapter transition");
+
+    await f.t.run(async (ctx) => {
+      const rows = await ctx.db
+        .query("workspaceMembers")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", f.workspaceId))
+        .collect();
+      for (const row of rows) {
+        if (row.userId === f.owner) await ctx.db.patch(row._id, { role: "editor" });
+      }
+    });
+
+    const error = await captureError(() => read(f, f.lk, token));
+    expect(errorCode(error)).toBe("SHARE_UNAVAILABLE");
+  });
+});

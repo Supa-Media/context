@@ -63,6 +63,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import { normalizePath } from "./lib/fileOps";
 import { linkedNotePaths } from "./lib/noteLinks";
+import { findName } from "./lib/nameClaims";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { identifiersForUser, resolveAddressedUser } from "./lib/identities";
 import {
@@ -80,9 +81,15 @@ import { getMembership, requireWorkspaceRole } from "./lib/workspaceAuth";
  * context may have outstanding.
  *
  * Same reasoning as `MAX_INVITATIONS_RETURNED`: an unbounded `.collect()` is a
- * read whose cost is set by whoever can insert rows. The active cap also bounds
- * the table, because supersession means at most one row exists per
- * `(workspace, note, recipient)` however many times the owner clicks Share.
+ * read whose cost is set by whoever can insert rows.
+ *
+ * **The active cap does not bound the table, and this comment used to say it
+ * did.** Supersession means at most one row per `(workspace, note, recipient)`,
+ * so clicking Share twice makes one row — but the tuple space itself is
+ * unbounded: share note A, revoke, share note B, revoke, forever. Only *active*
+ * rows are capped, and revoked ones accumulate for the life of a context. The
+ * teardown in `account.ts` sweeps both statuses and says the same thing about
+ * its own cost.
  */
 const MAX_SHARES_RETURNED = 200;
 const MAX_ACTIVE_SHARES = 100;
@@ -106,6 +113,153 @@ function isLive(share: Doc<"noteShares">, now: number): boolean {
     share.status === "active" &&
     (share.expiresAt === undefined || share.expiresAt > now)
   );
+}
+
+/**
+ * Whether this share still stands, for this caller, right now.
+ *
+ * **The one predicate, read by all three channels that answer a caller.**
+ * `resolveShare` answers a link somebody was sent; `listSharedWithMe` is the
+ * recipient's own inbox and is the channel that needs no link at all;
+ * `authorizeShareRead` is what stands between a token and the note's bytes.
+ * Three copies of this reasoning would be three places for it to drift, and it
+ * already had: the inbox handed somebody a token the link would have refused,
+ * and the read path — added later, in `#104` — kept a shorter copy than either.
+ *
+ * **`previewTitleForToken` is a fourth reader of these rows and deliberately
+ * does not come through here**, which is worth writing down rather than
+ * leaving for the next person to rediscover as a bug. It is unauthenticated,
+ * so there is no caller for this function to check anything against; it
+ * returns only the owner-chosen title, which whoever holds the link already
+ * has by design; and it checks `isLive`, which the teardown sets — so the
+ * states this predicate exists to catch are unreachable there through any
+ * public path. A reviewer cleared it on exactly that reasoning and the
+ * reasoning was recorded nowhere, which is how an exemption becomes a hole.
+ *
+ * Returns the workspace when the share stands, `null` otherwise. `null` is the
+ * only failure value: every reason a share does not stand must be
+ * indistinguishable from every other, and from a token that never existed.
+ *
+ * ## Why redemption re-checks at all, when the teardown sweeps
+ *
+ * `deleteWorkspaceCascade` now takes this table with it, and a freed identifier
+ * revokes the shares addressed to it. Neither is what this function is for.
+ * The rule this codebase already follows is **sweep at teardown AND re-check at
+ * redemption**: the cascade is allowed to omit `oauthAuthorizations` only
+ * because `createGrant` re-checks membership when a code is redeemed, and that
+ * second check is the reason the omission is inert rather than a hole. A table
+ * added to the schema and not to the teardown is a mistake somebody will make
+ * again — it is how this one was found — so the capability must not depend on
+ * the sweep having been remembered.
+ *
+ * **How much of that is true here, exactly.** The context and sharer checks
+ * below hold for every share. The identifier check does not: it can only fire
+ * on a row carrying a pin, and a share written to a handle nobody held yet
+ * carries none by design — so do rows written before the field existed. For
+ * those the sweep is the only control, which is why its completeness is
+ * test-held rather than assumed. Saying "belt and braces" about a population
+ * wearing one belt is the kind of claim this file is otherwise careful not to
+ * make.
+ *
+ * ## The handle has to be the same handle
+ *
+ * A share is addressed to a **string**, and resolved only here. That is
+ * deliberate, for `inviteMember`'s anti-enumeration reason, and it is what lets
+ * a handle change hands while a standing capability waits: `@lk` deletes their
+ * account, somebody else claims `lk`, and every share addressed to `@lk`
+ * resolves to a stranger.
+ *
+ * So a name-addressed share is pinned to `recipientHeldSince` — the claim it
+ * was written against, or nothing if the handle was free. The schema carries
+ * the reasoning, including why the obvious cheaper version ("the claim must
+ * predate the share") breaks sharing with somebody who has not signed up yet.
+ *
+ * `claimedAt` is not a unique key, and `claim._creationTime` would be. The
+ * reason for using it anyway is that **there is no better pin available**, not
+ * that the alternatives are dangerous — an earlier version of this comment
+ * argued the latter and overstated it, since a snapshot restore preserves
+ * `_creationTime` and only a table-copy migration regenerates it. The real
+ * shortlist is three long: `_creationTime` and `claim._id` carry that same
+ * narrow migration exposure, and `claimedBy` would pin to a *person*, which
+ * means resolving the recipient at write time — precisely what `inviteMember`
+ * refuses to do, and the reason this field stores a moment rather than an
+ * identity.
+ *
+ * So the residue is stated rather than argued away: two claims of the same
+ * handle inside one millisecond compare equal and the second inherits. It
+ * needs a deletion and a re-claim in two transactions a millisecond apart, and
+ * an attacker controls neither the victim's deletion nor its timing. It is
+ * also, unusually for this file, a **fail-open** residue, which is why it is
+ * written down here rather than left to be rediscovered.
+ *
+ * There is no equivalent for an email-addressed share: `emailVerificationTime`
+ * is re-stamped on every verifying sign-in, so it pins nothing. The teardown
+ * sweep covers the case that actually occurs here — an account deleted, its
+ * address free, a stranger verifying it — and what remains open is a mailbox
+ * changing hands outside Context entirely, which no check inside this function
+ * can see. That is a live design question about how long a share to an address
+ * should stand, and it is a *gap*, not a decision: `shares.test.ts` pins both
+ * the sweep and the residue rather than leaving this paragraph as the only
+ * record.
+ */
+async function shareStillStands(
+  ctx: QueryCtx,
+  share: Doc<"noteShares">,
+  userId: Id<"users">,
+  now: number,
+): Promise<Doc<"workspaces"> | null> {
+  if (!isLive(share, now)) return null;
+
+  // The context it points into. A destroyed workspace takes its shares with it
+  // at teardown; this is what makes a row that outlived it inert anyway.
+  //
+  // **This line is not a guard, and saying so is the point.** Removing it
+  // changes no behaviour and fails no test: the function returns the workspace,
+  // so falling through to `return workspace` answers `null` by a longer route.
+  // It is here because everything below reads better with a workspace in hand.
+  // A sabotage of it passes the whole suite, and listing it in the table below
+  // as a checked guard would be exactly the kind of claim the register's rows
+  // about invented comments are for.
+  const workspace = await ctx.db.get(share.workspaceId);
+  if (workspace === null) return null;
+
+  // And the authority behind it. `createShare` is owner-only and ownership is
+  // not transferable, so the person who minted this must still be the owner —
+  // a share is one person's decision to disclose one note, and it does not
+  // outlive their standing to make it.
+  const sharer = await getMembership(ctx, share.workspaceId, share.createdBy);
+  if (sharer === null || sharer.role !== "owner") return null;
+
+  if (share.recipientKind === "name" && share.recipientHeldSince !== undefined) {
+    const claim = await findName(ctx, share.recipient);
+    // `claim?.` rather than an early null check, which would look like a guard
+    // and not be one: an unclaimed handle is already refused below, because
+    // `resolveAddressedUser` resolves it to nobody. Written this way the line
+    // does exactly one job — compare the pin — and a missing claim fails it for
+    // the same reason a wrong one does.
+    //
+    // Pinned to the claim the share was addressed to, when there was one. An
+    // absent pin means nobody held the handle at share time, so the first
+    // person to claim it is who the sharer meant — see the schema.
+    //
+    // This began as `claim.claimedAt > share.createdAt`, i.e. "a claim made
+    // after the share cannot be the claim the sharer addressed". That is false
+    // for the one case it most needed to be true for, and a review caught it:
+    // a share written to a handle nobody holds yet is a supported flow, and
+    // that comparison made it permanently unredeemable the moment the intended
+    // recipient signed up — silently, on both sides, with re-sharing unable to
+    // repair it because the active-row branch freezes `createdAt`.
+    if (claim?.claimedAt !== share.recipientHeldSince) return null;
+  }
+
+  // Last, and the authority on who an identifier belongs to.
+  const addressed = await resolveAddressedUser(ctx, {
+    kind: share.recipientKind,
+    value: share.recipient,
+  });
+  if (addressed === null || addressed !== userId) return null;
+
+  return workspace;
 }
 
 /**
@@ -277,6 +431,16 @@ export const createShare = mutation({
     // comment: this is what makes returning it safe.
     const token = randomOpaqueToken();
 
+    // Which claim this share is being written against, if any. One indexed
+    // lookup that happens whether or not the handle is taken, and whose answer
+    // never leaves this function — it is not returned, and `shareSummary` does
+    // not carry it. Recording *when* the handle was taken is not resolving it
+    // to a person, which is the line `inviteMember` draws and this keeps.
+    const heldSince =
+      parsed.invitee.kind === "name"
+        ? (await findName(ctx, parsed.invitee.value))?.claimedAt
+        : undefined;
+
     if (existing !== null) {
       // Revoked, and now re-shared. A **new** token, so the link that was
       // revoked stays dead — otherwise "revoke" would have meant "pause".
@@ -288,6 +452,10 @@ export const createShare = mutation({
         expiresAt: args.expiresAt,
         createdBy: userId,
         createdAt: now,
+        // Re-pinned with the token and the date, because this is a new grant
+        // in every other respect. Carrying the old pin forward would address a
+        // fresh share to a claim that may no longer exist.
+        recipientHeldSince: heldSince,
         revokedAt: undefined,
       });
     } else {
@@ -296,6 +464,7 @@ export const createShare = mutation({
         entryPath: pathCheck.path,
         recipientKind: parsed.invitee.kind,
         recipient: parsed.invitee.value,
+        recipientHeldSince: heldSince,
         createdBy: userId,
         token,
         status: "active",
@@ -355,6 +524,16 @@ async function assertShareCapacity(
  * Expired rows are filtered rather than swept. A share with no expiry is the
  * default, so there is no backlog to sweep, and a listing that showed a dead
  * grant as live would be worse than one that runs a comparison.
+ *
+ * **This deliberately does not go through `shareStillStands`, and the omission
+ * is not the drift that function's own doc describes.** That predicate answers
+ * "may this caller redeem this share"; the caller here is the owner, who is
+ * redeeming nothing. Running it would hide a share addressed to a handle nobody
+ * has claimed yet — a supported flow — from the only person who can revoke it,
+ * and worse, hiding it *because* the handle is unclaimed would turn an owner's
+ * own share list into an existence oracle for the recipient. Recorded here
+ * because the next reader will otherwise see a missing call and take it for the
+ * bug that `authorizeShareRead` actually had.
  */
 export const listShares = query({
   args: { workspaceId: v.id("workspaces") },
@@ -468,13 +647,8 @@ export const resolveShare = query({
       .query("noteShares")
       .withIndex("by_token", (q) => q.eq("token", args.token))
       .unique();
-    if (share === null || !isLive(share, now)) return null;
-
-    const addressed = await resolveAddressedUser(ctx, {
-      kind: share.recipientKind,
-      value: share.recipient,
-    });
-    if (addressed === null || addressed !== userId) return null;
+    if (share === null) return null;
+    if ((await shareStillStands(ctx, share, userId, now)) === null) return null;
 
     return {
       shareId: share._id,
@@ -534,14 +708,9 @@ export const listSharedWithMe = query({
 
     const summaries = [];
     for (const row of rows) {
-      // The authority, not the gathering above.
-      const addressed = await resolveAddressedUser(ctx, {
-        kind: row.recipientKind,
-        value: row.recipient,
-      });
-      if (addressed !== userId) continue;
-
-      const workspace = await ctx.db.get(row.workspaceId);
+      // The authority, not the gathering above — and the same predicate the
+      // link path answers, so this inbox can never be the softer of the two.
+      const workspace = await shareStillStands(ctx, row, userId, now);
       if (workspace === null) continue;
       summaries.push({
         token: row.token,
@@ -630,13 +799,17 @@ export const authorizeShareRead = internalQuery({
       .query("noteShares")
       .withIndex("by_token", (q) => q.eq("token", args.token))
       .unique();
-    if (share === null || !isLive(share, now)) return null;
-
-    const addressed = await resolveAddressedUser(ctx, {
-      kind: share.recipientKind,
-      value: share.recipient,
-    });
-    if (addressed === null || addressed !== args.actorUserId) return null;
+    if (share === null) return null;
+    // The same predicate the link and the inbox answer. This is the third place
+    // that decides who may redeem a share, and the only one that returns note
+    // **content**, so it must never be the softest of the three — which it was.
+    // The freed-handle and destroyed-context checks went into the other two and
+    // this kept an older, shorter copy; `CLAUDE.md` names the shape for the
+    // gateway ("authority is decided once, never per protocol era"), and a
+    // control plane drifts the same way. Measured before this line existed: a
+    // share whose workspace document is gone, and one whose sharer is no longer
+    // the owner, both returned the note's text.
+    if ((await shareStillStands(ctx, share, args.actorUserId, now)) === null) return null;
 
     return {
       shareId: share._id,
@@ -824,7 +997,10 @@ async function readThroughShare(
  *
  *  - **The title is never note content.** It is owner-chosen or derived from
  *    the filename, so an unfurl never reads the customer's bucket. See
- *    `lib/shareTitle.ts`.
+ *    `lib/shareTitle.ts`. It is also **stored at share time**, so revoking and
+ *    expiring freeze the card and making the note private does not: the read
+ *    path re-checks the live manifest on every request, this does not, and it
+ *    has nothing to re-check against. Revocation is the control here.
  *  - **One shape, always.** Unknown token, revoked share, expired share,
  *    `titleInPreview` off, a share whose title normalised to nothing — every
  *    one of them is `{ title: null }`. A crawler cannot tell revoked from

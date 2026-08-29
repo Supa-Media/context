@@ -312,6 +312,38 @@ const schema = defineSchema({
     recipientKind: v.union(v.literal("name"), v.literal("email")),
     recipient: v.string(),
     createdBy: v.id("users"),
+    /**
+     * When the current holder took the recipient handle, as of the moment this
+     * share was written — or absent, meaning nobody held it.
+     *
+     * This is what separates the two ways a `@name` can resolve to somebody the
+     * sharer was not addressing, which a bare "the claim must predate the
+     * share" comparison cannot tell apart:
+     *
+     *  - **Nobody held it** (absent). Sharing with a colleague who is not on
+     *    Context yet is a supported flow — `createShare` accepts an unclaimed
+     *    handle on purpose, so that sharing with `@nobody` is indistinguishable
+     *    from sharing with a real person. Whoever claims it first is the person
+     *    the sharer meant, and the share must survive them signing up.
+     *  - **Somebody held it** (a timestamp). Then the share was addressed to
+     *    *that* claim, and a later one — the name freed by a deletion and
+     *    re-claimed by a stranger — is a different person wearing the handle.
+     *
+     * A timestamp rather than a `userId`, deliberately: resolving the recipient
+     * at creation time is exactly what `inviteMember` refuses to do, because it
+     * would make the share box a name-enumeration endpoint. This records *when
+     * the handle was taken*, never by whom.
+     *
+     * There is no equivalent for an email recipient. `emailVerificationTime` is
+     * re-stamped by `@convex-dev/auth` on every verifying sign-in, so it pins
+     * nothing; the teardown sweep is the whole control there.
+     *
+     * Absent on rows written before this field existed, which reads as "nobody
+     * held it" and so does not pin them. That is the safe direction only
+     * because the sweep, not this, is the primary control for a freed handle —
+     * see `voidCapabilitiesAddressedTo`.
+     */
+    recipientHeldSince: v.optional(v.number()),
     /** Unguessable, and useless without the matching identity. */
     token: v.string(),
     status: v.union(v.literal("active"), v.literal("revoked")),
