@@ -81,6 +81,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { invalidateInvitationSignInCode } from "./invitationEmail";
 import { recordAudit } from "./lib/audit";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
+import { identifiersForUser, resolveAddressedUser } from "./lib/identities";
 import {
   formatInvitee,
   inviteeRejectionError,
@@ -143,14 +144,6 @@ const MAX_PENDING_INVITATIONS = 100;
  * disclosure, and it corrects itself the next time the sweep runs.
  */
 
-/**
- * The most members one lookup will scan.
- *
- * Mirrors `MAX_MEMBERS_RETURNED` in `functions/workspaces.ts`. Used only to
- * find a workspace's single owner, which is always the first row written.
- */
-const MAX_MEMBERS_SCANNED = 200;
-
 /** Invitations one account may successfully create per hour, across all contexts. */
 const INVITE_LIMIT = 20;
 const INVITE_WINDOW_MS = 60 * 60 * 1000;
@@ -177,66 +170,6 @@ function invitationNotFound(): ConvexError<{ code: string; message: string }> {
 /** Whether an invitation is answerable right now. */
 function isPending(invitation: Doc<"workspaceInvitations">, now: number): boolean {
   return invitation.status === "pending" && invitation.expiresAt > now;
-}
-
-/**
- * The account behind an identifier, or `null`.
- *
- * `null` covers "no such name", "no such mailbox", "that name belongs to a
- * shared context rather than a person", and "that account never verified its
- * address" — because every caller of this function must treat all four
- * identically, and returning a reason would invite somebody to branch on it.
- *
- * ## Why a `@name` can resolve through a personal context
- *
- * The `names` table has a `kind: "user"` variant, but nothing claims one today:
- * the only writer is `createWorkspace`, which claims `kind: "workspace"`. What
- * a person actually has is a **personal** workspace whose slug is their handle
- * — `@seyi` is the name of Seyi's own context — which is precisely what
- * CLAUDE.md means by usernames and workspace slugs sharing one namespace.
- *
- * So a handle resolves to a person in two steps: a `user` claim if one exists,
- * otherwise the sole `owner` of a `personal` workspace with that slug. The
- * `personal` check is the important half — `@shared-thing` is a context, not a
- * person, and inviting a context into a context is a mount, which is
- * deliberately not built.
- *
- * Every ambiguity fails closed. Two accounts on one address, or a workspace
- * with anything other than exactly one owner, resolves to `null` rather than to
- * a guess: this function decides who may join a context, and the one thing it
- * must never do is pick.
- */
-async function resolveInviteeUser(
-  ctx: QueryCtx,
-  invitee: Invitee,
-): Promise<Id<"users"> | null> {
-  if (invitee.kind === "email") {
-    const matches = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", invitee.value))
-      .take(2);
-    if (matches.length !== 1) return null;
-    const user = matches[0];
-    // An unverified address proves nothing about who holds the mailbox, and an
-    // invitation addressed to a mailbox is meaningless without that proof.
-    if (user.emailVerificationTime === undefined) return null;
-    return user._id;
-  }
-
-  const claim = await findName(ctx, invitee.value);
-  if (claim === null) return null;
-  if (claim.kind === "user") return claim.userId ?? null;
-  if (claim.workspaceId === undefined) return null;
-
-  const workspace = await ctx.db.get(claim.workspaceId);
-  if (workspace === null || workspace.kind !== "personal") return null;
-
-  const members = await ctx.db
-    .query("workspaceMembers")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
-    .take(MAX_MEMBERS_SCANNED);
-  const owners = members.filter((member) => member.role === "owner");
-  return owners.length === 1 ? owners[0].userId : null;
 }
 
 /**
@@ -301,7 +234,7 @@ async function resolveInvitationForCaller(
   if (invitation === null) throw invitationNotFound();
   if (!isPending(invitation, now)) throw invitationNotFound();
 
-  const addressed = await resolveInviteeUser(ctx, {
+  const addressed = await resolveAddressedUser(ctx, {
     kind: invitation.inviteeKind,
     value: invitation.invitee,
   });
@@ -371,7 +304,7 @@ export const inviteMember = mutation({
 
     // The one permitted asymmetry. An owner can already enumerate their own
     // members, so doing nothing here tells them nothing `listMembers` did not.
-    const existing = await resolveInviteeUser(ctx, parsed.invitee);
+    const existing = await resolveAddressedUser(ctx, parsed.invitee);
     if (existing !== null) {
       const membership = await getMembership(ctx, args.workspaceId, existing);
       if (membership !== null) return null;
@@ -604,34 +537,9 @@ export const listMyInvitations = query({
     const userId = (await requireAuthId(ctx)) as Id<"users">;
     const now = Date.now();
 
-    const me = await ctx.db.get(userId);
-    if (me === null) return [];
-
-    const identifiers: Invitee[] = [];
-    if (me.email !== undefined && me.emailVerificationTime !== undefined) {
-      identifiers.push({ kind: "email", value: me.email.toLowerCase() });
-    }
-    // Names claimed by this account directly, plus the slugs of the personal
-    // contexts they own — the two ways a handle points at a person today. See
-    // `resolveInviteeUser`, which is the authority; anything gathered here that
-    // it disagrees with is dropped below.
-    const claims = await ctx.db
-      .query("names")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .take(MAX_INVITATIONS_RETURNED);
-    for (const claim of claims) {
-      if (claim.kind === "user") identifiers.push({ kind: "name", value: claim.name });
-    }
-    const memberships = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .take(MAX_INVITATIONS_RETURNED);
-    for (const membership of memberships) {
-      if (membership.role !== "owner") continue;
-      const workspace = await ctx.db.get(membership.workspaceId);
-      if (workspace === null || workspace.kind !== "personal") continue;
-      identifiers.push({ kind: "name", value: workspace.slug });
-    }
+    // Candidates only. `resolveAddressedUser` below is the authority, and
+    // anything gathered here that it disagrees with is dropped.
+    const identifiers = await identifiersForUser(ctx, userId);
 
     const rows: Doc<"workspaceInvitations">[] = [];
     for (const identifier of identifiers) {
@@ -647,7 +555,7 @@ export const listMyInvitations = query({
     const summaries = [];
     for (const row of rows) {
       // The authority, not the gathering above.
-      const addressed = await resolveInviteeUser(ctx, {
+      const addressed = await resolveAddressedUser(ctx, {
         kind: row.inviteeKind,
         value: row.invitee,
       });
