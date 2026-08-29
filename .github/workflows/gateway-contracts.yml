@@ -95,10 +95,23 @@ jobs:
       # The detector self-tests, and fails when it finds nothing. A scan that
       # matches no files is not a pass — it is this job quietly becoming
       # decorative, which is the failure it was written to catch.
+      #
+      # The shell counts the lines because the script's own zero-match branch
+      # cannot fire if the script never runs. That is not hypothetical here: an
+      # earlier version of its main-module guard compared `import.meta.url`
+      # against an un-realpath'd `process.argv[1]`, so through any symlink —
+      # an npm or pnpm bin shim — both commands below printed nothing and
+      # exited 0, `--self-test` included. Only an assertion outside the script
+      # catches the script not executing.
       - name: The cross-package contract still exists
         run: |
           node scripts/gateway-contract-tests.mjs --self-test
-          node scripts/gateway-contract-tests.mjs
+          found=$(node scripts/gateway-contract-tests.mjs | tee /dev/stderr | wc -l)
+          if [ "$found" -lt 1 ]; then
+            echo "The detector printed nothing, so it did not run."
+            exit 1
+          fi
+          echo "$found contract tests listed."
 
       - uses: pnpm/action-setup@v4
 

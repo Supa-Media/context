@@ -66,10 +66,21 @@ const TESTS_DIR = "apps/convex/__tests__";
  * `readFileSync(resolvePath(__dirname, "../../mcp/src/index.js"))`, where no
  * keyword sits adjacent to the quote.
  *
- * What separates the two cleanly here is the quote character. Code in this
- * package imports with `"` or `'`; the prose is backticked, because that is
- * the house documentation style. So: a straight-quoted path under `mcp/src`,
- * on one line. Both real shapes match, all three prose files do not.
+ * Nor does the quote character, which was the third attempt: match a straight-
+ * quoted path and let backticked prose through. It survived by coincidence.
+ * `[^"'\n]*` treats a possessive apostrophe as a closing quote, so **the house
+ * voice defeats it** — one JSDoc line reading *"The gateway's
+ * `apps/mcp/src/index.js` is what the control plane's copy mirrors"* in
+ * `fixtures.helpers.ts`, which nearly everything imports, takes this listing
+ * from 8 to **33 of 40**. So does quoting an error message that contains a
+ * path. Measured both.
+ *
+ * What separates them without depending on prose style: **a relative path is a
+ * code artifact.** An import writes `../../mcp/src/...`; prose writes the
+ * repo-absolute `apps/mcp/src/...`, every time, because that is what a reader
+ * needs. So the pattern requires a leading `./` or `../`. It matches the
+ * template-literal import and the nested `readFileSync`, and is immune to all
+ * three amplification probes above.
  *
  * It still matches text rather than resolving it, so a path built at runtime
  * or aliased slips through. Stated rather than papered over: the workflow runs
@@ -77,7 +88,7 @@ const TESTS_DIR = "apps/convex/__tests__";
  */
 export function readsGatewaySource(source) {
   if (typeof source !== "string") return false;
-  return /["'][^"'\n]*mcp\/src\/[^"'\n]*["']/.test(source);
+  return /\.\.?\/[^"'`\n]*mcp\/src\//.test(source);
 }
 
 /**
@@ -143,6 +154,13 @@ function selfTest() {
     ["// the gateway refuses both already (apps/mcp/src/index.js, move_note)", false],
     [" * See `apps/mcp/src/index.js` for the gateway side.", false],
     [" * Nine from `apps/mcp/src/controlPlane.js` (the MCP gateway) and three", false],
+    // The two shapes that defeated the straight-quote rule, in the house voice:
+    // a possessive apostrophe closes a quote class, and so does a quoted error
+    // message. Each took the listing from 8 to 33 of 40 when planted in a
+    // widely imported helper. Pinned here so the rule cannot regress to one
+    // that reads prose.
+    [" * The gateway's `apps/mcp/src/index.js` is what the control plane's copy mirrors.", false],
+    [' * The message says "apps/mcp/src/index.js has an export this extraction".', false],
     ['import { api } from "../convex/_generated/api";', false],
     // A helper import is not a gateway read on its own — nearly every test
     // here imports one, and qualifying on that matched 34 of 40 files.
@@ -179,6 +197,17 @@ function selfTest() {
   // qualify only through the hop. Two proven functions with an unproven join
   // is a guard nobody has checked, one level up.
   const listed = gatewayContractTests();
+  // Stated as a property as well as by name, so a renamed test file produces a
+  // useful failure rather than a puzzling one: each of the two routes in must
+  // still be carrying at least one file.
+  const direct = listed.filter((f) => readsGatewaySource(readFileSync(join("apps/convex", f), "utf8")));
+  if (direct.length === 0 || direct.length === listed.length) {
+    console.error(
+      `FAIL wiring: ${direct.length} of ${listed.length} qualify by direct read — ` +
+        "one route is carrying everything, so the other is not being exercised"
+    );
+    failed = true;
+  }
   for (const required of [
     "__tests__/onboarding.test.ts", // helper hop only
     "__tests__/addressing.test.ts", // direct read only
@@ -212,7 +241,15 @@ function selfTest() {
 // nothing, and `--self-test` through the same link reported nothing and
 // succeeded. **A check that is green because it did not execute, inside the
 // job written to stop checks being green because they did not execute.**
-const invokedAs = process.argv[1] ? realpathSync(process.argv[1]) : null;
+// The `try` is not decoration: `realpathSync` throws ENOENT on a path that no
+// longer exists, and at module top level that would make merely *importing*
+// this file throw — contradicting the paragraph above it.
+let invokedAs = null;
+try {
+  invokedAs = process.argv[1] ? realpathSync(process.argv[1]) : null;
+} catch {
+  invokedAs = null;
+}
 if (invokedAs && import.meta.url === pathToFileURL(invokedAs).href) {
   const args = process.argv.slice(2);
   if (args.includes("--self-test")) {
