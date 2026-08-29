@@ -114,7 +114,7 @@ export default {
       }
 
       case "share-card":
-        return await shareCardResponse(decision.token, env, ctx);
+        return await shareCardResponse(request.url, decision.token, env, ctx);
 
       case "og-card":
         return new Response(ogCard, {
@@ -264,14 +264,25 @@ const CARD_CACHE_SECONDS = 3600;
  * which is a phishing asset rather than a feature.
  */
 async function shareCardResponse(
+  url: string,
   token: string,
   env: Env,
   ctx: ExecutionContext,
 ): Promise<Response> {
   const cache = caches.default;
-  // Keyed on the full URL, so the `?v=` hash separates one title's card from
-  // the next without either of them needing to be purged.
-  const cacheKey = new Request(`https://context.lc/og/s/${token}.png`);
+  // **Keyed on the URL as asked for, query and all**, which is what makes the
+  // `?v=` hash mean anything. It used to synthesise a key from the token alone,
+  // so every version of a title collapsed into one entry: an owner retitling a
+  // share got the old card for the whole TTL, and the hash `preview.ts` goes to
+  // the trouble of computing bought nothing. The Workers Cache API is
+  // per-datacenter and `cache.delete` purges only the colo the Worker ran in,
+  // so a changed title being a different URL is the only invalidation there is.
+  //
+  // Not a contradiction of the paragraph above: the query is a **key** here and
+  // never an input. The title is still re-resolved from the token on every
+  // render, so a crafted `?v=` changes which entry is written and can never
+  // change what is drawn.
+  const cacheKey = new Request(url);
 
   const cached = await cache.match(cacheKey);
   if (cached) return cached;
