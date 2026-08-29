@@ -270,7 +270,6 @@ export function tabLabel(state: TabsState, path: string): string {
   return folder === "" ? name : `${baseName(folder)}/${name}`;
 }
 
-
 /**
  * Which open tabs a changed set of listings says are gone.
  *
@@ -289,8 +288,16 @@ export function tabLabel(state: TabsState, path: string): string {
  * "deleted" and closed the tab of a note that still exists — after which the
  * tree, drawing the same short listing, could not reach it either.
  *
- * The flag has been measured by the server and carried to the client all along.
- * Nothing read it.
+ * The flag has been measured by the server and carried to the client all along
+ * with no consumer anywhere in `apps/mobile`. **This is now its only one**, and
+ * that is a statement about this function rather than about the flag: three
+ * other readers of the same short listing are still blind to it —
+ * `buildTreeRows` draws a truncated folder as complete (and can draw "Empty"
+ * for one whose whole first page was filtered), `namesIn` tells
+ * `describeNameProblem` a taken name is free, and `itemsFromListings` returns a
+ * short palette. None is a regression and none is disclosure; all three are
+ * "a short list printed as a complete one", which is the rule CLAUDE.md states
+ * for `noteCountTruncated` and `resetPrivacyManifest.partial`.
  */
 export function tabsToClose(
   tabs: readonly Tab[],
@@ -298,7 +305,7 @@ export function tabsToClose(
 ): string[] {
   const gone: string[] = [];
   for (const tab of tabs) {
-    const folder = tab.path.includes("/") ? tab.path.slice(0, tab.path.lastIndexOf("/")) : "";
+    const folder = parentPath(tab.path);
     const listing = listings[folder];
     if (listing === undefined || listing.truncated) continue;
     if (!listing.entries.some((entry) => entry.path === tab.path)) gone.push(tab.path);

@@ -98,17 +98,7 @@ export function useTabs(
    * tab whenever a folder collapsed.
    */
   const listings = files.listings;
-  const known = useRef<ReadonlySet<string>>(new Set());
   useEffect(() => {
-    const present = new Set<string>();
-    const loadedFolders = new Set<string>();
-    for (const [folder, listing] of Object.entries(listings)) {
-      if (listing === undefined) continue;
-      loadedFolders.add(folder);
-      for (const entry of listing.entries) present.add(entry.path);
-    }
-    known.current = present;
-
     for (const path of tabsToClose(state.tabs, listings)) {
       dispatch({ type: "removed", path });
     }
@@ -119,23 +109,28 @@ export function useTabs(
    * `files` changes identity on every render and the strip must survive that.
    *
    * The ref is seeded with the *initial* `contextKey`, so the equality check is
-   * what stops a reset on mount, rather than a separate "is this the first run"
-   * sentinel doing the same job in a second branch.
+   * what stops a reset **on mount** — the effect runs there too, and without the
+   * check it would wipe a strip that the `opened` effect above has already
+   * filled, because that effect is declared first and both run in the same
+   * commit. `useTabs` is mounted with a note already open every time somebody
+   * reloads the console on a note.
    *
-   * **And that check is not covered by a test, deliberately said rather than
-   * papered over.** Given `[contextKey]` deps, the effect only runs when the key
-   * has already changed, so on every path React currently takes the comparison
-   * is false and the reset would happen anyway. What it is actually for is a
-   * re-run with the key *unchanged* — StrictMode's double invocation, or Fast
-   * Refresh — which nothing in this app produces today and no test here
-   * simulates. Removing it fails nothing, and that is the truth about it: it is
-   * belt to a brace, kept for the same reason `rowInteractions.web.ts` and
-   * `useReverify.ts` both guard against double-invocation, and claimed as
-   * nothing more.
+   * An earlier version of this comment claimed the opposite — that the effect
+   * "only runs when the key has already changed", so the check "fails nothing"
+   * and was kept as belt to a brace. That was wrong, and it contradicted the
+   * sentence directly above it. It looked true because at mount the state is
+   * already `emptyTabs`, so the redundant `reset` hits `useReducer`'s bail-out
+   * and nothing is visibly lost; give the mount a tab to lose and it is
+   * immediate. Tenth comment in this repository to argue for behaviour the code
+   * does not have, and the first one written while claiming to be careful about
+   * exactly that.
    */
   const openContext = useRef(contextKey);
   useEffect(() => {
     if (openContext.current === contextKey) return;
+    // Moving the ref forward is what makes the NEXT switch fire. Pinned at the
+    // first key, A->B resets and B->A does not — which is this file's own bug
+    // back, on the most ordinary navigation a context rail produces.
     openContext.current = contextKey;
     dispatch({ type: "reset" });
   }, [contextKey]);

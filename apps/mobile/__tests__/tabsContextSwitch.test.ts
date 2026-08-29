@@ -60,7 +60,10 @@ function listing(path: string, names: string[]): FolderListing {
   };
 }
 
-function browser(listings: Record<string, FolderListing | undefined>): FileBrowser {
+function browser(
+  listings: Record<string, FolderListing | undefined>,
+  openPath: string | null = null,
+): FileBrowser {
   return {
     canEdit: true,
     loading: false,
@@ -70,7 +73,10 @@ function browser(listings: Record<string, FolderListing | undefined>): FileBrows
     toggleFolder: noop,
     selectedPath: null,
     select: noop,
-    editor: emptyEditor,
+    // A note already open at mount, which is what reloading the console on a
+    // note looks like. Without one, a redundant reset at mount hits
+    // `useReducer`'s bail-out and is invisible.
+    editor: openPath === null ? emptyEditor : { ...emptyEditor, status: "clean", path: openPath },
     setDraft: noop,
     save: noop,
     useTheirs: noop,
@@ -99,7 +105,11 @@ function browser(listings: Record<string, FolderListing | undefined>): FileBrows
 
 /** Mount `useTabs` and expose it, so a test can drive it like the frame does. */
 function mountTabs(): {
-  render: (contextKey: string | null, listings: Record<string, FolderListing | undefined>) => void;
+  render: (
+    contextKey: string | null,
+    listings: Record<string, FolderListing | undefined>,
+    openPath?: string | null,
+  ) => void;
   open: (path: string) => void;
   openPaths: () => string[];
 } {
@@ -107,11 +117,13 @@ function mountTabs(): {
   function Probe({
     contextKey,
     listings,
+    openPath,
   }: {
     contextKey: string | null;
     listings: Record<string, FolderListing | undefined>;
+    openPath: string | null;
   }) {
-    live = useTabs(browser(listings), contextKey);
+    live = useTabs(browser(listings, openPath), contextKey);
     return null;
   }
   const container = document.createElement("div");
@@ -122,9 +134,9 @@ function mountTabs(): {
     container.remove();
   });
   return {
-    render: (contextKey, listings) =>
+    render: (contextKey, listings, openPath = null) =>
       act(() => {
-        root.render(createElement(Probe, { contextKey, listings }));
+        root.render(createElement(Probe, { contextKey, listings, openPath }));
       }),
     /** Open a tab through the hook's own API, as the tree does. */
     open: (path: string) =>
@@ -175,6 +187,73 @@ describe("tabs do not survive a context switch", () => {
   });
 });
 
+
+describe("the guards inside the switch", () => {
+  /**
+   * The mount case, which an earlier comment in `useTabs.ts` claimed could not
+   * be tested and was wrong about.
+   *
+   * The reset effect runs on mount like any other, and the `opened` effect
+   * above it has already put a tab in the strip by then. Without the equality
+   * check the strip is wiped on arrival — invisible only when the state is
+   * already empty, because the redundant `reset` hits `useReducer`'s bail-out.
+   */
+  test("arriving with a note already open keeps its tab", () => {
+    const probe = mountTabs();
+    probe.render("workspace-a", { "": listing("", ["open.md"]) }, "open.md");
+    expect(probe.openPaths()).toEqual(["open.md"]);
+  });
+
+  /**
+   * A -> B -> A. The ref has to move forward, not merely be compared against.
+   *
+   * Pinned at the first key, the first switch resets and the second does not —
+   * so tabs opened in B survive back into A, which is this file's own bug
+   * returning on the most ordinary navigation a context rail produces. Nothing
+   * in the first version of this suite caught it.
+   */
+  test("switching back to the first context clears it too", () => {
+    const probe = mountTabs();
+    probe.render("workspace-a", { "": listing("", ["a.md"]) });
+    probe.open("a.md");
+
+    // B's tab is in a SUBFOLDER, and that is the whole point. A root-level tab
+    // is closed by pruning on the way back — so a test using one passes whether
+    // or not the reset fires, which is how the first version of this test
+    // missed the mutation it was written for. A subfolder of B is never loaded
+    // in A, so nothing but the switch can close it.
+    const bDeep = { "2-areas/deals": listing("2-areas/deals", ["b-secret.md"]) };
+    probe.render("workspace-b", bDeep);
+    expect(probe.openPaths()).toEqual([]);
+    probe.open("2-areas/deals/b-secret.md");
+    expect(probe.openPaths()).toEqual(["2-areas/deals/b-secret.md"]);
+
+    probe.render("workspace-a", { "": listing("", ["a.md"]) });
+    expect(probe.openPaths()).toEqual([]);
+  });
+
+  /**
+   * The pruning *dispatch*, as opposed to the pruning decision.
+   *
+   * `tabsToClose` is pure and `fileTabs.test.ts` covers it thoroughly — which
+   * is exactly why this is needed. A decision nothing acts on looks identical
+   * to a decision that is correct, and a well-tested pure module beside an
+   * unheld caller is more misleading than no module at all: it manufactures the
+   * appearance of coverage. Replacing the loop's iterable with `[]` failed
+   * nothing before this test existed.
+   */
+  test("a note that stopped existing loses its tab", () => {
+    const probe = mountTabs();
+    probe.render("workspace-a", { "": listing("", ["gone.md", "stays.md"]) });
+    probe.open("gone.md");
+    probe.open("stays.md");
+    expect(probe.openPaths()).toEqual(["gone.md", "stays.md"]);
+
+    // Same context, refreshed listing: one note is no longer there.
+    probe.render("workspace-a", { "": listing("", ["stays.md"]) });
+    expect(probe.openPaths()).toEqual(["stays.md"]);
+  });
+});
 
 /**
  * The wiring, asserted at the source.
