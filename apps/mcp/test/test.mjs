@@ -2904,6 +2904,55 @@ const orphan = await call("priv-token", "read_image", {
   image: `.images/${ORPHAN_IMAGE}`,
 });
 check("an image no named note references resolves nothing", refusalText(orphan) === REFUSAL);
+
+// The `.md` half of the note check, which nothing held: dropping
+// `.endsWith(".md")` from `toolReadImage` passed the entire suite.
+//
+// It is not redundant with `canSee`. At private scope `canSee` returns true for
+// *any* non-plumbing key, and at team scope it asks the folder's visibility —
+// neither asks whether the key is a note. So without it `read_image` accepts a
+// non-markdown object as the "note", reads it, and answers on whether its bytes
+// contain the leaf.
+//
+// **What that is worth. Two reviews, and the second measured what the first two
+// versions of this comment only asserted.** Version one called it "a one-bit
+// oracle over files no note tool will open", on the strength of `read_note`
+// refusing a `.csv` — it does not, `toolReadNote` is `normalizePath` + `canSee`
+// with no `.md` gate. Version two corrected that into "a strict subset of what
+// `read_note` already grants — one bit about something wholly readable", which
+// is wrong in the other direction and by more.
+//
+// What the mutated tool returns is the **image's bytes**, at private and team
+// scope alike, and nothing else in the gateway can return them. The image lives
+// under `.images/`, a dot-prefixed segment, so `isPlumbing` refuses it and
+// `read_note` of that key answers `not found` at every scope. The `note`
+// argument is the *only* authorization the image store has — the neighbouring
+// check above says so in its own words, an image no named note references
+// resolves nothing — and the `.md` gate is what stops any object the caller can
+// see from being that note. The chain needs no prior knowledge of the hash:
+// read the `.csv` (ungated, as above), take the leaf out of its text, pass the
+// `.csv` as the note.
+//
+// It is not `#116` that made this reachable, which version two also claimed.
+// `writeImage` writes only under `.images/`, and a plumbing key can never be
+// the `note` argument. A non-`.md` object on the *note* surface arrives the way
+// the repo already documents keys arriving — Obsidian's sync, rclone, the
+// provider's own console — none of which pass through our path validation.
+//
+// The object below is seeded to *contain* the leaf, so the reference check
+// cannot be what refuses it and only the `.md` check can.
+await contextStore.put(
+  "1-projects/portable/notes.csv",
+  `filename,key\nshot.png,.images/${TEAM_IMAGE}\n`
+);
+const nonMarkdownNote = await call("priv-token", "read_image", {
+  note: "1-projects/portable/notes.csv",
+  image: `.images/${TEAM_IMAGE}`,
+});
+check(
+  "a non-markdown object cannot stand in for the note, even holding the leaf",
+  refusalText(nonMarkdownNote) === REFUSAL
+);
 const teamReachingIntoPrivate = await call("team-token", "read_image", {
   note: "1-projects/secret-thing/with-image.md",
   image: `.images/${PRIVATE_IMAGE}`,

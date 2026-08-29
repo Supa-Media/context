@@ -866,11 +866,13 @@ const MAX_INLINE_IMAGE_BYTES = 5_000_000;
  * Turn whatever the caller passed as `image` into the one key it may mean.
  *
  * Accepts `.images/<leaf>` or the bare `<leaf>`, and nothing else. This is the
- * function that stops `read_image` from being a general object reader: every
- * other read path in this gateway is gated on `.md` plus `canSee`, and this one
+ * function that stops `read_image` from being a general object reader: this one
  * reads raw bytes by key, so if `image` could name an arbitrary object then a
  * note reading "privacy.md" would exfiltrate the manifest and "../" would walk
- * out of the store. The leaf is a single path segment with an image extension —
+ * out of the store. (An earlier version of this sentence said "every other read
+ * path in this gateway is gated on `.md` plus `canSee`". `toolReadNote` is not:
+ * it is `normalizePath` + `canSee`, with no `.md` gate. The listing, search and
+ * `fetch` paths do gate on both.) The leaf is a single path segment with an image extension —
  * no slashes, no dots leading anywhere, nothing outside `.images/`.
  *
  * Returns null for anything else; the caller turns null into the same "not
