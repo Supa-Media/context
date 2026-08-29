@@ -813,6 +813,21 @@ const schema = defineSchema({
     allowedDomains: v.array(v.string()),
     /** Explicit opt-in to accept from anyone. Never a default. */
     allowAnySender: v.boolean(),
+    /**
+     * What happens to an attachment: `ignore`, `list`, or `store`. Optional so
+     * rows written before this field existed need no backfill; every reader
+     * resolves an absent value to `DEFAULT_ATTACHMENT_POLICY`, which is `list`
+     * — precisely what the pipeline did while this was a hardcoded constant.
+     * An existing context therefore behaves identically on the day this ships.
+     */
+    attachmentPolicy: v.optional(v.string()),
+    /**
+     * Per-attachment ceiling in bytes. Absent means
+     * `DEFAULT_MAX_ATTACHMENT_BYTES`. Capped on write at
+     * `MAX_ATTACHMENT_BYTES_CEILING`, which is bounded by what the gateway will
+     * serve back rather than by what a bucket will hold.
+     */
+    maxAttachmentBytes: v.optional(v.number()),
     updatedBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),

@@ -77,6 +77,108 @@ export interface IngestionSettings {
   allowedDomains: string[];
   /** Turns the address into an open drop-box. Deliberately explicit. */
   allowAnySender: boolean;
+  /**
+   * What happens to an attachment: `ignore`, `list`, or `store`.
+   *
+   * **Optional, and its absence is not permission to store**, for the same
+   * reason `receiving` is optional. A control plane that predates this field
+   * says nothing, and a console that read silence as "store" would tell an
+   * owner a stranger's files are being kept in their bucket when nothing is
+   * keeping them. Nothing in the UI may read this directly — go through
+   * `attachmentPolicyOf`, which is the single place allowed to conclude.
+   */
+  attachmentPolicy?: string;
+  /** Per-attachment ceiling in bytes. Read through `maxAttachmentBytesOf`. */
+  maxAttachmentBytes?: number;
+}
+
+export type AttachmentPolicy = "ignore" | "list" | "store";
+
+/** Least to most permissive, matching `ATTACHMENT_POLICIES` in the backend. */
+export const ATTACHMENT_POLICIES: readonly AttachmentPolicy[] = [
+  "ignore",
+  "list",
+  "store",
+];
+
+export const DEFAULT_ATTACHMENT_POLICY: AttachmentPolicy = "list";
+export const DEFAULT_MAX_ATTACHMENT_BYTES = 2_000_000;
+
+/**
+ * Mirrors `MAX_ATTACHMENT_BYTES_CEILING` in
+ * `apps/convex/functions/lib/ingestion.ts`, which is in turn bounded by what
+ * the MCP gateway will hand back. Duplicated here only to refuse while somebody
+ * is still typing; the backend is the one that counts.
+ */
+export const MAX_ATTACHMENT_BYTES_CEILING = 5_000_000;
+
+/**
+ * The stored policy, or the closed default.
+ *
+ * Also the place an unrecognised value is caught. A newer backend or a
+ * corrupted row must not put an unknown string into a sentence describing what
+ * happens to somebody's files; falling back to the conservative description is
+ * the safe direction.
+ */
+export function attachmentPolicyOf(settings: IngestionSettings): AttachmentPolicy {
+  const stored = settings.attachmentPolicy;
+  return ATTACHMENT_POLICIES.includes(stored as AttachmentPolicy)
+    ? (stored as AttachmentPolicy)
+    : DEFAULT_ATTACHMENT_POLICY;
+}
+
+export function maxAttachmentBytesOf(settings: IngestionSettings): number {
+  const stored = settings.maxAttachmentBytes;
+  return typeof stored === "number" && Number.isInteger(stored) && stored > 0
+    ? Math.min(stored, MAX_ATTACHMENT_BYTES_CEILING)
+    : DEFAULT_MAX_ATTACHMENT_BYTES;
+}
+
+/**
+ * What each policy actually does, in words an owner can act on.
+ *
+ * `store` deliberately says **images**. It does not mean "keep everything": the
+ * gateway hands an attachment back only through `read_image`, which serves an
+ * allowlist of image types, so anything else is described and never written.
+ * Copy promising to keep a PDF would be a promise the pipeline does not keep —
+ * the same class of mistake as a console asserting facts about a bucket nobody
+ * looked at.
+ */
+export function describeAttachmentPolicy(policy: AttachmentPolicy): {
+  label: string;
+  detail: string;
+} {
+  switch (policy) {
+    case "ignore":
+      return {
+        label: "Ignore them",
+        detail: "Attachments are not opened and not mentioned in the note.",
+      };
+    case "store":
+      return {
+        label: "Save images",
+        detail:
+          "Images are saved into your bucket and shown in the note. Anything that is not an image — a PDF, a document, an archive — is described but not saved, because nothing in Context could hand it back to you.",
+      };
+    case "list":
+    default:
+      return {
+        label: "Describe them only",
+        detail:
+          "The note records each attachment's name, type and size. The files themselves are not saved anywhere.",
+      };
+  }
+}
+
+/** Why this size cannot be saved, or `null`. */
+export function describeAttachmentSizeProblem(bytes: number): string | null {
+  if (!Number.isInteger(bytes) || bytes <= 0) {
+    return "Give a whole number of bytes, greater than zero.";
+  }
+  if (bytes > MAX_ATTACHMENT_BYTES_CEILING) {
+    return `The largest attachment Context can hand back is ${MAX_ATTACHMENT_BYTES_CEILING} bytes (5 MB).`;
+  }
+  return null;
 }
 
 /**
@@ -86,7 +188,19 @@ export interface IngestionSettings {
  * deployment rather than a setting — neither belongs in something a Save
  * button sends.
  */
-export type IngestionDraft = Omit<IngestionSettings, "address" | "receiving">;
+export type IngestionDraft = Omit<
+  IngestionSettings,
+  "address" | "receiving" | "attachmentPolicy" | "maxAttachmentBytes"
+> & {
+  /**
+   * Resolved, never absent. `draftOf` runs the values through
+   * `attachmentPolicyOf` and `maxAttachmentBytesOf` on the way in, so nothing
+   * downstream — the form, `diff`, the save button — has to know the defaults
+   * or re-decide what silence means.
+   */
+  attachmentPolicy: AttachmentPolicy;
+  maxAttachmentBytes: number;
+};
 
 /** The patch `updateIngestionSettings` takes — only what actually changed. */
 export interface IngestionPatch {
@@ -94,6 +208,8 @@ export interface IngestionPatch {
   allowedSenders?: string[];
   allowedDomains?: string[];
   allowAnySender?: boolean;
+  attachmentPolicy?: AttachmentPolicy;
+  maxAttachmentBytes?: number;
 }
 
 /**
@@ -343,6 +459,8 @@ export function emptyDraft(): IngestionDraft {
     allowedSenders: [],
     allowedDomains: [],
     allowAnySender: false,
+    attachmentPolicy: DEFAULT_ATTACHMENT_POLICY,
+    maxAttachmentBytes: DEFAULT_MAX_ATTACHMENT_BYTES,
   };
 }
 
@@ -352,6 +470,8 @@ export function draftOf(settings: IngestionSettings): IngestionDraft {
     allowedSenders: [...settings.allowedSenders],
     allowedDomains: [...settings.allowedDomains],
     allowAnySender: settings.allowAnySender,
+    attachmentPolicy: attachmentPolicyOf(settings),
+    maxAttachmentBytes: maxAttachmentBytesOf(settings),
   };
 }
 
@@ -626,12 +746,21 @@ export function diff(draft: IngestionDraft, saved: IngestionDraft): IngestionPat
   if (draft.allowAnySender !== saved.allowAnySender) {
     patch.allowAnySender = draft.allowAnySender;
   }
+  if (draft.attachmentPolicy !== saved.attachmentPolicy) {
+    patch.attachmentPolicy = draft.attachmentPolicy;
+  }
+  if (draft.maxAttachmentBytes !== saved.maxAttachmentBytes) {
+    patch.maxAttachmentBytes = draft.maxAttachmentBytes;
+  }
   return patch;
 }
 
 /** Why this draft cannot be saved, or `null`. */
 export function describeDraftProblem(draft: IngestionDraft): string | null {
-  return describeFolderProblem(draft.targetFolder);
+  return (
+    describeFolderProblem(draft.targetFolder) ??
+    describeAttachmentSizeProblem(draft.maxAttachmentBytes)
+  );
 }
 
 function sorted(values: readonly string[]): string[] {

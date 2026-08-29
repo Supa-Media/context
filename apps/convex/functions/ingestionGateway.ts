@@ -67,7 +67,12 @@ import { internalAction, internalMutation } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import { TOKEN_HASH_PATTERN } from "./lib/crypto";
-import { DEFAULT_TARGET_FOLDER, INGESTION_DOMAIN } from "./lib/ingestion";
+import {
+  DEFAULT_ATTACHMENT_POLICY,
+  DEFAULT_MAX_ATTACHMENT_BYTES,
+  DEFAULT_TARGET_FOLDER,
+  INGESTION_DOMAIN,
+} from "./lib/ingestion";
 import { logIngest } from "./lib/ingestLog";
 import {
   getIngestionSettingsRow,
@@ -133,6 +138,7 @@ const resolutionValidator = v.object({
   }),
   targetFolder: v.string(),
   attachmentPolicy: v.string(),
+  maxAttachmentBytes: v.number(),
   maxMessageBytes: v.number(),
   policy: v.object({
     allowedSenders: v.array(v.string()),
@@ -300,11 +306,15 @@ export const resolveForIngestion = internalMutation({
       // plane that answered wrongly is caught on the other side too.
       context: { kind: "personal" as const, path: personal.workspace.slug },
       targetFolder: settings.targetFolder || DEFAULT_TARGET_FOLDER,
-      // Attachments are listed, not stored. Storing bytes a stranger chose,
-      // into a bucket we do not own, is a separate decision with a separate
-      // quota conversation; listing them tells the owner what arrived without
-      // writing any of it.
-      attachmentPolicy: "list",
+      // The owner's stored policy, not a constant. Storing bytes a stranger
+      // chose into a bucket we do not own is exactly the separate decision the
+      // hardcoded `"list"` here was deferring — and the answer is that the
+      // owner makes it, alongside the sender allowlist, rather than us making
+      // it for everybody. An absent field is `list`, so a context configured
+      // before this shipped behaves exactly as it did.
+      attachmentPolicy: settings.attachmentPolicy ?? DEFAULT_ATTACHMENT_POLICY,
+      maxAttachmentBytes:
+        settings.maxAttachmentBytes ?? DEFAULT_MAX_ATTACHMENT_BYTES,
       maxMessageBytes: MAX_MESSAGE_BYTES,
       policy: {
         allowedSenders: settings.allowedSenders,

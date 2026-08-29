@@ -101,6 +101,66 @@ export const DEFAULT_TARGET_FOLDER = "0-inbox/";
 export const MAX_ALLOWED_SENDERS = 50;
 export const MAX_ALLOWED_DOMAINS = 20;
 
+/**
+ * What happens to an attachment on an accepted message.
+ *
+ *  - `ignore` — attachments are not decoded and not mentioned.
+ *  - `list`   — described in the note: filename, type, size. Nothing written.
+ *  - `store`  — the bytes are written into the context's opaque image store and
+ *               linked from the note.
+ *
+ * Ordered least to most permissive; the worker's `AttachmentPolicy` union is
+ * the same three values and the resolve response carries one of them verbatim.
+ */
+export const ATTACHMENT_POLICIES = ["ignore", "list", "store"] as const;
+export type AttachmentPolicy = (typeof ATTACHMENT_POLICIES)[number];
+
+/**
+ * The default, and the reason it is `list` rather than `store`.
+ *
+ * Storing means writing bytes a stranger chose into a bucket we do not own.
+ * That was the sentence which deferred this feature while the policy was a
+ * hardcoded constant, and it is still true — what changed is that the owner now
+ * makes the decision, rather than us making it for everybody. An existing
+ * context must behave on the day this ships exactly as it did the day before,
+ * so the default is what the constant used to be.
+ */
+export const DEFAULT_ATTACHMENT_POLICY: AttachmentPolicy = "list";
+
+/** Matches `DEFAULT_MIME_LIMITS.maxAttachmentBytes` in the email worker. */
+export const DEFAULT_MAX_ATTACHMENT_BYTES = 2_000_000;
+
+/**
+ * The largest per-attachment cap an owner may configure.
+ *
+ * Bounded by what the *gateway* will hand back, not by what a bucket will hold:
+ * `MAX_INLINE_IMAGE_BYTES` in `apps/mcp/src/index.js` is 5,000,000, and storing
+ * something larger would put bytes in the customer's bucket that nothing in
+ * Context can ever read back — the broken-link failure this whole feature
+ * exists to avoid. The two live in different packages, because the gateway is
+ * dependency-free on purpose, so a check in `ingestionGateway.test.ts` reads
+ * that file and fails if they ever drift apart.
+ */
+export const MAX_ATTACHMENT_BYTES_CEILING = 5_000_000;
+
+/** Reject rather than repair; the caller just sent this value. */
+export function normalizeAttachmentPolicy(raw: unknown): AttachmentPolicy | null {
+  return typeof raw === "string" &&
+    (ATTACHMENT_POLICIES as readonly string[]).includes(raw)
+    ? (raw as AttachmentPolicy)
+    : null;
+}
+
+/** A positive whole number of bytes, at most the ceiling. */
+export function normalizeMaxAttachmentBytes(raw: unknown): number | null {
+  return typeof raw === "number" &&
+    Number.isInteger(raw) &&
+    raw > 0 &&
+    raw <= MAX_ATTACHMENT_BYTES_CEILING
+    ? raw
+    : null;
+}
+
 /** RFC 5321 §4.5.3.1 — the largest addr-spec that can legally reach us. */
 const MAX_ADDRESS_LENGTH = 320;
 const MAX_LOCAL_PART_LENGTH = 64;

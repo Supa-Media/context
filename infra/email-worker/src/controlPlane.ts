@@ -187,6 +187,7 @@
  *       "context":          { "kind": "personal", "path": "seyi" },
  *       "targetFolder":     "0-inbox/",
  *       "attachmentPolicy": "ignore" | "list" | "store",
+ *       "maxAttachmentBytes": 2000000,
  *       "maxMessageBytes":  5000000,
  *       "policy": { "allowedSenders": [...], "allowedDomains": [...],
  *                   "allowAnySender": false }
@@ -241,6 +242,8 @@ const CONTROL_PLANE_RESPONSE_BYTE_CAP = 256_000;
  * Carries a short reason for this Worker's structured logs and nothing else:
  * never a response body, never the secret, never a ticket, never a credential.
  */
+import { DEFAULT_MIME_LIMITS, MAX_ATTACHMENT_BYTES_HARD_CAP } from "./mime";
+
 export class ControlPlaneError extends Error {
   readonly reason: string;
   constructor(reason: string) {
@@ -270,6 +273,12 @@ export interface IngestionResolution {
   context: PersonalContextRef;
   targetFolder: string;
   attachmentPolicy: string;
+  /**
+   * The owner's per-attachment ceiling. Never `0` and never unbounded: a value
+   * the control plane did not send, or sent unusably, resolves to this worker's
+   * own `DEFAULT_MIME_LIMITS.maxAttachmentBytes` rather than to "no limit".
+   */
+  maxAttachmentBytes: number;
   maxMessageBytes: number;
   policy: {
     allowedSenders: readonly string[];
@@ -474,6 +483,18 @@ export function createIngestControlPlane(env: ControlPlaneEnv, options: ControlP
         targetFolder: typeof record.targetFolder === "string" ? record.targetFolder : "",
         attachmentPolicy:
           typeof record.attachmentPolicy === "string" ? record.attachmentPolicy : "list",
+        // Two directions, both deliberate. A missing or unusable value falls
+        // back to this worker's own limit and never to unbounded — a control
+        // plane answering `Infinity`, or simply not carrying the field yet,
+        // must not become permission to buffer whatever a sender chose. And a
+        // usable value is still clamped: the control plane may lower this limit
+        // but never raise it past what this worker is willing to allocate.
+        maxAttachmentBytes:
+          typeof record.maxAttachmentBytes === "number" &&
+          Number.isInteger(record.maxAttachmentBytes) &&
+          record.maxAttachmentBytes > 0
+            ? Math.min(record.maxAttachmentBytes, MAX_ATTACHMENT_BYTES_HARD_CAP)
+            : DEFAULT_MIME_LIMITS.maxAttachmentBytes,
         maxMessageBytes:
           typeof record.maxMessageBytes === "number" && Number.isFinite(record.maxMessageBytes)
             ? record.maxMessageBytes

@@ -7,6 +7,8 @@
  * (which is a mail-interception control, per CLAUDE.md), idempotency, path
  * safety, and the caps.
  */
+import { readFileSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   captureFingerprint,
@@ -16,7 +18,7 @@ import {
   normalizeTargetFolder,
   type IngestConfig,
 } from "./ingest";
-import { DEFAULT_MIME_LIMITS } from "./mime";
+import { DEFAULT_MIME_LIMITS, STORABLE_IMAGE_TYPES } from "./mime";
 import { senderIsAllowed, type IngestionPolicy, type SenderMatcher } from "./policy";
 import { AUTHSERV, rawMessage } from "./fixtures.test-helpers";
 import { RESERVED_NAMES, RFC2142_MANDATORY_NAMES } from "../../../apps/convex/functions/lib/names";
@@ -612,6 +614,30 @@ describe("caps and empties", () => {
 });
 
 describe("stored attachments", () => {
+  const withImage = (filename: string) =>
+    new TextEncoder().encode(
+      [
+        `Authentication-Results: ${AUTHSERV}; dmarc=pass header.from=example.com`,
+        "From: alice@example.com",
+        "Message-ID: <img@example.com>",
+        'Content-Type: multipart/mixed; boundary="b"',
+        "",
+        "--b",
+        "Content-Type: text/plain",
+        "",
+        "see attached",
+        "--b",
+        "Content-Type: image/png",
+        `Content-Disposition: attachment; filename="${filename}"`,
+        "Content-Transfer-Encoding: base64",
+        "",
+        // A real PNG header followed by bytes that are not valid UTF-8.
+        "iVBORw0KGgr//sCAAE=",
+        "--b--",
+        "",
+      ].join("\r\n"),
+    );
+
   const withAttachment = (filename: string) =>
     new TextEncoder().encode(
       [
@@ -642,32 +668,92 @@ describe("stored attachments", () => {
     expect(decision.note).toContain("not stored");
   });
 
-  it("content-addresses a stored attachment under the target folder", async () => {
+  it("stores nothing that Context could not hand back", async () => {
+    // A PDF under `store`. Previously this was written to a visible folder and
+    // linked from the note — a link nothing in Context could follow, because
+    // every tool path in the gateway is gated on `.md` and `read_image` serves
+    // an allowlist of image types. Writing a stranger's bytes into the
+    // customer's bucket to produce a dead link is worse than describing them.
     const decision = await decide(withAttachment("r.pdf"), { attachmentPolicy: "store" });
     if (decision.kind !== "capture") return;
-    expect(decision.attachments).toHaveLength(1);
-    expect(decision.attachments[0]!.key).toMatch(
-      /^0-inbox\/email\/attachments\/[0-9a-f]{12}-r\.pdf$/,
-    );
+    expect(decision.attachments).toEqual([]);
+    expect(decision.note).toContain("r.pdf");
   });
 
-  it("cannot be made to write outside the target folder", async () => {
-    // Sabotage: use the declared filename verbatim and the first of these
-    // writes into `.history/` or out of the bucket entirely.
+  it("content-addresses a stored image into the opaque store", async () => {
+    const decision = await decide(withImage("shot.png"), { attachmentPolicy: "store" });
+    if (decision.kind !== "capture") return;
+    expect(decision.attachments).toHaveLength(1);
+    // Full sha256 of the bytes, and nothing else. Not a truncated digest, and
+    // not the sender's filename: the key is derived entirely from content.
+    expect(decision.attachments[0]!.key).toMatch(/^\.images\/[0-9a-f]{64}\.png$/);
+  });
+
+  it("is the same object no matter what the sender called it", async () => {
+    // The dedup the design is for: one screenshot emailed twice, under two
+    // names, is one object. The old key carried the filename, so it was two.
+    const first = await decide(withImage("shot.png"), { attachmentPolicy: "store" });
+    const second = await decide(withImage("Screenshot 2026-08-27 at 09.14.22.png"), {
+      attachmentPolicy: "store",
+    });
+    if (first.kind !== "capture" || second.kind !== "capture") return;
+
+    expect(first.attachments[0]!.key).toBe(second.attachments[0]!.key);
+  });
+
+  it("never lets a sender's filename reach the key", async () => {
+    // Sabotage: use the declared filename anywhere in the key and the first of
+    // these writes into `.history/` or out of the bucket entirely. The content
+    // address makes that structurally impossible rather than merely sanitized —
+    // there is no longer a place in the key for a sender-chosen string.
     for (const hostile of [
-      "../../../../etc/passwd",
-      "..%2f..%2fescape.md",
-      "/absolute.md",
-      ".history/overwrite.md",
+      "../../../../etc/passwd.png",
+      "..%2f..%2fescape.png",
+      "/absolute.png",
+      ".history/overwrite.png",
       "..",
     ]) {
-      const decision = await decide(withAttachment(hostile), { attachmentPolicy: "store" });
+      const decision = await decide(withImage(hostile), { attachmentPolicy: "store" });
       if (decision.kind !== "capture") throw new Error("expected a capture");
       for (const write of decision.attachments) {
-        expect(write.key.startsWith("0-inbox/email/attachments/")).toBe(true);
+        expect(write.key).toMatch(/^\.images\/[0-9a-f]{64}\.png$/);
         expect(write.key).not.toContain("..");
-        expect(write.key.split("/")).toHaveLength(4);
       }
+    }
+  });
+
+  it("links the stored image so the gateway can resolve it from the note", async () => {
+    const decision = await decide(withImage("shot.png"), { attachmentPolicy: "store" });
+    if (decision.kind !== "capture") return;
+    const key = decision.attachments[0]!.key;
+
+    // `read_image` resolves an image only through a note that names it, and it
+    // matches on the leaf. If the note stopped naming the image, the bytes
+    // would be in the bucket and unreachable forever.
+    expect(decision.note).toContain(key.slice(".images/".length));
+    // A markdown image embed, not a bare link: the note should read as the
+    // screenshot it is.
+    expect(decision.note).toContain(`![shot.png](${key})`);
+  });
+
+  it("writes only extensions the gateway will serve back", async () => {
+    // The worker chooses the extension and the gateway decides which ones it
+    // will return. They live in different packages — the gateway is
+    // dependency-free on purpose — so nothing but this stops them drifting into
+    // a state where mail writes images no client can ever fetch.
+    const gateway = readFileSync(
+      resolvePath(__dirname, "../../../apps/mcp/src/index.js"),
+      "utf8",
+    );
+    const block = gateway.match(/const IMAGE_MIME_TYPES = new Map\(\[([\s\S]*?)\]\);/);
+    expect(block, "IMAGE_MIME_TYPES is no longer declared in apps/mcp").not.toBeNull();
+    const servable = new Set(
+      [...block![1]!.matchAll(/\["([a-z0-9]+)",/g)].map((m) => m[1]!),
+    );
+
+    expect(servable.size).toBeGreaterThan(0);
+    for (const extension of STORABLE_IMAGE_TYPES.values()) {
+      expect(servable, `the gateway will not serve .${extension}`).toContain(extension);
     }
   });
 });

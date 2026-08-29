@@ -1,12 +1,19 @@
 import { describe, expect, test } from "@jest/globals";
 import { ConvexError } from "convex/values";
 import {
+  ATTACHMENT_POLICIES,
+  DEFAULT_ATTACHMENT_POLICY,
+  DEFAULT_MAX_ATTACHMENT_BYTES,
   DEFAULT_TARGET_FOLDER,
   MAX_ALLOWED_DOMAINS,
   MAX_ALLOWED_SENDERS,
+  MAX_ATTACHMENT_BYTES_CEILING,
   MAX_FOLDER_LENGTH,
   NO_INGESTION_ADDRESS,
   addSender,
+  attachmentPolicyOf,
+  describeAttachmentPolicy,
+  describeAttachmentSizeProblem,
   describeDraftProblem,
   describeFolderProblem,
   describeIngestionAbsence,
@@ -17,6 +24,7 @@ import {
   ingestionAvailabilityFor,
   isDirty,
   isSenderProblem,
+  maxAttachmentBytesOf,
   normaliseFolder,
   parseSenderEntry,
   refusalMessage,
@@ -45,6 +53,8 @@ const base: IngestionDraft = {
   allowedSenders: ["seyi@publicworship.life"],
   allowedDomains: [],
   allowAnySender: false,
+  attachmentPolicy: "list",
+  maxAttachmentBytes: DEFAULT_MAX_ATTACHMENT_BYTES,
 };
 
 describe("the target folder", () => {
@@ -513,3 +523,99 @@ describe("a refusal, turned into something a person can read", () => {
     );
   });
 });
+
+/**
+ * Attachments.
+ *
+ * The setting an owner sees has to describe what the pipeline actually does,
+ * and the gap worth guarding is that `store` does **not** mean "keep
+ * everything": the gateway hands an image back through `read_image` and serves
+ * an allowlist of image types, so anything else is described and not written.
+ * A console promising to keep a PDF would be the same class of mistake as one
+ * asserting facts about a bucket nobody looked at.
+ */
+describe("the attachment policy", () => {
+  test("an absent policy reads as the closed default, never as storing", () => {
+    // The same rule `receiving` follows: a control plane that says nothing has
+    // not said yes. Reading silence as "store" would tell an owner their
+    // strangers' files are being kept when nothing is keeping them.
+    expect(attachmentPolicyOf({ ...settings(), attachmentPolicy: undefined })).toBe(
+      DEFAULT_ATTACHMENT_POLICY,
+    );
+    expect(DEFAULT_ATTACHMENT_POLICY).toBe("list");
+    expect(maxAttachmentBytesOf({ ...settings(), maxAttachmentBytes: undefined })).toBe(
+      DEFAULT_MAX_ATTACHMENT_BYTES,
+    );
+  });
+
+  test("a policy this console does not recognise is not passed through", () => {
+    // A newer backend, or a corrupted row. Rendering an unknown string in a
+    // sentence about what happens to somebody's files is worse than falling
+    // back to the conservative description.
+    expect(attachmentPolicyOf({ ...settings(), attachmentPolicy: "keep-forever" })).toBe(
+      DEFAULT_ATTACHMENT_POLICY,
+    );
+  });
+
+  test("every policy has copy, and storing says out loud that it means images", () => {
+    for (const policy of ATTACHMENT_POLICIES) {
+      const copy = describeAttachmentPolicy(policy);
+      expect(copy.label.length).toBeGreaterThan(0);
+      expect(copy.detail.length).toBeGreaterThan(0);
+    }
+
+    // The load-bearing sentence. `store` writes images and describes
+    // everything else; copy that said "attachments are saved" would be a
+    // promise the pipeline does not keep.
+    expect(describeAttachmentPolicy("store").detail.toLowerCase()).toContain("image");
+    expect(describeAttachmentPolicy("list").detail.toLowerCase()).toContain("not");
+  });
+
+  test("the size limit refuses before the round trip, and names the ceiling", () => {
+    expect(describeAttachmentSizeProblem(MAX_ATTACHMENT_BYTES_CEILING)).toBeNull();
+    expect(describeAttachmentSizeProblem(1)).toBeNull();
+
+    for (const bad of [0, -1, 1.5, MAX_ATTACHMENT_BYTES_CEILING + 1, Number.NaN]) {
+      expect(describeAttachmentSizeProblem(bad)).not.toBeNull();
+    }
+    expect(describeAttachmentSizeProblem(MAX_ATTACHMENT_BYTES_CEILING + 1)).toContain("5");
+  });
+
+  test("a draft that cannot be saved says so before the save button does", () => {
+    expect(describeDraftProblem({ ...base, maxAttachmentBytes: 0 })).not.toBeNull();
+    expect(describeDraftProblem({ ...base, maxAttachmentBytes: 1_000_000 })).toBeNull();
+  });
+
+  test("only the fields that changed are sent", () => {
+    // Two consoles open on one context must not overwrite each other's
+    // unrelated edits, which is why `diff` exists at all.
+    expect(diff({ ...base, attachmentPolicy: "store" }, base)).toEqual({
+      attachmentPolicy: "store",
+    });
+    expect(diff({ ...base, maxAttachmentBytes: 4_000_000 }, base)).toEqual({
+      maxAttachmentBytes: 4_000_000,
+    });
+    expect(diff(base, base)).toEqual({});
+  });
+
+  test("the draft carries the resolved values, not the raw absent ones", () => {
+    const draft = draftOf({ ...settings(), attachmentPolicy: undefined, maxAttachmentBytes: undefined });
+    expect(draft.attachmentPolicy).toBe(DEFAULT_ATTACHMENT_POLICY);
+    expect(draft.maxAttachmentBytes).toBe(DEFAULT_MAX_ATTACHMENT_BYTES);
+    // And a fresh draft is closed the same way.
+    expect(emptyDraft().attachmentPolicy).toBe(DEFAULT_ATTACHMENT_POLICY);
+  });
+});
+
+function settings() {
+  return {
+    address: "seyi@context.lc",
+    receiving: true,
+    targetFolder: "0-inbox/",
+    allowedSenders: ["seyi@publicworship.life"],
+    allowedDomains: [],
+    allowAnySender: false,
+    attachmentPolicy: "list" as string | undefined,
+    maxAttachmentBytes: DEFAULT_MAX_ATTACHMENT_BYTES as number | undefined,
+  };
+}
