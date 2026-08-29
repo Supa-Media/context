@@ -174,13 +174,23 @@ function isLive(share: Doc<"noteShares">, now: number): boolean {
  * the reasoning, including why the obvious cheaper version ("the claim must
  * predate the share") breaks sharing with somebody who has not signed up yet.
  *
- * `claimedAt` is not a unique key, and `claim._creationTime` would be. It is
- * deliberately not used: a system field can be rewritten by a restore or a
- * migration, and every share on the platform would then fail closed at once,
- * silently. `claimedAt` is ours, written once by `claimName`, and the case it
- * cannot separate is two claims of the *same* handle inside one millisecond —
- * which needs a deletion and a re-claim in two transactions a millisecond
- * apart. That residue is smaller than the tail risk of the alternative.
+ * `claimedAt` is not a unique key, and `claim._creationTime` would be. The
+ * reason for using it anyway is that **there is no better pin available**, not
+ * that the alternatives are dangerous — an earlier version of this comment
+ * argued the latter and overstated it, since a snapshot restore preserves
+ * `_creationTime` and only a table-copy migration regenerates it. The real
+ * shortlist is three long: `_creationTime` and `claim._id` carry that same
+ * narrow migration exposure, and `claimedBy` would pin to a *person*, which
+ * means resolving the recipient at write time — precisely what `inviteMember`
+ * refuses to do, and the reason this field stores a moment rather than an
+ * identity.
+ *
+ * So the residue is stated rather than argued away: two claims of the same
+ * handle inside one millisecond compare equal and the second inherits. It
+ * needs a deletion and a re-claim in two transactions a millisecond apart, and
+ * an attacker controls neither the victim's deletion nor its timing. It is
+ * also, unusually for this file, a **fail-open** residue, which is why it is
+ * written down here rather than left to be rediscovered.
  *
  * There is no equivalent for an email-addressed share: `emailVerificationTime`
  * is re-stamped on every verifying sign-in, so it pins nothing. The teardown
