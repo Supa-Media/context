@@ -44,6 +44,7 @@ import {
 import { raceTimeout } from "../storage/timeout";
 import { findEntry, foldersToRefresh, namesIn } from "./tree";
 import type { FileError, FolderListing, OpenNote, Visibility } from "./types";
+import { canResetPrivacy, canSetVisibility } from "../capabilities";
 
 /** The literal the backend requires before it will delete anything. */
 const DELETE_CONFIRMATION = "permanently delete";
@@ -707,14 +708,18 @@ export function useFileBrowser(options: {
       // A control that cannot work is a control that is not drawn. All three
       // have to hold: the manifest is broken, this is the owner, and this
       // console can act.
-      canResetPrivacy:
-        options.canEdit &&
-        options.isOwner === true &&
-        listings[""]?.manifestUsable === false,
-      // Visibility is a clearance decision and clearance belongs to the
-      // owner — same rule the server now enforces (`minimum: "owner"`), so
-      // the control is absent rather than present and refused.
-      canSetVisibility: options.canEdit && options.isOwner === true,
+      // Both derived in `../capabilities`, not here. Inline, each was
+      // unreachable by any test — dropping the `isOwner` half of either failed
+      // nothing across 1476 checks, and `canSetVisibility` is the capability
+      // the console's one real authorization defect was about.
+      canResetPrivacy: canResetPrivacy(
+        { canEdit: options.canEdit, isOwner: options.isOwner === true },
+        listings[""]?.manifestUsable,
+      ),
+      canSetVisibility: canSetVisibility({
+        canEdit: options.canEdit,
+        isOwner: options.isOwner === true,
+      }),
     }),
     [
       archive,

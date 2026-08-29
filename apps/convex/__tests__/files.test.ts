@@ -276,9 +276,51 @@ describe("read access and write access are different grants", () => {
     expect(f.backend.snapshot()["1-projects/shared.md"]).toBe("# Shared\n");
   });
 
+  /**
+   * The enumeration IS the guard, and it went stale.
+   *
+   * Every write action's clearance lives in one `minimum:` line in
+   * `functions/files.ts`, and this list is the only thing holding those lines.
+   * Mutating each of the ten in turn — `editor` to `member`, `owner` to
+   * `editor` — found **four that produced zero failures across all 1123
+   * checks**: `copyEntry`, `duplicateEntry`, `archiveEntry` and `resetPrivacy`.
+   * All four were added after this list was written and never added to it.
+   *
+   * **They are not the same kind of hole, and the difference is measured rather
+   * than assumed.** With its bar lowered to `member`:
+   *
+   *  - `copyEntry` and `duplicateEntry` **resolve**, and the key lands
+   *    (`1-projects/copied.md`, `1-projects/shared copy.md`). The role gate is
+   *    the only thing between a read tier and a write.
+   *  - `archiveEntry` is refused `ARCHIVE_UNAVAILABLE` — by `archivePath`'s own
+   *    scope gate, because `4-archive` is private by default and a team-scope
+   *    caller cannot write into a folder they cannot see. Its role gate is
+   *    load-bearing only where the owner has shared `4-archive`, which is why
+   *    this test now shares it: with that done, the archive key lands too.
+   *  - `resetPrivacy` is refused `PRIVACY_MANIFEST_READ_ONLY` by the module —
+   *    the belt-and-braces CLAUDE.md states deliberately, "checked at the action
+   *    (`minimum: "owner"`) and again in the module a test can drive without a
+   *    session". The braces held it; only the belt was unheld.
+   *
+   * An earlier version of this comment said the first three were "the only
+   * thing standing between a read-only member and a write". That was true of
+   * two of them. Getting it wrong here is worse than elsewhere, because the
+   * distinction it missed is the one the same comment draws for `resetPrivacy`
+   * two paragraphs down.
+   */
   test("a read-only member cannot delete, move, or change visibility either", async () => {
     const f = await fixture();
     await share(f);
+    // `4-archive` shared too, so `archiveEntry`'s destination is reachable at
+    // team scope and its role gate becomes the only remaining bar. Without it
+    // the archive is refused by `archivePath` whatever its clearance says, and
+    // both the third clause of the assertion below and the claim above would be
+    // untestable. Verified by lowering all three bars: the three keys land.
+    await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
+      workspaceId: f.workspaceId,
+      path: "4-archive",
+      visibility: "team",
+    });
     const as = asUser(f.t, f.reader);
     for (const call of [
       () =>
@@ -304,10 +346,62 @@ describe("read access and write access are different grants", () => {
           workspaceId: f.workspaceId,
           path: "1-projects/new-folder",
         }),
+      () =>
+        as.action(api.functions.files.copyEntry, {
+          workspaceId: f.workspaceId,
+          from: "1-projects/shared.md",
+          to: "1-projects/copied.md",
+        }),
+      () =>
+        as.action(api.functions.files.duplicateEntry, {
+          workspaceId: f.workspaceId,
+          path: "1-projects/shared.md",
+        }),
+      () =>
+        as.action(api.functions.files.archiveEntry, {
+          workspaceId: f.workspaceId,
+          path: "1-projects/shared.md",
+        }),
     ]) {
       expect(errorCode(await captureError(call))).toBe("INSUFFICIENT_ROLE");
     }
     expect(f.backend.snapshot()["1-projects/shared.md"]).toBe("# Shared\n");
+    // Nothing arrived anywhere either — a refusal that still wrote the
+    // destination would pass every assertion above. Every clause can fire:
+    // with the three role gates lowered this filter returns
+    // `["1-projects/copied.md", "1-projects/shared copy.md",
+    //   "4-archive/<stamp>/1-projects/shared.md"]`.
+    expect(
+      Object.keys(f.backend.snapshot()).filter(
+        (key) =>
+          key.includes("copied") || key.includes(" copy") || key.startsWith("4-archive/2"),
+      ),
+    ).toEqual([]);
+  });
+
+  test("an editor cannot rewrite the access map — the action's own bar, not the module's", async () => {
+    // `resetPrivacy` is guarded twice on purpose: `minimum: "owner"` at the
+    // action, and `scope !== "private"` inside `resetPrivacyManifest`. Dropping
+    // the action's bar to `editor` failed nothing, because the module caught it
+    // — so this asserts the code the ACTION produces, which is the one the
+    // module never emits.
+    const f = await fixture();
+    await share(f);
+    await f.t.run(async (ctx) => {
+      const membership = await ctx.db
+        .query("workspaceMembers")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", f.workspaceId))
+        .collect();
+      const reader = membership.find((row) => row.userId === f.reader);
+      if (reader !== undefined) await ctx.db.patch(reader._id, { role: "editor" });
+    });
+
+    const error = await captureError(() =>
+      asUser(f.t, f.reader).action(api.functions.files.resetPrivacy, {
+        workspaceId: f.workspaceId,
+      }),
+    );
+    expect(errorCode(error)).toBe("INSUFFICIENT_ROLE");
   });
 
   test("an editor may write", async () => {

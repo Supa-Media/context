@@ -145,7 +145,15 @@ export function Explorer({
       if (items.length === 0) return;
       setMenu({ row, anchor, items });
     },
-    [files.canEdit, files.clipboard, platform],
+    // `files.canSetVisibility` is read above and belongs here. It is
+    // `canEdit && isOwner`, so it moves independently of the other three — and
+    // `<Explorer>` is mounted without a `key` in a layout that survives a
+    // context switch, so owning one context and editing the next keeps
+    // `canEdit` true while ownership goes away. Left out, this callback kept
+    // the first context's ownership and offered the owner-only submenu to
+    // somebody the server refuses. eslint reported it as a warning throughout;
+    // `lint` exits 0 on warnings.
+    [files.canEdit, files.canSetVisibility, files.clipboard, platform],
   );
 
   const runAction = useCallback(
