@@ -33,8 +33,12 @@
  *    production it never sees a path it must refuse, and breaking it is
  *    invisible from outside.
  * 4. **`visibleIndex`'s `hidesSomething` forced false** (identity always
- *    returned). Broke the three end-to-end channel checks in
- *    searchIntegration.test.mjs, plus the copy check below.
+ *    returned). Broke **six**: the three end-to-end channel checks in
+ *    searchIntegration.test.mjs, and all three view checks below — a view that
+ *    hides something is a different object, holding only what the predicate
+ *    accepted, and not writing its ranks back. An earlier version of this line
+ *    said four, which was counted rather than run, in a record whose whole
+ *    purpose is that it was run.
  */
 
 import {

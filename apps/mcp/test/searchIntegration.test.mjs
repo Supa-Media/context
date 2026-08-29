@@ -497,7 +497,7 @@ export async function runSearchIntegrationChecks(check) {
     const teamAfterBulk = await searchText(env, TEAM_TOKEN, { query: "zebrafish" });
     const ownerAfterBulk = await searchText(env, OWNER_TOKEN, { query: "zebrafish" });
     check(
-      "a ranked list full of private matches puts no floor marker on a team connection's count",
+      "a bucket full of private matches puts no floor marker on a team connection's count",
       /^1 matching note$/m.test(teamAfterBulk) && !teamAfterBulk.includes("+ matching")
     );
     check(
