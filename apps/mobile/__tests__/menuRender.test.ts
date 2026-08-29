@@ -106,6 +106,7 @@ function sheetItems(): MenuItem[] {
     target: { kind: "row", row: note("1-projects/plan.md") },
     canEdit: true,
     canSetVisibility: true,
+    canShare: true,
     clipboard: null,
     platform: "touch",
   });
@@ -422,6 +423,7 @@ function mountPopover(
     target: { kind: "row", row: note("1-projects/plan.md") },
     canEdit: true,
     canSetVisibility: true,
+    canShare: true,
     clipboard: null,
     platform: "web",
   });
@@ -596,6 +598,7 @@ describe("the popover's pointer and keyboard", () => {
       target: { kind: "row", row: note("1-projects/plan.md") },
       canEdit: true,
       canSetVisibility: true,
+      canShare: true,
       clipboard: null,
       platform: "web",
     });
@@ -685,6 +688,7 @@ function mountWeb(
     target: { kind: "row", row: note("1-projects/plan.md") },
     canEdit: true,
     canSetVisibility: true,
+    canShare: true,
     clipboard: null,
     platform,
   });

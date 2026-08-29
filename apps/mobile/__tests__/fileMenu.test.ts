@@ -62,6 +62,7 @@ function menu(target: MenuTarget, over: Partial<Omit<MenuContext, "target">> = {
     // Permissive default like canEdit: most of this suite is about shape,
     // and the owner-only rule has its own describe below.
     canSetVisibility: true,
+    canShare: true,
     clipboard: null,
     platform: "web",
     ...over,
@@ -176,7 +177,7 @@ describe("privacy.md is generated, so it is read and located and nothing else", 
 describe("a note", () => {
   const list = menu({ kind: "row", row: note("1-projects/plan.md") });
 
-  test("offers opening, rearranging, the clipboard, addresses, visibility and putting away", () => {
+  test("offers opening, rearranging, the clipboard, addresses, sharing, visibility and putting away", () => {
     expect(ids(list)).toEqual([
       "open",
       "openInNewTab",
@@ -187,6 +188,7 @@ describe("a note", () => {
       "cut",
       "copyPath",
       "copyAtPath",
+      "share",
       "visibility",
       "archive",
       "delete",
@@ -728,7 +730,14 @@ describe("separators come from grouping, so the empty-group bugs cannot happen",
       for (const platform of ["web", "touch"] as const) {
         for (const canEdit of [true, false]) {
           for (const clipboard of [null, put("copy", "2-areas/handbook.md")]) {
-            const list = itemsFor({ target, platform, canEdit, canSetVisibility: canEdit, clipboard });
+            const list = itemsFor({
+              target,
+              platform,
+              canEdit,
+              canSetVisibility: canEdit,
+              canShare: canEdit,
+              clipboard,
+            });
             if (list.length === 0) continue;
             expect(list[0].separatorBefore).toBeUndefined();
             for (const entry of list) {
@@ -769,5 +778,91 @@ describe("visibility is offered only to the owner", () => {
   test("the owner keeps it", () => {
     const list = menu({ kind: "row", row: note("1-projects/plan.md") });
     expect(list.map((item) => item.id)).toContain("visibility");
+  });
+});
+
+/**
+ * SHARE.
+ *
+ * The control that hands a note to somebody who is not in this context, so the
+ * rules about when it is *absent* matter more than the one about when it shows.
+ * Every case below is a case where offering it would either be a permission the
+ * server refuses or an action that has no server form at all.
+ */
+describe("share", () => {
+  test("a note offers it", () => {
+    expect(ids(menu({ kind: "row", row: note("1-projects/plan.md") }))).toContain(
+      "share",
+    );
+  });
+
+  /**
+   * Owner-only, and absent rather than disabled — the same rule as the
+   * visibility submenu. An editor may write a note and may not decide who
+   * outside the context reads it; `createShare` refuses them with
+   * `minimum: "owner"` whatever this menu says.
+   */
+  test("an editor is not offered it", () => {
+    const list = menu({ kind: "row", row: note("1-projects/plan.md") }, {
+      canShare: false,
+    });
+    expect(ids(list)).not.toContain("share");
+  });
+
+  test("a read-only console is not offered it", () => {
+    const list = menu({ kind: "row", row: note("1-projects/plan.md") }, {
+      canEdit: false,
+      canShare: false,
+    });
+    expect(ids(list)).not.toContain("share");
+  });
+
+  /**
+   * `createShare` has no folder form: a share starts at one note and reaches
+   * the notes that note links to. Offering it on a folder would be a control
+   * whose only outcome is a refusal.
+   */
+  test("a folder is not offered it", () => {
+    expect(ids(menu({ kind: "row", row: dir("1-projects") }))).not.toContain("share");
+  });
+
+  /**
+   * A share is addressed to one person over one path. "Share 3 items" is three
+   * separate grants with three separate links — a batch job with no dialog
+   * behind it, and the same reasoning that keeps Rename and Duplicate off a
+   * multi-selection.
+   */
+  test("a multi-selection is not offered it", () => {
+    const list = menu({
+      kind: "selection",
+      rows: [note("1-projects/a.md"), note("1-projects/b.md")],
+    });
+    expect(ids(list)).not.toContain("share");
+  });
+
+  /**
+   * `privacy.md` is the access map. Handing it to somebody enumerates every
+   * private folder by name, and the server refuses it with
+   * `PATH_NOT_SHAREABLE` — but the menu must not offer it in the first place.
+   */
+  test("a read-only row like privacy.md is not offered it", () => {
+    const list = menu({
+      kind: "row",
+      row: note("privacy.md", { readOnly: true }),
+    });
+    expect(ids(list)).not.toContain("share");
+  });
+
+  test("it asks first — the label carries an ellipsis", () => {
+    const item = menu({ kind: "row", row: note("1-projects/plan.md") }).find(
+      (entry) => entry.id === "share",
+    );
+    expect(item?.label).toBe("Share…");
+  });
+
+  test("the background menu has nothing to share", () => {
+    expect(ids(menu({ kind: "background", folder: "1-projects" }))).not.toContain(
+      "share",
+    );
   });
 });

@@ -115,6 +115,11 @@ function browser(canSetVisibility: boolean): FileBrowser {
     resetPrivacy: noop,
     canResetPrivacy: false,
     canSetVisibility,
+    canShare: false,
+    shares: undefined,
+    share: () => {},
+    revokeShare: () => {},
+    setSharePreviewTitle: () => {},
   };
 }
 

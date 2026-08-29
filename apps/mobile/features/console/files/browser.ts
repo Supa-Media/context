@@ -26,6 +26,7 @@
 import type { Clipboard } from "./clipboard";
 import type { EditorState } from "./editor";
 import { ConvexError } from "convex/values";
+import type { NoteShare } from "./shares";
 import type { FileError, FolderListing, Visibility } from "./types";
 
 export interface FileBrowser {
@@ -122,6 +123,58 @@ export interface FileBrowser {
    * a control — same rule the server enforces with `minimum: "owner"`.
    */
   canSetVisibility: boolean;
+
+  /**
+   * Whether a Share control exists at all.
+   *
+   * Owner-only, and absent rather than disabled — the same rule as
+   * `canSetVisibility`, for the same reason. Handing a note to somebody outside
+   * the context is a decision about who reads it, which is the owner's alone;
+   * `createShare` refuses anyone else with `minimum: "owner"` regardless of
+   * what this menu says.
+   */
+  canShare: boolean;
+
+  /**
+   * Every live share on this context, or `undefined` while the query is in
+   * flight — never `[]` for "not loaded yet".
+   *
+   * The distinction is the whole reason this is not a plain array. A dialog
+   * that renders `[]` as "nobody has access" while the answer is still arriving
+   * tells the owner their share did not work, and the recoverable mistake they
+   * then make is sharing it a second time.
+   *
+   * Absent entirely (`undefined`) on a browser that cannot share, because
+   * `listShares` is owner-only and subscribing anyway would throw in render.
+   */
+  shares: readonly NoteShare[] | undefined;
+
+  /**
+   * Share this note with `recipient` — a `@name` or an email address.
+   *
+   * Inert on a browser that cannot share, like every other mutating method
+   * here. Re-sharing a note with somebody who already has it is not an error:
+   * the server supersedes in place and keeps the existing token, so a link
+   * already sent keeps working.
+   */
+  share: (path: string, recipient: string, titleInPreview?: boolean) => void;
+
+  /** Take a share back. Immediate, and final for that link. */
+  revokeShare: (shareId: string) => void;
+
+  /**
+   * Turn the link's preview title on or off for one share.
+   *
+   * Routed through `createShare`, which supersedes an existing share in place
+   * and returns the same token — so this changes what a crawler is told without
+   * breaking a link the owner has already sent. It needs the recipient because
+   * that, with the path, is what identifies the row.
+   */
+  setSharePreviewTitle: (
+    path: string,
+    recipient: string,
+    titleInPreview: boolean,
+  ) => void;
 }
 
 /** Every folder currently loaded, for the move dialog's destination list. */

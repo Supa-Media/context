@@ -53,6 +53,15 @@ jest.mock("convex/react", () => {
       bound[name] ??= (args: never) => actions[name]!(args);
       return bound[name];
     },
+    /**
+     * Sharing is not what this file is about, and both hooks are inert here —
+     * but `useFileBrowser` calls them unconditionally, so a mock that omits
+     * them fails at the call rather than at an assertion. `useQuery` returns
+     * `undefined`, which is what a real `"skip"` returns and what the browser
+     * treats as "not loaded".
+     */
+    useQuery: () => undefined,
+    useMutation: () => async () => undefined,
   };
 });
 
