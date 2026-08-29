@@ -103,6 +103,21 @@ export const deleteAccount = mutation({
       }
     }
 
+    // The address, which `deleteAccount` frees exactly as it frees a handle —
+    // the `users` row goes below, and `resolveAddressedUser` then resolves the
+    // address to whoever verifies it next. There is no claim date to pin an
+    // email share against (`emailVerificationTime` is re-stamped on every
+    // verifying sign-in), so unlike a handle this sweep is the whole control,
+    // and the residue — a mailbox changing hands outside Context — is recorded
+    // in `shares.ts` and pinned by a test rather than left to a comment.
+    //
+    // Unverified addresses are skipped because they are not identifiers:
+    // `resolveAddressedUser` refuses them, so nothing was ever addressed here.
+    const me = await ctx.db.get(userId);
+    if (me?.email !== undefined && me.emailVerificationTime !== undefined) {
+      await revokeSharesAddressedTo(ctx, "email", me.email.toLowerCase());
+    }
+
     // The user's own name claims. Nothing writes a `kind: "user"` row today
     // (see functions/invitations.ts), so this is usually a no-op — but the
     // schema supports them and a claimed username must not outlive the person.
@@ -113,7 +128,7 @@ export const deleteAccount = mutation({
     for (const row of nameRows) {
       // Same rule as the workspace slugs below: a freed name inherits
       // nothing, so its pending invitations go before the row does.
-      await voidPendingInvitationsTo(ctx, row.name);
+      await voidCapabilitiesAddressedTo(ctx, row.name);
       await ctx.db.delete(row._id);
     }
 
@@ -302,6 +317,32 @@ async function deleteWorkspaceCascade(
     await ctx.db.delete(grant._id);
   }
 
+  // Every note share this context handed out, in both statuses. A share is a
+  // standing capability addressed to somebody who is NOT a member, so it is
+  // reachable by a person the sweeps above never touch, and — unlike an
+  // invitation — it does not expire by default. Revoked rows go too: nothing
+  // can read them once the context is gone, and leaving them would be keeping
+  // rows about a workspace that no longer exists.
+  //
+  // Unbounded, like every sibling sweep in this function, and for the same
+  // reason: a teardown that stops early leaves rows behind. `MAX_ACTIVE_SHARES`
+  // caps only *active* rows, so this range can be larger than that cap — but
+  // paging it would not change what the transaction has to read and write, only
+  // how much is held at once, and `auditEvents` below is unbounded and larger
+  // per context. If a teardown ever outgrows one transaction the answer is a
+  // scheduled continuation, not a smaller page.
+  for (const status of ["active", "revoked"] as const) {
+    const shares = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_status", (q) =>
+        q.eq("workspaceId", workspaceId).eq("status", status),
+      )
+      .collect();
+    for (const share of shares) {
+      await ctx.db.delete(share._id);
+    }
+  }
+
   // The audit trail. Unlike a disconnect — where "storage was disconnected"
   // must remain visible — there is nobody left to read this one: the context
   // and its only owner are both going.
@@ -329,7 +370,7 @@ async function deleteWorkspaceCascade(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const row of nameRows) {
-    await voidPendingInvitationsTo(ctx, row.name);
+    await voidCapabilitiesAddressedTo(ctx, row.name);
     await ctx.db.delete(row._id);
   }
 
@@ -352,8 +393,21 @@ async function deleteWorkspaceCascade(
  * Pending only. `accepted`, `declined` and `expired` rows are other
  * workspaces' history, none of them can mint access (accepting requires
  * `pending`), and deleting them would be erasing somebody else's audit trail.
+ *
+ * **And note shares, which are the same shape and worse.** A share is
+ * addressed to a `@handle` the same way and resolved the same way, but where an
+ * invitation is a one-time offer that dies when it is answered, a share is
+ * standing and by default never expires — so the window in which a freed name
+ * can inherit one is not bounded by anything. Measured before this covered
+ * them: the successor claimed the handle and `listSharedWithMe`, their own
+ * inbox, handed them a live token for a note in a stranger's context, with no
+ * link involved.
+ *
+ * This is the sweep half. `shareStillStands` in `functions/shares.ts` is the
+ * re-check half, and it is not redundant — it is what makes the next table
+ * somebody forgets to add here inert instead of exploitable.
  */
-async function voidPendingInvitationsTo(ctx: MutationCtx, name: string): Promise<void> {
+async function voidCapabilitiesAddressedTo(ctx: MutationCtx, name: string): Promise<void> {
   const pending = await ctx.db
     .query("workspaceInvitations")
     .withIndex("by_invitee", (q) => q.eq("inviteeKind", "name").eq("invitee", name))
@@ -362,4 +416,87 @@ async function voidPendingInvitationsTo(ctx: MutationCtx, name: string): Promise
   for (const invitation of pending) {
     await ctx.db.delete(invitation._id);
   }
+
+  await revokeSharesAddressedTo(ctx, "name", name);
 }
+
+/**
+ * Every standing note share addressed to one identifier, revoked.
+ *
+ * Revoked rather than deleted, which is the one place this differs from the
+ * invitations above — and the honest statement of why is that **neither reason
+ * previously given here was true.** It was first justified as preserving the
+ * owner's disclosure record: nothing reads a revoked row, so there is no
+ * record. It was then justified as required by the re-share path: measured,
+ * and false — `findShareFor` is a `.unique()` on
+ * `by_workspace_entry_recipient`, so deleting the row *frees* the tuple and a
+ * later re-share simply inserts, with the same one-row outcome.
+ *
+ * What is left is a preference with one real property behind it: `revoked` is
+ * this table's own word for "no longer live", so the sweep says the thing
+ * `revokeShare` says, in the same field the three recipient channels already
+ * check. Deleting would work identically and shrink the table. If that is
+ * preferred later it is a safe change, and no comment here should be read as
+ * an argument against it.
+ *
+ * No audit event is written. Whether an account deletion should write
+ * `share.revoked` into a workspace whose owner is not the acting person is a
+ * question about what a deletion may tell third parties, and it is left open
+ * rather than answered in passing.
+ *
+ * **Complete, and therefore unbounded — like every sibling sweep here.** An
+ * earlier version of this drained in pages and called that a bound, citing
+ * `MAX_SHARES_RETURNED`'s rule that a read whose cost is set by other people's
+ * rows gets a ceiling. Two reviews took that apart and both were right:
+ * `.take()` in a loop reads and writes exactly the same total documents as
+ * `.collect()`, so it bounded nothing, and it added a hazard no sibling has —
+ * a mutation that stopped removing rows from the range would spin forever
+ * rather than fail.
+ *
+ * A sweep that stops early **leaves a live capability addressed to an
+ * identifier somebody else is about to hold**, so completeness is not
+ * negotiable and the ceiling has to come from somewhere else. It is available:
+ * a scheduled continuation, whose "scheduling is not calling" property this
+ * codebase already relies on, would give completeness *and* a per-transaction
+ * bound. It is not built. That is the accurate sentence — not that no ceiling
+ * exists.
+ *
+ * So what stays open is real: `createShare` has no rate limit, and one account
+ * can aim `MAX_WORKSPACES_PER_USER` × `MAX_ACTIVE_SHARES` rows at a single
+ * identifier — multiplied by however many accounts an attacker makes, since
+ * accounts are free.
+ *
+ * `deleteWorkspaceCascade` sweeps `auditEvents` unbounded too, and for an
+ * established account that is the larger read. **That is not a reason to think
+ * this one is handled**, and an earlier version of this comment came close to
+ * saying so: the audit trail grows with the victim's own history, while these
+ * rows are written by strangers, so for a new account they are the only
+ * attacker-controlled term in the sum.
+ */
+async function revokeSharesAddressedTo(
+  ctx: MutationCtx,
+  kind: "name" | "email",
+  value: string,
+): Promise<void> {
+  const now = Date.now();
+  const standing = await ctx.db
+    .query("noteShares")
+    .withIndex("by_recipient", (q) =>
+      q.eq("recipientKind", kind).eq("recipient", value).eq("status", "active"),
+    )
+    .collect();
+  for (const share of standing) {
+    await ctx.db.patch(share._id, { status: "revoked", revokedAt: now });
+  }
+}
+
+/**
+ * More rows than any sweep here would ever page over, for the tests that prove
+ * these sweeps are complete.
+ *
+ * The sweeps are plain `.collect()` loops now, so there is no page boundary to
+ * cross — but the failure they guard against is "stopped early", and a test
+ * that seeds one share cannot see it. Exported and used by `shares.test.ts` so
+ * the seeding count and this reasoning stay in one place.
+ */
+export const SWEEP_COMPLETENESS_ROWS = 101;

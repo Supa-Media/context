@@ -21,10 +21,9 @@
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { ConvexError } from "convex/values";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
-import type { FileBrowser } from "./browser";
+import { toFileError, type FileBrowser } from "./browser";
 import type { NoteShare } from "./shares";
 import { afterPaste, planPaste, put, type Clipboard } from "./clipboard";
 import {
@@ -44,7 +43,7 @@ import {
 } from "./paths";
 import { raceTimeout } from "../storage/timeout";
 import { findEntry, foldersToRefresh, namesIn } from "./tree";
-import type { FileError, FolderListing, OpenNote, Visibility } from "./types";
+import type { FolderListing, OpenNote, Visibility } from "./types";
 import { canResetPrivacy, canSetVisibility, canShare } from "../capabilities";
 
 /** The literal the backend requires before it will delete anything. */
@@ -86,27 +85,6 @@ const STALE_LISTING_MESSAGE =
   "That worked, but the file list did not reload. What you see may be out of date.";
 
 type Listings = Record<string, FolderListing | undefined>;
-
-/**
- * A `ConvexError`'s payload, or a fixed sentence.
- *
- * Never the raw error text: an unknown failure's message is whatever the
- * runtime produced, and putting that in front of somebody is how a stack trace
- * ends up in a screenshot.
- */
-function toFileError(error: unknown): FileError {
-  if (error instanceof ConvexError) {
-    const data = error.data as Partial<FileError> | undefined;
-    if (typeof data?.message === "string") {
-      return {
-        code: typeof data.code === "string" ? data.code : "UNKNOWN",
-        message: data.message,
-        currentEtag: typeof data.currentEtag === "string" ? data.currentEtag : undefined,
-      };
-    }
-  }
-  return { code: "UNKNOWN", message: "That did not work. Try again." };
-}
 
 export function useFileBrowser(options: {
   workspaceId: string | null;
