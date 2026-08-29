@@ -40,18 +40,39 @@
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { basename, join, relative } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const TESTS_DIR = "apps/convex/__tests__";
-const HELPER = "gatewayFormat.helpers";
 
-/** Reads the gateway's source, or imports the thing that does. */
+/** A quoted path — any quote style — pointing anywhere under the gateway's src. */
 export function readsGatewaySource(source) {
   if (typeof source !== "string") return false;
-  // The path as it is written from inside apps/convex/__tests__, in either
-  // quote style, with or without the `../..` prefix a nested file would use.
-  if (/["'][^"']*mcp\/src\/index\.js["']/.test(source)) return true;
-  return source.includes(HELPER);
+  return /["'`][^"'`]*mcp\/src\/[^"'`]*["'`]/.test(source);
+}
+
+/**
+ * A test qualifies if it reads the gateway's source, or imports a helper that
+ * does — and **which helpers those are is derived too.**
+ *
+ * The first version matched `mcp/src/index.js` plus one helper named in the
+ * script. Review measured that false against files present in the tree that
+ * day: `addressing.test.ts` imports `../../mcp/src/store/s3.js` and
+ * `writeImage.test.ts` imports `../../mcp/src/store/index.js`; neither
+ * matched, and `addressing.test.ts` catches a sabotage none of the six did.
+ * The obvious widening — qualify on any `*.helpers` import — was worse in the
+ * other direction: nearly every test here imports some local helper, so it
+ * matched 34 of 40 files. So the helpers are filtered to the ones that
+ * themselves read the gateway, which today is exactly one.
+ *
+ * It matches the written import path rather than resolving it, so a
+ * `readFileSync(join(GATEWAY_DIR, …))` or a path alias still slips through.
+ * Stated rather than papered over: the workflow runs the whole suite, so a
+ * miss here costs a name in a listing, not a gap in coverage.
+ */
+export function importsGatewayHelper(source, helpers) {
+  if (typeof source !== "string") return false;
+  return helpers.some((name) => new RegExp(`["'\`][^"'\`]*${name}["'\`]`).test(source));
 }
 
 function walk(dir) {
@@ -65,9 +86,18 @@ function walk(dir) {
 }
 
 export function gatewayContractTests(dir = TESTS_DIR) {
-  return walk(dir)
-    .filter((file) => !file.endsWith(".helpers.ts"))
+  const all = walk(dir);
+  const helpers = all
+    .filter((file) => file.endsWith(".helpers.ts"))
     .filter((file) => readsGatewaySource(readFileSync(file, "utf8")))
+    .map((file) => basename(file, ".ts"));
+
+  return all
+    .filter((file) => !file.endsWith(".helpers.ts"))
+    .filter((file) => {
+      const source = readFileSync(file, "utf8");
+      return readsGatewaySource(source) || importsGatewayHelper(source, helpers);
+    })
     .map((file) => relative("apps/convex", file))
     .sort();
 }
@@ -75,10 +105,17 @@ export function gatewayContractTests(dir = TESTS_DIR) {
 function selfTest() {
   const cases = [
     ['const g = readFileSync(resolvePath(__dirname, "../../mcp/src/index.js"), "utf8");', true],
-    ["import { gatewayInternals } from './gatewayFormat.helpers';", true],
-    ['import { gatewayInternals } from "./gatewayFormat.helpers";', true],
+    // Both of these are real files the first version of this detector missed.
+    ['import { S3Store } from "../../mcp/src/store/s3.js";', true],
+    ['import { WRITABLE_CONTENT_TYPES } from "../../mcp/src/store/index.js";', true],
+    ["import x from `../../mcp/src/session.js`;", true],
+    // A path in prose is not a read. That distinction is why
+    // check-gateway-imports.mjs stopped being a grep.
     ["// the gateway refuses both already (apps/mcp/src/index.js, move_note)", false],
     ['import { api } from "../convex/_generated/api";', false],
+    // A helper import is not a gateway read on its own — nearly every test
+    // here imports one, and qualifying on that matched 34 of 40 files.
+    ["import { seed } from './fixtures.helpers';", false],
     ["", false],
     [null, false],
   ];
@@ -91,27 +128,43 @@ function selfTest() {
     }
   }
 
-  // A prose mention is not a read. That distinction is the whole reason
-  // `check-gateway-imports.mjs` stopped being a grep, and the case above with
-  // a bare unquoted path is exactly the shape that fooled it.
+  // The helper hop, with the helper list supplied rather than scanned.
+  const helperCases = [
+    ["import { gatewayInternals } from './gatewayFormat.helpers';", true],
+    ['import { gatewayInternals } from "./gatewayFormat.helpers";', true],
+    ["import { seed } from './fixtures.helpers';", false],
+    ['import { api } from "../convex/_generated/api";', false],
+  ];
+  for (const [source, expected] of helperCases) {
+    if (importsGatewayHelper(source, ["gatewayFormat.helpers"]) !== expected) {
+      console.error(`FAIL helper hop: expected ${expected} for ${JSON.stringify(source)}`);
+      failed = true;
+    }
+  }
+
   if (failed) process.exit(1);
   console.log("ok   detector self-test passed");
 }
 
-const args = process.argv.slice(2);
-if (args.includes("--self-test")) {
-  selfTest();
-  process.exit(0);
-}
+// Only when run as a command. The functions above are exported so a test can
+// drive them, and a module that prints and can `process.exit(1)` merely
+// because it was imported is a module nobody can safely reuse.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const args = process.argv.slice(2);
+  if (args.includes("--self-test")) {
+    selfTest();
+    process.exit(0);
+  }
 
-const files = gatewayContractTests();
-if (files.length === 0) {
-  console.error(
-    "No control-plane test reads apps/mcp/src/index.js.\n\n" +
-      "Either the cross-package contract tests were deleted, or this detector\n" +
-      "stopped matching them. A scan that finds nothing is not a pass — it is\n" +
-      "this job quietly becoming decorative."
-  );
-  process.exit(1);
+  const files = gatewayContractTests();
+  if (files.length === 0) {
+    console.error(
+      "No control-plane test reads anything under apps/mcp/src.\n\n" +
+        "Either the cross-package contract tests were deleted, or this detector\n" +
+        "stopped matching them. A scan that finds nothing is not a pass — it is\n" +
+        "this job quietly becoming decorative."
+    );
+    process.exit(1);
+  }
+  for (const file of files) console.log(file);
 }
-for (const file of files) console.log(file);

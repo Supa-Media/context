@@ -1,32 +1,47 @@
 # The control-plane checks that are really checks OF THE GATEWAY.
 #
-# Six files under apps/convex/__tests__ read apps/mcp/src/index.js as their
-# source of truth. `gatewayFormat.helpers.ts` evaluates the gateway's real
-# module and exposes its private helpers — parsePrivacyManifest, visibilityOf,
-# effectiveVisibility, isPlumbing, canSee — and `ingestionGateway.test.ts`
-# scrapes MAX_INLINE_IMAGE_BYTES out of the text. They are the only checks
-# anywhere that the gateway's privacy engine still agrees with the control
-# plane's, and the only thing holding the two copies of the image ceiling
-# together.
+# Eleven files under apps/convex/__tests__ depend on apps/mcp/src: nine read a
+# path under it directly, and six import `gatewayFormat.helpers.ts`, which
+# evaluates the gateway's real module and exposes its private helpers —
+# parsePrivacyManifest, visibilityOf, effectiveVisibility, isPlumbing, canSee.
+# (The two sets overlap; run scripts/gateway-contract-tests.mjs for the list.)
+# `ingestionGateway.test.ts` additionally scrapes MAX_INLINE_IMAGE_BYTES out of
+# the text, and `addressing.test.ts` mirrors the S3 adapter's ambiguity rule.
+#
+# The coupling is not only in tests: apps/convex/functions/files.ts and
+# functions/provisioning.ts import the gateway's store factory in PRODUCTION.
 #
 # They live in the control plane's package, and the control plane's CI job is
 # filtered on `apps/convex/**`. So on a pull request that changes only
 # apps/mcp, every one of them was skipped: THE CROSS-PACKAGE GUARDS ON THE
 # GATEWAY WERE SILENT ON EXACTLY THE PULL REQUESTS THAT CHANGE THE GATEWAY.
 #
-# Measured before this file existed: adding one named export to
+# Measured before this file existed. Adding one named export to
 # apps/mcp/src/index.js leaves the gateway's own suite reporting ALL PASS, and
-# makes all six control-plane files fail to collect — with the message "update
-# gatewayFormat.helpers.ts rather than weakening the assertion", an instruction
-# nobody could receive, because the job that would print it never ran.
-# `ci / Test Convex Backend` was skipped on both of the two pull requests that
-# most recently modified that file.
+# in the control-plane suite fails 5 files / 12 checks — fileOps and
+# privacyEngine fail to collect at all, scaffold (8), provisioning (2) and
+# onboarding (2) fail after collecting, and ingestionGateway is unaffected
+# because it scrapes a constant rather than evaluating the module. The message
+# it prints is "update gatewayFormat.helpers.ts rather than weakening the
+# assertion" — written for exactly this situation, and impossible to receive,
+# because the job that would print it never ran. `ci / Test Convex Backend` was
+# skipped on both of the two pull requests that most recently modified that
+# file.
+#
+# THIS IS ONE INSTANCE OF A GENERAL PROBLEM, AND THE OTHER DIRECTION IS STILL
+# LIVE: apps/mobile/__tests__/consentScopes.test.ts imports
+# @context/convex/functions/lib/consentScopes — the mirror CLAUDE.md names as
+# "asserted against the control plane's rather than claimed in a comment" — and
+# `ci / Test Mobile App` is skipped on convex-only pull requests. A reusable
+# pipeline's path filters cannot see cross-package imports, which makes the
+# real fix upstream-shaped. This file closes the gateway direction only.
 #
 # mcp.yml's header records the same shape one layer down: the gateway's own
 # suite never ran, for the same reason, until it was moved out of the
-# framework's filtered pipeline. This is the half of that lesson that was not
-# carried across, and it is the third instance of "a check that is green
-# because it did not execute" in this directory's history.
+# framework's filtered pipeline. That is not the only precedent — mcp.yml,
+# router.yml, email-worker.yml, hook.yml's YAML-parse job and ci.yml's
+# lint-command comment each record a version of "a check that is green because
+# it did not execute".
 #
 # It is a separate workflow from mcp.yml on purpose. mcp.yml states that it
 # "runs on bare node with no install step, because apps/mcp has no
@@ -38,6 +53,10 @@ name: Gateway Contracts
 # mcp.yml and email-worker.yml. A filtered-out required check never reports and
 # leaves the pull request pending forever. Here it is also the specific bug
 # this workflow exists to fix, so a filter would be self-defeating.
+#
+# The push filter names apps/mobile and packages/shared because the suite
+# genuinely reaches into both — see the install step below. A filter that
+# contradicts the file's own comments is how this class of bug starts.
 on:
   pull_request:
     branches: [main]
@@ -46,11 +65,19 @@ on:
     paths:
       - "apps/mcp/**"
       - "apps/convex/**"
+      - "apps/mobile/**"
+      - "packages/shared/**"
       - ".github/workflows/gateway-contracts.yml"
 
 permissions:
   contents: read
   packages: read
+
+# A full workspace install per run is not something to stack up on a branch
+# somebody is pushing to repeatedly.
+concurrency:
+  group: gateway-contracts-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   contracts:
@@ -77,37 +104,50 @@ jobs:
 
       # A FULL install, not `--filter @context/convex...`.
       #
-      # The filtered version was the first thing tried here and it failed in
-      # CI, which is worth recording because the reason is not obvious and
-      # somebody will try to narrow this again: **the control plane's suite is
-      # not self-contained.** `__tests__/dropboxConnect.test.ts` imports
-      # `../../mobile/features/console/storage/dropbox`, so vitest resolves
-      # `apps/mobile/tsconfig.json`, which extends `expo/tsconfig.base` — and
-      # with only the control plane's dependencies present that resolution
-      # fails, taking the whole file down before a single assertion runs:
+      # The filtered version was the first thing tried and it went red in CI,
+      # which is worth recording because somebody will try to narrow this
+      # again: **the control plane's suite is not self-contained.**
+      # `__tests__/dropboxConnect.test.ts` imports
+      # `../../mobile/features/console/storage/dropbox` — the one real
+      # reach-out, mirroring the client's redirect origins through the server's
+      # allow-list — so vitest resolves apps/mobile/tsconfig.json, which
+      # extends `expo/tsconfig.base`. Without the mobile app's dependencies
+      # that resolution throws and the file dies before an assertion runs:
       #
       #   TSConfckParseError: failed to resolve "extends":"expo/tsconfig.base"
       #   Test Files  1 failed | 39 passed (40)
       #
-      # Enumerating a second `--filter` for the mobile app would fix today's
-      # failure and is the same mistake in a different place: a hand-written
-      # list of what the suite reaches into, which the next cross-package
-      # import silently invalidates. That is precisely what this job exists to
-      # stop happening.
+      # Adding a second `--filter` for the mobile app would work, and buys
+      # nothing: that filter installs Expo, which is the bulk of the workspace,
+      # so it costs about what a full install costs and adds a list to keep
+      # current. (An earlier version of this comment said such a list fails
+      # "silently". It does not — it fails exactly as the above did, loudly, by
+      # name. That was this pull request's own thesis borrowed for an argument
+      # it does not fit.)
+      #
+      # The real repair is to move DROPBOX_CALLBACK_PATH / DROPBOX_REDIRECT_ORIGINS
+      # into packages/shared, where CLAUDE.md says constants shared across apps
+      # belong. Then the control plane's suite is self-contained and this
+      # paragraph is unnecessary. Filed, not done here.
       #
       # @supa-media/* come from GitHub Packages, a private registry, so
       # GITHUB_TOKEN must be present for `pnpm install` to auth (see .npmrc).
-      # This is deploy-convex.yml's recipe.
+      # This is deploy-convex.yml's recipe. Note that email-worker.yml's
+      # filtered install is NOT a precedent for auth here: it pulls no
+      # @supa-media package at all.
       - name: Install
         run: pnpm install --frozen-lockfile
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # The whole control-plane suite, not only the six files named above. The
-      # narrower run is about four times faster and would reintroduce this
-      # job's own bug one level up: a list that misses the seventh contract
-      # test somebody adds next month. Ten seconds is not worth being wrong
-      # about.
+      # The whole control-plane suite, not only the files the detector names.
+      #
+      # Not a cost decision — a measured one. Disabling the S3 adapter's
+      # ambiguous-addressing guard is caught by `addressing.test.ts` and by the
+      # gateway's own suite, and the six files the first version of the
+      # detector found reported 385 passed, 0 failed. A curated subset here is
+      # a floor printed as a total, which is the thing this repository already
+      # refuses to do with note counts.
       - name: Control-plane suite, against this commit's gateway
         working-directory: apps/convex
         run: npx vitest run
