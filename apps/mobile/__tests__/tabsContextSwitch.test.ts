@@ -338,6 +338,14 @@ describe("the console frame keys its tabs on the open context", () => {
       .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
       .replace(/`(?:[^`\\]|\\.)*`/g, "``");
     expect(code.match(/useTabs\s*\(/g) ?? []).toHaveLength(1);
-    expect(code).toMatch(/useTabs\s*\(\s*data\.files\s*,\s*data\.selectedContextId\s*,?\s*\)/);
+    // The second argument may be `data.selectedContextId` or a local holding it
+    // — hoisting a long expression into a name is an ordinary refactor, and a
+    // guard that red-lights one gets deleted by whoever hits it. What it still
+    // rejects is a *literal*: strings are blanked by the stripper above, and the
+    // keywords are excluded by name, so `useTabs(data.files, "one-context")`,
+    // `…, null)` and `…, undefined)` all fail.
+    expect(code).toMatch(
+      /useTabs\s*\(\s*data\.files\s*,\s*(?!null\b|undefined\b|true\b|false\b)(?:data\.selectedContextId|[A-Za-z_$][\w$]*)\s*,?\s*\)/,
+    );
   });
 });

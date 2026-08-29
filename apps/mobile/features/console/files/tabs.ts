@@ -303,8 +303,8 @@ export function tabLabel(state: TabsState, path: string): string {
  * that is a statement about this function rather than about the flag: several
  * readers of the same short listing are still blind to it, including
  * `buildTreeRows` (draws a truncated folder as complete, and can draw "Empty"
- * for one whose whole first page was filtered by `canSee`), `namesIn` (tells
- * `describeNameProblem` a taken name is free), `findEntry`, `countLoaded`,
+ * for one whose whole first page was filtered by `canSee`), `namesIn` (feeds `collision`, which then
+ * reports a taken name as free on rename, create and paste), `findEntry`, `countLoaded`,
  * `itemsFromListings`, and `loadedFolders` (the move dialog's destination list,
  * and `IngestionCard`'s one-tap capture targets — the latter already
  * deliberately partial, `.slice(0, 6)` beside a free-text field).
