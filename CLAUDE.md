@@ -83,7 +83,7 @@ Zero npm dependencies — keep it that way. It runs on the Workers runtime, so
 use Web Crypto and `fetch`, not Node APIs.
 
 `pnpm test` in `apps/mcp` runs the suite against an in-memory store stub. It is
-fast, offline, and currently 546 checks. **Do not let it regress.** If you
+fast, offline, and currently 787 checks. **Do not let it regress.** If you
 change behavior, change the test in the same commit and say why.
 
 The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,
@@ -1013,6 +1013,39 @@ things about them are load-bearing:
 
 Renaming either tool, or "simplifying" the pair away because they duplicate
 `search_notes`/`read_note`, disconnects every ordinary ChatGPT chat.
+
+### Search answers from a derived index, and the index is budgeted, filtered, and disposable
+
+The brute-force scan behind `search_notes` fetched every candidate note per
+query, and Cloudflare allows 50 subrequests per Worker invocation — so a real
+context, measured live at 154 notes, answered every unprefixed search with
+"Too many subrequests". Search now answers from `.index/search-v1.json` in the
+customer's own bucket: an inverted index with BM25F ranking, synced by etag
+diff on each search under one shared subrequest budget. The format, scoring
+constants, and maintenance loop are pinned in `apps/mcp/src/search/CONTRACT.md`;
+what belongs here is what a tidy-up would break:
+
+- **It is a disposable derivative, and every consequence of that is
+  deliberate.** Rebuildable from the notes, never snapshotted to `.history/`,
+  never audited, never the only copy of anything, and never gating
+  correctness: an unusable index degrades to a bounded literal scan, and both
+  paths spend from the same budget — the recovery route re-creating the very
+  subrequest failure it exists to survive is the regression the wide-bucket
+  test pins.
+- **The index holds text drawn from private notes, and `canSee` is applied to
+  everything that leaves the gateway** — paths, snippets (cut from a fresh
+  read, never from index data), and counts. A reported total is computed from
+  the *visible* list: "14 matches" over four visible results is an existence
+  oracle, the same subtraction the console's census is owner-only to prevent.
+  For the same reason no vocabulary-derived "did you mean" may ever be added,
+  and `pending` is never printed as a number.
+- **Every count is a floor when any walk was cut short**, in the census's own
+  language, and a future-dated `uploaded` timestamp is clamped — unclamped,
+  `e^(+age/90)` is an unbounded score multiplier one crafted `LastModified`
+  away.
+- **One search path.** `search_notes` and the ChatGPT-dialect `search` share
+  `searchVisibleNotes` the way they shared the scan before it; a second path
+  is a second place for a visibility bug.
 
 ### The hook is a capture-only OAuth client, and that is the whole design
 

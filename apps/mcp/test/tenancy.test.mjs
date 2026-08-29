@@ -1489,7 +1489,15 @@ function memoryR2(seed = {}) {
         objects: [...objects.keys()]
           .filter((key) => !prefix || key.startsWith(prefix))
           .sort()
-          .map((key) => ({ key, size: objects.get(key).body.length, uploaded: new Date() })),
+          // `etag` per listed object, as R2 and S3 both report it — the search
+          // index diffs on it, and a stub that omits it makes every note look
+          // stale on every pass.
+          .map((key) => ({
+            key,
+            size: objects.get(key).body.length,
+            uploaded: new Date(),
+            etag: objects.get(key).etag,
+          })),
         truncated: false,
       };
     },
