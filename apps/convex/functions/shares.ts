@@ -719,13 +719,17 @@ export const authorizeShareRead = internalQuery({
       .query("noteShares")
       .withIndex("by_token", (q) => q.eq("token", args.token))
       .unique();
-    if (share === null || !isLive(share, now)) return null;
-
-    const addressed = await resolveAddressedUser(ctx, {
-      kind: share.recipientKind,
-      value: share.recipient,
-    });
-    if (addressed === null || addressed !== args.actorUserId) return null;
+    if (share === null) return null;
+    // The same predicate the link and the inbox answer. This is the third place
+    // that decides who may redeem a share, and the only one that returns note
+    // **content**, so it must never be the softest of the three — which it was.
+    // The freed-handle and destroyed-context checks went into the other two and
+    // this kept an older, shorter copy; `CLAUDE.md` names the shape for the
+    // gateway ("authority is decided once, never per protocol era"), and a
+    // control plane drifts the same way. Measured before this line existed: a
+    // share whose workspace document is gone, and one whose sharer is no longer
+    // the owner, both returned the note's text.
+    if ((await shareStillStands(ctx, share, args.actorUserId, now)) === null) return null;
 
     return {
       shareId: share._id,
