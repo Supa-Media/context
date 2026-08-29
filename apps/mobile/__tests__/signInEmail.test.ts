@@ -20,15 +20,23 @@ import { normalizeSignInEmail } from "../features/auth/email";
  * than claimed in a comment".
  *
  * The same assertion exists in `apps/convex/__tests__/invitations.test.ts`,
- * and **that copy is the one CI depends on.** It runs on every pull request,
- * whatever it touches, because `gateway-contracts.yml` carries no `paths`
- * filter and runs the whole control-plane suite — so it catches either side
- * drifting, in both directions.
+ * and **that copy is the one CI depends on.** It runs on every pull request
+ * into `main`, whatever it touches, because `gateway-contracts.yml` carries no
+ * `paths` filter and runs the whole control-plane suite — so it catches either
+ * side drifting, in both directions. (`branches: [main]` filters on the base,
+ * so a pull request stacked onto a feature branch runs neither that workflow
+ * nor `ci.yml`, and nothing covers the pair there.)
  *
  * This copy is therefore **redundant for CI, and kept for speed**: somebody
- * changing `normalizeSignInEmail` sees it fail in `jest` in under a second
- * without running the control plane's suite. That is worth eight lines; it is
- * not worth a claim it does not support.
+ * changing `normalizeSignInEmail` sees it fail in `jest` in 0.6s rather than
+ * running the control plane's ~10s suite, and this is the file where the
+ * invariant is stated in prose, so the assertion belongs beside it.
+ *
+ * **What it costs is an unguarded sync.** Two identical tables in two packages,
+ * with nothing pinning them to each other — the sentence this test exists to
+ * fix, one level up. Not hypothetical: they drifted inside this change's own
+ * commits, one shipping four rows here against five there. Edit them in pairs
+ * until the `packages/shared` repair retires both.
  *
  * (An earlier version of this note said the two copies each closed a direction
  * nothing else closed, citing a measurement that `ci / Test Convex Backend` is

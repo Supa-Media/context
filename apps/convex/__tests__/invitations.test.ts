@@ -135,10 +135,20 @@ describe("parsing an invitee", () => {
    *
    * **This is the copy CI depends on, and it covers both directions.**
    * `gateway-contracts.yml` carries no `paths` filter and runs this whole
-   * suite on every pull request, so a change to either implementation reaches
-   * it — including a mobile-only change, which `ci / Test Convex Backend`
-   * would skip. A second copy lives in `signInEmail.test.ts` for fast local
-   * feedback, not because anything here fails to cover it.
+   * suite on every pull request **into `main`**, so a change to either
+   * implementation reaches it — including a mobile-only change, which
+   * `ci / Test Convex Backend` would skip. (`branches: [main]` filters on the
+   * base, so a pull request stacked onto a feature branch runs neither this
+   * nor `ci.yml`; nothing covers the pair there.)
+   *
+   * A second copy lives in `signInEmail.test.ts` for fast local feedback — 0.6s
+   * in `jest` against ~10s for this suite — not because anything here fails to
+   * cover it. **That copy costs an unguarded sync**: two identical fixture
+   * tables in two packages with nothing pinning them to each other, which is
+   * the sentence this test exists to fix, one level up. It is not
+   * hypothetical — they drifted inside this change's own commits, one shipping
+   * four rows against five. The `packages/shared` repair below is what retires
+   * the duplication; until it lands, the tables must be edited in pairs.
    *
    * The convex suite already reaches into the mobile app (see
    * `dropboxConnect.test.ts`), so the import costs nothing new.
