@@ -1076,6 +1076,13 @@ describe("how many shares a context may have outstanding", () => {
       share(t, ownerId, workspaceId, "@lk", "1-projects/cap/over.md"),
     );
     expect(errorCode(error)).toBe("TOO_MANY_SHARES");
+    // The refusal states the number, and this test is named for that. Without
+    // this line, hardcoding a different number into the message passes — the
+    // copy and the bound could disagree again, which is the defect this whole
+    // block exists to have caught.
+    expect((error as { data?: { message?: string } }).data?.message).toContain(
+      String(MAX_ACTIVE_SHARES),
+    );
 
     // And the count really is the advertised number — the message promises
     // `MAX_ACTIVE_SHARES` outstanding, so `MAX_ACTIVE_SHARES + 1` rows would
@@ -1116,6 +1123,40 @@ describe("how many shares a context may have outstanding", () => {
       titleInPreview: false,
     });
     expect(again.token).toBe("cap-0".padEnd(64, "0"));
+  });
+
+  test("re-activating a revoked share is refused at the cap, like any other row", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    await seedActive(t, workspaceId, ownerId, MAX_ACTIVE_SHARES);
+
+    // Revoke one and replace it, so the live count is back at the cap with a
+    // revoked row sitting beside it.
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("noteShares")
+        .withIndex("by_workspace_status", (q) =>
+          q.eq("workspaceId", workspaceId).eq("status", "active"),
+        )
+        .first();
+      await ctx.db.patch(row!._id, {
+        status: "revoked",
+        revokedAt: Date.now(),
+        recipientKind: "name",
+        recipient: "lk",
+      });
+    });
+    await share(t, ownerId, workspaceId, "@lk", "1-projects/cap/replacement.md");
+
+    // Re-sharing the revoked note turns that row active again, which is the
+    // second of the two ways a live row appears — and it has to pass the same
+    // cap the insert does. Gating the check on `existing === null` is a
+    // one-token change that makes this the way past it, and it survived the
+    // whole suite until this test existed.
+    const error = await captureError(() =>
+      share(t, ownerId, workspaceId, "@lk", "1-projects/cap/note-0.md"),
+    );
+    expect(errorCode(error)).toBe("TOO_MANY_SHARES");
   });
 
   test("a revoked share does not count against the cap", async () => {

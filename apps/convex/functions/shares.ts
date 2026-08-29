@@ -492,9 +492,16 @@ export const createShare = mutation({
 /**
  * Refuse a share that would take the context past its outstanding cap.
  *
- * Checked only on the path that creates a row, so re-sharing an existing note
- * with an existing recipient is never refused for capacity — it does not add
- * one.
+ * Checked on both paths that produce a live row — the insert, and the patch
+ * that turns a revoked row active again — and skipped only where `createShare`
+ * has already returned, which is the supersede of a row that is *currently*
+ * active. So re-sharing a note is refused for capacity exactly when it would
+ * add to the live count.
+ *
+ * An earlier version of this comment said re-sharing "is never refused for
+ * capacity", which was false in the case this cap is most likely to be met in:
+ * at the cap with one revoked row, re-sharing that note throws. It reads as a
+ * promise to the caller and was not one.
  */
 async function assertShareCapacity(
   ctx: MutationCtx,
