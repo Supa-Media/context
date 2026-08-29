@@ -402,7 +402,27 @@ export async function listFolder(
       });
     }
 
-    if (!listing.truncated || !listing.cursor) break;
+    // `truncated` and `cursor` come from two independent tags and nothing makes
+    // them agree: `readTag` in `apps/mcp/src/store/s3.js` reads `IsTruncated`
+    // from one element and `NextContinuationToken` from another, so a store
+    // that sets the first without the second arrives here as
+    // `{ truncated: true, cursor: undefined }`. Every walk in this file used to
+    // fold that into one `||` with a finished listing, which is the opposite
+    // reading: not finished, unable to continue. The endpoint belongs to the
+    // customer, so the store answering slightly wrong is a provider or proxy
+    // they chose, publishing their own notes — B2, Wasabi, MinIO and anything
+    // a self-hosted gateway points at are all in scope, and "only a
+    // nonconforming store does this" is the reasoning that put it here.
+    //
+    // The five other walks below share this shape. Where they can still refuse
+    // they refuse; the two that report — this one and `rootFolders` — say the
+    // listing is short, because a floor printed as a total is #25 with a
+    // measurement in front of it.
+    if (!listing.truncated) break;
+    if (!listing.cursor) {
+      truncated = true;
+      break;
+    }
     cursor = listing.cursor;
     if (page === LIST_PAGE_CAP - 1) truncated = true;
   }
@@ -680,10 +700,14 @@ async function namesInUse(store: FileStore, folder: string): Promise<Set<string>
     for (const raw of listing.delimitedPrefixes ?? []) {
       names.add(baseName(raw.replace(/\/+$/, "")));
     }
-    if (!listing.truncated || !listing.cursor) {
+    // Truncated-with-no-cursor is not finished, it is unable to continue — see
+    // `listFolder`. Folding the two into one `||` set `complete` on a short
+    // walk, which is the row-83 defect reachable a second way.
+    if (!listing.truncated) {
       complete = true;
       break;
     }
+    if (!listing.cursor) break;
     if (seen.has(listing.cursor)) break;
     seen.add(listing.cursor);
     cursor = listing.cursor;
@@ -776,10 +800,14 @@ async function keysUnder(
         );
       }
     }
-    if (!listing.truncated || !listing.cursor) {
+    // Truncated-with-no-cursor is not finished, it is unable to continue — see
+    // `listFolder`. Folding the two into one `||` set `complete` on a short
+    // walk, which is the row-83 defect reachable a second way.
+    if (!listing.truncated) {
       complete = true;
       break;
     }
+    if (!listing.cursor) break;
     // A store that repeats a cursor will never finish, and the page budget
     // would spend itself before saying so. Comparing against the previous
     // cursor alone is defeated by a store alternating two of them, so this
@@ -819,10 +847,14 @@ async function namesExtending(store: FileStore, path: string): Promise<string[]>
       if (object.key === path || isPlumbing(object.key)) continue;
       keys.push(object.key);
     }
-    if (!listing.truncated || !listing.cursor) {
+    // Truncated-with-no-cursor is not finished, it is unable to continue — see
+    // `listFolder`. Folding the two into one `||` set `complete` on a short
+    // walk, which is the row-83 defect reachable a second way.
+    if (!listing.truncated) {
       complete = true;
       break;
     }
+    if (!listing.cursor) break;
     if (seen.has(listing.cursor)) break;
     seen.add(listing.cursor);
     cursor = listing.cursor;
@@ -939,6 +971,14 @@ async function historyKeysFor(
       }
       keys.push(object.key);
     }
+    // The one walk with nowhere to put the answer. Its only caller has already
+    // deleted the live keys by the time it runs, so it cannot refuse, and there
+    // is no `truncated` on a delete result to report through. A short walk here
+    // leaves snapshots of a note somebody permanently deleted — which is the
+    // delete copy telling the lie this file's header says it must not — and
+    // that is already true at `LIST_PAGE_CAP` and not made worse by the shape
+    // below. Left as it is rather than papered over: the fix is to resolve the
+    // history before the live keys go, which is a bigger change than this one.
     if (!listing.truncated || !listing.cursor) break;
     cursor = listing.cursor;
   }
@@ -1403,6 +1443,17 @@ export async function duplicatePath(
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
   const parent = parentOf(path);
+
+  // Before the listing, not after it. `copyPath` below applies exactly this
+  // check to exactly this path, so nothing is accepted or refused that was not
+  // already — what changes is that a caller who cannot see `path` no longer
+  // causes a full walk of its parent on the strength of a name they typed, and
+  // no longer learns from a walk that could not finish (`FOLDER_TOO_LARGE`)
+  // that the parent is one they cannot see into. The refusal is the ordinary
+  // `notFound()`, byte-identical to the one a path that never existed gets.
+  const state = await loadPrivacyState(store);
+  if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+
   // Every name in use, not every name this caller can see.
   //
   // Picking from the visible siblings alone chooses a name a hidden note may
@@ -1747,7 +1798,11 @@ async function rootFolders(
       }
       seen.add(folder);
     }
-    if (!listing.truncated || !listing.cursor) break;
+    if (!listing.truncated) break;
+    if (!listing.cursor) {
+      partial = true;
+      break;
+    }
     cursor = listing.cursor;
     if (page === LIST_PAGE_CAP - 1) partial = true;
   }
