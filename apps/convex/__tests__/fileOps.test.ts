@@ -1056,10 +1056,16 @@ describe("a destination the caller cannot see", () => {
   });
 
   /**
-   * A move rewrites the manifest after it runs, so the destination has to be
-   * judged against the rules the move will leave behind. Checking the current
-   * ones refuses renames that preserve visibility, which is a regression with
-   * no security to show for it — the caller can see the result perfectly well.
+   * A move rewrites the manifest after it runs, and the rules follow the folder
+   * — which is what this asserts, at owner scope.
+   *
+   * It used to say that the destination therefore had to be JUDGED against the
+   * rules the move leaves behind, and that checking the current ones "refuses
+   * renames that preserve visibility, which is a regression with no security to
+   * show for it". That argument is the oracle: the rule a move installs cannot
+   * be the reason the move is allowed, and the rename it defends is the same
+   * operation as a probe at a guessed path. The rewrite still travels; the
+   * write permission is decided from the manifest as it stands.
    */
   test("a rename that carries its own visibility with it is allowed", async () => {
     const store = bucket();
@@ -1905,7 +1911,12 @@ describe("a bulk operation acts only on what the caller can see", () => {
    * rules that were never going to exist — and a team caller's move succeeded
    * into space they could no longer see, with 117 tests green.
    */
-  test("the destination guard and the manifest rewrite agree about the move", async () => {
+  test("the destination guard reads the manifest, not the move's own rewrite", async () => {
+    // At owner scope `assertDestinationsVisible` returns on its first line, so
+    // an owner-scope version of this asserts nothing about the guard. It has to
+    // be a team caller, and the shape that matters is a folder whose `team`
+    // rule the move would carry to the destination: judged against the rewrite
+    // the destination looks shared, judged against the manifest it is not.
     const store = bucket();
     store.seed("2-areas/shared/a.md", "# A\n");
     await setFolderVisibility(store, {
@@ -1913,18 +1924,31 @@ describe("a bulk operation acts only on what the caller can see", () => {
       visibility: "team",
       scope: "private",
     });
-    const moved = await movePath(store, {
-      from: "2-areas/shared",
-      to: "2-areas/shared-2",
-      scope: "private",
+
+    const refused = await capture(() =>
+      movePath(store, {
+        from: "2-areas/shared",
+        to: "2-areas/elsewhere",
+        scope: "team",
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("FILE_NOT_FOUND");
+    // Nothing moved, and no rule was written for the destination.
+    expect(store.snapshot()["2-areas/elsewhere/a.md"]).toBeUndefined();
+    expect(store.snapshot()[PRIVACY_KEY] as string).not.toContain("2-areas/elsewhere");
+
+    // The control: the same folder inside shared space moves.
+    const allowed = bucket();
+    await shareProjects(allowed);
+    allowed.seed("1-projects/shared/a.md", "# A\n");
+    const moved = await movePath(allowed, {
+      from: "1-projects/shared",
+      to: "1-projects/elsewhere",
+      scope: "team",
       now: NOW,
     });
-    // The guard allowed it, so the mover must be able to read the result.
-    const readBack = await readFile(store, {
-      path: moved.paths[0]!,
-      scope: "private",
-    });
-    expect(readBack.text).toContain("# A");
+    expect(moved.paths).toEqual(["1-projects/elsewhere/a.md"]);
   });
 
   /**
@@ -2497,6 +2521,101 @@ describe("a bulk operation acts only on what the caller can see", () => {
     // Both succeed; only the name differs, which is what a duplicate is for.
     expect((await duplicate(false)).paths).toEqual(["1-projects/note copy.md"]);
     expect((await duplicate(true)).paths).toEqual(["1-projects/note copy 2.md"]);
+  });
+
+  /**
+   * The drop half of the survivor repair, at the scope where it does anything.
+   *
+   * At owner scope the walk withholds nothing, so `rulesSurvivorsRestOn`
+   * returns on its first line and an owner-scope test for it is vacuous — which
+   * is what happened when the team-scope version of this was moved to keep it
+   * passing. `delete` is the cleanest way back: it has no destination guard, so
+   * a team caller can still reach the repair.
+   *
+   * A rule no survivor needs must go. Keeping it leaves the folder in the
+   * caller's tree, listing empty — which announces that a survivor is in there.
+   */
+  test("a rule no survivor rests on is dropped, at team scope", async () => {
+    const store = bucket();
+    store.seed("2-areas/shared/a.md", "# A\n");
+    store.seed("2-areas/shared/held.md", "# Held back\n");
+    await setFolderVisibility(store, {
+      path: "2-areas/shared",
+      visibility: "team",
+      scope: "private",
+    });
+    // The survivor is held back by its own exception, so it never rested on the
+    // folder's `team` rule and that rule is not the folder's to keep.
+    await setVisibility(store, {
+      path: "2-areas/shared/held.md",
+      visibility: "private",
+      scope: "private",
+    });
+
+    const result = await deletePath(store, {
+      path: "2-areas/shared",
+      scope: "team",
+      confirmation: DELETE_CONFIRMATION,
+    });
+    expect(result.paths).toEqual(["2-areas/shared/a.md"]);
+
+    const manifest = store.snapshot()[PRIVACY_KEY] as string;
+    expect(manifest).not.toContain("2-areas/shared: team");
+    // ...so the folder is gone from the caller's tree rather than sitting there
+    // empty, and the survivor is still private and still there.
+    const gone = await capture(() => listFolder(store, { path: "2-areas/shared", scope: "team" }));
+    expect(gone.code).toBe("FILE_NOT_FOUND");
+    const leak = await capture(() =>
+      readFile(store, { path: "2-areas/shared/held.md", scope: "team" }),
+    );
+    expect(leak.code).toBe("FILE_NOT_FOUND");
+    expect(store.snapshot()["2-areas/shared/held.md"]).toBeDefined();
+  });
+
+  test("a name in use by a subfolder is stepped over when duplicating", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/note.md", "# Note\n");
+    // A FOLDER holding the name the duplicate would pick. Landing a file key
+    // beside a folder prefix is the shape `movePath` refuses outright.
+    store.seed("1-projects/note copy.md/inner.md", "# Inner\n");
+
+    const duplicated = await duplicatePath(store, { path: "1-projects/note.md", scope: "team" });
+    expect(duplicated.paths).toEqual(["1-projects/note copy 2.md"]);
+  });
+
+  test("a name walk that cannot finish refuses the duplicate", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/note.md", "# Note\n");
+    store.seed("1-projects/note copy.md", "# Held back\n");
+    await setVisibility(store, {
+      path: "1-projects/note copy.md",
+      visibility: "private",
+      scope: "private",
+    });
+
+    // A page that drops the earlier key — a provider returning fewer objects
+    // than asked for, which S3 and Dropbox both may do. Without the refusal the
+    // walk misses `note copy.md`, `duplicateName` picks it, and the guard
+    // answers "that file does not exist" — the oracle this test's neighbour
+    // exists to close, reopened by an incomplete listing.
+    const thin: FileStore = {
+      ...store,
+      list: async (options) => {
+        const page = await store.list(options);
+        return {
+          ...page,
+          objects: (page.objects ?? []).slice(-1),
+          truncated: true,
+          cursor: `c${Math.random()}`,
+        };
+      },
+    };
+    const error = await capture(() =>
+      duplicatePath(thin, { path: "1-projects/note.md", scope: "team" }),
+    );
+    expect(error.code).toBe("FOLDER_TOO_LARGE");
   });
 
   /**

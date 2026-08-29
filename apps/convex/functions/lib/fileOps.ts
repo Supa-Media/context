@@ -649,24 +649,50 @@ export async function createFolder(
   return { path: folder, readme };
 }
 
-/** Every immediate child name under a folder, visible or not. */
+/**
+ * Every immediate child name under a folder, visible or not.
+ *
+ * A short answer here is not a smaller answer, it is a wrong one: the name
+ * `duplicateName` picks from it is refused by `copyPath`'s guard if a hidden
+ * note holds it, and Duplicate then says "that file does not exist" if and only
+ * if one does. Reproduced against a store whose page dropped the earlier key.
+ *
+ * So it refuses rather than truncating, which is what `keysUnder` and
+ * `namesExtending` do and what `listFolder` and `rootFolders` report. This is
+ * the fifth listing walk in this file and the second time I have written one
+ * that inferred its own completeness — the first was `namesExtending`, three
+ * functions away, in the commit whose subject was that mistake.
+ */
 async function namesInUse(store: FileStore, folder: string): Promise<Set<string>> {
   const prefix = folder === "" ? "" : `${folder}/`;
   const names = new Set<string>();
   let cursor: string | undefined;
+  let complete = false;
   const seen = new Set<string>();
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
     const listing = await store.list({ prefix, delimiter: "/", cursor, limit: 1000 });
     for (const object of listing.objects ?? []) {
       if (object.key !== prefix) names.add(baseName(object.key));
     }
+    // Subfolder names count: a folder called `note copy.md` takes that name as
+    // surely as a note does, and landing a file key beside a folder prefix is
+    // the shape `movePath` refuses as unrepresentable on a Dropbox binding.
     for (const raw of listing.delimitedPrefixes ?? []) {
       names.add(baseName(raw.replace(/\/+$/, "")));
     }
-    if (!listing.truncated || !listing.cursor) break;
+    if (!listing.truncated || !listing.cursor) {
+      complete = true;
+      break;
+    }
     if (seen.has(listing.cursor)) break;
     seen.add(listing.cursor);
     cursor = listing.cursor;
+  }
+  if (!complete) {
+    throw new FileOpError(
+      "FOLDER_TOO_LARGE",
+      "That folder holds too many files to duplicate into safely. Move some of them first.",
+    );
   }
   return names;
 }
@@ -1383,8 +1409,15 @@ export async function duplicatePath(
   // already hold, and `copyPath`'s guard then refuses it — so Duplicate
   // answered "that file does not exist" if and only if a private note occupied
   // the "… copy" name, and the caller could aim it by writing the name they
-  // wanted to test first. Reading the raw listing here discloses nothing: the
-  // names never leave this function, and what comes back is a free name.
+  // wanted to test first.
+  //
+  // The names read here never leave this function. What does leave is the one
+  // it picks, and that still carries a bit: `x copy 2.md` where `x copy.md` was
+  // free says something holds `x copy.md`. That is the residual
+  // `assertDestinationsVisible` documents and `writeFile` has had all along —
+  // the same caller learns as much in one write — so this removes a hard
+  // refusal rather than an inference. Saying it discloses nothing would be the
+  // overclaim this file has already made once.
   const taken = await namesInUse(store, parent);
   const destination = joinPath(parent, duplicateName(baseName(path), taken));
   return await copyPath(store, { from: path, to: destination, scope: options.scope });
