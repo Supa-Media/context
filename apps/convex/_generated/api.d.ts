@@ -29,6 +29,7 @@ import type * as functions_lib_crypto from "../functions/lib/crypto.js";
 import type * as functions_lib_dropboxOAuth from "../functions/lib/dropboxOAuth.js";
 import type * as functions_lib_fileOps from "../functions/lib/fileOps.js";
 import type * as functions_lib_gatewayAuth from "../functions/lib/gatewayAuth.js";
+import type * as functions_lib_identities from "../functions/lib/identities.js";
 import type * as functions_lib_ingestLog from "../functions/lib/ingestLog.js";
 import type * as functions_lib_ingestion from "../functions/lib/ingestion.js";
 import type * as functions_lib_ingestionStore from "../functions/lib/ingestionStore.js";
@@ -44,6 +45,7 @@ import type * as functions_lib_verification from "../functions/lib/verification.
 import type * as functions_lib_workspaceAuth from "../functions/lib/workspaceAuth.js";
 import type * as functions_names from "../functions/names.js";
 import type * as functions_provisioning from "../functions/provisioning.js";
+import type * as functions_shares from "../functions/shares.js";
 import type * as functions_storage from "../functions/storage.js";
 import type * as functions_workspaces from "../functions/workspaces.js";
 import type * as http from "../http.js";
@@ -76,6 +78,7 @@ declare const fullApi: ApiFromModules<{
   "functions/lib/dropboxOAuth": typeof functions_lib_dropboxOAuth;
   "functions/lib/fileOps": typeof functions_lib_fileOps;
   "functions/lib/gatewayAuth": typeof functions_lib_gatewayAuth;
+  "functions/lib/identities": typeof functions_lib_identities;
   "functions/lib/ingestLog": typeof functions_lib_ingestLog;
   "functions/lib/ingestion": typeof functions_lib_ingestion;
   "functions/lib/ingestionStore": typeof functions_lib_ingestionStore;
@@ -91,6 +94,7 @@ declare const fullApi: ApiFromModules<{
   "functions/lib/workspaceAuth": typeof functions_lib_workspaceAuth;
   "functions/names": typeof functions_names;
   "functions/provisioning": typeof functions_provisioning;
+  "functions/shares": typeof functions_shares;
   "functions/storage": typeof functions_storage;
   "functions/workspaces": typeof functions_workspaces;
   http: typeof http;

@@ -242,6 +242,121 @@ const schema = defineSchema({
     .index("by_expiresAt", ["expiresAt"]),
 
   /**
+   * A standing, revocable grant to read ONE note, addressed to ONE person.
+   *
+   * This is not a second visibility tier and it must never become one. A share
+   * narrows what a named person can reach; it can never widen it. Two rules
+   * carry that, and both are enforced at read time rather than here:
+   *
+   *  - **A share cannot publish a private note.** The entry note must be
+   *    `team`-visible under the owner's own `privacy.md` on every read. A note
+   *    that was team when the share was created and is private now is
+   *    unavailable, and looks exactly like a note that never existed.
+   *  - **A share is not a membership.** The recipient gets no `workspaceMembers`
+   *    row, so they cannot connect an AI client to this context, cannot list or
+   *    search it, and cannot reach any note but the one addressed and whatever
+   *    it explicitly links to. Modelling this as a `viewer` role would have
+   *    handed every share recipient an MCP grant over the whole team surface,
+   *    which is the opposite of what somebody sharing one document intends.
+   *
+   * ## Addressed to a string, exactly like an invitation
+   *
+   * `recipient` holds the normalized `@name` or email as typed, and is resolved
+   * to an account only when somebody presents the token — see
+   * `lib/identities.ts`. The reasoning is `workspaceInvitations`' in full: an
+   * outcome that differed between sharing with `@lk` and sharing with
+   * `@does-not-exist` would make the share box a name-enumeration endpoint, and
+   * anybody with an account has a share box.
+   *
+   * ## `token` is returned to its creator, and that is not the invitation rule
+   *
+   * `inviteMember` returns `null` precisely so that no field exists for a
+   * difference to hide in. `createShare` returns the token, because the whole
+   * point is a link the owner pastes into a chat — and that is safe for a
+   * reason worth stating rather than assuming: the token is 32 random bytes
+   * minted before anything is looked up, so it is byte-shaped identically
+   * whether the recipient exists, does not exist, or is the owner's own
+   * grandmother. What the invitation rule forbids is a return value *derived
+   * from the recipient*. This one is derived from `crypto.getRandomValues`.
+   *
+   * Stored in the clear, for `workspaceInvitations`' reason: possession alone
+   * authorizes nothing, because resolving a share additionally requires being
+   * the addressed identity. A dump of this table is inert for anybody who is
+   * not already the recipient.
+   *
+   * ## `revoked` is terminal, and revocation must survive the link
+   *
+   * The row is kept rather than deleted so the owner can see that a share
+   * existed and ended. A revoked row's token never resolves again, and
+   * re-sharing the same note with the same person after a revocation mints a
+   * **new** token — otherwise "revoke" would mean "pause", and a link somebody
+   * had already forwarded would come back to life.
+   */
+  noteShares: defineTable({
+    workspaceId: v.id("workspaces"),
+    /**
+     * The one note this share starts at, normalized and bucket-relative.
+     *
+     * Validated with `normalizePath` and refused if `isPlumbing` — `privacy.md`
+     * is the access map itself and `.history/` holds every revision of every
+     * note, so neither is ever a thing to hand somebody.
+     */
+    entryPath: v.string(),
+    /**
+     * `name` — a `@handle` out of the shared namespace, stored undecorated.
+     * `email` — a lowercased address.
+     *
+     * Explicit rather than derived from the string's shape, so no two readers
+     * can guess differently. Same field pair as `workspaceInvitations`.
+     */
+    recipientKind: v.union(v.literal("name"), v.literal("email")),
+    recipient: v.string(),
+    createdBy: v.id("users"),
+    /** Unguessable, and useless without the matching identity. */
+    token: v.string(),
+    status: v.union(v.literal("active"), v.literal("revoked")),
+    /**
+     * Whether this share's link may unfurl with the note's title.
+     *
+     * A per-share choice because it is a per-share disclosure: the card is
+     * rendered for an unauthenticated crawler, so whoever holds the URL learns
+     * the title without signing in. Content is never on the card at any
+     * setting. Defaults to `true` — a link that previews as bare product
+     * branding does not get clicked, and a share nobody opens is a share that
+     * did not happen.
+     */
+    titleInPreview: v.boolean(),
+    /**
+     * Absent means no expiry, and that is the default.
+     *
+     * Deliberately unlike an invitation, which is a one-time offer that should
+     * die unanswered. A share is a standing document link somebody may bookmark
+     * or come back to in a year; an expiry silently breaks it, and the owner —
+     * who can see every share and revoke any of them in one click — is a better
+     * control than a clock nobody set.
+     */
+    expiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+    revokedAt: v.optional(v.number()),
+  })
+    /** The owner's own listing, narrowed in the index for `listInvitations`' reason. */
+    .index("by_workspace_status", ["workspaceId", "status"])
+    /** "Shared with me": the `(kind, recipient)` prefix finds every share addressed to you. */
+    .index("by_recipient", ["recipientKind", "recipient", "status"])
+    .index("by_token", ["token"])
+    /**
+     * The one row a re-share must find. Sharing the same note with the same
+     * person twice is one grant, not two — otherwise revoking would be a game
+     * of whack-a-mole against rows the owner cannot tell apart.
+     */
+    .index("by_workspace_entry_recipient", [
+      "workspaceId",
+      "entryPath",
+      "recipientKind",
+      "recipient",
+    ]),
+
+  /**
    * The customer's bucket credential.
    *
    * KEYED BY `workspaceId`, NEVER `userId`. A binding belongs to the context,
