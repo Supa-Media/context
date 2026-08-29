@@ -25,52 +25,75 @@ import { emptyEditor } from "../features/console/files/editor";
  * and it is the one that decides *when* to call `menu.ts`, `dnd.ts` and the
  * `FileBrowser` — decisions that only exist in the component.
  *
- * ## Ten refusals, six of them reachable
+ * ## Which refusals, and why these six
  *
- * `Explorer` refuses in ten places. Six were sabotaged one at a time against
- * the whole mobile suite before this file existed and **every one went
- * undetected**, so the 0-for-N reading was right. But undetected is not the
- * same as exposed, and separating the two is half the work here: four of the
- * ten cannot be reached at all, because an outer layer decides the same thing
- * first and is itself tested.
+ * The counting rule, stated because a bare number is unfalsifiable: a refusal
+ * is **in scope here when it decides whether the console asks the server** —
+ * whether a `FileBrowser` mutating method is called, or whether a control that
+ * leads to one is offered. That excludes `Explorer`'s render-mode and
+ * set-state guards (`query.trim() === ""` at :102, `onDragLeave`'s
+ * `current === path` at :270, `ExplorerDialogs`' `dialog === null` at :479),
+ * the `onOpenPinned` fallback at :181 (both arms act), and `inheritedOf`'s
+ * fail-closed `"private"` at :646 (a default, not a refusal).
  *
- *  - `openMenu`'s `items.length === 0` cannot fire. `itemsFor` returns `[]`
- *    only when `targetRows` returns `null`, which happens only for a `loading`
- *    or `empty` row — and `FileTree` renders those as a bare `View` with no
- *    `useRowInteractions`, so they carry no `contextmenu` listener and
- *    `openMenu` is never reached with one. For a file or folder row
- *    `entryItems` returns at least `Open` or `Copy path` under every
- *    combination of capabilities.
- *  - `runAction`'s `case "visibility"` cannot fire. Both menu presentations
- *    check `item.items !== undefined` and open the submenu instead of
- *    dispatching — `Menu.web.tsx`'s `Sheet` says so in a comment, and its
- *    `Popover` does the same in `onActivate`.
- *  - `cycleVisibility`'s `row.readOnly` cannot fire. `VisibilityControl`
- *    returns the "generated" lock *before* the pressable for a read-only row,
- *    so there is no press to make.
- *  - `runAction`'s `restore` null target cannot fire. `menu.ts` calls the same
+ * Eleven conditions are in scope. Each was sabotaged one at a time against the
+ * whole mobile suite before this file existed and **every one went undetected**,
+ * so row 117's 0-for-N reading was right. But undetected is not the same as
+ * exposed, and separating the two is half the work here.
+ *
+ * | Line | Condition | |
+ * | --- | --- | --- |
+ * | :261 | `dragHandlers`' `!files.canEdit` | covered below |
+ * | :263 | `canDrag`'s `!row.readOnly` | covered below |
+ * | :264 | `canDrop`'s `row.kind === "folder"` | covered below |
+ * | :279 | `onDrop`'s `source === null` | covered below |
+ * | :283 | `onDrop`'s `!verdict.ok` | covered below |
+ * | :327 | the toolbar's `files.canEdit` | covered below |
+ * | :148 | `openMenu`'s `items.length === 0` | cannot fire |
+ * | :222 | `runAction`'s `restore` null target | cannot fire |
+ * | :247 | `runAction`'s `case "visibility"` | cannot fire |
+ * | :263 | `canDrag`'s `row.kind !== "loading" \|\| "empty"` | cannot fire |
+ * | :631 | `cycleVisibility`'s `row.readOnly` | cannot fire |
+ *
+ * ## The five that cannot fire
+ *
+ *  - **`openMenu`'s `items.length === 0`** — because `Explorer.openMenu` only
+ *    ever builds `{ kind: "row", row }`, and `entryItems` returns at least
+ *    `Open` or `Copy path` for a single file or folder row under every
+ *    combination of capabilities. Note what this guard actually is: `menu.ts`
+ *    documents the empty list as the **background** menu's contract — right-
+ *    click on empty space with no `canEdit` and there is nothing to offer — so
+ *    it stops being dead the day a background menu is wired up, and it is a
+ *    live guard then rather than a spare. (`targetRows` returning `null` for a
+ *    `loading` row is a third way to reach `[]`, and `FileTree` renders those
+ *    as a bare `View` with no `useRowInteractions`, so no such row can open a
+ *    menu either. An earlier version of this comment gave only that reason and
+ *    gave it as the only one, which was wrong twice over.)
+ *  - **`runAction`'s `restore` null target** — `menu.ts` calls the same pure
  *    `restoreTargetFor` to decide whether to offer the item at all.
+ *  - **`runAction`'s `case "visibility"`** — every menu presentation checks
+ *    `item.items !== undefined` and opens the submenu instead of dispatching.
+ *    There are **three**, not two: `Menu.web.tsx`'s `Sheet` and `Popover`, and
+ *    the native `Menu.tsx` sheet that ships on iOS and Android. `Popover`
+ *    checks in two places — its root `Panel`'s `onActivate` and the keyboard
+ *    `Enter` path — while its *submenu* `Panel` calls `close(item.id)` with no
+ *    check, which is safe only because `menu.ts` states items are one level
+ *    deep. And `jest.config.js` resolves `web.tsx` ahead of `tsx`, so **no test
+ *    in this suite ever loads `Menu.tsx`**: its guard is read, not exercised,
+ *    which is the "a guard nobody has checked" shape and is recorded here
+ *    rather than left implied.
+ *  - **`cycleVisibility`'s `row.readOnly`** — `VisibilityControl` returns the
+ *    "generated" lock *before* the pressable for a read-only row, so there is
+ *    no press to make.
+ *  - **`canDrag`'s `loading`/`empty` arms** — the same `FileTree` fact as the
+ *    first bullet: those rows carry no interactions at all, so `canDrag` is
+ *    never asked about one. Only the `readOnly` arm of that expression is
+ *    reachable, and only that arm is covered below.
  *
- * Those four are defence in depth, and a test for them would have to sabotage
+ * Those five are defence in depth, and a test for them would have to sabotage
  * the outer layer to reach them — which is a test of the sabotage, not of the
  * product. They are left uncovered deliberately, and this is the record of why,
- * so the next person does not read the gap as an unfinished job. The other six
- * are below: `dragHandlers`' `canEdit`, `canDrag`'s `readOnly`, `canDrop`'s
- * folder rule, `onDrop`'s `source === null`, `onDrop`'s verdict, and the
- * toolbar's `canEdit`. Each is singly held — nothing else in the app decides
- * it — and each was sabotaged again after this file existed, to prove the
- * tests catch what they claim.
- *
- * Four of the six fail silently when removed. The other two fail loudly, and
- * that is worth stating rather than implying otherwise: `source === null` and
- * the verdict's `return` both stand in front of code that would immediately
- * dereference something absent (`source.paths`, `verdict.moves`), so removing
- * either throws out of the `drop` listener. Those two tests therefore catch a
- * crash, not a write. The *silent* version of the verdict defect — `Explorer`
- * not consulting `dnd.ts` at all — is a separate shape, and the permitted and
- * refused pair below was sabotaged against it too: with the verdict replaced by
- * an unconditional `{ ok: true }`, the refused drop calls `move` and the test
- * fails.
+ * so the gap does not read as an unfinished job.
  *
  * ## Every test asserts on whether an action was CALLED
  *
@@ -84,6 +107,29 @@ import { emptyEditor } from "../features/console/files/editor";
  * two after it lean on; the permitted drop is what the three refused drops lean
  * on. Pairing them, rather than pairing them within one block, is what keeps a
  * tree that rendered no rows at all from passing.
+ *
+ * Each of the six was sabotaged again *after* these tests existed. Four fail
+ * silently when removed. The other two fail loudly, and that is worth stating
+ * rather than implying otherwise: `source === null` and the verdict's `return`
+ * both stand in front of code that would immediately dereference something
+ * absent (`source.paths`, `verdict.moves`), so removing either throws out of
+ * the `drop` listener. Those two tests therefore catch a crash, not a write.
+ * The *silent* version of the verdict defect — `Explorer` not consulting
+ * `dnd.ts` at all — is a separate shape, and the permitted and refused pair
+ * below was sabotaged against it too: with the verdict replaced by an
+ * unconditional `{ ok: true }`, the refused drop calls `move` and the test
+ * fails.
+ *
+ * **A deletion is not the only sabotage.** The first version of the `canDrop`
+ * test dropped onto `privacy.md`, the fixture's only file row — and `privacy.md`
+ * is read-only, so the refusal it observed was equally consistent with a
+ * `!row.readOnly` rule. Turning the guard off (`canDrop: () => true`) failed
+ * that version; *replacing* it (`canDrop: (row) => !row.readOnly`) passed it,
+ * while making an ordinary note a drop target and calling `move` with a note as
+ * the destination. `other.md` exists in the fixture for that reason and for no
+ * other, and the same replacement now fails: 1 of 1,597, where before it was 0.
+ * A rule quietly becoming a *different* rule is the mutation that survives an
+ * on/off sabotage.
  */
 
 const roots: (() => void)[] = [];
@@ -124,6 +170,18 @@ const ROOT_LISTING: FolderListing = {
       readOnly: false,
     },
     {
+      // Ordinary and writable, and the only row in this fixture that is: it is
+      // what separates `canDrop`'s folder rule from the read-only rule. See the
+      // header's last paragraph.
+      kind: "file",
+      path: "other.md",
+      name: "other.md",
+      visibility: "private",
+      inherited: "private",
+      exception: false,
+      readOnly: false,
+    },
+    {
       kind: "file",
       path: "privacy.md",
       name: "privacy.md",
@@ -139,9 +197,16 @@ const ROOT_LISTING: FolderListing = {
 
 const noop = () => {};
 
-/** Every mutating call the component made, in order. */
 interface Calls {
+  /** Every mutating call the component made against the browser, in order. */
   entries: { name: string; args: unknown[] }[];
+  /**
+   * Every call it made against its own props. Kept apart from `entries`
+   * because these are not requests to the server and one of them fires on
+   * mount: `onOverlayChange(false)` runs from an effect before any gesture, so
+   * folding it in would make every `toEqual([])` below read past it.
+   */
+  props: { name: string; args: unknown[] }[];
 }
 
 /**
@@ -202,8 +267,15 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
   };
 }
 
+/**
+ * `onOpenPinned` and `onOverlayChange` are passed because the product's only
+ * mount site passes them (`app/(app)/console/_layout.tsx`), and a fixture that
+ * mounts a shape nothing mounts is the drift `browser()` is typed to avoid, one
+ * level out. They record into `calls.props` rather than no-op, so a guard that
+ * started calling one of them would show up rather than vanish.
+ */
 function mount(canEdit: boolean): { container: HTMLElement; calls: Calls } {
-  const calls: Calls = { entries: [] };
+  const calls: Calls = { entries: [], props: [] };
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -223,7 +295,13 @@ function mount(canEdit: boolean): { container: HTMLElement; calls: Calls } {
               insets: { top: 0, left: 0, right: 0, bottom: 0 },
             } as never),
         },
-        createElement(Explorer, { files: browser(canEdit, calls), contextLabel: "@somebody" }),
+        createElement(Explorer, {
+          files: browser(canEdit, calls),
+          contextLabel: "@somebody",
+          onOpenPinned: (path: string) => calls.props.push({ name: "onOpenPinned", args: [path] }),
+          onOverlayChange: (open: boolean) =>
+            calls.props.push({ name: "onOverlayChange", args: [open] }),
+        }),
       ),
     );
   });
@@ -303,14 +381,6 @@ describe("a console that cannot edit cannot start the gestures that write", () =
     expect(reader.calls.entries).toEqual([]);
   });
 
-  test("privacy.md is not draggable even for an editor", () => {
-    // `dnd.ts` refuses a read-only source as well, and that refusal is tested
-    // there. This is the earlier gate — `canDrag` in `Explorer`'s own handler —
-    // which is what stops the drag from starting at all.
-    const editor = mount(true);
-    expect(rowNode(editor.container, "privacy.md").getAttribute("draggable")).toBe("false");
-  });
-
   test("the create buttons are absent without canEdit and present with it", () => {
     const newNote = (container: HTMLElement) =>
       container.querySelector('[data-testid="explorer-new-note"]');
@@ -327,16 +397,30 @@ describe("a console that cannot edit cannot start the gestures that write", () =
   });
 });
 
-describe("a drop is performed only when dnd.ts permits it", () => {
-  test("a file row is not a drop target", () => {
-    // `canDrop: (row) => row.kind === "folder"`. Dropping a note onto another
-    // note is refused before `dnd.ts` is consulted at all, so this is
-    // `Explorer`'s rule and nothing else's.
+describe("what may be dragged, and what may be dropped on", () => {
+  test("privacy.md is not draggable even for an editor", () => {
+    // Not a `canEdit` rule, which is why it is not in the block above: this
+    // mounts an editor. `dnd.ts` refuses a read-only source as well, and that
+    // refusal is tested there — this is the earlier gate, `canDrag` in
+    // `Explorer`'s own handler, which stops the drag from starting at all.
+    // The contrast is the first test in this file, where both writable rows
+    // read `"true"`.
     const editor = mount(true);
-    drag(rowNode(editor.container, "note.md"), rowNode(editor.container, "privacy.md"));
+    expect(rowNode(editor.container, "privacy.md").getAttribute("draggable")).toBe("false");
+  });
+
+  test("an ordinary file row is not a drop target", () => {
+    // `canDrop: (row) => row.kind === "folder"`. `other.md` is writable and not
+    // read-only, so the only rule that can refuse this drop is the folder rule
+    // — which is the whole reason it is `other.md` and not `privacy.md`.
+    const editor = mount(true);
+    drag(rowNode(editor.container, "note.md"), rowNode(editor.container, "other.md"));
     expect(editor.calls.entries).toEqual([]);
   });
 
+});
+
+describe("a drop is performed only when dnd.ts permits it", () => {
   test("a drop with nothing being dragged calls nothing", () => {
     // Reachable without a `dragstart`: a drag begun in another window, or one
     // this component did not start. `onDrop`'s `source === null` is the only
