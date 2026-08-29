@@ -92,7 +92,7 @@ import { getMembership, requireWorkspaceRole } from "./lib/workspaceAuth";
  * its own cost.
  */
 const MAX_SHARES_RETURNED = 200;
-const MAX_ACTIVE_SHARES = 100;
+export const MAX_ACTIVE_SHARES = 100;
 
 /**
  * One error for "no such share", "not yours", and "already revoked".
@@ -505,8 +505,18 @@ async function assertShareCapacity(
     .withIndex("by_workspace_status", (q) =>
       q.eq("workspaceId", workspaceId).eq("status", "active"),
     )
+    // The `+ 1` is not needed by the comparison below — `>=` decides at
+    // `MAX_ACTIVE_SHARES`, so a row beyond it cannot change the answer, and
+    // sabotaging it away alone fails nothing. It stays because it keeps the
+    // guard independent of the operator: paired with a strict `>`,
+    // `.take(MAX_ACTIVE_SHARES)` can never exceed the cap and the check stops
+    // being a check at all. That pair is caught by the test below — measured,
+    // not assumed, after an earlier version of this comment called it silent.
     .take(MAX_ACTIVE_SHARES + 1);
-  if (active.length > MAX_ACTIVE_SHARES) {
+  // `>=`, matching `createWorkspace`'s own limit check. It was `>`, which let a
+  // context reach MAX_ACTIVE_SHARES + 1 — one more than the refusal it throws
+  // promises, and nothing tested either number.
+  if (active.length >= MAX_ACTIVE_SHARES) {
     throw new ConvexError({
       code: "TOO_MANY_SHARES",
       message: `A context may have ${MAX_ACTIVE_SHARES} shares outstanding. Revoke one first.`,
