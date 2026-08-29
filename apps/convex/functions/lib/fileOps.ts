@@ -68,7 +68,14 @@ const MAX_PATH_LENGTH = 512;
 /** One note. Generous for markdown, small enough that a paste cannot DoS an action. */
 export const MAX_NOTE_BYTES = 2_000_000;
 /** Pages of a listing we will walk. 1000 keys each. */
-const LIST_PAGE_CAP = 20;
+// Matched to the gateway's own `LIST_PAGE_CAP`. They disagreed at 20 vs 100,
+// which meant a folder `list_notes` walked happily was refused by the console —
+// and the page size is a *hint*: S3 may return fewer keys than `max-keys` and
+// Dropbox documents `limit` as approximate, so the object count this actually
+// corresponds to is provider-dependent and can be far lower than the arithmetic
+// suggests. A cap that fires on an ordinary folder is an outage, and the answer
+// here is a refusal rather than a silent half-operation.
+const LIST_PAGE_CAP = 100;
 /** Keys a single folder move/copy/delete may touch. Same cap the gateway uses. */
 export const FOLDER_OPERATION_CAP = 500;
 /** Attempts at the compare-and-swap that rewrites `privacy.md`. */
@@ -113,6 +120,7 @@ export type FileErrorCode =
   | "PRIVACY_MANIFEST_BUSY"
   | "CONTENT_TOO_LARGE"
   | "FOLDER_TOO_LARGE"
+  | "ARCHIVE_UNAVAILABLE"
   | "CONFIRMATION_REQUIRED"
   | "NOT_A_FOLDER";
 
@@ -307,6 +315,17 @@ function folderVisibleAtScope(
   if (visibilityOf(folderPath, rules) === "team") return true;
   for (const [path, visibility] of overrides) {
     if (visibility === "team" && path.startsWith(`${folderPath}/`)) return true;
+  }
+  // A nested `team` *rule* has to count for the same reason a nested `team`
+  // exception does, and only the exceptions were being scanned. An owner who
+  // shared `2-areas/shared` out of a private `2-areas` got a folder that read
+  // fine by direct path and did not appear in the tree at all — the root
+  // listing came back empty and `2-areas` answered not-found — so the thing
+  // they had just shared was reachable only by somebody who already knew its
+  // name. The disclosure is the same one the loop above already accepts: an
+  // ancestor's name, in exchange for the shared folder being reachable.
+  for (const rule of rules) {
+    if (rule.vis === "team" && rule.prefix.startsWith(`${folderPath}/`)) return true;
   }
   return false;
 }
@@ -599,6 +618,23 @@ export async function createFolder(
       "Paths beginning with a dot are reserved for history and audit.",
     );
   }
+  // A caller who cannot see this folder must not be told it is there.
+  // `store.get` below is a raw bucket read, so without this the collision
+  // check answers "that folder already exists" for a folder `listFolder`
+  // refuses to admit exists — and because every name that is *not* there
+  // answers `notFound()`, that reply is a confirmed hit rather than a hint.
+  // Guessable names over somebody's private half is the whole attack.
+  //
+  // Refusal itself is uniform: an explicit `private` rule and no rule at all
+  // both answer `notFound()`, so it is not the refusal that discloses. What
+  // remains is that *success* still means a team rule reaches this path —
+  // the same residual `writeFile` has, and one `listFolder` already exposes
+  // by returning an empty listing rather than `notFound()` there.
+  const state = await loadPrivacyState(store);
+  if (!folderVisibleAtScope(folder, options.scope, state.rules, state.overrides)) {
+    throw notFound();
+  }
+
   const readme = joinPath(folder, "README.md");
   const existing = await store.get(readme);
   if (existing !== null) {
@@ -611,6 +647,54 @@ export async function createFolder(
     now: options.now,
   });
   return { path: folder, readme };
+}
+
+/**
+ * Every immediate child name under a folder, visible or not.
+ *
+ * A short answer here is not a smaller answer, it is a wrong one: the name
+ * `duplicateName` picks from it is refused by `copyPath`'s guard if a hidden
+ * note holds it, and Duplicate then says "that file does not exist" if and only
+ * if one does. Reproduced against a store whose page dropped the earlier key.
+ *
+ * So it refuses rather than truncating, which is what `keysUnder` and
+ * `namesExtending` do and what `listFolder` and `rootFolders` report. This is
+ * the fifth listing walk in this file and the second time I have written one
+ * that inferred its own completeness — the first was `namesExtending`, three
+ * functions away, in the commit whose subject was that mistake.
+ */
+async function namesInUse(store: FileStore, folder: string): Promise<Set<string>> {
+  const prefix = folder === "" ? "" : `${folder}/`;
+  const names = new Set<string>();
+  let cursor: string | undefined;
+  let complete = false;
+  const seen = new Set<string>();
+  for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+    const listing = await store.list({ prefix, delimiter: "/", cursor, limit: 1000 });
+    for (const object of listing.objects ?? []) {
+      if (object.key !== prefix) names.add(baseName(object.key));
+    }
+    // Subfolder names count: a folder called `note copy.md` takes that name as
+    // surely as a note does, and landing a file key beside a folder prefix is
+    // the shape `movePath` refuses as unrepresentable on a Dropbox binding.
+    for (const raw of listing.delimitedPrefixes ?? []) {
+      names.add(baseName(raw.replace(/\/+$/, "")));
+    }
+    if (!listing.truncated || !listing.cursor) {
+      complete = true;
+      break;
+    }
+    if (seen.has(listing.cursor)) break;
+    seen.add(listing.cursor);
+    cursor = listing.cursor;
+  }
+  if (!complete) {
+    throw new FileOpError(
+      "FOLDER_TOO_LARGE",
+      "That folder holds too many files to duplicate into safely. Move some of them first.",
+    );
+  }
+  return names;
 }
 
 /**
@@ -632,15 +716,58 @@ export function duplicateName(name: string, taken: ReadonlySet<string>): string 
   return candidate;
 }
 
-/** Every key under a folder, capped. Used by move, copy and delete. */
-async function keysUnder(store: FileStore, folder: string): Promise<string[]> {
+/**
+ * Every key under a folder *this caller can see*, capped. Move, copy and
+ * delete all walk it.
+ *
+ * The filter is the whole point and it was missing. Without it a bulk
+ * operation acts on keys its caller cannot see and then names them in its
+ * result: an editor deleting a shared folder permanently destroyed the
+ * owner's private note inside it, purged its `.history/` too, and was handed
+ * the note's path in the return value.
+ *
+ * **Filtered rather than refused**, which is the part that is not obvious.
+ * Refusing an operation because the tree holds something invisible reports
+ * that the invisible thing is there — a caller could separate "folder I can
+ * move" from "folder with a private note in it" from "folder that does not
+ * exist" and localise every private note to its folder without reading one.
+ * The gateway settled this for `move_folder` and wrote out the reasoning; this
+ * is the same decision in the control plane, so the two halves of the product
+ * answer alike. A folder holding nothing visible yields no keys, and every
+ * caller here turns that into the same `notFound()` a missing folder gets.
+ */
+async function keysUnder(
+  store: FileStore,
+  folder: string,
+  scope: Scope,
+  rules: readonly PrivacyRule[],
+  overrides: ReadonlyMap<string, Visibility>,
+): Promise<{ keys: string[]; withheld: string[] }> {
   const prefix = `${folder}/`;
   const keys: string[] = [];
+  // What was held back, which two callers need for different reasons: the
+  // manifest bookkeeping must know *whether* anything was, and the history
+  // purge must know *which*, so it does not sweep a survivor's snapshots.
+  // Returned rather than recorded anywhere outside this call: Workers and
+  // Convex reuse isolates, so a module-level flag would be one request telling
+  // the next one what it saw.
+  const withheld: string[] = [];
+  // Whether the walk reached the end of the folder. `listFolder` reports the
+  // same thing as `truncated` and `resetPrivacyManifest` as `partial`; this one
+  // used to just fall out of the loop, so a folder deeper than the page cap
+  // returned a short list that read exactly like a complete one — and the
+  // manifest bookkeeping below rewrites rules on the strength of it.
+  let complete = false;
   let cursor: string | undefined;
+  const seen = new Set<string>();
   for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
     const listing = await store.list({ prefix, cursor, limit: 1000 });
     for (const object of listing.objects ?? []) {
       if (isPlumbing(object.key)) continue;
+      if (!canSee(object.key, scope, rules, overrides)) {
+        withheld.push(object.key);
+        continue;
+      }
       keys.push(object.key);
       if (keys.length > FOLDER_OPERATION_CAP) {
         throw new FileOpError(
@@ -649,8 +776,66 @@ async function keysUnder(store: FileStore, folder: string): Promise<string[]> {
         );
       }
     }
-    if (!listing.truncated || !listing.cursor) break;
+    if (!listing.truncated || !listing.cursor) {
+      complete = true;
+      break;
+    }
+    // A store that repeats a cursor will never finish, and the page budget
+    // would spend itself before saying so. Comparing against the previous
+    // cursor alone is defeated by a store alternating two of them, so this
+    // keeps the set - which is what the gateway's `nextListCursor` does.
+    if (seen.has(listing.cursor)) break;
+    seen.add(listing.cursor);
     cursor = listing.cursor;
+  }
+  // Refused rather than truncated, which is what the gateway's own listing
+  // helper does ("refusing to loop"). A partial walk cannot be operated on
+  // safely: it moves some of a folder while the manifest is rewritten as
+  // though all of it went, and nothing downstream can tell.
+  if (!complete) {
+    throw new FileOpError(
+      "FOLDER_TOO_LARGE",
+      "That folder holds too many files to move or delete in one go. Do it in smaller pieces.",
+    );
+  }
+  return { keys, withheld };
+}
+
+/**
+ * Live notes whose key extends this one's, which a file delete must not sweep.
+ *
+ * `a.md.notes.md` is an ordinary note and its snapshots begin with
+ * `.history/a.md.`, so deleting `a.md` reached them. These are survivors in
+ * exactly the sense the folder walk means, so they travel the same way.
+ */
+async function namesExtending(store: FileStore, path: string): Promise<string[]> {
+  const keys: string[] = [];
+  let cursor: string | undefined;
+  let complete = false;
+  const seen = new Set<string>();
+  for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+    const listing = await store.list({ prefix: `${path}.`, cursor, limit: 1000 });
+    for (const object of listing.objects ?? []) {
+      if (object.key === path || isPlumbing(object.key)) continue;
+      keys.push(object.key);
+    }
+    if (!listing.truncated || !listing.cursor) {
+      complete = true;
+      break;
+    }
+    if (seen.has(listing.cursor)) break;
+    seen.add(listing.cursor);
+    cursor = listing.cursor;
+  }
+  // One `list` with a limit and no cursor was the first version of this, added
+  // in the same change that stopped `keysUnder` inferring completeness — the
+  // same mistake, three functions apart. A short answer here silently drops a
+  // survivor, and a dropped survivor has its history swept.
+  if (!complete) {
+    throw new FileOpError(
+      "FOLDER_TOO_LARGE",
+      "Too many files share that name for it to be deleted safely. Rename or remove some of them first.",
+    );
   }
   return keys;
 }
@@ -683,6 +868,44 @@ async function historyKeysFor(
   store: FileStore,
   path: string,
   pathIsFolder: boolean,
+  /**
+   * The notes actually deleted, or `null` to sweep the whole subtree.
+   *
+   * `null` is the owner's case and keeps the original behaviour exactly,
+   * orphaned snapshots included — a folder's history is theirs and the promise
+   * that nothing survives a permanent delete is the point of this function.
+   *
+   * A team caller now deletes only what they could see, so sweeping the whole
+   * subtree would destroy the history of the private notes they left standing.
+   * The live note surviving while every version of it is purged is the same
+   * data loss wearing a smaller number.
+   */
+  deleted: readonly string[] | null,
+  /**
+   * Notes left standing, whose snapshots must survive with them.
+   *
+   * The prefix match above is deliberately not a parse, and its stated cost was
+   * that it "can over-match another note's — equally unreachable — plumbing,
+   * which would need a note literally named `<this note>.something.md`". That
+   * was true while the whole folder went, because the over-matched note was
+   * being deleted too. Once a caller deletes only part of a folder it is false:
+   * `a.md.notes.md` survives and `.history/a.md.notes.md.<stamp>.md` begins
+   * with `.history/a.md.`, so deleting `a.md` took every version of a note it
+   * did not delete.
+   *
+   * Answered with the survivors themselves rather than a stamp regex. A regex
+   * would have to track five snapshot spellings across two apps and would fail
+   * silently in the wrong direction; this cannot drift, because it compares
+   * against real keys.
+   *
+   * **A single-file delete has survivors too**, which the first version of this
+   * missed by only thinking about folders: deleting `a.md` matched
+   * `.history/a.md.notes.md.<stamp>.md`, and `a.md.notes.md` is a live note
+   * nobody asked to delete. That one is older than the filtering — it is true
+   * on `main` — and it is the same sentence being false, so it is fixed here
+   * rather than left with a comment that describes only half of it.
+   */
+  survivors: readonly string[],
 ): Promise<string[]> {
   // A folder's history mirrors its shape (`.history/1-projects/note.md.<stamp>.md`),
   // so the whole subtree goes. A file's history is the siblings sharing its name.
@@ -694,9 +917,27 @@ async function historyKeysFor(
     for (const object of listing.objects ?? []) {
       // For a file, a `/` in the tail would mean a directory we did not put
       // there — leave it rather than sweep something we cannot explain.
-      if (pathIsFolder || !object.key.slice(prefix.length).includes("/")) {
-        keys.push(object.key);
+      if (!(pathIsFolder || !object.key.slice(prefix.length).includes("/"))) continue;
+      if (deleted !== null) {
+        // Which note does this snapshot belong to? `.history/a.md.X.md` could
+        // be a version of `a.md` stamped `X`, or of a note actually called
+        // `a.md.X` — a prefix test cannot tell, and testing the deleted set and
+        // the survivors separately gets it wrong in both directions at once:
+        // `a.md` shields `a.md.notes.md`'s snapshots from a delete that took
+        // it, and `a.md.notes.md` is swept by a delete of `a.md`.
+        //
+        // Longest match decides, the same way `visibilityOf` resolves a key
+        // against overlapping folder rules. The snapshot belongs to the most
+        // specific note whose name it extends, and it goes only if that note
+        // is one of the ones actually deleted.
+        let owner: string | null = null;
+        for (const key of [...deleted, ...survivors]) {
+          if (!object.key.startsWith(`${HISTORY_PREFIX}${key}.`)) continue;
+          if (owner === null || key.length > owner.length) owner = key;
+        }
+        if (owner === null || !deleted.includes(owner)) continue;
       }
+      keys.push(object.key);
     }
     if (!listing.truncated || !listing.cursor) break;
     cursor = listing.cursor;
@@ -715,6 +956,229 @@ export interface MoveResult {
   to: string;
   /** Every key that moved. Paths, which are metadata — never content. */
   paths: string[];
+}
+
+/**
+ * May this caller write here, and be told what is already here?
+ *
+ * The gateway's `move_note` asks exactly this, in exactly this way, and three
+ * earlier answers on this branch were wrong in three different directions:
+ *
+ *  - `canSee(destination)` alone. A move carries the source's exception onto
+ *    the destination so the note keeps its visibility, which made the check
+ *    true for ANY destination — a note the owner had shared out of a private
+ *    folder was a key that opened every folder.
+ *  - `canSee` plus `folderVisibleAtScope(parentOf(destination))`.
+ *    `folderVisibleAtScope` answers "should this folder appear in the tree",
+ *    and it says yes when ANY `team` exception exists anywhere beneath it —
+ *    that is its documented job, so a folder is reachable in the tree the
+ *    moment one note in it is shared. Reusing it as a write predicate reopened
+ *    the whole subtree: one shared note under `2-areas/deep/sub/` made every
+ *    path under `2-areas/` probeable again.
+ *  - And it skipped the bucket root entirely, because `parentOf` returns `""`
+ *    there and the check was guarded on that. The root is where `index.md`,
+ *    `privacy.md` and `todo.md` live; a team caller could probe them and, on a
+ *    bucket without one, create `index.md` — the front page the product says it
+ *    never generates.
+ *
+ * So the question is asked of the destination path itself, against the folder
+ * defaults as they will stand, and it has one answer at the root as everywhere
+ * else: no rule reaches it, so it is private, so a team caller may not land
+ * there. `visibilityOf` rather than `effectiveVisibility` because an exception
+ * is about one note and this is about a place — and a destination that already
+ * carries an exception is refused outright, so a caller can never land on a
+ * note whose visibility is unusual, nor learn from the attempt that it is.
+ *
+ * The cost, which is a real behaviour change: a team caller can no longer move
+ * or rename a shared note that lives inside a private folder, because the place
+ * it would land is private even though the note is not. The gateway has always
+ * refused that, and every time this branch has diverged from the gateway it has
+ * been the branch that was wrong.
+ */
+function assertDestinationsVisible(
+  destinations: readonly string[],
+  scope: Scope,
+  rules: readonly PrivacyRule[],
+  overrides: ReadonlyMap<string, Visibility>,
+): void {
+  for (const destination of destinations) {
+    if (scope === "private") continue;
+    // The place, then the note that may already be in it.
+    //
+    // `visibilityOf` and not `effectiveVisibility`: they differ only when the
+    // destination carries an exception, and the line below refuses that case
+    // outright — so swapping them changes no outcome, which is measured rather
+    // than assumed. They are kept apart because they answer different
+    // questions, and the second is what stops a caller landing on a note whose
+    // visibility is unusual.
+    //
+    // It does NOT stop them learning that one is there. A refusal where a free
+    // name would have succeeded says an exception exists at that path, and that
+    // is inherent to per-note exceptions rather than a hole here: `writeFile`
+    // has the same shape and says so, and the gateway's `move_note` has it too.
+    // An earlier version of this comment claimed otherwise. What is bounded is
+    // the folder: the line above means a caller can only learn this about
+    // places they may already write.
+    //
+    // No plumbing check: `assertWritablePath` has already refused a reserved
+    // `to`, and every destination is `to` plus a suffix taken from a source key
+    // the walk kept, which filtered plumbing out. A dot segment cannot appear.
+    // Instrumented before this was written, rather than after.
+    if (visibilityOf(destination, rules) !== "team") throw notFound();
+    if (overrides.has(destination)) throw notFound();
+  }
+}
+
+/**
+ * The same question, asked of the manifest as it stands.
+ *
+ * This used to be asked of the rules the move would LEAVE BEHIND, so that a
+ * folder carrying its own `team` rule could be renamed inside a private parent
+ * — the rule travels, so the caller can still see the result. That reasoning is
+ * wrong in the one way this file has now been wrong four times: the predicate
+ * was satisfied by the rule the move itself installs. A guard that reads its
+ * own seeding answers on the strength of the thing being asked about, which is
+ * exactly what the comment on `assertDestinationsVisible` said had been
+ * eliminated — for the overrides, while the rules kept doing it.
+ *
+ * What it cost: a team caller holding one shared folder could move it at any
+ * hidden path and read the answer. An existing folder they could not see
+ * refused; a free name succeeded. One guess at a time over the owner's entire
+ * hidden namespace — and on success the move landed, `remapPrivacy` wrote
+ * `<their guess>: team` into `privacy.md`, and an EDITOR had thereby set folder
+ * visibility inside the owner's private tree, which `setFolderVisibility`
+ * reserves to the owner.
+ *
+ * The benign rename and the hostile probe are the same operation with a
+ * different name typed into it, so no predicate separates them. The rename goes.
+ * The gateway's `move_folder` has always judged the destination against current
+ * rules and has never renamed a folder rule.
+ */
+function assertMoveDestinationsVisible(
+  pairs: readonly { source: string; destination: string }[],
+  scope: Scope,
+  state: PrivacyState,
+): void {
+  assertDestinationsVisible(
+    pairs.map((pair) => pair.destination),
+    scope,
+    state.rules,
+    state.overrides,
+  );
+}
+
+/**
+ * The rules a rewrite must put back, because a survivor's visibility rests on
+ * them.
+ *
+ * A bulk operation at team scope leaves the notes it could not see behind, and
+ * the rules under that folder then describe two places at once. Both blunt
+ * answers are wrong: rewriting them all stops a nested rule protecting the note
+ * it was written for — and because `visibilityOf` takes the longest matching
+ * prefix, that does not demote the note to the default, it PROMOTES it to the
+ * nearest surviving ancestor, which is the `team` folder the caller is standing
+ * in. Keeping them all makes the kept rule its own disclosure.
+ *
+ * So: a rule comes back only where a survivor actually needs it, and "needs"
+ * is asked of the REWRITE, not of the rule.
+ *
+ * The first version asked it of the rule — "would removing *this one* change a
+ * survivor?" — one rule at a time. That is a different question and it fails
+ * whenever two rules cover a survivor redundantly (`…/hr: private` and
+ * `…/hr/comp: private`, which is what an owner who tightened a folder and then
+ * a subfolder has). Removing either alone changes nothing, so neither was
+ * needed, so BOTH were dropped and the note went to the team ancestor. A
+ * per-element counterfactual cannot see a set effect; this compares the whole
+ * before against the whole after, and repairs what actually moved.
+ *
+ * One pass suffices. A survivor whose visibility changed is repaired by the
+ * rule that decided it *before* — the longest prefix matching it — and nothing
+ * in the rewritten set can outrank that, because the rewritten rules live under
+ * the destination and everything else covering a survivor is an ancestor, which
+ * is shorter. Ties go to the first rule, matching `visibilityOf`.
+ */
+function rulesSurvivorsRestOn(
+  before: readonly PrivacyRule[],
+  after: readonly PrivacyRule[],
+  overrides: ReadonlyMap<string, Visibility>,
+  survivors: readonly string[],
+  folder: string,
+): PrivacyRule[] {
+  if (survivors.length === 0) return [];
+  // Narrowing, not a check. A rule outside this folder is already in `after`
+  // untouched, so it can never be the one a survivor lost — dropping this
+  // filter changes no outcome, which is measured rather than assumed. It stays
+  // because it bounds the search to the rules this rewrite could have moved.
+  const candidates = before.filter(
+    (rule) => rule.prefix === folder || rule.prefix.startsWith(`${folder}/`),
+  );
+  if (candidates.length === 0) return [];
+
+  const kept: PrivacyRule[] = [];
+  for (const key of survivors) {
+    if (
+      effectiveVisibility(key, before, overrides) ===
+      effectiveVisibility(key, [...after, ...kept], overrides)
+    ) {
+      continue;
+    }
+    let determining: PrivacyRule | null = null;
+    for (const rule of candidates) {
+      if (key !== rule.prefix && !key.startsWith(`${rule.prefix}/`)) continue;
+      if (determining === null || rule.prefix.length > determining.prefix.length) {
+        determining = rule;
+      }
+    }
+    // Either of these alone is redundant given the other, and they are
+    // load-bearing as a pair: the comparison above stops a second survivor
+    // re-pushing a rule the first restored, and this stops a repeat when that
+    // comparison is bypassed. Remove BOTH and the delete path emits the same
+    // rule twice, because `forgetPrivacy` does not run `oneRulePerPrefix` and
+    // nothing downstream tidies it. Measured both ways — do not read "each is
+    // redundant" as "either may go".
+    if (determining !== null && !kept.includes(determining)) kept.push(determining);
+  }
+  return kept;
+}
+
+/**
+ * One rule per prefix, and the more private of a pair wins.
+ *
+ * A rename can land a rule on a prefix that already had one - move `src` onto
+ * `dst` when `src/hr` and `dst/hr` both carry rules - and the manifest then
+ * holds two lines for the same folder with opposite visibility. `visibilityOf`
+ * takes the first of equal length and `renderPrivacyRulesBlock`'s sort is
+ * stable, so whichever it is survives the round trip and the file says two
+ * things at once. Measured: `1-projects/dst/hr` emitted as both `team` and
+ * `private`.
+ *
+ * The collision has no right answer - the arriving folder and the one already
+ * there both have a claim - so it is resolved in the only direction that
+ * cannot leak.
+ */
+function oneRulePerPrefix(rules: readonly PrivacyRule[]): PrivacyRule[] {
+  const byPrefix = new Map<string, PrivacyRule>();
+  for (const rule of rules) {
+    const existing = byPrefix.get(rule.prefix);
+    if (existing === undefined || (existing.vis === "team" && rule.vis === "private")) {
+      byPrefix.set(rule.prefix, rule);
+    }
+  }
+  return [...byPrefix.values()];
+}
+
+/** The folder rules a folder move leaves behind. `remapPrivacy` applies this. */
+function rulesAfterFolderMove(
+  rules: readonly PrivacyRule[],
+  folderMove: { from: string; to: string } | null,
+): readonly PrivacyRule[] {
+  if (folderMove === null) return rules;
+  const { from, to } = folderMove;
+  return rules.map((rule) =>
+    rule.prefix === from || rule.prefix.startsWith(`${from}/`)
+      ? { prefix: `${to}${rule.prefix.slice(from.length)}`, vis: rule.vis }
+      : rule,
+  );
 }
 
 /**
@@ -741,22 +1205,87 @@ export async function movePath(
   if (to.startsWith(`${from}/`)) {
     throw new FileOpError("PATH_INVALID", "A folder cannot be moved inside itself.");
   }
+  // ...nor onto one of its own ancestors, which is a rename that flattens a
+  // folder into a parent it is already inside. It also breaks the one thing
+  // that makes the manifest repair below sound: a renamed rule normally lands
+  // under the destination, where it cannot outrank a rule kept under the
+  // source. When the destination IS an ancestor the two trees overlap, and a
+  // renamed `.../b/b/hr/deep: team` came out longer than the `.../b/hr: private`
+  // put back for a survivor, which published it.
+  if (from.startsWith(`${to}/`)) {
+    throw new FileOpError(
+      "PATH_INVALID",
+      "A folder cannot be moved onto a folder it is already inside.",
+    );
+  }
 
   const state = await loadPrivacyState(store);
   if (!canSee(from, options.scope, state.rules, state.overrides)) throw notFound();
 
   const sourceIsFolder = await isFolder(store, from);
-  const sources = sourceIsFolder ? await keysUnder(store, from) : [from];
+
+  // The header of this function says "the destination must not exist: this
+  // never merges and never overwrites". That was true of files, which the
+  // collision loop below checks key by key, and never true of folders — moving
+  // `src` onto an existing `dst` merged them, and the rename carried `src`'s
+  // folder rule onto `dst`, where it reached notes that were already there.
+  // Measured: an owner's `dst/secret.md` went from hidden to readable for the
+  // team caller who moved their own folder next to it.
+  //
+  // Refused with `notFound()` when the caller cannot see the folder, which is
+  // the shape `createFolder`'s collision check already uses and the reason it
+  // uses it: "that folder already exists" about a folder they cannot list is
+  // the disclosure, not the merge.
+  // "The destination must not exist" is about a destination of either kind. The
+  // collision loop below checks key against key, so a file onto a file was
+  // always caught; a folder onto a folder merged, and the two crossed pairs
+  // left a file key shadowing a folder prefix — a shape a Dropbox binding
+  // cannot even represent.
+  if (await isFolder(store, to)) {
+    if (!folderVisibleAtScope(to, options.scope, state.rules, state.overrides)) throw notFound();
+    throw new FileOpError(
+      "DESTINATION_EXISTS",
+      sourceIsFolder
+        ? "That folder already exists. Moving one folder onto another would merge them."
+        : "A folder already exists at that path.",
+    );
+  }
+  if (sourceIsFolder && (await store.get(to)) !== null) {
+    if (!canSee(to, options.scope, state.rules, state.overrides)) throw notFound();
+    throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${to}.`);
+  }
+
+  const walk = sourceIsFolder
+    ? await keysUnder(store, from, options.scope, state.rules, state.overrides)
+    : { keys: [from], withheld: [] };
+  const sources = walk.keys;
   if (!sourceIsFolder && (await store.get(from)) === null) throw notFound();
   if (sources.length === 0) throw notFound();
+
+  const folderMove = sourceIsFolder ? { from, to } : null;
 
   const pairs = sources.map((key) => ({
     source: key,
     destination: sourceIsFolder ? `${to}${key.slice(from.length)}` : to,
   }));
 
+  assertMoveDestinationsVisible(pairs, options.scope, state);
+
   for (const pair of pairs) {
     if ((await store.get(pair.destination)) !== null) {
+      // This message names the path back, which is safe only because the guard
+      // above has established that the caller can see both the key and the
+      // folder holding it. An earlier version of this comment claimed the guard
+      // read "the same rules this loop reads" and that the line was therefore
+      // unreachable with a hidden path. That was wrong, and instrumenting it is
+      // what showed it: the guard seeds a carried exception into its override
+      // map, so a note the owner had shared out of a private folder made any
+      // destination pass, and this line then answered from the real manifest.
+      // The folder check above is what actually closes it.
+      //
+      // "No test reaches it" was the evidence for the old claim, and it was the
+      // wrong kind of evidence — the suite had no team-scope coverage of this
+      // line at all. There is one now.
       throw new FileOpError(
         "DESTINATION_EXISTS",
         `Something already exists at ${pair.destination}.`,
@@ -776,7 +1305,8 @@ export async function movePath(
 
   await remapPrivacy(store, {
     moves: pairs.map((pair) => ({ from: pair.source, to: pair.destination })),
-    folderMove: sourceIsFolder ? { from, to } : null,
+    folderMove,
+    survivors: walk.withheld,
   });
 
   return { from, to, paths: pairs.map((pair) => pair.destination) };
@@ -795,6 +1325,13 @@ export async function copyPath(
 ): Promise<MoveResult> {
   const from = requirePath(options.from);
   const to = requirePath(options.to);
+  // Both ends, which `movePath` has always done and this had not. `privacy.md`
+  // is the access map for the whole context, and it is readable at owner scope
+  // — so an owner could copy it into a shared folder and hand every member the
+  // complete list of their private folders by name. Measured before this line:
+  // 935 bytes of `folder_defaults` readable at team scope. The manifest is
+  // `isPlumbing`, so this is the same refusal every other reserved path gets.
+  assertWritablePath(from);
   assertWritablePath(to);
   if (to === from || to.startsWith(`${from}/`)) {
     throw new FileOpError("PATH_INVALID", "A folder cannot be copied inside itself.");
@@ -804,7 +1341,11 @@ export async function copyPath(
   if (!canSee(from, options.scope, state.rules, state.overrides)) throw notFound();
 
   const sourceIsFolder = await isFolder(store, from);
-  const sources = sourceIsFolder ? await keysUnder(store, from) : [from];
+  // `copyPrivacy` only ever writes a per-note exception, never a folder rule,
+  // so a partial copy has nothing to get wrong and `filtered` is not needed.
+  const sources = sourceIsFolder
+    ? (await keysUnder(store, from, options.scope, state.rules, state.overrides)).keys
+    : [from];
   if (sources.length === 0) throw notFound();
 
   const pairs = sources.map((key) => ({
@@ -812,8 +1353,28 @@ export async function copyPath(
     destination: sourceIsFolder ? `${to}${key.slice(from.length)}` : to,
   }));
 
+  assertDestinationsVisible(
+    pairs.map((pair) => pair.destination),
+    options.scope,
+    state.rules,
+    state.overrides,
+  );
+
   for (const pair of pairs) {
     if ((await store.get(pair.destination)) !== null) {
+      // This message names the path back, which is safe only because the guard
+      // above has established that the caller can see both the key and the
+      // folder holding it. An earlier version of this comment claimed the guard
+      // read "the same rules this loop reads" and that the line was therefore
+      // unreachable with a hidden path. That was wrong, and instrumenting it is
+      // what showed it: the guard seeds a carried exception into its override
+      // map, so a note the owner had shared out of a private folder made any
+      // destination pass, and this line then answered from the real manifest.
+      // The folder check above is what actually closes it.
+      //
+      // "No test reaches it" was the evidence for the old claim, and it was the
+      // wrong kind of evidence — the suite had no team-scope coverage of this
+      // line at all. There is one now.
       throw new FileOpError(
         "DESTINATION_EXISTS",
         `Something already exists at ${pair.destination}.`,
@@ -842,8 +1403,22 @@ export async function duplicatePath(
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
   const parent = parentOf(path);
-  const siblings = await listFolder(store, { path: parent, scope: options.scope });
-  const taken = new Set(siblings.entries.map((entry) => entry.name));
+  // Every name in use, not every name this caller can see.
+  //
+  // Picking from the visible siblings alone chooses a name a hidden note may
+  // already hold, and `copyPath`'s guard then refuses it — so Duplicate
+  // answered "that file does not exist" if and only if a private note occupied
+  // the "… copy" name, and the caller could aim it by writing the name they
+  // wanted to test first.
+  //
+  // The names read here never leave this function. What does leave is the one
+  // it picks, and that still carries a bit: `x copy 2.md` where `x copy.md` was
+  // free says something holds `x copy.md`. That is the residual
+  // `assertDestinationsVisible` documents and `writeFile` has had all along —
+  // the same caller learns as much in one write — so this removes a hard
+  // refusal rather than an inference. Saying it discloses nothing would be the
+  // overclaim this file has already made once.
+  const taken = await namesInUse(store, parent);
   const destination = joinPath(parent, duplicateName(baseName(path), taken));
   return await copyPath(store, { from: path, to: destination, scope: options.scope });
 }
@@ -871,7 +1446,38 @@ export async function archivePath(
   if (path === ARCHIVE_ROOT || path.startsWith(`${ARCHIVE_ROOT}/`)) {
     throw new FileOpError("PATH_INVALID", "That is already in the archive.");
   }
-  const destination = `${ARCHIVE_ROOT}/${timestampSlug(options.now)}/${path}`;
+  // A free destination, because `movePath` refuses to merge onto an existing
+  // folder and archiving a child and then its parent inside the same
+  // millisecond lands the second one on top of the first. The stamp is
+  // server-generated and never caller-chosen, so disambiguating it discloses
+  // nothing and keeps "never merges" true rather than carving an exception into
+  // it. Archiving twice in one millisecond is a scripted or concurrent caller,
+  // not a person clicking twice.
+  const stamp = timestampSlug(options.now);
+  let destination = `${ARCHIVE_ROOT}/${stamp}/${path}`;
+  for (let attempt = 2; attempt <= 100; attempt += 1) {
+    if (!(await isFolder(store, destination)) && (await store.get(destination)) === null) break;
+    destination = `${ARCHIVE_ROOT}/${stamp}-${attempt}/${path}`;
+  }
+
+  // Archiving is a move, so it inherits the destination rule — and on the
+  // scaffold's defaults `4-archive` is private, which means a team caller
+  // cannot archive. That is right: archiving a shared note into a private
+  // archive takes it away from everybody else, irreversibly for the person who
+  // did it. The gateway's `archive_note` has always refused it.
+  //
+  // What it must not do is inherit the *message*. "That file does not exist"
+  // about a note the caller is looking at explains nothing and points at the
+  // wrong thing. Naming `4-archive` discloses nothing they do not already
+  // hold: whether it is shared is visible in their own root listing.
+  const state = await loadPrivacyState(store);
+  if (options.scope !== "private" && visibilityOf(destination, state.rules) !== "team") {
+    throw new FileOpError(
+      "ARCHIVE_UNAVAILABLE",
+      "Archiving needs access to 4-archive, which has not been shared with you. Ask the owner to share it, or move this somewhere you can both see.",
+    );
+  }
+
   return await movePath(store, {
     from: path,
     to: destination,
@@ -932,8 +1538,15 @@ export async function deletePath(
   if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
 
   const targetIsFolder = await isFolder(store, path);
-  const keys = targetIsFolder ? await keysUnder(store, path) : [path];
+  const walk = targetIsFolder
+    ? await keysUnder(store, path, options.scope, state.rules, state.overrides)
+    : { keys: [path], withheld: await namesExtending(store, path) };
+  const keys = walk.keys;
   if (!targetIsFolder && (await store.get(path)) === null) throw notFound();
+  // A folder holding nothing this caller can see is not a folder they can
+  // empty. Answering `notFound()` is byte-identical to a folder that was never
+  // there, where reporting "deleted 0 files" would say one is present.
+  if (targetIsFolder && keys.length === 0) throw notFound();
 
   for (const key of keys) await store.delete(key);
 
@@ -942,11 +1555,23 @@ export async function deletePath(
   // name. Done after the live keys so a failure mid-purge leaves the bucket in
   // the state the *old* behaviour left it in — file gone, history behind —
   // rather than history gone and the file still sitting there.
-  for (const key of await historyKeysFor(store, path, targetIsFolder)) {
+  for (const key of await historyKeysFor(
+    store,
+    path,
+    targetIsFolder,
+    // `null` sweeps the whole subtree, orphans included, and that is a FOLDER
+    // idea: everything under it is going, so a snapshot matched by nobody is
+    // still this folder's. A single file has no subtree, and its neighbours'
+    // names can extend its own, so it always names what it deleted and lets
+    // longest match decide — otherwise an owner deleting `a.md` takes the
+    // history of `a.md.notes.md`, which they never asked to delete.
+    targetIsFolder && options.scope === "private" ? null : keys,
+    walk.withheld,
+  )) {
     await store.delete(key);
   }
 
-  await forgetPrivacy(store, keys, targetIsFolder ? path : null);
+  await forgetPrivacy(store, keys, targetIsFolder ? path : null, walk.withheld);
 
   // `paths` stays the live keys. It is what the console echoes and what the
   // audit log records as "what you deleted"; the history that came with them is
@@ -1348,6 +1973,8 @@ async function remapPrivacy(
   change: {
     moves: { from: string; to: string }[];
     folderMove: { from: string; to: string } | null;
+    /** Notes the walk could not see, which stayed where they were. */
+    survivors: readonly string[];
   },
 ): Promise<void> {
   const state = await loadPrivacyState(store);
@@ -1364,20 +1991,26 @@ async function remapPrivacy(
   if (!touchesOverride && !touchesRule) return;
 
   await mutateManifest(store, (current) => {
-    let rules = current.rules;
+    const rules = [...rulesAfterFolderMove(current.rules, change.folderMove)];
+    // The renamed set describes where the moved notes went. Anything a note
+    // left behind still depends on has to stay where that note is.
     if (change.folderMove !== null) {
-      const { from, to } = change.folderMove;
-      rules = current.rules.map((rule) =>
-        rule.prefix === from || rule.prefix.startsWith(`${from}/`)
-          ? { prefix: `${to}${rule.prefix.slice(from.length)}`, vis: rule.vis }
-          : rule,
+      rules.push(
+        ...rulesSurvivorsRestOn(
+          current.rules,
+          rules,
+          current.overrides,
+          change.survivors,
+          change.folderMove.from,
+        ),
       );
     }
+    const deduped = oneRulePerPrefix(rules);
     let overrides = current.overrides;
     for (const move of change.moves) {
-      overrides = movedOverrides(move.from, move.to, rules, overrides);
+      overrides = movedOverrides(move.from, move.to, deduped, overrides);
     }
-    return { rules, overrides };
+    return { rules: deduped, overrides };
   });
 }
 
@@ -1406,6 +2039,8 @@ async function forgetPrivacy(
   store: FileStore,
   keys: string[],
   deletedFolder: string | null,
+  /** Notes the walk could not see, which were not deleted. */
+  survivors: readonly string[],
 ): Promise<void> {
   const state = await loadPrivacyState(store);
   if (state.text === null || state.invalid) return;
@@ -1421,13 +2056,18 @@ async function forgetPrivacy(
   await mutateManifest(store, (current) => {
     let overrides = current.overrides;
     for (const key of keys) overrides = clearedOverrides(key, overrides);
-    const rules =
-      deletedFolder === null
-        ? current.rules
-        : current.rules.filter(
-            (rule) =>
-              rule.prefix !== deletedFolder && !rule.prefix.startsWith(`${deletedFolder}/`),
-          );
+    let rules = current.rules;
+    if (deletedFolder !== null) {
+      const dropped = current.rules.filter(
+        (rule) =>
+          rule.prefix !== deletedFolder && !rule.prefix.startsWith(`${deletedFolder}/`),
+      );
+      // A rule a surviving note's visibility rests on is not this folder's to
+      // forget — the note is still here and still needs it.
+      rules = dropped.concat(
+        rulesSurvivorsRestOn(current.rules, dropped, current.overrides, survivors, deletedFolder),
+      );
+    }
     return { rules, overrides };
   });
 }
