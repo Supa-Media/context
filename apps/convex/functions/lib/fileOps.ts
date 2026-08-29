@@ -2213,6 +2213,29 @@ export const MAX_STORED_IMAGE_BYTES = 5_000_000;
 export const IMAGE_PREFIX = ".images/";
 
 /**
+ * The leaf extensions `read_image` will serve back.
+ *
+ * The gateway's `IMAGE_MIME_TYPES` keys, restated rather than imported for the
+ * same reason the character class below is: `apps/mcp` is dependency-free by
+ * design, so the two cannot share a module. **`writeImage.test.ts` reads the
+ * gateway's source and fails on drift** — and until now that arrangement was
+ * claimed here and did not exist, which is why this list is the second half of
+ * a rule that had only ever had its first half enforced.
+ *
+ * SVG is absent, deliberately and on both sides: it is a script container, and
+ * a store that accepted one would make the gateway's refusal to serve one moot.
+ */
+export const STORABLE_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "heic",
+  "heif",
+]);
+
+/**
  * Write bytes into the opaque store.
  *
  * A deliberately different function from `writeFile`, not an option on it, and
@@ -2234,6 +2257,15 @@ export const IMAGE_PREFIX = ".images/";
  * because this is the one write path that can put a non-note in a customer's
  * bucket. The leaf rule is the gateway's, deliberately: a key this writes and
  * `read_image` cannot name is bytes nobody can ever get back out.
+ *
+ * **That rule had one of its two halves.** `imageRefFor` requires the character
+ * class below *and* a `.` past position 0 *and* an extension in
+ * `IMAGE_MIME_TYPES`; only the first was enforced here, so `writeImage` would
+ * happily resolve for `abc`, `abc.txt` and `abc.svg` — measured, returning
+ * `{ key: ".images/abc" }` — every one of which `read_image` refuses forever.
+ * Latent rather than live: this function has no production call site. Which is
+ * a fact about today, and the reason to close it now rather than when one
+ * appears.
  */
 export async function writeImage(
   store: FileStore,
@@ -2243,9 +2275,21 @@ export async function writeImage(
   // The gateway's rule, restated rather than imported: `apps/mcp` is
   // dependency-free by design, so the two cannot share a module. A test reads
   // the gateway's source and fails on drift — the same arrangement
-  // `MAX_INLINE_IMAGE_BYTES` already has.
+  // `MAX_INLINE_IMAGE_BYTES` already has. (It says so now. When this comment
+  // was first written it named a test that did not exist, for either half of
+  // the rule below.)
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(leaf) || leaf.length > 200) {
     throw new FileOpError("PATH_INVALID", "That is not a valid stored-object name.");
+  }
+  // The second half. `imageRefFor` resolves the mime type from the extension,
+  // so a leaf without one, or with one the gateway cannot serve, names an
+  // object no tool can ever return.
+  const dot = leaf.lastIndexOf(".");
+  if (dot <= 0 || !STORABLE_IMAGE_EXTENSIONS.has(leaf.slice(dot + 1).toLowerCase())) {
+    throw new FileOpError(
+      "PATH_INVALID",
+      "A stored object must end in an image extension the gateway can serve.",
+    );
   }
   if (options.bytes.byteLength === 0) {
     throw new FileOpError("CONTENT_TOO_LARGE", "There is nothing to store.");
