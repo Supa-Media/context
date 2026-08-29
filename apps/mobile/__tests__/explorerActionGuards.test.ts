@@ -9,7 +9,7 @@ import { afterEach, describe, expect, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
-import { Explorer } from "../features/console/files/Explorer";
+import { Explorer, ExplorerDialogs } from "../features/console/files/Explorer";
 import type { FileBrowser } from "../features/console/files/browser";
 import type { FolderListing } from "../features/console/files/types";
 import { emptyEditor } from "../features/console/files/editor";
@@ -25,7 +25,7 @@ import { emptyEditor } from "../features/console/files/editor";
  * and it is the one that decides *when* to call `menu.ts`, `dnd.ts` and the
  * `FileBrowser` — decisions that only exist in the component.
  *
- * ## Which refusals, and why these six
+ * ## Which refusals, and why these seven
  *
  * The counting rule, stated because a bare number is unfalsifiable: a refusal
  * is **in scope here when it decides whether the console asks the server** —
@@ -36,10 +36,23 @@ import { emptyEditor } from "../features/console/files/editor";
  * the `onOpenPinned` fallback at :181 (both arms act), and `inheritedOf`'s
  * fail-closed `"private"` at :646 (a default, not a refusal).
  *
- * Eleven conditions are in scope. Each was sabotaged one at a time against the
- * whole mobile suite before this file existed and **every one went undetected**,
- * so row 117's 0-for-N reading was right. But undetected is not the same as
+ * Twelve conditions are in scope. Eleven of them were sabotaged one at a time
+ * against the mobile suite as it stood before this file — 1,590 checks — and
+ * **every one went undetected**, so row 117's 0-for-N reading was right. (The
+ * twelfth is `canDrag`'s `loading`/`empty` arms, not sabotaged: a condition
+ * argued to be unreachable produces no detection either way, so the run would
+ * prove nothing. An earlier version of this paragraph said "each", which
+ * claimed a measurement that was not taken.) But undetected is not the same as
  * exposed, and separating the two is half the work here.
+ *
+ * `MovePicker`'s filter arrived a round late, and is worth naming as a miss
+ * rather than folding in: the first version of this table stopped at
+ * `Explorer`'s own body and did not follow `ExplorerDialogs`, even though the
+ * exclusion list below already reaches into it. It is the drag path's
+ * self-into-self refusal wearing a different UI — `loadedFolders` does no
+ * filtering of its own, so this line is the only thing keeping a folder off its
+ * own destination list — and nothing in the repository mounted
+ * `ExplorerDialogs` at all.
  *
  * | Line | Condition | |
  * | --- | --- | --- |
@@ -47,8 +60,9 @@ import { emptyEditor } from "../features/console/files/editor";
  * | :263 | `canDrag`'s `!row.readOnly` | covered below |
  * | :264 | `canDrop`'s `row.kind === "folder"` | covered below |
  * | :279 | `onDrop`'s `source === null` | covered below |
- * | :283 | `onDrop`'s `!verdict.ok` | covered below |
+ * | :282 | `onDrop`'s `!verdict.ok` | covered below |
  * | :327 | the toolbar's `files.canEdit` | covered below |
+ * | :526 | `MovePicker`'s destination filter | covered below |
  * | :148 | `openMenu`'s `items.length === 0` | cannot fire |
  * | :222 | `runAction`'s `restore` null target | cannot fire |
  * | :247 | `runAction`'s `case "visibility"` | cannot fire |
@@ -78,10 +92,15 @@ import { emptyEditor } from "../features/console/files/editor";
  *    checks in two places — its root `Panel`'s `onActivate` and the keyboard
  *    `Enter` path — while its *submenu* `Panel` calls `close(item.id)` with no
  *    check, which is safe only because `menu.ts` states items are one level
- *    deep. And `jest.config.js` resolves `web.tsx` ahead of `tsx`, so **no test
- *    in this suite ever loads `Menu.tsx`**: its guard is read, not exercised,
- *    which is the "a guard nobody has checked" shape and is recorded here
- *    rather than left implied.
+ *    deep. All three are exercised: `menuRender.test.ts` requires `Menu.tsx`
+ *    **by its explicit extension**, precisely because `jest.config.js` resolves
+ *    `web.tsx` first, and its "opening Visibility dispatches nothing and closes
+ *    nothing" presses that row and asserts nothing was selected. (An earlier
+ *    version of this bullet said no test in the suite ever loads `Menu.tsx`,
+ *    and reached for CLAUDE.md's "a guard nobody has checked is not a guard" to
+ *    say so. That was asserted from the resolution rule without opening the
+ *    file that works around it — the same shape as the miscount it was written
+ *    to correct.)
  *  - **`cycleVisibility`'s `row.readOnly`** — `VisibilityControl` returns the
  *    "generated" lock *before* the pressable for a read-only row, so there is
  *    no press to make.
@@ -108,7 +127,7 @@ import { emptyEditor } from "../features/console/files/editor";
  * on. Pairing them, rather than pairing them within one block, is what keeps a
  * tree that rendered no rows at all from passing.
  *
- * Each of the six was sabotaged again *after* these tests existed. Four fail
+ * Each of the seven was sabotaged again *after* these tests existed. Five fail
  * silently when removed. The other two fail loudly, and that is worth stating
  * rather than implying otherwise: `source === null` and the verdict's `return`
  * both stand in front of code that would immediately dereference something
@@ -127,10 +146,28 @@ import { emptyEditor } from "../features/console/files/editor";
  * that version; *replacing* it (`canDrop: (row) => !row.readOnly`) passed it,
  * while making an ordinary note a drop target and calling `move` with a note as
  * the destination. `other.md` exists in the fixture for that reason and for no
- * other, and the same replacement now fails: 1 of 1,597, where before it was 0.
+ * other, and the same replacement now fails 1 of 1,599, where before it was 0.
  * A rule quietly becoming a *different* rule is the mutation that survives an
  * on/off sabotage.
+ *
+ * `MovePicker`'s filter is two rules in one expression and was mutated the same
+ * way: `() => true` fails, and so does `(folder) => dialog.path !== folder`,
+ * which keeps the self rule and drops the descendant one. `1-projects/sub` is
+ * in the fixture so the second of those has somewhere to show up.
  */
+
+/**
+ * The menu and the move dialog both render through components that read
+ * safe-area insets — the real app provides them in `app/_layout.tsx`. Without
+ * this the overlay mounts and then throws, which reads exactly like it never
+ * opened.
+ */
+const METRICS =
+  initialWindowMetrics ??
+  ({
+    frame: { x: 0, y: 0, width: 1280, height: 800 },
+    insets: { top: 0, left: 0, right: 0, bottom: 0 },
+  } as never);
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -139,13 +176,13 @@ afterEach(() => {
 });
 
 /**
- * A root holding one folder, one note, and `privacy.md`.
+ * A root holding two folders, two notes, and `privacy.md`.
  *
- * `1-projects` is deliberately left out of `listings`, so it is a collapsed
- * folder whose contents nobody has fetched. `canDrop` reads the destination's
- * names to detect collisions and an unloaded destination yields an empty set —
- * documented in `dnd.ts` as the honest degradation — which is what makes the
- * permitted drop below permitted.
+ * `1-projects` holds one subfolder and no files. `canDrop` reads the
+ * destination's names to detect collisions, so `note.md` moving into it
+ * collides with nothing, which is what makes the permitted drop below
+ * permitted — and `loadedFolders` sees `1-projects/sub`, which is what gives
+ * `MovePicker`'s descendant rule something to exclude.
  */
 const ROOT_LISTING: FolderListing = {
   path: "",
@@ -155,6 +192,18 @@ const ROOT_LISTING: FolderListing = {
       kind: "folder",
       path: "1-projects",
       name: "1-projects",
+      visibility: "private",
+      inherited: "private",
+      exception: false,
+      readOnly: false,
+    },
+    {
+      // A second destination, so `MovePicker`'s "Move here" is reachable at
+      // all: it is disabled on the folder the thing already lives in, and for
+      // anything at the top level that folder is the root.
+      kind: "folder",
+      path: "2-areas",
+      name: "2-areas",
       visibility: "private",
       inherited: "private",
       exception: false,
@@ -195,6 +244,25 @@ const ROOT_LISTING: FolderListing = {
   manifestUsable: true,
 };
 
+/** One subfolder, so a descendant exists for `MovePicker` to exclude. */
+const PROJECTS_LISTING: FolderListing = {
+  path: "1-projects",
+  folderDefault: "private",
+  entries: [
+    {
+      kind: "folder",
+      path: "1-projects/sub",
+      name: "sub",
+      visibility: "private",
+      inherited: "private",
+      exception: false,
+      readOnly: false,
+    },
+  ],
+  truncated: false,
+  manifestUsable: true,
+};
+
 const noop = () => {};
 
 interface Calls {
@@ -225,7 +293,7 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     canEdit,
     loading: false,
     busy: false,
-    listings: { "": ROOT_LISTING },
+    listings: { "": ROOT_LISTING, "1-projects": PROJECTS_LISTING },
     expanded: new Set<string>(),
     toggleFolder: noop,
     selectedPath: null,
@@ -271,8 +339,12 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
  * `onOpenPinned` and `onOverlayChange` are passed because the product's only
  * mount site passes them (`app/(app)/console/_layout.tsx`), and a fixture that
  * mounts a shape nothing mounts is the drift `browser()` is typed to avoid, one
- * level out. They record into `calls.props` rather than no-op, so a guard that
- * started calling one of them would show up rather than vanish.
+ * level out.
+ *
+ * They record into `calls.props`, and the drop tests assert on it. An earlier
+ * version said only that recording meant a stray call "would show up rather
+ * than vanish" — a detection claim about an array nothing read, which in this
+ * file's own terms is an unasserted outcome proving nothing.
  */
 function mount(canEdit: boolean): { container: HTMLElement; calls: Calls } {
   const calls: Calls = { entries: [], props: [] };
@@ -287,14 +359,7 @@ function mount(canEdit: boolean): { container: HTMLElement; calls: Calls } {
     root.render(
       createElement(
         SafeAreaProvider,
-        {
-          initialMetrics:
-            initialWindowMetrics ??
-            ({
-              frame: { x: 0, y: 0, width: 1280, height: 800 },
-              insets: { top: 0, left: 0, right: 0, bottom: 0 },
-            } as never),
-        },
+        { initialMetrics: METRICS },
         createElement(Explorer, {
           files: browser(canEdit, calls),
           contextLabel: "@somebody",
@@ -363,16 +428,24 @@ function drag(from: HTMLElement, onto: HTMLElement): void {
 }
 
 describe("a console that cannot edit cannot start the gestures that write", () => {
-  test("no row is draggable without canEdit, and every row is with it", () => {
+  test("no row is draggable without canEdit, and every writable row is with it", () => {
     // Positive control first: without it a tree that rendered no rows at all
-    // would satisfy the assertion below.
+    // would satisfy the assertion below. All four writable rows, not a sample —
+    // `other.md` in particular, because it is the node the drop-target test
+    // dispatches at, and that test would stay green if file rows stopped
+    // carrying listeners at all.
     const editor = mount(true);
-    expect(rowNode(editor.container, "note.md").getAttribute("draggable")).toBe("true");
-    expect(rowNode(editor.container, "1-projects").getAttribute("draggable")).toBe("true");
+    for (const name of ["1-projects", "2-areas", "note.md", "other.md"]) {
+      expect(rowNode(editor.container, name).getAttribute("draggable")).toBe("true");
+    }
 
+    // "every writable row", not "every row": `privacy.md` is read-only and
+    // reads `"false"` even here, which the next block proves rather than
+    // assumes.
     const reader = mount(false);
-    expect(rowNode(reader.container, "note.md").getAttribute("draggable")).toBe("false");
-    expect(rowNode(reader.container, "1-projects").getAttribute("draggable")).toBe("false");
+    for (const name of ["1-projects", "2-areas", "note.md", "other.md"]) {
+      expect(rowNode(reader.container, name).getAttribute("draggable")).toBe("false");
+    }
   });
 
   test("a drag begun without canEdit reaches the browser with nothing", () => {
@@ -403,8 +476,8 @@ describe("what may be dragged, and what may be dropped on", () => {
     // mounts an editor. `dnd.ts` refuses a read-only source as well, and that
     // refusal is tested there — this is the earlier gate, `canDrag` in
     // `Explorer`'s own handler, which stops the drag from starting at all.
-    // The contrast is the first test in this file, where both writable rows
-    // read `"true"`.
+    // The contrast is the first test in this file, where all four writable
+    // rows read `"true"`.
     const editor = mount(true);
     expect(rowNode(editor.container, "privacy.md").getAttribute("draggable")).toBe("false");
   });
@@ -418,6 +491,81 @@ describe("what may be dragged, and what may be dropped on", () => {
     expect(editor.calls.entries).toEqual([]);
   });
 
+});
+
+/**
+ * `ExplorerDialogs` mounted on its own.
+ *
+ * It is exported from the same module and takes no frame context, so it needs
+ * no `AppFrame` — but `MovePicker` renders through `Shell`, which reaches for
+ * safe-area insets on the web build, so the provider is here for the same
+ * reason it is in `mountExplorer`.
+ */
+function mountMoveDialog(path: string): { container: HTMLElement; calls: Calls } {
+  const calls: Calls = { entries: [], props: [] };
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+  roots.push(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+  act(() => {
+    root.render(
+      createElement(
+        SafeAreaProvider,
+        { initialMetrics: METRICS },
+        createElement(ExplorerDialogs, {
+          files: browser(true, calls),
+          dialog: { kind: "move", path },
+          onClose: noop,
+        }),
+      ),
+    );
+  });
+  return { container, calls };
+}
+
+/** Every destination the dialog is offering, in the order it offers them. */
+function offeredFolders(): string[] {
+  return [...document.body.querySelectorAll("[aria-label]")]
+    .map((node) => node.getAttribute("aria-label") ?? "")
+    .filter((label) => label === "the root of your context" || /^[0-9]-/.test(label));
+}
+
+function press(label: string): void {
+  const node = [...document.body.querySelectorAll("[aria-label]")].find(
+    (candidate) => candidate.getAttribute("aria-label") === label,
+  );
+  expect(node).toBeDefined();
+  act(() => {
+    for (const type of ["mousedown", "mouseup", "click"]) {
+      node!.dispatchEvent(new MouseEvent(type, { bubbles: true }));
+    }
+  });
+}
+
+describe("the move dialog does not offer a folder itself or its own descendants", () => {
+  test("a folder is offered every destination but itself and below it", () => {
+    // Positive control in the same assertion: `2-areas` and the root ARE
+    // offered, so this cannot pass by rendering an empty list. `loadedFolders`
+    // returns all four — "", 1-projects, 1-projects/sub, 2-areas — and does no
+    // filtering of its own, so the two that are missing are missing because of
+    // the filter under test.
+    mountMoveDialog("1-projects");
+    expect(offeredFolders()).toEqual(["the root of your context", "2-areas"]);
+  });
+
+  test("choosing an offered destination moves; the dialog's list is the only gate", () => {
+    // `MovePicker` calls `onConfirm` with whatever was chosen and asks nothing
+    // else, and `files.move` does not re-check — so what the list contains is
+    // what can be moved into. That is why the exclusion above is a guard rather
+    // than a nicety.
+    const dialog = mountMoveDialog("1-projects");
+    press("2-areas");
+    press("Move here");
+    expect(dialog.calls.entries).toEqual([{ name: "move", args: ["1-projects", "2-areas"] }]);
+  });
 });
 
 describe("a drop is performed only when dnd.ts permits it", () => {
@@ -434,6 +582,9 @@ describe("a drop is performed only when dnd.ts permits it", () => {
       rowNode(editor.container, "1-projects").dispatchEvent(dragEvent("drop"));
     });
     expect(editor.calls.entries).toEqual([]);
+    // The props too: the one entry is `onOverlayChange(false)` from the mount
+    // effect, so nothing this gesture did reached a prop either.
+    expect(editor.calls.props).toEqual([{ name: "onOverlayChange", args: [false] }]);
   });
 
   test("a permitted drop moves, and a refused one calls nothing", () => {
@@ -452,5 +603,9 @@ describe("a drop is performed only when dnd.ts permits it", () => {
     drag(folder, folder);
     expect(refused.calls.entries).toEqual([]);
     expect(refused.container.textContent).toContain("That is the folder you are moving.");
+    // A refusal raises a message, not an overlay: `setRefusal` is not `setMenu`
+    // or `setDialog`, so `overlayOpen` never changes and the mount effect's one
+    // entry is still the only one.
+    expect(refused.calls.props).toEqual([{ name: "onOverlayChange", args: [false] }]);
   });
 });
