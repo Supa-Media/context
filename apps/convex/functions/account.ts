@@ -113,7 +113,7 @@ export const deleteAccount = mutation({
     for (const row of nameRows) {
       // Same rule as the workspace slugs below: a freed name inherits
       // nothing, so its pending invitations go before the row does.
-      await voidPendingInvitationsTo(ctx, row.name);
+      await voidCapabilitiesAddressedTo(ctx, row.name);
       await ctx.db.delete(row._id);
     }
 
@@ -302,6 +302,23 @@ async function deleteWorkspaceCascade(
     await ctx.db.delete(grant._id);
   }
 
+  // Every note share this context handed out, in both statuses. A share is a
+  // standing capability addressed to somebody who is NOT a member, so it is
+  // reachable by a person the sweeps above never touch, and — unlike an
+  // invitation — it does not expire by default. Revoked rows go too: they are
+  // this context's disclosure record, and there is nobody left to read it.
+  for (const status of ["active", "revoked"] as const) {
+    const shares = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_status", (q) =>
+        q.eq("workspaceId", workspaceId).eq("status", status),
+      )
+      .collect();
+    for (const share of shares) {
+      await ctx.db.delete(share._id);
+    }
+  }
+
   // The audit trail. Unlike a disconnect — where "storage was disconnected"
   // must remain visible — there is nobody left to read this one: the context
   // and its only owner are both going.
@@ -329,7 +346,7 @@ async function deleteWorkspaceCascade(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const row of nameRows) {
-    await voidPendingInvitationsTo(ctx, row.name);
+    await voidCapabilitiesAddressedTo(ctx, row.name);
     await ctx.db.delete(row._id);
   }
 
@@ -352,8 +369,21 @@ async function deleteWorkspaceCascade(
  * Pending only. `accepted`, `declined` and `expired` rows are other
  * workspaces' history, none of them can mint access (accepting requires
  * `pending`), and deleting them would be erasing somebody else's audit trail.
+ *
+ * **And note shares, which are the same shape and worse.** A share is
+ * addressed to a `@handle` the same way and resolved the same way, but where an
+ * invitation is a one-time offer that dies when it is answered, a share is
+ * standing and by default never expires — so the window in which a freed name
+ * can inherit one is not bounded by anything. Measured before this covered
+ * them: the successor claimed the handle and `listSharedWithMe`, their own
+ * inbox, handed them a live token for a note in a stranger's context, with no
+ * link involved.
+ *
+ * This is the sweep half. `shareStillStands` in `functions/shares.ts` is the
+ * re-check half, and it is not redundant — it is what makes the next table
+ * somebody forgets to add here inert instead of exploitable.
  */
-async function voidPendingInvitationsTo(ctx: MutationCtx, name: string): Promise<void> {
+async function voidCapabilitiesAddressedTo(ctx: MutationCtx, name: string): Promise<void> {
   const pending = await ctx.db
     .query("workspaceInvitations")
     .withIndex("by_invitee", (q) => q.eq("inviteeKind", "name").eq("invitee", name))
@@ -361,5 +391,23 @@ async function voidPendingInvitationsTo(ctx: MutationCtx, name: string): Promise
     .collect();
   for (const invitation of pending) {
     await ctx.db.delete(invitation._id);
+  }
+
+  // Revoked rather than deleted, which is the one place this differs from the
+  // invitations above, and for a reason rather than a preference: the share
+  // lives in a workspace that SURVIVES, whose owner has a list of what they
+  // have disclosed and to whom. A row that vanishes takes that record with it;
+  // a revoked one is already how this table says "no longer live" — `isLive`
+  // refuses it, both recipient channels drop it, and a re-share mints a fresh
+  // token rather than reviving this one.
+  const now = Date.now();
+  const standing = await ctx.db
+    .query("noteShares")
+    .withIndex("by_recipient", (q) =>
+      q.eq("recipientKind", "name").eq("recipient", name).eq("status", "active"),
+    )
+    .collect();
+  for (const share of standing) {
+    await ctx.db.patch(share._id, { status: "revoked", revokedAt: now });
   }
 }

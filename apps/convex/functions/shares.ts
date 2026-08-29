@@ -63,6 +63,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import { normalizePath } from "./lib/fileOps";
 import { linkedNotePaths } from "./lib/noteLinks";
+import { findName } from "./lib/nameClaims";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { identifiersForUser, resolveAddressedUser } from "./lib/identities";
 import {
@@ -106,6 +107,104 @@ function isLive(share: Doc<"noteShares">, now: number): boolean {
     share.status === "active" &&
     (share.expiresAt === undefined || share.expiresAt > now)
   );
+}
+
+/**
+ * Whether this share still stands, for this caller, right now.
+ *
+ * **The one predicate, read by both channels.** `resolveShare` answers a link
+ * somebody was sent; `listSharedWithMe` is the recipient's own inbox and is the
+ * channel that needs no link at all. Two copies of this reasoning would be two
+ * places for it to drift, and the direction that drift fails is "the inbox
+ * hands somebody a token the link would have refused" — which is exactly how
+ * the freed-name case was found.
+ *
+ * Returns the workspace when the share stands, `null` otherwise. `null` is the
+ * only failure value: every reason a share does not stand must be
+ * indistinguishable from every other, and from a token that never existed.
+ *
+ * ## Why redemption re-checks at all, when the teardown sweeps
+ *
+ * `deleteWorkspaceCascade` now takes this table with it, and a freed name
+ * revokes the shares addressed to it. Neither is what this function is for.
+ * The rule this codebase already follows is **sweep at teardown AND re-check at
+ * redemption**: the cascade is allowed to omit `oauthAuthorizations` only
+ * because `createGrant` re-checks membership when a code is redeemed, and that
+ * second check is the reason the omission is inert rather than a hole. A table
+ * added to the schema and not to the teardown is a mistake somebody will make
+ * again — it is how this one was found — so the capability must not depend on
+ * the sweep having been remembered.
+ *
+ * ## The claim has to predate the share
+ *
+ * A share is addressed to a **string**, and resolved only here. That is
+ * deliberate, for `inviteMember`'s anti-enumeration reason, and it is what lets
+ * a handle change hands while a standing capability waits: `@lk` deletes their
+ * account, somebody else claims `lk`, and every share addressed to `@lk`
+ * resolves to a stranger.
+ *
+ * So a name-addressed share additionally requires that the current claim on
+ * that handle is **older than the share**. The same shape of argument the
+ * Cloudflare provisioning path uses for a bucket it may reuse: a claim made
+ * after the share was created cannot be the claim the sharer was addressing.
+ * `claimedAt` is written once by `claimName` and never moved — there is no
+ * rename path — so this is a fact about the claim, not a guess.
+ *
+ * There is no equivalent for an email-addressed share, and that is stated
+ * rather than quietly skipped: a mailbox can also change hands, and nothing
+ * here can see when it did. That is a live design question about how long a
+ * share addressed to an address should stand, not something to settle inside a
+ * predicate.
+ */
+async function shareStillStands(
+  ctx: QueryCtx,
+  share: Doc<"noteShares">,
+  userId: Id<"users">,
+  now: number,
+): Promise<Doc<"workspaces"> | null> {
+  if (!isLive(share, now)) return null;
+
+  // The context it points into. A destroyed workspace takes its shares with it
+  // at teardown; this is what makes a row that outlived it inert anyway.
+  //
+  // **This line is not a guard, and saying so is the point.** Removing it
+  // changes no behaviour and fails no test: the function returns the workspace,
+  // so falling through to `return workspace` answers `null` by a longer route.
+  // It is here because everything below reads better with a workspace in hand.
+  // A sabotage of it passes the whole suite, and listing it in the table below
+  // as a checked guard would be exactly the kind of claim the register's rows
+  // about invented comments are for.
+  const workspace = await ctx.db.get(share.workspaceId);
+  if (workspace === null) return null;
+
+  // And the authority behind it. `createShare` is owner-only and ownership is
+  // not transferable, so the person who minted this must still be the owner —
+  // a share is one person's decision to disclose one note, and it does not
+  // outlive their standing to make it.
+  const sharer = await getMembership(ctx, share.workspaceId, share.createdBy);
+  if (sharer === null || sharer.role !== "owner") return null;
+
+  if (share.recipientKind === "name") {
+    const claim = await findName(ctx, share.recipient);
+    // Strictly after, so a tie stands. `>=` was tried first, on the usual
+    // reasoning that an ambiguous case should fail closed, and it refused two
+    // legitimate shares in this repo's own fixtures — a claim and a share
+    // landing in the same millisecond is routine when nothing is waiting on a
+    // person. It is also unreachable as an attack: the case this closes is a
+    // handle **re-claimed after** the share was written, which is at minimum an
+    // account deletion apart, so a tie can only be a claim that was already
+    // there.
+    if (claim === null || claim.claimedAt > share.createdAt) return null;
+  }
+
+  // Last, and the authority on who an identifier belongs to.
+  const addressed = await resolveAddressedUser(ctx, {
+    kind: share.recipientKind,
+    value: share.recipient,
+  });
+  if (addressed === null || addressed !== userId) return null;
+
+  return workspace;
 }
 
 /**
@@ -468,13 +567,8 @@ export const resolveShare = query({
       .query("noteShares")
       .withIndex("by_token", (q) => q.eq("token", args.token))
       .unique();
-    if (share === null || !isLive(share, now)) return null;
-
-    const addressed = await resolveAddressedUser(ctx, {
-      kind: share.recipientKind,
-      value: share.recipient,
-    });
-    if (addressed === null || addressed !== userId) return null;
+    if (share === null) return null;
+    if ((await shareStillStands(ctx, share, userId, now)) === null) return null;
 
     return {
       shareId: share._id,
@@ -534,14 +628,9 @@ export const listSharedWithMe = query({
 
     const summaries = [];
     for (const row of rows) {
-      // The authority, not the gathering above.
-      const addressed = await resolveAddressedUser(ctx, {
-        kind: row.recipientKind,
-        value: row.recipient,
-      });
-      if (addressed !== userId) continue;
-
-      const workspace = await ctx.db.get(row.workspaceId);
+      // The authority, not the gathering above — and the same predicate the
+      // link path answers, so this inbox can never be the softer of the two.
+      const workspace = await shareStillStands(ctx, row, userId, now);
       if (workspace === null) continue;
       summaries.push({
         token: row.token,

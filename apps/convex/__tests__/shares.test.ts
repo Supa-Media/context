@@ -548,3 +548,302 @@ describe("the audit trail", () => {
     expect(created.paths).toContain(NOTE);
   });
 });
+
+/**
+ * WHAT SWEEPS A SHARE WHEN ITS ADDRESSEE OR ITS CONTEXT STOPS EXISTING.
+ *
+ * A share is a capability addressed to a **string** — a `@handle` or a mailbox
+ * — and resolved only when somebody presents it. That is the same deliberate
+ * design as an invitation, for the same anti-enumeration reason, and it has the
+ * same consequence: the identifier can change hands while the capability sits
+ * there waiting.
+ *
+ * `account.ts` already knows this. `voidPendingInvitationsTo` exists for it,
+ * and its doc comment is the argument in full — *"a freed name must inherit
+ * nothing… a stranger walking into a context that was shared with a person who
+ * no longer exists"*. It covers `workspaceInvitations`. A share is a second,
+ * **longer-lived** capability addressed the same way: an invitation is a
+ * one-time offer that dies on answer, a share is standing and by default never
+ * expires.
+ *
+ * Two directions, and neither is hypothetical — both were measured end to end
+ * against the code as merged, before this block existed:
+ *
+ *  - **The addressee's name is freed.** Alice deletes her account; the handle
+ *    `@alice` returns to the pool; Carol claims it. Every standing share
+ *    addressed to `@alice` is now Carol's, and `listSharedWithMe` — the
+ *    recipient's own inbox — hands her the live tokens unasked. She never
+ *    needed the link.
+ *  - **The context is destroyed.** Its memberships, grants, invitations and
+ *    audit trail are swept; its shares were not, so they survive as rows
+ *    pointing at a workspace that no longer exists.
+ *
+ * The rule this codebase already follows for authority is **sweep at teardown
+ * AND re-check at redemption** — `deleteWorkspaceCascade` may omit
+ * `oauthAuthorizations` only because `createGrant` re-checks membership when
+ * the code is redeemed. So both halves are asserted here: the rows go, and
+ * `resolveShare` refuses even when handed a row the sweep missed.
+ */
+describe("a freed name inherits nothing, and neither does a destroyed context", () => {
+  test("a standing share does not follow the handle to its next owner", async () => {
+    const t = setupTest();
+    const { ownerId, lkId, workspaceId } = await scenario(t);
+    const { token } = await share(t, ownerId, workspaceId, "@lk");
+
+    // Control: it works for the person it was addressed to.
+    expect(
+      await asUser(t, lkId).query(api.functions.shares.resolveShare, { token }),
+    ).not.toBeNull();
+
+    // `@lk` gives up their account, which frees the handle.
+    await asUser(t, lkId).mutation(api.functions.account.deleteAccount, {});
+
+    const successor = await createUser(t, "successor@example.invalid");
+    await createWorkspace(t, successor, "lk");
+
+    // Their own inbox must not be the delivery channel for somebody else's
+    // share. This is the half that needs no link at all.
+    expect(
+      await asUser(t, successor).query(api.functions.shares.listSharedWithMe, {}),
+    ).toEqual([]);
+
+    // And the link itself, if they were to find it, resolves to nothing.
+    expect(
+      await asUser(t, successor).query(api.functions.shares.resolveShare, { token }),
+    ).toBeNull();
+  });
+
+  test("destroying a context takes its shares with it", async () => {
+    const t = setupTest();
+    const { ownerId, lkId, workspaceId } = await scenario(t);
+    const { token } = await share(t, ownerId, workspaceId, "@lk");
+
+    await asUser(t, ownerId).mutation(api.functions.account.deleteAccount, {});
+
+    // No dangling capability rows pointing at a workspace that is gone.
+    const leftover = await t.run((ctx) =>
+      ctx.db
+        .query("noteShares")
+        .withIndex("by_workspace_status", (q) => q.eq("workspaceId", workspaceId))
+        .collect(),
+    );
+    expect(leftover).toEqual([]);
+
+    // The recipient's side agrees, by both channels.
+    expect(await asUser(t, lkId).query(api.functions.shares.listSharedWithMe, {})).toEqual(
+      [],
+    );
+    expect(
+      await asUser(t, lkId).query(api.functions.shares.resolveShare, { token }),
+    ).toBeNull();
+  });
+
+  test("redemption re-checks, so a row the sweep missed is still refused", async () => {
+    const t = setupTest();
+    const { ownerId, lkId, workspaceId } = await scenario(t);
+    const { token } = await share(t, ownerId, workspaceId, "@lk");
+
+    // Simulate the cascade missing this table — a future table added to the
+    // schema and not to the teardown, which is exactly how this was found.
+    // Everything else about the workspace goes.
+    await asUser(t, ownerId).mutation(api.functions.account.deleteAccount, {});
+    await t.run(async (ctx) => {
+      // Whatever the sweep did or did not do, leave exactly one row carrying
+      // this token — `by_token` is a `.unique()` lookup, and the point of the
+      // test is the re-check, not the cardinality.
+      for (const row of await ctx.db.query("noteShares").collect()) {
+        if (row.token === token) await ctx.db.delete(row._id);
+      }
+      await ctx.db.insert("noteShares", {
+        workspaceId,
+        entryPath: NOTE,
+        recipientKind: "name",
+        recipient: "lk",
+        createdBy: ownerId,
+        token,
+        status: "active",
+        titleInPreview: true,
+        createdAt: Date.now(),
+      });
+    });
+
+    expect(
+      await asUser(t, lkId).query(api.functions.shares.resolveShare, { token }),
+    ).toBeNull();
+    expect(await asUser(t, lkId).query(api.functions.shares.listSharedWithMe, {})).toEqual(
+      [],
+    );
+  });
+});
+
+/**
+ * THE TWO HALVES, HELD SEPARATELY.
+ *
+ * The block above proves the outcome: a freed name and a destroyed context both
+ * stop working. It does **not** prove which line stops them, and that turned out
+ * to matter — sabotaging the teardown sweep and sabotaging the redemption
+ * re-check each left the entire suite green, because each closes the case the
+ * other closes. Two guards that mask one another are, for testing purposes, one
+ * guard with a spare, and the spare is exactly what nobody notices going.
+ *
+ * So each test here removes one half from the picture by construction, and the
+ * db is read directly where the point is what was *written* rather than what a
+ * query answers.
+ */
+describe("each half of the share sweep, isolated", () => {
+  test("the sweep marks the row revoked, whatever the read path would have done", async () => {
+    const t = setupTest();
+    const { ownerId, lkId, workspaceId } = await scenario(t);
+    await share(t, ownerId, workspaceId, "@lk");
+
+    await asUser(t, lkId).mutation(api.functions.account.deleteAccount, {});
+
+    // Read the row, not a query over it: this is the teardown's own guarantee,
+    // and it must hold even if every redemption check were removed.
+    const rows = await t.run((ctx) =>
+      ctx.db
+        .query("noteShares")
+        .withIndex("by_workspace_status", (q) => q.eq("workspaceId", workspaceId))
+        .collect(),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].status).toBe("revoked");
+    expect(rows[0].revokedAt).toBeGreaterThan(0);
+  });
+
+  test("a claim younger than the share it inherits cannot redeem it", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+
+    // The sweep is out of the picture entirely: nothing is deleted here. The
+    // share is simply addressed to a handle whose current claim was made
+    // afterwards — which is the only thing distinguishing the person it was
+    // written for from whoever holds the name now.
+    const { token } = await share(t, ownerId, workspaceId, "@newcomer");
+    const newcomer = await createUser(t, "newcomer@example.invalid");
+    await createWorkspace(t, newcomer, "newcomer");
+    // Move the claim a second later, the way the file's expiry tests move an
+    // `expiresAt`. Everything here runs inside one millisecond otherwise, and a
+    // test that depends on which side of a tick two writes land on is a test
+    // that will one day pass for the wrong reason.
+    await t.run(async (ctx) => {
+      const claim = await ctx.db
+        .query("names")
+        .withIndex("by_name", (q) => q.eq("name", "newcomer"))
+        .unique();
+      await ctx.db.patch(claim!._id, { claimedAt: Date.now() + 1_000 });
+    });
+
+    expect(
+      await asUser(t, newcomer).query(api.functions.shares.resolveShare, { token }),
+    ).toBeNull();
+    // And the inbox agrees with the link. It is the channel that needs no link,
+    // so it must never be the softer of the two.
+    expect(
+      await asUser(t, newcomer).query(api.functions.shares.listSharedWithMe, {}),
+    ).toEqual([]);
+  });
+
+  test("a claim older than the share still redeems it — the check is not a blanket refusal", async () => {
+    const t = setupTest();
+    const { ownerId, lkId, workspaceId } = await scenario(t);
+    // `@lk` claimed their handle before the share was written, which is the
+    // ordinary ordering — stated explicitly for the reason above.
+    await t.run(async (ctx) => {
+      const claim = await ctx.db
+        .query("names")
+        .withIndex("by_name", (q) => q.eq("name", "lk"))
+        .unique();
+      await ctx.db.patch(claim!._id, { claimedAt: Date.now() - 1_000 });
+    });
+    const { token } = await share(t, ownerId, workspaceId, "@lk");
+
+    expect(
+      await asUser(t, lkId).query(api.functions.shares.resolveShare, { token }),
+    ).not.toBeNull();
+    expect(
+      await asUser(t, lkId).query(api.functions.shares.listSharedWithMe, {}),
+    ).toHaveLength(1);
+  });
+
+  test("a sharer who is no longer the owner cannot keep disclosing", async () => {
+    const t = setupTest();
+    const { ownerId, lkId, workspaceId } = await scenario(t);
+    const { token } = await share(t, ownerId, workspaceId, "@lk");
+
+    // The workspace survives and the name is untouched, so nothing else in the
+    // predicate can be what refuses this.
+    await t.run(async (ctx) => {
+      const membership = await ctx.db
+        .query("workspaceMembers")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .collect();
+      for (const row of membership) {
+        if (row.userId === ownerId) await ctx.db.delete(row._id);
+      }
+    });
+
+    expect(
+      await asUser(t, lkId).query(api.functions.shares.resolveShare, { token }),
+    ).toBeNull();
+    expect(await asUser(t, lkId).query(api.functions.shares.listSharedWithMe, {})).toEqual(
+      [],
+    );
+  });
+
+  test("a sharer demoted out of ownership cannot keep disclosing either", async () => {
+    const t = setupTest();
+    const { ownerId, lkId, workspaceId } = await scenario(t);
+    const { token } = await share(t, ownerId, workspaceId, "@lk");
+
+    // Ownership is not transferable, so this state is reachable only by writing
+    // it. That is the point: the check says "still the owner", not "still a
+    // member", and the two are different sentences. Deleting the row holds only
+    // the first half — this holds the second.
+    await t.run(async (ctx) => {
+      const membership = await ctx.db
+        .query("workspaceMembers")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .collect();
+      for (const row of membership) {
+        if (row.userId === ownerId) await ctx.db.patch(row._id, { role: "editor" });
+      }
+    });
+
+    expect(
+      await asUser(t, lkId).query(api.functions.shares.resolveShare, { token }),
+    ).toBeNull();
+    expect(await asUser(t, lkId).query(api.functions.shares.listSharedWithMe, {})).toEqual(
+      [],
+    );
+  });
+
+  test("a share pointing at a workspace that is gone resolves to nothing", async () => {
+    const t = setupTest();
+    const { ownerId, lkId, workspaceId } = await scenario(t);
+    const { token } = await share(t, ownerId, workspaceId, "@lk");
+
+    // Only the workspace document goes, with its memberships deliberately left
+    // behind. What refuses this is the predicate as a whole rather than any one
+    // line — the early null check is redundant with the function's own return
+    // value, which is recorded in `shareStillStands` rather than implied here.
+    await t.run(async (ctx) => {
+      await ctx.db.delete(workspaceId);
+    });
+
+    expect(
+      await asUser(t, lkId).query(api.functions.shares.resolveShare, { token }),
+    ).toBeNull();
+    expect(await asUser(t, lkId).query(api.functions.shares.listSharedWithMe, {})).toEqual(
+      [],
+    );
+
+    // And the reason has to be the workspace, not a crash: the same call for a
+    // token that never existed answers identically.
+    expect(
+      await asUser(t, lkId).query(api.functions.shares.resolveShare, {
+        token: "0".repeat(64),
+      }),
+    ).toBeNull();
+  });
+});
