@@ -319,6 +319,25 @@ export async function runSearchQueryChecks(check) {
     check("a missing or unparseable uploaded timestamp does not throw", !attemptResult.threw);
   }
 
+  {
+    // `uploaded` comes from the backend's listing, so clock skew and a hostile
+    // endpoint can both date a note into the future. Unclamped, e^(+age/90) is
+    // an unbounded multiplier — one crafted timestamp outranking every real
+    // note. Clamped, a future date earns exactly what "written this instant"
+    // earns, so it cannot beat an otherwise-stronger doc.
+    const now = new Date("2026-08-29T00:00:00Z").getTime();
+    const idx = buildIndex([
+      { path: "skewed.md", body: "gateway notes", uploaded: "2036-01-01T00:00:00Z" },
+      { path: "stronger.md", title: "gateway", body: "gateway notes", uploaded: "2026-08-29T00:00:00Z" },
+    ]);
+    computeRanks(idx);
+    const results = searchIndex(idx, "gateway", { now });
+    check(
+      "a future-dated uploaded timestamp is clamped to the present-day bonus, never an unbounded one",
+      scoreOf(results, "stronger.md") > scoreOf(results, "skewed.md"),
+    );
+  }
+
   // -- cap at 50 ------------------------------------------------------------
 
   {

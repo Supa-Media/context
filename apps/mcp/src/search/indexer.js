@@ -252,8 +252,10 @@ function byFirst(a, b) {
 /**
  * The bucket-stored JSON, per CONTRACT.md's "Serialized shape": arrays of
  * pairs (never keyed objects — the same prototype-pollution rule as the
- * in-memory shape), sorted deterministically so two `put`s of an unchanged
- * index produce identical bytes and an etag-conditional write behaves.
+ * in-memory shape), with entries sorted deterministically so what changed
+ * between two serializations is only ever what actually changed. Not
+ * byte-identical across calls — `generatedAt` is stamped fresh each time —
+ * so nothing may compare whole serializations for equality.
  *
  * @param {ReturnType<typeof emptyIndex>} index
  * @returns {string}

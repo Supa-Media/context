@@ -3,6 +3,9 @@ import { R2Store } from "../src/store/r2.js";
 import { SUPPORTED_SCOPES, visibilityTierForGrant } from "../src/session.js";
 import { runStoreChecks } from "./store.test.mjs";
 import { runOrientationChecks } from "./orientation.test.mjs";
+import { runSearchIndexerChecks } from "./searchIndexer.test.mjs";
+import { runSearchIntegrationChecks } from "./searchIntegration.test.mjs";
+import { runSearchQueryChecks } from "./searchQuery.test.mjs";
 import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
 import {
@@ -40,7 +43,15 @@ const bucket = {
     const listed = [...objects.keys()]
       .filter((k) => !prefix || k.startsWith(prefix))
       .sort()
-      .map((key) => ({ key, size: objects.get(key).body.length, uploaded: new Date() }));
+      // `etag` per listed object mirrors what R2 and S3 both report, and the
+      // search index's staleness diff is built on it. Without it every note
+      // compares unequal on every sync and the backfill never converges.
+      .map((key) => ({
+        key,
+        size: objects.get(key).body.length,
+        uploaded: new Date(),
+        etag: objects.get(key).etag,
+      }));
     return { objects: listed, truncated: false };
   },
 };
@@ -2780,6 +2791,14 @@ runStoreFactoryChecks(check);
 // paginates and delimits honestly. Its own control plane, so it runs beside the
 // tenancy suite rather than against the shared fixture.
 await runOrientationChecks(check);
+
+// The search index. The two format halves are pure functions over their own
+// fixtures and touch no store or control plane, so they run anywhere; the
+// integration checks stand up their own instrumented bucket, like orientation,
+// because the properties that matter there are store-call counts.
+await runSearchIndexerChecks(check);
+await runSearchQueryChecks(check);
+await runSearchIntegrationChecks(check);
 
 await runTenancyChecks(check);
 

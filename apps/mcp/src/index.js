@@ -66,6 +66,9 @@ import {
   storeForSession,
 } from "./session.js";
 import { enforceOrigin, isTransportPath } from "./origin.js";
+import { createSearchBudget, syncIndex } from "./search/maintain.js";
+import { searchIndex } from "./search/query.js";
+import { termsOf } from "./search/text.js";
 import {
   ERROR_HEADER_MISMATCH,
   ERROR_METHOD_NOT_FOUND,
@@ -103,7 +106,34 @@ const GRANOLA_PENDING_PREFIX = ".granola-events/pending/";
 const GRANOLA_COMPLETED_PREFIX = ".granola-events/completed/";
 const PROPOSAL_PENDING_PREFIX = ".proposals/pending/";
 const PROPOSAL_REVIEWED_PREFIX = ".proposals/reviewed/";
-const SEARCH_FILE_CAP = 400; // max files scanned per search call
+/**
+ * Everything one search call may spend on storage: the index sync, its
+ * conditional write, and the fresh read behind every snippet.
+ *
+ * Cloudflare allows 50 subrequests per worker invocation on the free tier, and
+ * resolving the session, the storage binding and privacy.md already spend about
+ * three of them. This replaces `SEARCH_FILE_CAP = 400`, which was not a budget
+ * at all: 400 reads is eight times the limit, so a real context — measured live
+ * at 154 notes — answered every unprefixed search with "Too many subrequests".
+ */
+const SEARCH_SUBREQUEST_BUDGET = 40;
+/** Hits returned per search; each costs one fresh read for its snippets. */
+const SEARCH_RESULT_LIMIT = 10;
+/**
+ * The fallback scan's ceiling, for the calls where the index is unusable. Well
+ * under the budget on purpose: this path exists because something already went
+ * wrong, and it must degrade rather than become the original failure again.
+ */
+const FALLBACK_SCAN_CAP = 30;
+/** Pages the fallback's own listing may spend per folder. */
+const FALLBACK_LIST_PAGE_CAP = 2;
+/**
+ * `searchIndex` caps its ranked list at 50 (CONTRACT.md § Scoring). A count
+ * that reaches the cap is a floor, never a total — the same rule the census and
+ * `orient` follow. Asserted against the real function in
+ * `test/searchIntegration.test.mjs` rather than trusted as a copy.
+ */
+const SEARCH_INDEX_RANK_CAP = 50;
 const FOLDER_MOVE_CAP = 500;
 const BATCH_MOVE_CAP = 100;
 const PROPOSAL_PENDING_CAP = 100;
@@ -1333,16 +1363,17 @@ function toolDefinitions() {
       description:
         "Search the user's own notes. Reach for this whenever they mention a project, a person, a " +
         "client, a decision, a preference, or something they have written before — it is usually " +
-        "already recorded here, and asking them to repeat it is the failure mode. Case-insensitive; " +
-        "returns matching paths with line snippets. Pass a folder prefix when you know one, and " +
-        "reuse the result for the session rather than repeating the same search before every write.",
+        "already recorded here, and asking them to repeat it is the failure mode. Case-insensitive " +
+        "and ranked, so the best matches come first; returns matching paths with line snippets. " +
+        "Pass a folder prefix when you already know where to look, and reuse the result for the " +
+        "session rather than repeating the same search before every write.",
       inputSchema: {
         type: "object",
         properties: {
           query: { type: "string" },
           prefix: {
             type: "string",
-            description: "Optional folder prefix that makes large-context searches substantially faster",
+            description: "Optional folder prefix that narrows results to one subtree",
           },
         },
         required: ["query"],
@@ -2866,23 +2897,114 @@ async function toolReviewProposal(store, scope, id, action, destinationArg, revi
 }
 
 /**
- * The one search scan, shared by `search_notes` and the ChatGPT-dialect
- * `search`. Splitting the scan from the formatting is what keeps the two tools
- * incapable of disagreeing about what a query matches — the difference between
- * them is only the shape of the answer.
+ * The fallback scan's key listing.
+ *
+ * `listAllNoteKeys` refuses to truncate, which is right for a move — a partial
+ * answer there is a wrong answer — and wrong here. This path runs only because
+ * the index was unusable, and an unbounded walk over a large bucket is the
+ * failure the index exists to remove, arriving through the recovery route. So
+ * it is bounded, and its truncation is carried into what the caller prints.
  */
-async function scanVisibleNotes(store, scope, rules, overrides, query, prefix) {
+async function listScannableNoteKeys(store, prefix) {
+  if (prefix) {
+    try {
+      return await listBoundedKeys(store, prefix, FALLBACK_LIST_PAGE_CAP);
+    } catch (error) {
+      if (!error?.[BUDGET_EXHAUSTED]) throw error;
+      return { keys: [], truncated: true };
+    }
+  }
+  const keys = [];
+  let truncated = false;
+  try {
+    const root = await listImmediateLayout(store);
+    keys.push(...root.objects);
+    for (const childPrefix of root.prefixes) {
+      const walk = await listBoundedKeys(store, childPrefix, FALLBACK_LIST_PAGE_CAP);
+      if (walk.truncated) truncated = true;
+      keys.push(...walk.keys);
+    }
+  } catch (error) {
+    // Out of budget partway through the walk: keep what was listed and say the
+    // total is a floor, exactly as a truncated page does.
+    if (!error?.[BUDGET_EXHAUSTED]) throw error;
+    truncated = true;
+  }
+  return { keys, truncated };
+}
+
+/**
+ * Budget exhaustion inside the fallback, as a thrown sentinel the scan's own
+ * callers catch and report as truncation — never as a dead request.
+ */
+const BUDGET_EXHAUSTED = Symbol("search budget exhausted");
+
+/**
+ * The fallback's storage calls go through the same counter the indexed path
+ * used. Its listing helpers (`listImmediateLayout`, `listBoundedKeys`) predate
+ * the budget and page freely, and un-counted listings are how the recovery
+ * route re-creates the very "Too many subrequests" failure it exists to
+ * survive: a bucket with enough top-level folders spends two pages on each of
+ * them before the first note is read.
+ */
+function budgetedStore(store, budget) {
+  const spend = () => {
+    if (budget.take()) return;
+    const error = new Error("search budget exhausted");
+    error[BUDGET_EXHAUSTED] = true;
+    throw error;
+  };
+  return {
+    get(key) {
+      spend();
+      return store.get(key);
+    },
+    list(options) {
+      spend();
+      return store.list(options);
+    },
+  };
+}
+
+/**
+ * The literal substring scan, kept as the recovery path for a search whose
+ * index is unusable — a corrupt object the pass could not replace, a storage
+ * error mid-sync, a bucket nothing has indexed yet.
+ *
+ * Its cap is now a real one. `SEARCH_FILE_CAP = 400` was eight times the
+ * per-invocation subrequest limit, which is why it never truncated in testing
+ * and always failed in production.
+ */
+async function scanVisibleNotes(store, scope, rules, overrides, query, prefix, budget) {
   const needle = query.toLowerCase();
-  const listed = prefix ? await listAllKeys(store, prefix) : await listAllNoteKeys(store);
-  const keys = listed.filter(
-    ({ key }) => key.endsWith(".md") && canSee(key, scope, rules, overrides)
+  const bounded = budget ? budgetedStore(store, budget) : store;
+  const listed = await listScannableNoteKeys(bounded, prefix);
+  // `isPlumbing` explicitly, not as a side effect of which lister ran.
+  // `canSee` answers *true* for `privacy.md` at private scope — deliberately,
+  // because the manifest is the owner's to read — so the manifest reached a
+  // prefixed scan through the old `listAllKeys` path, and would have reached
+  // an unprefixed one here. A search result is the note surface; the manifest
+  // is not on it, at any scope.
+  const keys = listed.keys.filter(
+    ({ key }) => key.endsWith(".md") && !isPlumbing(key) && canSee(key, scope, rules, overrides)
   );
-  const scanned = keys.slice(0, SEARCH_FILE_CAP);
+  const cap = Math.max(0, Math.min(budget ? budget.remaining : FALLBACK_SCAN_CAP, FALLBACK_SCAN_CAP));
+  const scanned = keys.slice(0, cap);
   const hits = [];
-  for (let start = 0; start < scanned.length && hits.length < 25; start += 32) {
+  // Reads the budget refused, so `scannedCount` counts notes actually read —
+  // "scanned 12 of 40" must never describe a scan that stopped at 9.
+  let refused = 0;
+  for (let start = 0; start < scanned.length && hits.length < SEARCH_RESULT_LIMIT; start += 32) {
     const batch = scanned.slice(start, start + 32);
     const matches = await mapInBatches(batch, 32, async ({ key }) => {
-      const obj = await store.get(key);
+      let obj;
+      try {
+        obj = await bounded.get(key);
+      } catch (error) {
+        if (!error?.[BUDGET_EXHAUSTED]) throw error;
+        refused += 1;
+        return null;
+      }
       if (!obj) return null;
       const text = await obj.text();
       if (!text.toLowerCase().includes(needle)) return null;
@@ -2891,38 +3013,179 @@ async function scanVisibleNotes(store, scope, rules, overrides, query, prefix) {
         .filter((line) => line.toLowerCase().includes(needle))
         .slice(0, 3)
         .map((line) => line.trim().slice(0, 200));
-      return { key, snippets };
+      return { key, title: noteTitle(key, text), snippets };
     });
     for (const match of matches) {
       if (match) hits.push(match);
-      if (hits.length >= 25) break;
+      if (hits.length >= SEARCH_RESULT_LIMIT) break;
     }
   }
-  return { hits, scannedCount: scanned.length, totalCount: keys.length };
+  return {
+    hits,
+    scannedCount: scanned.length - refused,
+    totalCount: keys.length,
+    // A total the listing did not finish measuring is a floor, like every other
+    // count in this worker — and a scan the budget cut short leaves one too.
+    totalIsFloor: listed.truncated || refused > 0,
+  };
+}
+
+/** Lines of a freshly read note that actually carry one of the matched terms. */
+function snippetLinesFor(text, matchedTerms) {
+  const wanted = new Set(matchedTerms || []);
+  if (wanted.size === 0) return [];
+  const lines = [];
+  for (const line of String(text).split("\n")) {
+    if (!line.trim()) continue;
+    if (!termsOf(line).some((term) => wanted.has(term))) continue;
+    lines.push(line.trim().slice(0, 200));
+    if (lines.length === 3) break;
+  }
+  return lines;
+}
+
+/**
+ * The one search path, shared by `search_notes` and the ChatGPT-dialect
+ * `search`. Splitting it from the formatting is what keeps the two tools
+ * incapable of disagreeing about what a query matches — the difference between
+ * them is only the shape of the answer.
+ *
+ * **The privacy line is `canSee`, applied here and to everything.** The index
+ * holds text drawn from private notes, which is fine where it lives — inside
+ * the customer's own bucket, beside those notes — and never fine in what
+ * leaves the gateway. So nothing derived from the index reaches a caller ahead
+ * of this filter: not a path, not a title, not a snippet, and not a count. The
+ * reported total is computed from the *filtered* list, because "14 matches"
+ * over a list of four visible ones is an existence oracle for the other ten —
+ * the same subtraction the console's note census is owner-only to prevent.
+ *
+ * Snippets are cut from a fresh read of a note the caller may see, never from
+ * index data. A hit whose fresh read is gone is dropped; a hit whose fresh read
+ * no longer carries the term is listed with its real title rather than a
+ * fabricated line.
+ *
+ * `prefix` narrows the results and no longer makes the call cheaper: the sync
+ * maintains one index for the whole bucket, because a per-prefix index would be
+ * a second derivative to keep honest and would make the first search in an
+ * unvisited folder as expensive as the scan this replaces. The tool description
+ * says "narrows" rather than "faster" for that reason.
+ */
+async function searchVisibleNotes(store, scope, rules, overrides, query, prefix) {
+  const budget = createSearchBudget(SEARCH_SUBREQUEST_BUDGET);
+  let synced = null;
+  try {
+    synced = await syncIndex(store, {
+      budget,
+      reserve: SEARCH_RESULT_LIMIT,
+      // The gateway's own plumbing rule, so the index cannot learn about a key
+      // no tool here can read back.
+      isIndexable: (key) => key.endsWith(".md") && !isPlumbing(key),
+    });
+  } catch {
+    synced = null;
+  }
+
+  if (synced && synced.index.docs.size > 0) {
+    const ranked = searchIndex(synced.index, query);
+    const visible = ranked.filter(
+      ({ path }) =>
+        canSee(path, scope, rules, overrides) && (!prefix || path.startsWith(prefix))
+    );
+    const hits = [];
+    for (const { path, matchedTerms } of visible.slice(0, SEARCH_RESULT_LIMIT)) {
+      if (!budget.take()) break;
+      let object;
+      try {
+        object = await store.get(path);
+      } catch {
+        break;
+      }
+      if (!object) continue;
+      const text = await object.text();
+      hits.push({
+        key: path,
+        title: noteTitle(path, text),
+        snippets: snippetLinesFor(text, matchedTerms),
+      });
+    }
+    return {
+      hits,
+      matchCount: visible.length,
+      // The floor is read off the *visible* list and never off `ranked`.
+      // "the ranked list was full" is a fact about the whole index, private
+      // notes included, so a team connection holding one visible hit would
+      // learn one bit about the fifty it cannot see. The cost is an
+      // understatement in one shape — an owner with 50+ private matches and a
+      // couple of team ones — and understating what a caller can see is the
+      // direction this is allowed to be wrong in.
+      matchCountIsFloor: visible.length >= SEARCH_INDEX_RANK_CAP,
+      indexIncomplete: synced.pending > 0 || synced.listingTruncated,
+      degraded: false,
+    };
+  }
+
+  // Recovery: whatever is left of the invocation, spent on the literal scan.
+  const scan = await scanVisibleNotes(
+    store,
+    scope,
+    rules,
+    overrides,
+    query,
+    prefix,
+    budget
+  );
+  return {
+    hits: scan.hits,
+    matchCount: scan.hits.length,
+    matchCountIsFloor: scan.totalCount > scan.scannedCount,
+    indexIncomplete: false,
+    degraded: true,
+    scannedCount: scan.scannedCount,
+    totalCount: scan.totalCount,
+    totalIsFloor: scan.totalIsFloor,
+  };
 }
 
 async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg) {
   if (!query || typeof query !== "string") return toolError("query required");
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
   if (prefixArg && prefix === null) return toolError("invalid prefix");
-  const { hits: found, scannedCount, totalCount } = await scanVisibleNotes(
-    store, scope, rules, overrides, query, prefix
-  );
-  const hits = found.map(
-    ({ key, snippets }) => `${key}\n${snippets.map((line) => `    ${line}`).join("\n")}`
+  const found = await searchVisibleNotes(store, scope, rules, overrides, query, prefix);
+  const hits = found.hits.map(({ key, snippets, title }) =>
+    snippets.length
+      ? `${key}\n${snippets.map((line) => `    ${line}`).join("\n")}`
+      : // Indexed, then edited: it matched when it was indexed and its current
+        // text does not carry the term. The title was actually read; a snippet
+        // here would be invented.
+        `${key}\n    ${title}`
   );
   // An empty search is the moment an agent decides the context is useless and
   // answers from its own head. It is almost always the wrong conclusion — the
   // note exists under a word the user would have used and this query did not —
   // so the miss says what to try instead of stopping the sentence at "no".
   let out = hits.length
-    ? hits.join("\n\n")
-    : "(no matches)\n\nThis is a literal text search, so a miss usually means the wrong word " +
-      "rather than the wrong assumption. Before concluding it is not written down: try the " +
-      "term the user would have typed, drop the prefix if you passed one, or call orient / " +
-      "list_notes to see which folders exist.";
-  if (totalCount > scannedCount) {
-    out += `\n\n[note: scanned ${scannedCount} of ${totalCount} notes — narrow with a prefix if needed]`;
+    ? `${found.matchCount}${found.matchCountIsFloor ? "+" : ""} matching note${
+        found.matchCount === 1 && !found.matchCountIsFloor ? "" : "s"
+      }${hits.length < found.matchCount ? ` — the ${hits.length} best shown` : ""}\n\n${hits.join(
+        "\n\n"
+      )}`
+    : "(no matches)\n\nA miss usually means the wrong word rather than the wrong assumption — " +
+      "this searches the words in the notes, not their meaning. Before concluding it is not " +
+      "written down: try the term the user would have typed, drop the prefix if you passed " +
+      "one, or call orient / list_notes to see which folders exist.";
+  // The floor, in the language the census and orient already use. Deliberately
+  // no number: how many notes are still unindexed is a fact about the whole
+  // bucket, private notes included, and this connection may not be able to see
+  // them.
+  if (found.indexIncomplete) {
+    out +=
+      "\n\n[note: the search index is still catching up on this context, so these results may " +
+      "be incomplete — searching again continues the backfill]";
+  }
+  if (found.degraded && found.totalCount > found.scannedCount) {
+    out += `\n\n[note: scanned ${found.scannedCount} of ${found.totalCount}${
+      found.totalIsFloor ? "+" : ""
+    } notes — narrow with a prefix if needed]`;
   }
   return toolText(out);
 }
@@ -2965,15 +3228,16 @@ function noteTitle(path, text) {
 
 async function toolOpenAiSearch(store, scope, rules, overrides, query) {
   if (!query || typeof query !== "string") return toolError("query required");
-  const { hits } = await scanVisibleNotes(store, scope, rules, overrides, query, "");
-  const results = await Promise.all(
-    hits.map(async ({ key, snippets }) => ({
-      id: key,
-      title: noteTitle(key, (await (await store.get(key))?.text()) || ""),
-      text: snippets.join(" … ").slice(0, 400),
-      url: noteUrl(key),
-    }))
-  );
+  const { hits } = await searchVisibleNotes(store, scope, rules, overrides, query, "");
+  // Titles come from the text already fetched for the snippets, so a result
+  // costs no read of its own. This used to spend a second GET per hit, which
+  // doubled the most expensive part of the old scan.
+  const results = hits.map(({ key, title, snippets }) => ({
+    id: key,
+    title,
+    text: (snippets.length ? snippets.join(" … ") : title).slice(0, 400),
+    url: noteUrl(key),
+  }));
   return toolText(JSON.stringify({ results }));
 }
 
