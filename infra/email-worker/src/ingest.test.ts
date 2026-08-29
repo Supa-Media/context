@@ -756,6 +756,36 @@ describe("stored attachments", () => {
       expect(servable, `the gateway will not serve .${extension}`).toContain(extension);
     }
   });
+
+  it("and only content types the store adapter will accept", async () => {
+    // The other end of the same journey, and the one nothing checked. The
+    // extension decides whether `read_image` can hand the bytes *back*; the
+    // content type decides whether the bucket accepts them at all —
+    // `assertWritableContentType` throws on anything outside its allow-list,
+    // and the throw would land inside `handleEmail` on a real message rather
+    // than here. Adding a type to the map below without adding it there turns
+    // one shape of attachment into a capture failure, which is exactly the
+    // direction nobody would test for.
+    //
+    // A real import where the neighbour above has to scrape, and the reason is
+    // not dependency-freeness — `import()` of the gateway's source works fine
+    // from here, and `src/index.ts` already imports its store factory in
+    // production. The difference is one word in the gateway: `export const
+    // WRITABLE_CONTENT_TYPES` is exported and `const IMAGE_MIME_TYPES` is not,
+    // so one can be read and the other must be parsed out of the text. Prefer
+    // the import wherever the gateway exports the thing; a regex over source is
+    // a last resort, not a house style.
+    const { WRITABLE_CONTENT_TYPES } = await import(
+      "../../../apps/mcp/src/store/index.js"
+    );
+    expect(WRITABLE_CONTENT_TYPES.size).toBeGreaterThan(0);
+    for (const contentType of STORABLE_IMAGE_TYPES.keys()) {
+      expect(
+        [...WRITABLE_CONTENT_TYPES],
+        `the store will not accept ${contentType}`,
+      ).toContain(contentType);
+    }
+  });
 });
 
 /**

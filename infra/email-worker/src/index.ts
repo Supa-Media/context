@@ -216,7 +216,16 @@ function log(fields: LogFields): void {
 
 interface ContextStore {
   get(key: string): Promise<{ text(): Promise<string> } | null>;
-  put(key: string, value: string | Uint8Array | ArrayBuffer): Promise<{ etag: string } | null>;
+  // `contentType` is not optional decoration: the adapter defaults it to
+  // markdown, so a `put` that omits it *asserts* the object is a note. This
+  // interface is a hand-rolled subset of the adapter's, and the last time one
+  // of those drifted is recorded directly below — it drifted again here, and a
+  // stored PNG was labelled `text/markdown` for as long as `#116` had shipped.
+  put(
+    key: string,
+    value: string | Uint8Array | ArrayBuffer,
+    options?: { contentType?: string },
+  ): Promise<{ etag: string } | null>;
 }
 
 /**
@@ -480,7 +489,15 @@ export async function handleEmail(
     // worse than bytes with no note, and this order makes the note the commit
     // point.
     for (const attachment of decision.attachments) {
-      await store.put(attachment.key, attachment.bytes);
+      // The type the parser read off the part, which reached here only because
+      // `storableImageExtension` recognised it — so it is a key of
+      // `STORABLE_IMAGE_TYPES`, every one of which the adapter's own allow-list
+      // accepts. `ParsedAttachment.contentType` is the bare `type/subtype`
+      // (parameters live in `ContentType.params`), so nothing here can hand the
+      // adapter an `image/png; charset=binary` to refuse.
+      await store.put(attachment.key, attachment.bytes, {
+        contentType: attachment.contentType,
+      });
     }
     await store.put(decision.key, decision.note);
     await recordAudit(store, now, [decision.key, ...decision.attachments.map((a) => a.key)], {

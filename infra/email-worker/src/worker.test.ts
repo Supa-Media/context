@@ -43,6 +43,7 @@ const ENV: Env = {
 /** An in-memory R2 binding, wrapped in the real adapter the Worker builds. */
 function bucketStub(overrides: { failPut?: boolean; failGet?: boolean } = {}) {
   const objects = new Map<string, string>();
+  const types = new Map<string, string>();
   return {
     objects,
     async get(key: string) {
@@ -50,9 +51,19 @@ function bucketStub(overrides: { failPut?: boolean; failGet?: boolean } = {}) {
       if (!objects.has(key)) return null;
       return { etag: "e1", text: async () => objects.get(key)! };
     },
-    async put(key: string, value: string | Uint8Array) {
+    // The content type is recorded, not ignored. R2 carries it in
+    // `httpMetadata` and the adapter always sets one, so a stub that drops the
+    // third argument cannot tell a stored PNG from a stored note — which is
+    // precisely how every emailed image came to be labelled markdown.
+    types,
+    async put(
+      key: string,
+      value: string | Uint8Array,
+      options?: { httpMetadata?: { contentType?: string } },
+    ) {
       if (overrides.failPut) throw new Error("put failed");
       objects.set(key, typeof value === "string" ? value : new TextDecoder().decode(value));
+      types.set(key, options?.httpMetadata?.contentType ?? "(none)");
       return { etag: `e${objects.size}` };
     },
     async delete(key: string) {
@@ -281,6 +292,81 @@ describe("the owner's attachment cap reaches a real message", () => {
 
     // The other half of the pair: without it, "caps everything always" passes.
     expect(noteFrom(bucket)).not.toContain("attachment_size_capped");
+  });
+});
+
+/**
+ * What the *bytes* are labelled as, once they are in somebody's bucket.
+ *
+ * `#116` widened the store adapter so an object could be something other than
+ * markdown, and the one thing in this product that writes images did not use
+ * it: `handleEmail` called `store.put(key, bytes)` with two arguments, so
+ * `assertWritableContentType(undefined)` returned markdown and every emailed
+ * image landed as `text/markdown; charset=utf-8`.
+ *
+ * It was invisible from every direction anything was looking. `ingest.test.ts`
+ * proves the decision carries the right `contentType`; nothing proved the
+ * handler then passes it on — the same "guard proved at the wrong layer" shape
+ * the block above this one was written for. `read_image` derives its own
+ * `mimeType` from the leaf's extension and never reads the stored object's, so
+ * the gateway path is unaffected and no gateway test could notice. What is
+ * wrong is the object in the customer's own bucket, which they sync to
+ * Obsidian and open in their provider's console.
+ *
+ * And the reason TypeScript did not catch it: `ContextStore` in ./index.ts is a
+ * hand-rolled two-parameter subset of the adapter's `put`. The comment directly
+ * beneath that interface records the last time a local restatement of the
+ * store's contract drifted from it ("a hand-rolled subset of the factory lived
+ * here until 2026-08-28"). It happened again, one interface up.
+ */
+describe("an emailed image is stored as an image", () => {
+  const PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const messageWithImage = () =>
+    new TextEncoder().encode(
+      [
+        `Authentication-Results: ${AUTHSERV}; dkim=pass header.d=example.com; spf=pass smtp.mailfrom=alice@example.com; dmarc=pass header.from=example.com`,
+        "From: alice@example.com",
+        "To: seyi@context.lc",
+        "Subject: A screenshot",
+        "Date: Tue, 26 Aug 2026 09:00:00 +0000",
+        "Message-ID: <img@example.com>",
+        "MIME-Version: 1.0",
+        'Content-Type: multipart/mixed; boundary="b"',
+        "",
+        "--b",
+        "Content-Type: text/plain",
+        "",
+        "see attached",
+        "--b",
+        "Content-Type: image/png",
+        'Content-Disposition: attachment; filename="shot.png"',
+        "Content-Transfer-Encoding: base64",
+        "",
+        PNG_BASE64,
+        "--b--",
+        "",
+      ].join("\r\n"),
+    );
+
+  const storeAll = { ...RESOLUTION, attachmentPolicy: "store" as const };
+
+  it("writes the image under `.images/` at all, so the rest of this is about a real object", async () => {
+    const { bucket } = await run(messageWithImage(), { stub: { resolution: storeAll } });
+    const stored = [...bucket.objects.keys()].filter((key) => key.startsWith(".images/"));
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatch(/^\.images\/[0-9a-f]{64}\.png$/);
+  });
+
+  it("labels it `image/png`, not markdown", async () => {
+    const { bucket } = await run(messageWithImage(), { stub: { resolution: storeAll } });
+    const key = [...bucket.objects.keys()].find((k) => k.startsWith(".images/"))!;
+    expect(bucket.types.get(key)).toBe("image/png");
+  });
+
+  it("and still labels the capture note markdown, so this is not a blanket change", async () => {
+    const { bucket } = await run(messageWithImage(), { stub: { resolution: storeAll } });
+    const key = [...bucket.objects.keys()].find((k) => k.endsWith(".md"))!;
+    expect(bucket.types.get(key)).toBe("text/markdown; charset=utf-8");
   });
 });
 
