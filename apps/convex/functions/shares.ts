@@ -991,7 +991,10 @@ async function readThroughShare(
  * signing in** — everyone in the Slack channel it was pasted into, everyone on
  * the email thread, and the corporate link scanner that follows it. That is the
  * price of a link people will actually click, and it is per-share revocable
- * (`titleInPreview`).
+ * (`titleInPreview`) — for *future* crawls. A card that has already
+ * been unfurled cannot be retracted: Discord and WhatsApp copy the image to
+ * their own CDNs, and iMessage bakes it into the sent message. Treat anything
+ * that reaches a card as permanently public.
  *
  * ## What holds the line
  *

@@ -384,6 +384,22 @@ Five things carry it, and each fails a test if removed:
 - **`noindex` survives.** `X-Robots-Tag` on the response and the meta tag in the
   body. A card with a title is still not search-engine material.
 
+**A published card cannot be taken back, and an earlier version of this section
+implied otherwise.** It said revoking "makes the card frozen again", which is
+true only of *future* crawls. What was verified afterwards: Discord and WhatsApp
+copy the image onto their own CDNs, so a 404 at our origin leaves their copy
+intact; iMessage bakes `LPLinkMetadata` into the sent message client-side with
+no re-fetch path and no cache to bust; Facebook states outright that "images are
+cached based on the URL and won't be updated unless the URL changes"; X caches
+for seven days.
+
+So the honest rule is: **treat anything that reaches a card as permanently
+public.** Revocation is enforced at the destination page, where it works
+immediately and completely; it is not, and cannot be, enforced on a card that
+has already been unfurled somewhere. That is a reason to keep the card's
+contents minimal — a title and nothing else — rather than a reason not to have
+one.
+
 `POST /share/preview` is therefore the one route in `http.ts` that requires no
 secret, and it is enumerated in `UNAUTHENTICATED_HTTP_ROUTES` in
 `__tests__/structure.test.ts` — which pins the list at exactly one and asserts

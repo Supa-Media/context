@@ -52,11 +52,26 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * A stand-in `ExecutionContext`.
+ *
+ * `waitUntil` runs the promise rather than discarding it, so a test can await
+ * the cache write the card path schedules; `passThroughOnException` is inert
+ * because nothing here uses it.
+ */
+const CTX = {
+  waitUntil: (promise: Promise<unknown>) => {
+    void promise;
+  },
+  passThroughOnException: () => {},
+} as unknown as ExecutionContext;
+
 function get(path: string, userAgent?: string): Promise<Response> {
   const headers = userAgent ? { "User-Agent": userAgent } : undefined;
   return worker.fetch(
     new Request(`https://context.lc${path}`, { headers }),
     ENV,
+    CTX,
   ) as Promise<Response>;
 }
 
@@ -200,6 +215,7 @@ describe("machine routes are unaffected by the crawler branch", () => {
         redirect: "manual",
       }),
       ENV,
+      CTX,
     )) as Response;
 
     expect(response.status).toBe(301);

@@ -38,6 +38,7 @@ import {
   isCrawler,
   OG_CARD_PATH,
   previewFor,
+  shareCardTokenFrom,
   shareTokenFrom,
   type PreviewMeta,
 } from "./preview";
@@ -56,6 +57,10 @@ export type RouteDecision =
   // nothing else. The caller looks the title up and MUST fall back to
   // GENERIC_PREVIEW on absence, error, or timeout — see index.ts.
   | { kind: "share-preview"; token: string }
+  // The card image for a share. Fetched by the same crawler that just asked
+  // for the preview HTML, so it sits AHEAD of the crawler check with the other
+  // machine endpoints — a crawler asking for a PNG wants the bytes.
+  | { kind: "share-card"; token: string }
   // The Worker's own OpenGraph card image, served from the bundle.
   | { kind: "og-card" }
   // `path` is the full path + query to request from the upstream. It is never
@@ -145,6 +150,14 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
 
   if (pathname === OG_CARD_PATH) {
     return { kind: "og-card" };
+  }
+
+  // Before the crawler check, like `/og/card.png` above and for the same
+  // reason: this is the image the preview tags point at, and it is requested
+  // with the same User-Agent that triggered them.
+  const cardToken = shareCardTokenFrom(pathname);
+  if (cardToken !== null) {
+    return { kind: "share-card", token: cardToken };
   }
 
   if (pathname.startsWith(IMMUTABLE_PREFIX)) {
