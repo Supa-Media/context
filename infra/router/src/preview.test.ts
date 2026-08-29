@@ -11,9 +11,12 @@ import {
   escapeHtml,
   isCrawler,
   previewFor,
+  previewForShare,
   previewFromProfile,
   renderPreviewHtml,
+  shareTokenFrom,
 } from "./preview";
+import { route } from "./route";
 
 /** Render whatever a crawler asking for `pathname` would be sent. */
 function previewHtml(pathname: string): string {
@@ -413,5 +416,113 @@ describe("the OG card asset", () => {
     // Workers cap the script at 3 MB. The card is the only large thing in it,
     // so keeping it well under 200 KB leaves the budget for code.
     expect(ogCard.byteLength).toBeLessThan(200 * 1024);
+  });
+});
+
+describe("share links: the one card that may say something", () => {
+  // The exception to the rule the block above tests, and the tests here are
+  // what keep it an exception rather than a hole. Read `previewForShare` in
+  // preview.ts before changing any of them.
+
+  it("only a well-formed token is a share link", () => {
+    const token = "a".repeat(64);
+    expect(shareTokenFrom(`/s/${token}`)).toBe(token);
+    expect(shareTokenFrom(`/s/${token}/`)).toBe(token);
+  });
+
+  it.each([
+    ["/s/", "no token at all"],
+    ["/s/short", "too short"],
+    ["/s/" + "a".repeat(63), "one character short"],
+    ["/s/" + "a".repeat(65), "one character long"],
+    ["/s/" + "A".repeat(64), "uppercase — not what randomOpaqueToken emits"],
+    ["/s/" + "g".repeat(64), "not hex"],
+    ["/s/" + "a".repeat(64) + "/extra", "a second segment"],
+    ["/s/../../etc/passwd", "traversal"],
+    ["/share/" + "a".repeat(64), "the frozen prefix, which stays frozen"],
+    ["/@alice", "a name-bearing path"],
+  ])("%s is not a share link (%s)", (pathname) => {
+    expect(shareTokenFrom(pathname)).toBeNull();
+  });
+
+  /**
+   * The shape check is what stops `/s/<garbage>` from reaching the control
+   * plane at all — so the obvious probe (hammer the prefix and time the
+   * answers) never gets a lookup to time.
+   */
+  it("a malformed token never becomes a lookup", () => {
+    const decision = route(new URL("https://context.lc/s/nope"), "Slackbot");
+    expect(decision.kind).toBe("preview");
+  });
+
+  it("a well-formed token routes to the lookup branch", () => {
+    const token = "b".repeat(64);
+    const decision = route(new URL(`https://context.lc/s/${token}`), "Slackbot");
+    expect(decision).toEqual({ kind: "share-preview", token });
+  });
+
+  it("a human gets the app, not a card", () => {
+    const token = "b".repeat(64);
+    const decision = route(
+      new URL(`https://context.lc/s/${token}`),
+      "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
+    );
+    expect(decision.kind).toBe("proxy");
+  });
+
+  it("a title reaches the card", () => {
+    const meta = previewForShare("Chapter transition");
+    expect(meta.title).toBe("Chapter transition — Context");
+  });
+
+  /**
+   * THE test for this feature. Every way a lookup can come back empty —
+   * unknown token, revoked, expired, title switched off, upstream down,
+   * timeout, malformed JSON — arrives here as a falsy title, and every one of
+   * them must render the frozen card byte for byte. That is what makes
+   * revocation invisible: a crawler cannot tell a share that was taken back
+   * from one that never existed.
+   */
+  it.each([[null], [undefined], [""], ["   "]])(
+    "an empty title (%p) is the frozen card, byte for byte",
+    (title) => {
+      expect(renderPreviewHtml(previewForShare(title))).toBe(
+        renderPreviewHtml(GENERIC_PREVIEW),
+      );
+    },
+  );
+
+  it("a share card still refuses everything the frozen one refuses", () => {
+    const html = renderPreviewHtml(previewForShare("Chapter transition"));
+
+    // The canonical URL is the site root, never the requested share path.
+    expect(html).toContain('<link rel="canonical" href="https://context.lc/">');
+    expect(meta(html, "property", "og:url")).toEqual(["https://context.lc/"]);
+    // Still out of search results.
+    expect(meta(html, "name", "robots")).toEqual(["noindex, nofollow"]);
+    // Still the product's own card image.
+    expect(meta(html, "property", "og:image")).toEqual([
+      "https://context.lc/og/card.png",
+    ]);
+    // And nothing beyond the title: no owner, no path, no context name.
+    expect(html).not.toContain("1-projects");
+    expect(html).not.toContain("@");
+  });
+
+  it("a hostile title cannot break out of the markup", () => {
+    const html = renderPreviewHtml(
+      previewForShare('</title><script>alert(1)</script><meta x="'),
+    );
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  /**
+   * Bounded at the edge as well as in the control plane. An edge that trusts
+   * its upstream to have been careful is an edge with no bound at all.
+   */
+  it("a very long title is truncated here too", () => {
+    const meta = previewForShare("x".repeat(500));
+    expect(meta.title.length).toBeLessThanOrEqual(60 + " — Context".length);
   });
 });

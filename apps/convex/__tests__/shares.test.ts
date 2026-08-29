@@ -152,6 +152,10 @@ describe("creating a share", () => {
         // nothing about the recipient is what the format assertion below says.
         token: null,
         entryPath: null,
+        // Derived from `entryPath`, which is already excluded — and the two
+        // shares deliberately point at different notes. That it depends on the
+        // path and on nothing about the recipient is asserted below.
+        previewTitle: null,
         recipient: null,
         createdAt: null,
       });
@@ -161,6 +165,21 @@ describe("creating a share", () => {
     for (const row of listed) {
       expect(row.token).toMatch(/^[0-9a-f]{64}$/);
     }
+
+    // The preview title is a function of the path alone. Sharing the *same*
+    // note with a real person and with a stranger must title both identically,
+    // or the card would be the oracle the response body is not.
+    await share(t, ownerId, workspaceId, "@someone-else");
+    const bothOnEntry = await asUser(t, ownerId).query(
+      api.functions.shares.listShares,
+      { workspaceId },
+    );
+    const titles = bothOnEntry
+      .filter((row) => row.entryPath === NOTE)
+      .map((row) => row.previewTitle);
+    expect(titles).toHaveLength(2);
+    expect(new Set(titles).size).toBe(1);
+    expect(titles[0]).toBe("Overview");
   });
 
   test("a malformed recipient is refused, and the refusal is about the string", async () => {

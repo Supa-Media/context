@@ -85,7 +85,7 @@
 
 import { httpRouter } from "convex/server";
 import { auth } from "./auth";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
 import { hashToken, TOKEN_HASH_PATTERN } from "./functions/lib/crypto";
@@ -701,6 +701,47 @@ export const gatewayIngestRecord = emailWorkerRoute(async (ctx, body) => {
   });
   return json({ ok: true });
 });
+
+/* -------------------------------------------------------------------------- */
+/* The share link preview — the one route here with no secret at all           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `POST /share/preview` — the title a share link unfurls with.
+ *
+ * **Unauthenticated on purpose**, and the only route on this deployment that
+ * is. It is enumerated in `UNAUTHENTICATED_HTTP_ROUTES` in
+ * `__tests__/structure.test.ts`, which pins the exemption to exactly one route
+ * and asserts this handler returns nothing but the title.
+ *
+ * The caller is `infra/router`, answering a crawler that has no session and
+ * never will. A shared secret would be a fourth credential to rotate for a
+ * value the request already carries: the caller presents a share token, 32
+ * bytes from `crypto.getRandomValues` that only the owner and the person they
+ * sent it to have ever seen, and the router refuses to forward anything that is
+ * not shaped like one. See `functions/shares.ts:previewTitleForToken` for the
+ * whole argument, including what it costs.
+ *
+ * POST rather than GET, like every route below it: a GET would put the share
+ * token in a URL, and from there into an access log, a referrer header, and
+ * browser history. The token is the capability.
+ *
+ * Always 200, always `{ "title": string | null }`. A malformed body is `null`
+ * rather than a 400, because a crawler cannot act on a 400 and a status code
+ * that varied would be one more thing to read.
+ */
+export const sharePreview = httpAction(async (ctx, request) => {
+  const body = await readJsonBody(request);
+  const token = body === null ? null : stringField(body, "token");
+  if (token === null) return json({ title: null });
+
+  const result = await ctx.runQuery(api.functions.shares.previewTitleForToken, {
+    token,
+  });
+  return json({ title: result.title });
+});
+
+http.route({ path: "/share/preview", method: "POST", handler: sharePreview });
 
 /* -------------------------------------------------------------------------- */
 

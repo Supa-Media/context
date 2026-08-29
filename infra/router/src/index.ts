@@ -8,7 +8,7 @@
  * resolves an upstream to a real origin, validates that configuration, and
  * turns a decision into an actual Response.
  */
-import { renderPreviewHtml } from "./preview";
+import { previewForShare, renderPreviewHtml } from "./preview";
 import { route, type Upstream } from "./route";
 // Bundled as bytes by the `Data` rule in wrangler.jsonc, so the OpenGraph card
 // ships with the Worker. Deliberately not an Expo bundle asset: the one thing
@@ -87,6 +87,30 @@ export default {
           },
         });
 
+      case "share-preview": {
+        // A share link's card may carry the note's title — the one deliberate
+        // exception to the frozen-card rule, argued in preview.ts. Everything
+        // about this branch is built so that failing produces the frozen card
+        // rather than an error or a partial one.
+        const meta = previewForShare(
+          await shareTitle(decision.token, readOrigin(env.CONVEX_ORIGIN)),
+        );
+        return new Response(renderPreviewHtml(meta), {
+          status: 200,
+          headers: {
+            "Content-Type": "text/html; charset=utf-8",
+            "Cache-Control": "no-store",
+            Vary: "User-Agent",
+            // A share's card must never be indexed, whatever the tags say.
+            // The header is what a crawler obeys when it has not parsed the
+            // body yet, and it is the half that survives a template change.
+            "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+          },
+        });
+      }
+
       case "og-card":
         return new Response(ogCard, {
           status: 200,
@@ -147,3 +171,57 @@ export default {
     }
   },
 };
+
+/**
+ * How long the control plane gets to answer before the card falls back.
+ *
+ * An unfurler waits a second or two and then shows nothing, so a slow lookup is
+ * not worth having: a frozen card beats no card, and no card is what a timeout
+ * upstream of us produces.
+ */
+const SHARE_TITLE_TIMEOUT_MS = 1_500;
+
+/**
+ * The title for a share token, or `null`.
+ *
+ * `null` on every failure, and the list of failures is deliberately everything:
+ * no CONVEX_ORIGIN, a non-200, a body that is not JSON, a `title` that is not a
+ * string, a timeout, a thrown fetch. `previewForShare(null)` is GENERIC_PREVIEW
+ * byte for byte, so all of them land on the frozen card — which is the same
+ * answer a revoked share gets, and that is what keeps revocation invisible to
+ * a crawler.
+ *
+ * The obligation `preview.ts` wrote down for whoever wired an upstream in here
+ * was "a negative response byte-identical to a positive one's absence". This is
+ * that: there is one `null` and one card, and no branch that reports *why*.
+ *
+ * POST, because a GET would put the share token in this Worker's outbound URL
+ * and from there into logs — the control plane's routes are POST for the same
+ * reason.
+ */
+async function shareTitle(
+  token: string,
+  convexOrigin: string | null,
+): Promise<string | null> {
+  if (!convexOrigin) return null;
+
+  const timeout =
+    typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+      ? AbortSignal.timeout(SHARE_TITLE_TIMEOUT_MS)
+      : undefined;
+
+  try {
+    const response = await fetch(`${convexOrigin}/share/preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+      ...(timeout ? { signal: timeout } : {}),
+    });
+    if (!response.ok) return null;
+    const body: unknown = await response.json();
+    const title = (body as { title?: unknown } | null)?.title;
+    return typeof title === "string" && title.trim() !== "" ? title : null;
+  } catch {
+    return null;
+  }
+}

@@ -38,6 +38,7 @@ import {
   isCrawler,
   OG_CARD_PATH,
   previewFor,
+  shareTokenFrom,
   type PreviewMeta,
 } from "./preview";
 
@@ -50,6 +51,11 @@ export type RouteDecision =
   // is always one of the frozen constants in preview.ts — never anything
   // derived from the request. See that file for why.
   | { kind: "preview"; meta: PreviewMeta }
+  // A crawler asking for a share link. The token is shape-checked
+  // (`shareTokenFrom`) before it gets here, so it is 64 hex characters and
+  // nothing else. The caller looks the title up and MUST fall back to
+  // GENERIC_PREVIEW on absence, error, or timeout — see index.ts.
+  | { kind: "share-preview"; token: string }
   // The Worker's own OpenGraph card image, served from the bundle.
   | { kind: "og-card" }
   // `path` is the full path + query to request from the upstream. It is never
@@ -151,6 +157,15 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
   // up in a static table — it never consults an upstream, so nothing about the
   // requested name reaches the response. See preview.ts.
   if (isCrawler(userAgent)) {
+    // The one path whose card is not decided here. A share token is
+    // unguessable and was handed out deliberately, so its link may carry the
+    // note's title — see `previewForShare`. Everything else, including every
+    // name-bearing path, still resolves against the static table and cannot
+    // reach an upstream.
+    const shareToken = shareTokenFrom(pathname);
+    if (shareToken !== null) {
+      return { kind: "share-preview", token: shareToken };
+    }
     return { kind: "preview", meta: previewFor(pathname) };
   }
 

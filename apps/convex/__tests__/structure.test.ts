@@ -414,6 +414,33 @@ const ROUTE_FACTORIES: Record<string, string> = {
 };
 
 /**
+ * THE ROUTES THAT REQUIRE NO SECRET AT ALL.
+ *
+ * There is one, and the enumeration is the point: a route that checks nothing
+ * has to be named here, in this file, in a diff a reviewer reads — never
+ * something a handler quietly is.
+ *
+ * `sharePreview` answers a **link-preview crawler**, which has no session and
+ * never will, and it is reached only through `infra/router`. A shared secret
+ * would be a fourth credential to rotate for a value the request already
+ * carries: the caller presents a share token, 32 bytes from
+ * `crypto.getRandomValues` that only the owner and the person they sent it to
+ * have seen. `infra/router/src/preview.ts` refuses to forward anything that is
+ * not shaped like one, so garbage never reaches this deployment.
+ *
+ * What makes it safe is not the absence of a secret — it is what the route can
+ * say. `previewTitleForToken` returns one field, `title`, and returns `null`
+ * for an unknown token, a revoked share, an expired one, and one whose owner
+ * turned the title off, so a crawler cannot tell any of them apart. The title
+ * itself is owner-chosen or derived from the note's filename and is **never
+ * read from the note**, so an unfurl costs the customer's bucket nothing.
+ *
+ * The tests in `sharePreview.test.ts` are what hold that; the entry here is
+ * what stops a second one being added without the same argument.
+ */
+const UNAUTHENTICATED_HTTP_ROUTES = new Set(["sharePreview"]);
+
+/**
  * Build the graph and return every way a public function can reach a decrypt.
  *
  * Pure over its input so the same analyzer can be pointed at the real codebase
@@ -1511,10 +1538,36 @@ describe("the gateway's HTTP routes", () => {
     const declarations = [...source.matchAll(/^export const (\w+)\s*=\s*(\w+)\(/gm)];
     expect(declarations.length, "no routes found in http.ts").toBeGreaterThan(0);
     for (const [, name, factory] of declarations) {
+      if (UNAUTHENTICATED_HTTP_ROUTES.has(name)) continue;
       expect(
         Object.keys(ROUTE_FACTORIES),
         `http.ts#${name} is built by ${factory}, which is not one of the enumerated route factories — so nothing forces it to require a secret`,
       ).toContain(factory);
+    }
+  });
+
+  /**
+   * The exemption is a pin, not an amnesty.
+   *
+   * An enumeration nobody checks the size of is a list that grows. This fails
+   * if a second unauthenticated route appears, which forces the conversation
+   * that entry #1 already had — the same discipline `CREDENTIAL_BARRIERS`
+   * follows one section above.
+   */
+  test("there is exactly one route that requires no secret, and it is the share preview", () => {
+    expect([...UNAUTHENTICATED_HTTP_ROUTES]).toEqual(["sharePreview"]);
+
+    const source = httpModule().source;
+    const start = source.indexOf("export const sharePreview");
+    expect(start, "sharePreview is enumerated but not defined").toBeGreaterThan(-1);
+    const body = source.slice(start, source.indexOf("\n});", start));
+
+    // It may return the title and nothing else. A route with no secret in
+    // front of it is one field wide, or it is a different route.
+    expect(body).toContain("previewTitleForToken");
+    expect(body).toMatch(/json\(\{\s*title:/);
+    for (const forbidden of ["workspaceId", "slug", "entryPath", "recipient", "createdBy"]) {
+      expect(body, `sharePreview must not return ${forbidden}`).not.toContain(forbidden);
     }
   });
 

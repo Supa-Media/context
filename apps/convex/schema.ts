@@ -327,6 +327,20 @@ const schema = defineSchema({
      */
     titleInPreview: v.boolean(),
     /**
+     * The title the link unfurls with, or absent for none.
+     *
+     * Owner-chosen, defaulted from the note's filename, and **never read from
+     * the note's contents** — see `lib/shareTitle.ts`. A title taken from the
+     * body would mean an anonymous crawler triggering a GET against the
+     * customer's own bucket on every unfurl, and would put note content in the
+     * control plane, which non-negotiable #1 forbids. A path is metadata; this
+     * is derived from one.
+     *
+     * Bounded at `MAX_PREVIEW_TITLE` on the way in, so the size of a response
+     * served to unauthenticated readers cannot vary with something typed.
+     */
+    previewTitle: v.optional(v.string()),
+    /**
      * Absent means no expiry, and that is the default.
      *
      * Deliberately unlike an invitation, which is a one-time offer that should

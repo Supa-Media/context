@@ -339,6 +339,57 @@ A "nicer" preview showing an owner or a note count would hand anyone in a Slack
 channel an existence oracle for usernames, undoing what the control plane's
 byte-identical errors exist for.
 
+### A share link's preview may carry a title; nothing else's may
+
+`Link previews reveal nothing about a context`, above, is unchanged for every
+path it was written about, and its nine-variant byte-equality test still passes.
+This is a second rule beside it, not a hole in it, and the difference is one
+word: **guessable**.
+
+`/@seyi` is guessable, so a nicer card there is an existence oracle for
+usernames — which is what the control plane's byte-identical errors exist to
+deny. A share link is `/s/<64 hex>`: 32 bytes from `crypto.getRandomValues` the
+owner deliberately handed to one person. The premise the frozen card protects —
+"the requester may not have been meant to have this URL" — does not hold, and
+the product need it was blocking is real. A link that unfurls as bare branding
+does not get clicked, and a share nobody opens is a share that did not happen.
+
+The cost is real too, was accepted deliberately by the owner, and should not be
+rediscovered as a bug: **anyone holding the URL learns the title without signing
+in** — everyone in the channel it was pasted into, everyone on the forwarded
+thread, the corporate link scanner. Content still needs authentication and a
+live grant.
+
+Five things carry it, and each fails a test if removed:
+
+- **The title is never read from the note.** It is owner-chosen or derived from
+  the filename (`functions/lib/shareTitle.ts`). A title taken from the body
+  would mean an anonymous crawler triggering a GET against the *customer's*
+  bucket on every unfurl, and would put note content in the control plane, which
+  non-negotiable #1 forbids. A path is metadata; this is derived from one.
+  `sharePreview.test.ts` proves a preview resolves with no storage connected at
+  all, so this cannot regress quietly.
+- **Every absence is one absence.** Unknown token, revoked, expired, title
+  switched off, title that normalised to nothing — all `{ title: null }`, and
+  `previewForShare(null)` renders GENERIC_PREVIEW byte for byte. That is what
+  keeps revocation invisible: a crawler cannot tell a share that was taken back
+  from one that never existed.
+- **The shape is checked at the edge, before any lookup.** `shareTokenFrom`
+  accepts 64 lowercase hex characters and nothing else, so `/s/<garbage>` never
+  reaches the control plane and the obvious probe never gets a round trip to
+  time.
+- **One field, bounded twice.** The route returns `title` alone; the bound is
+  applied in the control plane *and* again in the router, because an edge that
+  trusts its upstream to have been careful has no bound at all.
+- **`noindex` survives.** `X-Robots-Tag` on the response and the meta tag in the
+  body. A card with a title is still not search-engine material.
+
+`POST /share/preview` is therefore the one route in `http.ts` that requires no
+secret, and it is enumerated in `UNAUTHENTICATED_HTTP_ROUTES` in
+`__tests__/structure.test.ts` — which pins the list at exactly one and asserts
+the handler returns nothing but the title. A second entry there needs the whole
+argument above made again, on its own terms.
+
 ### Two MCP eras, two lists, and they must never be merged
 
 `2026-07-28` is not an increment on `2025-11-25`. It deletes the `initialize`

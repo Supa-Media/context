@@ -41,6 +41,7 @@ import type * as functions_lib_noteLinks from "../functions/lib/noteLinks.js";
 import type * as functions_lib_noteCount from "../functions/lib/noteCount.js";
 import type * as functions_lib_privacy from "../functions/lib/privacy.js";
 import type * as functions_lib_rateLimit from "../functions/lib/rateLimit.js";
+import type * as functions_lib_shareTitle from "../functions/lib/shareTitle.js";
 import type * as functions_lib_scaffold from "../functions/lib/scaffold.js";
 import type * as functions_lib_verification from "../functions/lib/verification.js";
 import type * as functions_lib_workspaceAuth from "../functions/lib/workspaceAuth.js";
@@ -91,6 +92,7 @@ declare const fullApi: ApiFromModules<{
   "functions/lib/noteCount": typeof functions_lib_noteCount;
   "functions/lib/privacy": typeof functions_lib_privacy;
   "functions/lib/rateLimit": typeof functions_lib_rateLimit;
+  "functions/lib/shareTitle": typeof functions_lib_shareTitle;
   "functions/lib/scaffold": typeof functions_lib_scaffold;
   "functions/lib/verification": typeof functions_lib_verification;
   "functions/lib/workspaceAuth": typeof functions_lib_workspaceAuth;
