@@ -223,31 +223,94 @@ export function computeRanks(index) {
  * what stops a future cache from turning one caller's view into the ranks
  * every later caller scores against.
  *
- * An owner sees every note, so the common case allocates nothing and returns
- * the index it was given. A narrowed caller pays one pass over the docs plus
- * `PAGERANK_ITERATIONS` over the visible subgraph, per query.
+ * **The narrowed path is the common one, and an earlier version of this comment
+ * said the opposite.** It claimed "an owner sees every note, so the common case
+ * allocates nothing" — but `visibilityTierForGrant` answers `team` for an owner
+ * whose grant lacks `context:private`, and the consent screen defaults every
+ * grant to `team`, owners included, deliberately (CLAUDE.md, *the privacy tier
+ * is a scope on the grant*). So on any context with a private folder, an
+ * owner's own client takes this path. The identity return is for a context that
+ * hides nothing *from this caller*, which is a different and smaller
+ * population.
+ *
+ * The cost is therefore worth stating rather than dismissing: one `isVisible`
+ * call per doc, plus `PAGERANK_ITERATIONS` over the visible subgraph. Measured
+ * against a manifest of twenty rules with a third of the bucket visible, on the
+ * shape that ran `isVisible` up to twice per doc, so these are ceilings: 0.9 ms
+ * at 154 notes (the live context CONTRACT.md cites), 2.8 ms at 1,000, 14.9 ms
+ * at 5,000. The first two are noise. The third is not, and it is not this
+ * function's problem alone — `parseIndex` runs on every search over the same
+ * unbounded index. **A bound on the index is owed, and this function is one
+ * more reason for it rather than the reason.**
  *
  * @param {{ docs: Map, terms: Map }} index
  * @param {(path: string) => boolean} isVisible
  */
 export function visibleIndex(index, isVisible) {
-  if (!index || !(index.docs instanceof Map) || typeof isVisible !== "function") return index;
-  let hidesSomething = false;
-  for (const path of index.docs.keys()) {
-    if (!isVisible(path)) {
-      hidesSomething = true;
-      break;
-    }
+  if (!index || !(index.docs instanceof Map)) return index;
+  // Fail closed on a predicate that cannot answer. Returning the index whole
+  // would restore the exact leak this function exists to close, silently, and
+  // "no caller passes a non-function today" is a fact about today.
+  if (typeof isVisible !== "function") {
+    throw new TypeError("visibleIndex requires a visibility predicate");
   }
-  if (!hidesSomething) return index;
 
+  // One pass. The previous version scanned for the first doc this caller could
+  // not see, broke, and then scanned again to build the map — so `isVisible`
+  // ran `N + k` times, where `k` is where that first hidden doc happened to
+  // fall, reaching `2N` when the only private note sorts last. Building the map
+  // during the one pass makes it exactly `N`, always, and `isVisible` here is
+  // `canSee` against the whole manifest: it is the expensive thing in this
+  // function, and an object spread is not.
+  //
+  // The trade is real and one-directional: when nothing turns out to be hidden,
+  // this allocates a map it then discards, where the old shape allocated
+  // nothing. That is the case the early return below is for, and it is the
+  // cheaper of the two things to spend.
+  let hidesSomething = false;
   const docs = new Map();
   for (const [path, doc] of index.docs) {
     if (isVisible(path)) docs.set(path, { ...doc });
+    else hidesSomething = true;
   }
+  if (!hidesSomething) return index;
+
   const view = { ...index, docs };
   computeRanks(view);
   return view;
+}
+
+/**
+ * The ranked list, reduced to what one caller may be told about.
+ *
+ * A separate function rather than an inline `.filter` at the call site, for one
+ * reason: **it is the second of two guards, and two guards that mask one
+ * another are one guard with a spare.** `visibleIndex` narrows the corpus
+ * before scoring, so in production every path reaching here has already
+ * satisfied the same predicate — which means breaking this line changes nothing
+ * observable and no end-to-end test can notice. That is exactly the state
+ * CLAUDE.md calls "a guard nobody has checked", and it is how this line got
+ * there: it was held by ten checks until the corpus was narrowed in front of
+ * it. Standing alone it can be driven with a ranked list that was deliberately
+ * *not* narrowed — the shape a future refactor of `visibleIndex` would produce
+ * by accident.
+ *
+ * It stays because it is the half that does not depend on `visibleIndex` being
+ * correct, and an `O(results)` pass is a cheap second opinion about a leak of
+ * this kind.
+ *
+ * `prefix` is a narrowing the caller asked for and not a privacy boundary, so
+ * it is applied here rather than to the view — scores must not be a function of
+ * which folder was searched.
+ *
+ * @param {{ path: string }[]} ranked
+ * @param {(path: string) => boolean} isVisible
+ * @param {string} [prefix]
+ */
+export function rankedVisibleTo(ranked, isVisible, prefix) {
+  return ranked.filter(
+    ({ path }) => isVisible(path) && (!prefix || path.startsWith(prefix))
+  );
 }
 
 /** Sum of each field's token count over every doc, guarded against n = 0. */

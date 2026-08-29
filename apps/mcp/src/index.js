@@ -67,7 +67,7 @@ import {
 } from "./session.js";
 import { enforceOrigin, isTransportPath } from "./origin.js";
 import { createSearchBudget, syncIndex } from "./search/maintain.js";
-import { searchIndex, visibleIndex } from "./search/query.js";
+import { rankedVisibleTo, searchIndex, visibleIndex } from "./search/query.js";
 import { termsOf } from "./search/text.js";
 import {
   ERROR_HEADER_MISMATCH,
@@ -3273,21 +3273,14 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
 
   if (synced && synced.index.docs.size > 0) {
     // Scored against this caller's own view of the index, never the whole one.
-    // The filter below is what keeps index data out of the response; this is
+    // `rankedVisibleTo` is what keeps index data out of the response; this is
     // what keeps the corpus *statistics* — every term's df, N, avglen and each
     // doc's PageRank — from being a function of notes the caller cannot read.
     // Without it, whether a query term expanded at all was one bit about the
-    // private half of the bucket, readable off the caller's own hits. Both
-    // remain: a view that filtered but was ranked and then not filtered again
-    // would be one guard where the response needs two.
-    const ranked = searchIndex(
-      visibleIndex(synced.index, (path) => canSee(path, scope, rules, overrides)),
-      query
-    );
-    const visible = ranked.filter(
-      ({ path }) =>
-        canSee(path, scope, rules, overrides) && (!prefix || path.startsWith(prefix))
-    );
+    // private half of the bucket, readable off the caller's own hits.
+    const isVisible = (path) => canSee(path, scope, rules, overrides);
+    const ranked = searchIndex(visibleIndex(synced.index, isVisible), query);
+    const visible = rankedVisibleTo(ranked, isVisible, prefix);
     const hits = [];
     for (const { path, matchedTerms } of visible.slice(0, SEARCH_RESULT_LIMIT)) {
       if (!budget.take()) break;

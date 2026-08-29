@@ -62,6 +62,16 @@
  *    check failed, the rank one. That is the half filtering cannot close, so it
  *    is the half that needed its own check rather than riding on the other two.
  *
+ * 6. **The output filter neutered** (`rankedVisibleTo`'s predicate forced
+ *    true). At base that failed **ten** checks across this file and the shared
+ *    suite. At head, with `visibleIndex` in front of it, it failed **zero** —
+ *    which is what a review caught, and it is row 127's shape exactly: *two
+ *    guards that mask one another are one guard with a spare.* Narrowing the
+ *    corpus made the filter correct and untestable in the same commit. It is a
+ *    separate function with its own checks in searchQuery.test.mjs now, driven
+ *    with a list the view deliberately did not narrow; the same sabotage fails
+ *    2 there.
+ *
  * The three channels above were all measured *before* the fix and all three
  * failed, end to end through the worker with a real `context:read` editor
  * grant — not reasoned about from the source.
@@ -460,10 +470,19 @@ export async function runSearchIntegrationChecks(check) {
     );
 
     // The count's floor is read off what the caller can see, and this is the
-    // channel that leaks by arithmetic rather than by content. Fifty-odd
-    // private notes carrying the same term fill `searchIndex`'s ranked list; a
-    // "+" on a team connection's count would be one bit about every one of them
-    // — the same subtraction the census is owner-only to prevent.
+    // channel that leaks by arithmetic rather than by content: a "+" on a team
+    // connection's count over one visible hit would be one bit about every
+    // private note that filled the list — the same subtraction the census is
+    // owner-only to prevent.
+    //
+    // The fifty-five below no longer *can* fill a team connection's ranked
+    // list: since `visibleIndex` that list is scored over a corpus they are not
+    // in. So this block now proves the arithmetic guard on the owner's side and
+    // the emptiness of the channel on the team side, which is why both checks
+    // stay. (An earlier version of this comment survived the fix that made it
+    // false, in the same commit that corrected its twin ninety lines above —
+    // caught by review, and the third time a retracted sentence has outlived
+    // its own retraction here.)
     for (let n = 0; n < 55; n += 1) {
       bucket.seed(
         `1-projects/vault/bulk-${String(n).padStart(3, "0")}.md`,

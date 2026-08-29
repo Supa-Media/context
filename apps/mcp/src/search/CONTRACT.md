@@ -129,7 +129,13 @@ constants are pinned; the corpus they are computed against is per-caller.**
 - `visibleIndex(index, isVisible) → index'`, the docs `isVisible` accepts, with
   `rank` recomputed over their subgraph and `terms` shared unchanged
   (`searchIndex` already drops postings whose doc is absent). Returns `index`
-  itself when nothing is hidden.
+  itself when nothing is hidden, and throws on a predicate it cannot call —
+  returning the index whole would silently restore the leak.
+- `rankedVisibleTo(ranked, isVisible, prefix) → ranked'`, the same predicate
+  applied to the output. Redundant with `visibleIndex` by construction and kept
+  anyway: it is the half that does not depend on `visibleIndex` being correct.
+  Being redundant, it is also unreachable by any end-to-end test, so it is a
+  separate function with its own checks rather than an inline filter.
 
 ## Maintenance (maintain.js) — the sync loop
 
