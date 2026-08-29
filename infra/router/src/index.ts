@@ -114,7 +114,7 @@ export default {
       }
 
       case "share-card":
-        return await shareCardResponse(decision.token, env, ctx);
+        return await shareCardResponse(request.url, decision.token, env, ctx);
 
       case "og-card":
         return new Response(ogCard, {
@@ -244,6 +244,12 @@ async function shareTitle(
 const CARD_CACHE_SECONDS = 3600;
 
 /**
+ * The longest title this edge will draw, matching `MAX_PREVIEW_TITLE` in the
+ * control plane. A second copy on purpose — see where it is used.
+ */
+const MAX_CARD_TITLE = 60;
+
+/**
  * The card image for one share.
  *
  * Every failure lands on the static product card with a 200. That is the whole
@@ -264,28 +270,86 @@ const CARD_CACHE_SECONDS = 3600;
  * which is a phishing asset rather than a feature.
  */
 async function shareCardResponse(
+  url: string,
   token: string,
   env: Env,
   ctx: ExecutionContext,
 ): Promise<Response> {
-  const cache = caches.default;
-  // Keyed on the full URL, so the `?v=` hash separates one title's card from
-  // the next without either of them needing to be purged.
-  const cacheKey = new Request(`https://context.lc/og/s/${token}.png`);
+  const cache = cacheOrNull();
+  // **Rebuilt from the token and a validated `v`, never from the URL as sent.**
+  //
+  // It used to be synthesised from the token alone, which made the `?v=` hash
+  // `preview.ts` computes buy nothing: every version of a title collapsed into
+  // one entry, so an owner retitling a share got the old card for the whole
+  // TTL. The Workers Cache API is per-datacenter and `cache.delete` purges only
+  // the colo the Worker ran in, so a changed title being a different key is the
+  // only invalidation there is.
+  //
+  // Keying on `request.url` directly would fix that and hand the key to the
+  // caller. This is an unauthenticated path: `?v=x&x=1`, a reordered query, a
+  // different case, a four-thousand-character value and a fragment are six
+  // distinct entries for one card, each miss an upstream POST and — for anyone
+  // holding a real token — a fresh wasm render. Reconstructing the key keeps
+  // the canonical shape the old code had *and* the invalidation it lacked.
+  //
+  // A malformed `v` is dropped rather than refused, because it is a cache hint
+  // and not a request: an unfurler that mangles the query should still get a
+  // card. And the query stays a **key**, never an input — the title is
+  // re-resolved from the token on every render, so nothing here reaches what
+  // is drawn.
+  const version = new URL(url).searchParams.get("v");
+  const suffix = version !== null && /^[0-9a-f]{8}$/.test(version) ? `?v=${version}` : "";
+  const cacheKey = new Request(`https://context.lc/og/s/${token}.png${suffix}`);
 
-  const cached = await cache.match(cacheKey);
-  if (cached) return cached;
+  // The cache is best-effort, and saying so in the doc above was not enough:
+  // `caches.default` and `cache.match` sat outside every `try`, so a colo whose
+  // cache was unavailable produced the 5xx — a crawler showing **no card at
+  // all** — that this whole function exists to avoid. A `put` that rejects was
+  // already contained, because the response has been returned by then.
+  try {
+    // `?.` here is the type talking, not a guard: with `cache` null the `try`
+    // below catches just as it does a colo fault, so replacing it with `!`
+    // changes no behaviour and fails no test. The `try` is what makes both
+    // safe. Said in place rather than left to look load-bearing.
+    const cached = await cache?.match(cacheKey);
+    if (cached) return cached;
+  } catch {
+    // Fall through and render. A cache we cannot read is a slow request, not a
+    // failed one.
+  }
 
   const response = await renderedCard(token, env);
-  if (response.ok) ctx.waitUntil(cache.put(cacheKey, response.clone()));
+  if (response.ok && cache !== null) ctx.waitUntil(cache.put(cacheKey, response.clone()));
   return response;
+}
+
+/**
+ * The colo's cache, or nothing.
+ *
+ * `caches` is a global the runtime supplies and a test environment does not, so
+ * reading `caches.default` unguarded threw a `ReferenceError` out of `fetch`
+ * before any of this handler ran — which is both a 5xx in a runtime that lacks
+ * it and the mechanical reason this handler had no end-to-end test until now.
+ */
+function cacheOrNull(): Cache | null {
+  try {
+    return caches.default;
+  } catch {
+    return null;
+  }
 }
 
 async function renderedCard(token: string, env: Env): Promise<Response> {
   try {
     const title = await shareTitle(token, readOrigin(env.CONVEX_ORIGIN));
     if (title !== null) {
-      const rendered = await renderShareCard(title);
+      // Bounded here as well as upstream. `previewForShare` already trims to
+      // `MAX_PREVIEW_TITLE`, and `CLAUDE.md` says why that is not enough: "one
+      // field, bounded twice … an edge that trusts its upstream to have been
+      // careful has no bound at all". It matters more here than on the tag,
+      // because this edge spends wasm CPU proportional to what it is handed,
+      // on a path anybody can reach without signing in.
+      const rendered = await renderShareCard(title.slice(0, MAX_CARD_TITLE));
       // `null` means a glyph we cannot draw — an expected answer, not a fault.
       if (rendered !== null) return withCardHeaders(rendered);
     }
