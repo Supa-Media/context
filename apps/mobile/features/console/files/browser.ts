@@ -25,7 +25,8 @@
 
 import type { Clipboard } from "./clipboard";
 import type { EditorState } from "./editor";
-import type { FolderListing, Visibility } from "./types";
+import { ConvexError } from "convex/values";
+import type { FileError, FolderListing, Visibility } from "./types";
 
 export interface FileBrowser {
   /**
@@ -134,4 +135,54 @@ export function loadedFolders(
     }
   }
   return [...folders].sort();
+}
+
+
+/**
+ * What a thrown thing is allowed to say on somebody's screen.
+ *
+ * The single funnel between anything the file actions throw and the copy the
+ * console renders — every notice, save failure and toast in `useFileBrowser`
+ * comes through here. It lives in this module rather than in the hook because
+ * a decision no test can reach is a decision nothing is holding, and this one
+ * had seven call sites and no test at all.
+ *
+ * The rule is the one `../failure.ts` states for the query side: **never a raw
+ * runtime string as the headline — that is how a stack trace ends up in a
+ * screenshot.** Only a `ConvexError` carrying a shaped payload reaches a
+ * person; anything else is replaced wholesale. That is worth more here than in
+ * most consoles, because the far side of these actions is a
+ * customer-configured storage endpoint reached with a decrypted credential,
+ * and an adapter throw can carry a bucket name, a host, a signed URL or a
+ * provider's raw XML. The server is careful about what goes into a
+ * `FileOpError`; this is the guard for everything that is not one.
+ *
+ * The `instanceof` check and the shape check are both load-bearing, and they
+ * are not the same check. Reading `.data` off anything would surface the
+ * message of any object that happens to have one; trusting the wrapper without
+ * inspecting the contents would surface a `ConvexError` carrying a bare string.
+ *
+ * **Deliberately not built on `../failure.ts`'s `convexErrorParts`, and that is
+ * a measured decision rather than duplication left in place.** Sharing it was
+ * the first attempt here, on the reasoning that one answer to "what may be read
+ * off a failure" beats two that can drift. It is a *widening*: that helper
+ * accepts `data` as a bare string, so `new ConvexError("<a signed URL>")` would
+ * have surfaced verbatim where this refuses it. The two want different
+ * policies for good reasons — `describeQueryFailure` renders such a string as
+ * secondary `detail` under a fixed headline, while this becomes the notice
+ * itself — so they stay separate, and the test below pins the case that
+ * separates them.
+ */
+export function toFileError(error: unknown): FileError {
+  if (error instanceof ConvexError) {
+    const data = error.data as Partial<FileError> | undefined;
+    if (typeof data?.message === "string") {
+      return {
+        code: typeof data.code === "string" ? data.code : "UNKNOWN",
+        message: data.message,
+        currentEtag: typeof data.currentEtag === "string" ? data.currentEtag : undefined,
+      };
+    }
+  }
+  return { code: "UNKNOWN", message: "That did not work. Try again." };
 }
