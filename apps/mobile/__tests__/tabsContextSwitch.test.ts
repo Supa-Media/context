@@ -21,9 +21,9 @@ import { useTabs } from "../features/console/files/useTabs";
  * and `fileTabs.test.ts` proves it. That test passes whether or not anything
  * ever *sends* a reset, which is exactly the gap `#102` measured across this
  * console: every pure-module guard held, every hook guard unheld, 13-for-13
- * against 0-for-14. Sabotaging the dispatch in `useTabs` — `if (false && !first)`
- * — left all 1488 checks green, so the reducer case was a decision nobody was
- * reaching. This is what reaches it.
+ * against 0-for-14. Neutering the reset dispatch in `useTabs` left all 1488
+ * checks green, so the reducer case was a decision nobody was reaching. This is
+ * what reaches it.
  *
  * The behaviour: tabs opened in one context must not survive into the next.
  * Pruning cannot do this job, and that is the part that is easy to get wrong —
@@ -338,14 +338,20 @@ describe("the console frame keys its tabs on the open context", () => {
       .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
       .replace(/`(?:[^`\\]|\\.)*`/g, "``");
     expect(code.match(/useTabs\s*\(/g) ?? []).toHaveLength(1);
-    // The second argument may be `data.selectedContextId` or a local holding it
-    // — hoisting a long expression into a name is an ordinary refactor, and a
-    // guard that red-lights one gets deleted by whoever hits it. What it still
-    // rejects is a *literal*: strings are blanked by the stripper above, and the
-    // keywords are excluded by name, so `useTabs(data.files, "one-context")`,
-    // `…, null)` and `…, undefined)` all fail.
-    expect(code).toMatch(
-      /useTabs\s*\(\s*data\.files\s*,\s*(?!null\b|undefined\b|true\b|false\b)(?:data\.selectedContextId|[A-Za-z_$][\w$]*)\s*,?\s*\)/,
-    );
+    // The second argument may be `data.selectedContextId`, or a local holding
+    // it — hoisting a long expression into a name is an ordinary refactor, and
+    // a guard that red-lights one gets deleted by whoever hits it. But "an
+    // identifier" is not the same as "the right value", and a previous version
+    // of this test accepted the difference: `const tabsKey = "one-context"`
+    // passed all 1496 checks with the console permanently keyed on a constant,
+    // which is the bug this whole change exists to remove. So a name is
+    // accepted only when the file also assigns it from `data.selectedContextId`.
+    const call = code.match(/useTabs\s*\(\s*data\.files\s*,\s*([^,)]+?)\s*,?\s*\)/);
+    expect(call).not.toBeNull();
+    const arg = call![1].trim();
+    if (arg !== "data.selectedContextId") {
+      expect(arg).toMatch(/^[A-Za-z_$][\w$]*$/);
+      expect(code).toMatch(new RegExp(`\\b${arg}\\s*=\\s*data\\.selectedContextId\\b`));
+    }
   });
 });
