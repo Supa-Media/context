@@ -2904,6 +2904,32 @@ const orphan = await call("priv-token", "read_image", {
   image: `.images/${ORPHAN_IMAGE}`,
 });
 check("an image no named note references resolves nothing", refusalText(orphan) === REFUSAL);
+
+// The `.md` half of the note check, which nothing held: dropping
+// `.endsWith(".md")` from `toolReadImage` passed the entire suite.
+//
+// It is not redundant with `canSee`. At private scope `canSee` returns true for
+// *any* non-plumbing key, and at team scope it asks the folder's visibility —
+// neither asks whether the key is a note. So without it `read_image` accepts a
+// non-markdown object as the "note", reads it, and answers on whether its bytes
+// contain the leaf. Every other read path in this gateway is `.md`-gated, so
+// that is a one-bit oracle over files no note tool will open: `read_note`
+// refuses a `.csv`, and this would report whether one mentions a given hash.
+//
+// The object below is seeded to *contain* the leaf, so the reference check
+// cannot be what refuses it and only the `.md` check can.
+await contextStore.put(
+  "1-projects/portable/notes.csv",
+  `filename,key\nshot.png,.images/${TEAM_IMAGE}\n`
+);
+const nonMarkdownNote = await call("priv-token", "read_image", {
+  note: "1-projects/portable/notes.csv",
+  image: `.images/${TEAM_IMAGE}`,
+});
+check(
+  "a non-markdown object cannot stand in for the note, even holding the leaf",
+  refusalText(nonMarkdownNote) === REFUSAL
+);
 const teamReachingIntoPrivate = await call("team-token", "read_image", {
   note: "1-projects/secret-thing/with-image.md",
   image: `.images/${PRIVATE_IMAGE}`,
