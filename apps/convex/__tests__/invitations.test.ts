@@ -24,6 +24,8 @@ import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { formatInvitee, parseInvitee } from "../functions/lib/invitees";
+// The mobile half of a two-package invariant — see the test that uses it.
+import { normalizeSignInEmail } from "../../mobile/features/auth/email";
 import {
   addMember,
   asUser,
@@ -117,6 +119,42 @@ describe("parsing an invitee", () => {
       ok: true,
       invitee: { kind: "email", value: "lk@example.invalid" },
     });
+  });
+
+  /**
+   * The invariant that spans two packages, asserted rather than claimed.
+   *
+   * `apps/mobile/__tests__/signInEmail.test.ts` states it in its own header —
+   * *"the address handed to `signIn` must be the same string an invitation to
+   * them would have been addressed to. `parseInvitee` … trims and lowercases;
+   * so does this"* — and then imports only the mobile side and asserts its own
+   * literals. This file asserts its own literals too. **Both halves were
+   * pinned, and neither was pinned to the other**, which is the shape
+   * `CLAUDE.md` names when it insists the consent-scope mirror be "asserted
+   * against the control plane's rather than claimed in a comment".
+   *
+   * It lives on the control plane's side deliberately. The risk is
+   * `parseInvitee` drifting, and `ci / Test Mobile App` is skipped on
+   * convex-only pull requests — so the same assertion in the mobile package
+   * would be silent on exactly the change it exists to catch. The convex suite
+   * already reaches into the mobile app (see `dropboxConnect.test.ts`), so the
+   * direction costs nothing new.
+   *
+   * The failure it prevents is the one that file already describes: one human
+   * ends up with two accounts and the invitation lands on the one they cannot
+   * sign in to.
+   */
+  test.each([
+    "LK@Example.Invalid",
+    "  lk@example.invalid  ",
+    "MiXeD.CaSe+tag@Example.Invalid",
+    "\tada@example.invalid\n",
+    "ALLCAPS@EXAMPLE.INVALID",
+  ])("the sign-in normalizer agrees with the invitee parser on %j", (raw) => {
+    const parsed = parseInvitee(raw);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok || parsed.invitee.kind !== "email") throw new Error("fixture is not an email");
+    expect(normalizeSignInEmail(raw)).toBe(parsed.invitee.value);
   });
 
   test("the sigil is positional, so a handle can never be read as an address", () => {
