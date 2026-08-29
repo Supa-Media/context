@@ -32,6 +32,10 @@
  * @property {string} key
  * @property {number} size
  * @property {Date} uploaded
+ * @property {string} [etag]  R2 and S3 report one per listed object; Dropbox
+ *   does not. The search index's staleness diff reads it where it exists and
+ *   falls back to `uploaded`/`size` where it does not — see
+ *   `search/maintain.js`.
  *
  * @typedef {Object} ListResult
  * @property {ListedObject[]} objects
