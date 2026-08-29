@@ -92,7 +92,7 @@ import { getMembership, requireWorkspaceRole } from "./lib/workspaceAuth";
  * its own cost.
  */
 const MAX_SHARES_RETURNED = 200;
-const MAX_ACTIVE_SHARES = 100;
+export const MAX_ACTIVE_SHARES = 100;
 
 /**
  * One error for "no such share", "not yours", and "already revoked".
@@ -492,9 +492,16 @@ export const createShare = mutation({
 /**
  * Refuse a share that would take the context past its outstanding cap.
  *
- * Checked only on the path that creates a row, so re-sharing an existing note
- * with an existing recipient is never refused for capacity — it does not add
- * one.
+ * Checked on both paths that produce a live row — the insert, and the patch
+ * that turns a revoked row active again — and skipped only where `createShare`
+ * has already returned, which is the supersede of a row that is *currently*
+ * active. So re-sharing a note is refused for capacity exactly when it would
+ * add to the live count.
+ *
+ * An earlier version of this comment said re-sharing "is never refused for
+ * capacity", which was false in the case this cap is most likely to be met in:
+ * at the cap with one revoked row, re-sharing that note throws. It reads as a
+ * promise to the caller and was not one.
  */
 async function assertShareCapacity(
   ctx: MutationCtx,
@@ -505,8 +512,18 @@ async function assertShareCapacity(
     .withIndex("by_workspace_status", (q) =>
       q.eq("workspaceId", workspaceId).eq("status", "active"),
     )
+    // The `+ 1` is not needed by the comparison below — `>=` decides at
+    // `MAX_ACTIVE_SHARES`, so a row beyond it cannot change the answer, and
+    // sabotaging it away alone fails nothing. It stays because it keeps the
+    // guard independent of the operator: paired with a strict `>`,
+    // `.take(MAX_ACTIVE_SHARES)` can never exceed the cap and the check stops
+    // being a check at all. That pair is caught by the test below — measured,
+    // not assumed, after an earlier version of this comment called it silent.
     .take(MAX_ACTIVE_SHARES + 1);
-  if (active.length > MAX_ACTIVE_SHARES) {
+  // `>=`, matching `createWorkspace`'s own limit check. It was `>`, which let a
+  // context reach MAX_ACTIVE_SHARES + 1 — one more than the refusal it throws
+  // promises, and nothing tested either number.
+  if (active.length >= MAX_ACTIVE_SHARES) {
     throw new ConvexError({
       code: "TOO_MANY_SHARES",
       message: `A context may have ${MAX_ACTIVE_SHARES} shares outstanding. Revoke one first.`,

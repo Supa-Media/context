@@ -31,6 +31,7 @@ import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { SWEEP_COMPLETENESS_ROWS } from "../functions/account";
+import { MAX_ACTIVE_SHARES } from "../functions/shares";
 import {
   addMember,
   asUser,
@@ -1021,5 +1022,159 @@ describe("each half of the share sweep, isolated", () => {
         token: "0".repeat(64),
       }),
     ).toBeNull();
+  });
+});
+
+/**
+ * THE ACTIVE-SHARE CAP.
+ *
+ * `assertShareCapacity` is the only thing bounding how many live shares one
+ * context can have, and **nothing tested it** — `if (false && active.length >
+ * MAX_ACTIVE_SHARES)` passed all 1231 checks. That matters beyond tidiness:
+ * the account-deletion sweep is deliberately unbounded (completeness beats a
+ * ceiling when the alternative is leaving a live capability standing), and the
+ * argument for why that is acceptable rests on this cap being real.
+ *
+ * Seeded directly rather than through `createShare`, because a hundred round
+ * trips through path validation and audit writes would be testing those.
+ */
+describe("how many shares a context may have outstanding", () => {
+  /** One active row per note, so nothing supersedes anything. */
+  async function seedActive(
+    t: TestConvex,
+    workspaceId: Id<"workspaces">,
+    ownerId: Id<"users">,
+    count: number,
+  ): Promise<void> {
+    await t.run(async (ctx) => {
+      for (let i = 0; i < count; i += 1) {
+        await ctx.db.insert("noteShares", {
+          workspaceId,
+          entryPath: `1-projects/cap/note-${i}.md`,
+          recipientKind: "name",
+          recipient: `holder-${i}`,
+          createdBy: ownerId,
+          token: `cap-${i}`.padEnd(64, "0"),
+          status: "active",
+          titleInPreview: true,
+          createdAt: Date.now(),
+        });
+      }
+    });
+  }
+
+  test("the cap is the number the refusal names, not one more", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    await seedActive(t, workspaceId, ownerId, MAX_ACTIVE_SHARES - 1);
+
+    // The last one under the cap goes through.
+    await share(t, ownerId, workspaceId, "@lk", "1-projects/cap/last.md");
+
+    // The next is refused, and the refusal says so.
+    const error = await captureError(() =>
+      share(t, ownerId, workspaceId, "@lk", "1-projects/cap/over.md"),
+    );
+    expect(errorCode(error)).toBe("TOO_MANY_SHARES");
+    // The refusal states the number, and this test is named for that. Without
+    // this line, hardcoding a different number into the message passes — the
+    // copy and the bound could disagree again, which is the defect this whole
+    // block exists to have caught.
+    expect((error as { data?: { message?: string } }).data?.message).toContain(
+      String(MAX_ACTIVE_SHARES),
+    );
+
+    // And the count really is the advertised number — the message promises
+    // `MAX_ACTIVE_SHARES` outstanding, so `MAX_ACTIVE_SHARES + 1` rows would
+    // make the copy wrong as well as the bound.
+    const active = await t.run((ctx) =>
+      ctx.db
+        .query("noteShares")
+        .withIndex("by_workspace_status", (q) =>
+          q.eq("workspaceId", workspaceId).eq("status", "active"),
+        )
+        .collect(),
+    );
+    expect(active).toHaveLength(MAX_ACTIVE_SHARES);
+  });
+
+  test("at the cap, re-sharing a note that is already shared still works", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    await seedActive(t, workspaceId, ownerId, MAX_ACTIVE_SHARES);
+
+    // Supersession returns before the capacity check, and must: re-sharing is
+    // the same grant, so a full context would otherwise be unable to adjust a
+    // share it already has — including turning its preview title off.
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("noteShares")
+        .withIndex("by_workspace_status", (q) =>
+          q.eq("workspaceId", workspaceId).eq("status", "active"),
+        )
+        .first();
+      await ctx.db.patch(row!._id, { recipientKind: "name", recipient: "lk" });
+    });
+
+    const again = await asUser(t, ownerId).mutation(api.functions.shares.createShare, {
+      workspaceId,
+      path: "1-projects/cap/note-0.md",
+      recipient: "@lk",
+      titleInPreview: false,
+    });
+    expect(again.token).toBe("cap-0".padEnd(64, "0"));
+  });
+
+  test("re-activating a revoked share is refused at the cap, like any other row", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    await seedActive(t, workspaceId, ownerId, MAX_ACTIVE_SHARES);
+
+    // Revoke one and replace it, so the live count is back at the cap with a
+    // revoked row sitting beside it.
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("noteShares")
+        .withIndex("by_workspace_status", (q) =>
+          q.eq("workspaceId", workspaceId).eq("status", "active"),
+        )
+        .first();
+      await ctx.db.patch(row!._id, {
+        status: "revoked",
+        revokedAt: Date.now(),
+        recipientKind: "name",
+        recipient: "lk",
+      });
+    });
+    await share(t, ownerId, workspaceId, "@lk", "1-projects/cap/replacement.md");
+
+    // Re-sharing the revoked note turns that row active again, which is the
+    // second of the two ways a live row appears — and it has to pass the same
+    // cap the insert does. Gating the check on `existing === null` is a
+    // one-token change that makes this the way past it, and it survived the
+    // whole suite until this test existed.
+    const error = await captureError(() =>
+      share(t, ownerId, workspaceId, "@lk", "1-projects/cap/note-0.md"),
+    );
+    expect(errorCode(error)).toBe("TOO_MANY_SHARES");
+  });
+
+  test("a revoked share does not count against the cap", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    await seedActive(t, workspaceId, ownerId, MAX_ACTIVE_SHARES);
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("noteShares")
+        .withIndex("by_workspace_status", (q) =>
+          q.eq("workspaceId", workspaceId).eq("status", "active"),
+        )
+        .first();
+      await ctx.db.patch(row!._id, { status: "revoked", revokedAt: Date.now() });
+    });
+
+    // Revoking is what the refusal tells the owner to do, so it has to be what
+    // makes room. If revoked rows counted, the advice would be a dead end.
+    await share(t, ownerId, workspaceId, "@lk", "1-projects/cap/fresh.md");
   });
 });
