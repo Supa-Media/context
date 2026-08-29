@@ -2056,10 +2056,13 @@ describe("a bulk operation acts only on what the caller can see", () => {
     // there is no survivor here, the walk is at owner scope and both notes
     // moved. The rule follows the folder, and nothing is left pointing at an
     // empty prefix. (Two earlier comments here described a survivor held back
-    // by its exception. There is none: the keys afterwards are `privacy.md`,
-    // `2-areas/renamed/a.md` and `2-areas/renamed/x.md`.)
+    // by its exception, and a third said "the keys afterwards are" three
+    // particular ones — the bucket holds fourteen. Both are the same habit as
+    // row 108, so the claim is an assertion now rather than a sentence.)
     expect(manifest).not.toContain("2-areas/shared: team");
-    expect(store.snapshot()["2-areas/shared/x.md"]).toBeUndefined();
+    expect(
+      Object.keys(store.snapshot()).filter((key) => key.startsWith("2-areas/shared/")),
+    ).toEqual([]);
     // The exception travelled with it, so the note is private at its new path.
     // Asserting the OLD path was unreadable proved nothing — it had moved away,
     // so it was unreadable for the trivial reason and stayed unreadable with
@@ -3737,6 +3740,44 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
     );
 
     expect(error.code).toBe("LISTING_INCOMPLETE");
+  });
+
+  test("a store that replays one cursor is a store fault on every walk", async () => {
+    // `keysUnder` had this pinned on both its exits; `namesInUse` and
+    // `namesExtending` had only the no-cursor one, so reverting their
+    // `stop = "store"` on the REPEATED-cursor exit passed all 1121 checks. The
+    // code was right at all six sites and pinned at four. What drifts back if
+    // nothing holds it is the wrong remedy: somebody duplicating a note against
+    // a cursor-replaying endpoint told to "move some of them first".
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/context-lc.md.notes.md", "# Notes\n");
+    const replaying: FileStore = {
+      ...store,
+      list: async (options) => ({
+        ...(await store.list(options)),
+        truncated: true,
+        cursor: options?.cursor ?? "same",
+      }),
+    };
+
+    // `namesInUse`, via duplicate.
+    expect(
+      (await capture(() =>
+        duplicatePath(replaying, { path: "1-projects/context-lc.md", scope: "team" }),
+      )).code,
+    ).toBe("LISTING_INCOMPLETE");
+
+    // `namesExtending`, via a single-file delete.
+    expect(
+      (await capture(() =>
+        deletePath(replaying, {
+          path: "1-projects/context-lc.md",
+          scope: "team",
+          confirmation: DELETE_CONFIRMATION,
+        }),
+      )).code,
+    ).toBe("LISTING_INCOMPLETE");
   });
 
   test("a listing that could not finish says so", async () => {

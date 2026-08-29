@@ -655,6 +655,48 @@ describe("an existing context is never overwritten", () => {
   });
 
   /**
+   * The page cap, which is the other way a walk stops short.
+   *
+   * Both detectors used to fall out of the loop into `return false` when the
+   * budget ran out — the same fail-open answer, by a route that does not need a
+   * misbehaving store at all. The commit that changed it advertised the change
+   * and pinned nothing: reverting `return true` to `return false` at the end of
+   * either loop passed all 1121 checks.
+   *
+   * Driven with a store that always hands back a fresh cursor, because that is
+   * what exhausting the budget looks like from inside the loop, and it needs no
+   * five-thousand-key fixture to produce.
+   */
+  test("a walk that spends its whole page budget is read as occupied too", async () => {
+    const endless = (store: ReturnType<typeof memoryStore>) =>
+      ({
+        ...store,
+        list: async (options?: Record<string, unknown>) => ({
+          ...(await store.list(options as never)),
+          truncated: true,
+          cursor: `c${Math.random()}`,
+        }),
+      }) as unknown as ScaffoldStore;
+
+    const store = memoryStore();
+    store.seed(".history/1-projects/their-note.md.old.md", "# theirs\n");
+    expect(await hasExistingContext(endless(store))).toBe(true);
+
+    const empty = memoryStore();
+    expect(await hasForeignContent(endless(empty), [])).toBe(true);
+    // Nothing was written over the bucket we could not see the end of.
+    expect(
+      (
+        await scaffoldContext(endless(empty), {
+          structureTemplate: "para",
+          resume: true,
+        })
+      ).scaffolded,
+    ).toBe(false);
+    expect(empty.objects.size).toBe(0);
+  });
+
+  /**
    * The positive control for the test above: an ordinary store that finishes
    * still answers "empty" for an empty bucket. Without this, making the two
    * detectors return `true` unconditionally would pass.

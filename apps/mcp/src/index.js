@@ -1608,10 +1608,13 @@ function normalizePath(p) {
 
 /**
  * Pagination is driven by a customer-configured endpoint, so the loop cannot
- * trust it to terminate. A backend that keeps answering `IsTruncated: true` —
- * or replays the same continuation token forever — would otherwise spin until
- * the Workers subrequest limit kills the request with an opaque error. Both
- * shapes are caught here and reported as themselves.
+ * trust it to terminate — and cannot trust it to say honestly that it has.
+ * Three shapes are caught here and reported as themselves: a backend that keeps
+ * answering `IsTruncated: true`, one that replays the same continuation token
+ * forever (both of which would otherwise spin until the Workers subrequest
+ * limit kills the request with an opaque error), and one that reports another
+ * page while offering no token to ask for it, which used to end the walk
+ * silently and hand back a short list.
  */
 function nextListCursor(page, seen) {
   if (!page.truncated) return undefined;
