@@ -37,6 +37,7 @@ import type * as functions_lib_invitationEmail from "../functions/lib/invitation
 import type * as functions_lib_invitees from "../functions/lib/invitees.js";
 import type * as functions_lib_nameClaims from "../functions/lib/nameClaims.js";
 import type * as functions_lib_names from "../functions/lib/names.js";
+import type * as functions_lib_noteLinks from "../functions/lib/noteLinks.js";
 import type * as functions_lib_noteCount from "../functions/lib/noteCount.js";
 import type * as functions_lib_privacy from "../functions/lib/privacy.js";
 import type * as functions_lib_rateLimit from "../functions/lib/rateLimit.js";
@@ -86,6 +87,7 @@ declare const fullApi: ApiFromModules<{
   "functions/lib/invitees": typeof functions_lib_invitees;
   "functions/lib/nameClaims": typeof functions_lib_nameClaims;
   "functions/lib/names": typeof functions_lib_names;
+  "functions/lib/noteLinks": typeof functions_lib_noteLinks;
   "functions/lib/noteCount": typeof functions_lib_noteCount;
   "functions/lib/privacy": typeof functions_lib_privacy;
   "functions/lib/rateLimit": typeof functions_lib_rateLimit;
