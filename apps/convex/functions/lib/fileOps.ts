@@ -493,12 +493,28 @@ export async function listFolder(
       : folder === ""
         ? visibilityOf("", state.rules)
         : visibilityOf(folder, state.rules),
-    // Belt and braces, and labelled as such rather than left to look
-    // load-bearing: both are already empty and false for a withheld folder —
-    // nothing beneath an invisible folder is visible by `folderVisibleAtScope`'s
-    // own definition, and one page never truncates. Removing these two
-    // conditionals fails nothing, which was checked rather than assumed. They
-    // stay because the collapse then does not rest on that definition holding.
+    // **`truncated` is load-bearing here, and a first draft of this comment
+    // called it belt and braces on a reason that is false.**
+    //
+    // "One page never truncates" is wrong: the no-cursor branch above fires on
+    // page zero for any non-empty prefix, because that is what a store setting
+    // `IsTruncated` without a `NextContinuationToken` produces — the exact
+    // nonconforming shape the block above names B2, Wasabi, MinIO and
+    // "anything a self-hosted gateway points at" as producing. Against such a
+    // store, and with this conditional removed, a withheld folder answers
+    // `truncated: true` where an absent one answers `false`: one boolean, in
+    // the body, saying whether the private folder is there. On a supported
+    // self-hosting path.
+    //
+    // It survives sabotage only because the one-page walk masks it on a
+    // CONFORMING store, so the test below uses a nonconforming one. Two
+    // mechanisms that mask each other are one mechanism with a spare, and the
+    // comment has to say which is which — otherwise the sentence claiming it is
+    // redundant is the sentence that deletes it.
+    //
+    // `entries` is the weaker of the pair and kept on the same grounds: the
+    // filters above run over whatever keys the customer's store actually
+    // returned, and the store is theirs.
     entries: withheld ? [] : entries,
     truncated: withheld ? false : truncated,
     manifestUsable: state.text !== null && !state.invalid,

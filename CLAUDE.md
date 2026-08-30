@@ -412,13 +412,27 @@ the folder.** `shareNotePreview` answers `/@name/<path>` — an address anybody
 can type — so the guessability hinge does not do for it what it does for
 `/s/<64 hex>`. What keeps it inside the rule is that it answers only for a path
 the owner explicitly team-linked, which bounds the probe to the set they already
-chose to publish. That bound is only as good as the space being probed, and for
-a **folder** the space is five: `scaffold.ts` writes `0-inbox`, `1-projects`,
-`2-areas`, `3-resources` and `4-archive` into every brain, and this file
-documents them. Five guesses per handle is an exhaustible name space, so a
-folder is refused and unfurls as the generic card; a note filename is not, so it
-may carry a title. `createTeamShare` still takes a folder and the link still
-works — describing one to an anonymous crawler is the separate question.
+chose to publish. That bound is only as good as the space being probed, and
+**the product writes a lot of that space itself.** `scaffoldFiles` lays down
+`privacy.md`, `index.md` and a `README.md` in each of the five PARA folders, the
+five folder names are documented in this file, and the connected-client house
+rules put a `todo.md` at the root. So a fresh brain arrives with roughly a dozen
+addresses anybody can guess without knowing a thing about its owner, and a
+handful of guesses per handle is an exhaustible space.
+
+Every one of those is refused and unfurls as the generic card. A name the
+**owner** chose is not guessable and may carry a title, which is the whole
+feature. `createTeamShare` still takes any of them and the link still works —
+describing one to an anonymous crawler is the separate question.
+
+An earlier version of this paragraph said the space was "five" and that "a note
+filename is not" guessable. Both were wrong, and wrong in the way this file
+warns about: counted once, for folders, and never recounted when the rule was
+written down as a general one. `isProductMandatedPath` is the list, and its test
+drives `scaffoldFiles` rather than restating it, so a seventh scaffolded file
+cannot quietly become a seventh guess. `infra/router/src/preview.ts` keeps a
+second copy because it is a separate deployment and cannot import the first; the
+two are held together by running both against the same names.
 
 The rule is enforced in `previewForNote` (the control plane, where it counts)
 and restated in `infra/router/src/preview.ts` (which only saves the round trip).

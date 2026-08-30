@@ -64,6 +64,7 @@ import { recordAudit } from "./lib/audit";
 import { normalizePath } from "./lib/fileOps";
 import { linkedNotePaths } from "./lib/noteLinks";
 import { findName } from "./lib/nameClaims";
+import { isProductMandatedPath } from "./lib/scaffold";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { identifiersForUser, resolveAddressedUser } from "./lib/identities";
 import {
@@ -1253,6 +1254,15 @@ export const previewForNote = query({
     const path = normalizePath(args.path);
     if (path === null || isPlumbing(path)) return nothing;
     if (!path.toLowerCase().endsWith(".md")) return nothing;
+    // **...and not one this product wrote there itself.**
+    //
+    // The note-only rule above rests on a filename not being guessable, and for
+    // a fresh brain that is false of six of them: `scaffoldFiles` lays down
+    // `index.md`, `privacy.md` and a `README.md` in each of the five PARA
+    // folders, and the house rules put a `todo.md` at the root. Those are the
+    // same exhaustible space the five folder names are, so they get the same
+    // answer. Anything the owner named themselves is not, and still may.
+    if (isProductMandatedPath(path)) return nothing;
 
     const share = await ctx.db
       .query("noteShares")

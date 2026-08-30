@@ -23,6 +23,8 @@
 
 import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
+import { scaffoldFiles } from "../functions/lib/scaffold";
+import { isPlumbing } from "../functions/lib/privacy";
 import type { Id } from "../_generated/dataModel";
 import {
   addMember,
@@ -547,6 +549,61 @@ describe("a folder gets a link too", () => {
     expect(
       await t.query(api.functions.shares.previewForNote, { slug: "owner-brain", path }),
     ).toMatchObject({ title });
+  });
+
+  /**
+   * The note-only rule's own premise, which the cases above assume rather than
+   * check: that a note FILENAME is not guessable.
+   *
+   * For a fresh brain that is false, and by more than one file. `scaffoldFiles`
+   * writes `privacy.md`, `index.md`, and a `README.md` into every one of the
+   * five PARA folders — six guessable note names before the owner has written
+   * anything — and the connected-client house rules put a `todo.md` at the
+   * root. That is the same exhaustible space the five folder names are, so it
+   * gets the same answer.
+   *
+   * This drives `scaffoldFiles` instead of restating its output on purpose: a
+   * seventh scaffolded file would otherwise become a seventh guess silently,
+   * and the whole reason this rule exists is that somebody counted the folders
+   * once and never counted again.
+   */
+  test.each([
+    ...scaffoldFiles("para")
+      .map((file) => file.key)
+      // `privacy.md` is in that list and cannot be team-linked at all —
+      // `checkTeamSharePath` refuses plumbing long before the preview is
+      // reached, so there is no share row for this to be asked about.
+      .filter((key) => key.toLowerCase().endsWith(".md") && !isPlumbing(key)),
+    "todo.md",
+  ])("%s is a name anybody can guess, so its card stays frozen", async (path) => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    await teamLink(t, ownerId, workspaceId, path);
+
+    expect(
+      await t.query(api.functions.shares.previewForNote, { slug: "owner-brain", path }),
+    ).toEqual({ title: null, cardToken: null });
+  });
+
+  /**
+   * ...and a name the OWNER chose still carries its title, which is the whole
+   * point. A rule that refused every note would have been the frozen card back.
+   */
+  test("while a name the owner chose still previews", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    await teamLink(t, ownerId, workspaceId, "1-projects/acme-migration.md");
+
+    expect(
+      await t.query(api.functions.shares.previewForNote, {
+        slug: "owner-brain",
+        path: "1-projects/acme-migration.md",
+      }),
+      // "Acme migration": `titleFromPath` uppercases the first character and
+      // turns hyphens into spaces. Measured — a first guess here said
+      // "Acme-migration", which is the same mistake the `UPPER` comment above
+      // records, made a second time by predicting instead of running it.
+    ).toMatchObject({ title: "Acme migration" });
   });
 
   /**

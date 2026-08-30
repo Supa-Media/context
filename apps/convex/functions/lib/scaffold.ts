@@ -546,6 +546,38 @@ export function renderFolderReadme(folder: string): string {
  * the context behave differently rather than merely read thinner; see
  * `ESSENTIAL_KEYS`.
  */
+/**
+ * Root `todo.md` — mandated by the connected-client house rules, not by us.
+ *
+ * It is not written by `scaffoldFiles`, so nothing here would otherwise know
+ * about it, and it is as guessable as anything this module does write.
+ */
+export const HOUSE_RULE_KEYS = ["todo.md"] as const;
+
+/**
+ * A path this product itself puts into every brain, and therefore one anybody
+ * can guess without knowing a thing about the owner.
+ *
+ * Used by `previewForNote` to decide what an unauthenticated crawler may be
+ * told about a **guessable** address. The card rule turns on guessability: a
+ * share link is 32 CSPRNG bytes and may carry a title, while `/@name/<path>` is
+ * typed, so it may only answer for a path the owner explicitly linked — and
+ * that bound is worth exactly as much as the name space it is defended by.
+ *
+ * The five PARA folders were the first version of this and the reason the
+ * preview refuses folders at all. Notes are a bigger list than "index.md":
+ * `scaffoldFiles` also lays a `README.md` into every PARA folder, so a fresh
+ * brain arrives with six guessable note names before its owner writes anything.
+ *
+ * The test for this drives `scaffoldFiles` rather than restating its output, so
+ * a seventh scaffolded file cannot quietly become a seventh guess.
+ */
+export function isProductMandatedPath(path: string): boolean {
+  if (path === INDEX_KEY || path === PRIVACY_KEY) return true;
+  if ((HOUSE_RULE_KEYS as readonly string[]).includes(path)) return true;
+  return PARA_FOLDERS.some((folder) => path === `${folder}/README.md`);
+}
+
 export function scaffoldFiles(
   template: StructureTemplate,
   customFolders: readonly CustomFolder[] = [],

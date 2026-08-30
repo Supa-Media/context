@@ -364,9 +364,43 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
   // same thing in the control plane, which is where it is enforced; this only
   // saves the round trip.
   if (!path.toLowerCase().endsWith(".md")) return null;
+  // **...and not a name the product itself wrote there.**
+  //
+  // The note-only rule rests on a filename not being guessable, and a fresh
+  // brain arrives with six that are: `scaffoldFiles` lays down `index.md`,
+  // `privacy.md` and a `README.md` in each of the five PARA folders, and the
+  // house rules add a root `todo.md`. Same exhaustible space as the folder
+  // names, same answer.
+  //
+  // This is the control plane's `isProductMandatedPath` restated, and the list
+  // is duplicated because this package cannot import from `apps/convex`. It
+  // saves the round trip; `previewForNote` is where it is enforced. The two
+  // copies are held together by running both against the same names rather
+  // than by this comment.
+  if (PRODUCT_MANDATED_PATHS.has(path)) return null;
 
   return { slug, path };
 }
+
+/**
+ * Every note path this product writes into a brain before its owner does.
+ *
+ * `apps/convex/functions/lib/scaffold.ts` is the source of truth — `INDEX_KEY`,
+ * `PRIVACY_KEY` and a `README.md` per `PARA_FOLDERS` entry — plus the root
+ * `todo.md` the connected-client house rules mandate. This package is a
+ * separate deployment and cannot import that module, so the list is restated
+ * and pinned by a test that names the same seven.
+ */
+const PRODUCT_MANDATED_PATHS = new Set([
+  "index.md",
+  "privacy.md",
+  "todo.md",
+  "0-inbox/README.md",
+  "1-projects/README.md",
+  "2-areas/README.md",
+  "3-resources/README.md",
+  "4-archive/README.md",
+]);
 
 function decodeSafely(segment: string): string {
   try {

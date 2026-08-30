@@ -393,6 +393,59 @@ describe("a team-scoped caller sees only what is shared", () => {
   });
 
   /**
+   * ...and it stays equal against a store that reports truncation wrongly.
+   *
+   * `listFolder`'s own walk comment is written about a store that sets
+   * `IsTruncated` with no `NextContinuationToken` — it names B2, Wasabi, MinIO
+   * and "anything a self-hosted gateway points at", so this is a supported
+   * self-hosting path rather than a corner. Against one of those the walk's
+   * no-cursor branch sets `truncated` on page zero for any NON-EMPTY prefix and
+   * never for an empty one, which is a boolean in the body saying whether the
+   * private folder is there.
+   *
+   * The explicit `truncated: withheld ? false` on the return is what closes it,
+   * and against a CONFORMING store the one-page walk masks that conditional
+   * completely — removing it fails nothing in the rest of this file. Two
+   * mechanisms that mask each other need a fixture that separates them, or the
+   * survivor gets deleted as redundant by the next person to read it.
+   */
+  test("and against a store that reports truncation without a cursor", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/secret-client/brief.md", "# Brief\n");
+    await setFolderVisibility(store, {
+      path: "1-projects/secret-client",
+      visibility: "private",
+      scope: "private",
+    });
+
+    // Truncation claimed, continuation withheld — the shape the walk's own
+    // comment is about. Nothing here is malicious; it is a store being loose
+    // with a flag, which is the customer's provider and not our choice.
+    const nonconforming: FileStore = {
+      ...store,
+      list: async (options) => {
+        const page = await store.list(options);
+        const objects = page.objects ?? [];
+        const prefixes = page.delimitedPrefixes ?? [];
+        return objects.length + prefixes.length > 0
+          ? { ...page, truncated: true, cursor: undefined }
+          : page;
+      },
+    };
+
+    const hidden = await listFolder(nonconforming, {
+      path: "1-projects/secret-client",
+      scope: "team",
+    });
+    const absent = await listFolder(nonconforming, {
+      path: "1-projects/no-such-thing",
+      scope: "team",
+    });
+    expect(listingShape(hidden)).toBe(listingShape(absent));
+  });
+
+  /**
    * ...and the work stays equal for a folder too big for one page.
    *
    * The call-count assertion above uses a one-object folder, which is the only

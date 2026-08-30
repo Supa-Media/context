@@ -619,6 +619,36 @@ describe("a readable team link", () => {
     ).toBeNull();
   });
 
+  /**
+   * The names the product writes itself, which are guessable however unguessable
+   * an arbitrary filename is. Restated here from
+   * `apps/convex/functions/lib/scaffold.ts` because this package is a separate
+   * deployment; the control-plane copy is driven off `scaffoldFiles` directly,
+   * so a seventh scaffolded file fails there and this list is the one to update.
+   */
+  it.each([
+    "index.md",
+    "privacy.md",
+    "todo.md",
+    "0-inbox/README.md",
+    "1-projects/README.md",
+    "2-areas/README.md",
+    "3-resources/README.md",
+    "4-archive/README.md",
+  ])("%s is a name anybody can guess, so it is not routed", (note) => {
+    expect(
+      consoleNoteFrom(new URL(`https://context.lc/console/@seyi?note=${note}`)),
+    ).toBeNull();
+  });
+
+  it("while a name the owner chose is routed", () => {
+    expect(
+      consoleNoteFrom(
+        new URL("https://context.lc/console/@seyi?note=1-projects/acme-migration.md"),
+      ),
+    ).toEqual({ slug: "seyi", path: "1-projects/acme-migration.md" });
+  });
+
   it("is routed when the extension is upper case, which is still a note", () => {
     expect(
       consoleNoteFrom(new URL("https://context.lc/console/@seyi?note=1-projects/UPPER.MD")),
