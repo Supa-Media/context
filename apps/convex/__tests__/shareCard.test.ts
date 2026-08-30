@@ -329,6 +329,69 @@ describe("serving a card", () => {
   });
 
   /**
+   * **A retitled share must stop serving the card drawn for its old title.**
+   *
+   * `cardImageLeaf` hashes the title, and the schema says why: "retitling a
+   * share writes a new object rather than mutating one — the Workers cache is
+   * per-datacenter and has no global purge, so a changed URL is the only
+   * invalidation available." That holds only while the stored leaf and the
+   * current title agree, and four paths leave them disagreeing: a title the
+   * bundled font cannot draw, a renderer that threw, a bucket that refused the
+   * write, and a revoke-then-reshare. Every one of them returns early, and
+   * **nothing anywhere clears `cardImageLeaf`** — it is written in one place
+   * and read in one place.
+   *
+   * The cheapest trigger is an emoji. `isRenderableTitle("Notes 🙂")` is false,
+   * measured, so the re-render refuses before it draws and the old leaf stays.
+   * The OG *text* then updates while the OG *image* still shows the title the
+   * owner replaced — and this repository's own rule is that anything reaching a
+   * card is permanently public: Discord and WhatsApp copy it to their CDNs,
+   * iMessage bakes it into the sent message, Facebook caches by URL.
+   *
+   * So `cardLocation` recomputes the leaf rather than trusting the stored one,
+   * and answers `null` on a mismatch — the same absence a share with no card
+   * yet gives, which is what keeps every one of these indistinguishable.
+   */
+  test("a retitled share stops serving the card drawn for the old title", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    const token = await share(t, ownerId, workspaceId, {
+      previewTitle: "Q3 layoffs plan",
+    });
+    const row = await t.run(async (ctx) =>
+      ctx.db
+        .query("noteShares")
+        .withIndex("by_token", (q) => q.eq("token", token))
+        .unique(),
+    );
+    await t.mutation(internal.functions.shareCard.recordCardLeaf, {
+      shareId: row!._id,
+      leaf: cardImageLeaf(token, "Q3 layoffs plan"),
+    });
+
+    // The positive control. Without it a card that never resolved at all would
+    // satisfy the assertion below.
+    expect((await locationFor(t, token))?.leaf).toBe(
+      cardImageLeaf(token, "Q3 layoffs plan"),
+    );
+
+    // Retitle to something the bundled font cannot draw, so no re-render lands
+    // and the stored leaf is left pointing at the old card.
+    await share(t, ownerId, workspaceId, { previewTitle: "Notes 🙂" });
+    const retitled = await t.run(async (ctx) => ctx.db.get(row!._id));
+    expect(
+      retitled?.previewTitle,
+      "the retitle did not take, so the assertion below would be about nothing",
+    ).toBe("Notes 🙂");
+    expect(
+      retitled?.cardImageLeaf,
+      "the stored leaf changed, so this test is no longer about a stale one",
+    ).toBe(cardImageLeaf(token, "Q3 layoffs plan"));
+
+    expect(await locationFor(t, token)).toBeNull();
+  });
+
+  /**
    * A share recipient is not a member, and a card is not a note. Neither of
    * those changes because bytes now live in the bucket.
    */
