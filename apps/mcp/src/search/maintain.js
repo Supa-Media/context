@@ -42,7 +42,17 @@ export const SEARCH_INDEX_KEY = ".index/search-v1.json";
 
 const LIST_PAGE_LIMIT = 1000;
 /**
- * The stored index is refused, unparsed, past this size — and rebuilt slim.
+ * The one size the index may reach, in bytes, and it governs both directions.
+ *
+ * A stored index past it is refused unparsed and rebuilt slim; an index the
+ * sync builds past it is not written at all. Those are two halves of one rule
+ * — **never store an object this same function will refuse to read** — and
+ * splitting them is not a smaller version of the cap, it is a loop: the write
+ * had no check for a while, so a growing brain stored an index it already knew
+ * it would reject, rebuilt from empty on the next pass, regrew, and refused
+ * again. Measured at 2,000 notes the coverage cycled `594 -> 1188 -> 1782 ->
+ * 594` forever, and at 900 larger-vocabulary notes a *converged* index
+ * (`pending: 0`) was written at 12.37MB and discarded unread.
  *
  * The Worker's 128MB memory limit is the one ceiling no plan raises, and
  * `JSON.parse` of a large index inflates it several-fold in the heap. Measured
@@ -53,11 +63,14 @@ const LIST_PAGE_LIMIT = 1000;
  * what breaks that cycle: an oversized index is treated exactly like a corrupt
  * one, rebuilt from the notes under `NOTE_INDEX_CHAR_CAP`, and overwritten.
  *
- * This is a ceiling, not a cure: a brain whose *capped* index still exceeds
- * this size (roughly 10k+ notes) would churn — refused, partially rebuilt,
- * regrown, refused again. At that scale the index needs sharding (per-folder
- * postings, a small global-stats object); that is v2 work, stated here so the
- * churn is recognized as this boundary rather than rediscovered as a mystery.
+ * This is a ceiling, not a cure. A brain whose *capped* index still exceeds
+ * this size (roughly 10k+ notes) plateaus: the last object small enough to
+ * read survives, each pass rebuilds a fuller index in memory, answers the
+ * query it was called for, and declines to persist it. Partial and stable
+ * beats complete and unreachable, and `pending` keeps saying so. At that scale
+ * the index needs sharding (per-folder postings, a small global-stats object);
+ * that is v2 work, stated here so the plateau is recognized as this boundary
+ * rather than rediscovered as a mystery.
  */
 const INDEX_PARSE_BYTE_CAP = 12_000_000;
 /**
@@ -85,6 +98,30 @@ const NOTE_INDEX_CHAR_CAP = 2_048;
 const WRITE_RESERVE = 1;
 /** Nor let the listing consume everything a backfill would have used. */
 const FETCH_FLOOR = 2;
+
+/**
+ * Does `value` encode to more than `cap` bytes of UTF-8?
+ *
+ * The read side compares `bytes.byteLength`, so the write side has to answer
+ * in the same currency or the two disagree on exactly the buckets that need
+ * them to agree: a CJK index runs three bytes to the character, so a check
+ * counted in UTF-16 code units would store an object at up to three times the
+ * cap and then refuse it on every read after — the same defect wearing a
+ * different alphabet.
+ *
+ * Encoding a twelve-megabyte string in order to count it allocates twelve
+ * megabytes to enforce a memory ceiling, which is the wrong shape. Two exact
+ * bounds make that unnecessary outside a narrow band: UTF-8 is never *fewer*
+ * bytes than the string has UTF-16 code units, and never more than three per
+ * unit (a surrogate pair is two units and four bytes). So a string longer than
+ * the cap is over it, one under a third of the cap is under it, and only in
+ * between is anything measured.
+ */
+function exceedsUtf8Bytes(value, cap) {
+  if (value.length > cap) return true;
+  if (value.length * 3 <= cap) return false;
+  return new TextEncoder().encode(value).byteLength > cap;
+}
 
 /**
  * The shared subrequest counter. Every `get`, `put` and `list` this module
@@ -269,6 +306,7 @@ async function listNoteObjects(store, budget, reserve, isIndexable) {
  *   budget: number | ReturnType<typeof createSearchBudget>,
  *   reserve?: number,
  *   isIndexable?: (key: string) => boolean,
+ *   byteCap?: number,
  * }} options `reserve` is store ops the caller keeps for its own later work.
  * @returns {Promise<{
  *   index: ReturnType<typeof emptyIndex>,
@@ -277,7 +315,23 @@ async function listNoteObjects(store, budget, reserve, isIndexable) {
  *   spent: number,
  * }>} `pending` is stale notes this pass did not get to.
  */
-export async function syncIndex(store, { budget, reserve = 0, isIndexable = defaultIsIndexable } = {}) {
+export async function syncIndex(
+  store,
+  {
+    budget,
+    reserve = 0,
+    isIndexable = defaultIsIndexable,
+    /**
+     * Injectable so a test can drive the whole loop against a small number
+     * instead of building twelve real megabytes of JSON, which would take
+     * thousands of notes and minutes of wall clock. Nothing in production
+     * passes it. It is **one** parameter rather than a read cap and a write
+     * cap, because two numbers that can disagree is the state this exists to
+     * remove.
+     */
+    byteCap = INDEX_PARSE_BYTE_CAP,
+  } = {},
+) {
   const ops = typeof budget === "object" && budget ? budget : createSearchBudget(budget);
 
   let index = emptyIndex();
@@ -295,7 +349,7 @@ export async function syncIndex(store, { budget, reserve = 0, isIndexable = defa
     // header is the backend's word for it.
     const bytes = await stored.arrayBuffer();
     index =
-      (bytes.byteLength <= INDEX_PARSE_BYTE_CAP &&
+      (bytes.byteLength <= byteCap &&
         parseIndex(new TextDecoder().decode(bytes))) ||
       emptyIndex();
   }
@@ -402,10 +456,26 @@ export async function syncIndex(store, { budget, reserve = 0, isIndexable = defa
     if (wave.length < Math.min(BACKFILL_CONCURRENCY, stale.length - start)) break;
   }
 
+  // One return shape, computed at call time, so the refusal path below cannot
+  // drift from the ordinary one. A second copy of this object is a second place
+  // for `pending` to start lying about what was reached.
+  const finish = () => ({
+    index,
+    pending: stale.length - processed,
+    listingTruncated: truncated,
+    spent: ops.spent,
+  });
+
   if (changed) {
     computeRanks(index);
     if (ops.take(0)) {
       const body = serializeIndex(index);
+      // **Never write an object this same function will refuse to read.** See
+      // INDEX_PARSE_BYTE_CAP: an unwritten index costs this pass its
+      // persistence and costs the caller nothing, because the query in hand is
+      // answered from `index` in memory either way. Storing it would cost the
+      // last readable index instead, and buy an object no read ever parses.
+      if (exceedsUtf8Bytes(body, byteCap)) return finish();
       // Conditional on the etag read at the top. Where no index object existed
       // the write is unconditional: the ContextStore surface offers
       // `onlyIf.etagMatches` and nothing else — both adapters refuse an
@@ -422,10 +492,5 @@ export async function syncIndex(store, { budget, reserve = 0, isIndexable = defa
     }
   }
 
-  return {
-    index,
-    pending: stale.length - processed,
-    listingTruncated: truncated,
-    spent: ops.spent,
-  };
+  return finish();
 }

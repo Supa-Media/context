@@ -72,6 +72,19 @@
  *    with a list the view deliberately did not narrow; the same sabotage fails
  *    2 there.
  *
+ * 7. **The write-side byte cap**, five ways. Guard off (`if (false && …)`) and
+ *    a write cap of its own (`byteCap * 3`) each failed 3; measuring UTF-16
+ *    code units instead of UTF-8 bytes, and the fast-accept bound tightened
+ *    from three bytes per unit to two, each failed 1 — the multibyte check, in
+ *    both cases the only one that could tell. The read consulting the module
+ *    constant while the write consulted the injected parameter failed 1, the
+ *    both-directions check. Each was run four times: the first version of the
+ *    grow assertions compared stored *bodies* and caught the third mutation
+ *    only 3 runs in 8, because a rebuild of the same notes differs from the
+ *    original in `generatedAt` alone and the two syncs often land in the same
+ *    millisecond. Comparing the stub's per-put etag makes "was it replaced" an
+ *    identity question, and all five became deterministic.
+ *
  * The three channels above were all measured *before* the fix and all three
  * failed, end to end through the worker with a real `context:read` editor
  * grant — not reasoned about from the source.
@@ -792,6 +805,109 @@ export async function runSearchIntegrationChecks(check) {
         "a valid but oversized index is refused unparsed and rebuilt slim from the notes",
         rebuilt.index.docs.get("1-projects/small.md")?.title === "Small" &&
           slim.body.length < 100_000
+      );
+    }
+
+    // -- and nothing is ever *written* that the same cap would refuse -------
+    //
+    // The cap above was read-side only and the write had none, so the loop
+    // stored objects it already knew it would reject: grow, refuse, rebuild
+    // from empty, grow again, forever. A brain whose capped index crosses the
+    // ceiling never converges, and — worse — a *converged* index (`pending: 0`)
+    // is reachable, written, and thrown away on the next pass. Refusing the
+    // write instead makes coverage plateau: the last object small enough to
+    // read survives, and the query in hand is still answered from the full
+    // in-memory index it built. Partial and stable beats complete and
+    // unreachable.
+    //
+    // The cap is injected here rather than faked, so one number governs both
+    // directions in the test exactly as one parameter governs both in the
+    // module. Building twelve real megabytes of index would take thousands of
+    // notes and minutes of wall clock.
+    {
+      const grow = createBucket();
+      grow.seed("privacy.md", PRIVACY_MANIFEST);
+      const seedNotes = (from, to) => {
+        for (let n = from; n < to; n += 1) {
+          grow.seed(
+            `1-projects/grow/note-${String(n).padStart(3, "0")}.md`,
+            `# Grow ${n}\n\nunique${n} vocabulary${n} marker${n} shared filler text\n`
+          );
+        }
+      };
+      const growStore = new R2Store(grow);
+
+      seedNotes(0, 4);
+      await syncIndex(growStore, { budget: createSearchBudget(300) });
+      const stored = () => grow.objects.get(SEARCH_INDEX_KEY);
+      const smallBytes = new TextEncoder().encode(stored().body).byteLength;
+      // "Was it replaced" is an identity question, not a byte comparison. The
+      // stub mints a fresh etag per put, and a rebuild of the same four notes
+      // differs from the original only in `generatedAt` — a millisecond apart
+      // or not at all depending on the clock, which is a flaky test either way.
+      const smallEtag = stored().etag;
+
+      // One number, both directions. A converged index costs no note reads; the
+      // same index under a cap it already exceeds costs four, because it is
+      // refused unparsed and every note looks stale. A read that consulted the
+      // module constant while the write consulted the parameter would show zero
+      // here — two caps that can disagree is the state the single parameter
+      // exists to remove.
+      grow.resetCounts();
+      await syncIndex(growStore, { budget: createSearchBudget(300) });
+      const idleGets = grow.counts.noteGets.length;
+      grow.resetCounts();
+      await syncIndex(growStore, { budget: createSearchBudget(300), byteCap: smallBytes - 1 });
+      check(
+        "one cap governs both directions: a stored index past it is refused on read as well",
+        idleGets === 0 && grow.counts.noteGets.length === 4
+      );
+
+      // Well past three times the small index, so a write cap that drifted to
+      // its own larger number is caught rather than accommodated.
+      seedNotes(4, 60);
+      const overCap = { budget: createSearchBudget(300), byteCap: smallBytes + 200 };
+      const capped = await syncIndex(growStore, overCap);
+      check(
+        "an index that would cross the cap is not written, so the last readable one survives",
+        stored()?.etag === smallEtag
+      );
+      check(
+        "and the query that triggered the sync is still answered from what it built",
+        capped.index.docs.size === 60
+      );
+      const again = await syncIndex(growStore, { ...overCap, budget: createSearchBudget(300) });
+      check(
+        "a second pass under the same cap plateaus rather than cycling through a rebuild",
+        stored()?.etag === smallEtag && again.index.docs.size === 60
+      );
+
+      // Bytes, not characters. The read compares `bytes.byteLength`, so a
+      // write measured in UTF-16 code units lets a CJK index through at up to
+      // three times the cap — stored once and refused on every read after,
+      // which is the same defect wearing a different alphabet.
+      const wide = createBucket();
+      wide.seed("privacy.md", PRIVACY_MANIFEST);
+      for (let n = 0; n < 8; n += 1) {
+        wide.seed(`1-projects/wide/note-${n}.md`, `# ${"見出しの日本語".repeat(120)}${n}\n\nwide body ${n}\n`);
+      }
+      const wideStore = new R2Store(wide);
+      await syncIndex(wideStore, { budget: createSearchBudget(300) });
+      const wideBody = wide.objects.get(SEARCH_INDEX_KEY).body;
+      const wideChars = wideBody.length;
+      const wideBytes = new TextEncoder().encode(wideBody).byteLength;
+      wide.remove(SEARCH_INDEX_KEY);
+      // One byte under the real size: refused when measured in bytes, accepted
+      // by every cheaper stand-in. The fixture is CJK-dominant on purpose, so
+      // the cap also sits above *twice* the character count — that is what
+      // pins the helper's fast-accept bound at UTF-8's real worst case of
+      // three bytes per UTF-16 unit. Assume two and this body is waved through
+      // unmeasured.
+      const wideCap = wideBytes - 1;
+      await syncIndex(wideStore, { budget: createSearchBudget(300), byteCap: wideCap });
+      check(
+        "the write cap is counted in bytes, so a multibyte index is refused rather than stored unreadable",
+        wideChars * 2 <= wideCap && wideCap < wideBytes && wide.objects.get(SEARCH_INDEX_KEY) === undefined
       );
     }
 
