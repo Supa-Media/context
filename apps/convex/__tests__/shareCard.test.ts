@@ -377,7 +377,17 @@ describe("serving a card", () => {
 
     // Retitle to something the bundled font cannot draw, so no re-render lands
     // and the stored leaf is left pointing at the old card.
-    await share(t, ownerId, workspaceId, { previewTitle: "Notes 🙂" });
+    //
+    // The returned token is asserted unchanged, and that is not decoration:
+    // sabotaging `createShare`'s supersede branch to rotate the token leaves
+    // the whole suite green, because `locationFor` would then answer `null` for
+    // a token no row carries — which is the test two above this one, not this
+    // one. Nothing else in the suite pins token stability across a supersede,
+    // though `createShare`'s own comment calls it load-bearing.
+    expect(
+      await share(t, ownerId, workspaceId, { previewTitle: "Notes 🙂" }),
+      "the supersede rotated the token, so the assertion below is about a different share",
+    ).toBe(token);
     const retitled = await t.run(async (ctx) => ctx.db.get(row!._id));
     expect(
       retitled?.previewTitle,
@@ -389,6 +399,114 @@ describe("serving a card", () => {
     ).toBe(cardImageLeaf(token, "Q3 layoffs plan"));
 
     expect(await locationFor(t, token)).toBeNull();
+  });
+
+  /**
+   * **The token half of the comparison, which the title half cannot pin.**
+   *
+   * `cardImageLeaf` hashes the token *and* the title, and a check of only the
+   * title's hash passes every other test in this file — measured, 27 of 27.
+   * That is the cheaper refactor to expect, because this whole section is about
+   * titles. Under it a revoke-then-reshare regresses silently: the token
+   * changes, the title does not, the hash still matches, and the new
+   * recipient's link serves the *revoked* share's card.
+   *
+   * Re-sharing after a revoke mints a new token and leaves `cardImageLeaf`
+   * behind, because nothing clears it — so this is the same stale pointer as
+   * the test above, reached by the other door.
+   */
+  test("re-sharing after a revoke does not serve the revoked share's card", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    const first = await share(t, ownerId, workspaceId, {
+      previewTitle: "Q3 layoffs plan",
+    });
+    const row = await t.run(async (ctx) =>
+      ctx.db
+        .query("noteShares")
+        .withIndex("by_token", (q) => q.eq("token", first))
+        .unique(),
+    );
+    await t.mutation(internal.functions.shareCard.recordCardLeaf, {
+      shareId: row!._id,
+      leaf: cardImageLeaf(first, "Q3 layoffs plan"),
+    });
+
+    const listed = await asUser(t, ownerId).query(api.functions.shares.listShares, {
+      workspaceId,
+    });
+    await asUser(t, ownerId).mutation(api.functions.shares.revokeShare, {
+      shareId: listed[0].shareId,
+    });
+
+    // Same title, deliberately: it is what makes the title's hash agree and
+    // leaves the token as the only thing that can refuse.
+    const second = await share(t, ownerId, workspaceId, {
+      previewTitle: "Q3 layoffs plan",
+    });
+    expect(second, "the re-share reused the token, so nothing is being tested").not.toBe(
+      first,
+    );
+
+    expect(await locationFor(t, second)).toBeNull();
+  });
+
+  /**
+   * **A fifth way the leaf and the title come apart, and the worst of them.**
+   *
+   * `titleInPreview` can stay true while `previewTitle` goes away: re-sharing
+   * with no title writes `chosenTitle ?? undefined`, and `titleFromPath`
+   * answers `null` for a filename with no letters in it — a dated capture, say.
+   * The card then publishes a title the OG *text* has already dropped, which is
+   * the opposite of the direction everything else here fails in.
+   *
+   * This is what the `previewTitle` guard in `cardLocation` is for. It was
+   * added to mirror `cardSubject` and this case was not named; it is named now,
+   * because the guard is the only thing standing in front of it.
+   */
+  test("a share whose title was blanked serves no card", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    // A filename `titleFromPath` cannot make a title out of.
+    const dated = "0-inbox/2026-08-30.md";
+    const first = await share(t, ownerId, workspaceId, {
+      path: dated,
+      previewTitle: "Q3 layoffs plan",
+    });
+    const row = await t.run(async (ctx) =>
+      ctx.db
+        .query("noteShares")
+        .withIndex("by_token", (q) => q.eq("token", first))
+        .unique(),
+    );
+    await t.mutation(internal.functions.shareCard.recordCardLeaf, {
+      shareId: row!._id,
+      leaf: cardImageLeaf(first, "Q3 layoffs plan"),
+    });
+    expect((await locationFor(t, first))?.leaf).toBe(
+      cardImageLeaf(first, "Q3 layoffs plan"),
+    );
+
+    const listed = await asUser(t, ownerId).query(api.functions.shares.listShares, {
+      workspaceId,
+    });
+    await asUser(t, ownerId).mutation(api.functions.shares.revokeShare, {
+      shareId: listed[0].shareId,
+    });
+    const second = await share(t, ownerId, workspaceId, { path: dated });
+
+    const blanked = await t.run(async (ctx) =>
+      ctx.db
+        .query("noteShares")
+        .withIndex("by_token", (q) => q.eq("token", second))
+        .unique(),
+    );
+    expect(
+      blanked?.previewTitle,
+      "the title did not blank, so this test is about something else",
+    ).toBeUndefined();
+
+    expect(await locationFor(t, second)).toBeNull();
   });
 
   /**
