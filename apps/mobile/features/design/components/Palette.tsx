@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -142,21 +142,48 @@ const GLYPHS: Readonly<Record<PaletteItem["kind"], string>> = {
 /*                                    props                                   */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Answers from asking the whole context, for a palette whose own `items` are
+ * only what the browser has already loaded.
+ *
+ * Kept beside the local matches rather than merged into them, because the two
+ * are ranked by different things and neither ranking survives the other: local
+ * matches are fuzzy over a note's *name* and are instant, and these are ranked
+ * by what is written *inside* the notes and arrive a moment later. Re-ranking
+ * a content hit by how well its filename fuzzes against the query is how "the
+ * note that actually says this" ends up below "the note whose title has the
+ * right letters in it".
+ */
+export interface PaletteSearch {
+  /**
+   * Called as the query changes. Debouncing belongs to the caller, which is
+   * the side that knows what a round trip costs.
+   */
+  onQuery: (query: string) => void;
+  /** Hits, already ranked by the search itself. */
+  items: PaletteItem[];
+  /**
+   * `indexing` is not `empty`: a context whose index is still being built has
+   * nothing to say yet, and saying "no matches" for it is telling somebody
+   * their note does not exist.
+   */
+  state: "idle" | "searching" | "ready" | "indexing" | "failed";
+  /** Rendered above the search results, e.g. "In your notes". */
+  heading?: string;
+}
+
 export interface PaletteProps {
   items: PaletteItem[];
   placeholder: string;
   /** Rendered above the list when the query is empty (e.g. "Recent"). */
   emptyHeading?: string;
-  /**
-   * What this search actually covers, shown above the results in every state.
-   *
-   * Not a heading and not an empty state: a palette that only admits its reach
-   * when it finds nothing is a palette that lies whenever it finds something.
-   * Four results out of six hundred notes look like a complete answer.
-   */
-  scopeNote?: string;
   /** Shown when the query matches nothing. Must say what to do next. */
   noMatchMessage?: string;
+  /**
+   * Optional whole-context search. Absent, the palette filters `items` and
+   * nothing else — which is what "Move to…" and the quick switcher want.
+   */
+  search?: PaletteSearch;
   onChoose: (item: PaletteItem) => void;
   onDismiss: () => void;
 }
@@ -300,9 +327,9 @@ function PaletteRow({
 export function Palette({
   items,
   placeholder,
-  scopeNote,
   emptyHeading,
   noMatchMessage,
+  search,
   onChoose,
   onDismiss,
 }: PaletteProps) {
@@ -320,7 +347,35 @@ export function Palette({
   const touch = Platform.OS !== "web" || width < layout.narrowBreakpoint;
   const rowHeight = touch ? TOUCH_ROW_HEIGHT : POINTER_ROW_HEIGHT;
 
-  const matches = useMemo(() => rank(query, items), [query, items]);
+  const local = useMemo(() => rank(query, items), [query, items]);
+
+  /**
+   * Search results the local list does not already carry. A note that is both
+   * loaded and a content hit appears once, in the half that can highlight
+   * which letters of its name matched.
+   */
+  const remote = useMemo(() => {
+    if (!search) return [];
+    const already = new Set(local.map((match) => `${match.item.kind}:${match.item.id}`));
+    return search.items
+      .filter((item) => !already.has(`${item.kind}:${item.id}`))
+      // `ranges: []` rather than a guess: these matched on what is inside the
+      // note, so there is nothing in the label to bold, and inventing a run
+      // would point at the wrong reason this row is here.
+      .map((item) => ({ item, score: 0, ranges: [] as readonly [number, number][] }));
+  }, [search, local]);
+
+  /**
+   * One list for the arrows and for Enter, so a keyboard walks into the search
+   * results rather than stopping at the last loaded note.
+   */
+  const matches = useMemo(() => [...local, ...remote], [local, remote]);
+
+  const onSearchQuery = search?.onQuery;
+  useEffect(() => {
+    if (!onSearchQuery) return;
+    onSearchQuery(query);
+  }, [onSearchQuery, query]);
 
   /**
    * The highlight is always on a row that exists. `cursor` is intent — where
@@ -457,6 +512,29 @@ export function Palette({
     />
   );
 
+  /**
+   * What an empty list says, and it is never "no matches" while there is still
+   * a reason to think otherwise. A search that is running has not answered
+   * yet; one whose index is still being built cannot answer yet; one that
+   * failed knows nothing either way. Reporting absence in any of those three
+   * is the bug this whole feature exists to remove — the palette used to say
+   * "only folders you have opened are searched", which was at least honest,
+   * and "nothing matches" would be worse than what it replaced.
+   */
+  const emptyText = (() => {
+    if (search?.state === "searching") return "Searching the rest of this context…";
+    if (search?.state === "indexing") {
+      return "This context is still being indexed. Try again in a moment.";
+    }
+    if (search?.state === "failed") {
+      return "That search could not be run. Only loaded folders were filtered.";
+    }
+    return noMatchMessage ?? "Nothing matches. Try fewer letters.";
+  })();
+
+  /** The label above the search half, when there is a search half. */
+  const searchNote = remote.length > 0 ? (search?.heading ?? "In your notes") : null;
+
   const list = (
     <ScrollView
       ref={scroller}
@@ -472,25 +550,44 @@ export function Palette({
     >
       {matches.length === 0 ? (
         <View style={styles.empty} testID="palette-empty">
-          <Text variant="rowSub">
-            {noMatchMessage ?? "Nothing matches. Try fewer letters."}
-          </Text>
+          <Text variant="rowSub">{emptyText}</Text>
         </View>
       ) : (
         matches.map((match, index) => (
-          <PaletteRow
-            key={`${match.item.kind}:${match.item.id}`}
-            match={match}
-            selected={index === selected}
-            touch={touch}
-            onPress={() => {
-              setCursor(index);
-              onChoose(match.item);
-            }}
-            testID={`palette-row-${index}`}
-          />
+          <Fragment key={`${match.item.kind}:${match.item.id}`}>
+            {/*
+              The divider between what was already loaded and what searching
+              the whole context found. Rendered at the boundary rather than as
+              a wrapper, so the flat `matches` list the keyboard walks stays
+              flat.
+            */}
+            {index === local.length && searchNote !== null ? (
+              <Text variant="eyebrow" style={styles.heading} testID="palette-search-heading">
+                {searchNote}
+              </Text>
+            ) : null}
+            <PaletteRow
+              match={match}
+              selected={index === selected}
+              touch={touch}
+              onPress={() => {
+                setCursor(index);
+                onChoose(match.item);
+              }}
+              testID={`palette-row-${index}`}
+            />
+          </Fragment>
         ))
       )}
+      {/*
+        Still working, with rows already on screen. Below the list because the
+        rows above are real answers and must not move when this appears.
+      */}
+      {matches.length > 0 && search?.state === "searching" ? (
+        <View style={styles.empty} testID="palette-searching">
+          <Text variant="rowSub">Searching the rest of this context…</Text>
+        </View>
+      ) : null}
     </ScrollView>
   );
 
@@ -501,17 +598,6 @@ export function Palette({
       </Text>
     ) : null;
 
-  /*
-    Between the field and the list, and unconditional. Above the results rather
-    than under them because it qualifies what is about to be read, and a caveat
-    read after the conclusion has already been drawn is not a caveat.
-  */
-  const scope =
-    scopeNote === undefined ? null : (
-      <Text variant="treeMeta" style={styles.scope} testID="palette-scope">
-        {scopeNote}
-      </Text>
-    );
 
   /* ------------------------------ the sheet ------------------------------ */
 
@@ -542,7 +628,6 @@ export function Palette({
               style={styles.cancel}
             />
           </View>
-          {scope}
           {heading}
           {list}
         </KeyboardAvoidingView>
@@ -576,7 +661,6 @@ export function Palette({
             <Icon name="search" size={16} color={colors.muted} />
             {field}
           </View>
-          {scope}
           {heading}
           {list}
         </Pressable>
@@ -658,13 +742,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.x4,
     paddingTop: space.x3,
     paddingBottom: space.x1,
-  },
-  /** A hairline under it, so the caveat reads as chrome rather than as a row. */
-  scope: {
-    paddingHorizontal: space.x4,
-    paddingVertical: space.x2,
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
   },
   empty: {
     paddingHorizontal: space.x4,

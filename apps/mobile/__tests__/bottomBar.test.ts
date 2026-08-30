@@ -167,7 +167,7 @@ function toolbar(): BottomBarAction[] {
   return [
     action({ id: "back", label: "Go back", icon: "arrowLeft" }),
     action({ id: "forward", label: "Go forward", icon: "arrowRight" }),
-    action({ id: "search", label: "Go to a note", icon: "search" }),
+    action({ id: "search", label: "Search this context", icon: "search" }),
     action({ id: "new", label: "New note", icon: "plus" }),
     action({ id: "tabs", label: "3 notes open", icon: "file", badge: 3 }),
     action({ id: "menu", label: "More actions", icon: "more" }),

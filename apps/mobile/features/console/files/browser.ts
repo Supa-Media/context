@@ -30,6 +30,23 @@ import type { NoteShare } from "./shares";
 import type { ToastSpec } from "../../design/components/Toast";
 import type { FileError, FolderListing, Visibility } from "./types";
 
+/** What one search found, and whether there was an index to find it in. */
+export interface SearchAnswer {
+  hits: { path: string; title: string; snippets: string[] }[];
+  /**
+   * Nothing has indexed this context yet, so this is not "no matches" — see
+   * `searchNotes` in the control plane's `lib/fileOps.ts`.
+   */
+  indexMissing: boolean;
+  /**
+   * The index is behind the bucket, so an empty answer may simply be a note
+   * the backfill has not reached. Distinguishing this is the difference
+   * between "you have not written that down" and "we have not read it yet",
+   * and the first is a lie the console is not entitled to tell.
+   */
+  indexIncomplete: boolean;
+}
+
 export interface FileBrowser {
   /**
    * Whether this console may change anything.
@@ -58,6 +75,20 @@ export interface FileBrowser {
    * stay in step with the editor instead of moving without it.
    */
   select: (path: string) => boolean;
+
+  /**
+   * Search the whole context, not the folders that happen to be loaded.
+   *
+   * A read method on the browser rather than a hook the console calls
+   * directly, for the reason in this file's header: the components take this
+   * interface and nothing else, so the landing page's demo console renders the
+   * same palette without a Convex client anywhere near it.
+   *
+   * Rejects rather than returning an empty list when the search cannot be run
+   * — "nothing was found" and "nothing was asked" must not arrive as the same
+   * value, or a failed round trip reads as an answer about somebody's notes.
+   */
+  search: (query: string) => Promise<SearchAnswer>;
 
   editor: EditorState;
   setDraft: (text: string) => void;

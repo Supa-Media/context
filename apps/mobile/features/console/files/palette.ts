@@ -382,50 +382,6 @@ export function itemsFromListings(
 }
 
 /**
- * What this search actually covered, in one line.
- *
- * The palette searches `itemsFromListings`, which is built from the listings
- * already in memory — so it is a search of the folders somebody has expanded,
- * not of the context. That was said only in the *no matches* view, which is
- * the one moment it is least useful: a search that returns four notes out of
- * six hundred looks like a complete answer, and there is nothing on screen to
- * suggest otherwise. Somebody concludes the note is not there and writes it
- * again.
- *
- * So the line is permanent, and it is a **floor**, in the census's own
- * language: it says how much was searched and never implies that is all there
- * is. `truncated` is folded in for the same reason `noteCountTruncated`
- * exists — a folder the server could not list in full is a folder this search
- * only partly covered, and a count that ignored it would be a total wearing a
- * floor's clothes.
- *
- * `null` before anything has loaded. A first paint that says "0 folders" is
- * saying something false about somebody's context; the palette renders no line
- * rather than a wrong one, the same way the storage card renders no tile
- * rather than an em dash.
- */
-export function searchScopeNote(
-  listings: Readonly<Record<string, FolderListing | undefined>>,
-): string | null {
-  let folders = 0;
-  let notes = 0;
-  let partial = false;
-  for (const folder of knownFolderPaths(listings)) {
-    const listing = listings[folder];
-    if (listing === undefined) continue;
-    folders += 1;
-    if (listing.truncated) partial = true;
-    for (const entry of listing.entries) if (entry.kind === "file") notes += 1;
-  }
-  if (folders === 0) return null;
-
-  const scope =
-    `Searching ${notes}${partial ? "+" : ""} ${notes === 1 && !partial ? "note" : "notes"} ` +
-    `in ${folders === 1 ? "1 folder" : `${folders} folders`} you have opened.`;
-  return `${scope} The rest of this context has not been read yet.`;
-}
-
-/**
  * Folder destinations for "Move to…".
  *
  * The root is a real destination, labelled `/` — notes do live there, and a

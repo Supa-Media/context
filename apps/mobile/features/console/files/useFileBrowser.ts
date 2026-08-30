@@ -127,6 +127,7 @@ export function useFileBrowser(options: {
 
   const listFiles = useAction(api.functions.files.listFiles);
   const readNote = useAction(api.functions.files.readNote);
+  const searchContext = useAction(api.functions.files.searchContext);
   const writeNote = useAction(api.functions.files.writeNote);
   const createDirectory = useAction(api.functions.files.createDirectory);
   const moveEntry = useAction(api.functions.files.moveEntry);
@@ -270,6 +271,29 @@ export function useFileBrowser(options: {
       if (listings[path] === undefined) void refresh([path]);
     },
     [listings, refresh],
+  );
+
+  /**
+   * Ask the bucket, through the control plane's `searchContext`.
+   *
+   * Not routed through `run`: that is the mutation pipeline — it refuses when
+   * `canEdit` is false, sets `busy`, and writes to `notice`. A search changes
+   * nothing, a `member` must be able to run one, and a failure belongs to the
+   * palette that asked rather than to the console's notice bar.
+   */
+  const search = useCallback(
+    async (query: string) => {
+      const found = await searchContext({
+        workspaceId: workspaceId as Id<"workspaces">,
+        query,
+      });
+      return {
+        hits: found.hits,
+        indexMissing: found.indexMissing,
+        indexIncomplete: found.indexIncomplete,
+      };
+    },
+    [searchContext, workspaceId],
   );
 
   const select = useCallback(
@@ -921,6 +945,7 @@ export function useFileBrowser(options: {
       toggleFolder,
       selectedPath,
       select,
+      search,
       editor,
       setDraft,
       save,
@@ -993,6 +1018,7 @@ export function useFileBrowser(options: {
       rename,
       resetPrivacy,
       save,
+      search,
       select,
       selectedPath,
       setDraft,

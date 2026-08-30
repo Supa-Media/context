@@ -58,6 +58,12 @@ import {
   visibilityOf,
 } from "./privacy";
 import { renderPrivacyManifestForFolders, type ScaffoldStore } from "./scaffold";
+// The gateway's search, imported rather than ported — see `searchNotes` below.
+// `apps/mcp` targets the Workers runtime, which is Convex's runtime too, so
+// these run here unmodified over the same store `provisioning.ts` already
+// builds from a binding.
+import { createSearchBudget } from "../../../mcp/src/search/maintain.js";
+import { searchIndexedNotes } from "../../../mcp/src/search/visible.js";
 
 /* -------------------------------------------------------------------------- */
 /*                                   limits                                   */
@@ -101,6 +107,26 @@ export interface FileStore extends ScaffoldStore {
   delete(key: string): Promise<void>;
   capabilities?: { conditionalWrite: boolean };
 }
+
+/**
+ * What the imported search needs of a store: reads, listings and the
+ * conditional write its index maintenance does. `FileStore` satisfies it —
+ * the cast at the call site is because `apps/mcp` is JavaScript with no
+ * exported type to line these up structurally, not because anything is
+ * missing.
+ */
+type SearchStore = Parameters<typeof searchIndexedNotes>[0];
+
+/**
+ * Store operations one console search may spend.
+ *
+ * Larger than the gateway's default because the constraint that sets that one
+ * does not exist here: Cloudflare caps subrequests per Worker invocation, and
+ * a Convex action has no such cap. So a console search on a bucket whose index
+ * is still cold makes real progress on the backfill rather than nibbling at
+ * it, and both surfaces read the index that results.
+ */
+const CONSOLE_SEARCH_BUDGET = 300;
 
 /* -------------------------------------------------------------------------- */
 /*                                   errors                                   */
@@ -2484,4 +2510,114 @@ export async function readImage(store: FileStore, leaf: string): Promise<ArrayBu
     throw notFound();
   }
   return await reader.arrayBuffer();
+}
+
+/** One console search result: a path the caller may see, and lines from it. */
+export interface SearchHit {
+  path: string;
+  title: string;
+  snippets: string[];
+}
+
+export interface SearchResults {
+  hits: SearchHit[];
+  /** Visible matches found, which may exceed the hits returned. */
+  matchCount: number;
+  /** `matchCount` is a floor: the ranked list was full, or a walk was cut short. */
+  matchCountIsFloor: boolean;
+  /** The index has not caught up with the bucket, so results may be short. */
+  indexIncomplete: boolean;
+  /**
+   * There was no index to answer from at all.
+   *
+   * Never collapsed into "no matches": a bucket nothing has indexed yet would
+   * then tell somebody their note does not exist, which is the failure this
+   * whole feature exists to remove. The gateway answers this case with a
+   * literal scan it can afford inside one Worker invocation; the console says
+   * the context is still being indexed and leaves its own filename filter
+   * standing.
+   */
+  indexMissing: boolean;
+}
+
+/**
+ * Search the notes this scope can see, from the derived index in the
+ * customer's own bucket.
+ *
+ * **This runs the gateway's search, imported, rather than a port of it.**
+ * `searchIndexedNotes` is the same function `search_notes` answers from, so
+ * the console and an AI client cannot disagree about what a query matches or
+ * about who may see a hit — CLAUDE.md's "one search path" rule, extended to a
+ * third caller. What is passed in is this runtime's own `canSee` and
+ * `isPlumbing`, which `__tests__/privacyEngine.test.ts` already proves answer
+ * identically to the gateway's for every manifest, key and scope it is given.
+ *
+ * The subrequest budget the gateway sets exists because Cloudflare caps
+ * subrequests per invocation; a Convex action has no such cap, so this passes
+ * a larger one — a console search on a cold bucket then makes real progress on
+ * the backfill instead of nibbling at it, and the same index serves both
+ * surfaces afterwards.
+ *
+ * **A search writes**, under `.index/`, whatever the caller's role — which is
+ * worth saying out loud beside a module whose every other write is gated on
+ * `canEdit`. It is not an escalation and it is not new: an AI client on a
+ * team-tier grant already maintains this index on every `search_notes`, the
+ * keys are plumbing rather than note content, and the whole thing is a
+ * disposable derivative that a person's own notes can rebuild. What a member
+ * must not be able to do is *read* more than their scope, and that is
+ * `isVisible`, below.
+ */
+export async function searchNotes(
+  store: FileStore,
+  options: { query: string; prefix?: string; scope: Scope; budget?: number },
+): Promise<SearchResults> {
+  const query = options.query.trim();
+  if (query === "") {
+    return {
+      hits: [],
+      matchCount: 0,
+      matchCountIsFloor: false,
+      indexIncomplete: false,
+      indexMissing: false,
+    };
+  }
+
+  const folder = options.prefix ? requireFolderPath(options.prefix) : "";
+  const state = await loadPrivacyState(store);
+  // A folder this scope cannot open is not a narrower search, it is a folder
+  // that does not exist — the same answer `listFolder` gives, so a prefix
+  // cannot become a way to ask whether a hidden folder has anything in it.
+  if (folder !== "" && !folderVisibleAtScope(folder, options.scope, state.rules, state.overrides)) {
+    throw notFound();
+  }
+
+  const found = await searchIndexedNotes(store as unknown as SearchStore, {
+    isVisible: (path: string) => canSee(path, options.scope, state.rules, state.overrides),
+    isIndexable: (key: string) => key.endsWith(".md") && !isPlumbing(key),
+    query,
+    prefix: folder,
+    budget: createSearchBudget(options.budget ?? CONSOLE_SEARCH_BUDGET),
+  });
+
+  if (!found.indexed) {
+    return {
+      hits: [],
+      matchCount: 0,
+      matchCountIsFloor: false,
+      indexIncomplete: false,
+      indexMissing: true,
+    };
+  }
+
+  return {
+    hits: (found.hits ?? []).map((hit) => ({
+      path: hit.key,
+      title: hit.title,
+      snippets: hit.snippets,
+    })),
+    matchCount: found.matchCount ?? 0,
+    matchCountIsFloor: Boolean(found.matchCountIsFloor),
+    indexIncomplete: Boolean(found.indexIncomplete),
+    indexMissing: false,
+  };
 }
