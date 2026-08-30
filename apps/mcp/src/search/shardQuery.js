@@ -98,18 +98,16 @@ function diceOf(gramsA, gramsB) {
   return (2 * overlap) / (gramsA.length + gramsB.length);
 }
 
-/**
- * Whether `vocabTerm` is a plausible prefix-or-fuzzy expansion of `queryTerm`
- * — the same predicate `scoreCollected` re-checks globally, used here by the
- * collector to decide what is worth carrying out of one shard at all. Never
- * true for a term equal to the query term itself: that is a direct hit, not
- * an expansion.
+/*
+ * There was an `isPlausibleExpansion(queryTerm, vocabTerm)` here, answering
+ * prefix-or-fuzzy as one boolean. The collector cannot use one boolean any
+ * more: the two halves are capped differently and for different reasons — the
+ * prefix cap is exact and the fuzzy cap is an approximation — so it has to know
+ * WHICH kind of plausible a term is, and the test is inlined at the one place
+ * that asks. Deleted rather than left beside its replacement, because two
+ * copies of a rule with only one call site is the copy that drifts, and
+ * `apps/mcp` has no lint to notice it went dead.
  */
-function isPlausibleExpansion(queryTerm, vocabTerm) {
-  if (vocabTerm === queryTerm) return false;
-  if (queryTerm.length >= PREFIX_MIN_CHARS && vocabTerm.startsWith(queryTerm)) return true;
-  return diceOf(trigrams(queryTerm), trigrams(vocabTerm)) >= FUZZY_MIN_DICE;
-}
 
 /**
  * One shard's contribution to a query, restricted throughout to docs
