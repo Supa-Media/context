@@ -560,11 +560,23 @@ describe("a readable team link", () => {
     ["https://context.lc/console/@seyi?note=/etc/passwd", "rooted"],
     ["https://context.lc/console/@seyi?note=../../privacy.md", "traversal"],
     ["https://context.lc/console/@seyi?note=1-projects/../../x.md", "traversal inside"],
-    ["https://context.lc/console/@seyi?note=slides.pdf", "not a note"],
+    ["https://context.lc/console/@seyi?note=.history/a.md", "history"],
+    ["https://context.lc/console/@seyi?note=privacy.md", "the access map"],
     ["https://context.lc/console/@Seyi?note=a.md", "not a handle shape"],
     ["https://context.lc/@seyi?note=a.md", "not a console URL"],
   ])("%s is not one (%s)", (href) => {
     expect(consoleNoteFrom(new URL(href))).toBeNull();
+  });
+
+  /**
+   * A folder is a legitimate target. A team link is an address and a folder has
+   * one — where a *personal* share is note-only, because "share this folder
+   * with one outsider" would have to decide what a folder share reaches.
+   */
+  it("recognises a folder as well as a note", () => {
+    expect(
+      consoleNoteFrom(new URL("https://context.lc/console/@seyi?note=1-projects/pilot")),
+    ).toEqual({ slug: "seyi", path: "1-projects/pilot" });
   });
 
   it("routes a crawler to the lookup, and a person to the app", () => {

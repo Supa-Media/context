@@ -323,6 +323,36 @@ function checkSharePath(input: string): PathCheck {
   return { ok: true, path };
 }
 
+/**
+ * The path a **team link** may point at.
+ *
+ * Wider than `checkSharePath` by exactly one thing: a folder. A team link
+ * grants nothing — it is an address whose reader is authorised by membership —
+ * so "a link to this folder" is a sentence that means something, where "share
+ * this folder with one outsider" is not: it would have to decide what a folder
+ * share reaches, and that is a scope nobody asked for. Personal shares stay
+ * note-only, and `checkSharePath` above is what keeps them there.
+ *
+ * Plumbing is refused for both. `.history/` is every revision of every note and
+ * `privacy.md` is the access map; neither is a thing to hand anybody a link to,
+ * whatever their membership.
+ */
+function checkTeamSharePath(input: string): PathCheck {
+  const path = normalizePath(input);
+  if (path === null) {
+    return { ok: false, code: "PATH_INVALID", message: "That path is not valid." };
+  }
+  if (isPlumbing(path)) {
+    return {
+      ok: false,
+      code: "PATH_NOT_SHAREABLE",
+      message:
+        "That file is part of how this context works, not a note. It cannot be shared.",
+    };
+  }
+  return { ok: true, path };
+}
+
 function pathRejection(
   check: Extract<PathCheck, { ok: false }>,
 ): ConvexError<{ code: string; message: string }> {
@@ -561,10 +591,13 @@ export const createTeamShare = mutation({
     const userId = (await requireAuthId(ctx)) as Id<"users">;
     await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
 
-    const pathCheck = checkSharePath(args.path);
+    const pathCheck = checkTeamSharePath(args.path);
     if (!pathCheck.ok) throw pathRejection(pathCheck);
 
     const now = Date.now();
+    // `titleFromPath` strips a `.md` that a folder does not have, and titles it
+    // by its own last segment either way — `ai-brain-coworker-pilot` becomes
+    // "Ai brain coworker pilot", which is what the folder is called.
     const chosenTitle = titleFromPath(pathCheck.path);
 
     const existing = await ctx.db
@@ -1181,6 +1214,9 @@ export const previewForNote = query({
     const name = await findName(ctx, args.slug.replace(/^@/, "").toLowerCase());
     if (name?.workspaceId === undefined) return nothing;
 
+    // A folder is a legitimate target here, for the reason
+    // `checkTeamSharePath` gives: a team link is an address, and a folder has
+    // an address. Plumbing is still refused.
     const path = normalizePath(args.path);
     if (path === null || isPlumbing(path)) return nothing;
 

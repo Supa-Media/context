@@ -469,3 +469,85 @@ describe("the readable link's preview", () => {
     expect(JSON.stringify(answer)).not.toContain("1-projects");
   });
 });
+
+describe("a folder gets a link too", () => {
+  const FOLDER = "1-projects/transition";
+
+  /**
+   * A team link is an *address*, and a folder has one — so "a link to this
+   * folder" is a sentence that means something. A **personal** share stays
+   * note-only: "share this folder with one outsider" would have to decide what
+   * a folder share reaches, and "the notes in it, but not its subfolders,
+   * unless those are also team" is a rule nobody could predict.
+   */
+  test("an owner can link a folder", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    const { token } = await teamLink(t, ownerId, workspaceId, FOLDER);
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test("its card is titled by the folder's own name", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    await teamLink(t, ownerId, workspaceId, FOLDER);
+
+    expect(
+      await t.query(api.functions.shares.previewForNote, {
+        slug: "owner-brain",
+        path: FOLDER,
+      }),
+    ).toMatchObject({ title: "Transition" });
+  });
+
+  test("a member opens it and a stranger does not", async () => {
+    const t = setupTest();
+    const { ownerId, memberId, strangerId, workspaceId } = await scenario(t);
+    const { token } = await teamLink(t, ownerId, workspaceId, FOLDER);
+
+    expect(
+      await asUser(t, memberId).query(api.functions.shares.resolveShare, { token }),
+    ).not.toBeNull();
+    expect(
+      await asUser(t, strangerId).query(api.functions.shares.resolveShare, { token }),
+    ).toBeNull();
+  });
+
+  /**
+   * The refusal that survives the folder relaxation. `.history/` is every
+   * revision of every note and `privacy.md` is the access map; widening the
+   * path check to allow folders must not widen it to those.
+   */
+  test.each([
+    [".history", "the history store"],
+    [".history/1-projects", "a folder inside it"],
+    [".images", "the image store"],
+    ["privacy.md", "the access map"],
+  ])("%s cannot be linked (%s)", async (path) => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    expect(
+      errorCode(await captureError(() => teamLink(t, ownerId, workspaceId, path))),
+    ).toBe("PATH_NOT_SHAREABLE");
+  });
+
+  /** A personal share is still note-only. */
+  test("a folder cannot be shared with one person", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    const lk = await createUser(t, "lk@example.invalid");
+    await createWorkspace(t, lk, "lk");
+
+    expect(
+      errorCode(
+        await captureError(() =>
+          asUser(t, ownerId).mutation(api.functions.shares.createShare, {
+            workspaceId,
+            path: FOLDER,
+            recipient: "@lk",
+          }),
+        ),
+      ),
+    ).toBe("PATH_NOT_SHAREABLE");
+  });
+});
