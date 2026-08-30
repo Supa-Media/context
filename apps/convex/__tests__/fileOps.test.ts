@@ -29,6 +29,7 @@ import {
   DELETE_CONFIRMATION,
   FileOpError,
   type FileStore,
+  type FolderListing,
   archivePath,
   copyPath,
   createFolder,
