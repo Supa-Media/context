@@ -384,14 +384,22 @@ export async function runSearchShardsChecks(check) {
       uploaded: "2026-01-01T00:00:00.000Z",
       content: "# Real\n\nOrdinary body words.\n",
     });
-    const round = parseShard(serializeShard(shard));
+    const body = serializeShard(shard);
+    const stored = JSON.parse(body);
+    const round = parseShard(body);
     check(
-      "a shard round trips with its docs and postings, version 2 and all",
+      "a shard round trips with its docs and postings, in-memory version 2 and all",
       round !== null &&
         round.version === 2 &&
         round.docs.size === 2 &&
         round.docs.get("1-projects/real.md").uploaded === "2026-01-01T00:00:00.000Z" &&
         round.terms.get("ordinary")?.get("1-projects/real.md")?.length === 4
+    );
+    check(
+      "and the stored form is version 3 with postings interned as doc indexes, never path strings",
+      stored.version === 3 &&
+        stored.terms.length > 0 &&
+        stored.terms.every(([, postings]) => postings.every(([key]) => Number.isInteger(key)))
     );
     check(
       "and neither a \"__proto__\" path nor a \"constructor\" term reaches Object.prototype",
@@ -400,6 +408,66 @@ export async function runSearchShardsChecks(check) {
         ({}).etag === undefined &&
         Object.prototype.etag === undefined &&
         Object.getPrototypeOf({}) === Object.prototype
+    );
+  }
+
+  {
+    // The version-2 stored dialect: postings keyed by the full path string.
+    // Earlier deployments wrote this, so a bucket holds such shards today, and
+    // refusing them would rebuild a working index for no gain. This literal IS
+    // the fixture — generating it from current code would test nothing.
+    const legacy = JSON.stringify({
+      version: 2,
+      generatedAt: "2026-08-01T00:00:00.000Z",
+      docs: [
+        ["1-projects/real.md", { etag: "e2", uploaded: null, title: "Real", links: [], len: { title: 1, headings: 0, tags: 0, body: 3 }, rank: 1 }],
+      ],
+      terms: [["ordinary", [["1-projects/real.md", [0, 0, 0, 1]]]]],
+    });
+    const round = parseShard(legacy);
+    check(
+      "a version-2 stored shard — path-keyed postings, what earlier deployments wrote — still parses",
+      round !== null &&
+        round.docs.get("1-projects/real.md")?.etag === "e2" &&
+        round.terms.get("ordinary")?.get("1-projects/real.md")?.[3] === 1
+    );
+  }
+
+  {
+    // The reason version 3 exists, pinned as a measurement: path-keyed
+    // postings repeat every doc's path once per unique term, so a shard of
+    // real notes under long paths crossed SHARD_PARSE_BYTE_CAP at about half
+    // of NOTES_PER_SHARD and its write was refused on every pass — the live
+    // brain's permanent "still catching up". The legacy body is built from the
+    // same in-memory shard by the fixture rule above, and interning must beat
+    // it by at least 2x on this corpus or the plateau is back.
+    const shard = emptyShard();
+    for (let n = 0; n < 40; n += 1) {
+      const words = Array.from({ length: 60 }, (_, w) => `word${(n * 7 + w * 13) % 240}`).join(" ");
+      addDoc(shard, `2-areas/communications/2026-08-${String((n % 28) + 1).padStart(2, "0")}-subject-line-${n}.md`, {
+        etag: `e${n}`,
+        uploaded: null,
+        content: `# Subject line ${n}\n\n${words}\n`,
+      });
+    }
+    const interned = serializeShard(shard);
+    const parsed = JSON.parse(interned);
+    const pathOf = parsed.docs.map(([path]) => path);
+    const legacyBody = JSON.stringify({
+      version: 2,
+      generatedAt: parsed.generatedAt,
+      docs: parsed.docs,
+      terms: parsed.terms.map(([term, postings]) => [
+        term,
+        postings.map(([idx, tf]) => [pathOf[idx], tf]),
+      ]),
+    });
+    const legacyRound = parseShard(legacyBody);
+    check(
+      "interned postings serialize the same shard to less than half the path-keyed bytes",
+      bytesOf(interned) * 2 < bytesOf(legacyBody) &&
+        legacyRound !== null &&
+        legacyRound.docs.size === shard.docs.size
     );
   }
 
@@ -418,10 +486,29 @@ export async function runSearchShardsChecks(check) {
     "parseShard refuses a wrong version, a malformed posting, and anything that is not a string",
     parseShard("{ truncated") === null &&
       parseShard(JSON.stringify({ version: 1, docs: [], terms: [] })) === null &&
+      parseShard(JSON.stringify({ version: 4, docs: [], terms: [] })) === null &&
       parseShard(JSON.stringify({ version: 2, docs: [], terms: [["t", [["p", [1, 2, 3]]]]] })) === null &&
       parseShard(JSON.stringify({ version: 2, docs: [["p", { etag: "e", uploaded: null, title: "t", links: [], len: { title: 0, headings: 0, tags: 0 }, rank: 0 }]], terms: [] })) === null &&
       parseShard(undefined) === null
   );
+
+  {
+    // The interned dialect's own refusals: each key must be an integer index
+    // into this shard's docs array. Anything else names no doc, and the two
+    // dialects must not blur — a path string inside a version-3 posting is a
+    // shape violation, not a fallback.
+    const doc = ["1-projects/real.md", { etag: "e", uploaded: null, title: "Real", links: [], len: { title: 1, headings: 0, tags: 0, body: 1 }, rank: 1 }];
+    const v3With = (key) =>
+      JSON.stringify({ version: 3, generatedAt: null, docs: [doc], terms: [["real", [[key, [1, 0, 0, 0]]]]] });
+    check(
+      "a version-3 posting index outside the docs array, fractional, or a path string refuses the shard whole",
+      parseShard(v3With(0)) !== null &&
+        parseShard(v3With(1)) === null &&
+        parseShard(v3With(-1)) === null &&
+        parseShard(v3With(0.5)) === null &&
+        parseShard(v3With("1-projects/real.md")) === null
+    );
+  }
 
   {
     // Oversized is refused **unparsed**, which is the half that protects the

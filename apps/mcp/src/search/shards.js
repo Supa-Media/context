@@ -356,15 +356,29 @@ export function parseManifest(text, byteCap = MANIFEST_PARSE_BYTE_CAP) {
 }
 
 /**
- * One shard's stored JSON — v1's serialized shape over this shard's docs alone,
- * tagged version 2.
+ * One shard's stored JSON, tagged version 3: docs as `[path, meta]` pairs, and
+ * postings as `[docIndex, tf]` pairs where `docIndex` points into the sorted
+ * `docs` array.
+ *
+ * **The interning is what keeps a full shard under `SHARD_PARSE_BYTE_CAP`, and
+ * un-interning it back to `[path, tf]` postings is the tidy-up that re-breaks
+ * the live brain.** Version 2 stored the full path string once per unique term
+ * per doc — roughly 150-250 terms for a 2,048-char note against paths that run
+ * 50-80 bytes — so a shard's serialized form crossed the 2MB cap at about half
+ * of `NOTES_PER_SHARD`, the write was (correctly) refused, and the backfill
+ * plateaued forever: every pass re-fetched the same stale notes, rebuilt the
+ * same oversized shard, and refused it again, spending the whole budget to
+ * land nothing. Measured on the live brain — dozens of passes, `pending` never
+ * reaching zero, whole folders (`3-resources/books/`) unsearchable while their
+ * alphabetical neighbours were fine. With postings carrying a small integer
+ * instead, the path is stored once and the same shard serializes ~5x smaller.
  *
  * This is deliberately a second copy of `serializeIndex`/`parseIndex` rather
- * than a call into them: those two pin `version: 1`, and a shard that claimed
- * to be a whole v1 index would be parsed as one by the v1 loop and answered
- * from as if it were the entire bucket. The copies are held by the round-trip
- * and rejection checks in `searchShards.test.mjs`, not by reading them beside
- * each other.
+ * than a call into them: those two pin `version: 1` and path-keyed postings,
+ * and a shard that claimed to be a whole v1 index would be parsed as one by
+ * the v1 loop and answered from as if it were the entire bucket. The copies
+ * are held by the round-trip and rejection checks in `searchShards.test.mjs`,
+ * not by reading them beside each other.
  *
  * @param {ReturnType<typeof emptyShard>} shard
  * @returns {string}
@@ -381,11 +395,20 @@ export function serializeShard(shard) {
       rank: doc.rank,
     },
   ]);
-  const terms = [...shard.terms.entries()].sort(byFirst).map(([term, postings]) => [
-    term,
-    [...postings.entries()].sort(byFirst).map(([path, tf]) => [path, [...tf]]),
-  ]);
-  return JSON.stringify({ version: 2, generatedAt: new Date().toISOString(), docs, terms });
+  const indexByPath = new Map(docs.map(([path], position) => [path, position]));
+  const terms = [];
+  for (const [term, postings] of [...shard.terms.entries()].sort(byFirst)) {
+    // A posting whose doc is not in `docs` is a bookkeeping leak (`removeDoc`
+    // clears postings with their doc); dropped here rather than serialized as
+    // an index the parser must refuse, which would turn one leak into a shard
+    // that rebuilds forever.
+    const interned = [...postings.entries()]
+      .filter(([path]) => indexByPath.has(path))
+      .map(([path, tf]) => [indexByPath.get(path), [...tf]])
+      .sort((a, b) => a[0] - b[0]);
+    if (interned.length > 0) terms.push([term, interned]);
+  }
+  return JSON.stringify({ version: 3, generatedAt: new Date().toISOString(), docs, terms });
 }
 
 /** Validate and copy one `docs` entry; `null` on any shape mismatch. */
@@ -418,16 +441,34 @@ function readDocEntry(entry) {
   };
 }
 
-/** Validate and copy one `terms` entry; `null` on any shape mismatch. */
-function readTermEntry(entry) {
+/**
+ * Validate and copy one `terms` entry; `null` on any shape mismatch.
+ *
+ * `paths` decides the dialect: the docs array's paths in stored order for a
+ * version-3 shard, whose postings carry doc indexes, or `null` for a version-2
+ * shard, whose postings carry the path strings themselves. Either way the
+ * in-memory posting map is keyed by path — interning is a property of the
+ * stored bytes and of nothing above them.
+ */
+function readTermEntry(entry, paths) {
   if (!Array.isArray(entry) || entry.length !== 2) return null;
   const [term, postings] = entry;
   if (typeof term !== "string" || !Array.isArray(postings)) return null;
   const postingMap = new Map();
   for (const posting of postings) {
     if (!Array.isArray(posting) || posting.length !== 2) return null;
-    const [path, tf] = posting;
-    if (typeof path !== "string") return null;
+    const [key, tf] = posting;
+    let path;
+    if (paths) {
+      // An index outside the docs array is not a recoverable posting — it
+      // names no doc — and a shard carrying one is refused whole, like any
+      // other shape violation.
+      if (!Number.isInteger(key) || key < 0 || key >= paths.length) return null;
+      path = paths[key];
+    } else {
+      if (typeof key !== "string") return null;
+      path = key;
+    }
     if (!Array.isArray(tf) || tf.length !== 4 || !tf.every(isFiniteNumber)) return null;
     postingMap.set(path, [...tf]);
   }
@@ -440,6 +481,14 @@ function readTermEntry(entry) {
  * which is refused **unparsed** — `JSON.parse` of a many-MB object inflates
  * several-fold inside a 128MB heap, and a shard big enough to kill the
  * invocation kills it before any pass can shrink it.
+ *
+ * Reads both stored dialects — version 3 (interned postings, what
+ * `serializeShard` writes) and version 2 (path-keyed postings, what earlier
+ * deployments wrote) — because refusing version 2 would rebuild every shard a
+ * working index already holds on the day this ships, for no gain: a version-2
+ * shard that fit under the cap is exactly as answerable as it was yesterday.
+ * A touched shard graduates to version 3 on its next write; an untouched one
+ * never needs to.
  *
  * @param {string} text
  * @param {number} [byteCap]
@@ -456,19 +505,22 @@ export function parseShard(text, byteCap = SHARD_PARSE_BYTE_CAP) {
     return null;
   }
   if (!isPlainObject(parsed)) return null;
-  if (parsed.version !== 2) return null;
+  if (parsed.version !== 2 && parsed.version !== 3) return null;
   if (!Array.isArray(parsed.docs) || !Array.isArray(parsed.terms)) return null;
 
   const docs = new Map();
+  const orderedPaths = [];
   for (const entry of parsed.docs) {
     const read = readDocEntry(entry);
     if (!read) return null;
     docs.set(read.path, read.doc);
+    orderedPaths.push(read.path);
   }
 
+  const paths = parsed.version === 3 ? orderedPaths : null;
   const terms = new Map();
   for (const entry of parsed.terms) {
-    const read = readTermEntry(entry);
+    const read = readTermEntry(entry, paths);
     if (!read) return null;
     terms.set(read.term, read.postings);
   }
