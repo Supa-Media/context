@@ -21,6 +21,7 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
+import * as fileFunctions from "../functions/files";
 import type { Id } from "../_generated/dataModel";
 import { DELETE_CONFIRMATION } from "../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
@@ -619,7 +620,80 @@ describe("a stranger cannot reach another workspace's files", () => {
           path: "a",
           visibility: "team",
         }),
+      // Search reaches the whole context by design, so it is the endpoint that
+      // returns the most from one call: paths, titles and body snippets across
+      // every folder. Stripping its `callerId` + `authorizeFileAccess` and
+      // hardcoding `scope: "private"` left all 1,403 checks green before this
+      // line existed — a stranger reading another tenant's bucket at OWNER
+      // scope, invisible to the suite.
+      (workspaceId) =>
+        as.action(api.functions.files.searchContext, { workspaceId, query: "shared" }),
+      // Owner-only, and absent here since it was written. The one exit from a
+      // broken `privacy.md`, so reaching it across tenants would rewrite
+      // somebody else's access map to all-private.
+      (workspaceId) => as.action(api.functions.files.resetPrivacy, { workspaceId }),
     ];
+
+    // **The list above is checked against what Convex says is public, not
+    // against what a regex can find in the source.**
+    //
+    // It was hand-maintained and went stale the way a hand-maintained list of
+    // security-critical endpoints always does: `searchContext` arrived with
+    // #154 and nobody added it here, so the endpoint that reaches furthest into
+    // a bucket had no isolation check at all. `resetPrivacy` had been missing
+    // since it was written.
+    //
+    // The first version of this guard grepped `^export const (\w+) = action\(`
+    // out of the file, and `structure.test.ts` had already written down why
+    // that is wrong — "a guard a rename defeats is not a guard". Measured, it
+    // was defeated twice: a public `query` in this module was invisible to it
+    // (a public existence oracle over any `workspaceId` sat in `files.ts` with
+    // all 1,403 checks green), and so was an ordinary line break, since
+    // `export const x =\n  action({` does not match. Nothing in CI reformats
+    // `apps/convex`, so that is a live hole rather than a stylistic one.
+    //
+    // `isPublic` is Convex's own flag on the registered function. It does not
+    // care about the builder, the line breaks, the name, or a type annotation.
+    //
+    // **`isHttp` is read too, and leaving it out was this guard's third hole.**
+    // `httpActionGeneric` sets `isHttp` and neither `isPublic` nor `isInternal`
+    // (convex/dist/esm/server/impl/registration_impl.js:245, against 124/172/210
+    // for mutation/query/action), so an `httpAction` exported from this module
+    // is invisible to an `isPublic` test. Measured: an unauthenticated
+    // `GET /files/raw` listing any workspace's bucket at OWNER scope, routed for
+    // real in `http.ts`, left all 1,403 checks green.
+    //
+    // `structure.test.ts` had already written this down — its `classify()`
+    // returns `isPublic: true` for an `isHttp` function and calls it "the hole
+    // this whole file exists to close, hiding in plain sight". An earlier
+    // version of this comment claimed parity with that function while omitting
+    // the one case it exists for.
+    //
+    // An `httpAction` can never appear in `covered`, because it is not reachable
+    // through `api.`. So this makes the equality fail permanently the moment one
+    // lands in `files.ts`, which is the intended outcome rather than a gap:
+    // an HTTP route into file operations needs its own argument, in
+    // `UNAUTHENTICATED_HTTP_ROUTES` or beside it, not a line in this table.
+    //
+    // **What it still does not cover, stated rather than implied:** a file
+    // endpoint that lands in a different module. This reads `functions/files.ts`
+    // alone, because the neighbouring modules have their own isolation stories
+    // and sweeping them here would assert something this test has not thought
+    // about. A new module of file endpoints needs its own entry, and no check
+    // here will say so.
+    const covered = new Set(
+      calls.flatMap((call) =>
+        [...call.toString().matchAll(/api\.functions\.files\.(\w+)/g)].map((m) => m[1]),
+      ),
+    );
+    const publicEndpoints = Object.entries(fileFunctions)
+      .filter(([, value]) => {
+        const fn = value as { isPublic?: boolean; isHttp?: boolean } | null;
+        return fn?.isPublic === true || fn?.isHttp === true;
+      })
+      .map(([name]) => name);
+    expect(publicEndpoints.length).toBeGreaterThan(10);
+    expect([...covered].sort()).toEqual([...publicEndpoints].sort());
 
     for (const call of calls) {
       const theirs = await captureError(() => call(f.workspaceId));
