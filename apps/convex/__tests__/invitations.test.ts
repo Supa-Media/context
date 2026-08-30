@@ -143,15 +143,20 @@ describe("parsing an invitee", () => {
    *
    * **What is left here is a DIVERGENCE detector, which is not the same as a
    * duplication detector.** No behavioural test can see a behaviourally
-   * identical copy: re-inlining `raw.trim().toLowerCase()` into
-   * `normalizeSignInEmail` leaves every check here green, and left every mobile
-   * check green too until an identity assertion was added there for exactly
-   * this. What this table catches is the moment such a copy *drifts* — dropping
-   * the lowercase fails 3 here and 4 there — and any asymmetric change to the
-   * shared rule itself, where dropping the trim fails 2 here. It also holds the
-   * control plane's own side, which nothing in `apps/mobile` can any longer
-   * see: `const value = trimmed` in place of `normalizeEmail(trimmed)` fails 5
-   * here and 0 there. This is the copy CI depends on: `gateway-contracts.yml` carries no `paths` filter
+   * identical copy, on either side: re-inlining `raw.trim().toLowerCase()` into
+   * `normalizeSignInEmail` left every check green until an identity assertion
+   * was added there, and re-inlining `trimmed.toLowerCase()` into
+   * `parseInvitee` left **all 1,595 mobile and all 1,292 checks here** green —
+   * this table included, because it compares two functions that still return
+   * the same string. That half is now held by
+   * `__tests__/sharedEmailRule.test.ts`, which asserts the *call*.
+   *
+   * What this table catches is the moment such a copy *drifts* — dropping the
+   * lowercase fails 3 here and 4 in `apps/mobile` — and any asymmetric change
+   * to the shared rule itself, where dropping the trim fails 2 here. It also
+   * covers the control plane's own drift, which nothing in `apps/mobile` can
+   * any longer see: `const value = trimmed` fails 6 here and 0 there. This is
+   * the copy CI depends on: `gateway-contracts.yml` carries no `paths` filter
    * and runs this whole suite on every pull request **into `main`**, so a
    * mobile-only change reaches it where `ci / Test Convex Backend` would skip.
    * (`branches: [main]` filters on the base, so a pull request stacked onto a

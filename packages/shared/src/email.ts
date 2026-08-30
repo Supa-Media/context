@@ -30,12 +30,35 @@
  * `convex` change filters of the reusable CI pipeline, so a change here runs
  * both suites rather than neither. That was read at source in
  * `Supa-Media/supa-framework/.github/workflows/ci.yml` on 2026-08-30 rather
- * than assumed — a CI fact has a timestamp, and this one lives in somebody
- * else's repository, so re-read it before relying on it again. (The pipeline
- * also defines a `shared` filter and a `Test Shared Package` job, but that job
- * is gated on a `shared-package` input this repository's `ci.yml` does not
- * pass, so it can never run. Filed separately; it is why the tests for this
- * rule live in the two app suites rather than beside it here.)
+ * than assumed — **a CI fact has a timestamp**, and this one lives in somebody
+ * else's repository, so re-read it before relying on it again. The maxim is not
+ * abstract: the note this one replaces argued that the two duplicate tables
+ * each closed a direction nothing else closed, citing a real measurement taken
+ * five hours before `gateway-contracts.yml` existed — which is the thing that
+ * made it false.
+ *
+ * The tests for this rule live in the two app suites rather than beside it
+ * here, and that is not a preference. The pipeline defines a `shared` filter
+ * and a `Test Shared Package` job, but the job is gated on a `shared-package`
+ * input this repository's `ci.yml` does not pass, **and** this package declares
+ * no `test` script — so a test placed here would run nowhere twice over. Both
+ * halves are filed.
+ *
+ * ## Why here and not upstream
+ *
+ * `CLAUDE.md` says a generic change belongs in supa-framework, and by itself
+ * `raw.trim().toLowerCase()` is as generic as code gets. What is *not* generic
+ * is the invariant: these two particular call sites, in this product, have to
+ * produce the same key because this product matches invitations to accounts by
+ * byte-exact lookup. A framework export would give the two packages a common
+ * function and take the argument for why they must share one out of the
+ * repository that has the argument.
+ *
+ * The durable upstream fix is a different change and is named below —
+ * `createSupaAuth`'s `createOrUpdateUser` storing a normalized `profile.email`,
+ * so that a caller reaching the API directly cannot create a mixed-case account
+ * either. This forecloses none of it: if that lands, this becomes the thin
+ * client-side echo of a rule the server already enforces.
  *
  * ## Lowercasing the whole address is deliberate
  *

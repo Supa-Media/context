@@ -56,9 +56,21 @@
  * the bug.
  *
  * `parseInvitee` cannot be pinned the same way — it calls `normalizeEmail`
- * inside a larger parse, so there is no identity to compare. Its half is held
- * behaviourally, by the table in `apps/convex/__tests__/invitations.test.ts`.
- * The asymmetry is real and is better said than glossed.
+ * inside a larger parse, so there is no identity to compare. **An earlier
+ * version of this comment said its half was "held behaviourally, by the table
+ * in `invitations.test.ts`", four lines after saying a behavioural test cannot
+ * see the difference. Both cannot be true, and the measurement says which:**
+ * re-inlining `trimmed.toLowerCase()` there failed nothing, in either suite.
+ * `apps/convex/__tests__/sharedEmailRule.test.ts` is what holds it now, by
+ * asserting the *call* rather than the value — the standing question is "does
+ * anything test that it is CALLED?", and for that half nothing did.
+ *
+ * Two ways this identity could stop meaning what it means here, neither live:
+ * `packages/shared/tsconfig.json` declares an `outDir`, so pointing `main` at a
+ * build while jest and Metro still resolve `src` would make the two importers
+ * different module instances; and `jest.config.js` resolves `web.ts` ahead of
+ * `ts`, so a future `email.web.ts` would have the check assert about a file the
+ * native app does not use.
  *
  * Why the whole address is lowercased, RFC 5321 notwithstanding, is argued
  * where the rule now lives.
