@@ -37,17 +37,21 @@ import { writeClipboard } from "../../design/clipboard";
 import { colors, fonts, radii } from "../../design/tokens";
 import { baseName } from "./paths";
 import {
+  describePersonalShare,
   describePreviewTitle,
   describeShare,
+  describeTeamLink,
   shareUrl,
   sharesFor,
   type NoteShare,
 } from "./shares";
+import { noteHref } from "../nav";
 
 export function ShareDialog({
   path,
   shares,
   origin,
+  contextSlug,
   onShare,
   onRevoke,
   onSetPreviewTitle,
@@ -58,12 +62,19 @@ export function ShareDialog({
   shares: readonly NoteShare[] | undefined;
   /** Where this console is served from. See `shareUrl`. */
   origin: string;
+  /**
+   * The context's slug, for the team link. Absent while the console is still
+   * resolving which context it is in — the section is then not drawn, rather
+   * than drawn with a link that points nowhere.
+   */
+  contextSlug?: string;
   onShare: (recipient: string) => void;
   onRevoke: (shareId: string) => void;
   onSetPreviewTitle: (recipient: string, titleInPreview: boolean) => void;
   onClose: () => void;
 }) {
   const [recipient, setRecipient] = useState("");
+  /** Which link was last copied: a share's id, or `TEAM_LINK`. */
   const [copied, setCopied] = useState<string | null>(null);
 
   const mine = sharesFor(shares, path);
@@ -88,7 +99,33 @@ export function ShareDialog({
           </Text>
 
           <View style={styles.body}>
-            <Text variant="paneSub">{describeShare()}</Text>
+            {/*
+              The team link comes first because it is the common case and the
+              one that needs no setup: most people an owner wants to send a note
+              to are people they have already given access to, and for them a
+              share would be redundant machinery around a grant they have.
+            */}
+            {contextSlug === undefined ? null : (
+              <View style={styles.section}>
+                <Text variant="eyebrow">PEOPLE WITH ACCESS</Text>
+                <Text variant="paneSub">{describeTeamLink()}</Text>
+                <Button
+                  label={copied === TEAM_LINK ? "Copied" : "Copy link"}
+                  variant="white"
+                  onPress={() => {
+                    void writeClipboard(
+                      `${origin.replace(/\/+$/, "")}${noteHref(contextSlug, path)}`,
+                    ).then((ok) => setCopied(ok ? TEAM_LINK : null));
+                  }}
+                />
+              </View>
+            )}
+
+            <View style={styles.section}>
+              <Text variant="eyebrow">SOMEBODY WITHOUT ACCESS</Text>
+              <Text variant="paneSub">{describePersonalShare()}</Text>
+              <Text variant="meta">{describeShare()}</Text>
+            </View>
 
             <View style={styles.row}>
               <TextInput
@@ -209,6 +246,9 @@ function SharedWith({
   );
 }
 
+/** Sentinel for "the team link", which has no share id of its own. */
+const TEAM_LINK = "team-link";
+
 const styles = StyleSheet.create({
   scrim: {
     flex: 1,
@@ -227,7 +267,8 @@ const styles = StyleSheet.create({
     padding: 20,
     gap: 14,
   },
-  body: { gap: 14 },
+  body: { gap: 16 },
+  section: { gap: 8 },
   row: { flexDirection: "row", gap: 10, alignItems: "center" },
   input: {
     flexGrow: 1,

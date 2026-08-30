@@ -1,3 +1,5 @@
+import { inviteHref } from "../auth/redirect";
+
 /**
  * The console's navigation model.
  *
@@ -56,6 +58,55 @@ function safeDecode(segment: string): string {
 
 export function browseHref(slug: string): string {
   return `/console/${contextSegment(slug)}`;
+}
+
+/**
+ * A context's Browse, opened on one note: `/console/@seyi?note=1-projects/a.md`.
+ *
+ * **This is not a share.** It grants nothing and carries no token — it is a
+ * deep link, and whoever opens it sees the note only if their membership
+ * already lets them. Remove them from the context and the same URL shows them
+ * nothing, which is the whole difference from `/s/<token>`: that one is a
+ * capability addressed to a named person, this one is an address.
+ *
+ * That difference decides the link preview too, and in the opposite direction.
+ * A `/console/@…` URL is **guessable** — anybody can type it — so it keeps the
+ * frozen product card that every name-bearing path gets, and must never unfurl
+ * with a note's title the way a share link does. `previewFor` already answers
+ * it that way by construction, and `nav.test.ts` asserts it rather than
+ * trusting that.
+ *
+ * The note rides in the query rather than the path because `routeForPath`
+ * reads the segment after the context as a *view* name (`settings`). Putting a
+ * note there would collide with that grammar; a query parameter is additive and
+ * the parser already strips it.
+ */
+export function noteHref(slug: string, path: string): string {
+  return `${browseHref(slug)}?note=${encodeURIComponent(path)}`;
+}
+
+/**
+ * The note a console URL is asking to open, or `null`.
+ *
+ * Read from the query rather than from `routeForPath`, which deliberately
+ * describes *where* you are and not *what is selected* — a note is a selection
+ * inside Browse, not a route of its own, and folding it into `ConsoleRoute`
+ * would make every route comparison care about it.
+ */
+export function noteFromQuery(value: string | string[] | undefined): string | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  // The same refusals `safeNextRoute` makes, for the same reason: this becomes
+  // a path in a request to somebody's bucket. A leading slash, a traversal
+  // segment or a control character is a hand-edited URL, and the honest answer
+  // is to open nothing rather than to guess what was meant.
+  if (trimmed.startsWith("/") || trimmed.includes("\\")) return null;
+  if (trimmed.split("/").some((segment) => segment === "." || segment === "..")) return null;
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(trimmed)) return null;
+  return trimmed;
 }
 
 export function settingsHref(slug: string): string {
@@ -158,16 +209,43 @@ export function resolveContextRoute({
   contexts,
   selectedContextId,
   loading,
+  invitations,
 }: {
   route: ConsoleRoute;
   contexts: ReadonlyArray<{ id: string; slug: string }>;
   selectedContextId: string | null;
   loading: boolean;
+  /**
+   * Contexts this person has been invited to and has not answered.
+   *
+   * Optional, and absent means "nobody told me" rather than "there are none" —
+   * so a caller that does not have the list behaves exactly as it did before
+   * this existed.
+   */
+  invitations?: ReadonlyArray<{ slug: string; token: string }>;
 }): ContextResolution {
   if (route.kind !== "context") return { action: "stay" };
   const match = contexts.find((context) => context.slug === route.slug);
   if (match === undefined) {
     if (loading || contexts.length === 0) return { action: "stay" };
+
+    /**
+     * Invited, and has not accepted yet.
+     *
+     * Without this they land on the map, which is the least useful answer
+     * available: they followed a link to a specific note, they *do* have a way
+     * in, and nothing on the map says so. Somebody who was sent a link and told
+     * "you already have access" would reasonably conclude the product is
+     * broken.
+     *
+     * The invitation carries them onward, so accepting lands them where they
+     * were going rather than at the top of a context they have never seen.
+     */
+    const invitation = invitations?.find((row) => row.slug === route.slug);
+    if (invitation !== undefined) {
+      return { action: "redirect", href: inviteHref(invitation.token) };
+    }
+
     return { action: "redirect", href: hrefFor(MAP_ROUTE) };
   }
   if (match.id === selectedContextId) return { action: "stay" };
