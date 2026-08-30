@@ -703,6 +703,58 @@ export async function runSearchIntegrationChecks(check) {
       searchIndex(converged.index, "widget").length === RANK_CAP
     );
 
+    // -- one unreadable note must not park the backfill ----------------------
+    //
+    // The stale list is walked in listing order, so with a `break` on a failed
+    // read, a single key the adapter refuses (a backslash, a control character
+    // — keys Obsidian and rclone write without asking) stalled the sync at the
+    // same spot on every pass, and every note sorting after it stayed
+    // unsearchable forever. Measured live as "searched a name we have multiple
+    // notes about, got nothing, forever." The unreadable note itself stays
+    // pending — a skip is not a completion.
+    big.remove(SEARCH_INDEX_KEY);
+    big.failGetKeys.add("1-projects/bulk/note-000.md");
+    const poisoned = await syncIndex(bigStore, { budget: createSearchBudget(200) });
+    check(
+      "a note the store refuses to read is skipped, not the end of the backfill",
+      poisoned.index.docs.size === 64 && poisoned.pending === 1
+    );
+    big.failGetKeys.delete("1-projects/bulk/note-000.md");
+
+    // -- the budget is a deployment setting, bounded ------------------------
+    //
+    // The default assumes the free tier's 50-subrequest ceiling; a paid-plan
+    // worker gets 1000, and holding it to 40 there stretches a real brain's
+    // first index across dozens of searches. `SEARCH_SUBREQUEST_BUDGET` in the
+    // environment raises it; garbage must fall back to the default rather than
+    // take search down.
+    big.remove(SEARCH_INDEX_KEY);
+    big.resetCounts();
+    const bigBudget = await searchText(
+      { ...env, SEARCH_SUBREQUEST_BUDGET: "200" },
+      BIG_TOKEN,
+      { query: "widget" }
+    );
+    check(
+      "a raised deployment budget indexes a 65-note context in one pass",
+      typeof bigBudget === "string" &&
+        !bigBudget.includes("still catching up") &&
+        big.ops > SEARCH_SUBREQUEST_BUDGET
+    );
+    big.remove(SEARCH_INDEX_KEY);
+    big.resetCounts();
+    const bigGarbage = await searchText(
+      { ...env, SEARCH_SUBREQUEST_BUDGET: "not-a-number" },
+      BIG_TOKEN,
+      { query: "widget" }
+    );
+    check(
+      "an unparseable budget var is the default, never a throw and never unbounded",
+      typeof bigGarbage === "string" &&
+        bigGarbage.includes("still catching up") &&
+        big.ops - PRIVACY_MANIFEST_READ <= SEARCH_SUBREQUEST_BUDGET
+    );
+
     // A backend whose listings carry no etag at all — Dropbox lists
     // `server_modified` and `size` and nothing else. The diff has to converge
     // on those two or the index is rebuilt from scratch on every single search,
