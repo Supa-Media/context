@@ -61,6 +61,19 @@ function describeCount(open: number, dirty: number): string {
   return `${notes}, ${dirty === 1 ? "1 with unsaved changes" : `${dirty} with unsaved changes`}`;
 }
 
+/**
+ * The count, in words, for a caller that draws the control itself.
+ *
+ * `BottomBar` takes a flat list of actions and owns the drawing, so the tab
+ * count on a phone is one of its targets rather than `TabCountButton` embedded
+ * in it — but the *phrasing* has to be this file's, or there are two answers to
+ * "how many notes are open, and how many are unsaved" and they can disagree.
+ * Both routes end at `describeCount` and at `dirtyCount` in `tabs.ts`.
+ */
+export function tabCountLabel(state: TabsState): string {
+  return describeCount(state.tabs.length, dirtyCount(state));
+}
+
 export function TabCountButton({
   state,
   onPress,

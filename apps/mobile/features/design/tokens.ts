@@ -59,6 +59,20 @@ export const colors = {
 
   /** Syntax tints in the note preview. */
   codeKey: "#7DA6F5",
+
+  /* ------------------------------------------------------------------ *
+   * Floating chrome.
+   *
+   * On a phone the controls are not a bar with a rule under it — they are
+   * objects lying over the note, the way Obsidian mobile draws them. That
+   * needs a surface that reads as *above* `surface` without a border to say
+   * so, because a border is exactly what a floating object does not have.
+   * `surface3` is the hover tint for a row inside a panel and is too close to
+   * its own ground to carry an edge on its own; these two are a step further
+   * out, and the shadow underneath does the rest.
+   * ------------------------------------------------------------------ */
+  chrome: "#191920",
+  chromePressed: "#24242C",
 } as const;
 
 /** Edge/node colours in the constellation map, keyed by relationship. */
@@ -114,6 +128,24 @@ export const radii = {
   tile: 26,
   cta: 11,
   pill: 999,
+
+  /* ------------------------------------------------------------------ *
+   * Phone geometry.
+   *
+   * The radii above are a pointer application's: 6–16, drawn small because a
+   * 13px row inside a 12px card inside a 16px panel has to nest three
+   * corners inside 40px of height. A phone nests nothing — a sheet, a
+   * toolbar and a grouped card are each the widest thing on the screen — so
+   * they are drawn at the scale iOS and Obsidian mobile draw them at, and
+   * using the pointer scale there is the single loudest way a phone layout
+   * reads as a shrunken desktop.
+   * ------------------------------------------------------------------ */
+  /** A grouped list card, and the drawer's trailing corners. */
+  sheet: 18,
+  /** The floating toolbar and anything else lying over the note. */
+  floating: 20,
+  /** A control on a phone: a circular button is `pill`, a square one is this. */
+  control: 14,
 } as const;
 
 export const space = {
@@ -205,6 +237,64 @@ export const layout = {
    * 44pt minimum with room to spare.
    */
   bottomBarHeight: 56,
+  /**
+   * The gap between the floating toolbar and the edges of the glass.
+   *
+   * The toolbar is a pill lying on the note rather than a bar ruled off from
+   * it, so the frame reserves `bottomBarHeight` **plus twice this** along the
+   * bottom edge. Reserved rather than overlaid: Obsidian lets the document
+   * run under its toolbar and pays for it with bottom padding inside the
+   * scroller, and this app has four different things in that slot — a note, a
+   * folder listing, a settings document, a map — so the padding would have to
+   * be right in four places instead of one.
+   */
+  floatingInset: 10,
+  /**
+   * A circular control in the floating chrome.
+   *
+   * Exactly `minTouchTarget`, and derived from it rather than typed, because
+   * this is the one control shape with no room to make up the difference.
+   * Elsewhere a small mark sits inside a larger pressable — the bottom bar's
+   * icons are 22 inside a 56pt target — so the drawing and the target are
+   * separate numbers. Here the visible circle *is* the target: there is no
+   * padding around it to grow, and anything below the floor is a control that
+   * looks deliberate and misses under a thumb.
+   *
+   * The first draft of this was 40, with a comment claiming it was above the
+   * floor. `appFrameRender.test.ts` caught it, which is the only reason this
+   * paragraph is here rather than a 40 in a shipped build.
+   */
+  chromeButton: MIN_TOUCH_TARGET,
+  /**
+   * A row in a grouped list, or in the file tree, on a phone.
+   *
+   * Above `minTouchTarget` for the same reason the toolbar is: the floor is
+   * what a control must not go below, not what a comfortable list row is.
+   */
+  touchRow: 48,
+} as const;
+
+/**
+ * Elevation, as `boxShadow` strings.
+ *
+ * React Native 0.76+ accepts the CSS shorthand on `View`, and react-native-web
+ * has always passed it through, so one string serves both surfaces — which is
+ * the only reason these are here rather than as a pair of platform files.
+ *
+ * There are three because there are three things that float, and they are lit
+ * from different places: a toolbar lying on the note casts down, a drawer
+ * sliding from the left edge casts sideways, and a sheet rising from the
+ * bottom casts up. One shadow reused for all three is what makes a dark
+ * interface look flat — every edge glows the same amount and nothing reads as
+ * nearer than anything else.
+ */
+export const shadows = {
+  /** The bottom toolbar, and the circular buttons in the top corners. */
+  floating: "0 6px 20px -6px rgba(0,0,0,0.85), 0 1px 3px rgba(0,0,0,0.5)",
+  /** A drawer or nav sheet coming in from the leading edge. */
+  drawer: "24px 0 60px -20px rgba(0,0,0,0.9)",
+  /** A sheet rising from the bottom edge. */
+  rising: "0 -10px 40px -12px rgba(0,0,0,0.9)",
 } as const;
 
 /**

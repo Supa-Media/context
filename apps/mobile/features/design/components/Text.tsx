@@ -78,6 +78,21 @@ const variants = {
     fontWeight: "500",
     color: colors.text2,
   },
+  /**
+   * `.railbtn` on a phone.
+   *
+   * The rail is a *sheet* there, and the whole of navigation — the app panes,
+   * every other context, sign-out — is reachable through it and nowhere else.
+   * A list that is the only way out of a screen is read at the size the screen
+   * is read at, not at the size of a supporting label in a 216pt column.
+   */
+  railTouch: {
+    fontFamily: fonts.body,
+    fontSize: 15.5,
+    lineHeight: leading(15.5, 1.4),
+    fontWeight: "500",
+    color: colors.text,
+  },
   /** `.wsswitch`. */
   wsSwitch: {
     fontFamily: fonts.body,
@@ -156,6 +171,21 @@ const variants = {
     fontSize: 13,
     lineHeight: leading(13, 1.55),
     color: colors.text2,
+  },
+  /**
+   * The same row on a phone.
+   *
+   * 15.5 rather than 13, and `text` rather than `text2`. The tree is a list of
+   * *destinations* on a phone — the drawer is the only way to open a note
+   * there — and a destination list is read at the size the rest of the phone is
+   * read at. 13px dimmed is a supporting label beside a document you can
+   * already see, which is what it is under a pointer and is not what it is here.
+   */
+  treeTouch: {
+    fontFamily: fonts.body,
+    fontSize: 15.5,
+    lineHeight: leading(15.5, 1.4),
+    color: colors.text,
   },
   /** `.tnode .lock` — the trailing count / "private" marker. */
   treeMeta: {

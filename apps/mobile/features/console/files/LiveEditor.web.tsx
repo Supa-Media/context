@@ -40,7 +40,7 @@ import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { livePreview, livePreviewStyles, markdownLanguage } from "./livePreview";
-import { colors, fonts } from "../../design/tokens";
+import { colors, fonts, layout } from "../../design/tokens";
 
 export interface LiveEditorProps {
   /** The authoritative text. Written into the editor only when it differs. */
@@ -86,6 +86,24 @@ function ensureStyles(): void {
 }
 .cm-lp-root .cm-content { color: ${colors.text2}; caret-color: ${colors.text}; }
 .cm-lp-root .cm-line { padding: 0; }
+/*
+  The phone reads the note; it does not inspect it. Same buffer, same
+  decorations, larger measure and more air — see the native half's file comment
+  for the argument. A media query rather than a prop because this stylesheet is
+  injected once for the document and has no React state to read; the breakpoint
+  is layout.narrowBreakpoint, which is what densityFor calls compact, so the
+  two surfaces change over at the same width instead of at two numbers that
+  agree until somebody edits one. (No backticks in here: this comment is inside
+  a template literal, and one would end the string.)
+*/
+@media (max-width: ${layout.narrowBreakpoint - 1}px) {
+  .cm-lp-root .cm-scroller {
+    font-size: 16.5px;
+    line-height: 1.65;
+    padding: 8px 20px 32px;
+  }
+  .cm-lp-root .cm-content { color: ${colors.text}; }
+}
 ${livePreviewStyles}
 `;
   document.head.appendChild(style);

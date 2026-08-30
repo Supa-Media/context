@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Modal,
   Pressable,
@@ -10,7 +10,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { MenuActionId, MenuItem } from "../../console/files/menu";
-import { colors, layout, radii, space } from "../tokens";
+import { colors, layout, radii, shadows, space } from "../tokens";
+import { Icon } from "./Icon";
 import { Text } from "./Text";
 
 /**
@@ -238,6 +239,8 @@ function fixedAt(box: Box): ViewStyle {
 function Row({
   id,
   label,
+  accessibilityLabel,
+  leading,
   touch,
   danger = false,
   shortcut,
@@ -249,6 +252,10 @@ function Row({
 }: {
   id: string;
   label: string;
+  /** The accessible name, where the visible label is not a whole one. */
+  accessibilityLabel?: string;
+  /** A mark before the label. Decorative — the accessible name is `label`. */
+  leading?: ReactNode;
   touch: boolean;
   danger?: boolean;
   shortcut?: string;
@@ -264,7 +271,7 @@ function Row({
   return (
     <Pressable
       role="menuitem"
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel ?? label}
       testID={`menu-item-${id}`}
       onPress={onActivate}
       onHoverIn={() => {
@@ -279,6 +286,7 @@ function Row({
         lit && (touch ? styles.rowHover : styles.rowLit),
       ]}
     >
+      {leading}
       <Text
         variant={touch ? "body" : "tree"}
         numberOfLines={1}
@@ -293,9 +301,7 @@ function Row({
         </Text>
       )}
       {!submenu ? null : (
-        <Text variant={touch ? "tree" : "treeMeta"} aria-hidden style={styles.chevron}>
-          ›
-        </Text>
+        <Icon name="chevronRight" size={touch ? 16 : 13} color={colors.muted} />
       )}
     </Pressable>
   );
@@ -393,7 +399,15 @@ function Sheet({ items, title, onSelect, onDismiss }: MenuProps) {
              * place every time.
              */
             <>
-              <Row id="back" label={`‹  ${parent.label}`} touch onActivate={() => setOpenId(null)} />
+              {/* Drawn, not spelled — see the native half's back row. */}
+              <Row
+                id="back"
+                label={parent.label}
+                accessibilityLabel={`Back to ${parent.label}`}
+                leading={<Icon name="chevronLeft" size={16} color={colors.muted} />}
+                touch
+                onActivate={() => setOpenId(null)}
+              />
               <Separator touch />
             </>
           )}
@@ -697,8 +711,8 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   sheet: {
-    borderTopLeftRadius: radii.console,
-    borderTopRightRadius: radii.console,
+    borderTopLeftRadius: radii.floating,
+    borderTopRightRadius: radii.floating,
     borderTopWidth: 1,
     borderColor: colors.lineStrong,
     backgroundColor: colors.surface2,
@@ -706,7 +720,7 @@ const styles = StyleSheet.create({
     // A sheet that grows past this stops looking like a sheet and starts
     // looking like a screen you cannot leave; the list scrolls instead.
     maxHeight: "80%",
-    boxShadow: "0 -30px 80px -30px rgba(0,0,0,1)",
+    boxShadow: shadows.rising,
   },
   handle: {
     alignSelf: "center",

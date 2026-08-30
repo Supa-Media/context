@@ -289,11 +289,19 @@ describe("a phone", () => {
 
   test("the chevron turns over, and is hidden from the name", () => {
     const app = mountFrame(390);
-    const glyph = () => app.find("frame-nav-toggle")!.querySelector("[aria-hidden]")?.textContent;
+    /*
+      Read off `data-icon` rather than off text. The chevron is drawn from
+      `View`s now and contributes no text content at all, so the previous
+      form of this assertion — comparing `textContent` to `▾` — would pass
+      against a control that had stopped drawing a chevron entirely. See
+      `design/components/Icon`, which carries the attribute for this reason.
+    */
+    const chevron = () =>
+      app.find("frame-nav-toggle")!.querySelector("[data-icon]")?.getAttribute("data-icon");
 
-    expect(glyph()).toBe("\u25be");
+    expect(chevron()).toBe("chevronDown");
     app.press("frame-nav-toggle");
-    expect(glyph()).toBe("\u25b4");
+    expect(chevron()).toBe("chevronUp");
 
     app.unmount();
   });

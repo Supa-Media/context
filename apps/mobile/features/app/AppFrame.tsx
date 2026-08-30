@@ -18,9 +18,10 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Icon, type IconName } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
 import { viewportHeight } from "../design/css";
-import { colors, layout, radii, space } from "../design/tokens";
+import { colors, layout, radii, shadows, space } from "../design/tokens";
 import {
   clampExplorerWidth,
   closesOnSelect,
@@ -374,8 +375,10 @@ export function AppFrame({
           {regions.drawerToggle ? (
             <FrameIconButton
               label={state.drawerOpen ? "Close the file tree" : "Open the file tree"}
-              glyph="☰"
+              icon="panelLeft"
               onPress={toggleExplorer}
+              selected={state.drawerOpen}
+              round={compact}
               testID="frame-drawer-toggle"
             />
           ) : null}
@@ -400,12 +403,19 @@ export function AppFrame({
               accessibilityLabel={switcherLabel}
               aria-expanded={state.navOpen}
               testID="frame-nav-toggle"
-              style={[styles.topLead, styles.navToggle]}
+              style={({ pressed }) => [
+                styles.topLead,
+                styles.navToggle,
+                compact && styles.navToggleCompact,
+                pressed && compact && styles.navTogglePressed,
+              ]}
             >
               {switcher}
-              <Text style={styles.navChevron} aria-hidden>
-                {state.navOpen ? "\u25b4" : "\u25be"}
-              </Text>
+              <Icon
+                name={state.navOpen ? "chevronUp" : "chevronDown"}
+                size={14}
+                color={colors.muted}
+              />
             </Pressable>
           ) : (
             <View style={styles.topLead}>{switcher}</View>
@@ -480,7 +490,7 @@ export function AppFrame({
 
           {regions.explorer === "drawer" ? (
             <View
-              style={[styles.drawer, { paddingBottom: insets.bottom }]}
+              style={[styles.drawer, compact && styles.panelRounded, { paddingBottom: insets.bottom }]}
               accessibilityViewIsModal
               testID="frame-drawer"
             >
@@ -506,7 +516,7 @@ export function AppFrame({
                 sheet, so without this, sign-out sits under the indicator on the
                 one surface it is reachable from.
               */
-              style={[styles.navSheet, { paddingBottom: insets.bottom }]}
+              style={[styles.navSheet, compact && styles.panelRounded, { paddingBottom: insets.bottom }]}
               accessibilityViewIsModal
               role="navigation"
               aria-label="Console"
@@ -556,17 +566,31 @@ function SearchTrigger({ onPress }: { onPress: () => void }) {
   );
 }
 
+/**
+ * A control in the frame's chrome.
+ *
+ * Two shapes, and the difference is not decoration. Under a pointer it is a
+ * 30pt square that tints on hover, sitting in a ruled bar — the hover is what
+ * says it is a control, so the resting state can be nothing at all. A phone has
+ * no hover and no rule: `round` gives it a filled circle and a shadow, because
+ * on a floating chrome the visible object *is* the target, and it is drawn at
+ * `layout.chromeButton` rather than at the 44pt floor for the reason that token
+ * gives.
+ */
 export function FrameIconButton({
   label,
-  glyph,
+  icon,
   onPress,
   selected = false,
+  round = false,
   testID,
 }: {
   label: string;
-  glyph: string;
+  icon: IconName;
   onPress: () => void;
   selected?: boolean;
+  /** The phone's shape: a filled circle lying over the document. */
+  round?: boolean;
   testID?: string;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -578,11 +602,19 @@ export function FrameIconButton({
       role="button"
       accessibilityLabel={label}
       testID={testID}
-      style={[styles.iconButton, hovered && styles.iconButtonHover, selected && styles.iconButtonOn]}
+      style={({ pressed }) => [
+        styles.iconButton,
+        round && styles.iconButtonRound,
+        hovered && !round && styles.iconButtonHover,
+        selected && styles.iconButtonOn,
+        round && pressed && styles.iconButtonPressed,
+      ]}
     >
-      <Text style={[styles.iconGlyph, selected && styles.iconGlyphOn]} aria-hidden>
-        {glyph}
-      </Text>
+      <Icon
+        name={icon}
+        size={round ? 20 : 17}
+        color={selected ? colors.accentText : colors.text2}
+      />
     </Pressable>
   );
 }
@@ -676,7 +708,25 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.line,
     backgroundColor: colors.surface2,
   },
-  topBarCompact: { paddingHorizontal: space.x2 },
+  /**
+   * The phone's top edge, which is not a bar.
+   *
+   * No rule, no fill: the chrome is two circular buttons and a chip lying over
+   * the same ground the note is on, the way Obsidian mobile draws it. A bar
+   * with a hairline under it is a *desktop* toolbar, and on a 390pt screen it
+   * spends the top 45pt of the glass saying so.
+   *
+   * Taller than `topBarHeight` because the circles inside it are 40 and need
+   * air; the hairline that made `topBarHeight` `minTouchTarget + 1` is gone
+   * here, so the pixel it was buying back has nowhere to hide either.
+   */
+  topBarCompact: {
+    height: layout.chromeButton + space.x4,
+    paddingHorizontal: space.x3,
+    gap: space.x2,
+    borderBottomWidth: 0,
+    backgroundColor: "transparent",
+  },
   topLead: { flexDirection: "row", alignItems: "center", gap: space.x2, minWidth: 0 },
   topTrail: {
     marginLeft: "auto",
@@ -756,7 +806,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: "rgba(0,0,0,.55)",
+    backgroundColor: "rgba(0,0,0,.6)",
   },
   /**
    * The rail as a panel: the tree drawer's geometry, 40pt narrower (300 against
@@ -775,7 +825,7 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     borderRightColor: colors.lineStrong,
     backgroundColor: colors.surface,
-    boxShadow: "24px 0 60px -20px rgba(0,0,0,.9)",
+    boxShadow: shadows.drawer,
   },
   /**
    * The primary navigation control on a phone, so it is held to the same floor
@@ -791,15 +841,24 @@ const styles = StyleSheet.create({
    */
   navToggle: { alignSelf: "stretch", minHeight: layout.minTouchTarget },
   /**
-   * `▴`/`▾` rather than `⌃`/`⌄`. The arrowhead pair sits high in most faces —
-   * they are keyboard-legend glyphs, drawn to align with a modifier symbol
-   * rather than with running text — and beside a bordered chip the offset reads
-   * as a rendering fault. `BottomBar` makes the same observation about
-   * Unicode's optical inconsistency, and draws a different conclusion from it
-   * (every glyph gets a visible caption); here there is a chip beside it doing
-   * that job already.
+   * The switcher as a chip rather than as a stretched strip.
+   *
+   * On a pointer it fills the bar's height so the whole 44pt band is a target.
+   * There is no band on a phone — stretching to fill a transparent 56pt row
+   * puts an invisible target over the top of the note and leaves the words
+   * floating with nothing under them. A filled chip is the target *and* the
+   * affordance, and it is the shape the two circles beside it are already in.
    */
-  navChevron: { color: colors.muted, fontSize: 10 },
+  navToggleCompact: {
+    alignSelf: "center",
+    paddingHorizontal: space.x3,
+    paddingRight: space.x2,
+    minHeight: layout.chromeButton,
+    borderRadius: radii.pill,
+    backgroundColor: colors.chrome,
+    boxShadow: shadows.floating,
+  },
+  navTogglePressed: { backgroundColor: colors.chromePressed },
   drawer: {
     position: "absolute",
     top: 0,
@@ -812,7 +871,21 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     borderRightColor: colors.lineStrong,
     backgroundColor: colors.surface,
-    boxShadow: "24px 0 60px -20px rgba(0,0,0,.9)",
+    boxShadow: shadows.drawer,
+  },
+  /**
+   * A panel on a phone is an object, not a column.
+   *
+   * Rounded on its trailing edge and unruled: the hairline is what a *column*
+   * beside a document needs, and a panel that has been slid over one already
+   * has a shadow and a scrim saying the same thing twice as loudly. Applied to
+   * both panels from one place because they are the same object in two sizes,
+   * and the two stylesheets above have already drifted once.
+   */
+  panelRounded: {
+    borderRightWidth: 0,
+    borderTopRightRadius: radii.floating,
+    borderBottomRightRadius: radii.floating,
   },
 
   status: {
@@ -825,11 +898,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface2,
   },
 
-  bottomBar: {
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
-    backgroundColor: colors.surface2,
-  },
+  /**
+   * The slot the toolbar lives in, which draws nothing.
+   *
+   * It used to be the toolbar's own background and top rule. The toolbar is a
+   * floating pill now and carries its own surface and shadow, so a fill here
+   * would be a second bar behind it, and a rule would be the edge the pill
+   * exists not to have. What is left is the *reservation*: the frame keeps
+   * this much of the bottom edge for the toolbar rather than letting the
+   * document run under it. See `layout.floatingInset` for why reserved and not
+   * overlaid.
+   */
+  bottomBar: {},
 
   iconButton: {
     width: 30,
@@ -838,8 +918,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  iconButtonRound: {
+    width: layout.chromeButton,
+    height: layout.chromeButton,
+    borderRadius: radii.pill,
+    backgroundColor: colors.chrome,
+    boxShadow: shadows.floating,
+  },
   iconButtonHover: { backgroundColor: colors.surface3 },
+  iconButtonPressed: { backgroundColor: colors.chromePressed },
   iconButtonOn: { backgroundColor: colors.accentDim },
-  iconGlyph: { color: colors.text2, fontSize: 15 },
-  iconGlyphOn: { color: colors.accentText },
 });

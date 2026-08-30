@@ -1,5 +1,6 @@
 import { Fragment } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { densityFor } from "../../app/frame";
 import { PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { colors, fonts, radii, space } from "../../design/tokens";
@@ -27,6 +28,24 @@ import type { Visibility } from "./types";
  * one of its files buries the one note that differs. Here there is room, so the
  * chip is explicit — "team — follows its folder" rather than an absent marker —
  * and a note that inherits says so instead of merely looking unlabelled.
+ *
+ * ## On a phone it is a line above the note, not a bar across it
+ *
+ * No fill and no rule. Under a pointer this sits at the top of one region among
+ * four and the hairline is what separates it from the tab strip above and the
+ * document below. On a phone there is nothing above it but two floating buttons
+ * and nothing beside it at all, so the fill and the rule are a bar drawn around
+ * a single line of type — which is the detail that makes a phone screen read as
+ * a window that got narrow.
+ *
+ * **And it drops the context segment**, which is not a cosmetic trim. The
+ * phone's top bar carries the context switcher two lines above this, so
+ * "@seyi" here is the same word twice on a 390pt screen — and it was the word
+ * being paid for: at three segments plus a chip the line ellipsised at *both*
+ * ends, so the one segment that actually names the open note read "context…".
+ * The folders are still there and still pressable; what is gone is the segment
+ * the chrome above already states. A pointer layout has the width for both and
+ * keeps it.
  */
 export function Breadcrumb({
   path,
@@ -48,18 +67,28 @@ export function Breadcrumb({
 }) {
   const segments = path.split("/").filter((segment) => segment !== "");
   const folders = segments.slice(0, -1);
+  const compact = densityFor(useWindowDimensions().width) === "compact";
 
   return (
-    <View style={styles.bar}>
-      <Text variant="mono" style={styles.context} numberOfLines={1}>
-        {contextLabel}
-      </Text>
+    <View style={[styles.bar, compact && styles.barCompact]}>
+      {compact ? null : (
+        <Text variant="mono" style={styles.context} numberOfLines={1}>
+          {contextLabel}
+        </Text>
+      )}
 
       {folders.map((segment, index) => {
         const folder = segments.slice(0, index + 1).join("/");
         return (
           <Fragment key={folder}>
-            <Separator />
+            {/*
+              A separator joins two things. With the context segment dropped at
+              `compact` there is nothing to the left of the first folder, and an
+              unconditional one renders the path as "/ 1-projects / note" — a
+              leading slash that reads as an absolute path into the bucket root,
+              which is precisely the addressing this product does not use.
+            */}
+            {compact && index === 0 ? null : <Separator />}
             <PressRow
               accessibilityLabel={`Open ${folder}`}
               onPress={() => onSelectFolder?.(folder)}
@@ -75,8 +104,12 @@ export function Breadcrumb({
         );
       })}
 
-      <Separator />
-      <Text variant="mono" style={styles.leaf} numberOfLines={1}>
+      {compact && folders.length === 0 ? null : <Separator />}
+      <Text
+        variant="mono"
+        style={[styles.leaf, compact && styles.leafCompact]}
+        numberOfLines={1}
+      >
         {baseName(path)}
       </Text>
 
@@ -153,12 +186,29 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.line,
     backgroundColor: colors.surface,
   },
+  /** See the file comment. */
+  barCompact: {
+    paddingHorizontal: space.x5,
+    paddingTop: 0,
+    paddingBottom: space.x2,
+    borderBottomWidth: 0,
+    backgroundColor: "transparent",
+  },
   context: { color: colors.text2, fontSize: 11 },
   separator: { color: colors.heroDim, fontSize: 11 },
   segment: { paddingHorizontal: 3, paddingVertical: 1, borderRadius: radii.xs },
   segmentHover: { backgroundColor: colors.surface3 },
   folder: { color: colors.muted, fontSize: 11 },
   leaf: { color: colors.text, fontSize: 11 },
+  /**
+   * The note's own name, at the size a title is read at.
+   *
+   * 11px is right for the trailing segment of a path in a bar that also carries
+   * a tab strip and a tree; on a phone this line is the only thing naming what
+   * is on screen, and the folders in front of it are the supporting detail
+   * rather than the other way round.
+   */
+  leafCompact: { fontSize: 14, fontWeight: "600" },
   spacer: { flex: 1, minWidth: space.x3 },
 
   chip: {

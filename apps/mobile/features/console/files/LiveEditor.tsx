@@ -22,10 +22,29 @@
  * The props are identical to the web component's on purpose: `NoteEditor` does
  * not branch on platform, Metro picks the file, and neither half can drift from
  * the other's contract without failing typecheck.
+ *
+ * ## A phone reads the note; it does not inspect it
+ *
+ * On a pointer layout this is the mockup's `.note pre`: 12.5px mono in a
+ * bordered well. That is a *source view*, and it is the right one beside a file
+ * tree, a tab strip and a keyboard.
+ *
+ * It is the wrong one on a phone, where the note is the entire screen and the
+ * person holding it is reading. 12.5px mono at arm's length is unreadable, the
+ * border draws a box around the only thing on the glass, and a monospaced
+ * measure wraps a sentence about every six words — which is the effect visible
+ * in the before/after in the pull request. So at `compact` the same buffer is
+ * drawn at reading size in the body face, unboxed, on the ground it already
+ * sits on.
+ *
+ * **The buffer is untouched.** This is a type scale, not a renderer: what is on
+ * screen is still exactly the markdown in the file, which is the property
+ * `NoteEditor` exists to protect and the reason this app has no WYSIWYG.
  */
 
-import { StyleSheet, TextInput } from "react-native";
-import { colors, fonts, leading, radii } from "../../design/tokens";
+import { StyleSheet, TextInput, useWindowDimensions } from "react-native";
+import { densityFor } from "../../app/frame";
+import { colors, fonts, leading, radii, space } from "../../design/tokens";
 import type { LiveEditorProps } from "./LiveEditor.web";
 
 export type { LiveEditorProps };
@@ -36,13 +55,14 @@ export function LiveEditor({
   onChange,
   accessibilityLabel,
 }: LiveEditorProps) {
+  const reading = densityFor(useWindowDimensions().width) === "compact";
   return (
     <TextInput
       multiline
       editable={editable}
       value={value}
       onChangeText={onChange}
-      style={styles.editor}
+      style={[styles.editor, reading && styles.reading]}
       accessibilityLabel={accessibilityLabel}
       spellCheck={false}
       autoCapitalize="none"
@@ -69,5 +89,18 @@ const styles = StyleSheet.create({
     lineHeight: leading(12.5, 1.7),
     paddingVertical: 14,
     paddingHorizontal: 16,
+  },
+  /** See the file comment: the phone reads, it does not inspect. */
+  reading: {
+    borderWidth: 0,
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    color: colors.text,
+    fontFamily: fonts.body,
+    fontSize: 16.5,
+    lineHeight: leading(16.5, 1.65),
+    paddingTop: space.x2,
+    paddingHorizontal: space.x5,
+    paddingBottom: space.x8,
   },
 });

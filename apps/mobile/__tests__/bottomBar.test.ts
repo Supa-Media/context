@@ -20,9 +20,9 @@ import { createRoot } from "react-dom/client";
  *  - **Every target clears `MIN_TOUCH_TARGET` on both axes.** Asserted against
  *    the exported constant rather than against `44`, so the rule cannot pass by
  *    having the same wrong number in two places.
- *  - **The glyphs are hidden from assistive tech and the labels are not.** A
- *    toolbar of bare glyphs announces as punctuation, and here there is no
- *    second route to the command.
+ *  - **The icons are hidden from assistive tech and the labels are not.** An
+ *    icon carries no text at all, so a toolbar that leant on it would announce
+ *    as six unnamed buttons, and here there is no second route to the command.
  *  - **A disabled action is still in the tree, with its label.** Positions on
  *    this bar are fixed and people aim by position; an item that disappears
  *    moves every other item under a thumb already moving.
@@ -156,7 +156,7 @@ function px(node: HTMLElement, property: string): number {
 function action(over: Partial<BottomBarAction> & { id: string }): BottomBarAction {
   return {
     label: `Do ${over.id}`,
-    glyph: "•",
+    icon: "more",
     onPress: () => {},
     ...over,
   };
@@ -165,12 +165,12 @@ function action(over: Partial<BottomBarAction> & { id: string }): BottomBarActio
 /** The Obsidian arrangement this bar is modelled on, as a fixture. */
 function toolbar(): BottomBarAction[] {
   return [
-    action({ id: "back", label: "Go back", glyph: "‹" }),
-    action({ id: "forward", label: "Go forward", glyph: "›" }),
-    action({ id: "search", label: "Search notes and commands", glyph: "⌕" }),
-    action({ id: "new", label: "New note", glyph: "＋" }),
-    action({ id: "tabs", label: "3 notes open", glyph: "▤", badge: 3 }),
-    action({ id: "menu", label: "More actions", glyph: "⋯" }),
+    action({ id: "back", label: "Go back", icon: "arrowLeft" }),
+    action({ id: "forward", label: "Go forward", icon: "arrowRight" }),
+    action({ id: "search", label: "Search notes and commands", icon: "search" }),
+    action({ id: "new", label: "New note", icon: "plus" }),
+    action({ id: "tabs", label: "3 notes open", icon: "file", badge: 3 }),
+    action({ id: "menu", label: "More actions", icon: "more" }),
   ];
 }
 
@@ -191,14 +191,18 @@ describe("what is on the bar", () => {
     expect(bar.need("bottom-bar").getAttribute("role")).toBe("toolbar");
   });
 
-  test("the glyphs are decorative, and the label is the whole name", () => {
-    // Without this the toolbar announces as "‹ › ⌕ ＋ ▤ ⋯" — punctuation — and
-    // on a phone there is no menu and no keymap to reach the commands instead.
-    const bar = mountBar([action({ id: "search", label: "Search notes", glyph: "⌕" })]);
+  test("the icon is decorative, and the label is the whole name", () => {
+    // An icon is drawn from Views and contributes no text at all, so a target
+    // carrying one and nothing else has *no* accessible name unless the
+    // control supplies it — and on a phone there is no menu and no keymap to
+    // reach the command instead. The icon is also hidden on both platforms'
+    // terms: `aria-hidden` for the web tree, `accessibilityElementsHidden`
+    // (which react-native-web renders as nothing, and iOS reads) for native.
+    const bar = mountBar([action({ id: "search", label: "Search notes", icon: "search" })]);
     const target = bar.need("bottom-bar-search");
 
-    expect(target.textContent).toBe("⌕");
-    expect(target.querySelector("[aria-hidden]")?.textContent).toBe("⌕");
+    expect(target.textContent).toBe("");
+    expect(target.querySelector("[aria-hidden]")).not.toBeNull();
     expect(target.getAttribute("aria-label")).toBe("Search notes");
   });
 
@@ -237,7 +241,7 @@ describe("a thumb has to be able to hit it", () => {
     expect(layout.bottomBarHeight).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
   });
 
-  test("the targets share the width evenly rather than sizing to their glyphs", () => {
+  test("the targets share the width evenly rather than sizing to their icons", () => {
     const bar = mountBar(toolbar());
 
     for (const item of toolbar()) {
@@ -285,7 +289,7 @@ describe("an unavailable action", () => {
 
 describe("badges and markers", () => {
   test("a count renders as a badge", () => {
-    const bar = mountBar([action({ id: "tabs", label: "3 notes open", glyph: "▤", badge: 3 })]);
+    const bar = mountBar([action({ id: "tabs", label: "3 notes open", icon: "file", badge: 3 })]);
 
     expect(bar.need("bottom-bar-tabs-badge").textContent).toBe("3");
     expect(bar.text()).toContain("3");
@@ -294,10 +298,11 @@ describe("badges and markers", () => {
   test("zero renders no badge at all, rather than a badge saying 0", () => {
     // "0" in a badge reads as a count worth looking at. Nothing open is nothing
     // to show.
-    const bar = mountBar([action({ id: "tabs", label: "No notes open", glyph: "▤", badge: 0 })]);
+    const bar = mountBar([action({ id: "tabs", label: "No notes open", icon: "file", badge: 0 })]);
 
     expect(bar.find("bottom-bar-tabs-badge")).toBeNull();
-    expect(bar.need("bottom-bar-tabs").textContent).toBe("▤");
+    // The icon is still drawn — what is gone is the badge, not the control.
+    expect(bar.need("bottom-bar-tabs").querySelector("[data-icon]")).not.toBeNull();
   });
 
   test("an action with no badge field has no badge", () => {
@@ -313,7 +318,7 @@ describe("badges and markers", () => {
       action({
         id: "tabs",
         label: "2 notes open, 1 with unsaved changes",
-        glyph: "▤",
+        icon: "file",
         badge: 2,
         marker: true,
       }),
@@ -338,14 +343,14 @@ describe("badges and markers", () => {
 });
 
 describe("captions", () => {
-  test("a title is drawn under the glyph, and hidden from assistive tech", () => {
-    // The glyphs are Unicode characters with wildly different optical sizes —
-    // measured in Chromium at 19px, `☰` is 17px wide and `⌕` is 10.6 — so a
-    // bare-glyph row reads as buttons and a smudge. The caption normalises it.
-    // It is aria-hidden because `label` is already the accessible name, and
-    // "Search, Search notes" is worse than either alone.
+  test("a title is drawn under the icon, and hidden from assistive tech", () => {
+    // The caption is the exception now rather than the rule — see
+    // `BottomBarAction.title`, which records why it used to be nearly
+    // mandatory and what removed the reason. It still has to work where it is
+    // used, and it is aria-hidden because `label` is already the accessible
+    // name: "Search, Search notes" is worse than either alone.
     const bar = mountBar([
-      { id: "search", label: "Search notes", title: "Search", glyph: "\u2315", onPress: () => {} },
+      { id: "search", label: "Search notes", title: "Search", icon: "search", onPress: () => {} },
     ]);
 
     const caption = bar.find("bottom-bar-search-title");
@@ -359,7 +364,7 @@ describe("captions", () => {
 
   test("an action with no title renders none rather than an empty line", () => {
     const bar = mountBar([
-      { id: "files", label: "Open the file tree", glyph: "\u2630", onPress: () => {} },
+      { id: "files", label: "Open the file tree", icon: "panelLeft", onPress: () => {} },
     ]);
     expect(bar.find("bottom-bar-files-title")).toBeNull();
   });

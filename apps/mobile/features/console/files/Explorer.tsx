@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
+import { Icon, type IconName } from "../../design/components/Icon";
 import { Menu } from "../../design/components/Menu";
 import { Text } from "../../design/components/Text";
 import { writeClipboard } from "../../design/clipboard";
 import { isApplePlatform } from "../../design/applePlatform";
-import { colors, radii, space } from "../../design/tokens";
+import { colors, layout, radii, space } from "../../design/tokens";
 import { useFrame } from "../../app/AppFrame";
 import { loadedFolders, type FileBrowser } from "./browser";
 import { Confirm, DeleteForever, MovePicker, NamePrompt } from "./Dialogs";
@@ -178,6 +179,15 @@ export function Explorer({
    * A compact window has neither, and a chord nobody can press is noise.
    */
   const platform = frame.density === "compact" ? ("touch" as const) : ("web" as const);
+  /**
+   * Thumb sizing, from the one fact that decides it.
+   *
+   * The same boolean as `platform` above and deliberately a second name: that
+   * one answers "which gesture vocabulary do the menus speak", this one answers
+   * "how tall is a row". They agree today because a phone is the only density
+   * with a drawer, and a stylus tablet would want the first without the second.
+   */
+  const touch = frame.density === "compact";
 
   const openMenu = useCallback(
     (row: TreeRow, anchor: { x: number; y: number }) => {
@@ -357,13 +367,13 @@ export function Explorer({
 
   return (
     <View style={styles.explorer}>
-      <View style={styles.toolbar}>
+      <View style={[styles.toolbar, touch && styles.toolbarTouch]}>
         <TextInput
           value={query}
           onChangeText={setQuery}
           placeholder="Filter"
           placeholderTextColor={colors.muted}
-          style={styles.filter}
+          style={[styles.filter, touch && styles.filterTouch]}
           accessibilityLabel="Filter notes and folders"
           autoCapitalize="none"
           autoCorrect={false}
@@ -371,19 +381,21 @@ export function Explorer({
           testID="explorer-filter"
         />
         {query !== "" ? (
-          <IconButton label="Clear the filter" glyph="×" onPress={() => setQuery("")} />
+          <IconButton label="Clear the filter" icon="close" touch={touch} onPress={() => setQuery("")} />
         ) : null}
         {files.canEdit ? (
           <>
             <IconButton
               label="New note"
-              glyph="＋"
+              icon="plus"
+              touch={touch}
               onPress={() => setDialog({ kind: "newNote", folder: selectedFolder })}
               testID="explorer-new-note"
             />
             <IconButton
               label="New folder"
-              glyph="⊞"
+              icon="folder"
+              touch={touch}
               onPress={() => setDialog({ kind: "newFolder", folder: selectedFolder })}
               testID="explorer-new-folder"
             />
@@ -393,7 +405,7 @@ export function Explorer({
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={touch ? styles.scrollContentTouch : styles.scrollContent}
         role="tree"
         aria-label="Folders and notes"
         testID="explorer-tree"
@@ -444,11 +456,12 @@ export function Explorer({
             onMenu={openMenu}
             drag={dragHandlers}
             dropTarget={dropTarget}
+            touch={touch}
           />
         )}
       </ScrollView>
 
-      <View style={styles.foot}>
+      <View style={[styles.foot, touch && styles.footTouch]}>
         <Text variant="treeMeta" numberOfLines={1}>
           {counts}
         </Text>
@@ -640,12 +653,15 @@ export function ExplorerDialogs({
 
 function IconButton({
   label,
-  glyph,
+  icon,
+  touch = false,
   onPress,
   testID,
 }: {
   label: string;
-  glyph: string;
+  icon: IconName;
+  /** Thumb sizing: the control clears `layout.minTouchTarget` on both axes. */
+  touch?: boolean;
   onPress: () => void;
   testID?: string;
 }) {
@@ -653,14 +669,12 @@ function IconButton({
     <PressRow
       accessibilityLabel={label}
       onPress={onPress}
-      radius={radii.md}
-      style={styles.iconButton}
+      radius={touch ? radii.control : radii.md}
+      style={touch ? styles.iconButtonTouch : styles.iconButton}
       hoverStyle={styles.iconButtonHover}
       testID={testID}
     >
-      <Text style={styles.iconGlyph} aria-hidden>
-        {glyph}
-      </Text>
+      <Icon name={icon} size={touch ? 20 : 15} color={colors.text2} />
     </PressRow>
   );
 }
@@ -717,6 +731,21 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.line,
   },
+  /**
+   * The drawer's head, unruled.
+   *
+   * The hairline is what separates a toolbar from the *column* under it on a
+   * pointer layout. Inside a panel that is already an object with a shadow, it
+   * is a second edge inside one border, and it is the detail that makes a
+   * drawer read as a shrunken sidebar.
+   */
+  toolbarTouch: {
+    gap: space.x2,
+    paddingHorizontal: space.x3,
+    paddingTop: space.x3,
+    paddingBottom: space.x2,
+    borderBottomWidth: 0,
+  },
   filter: {
     flex: 1,
     minWidth: 0,
@@ -729,6 +758,23 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 12,
   },
+  /** A round-cornered field, at a size a thumb can put a caret in. */
+  filterTouch: {
+    height: layout.minTouchTarget,
+    paddingHorizontal: space.x3,
+    borderRadius: radii.control,
+    fontSize: 15,
+    backgroundColor: colors.surface2,
+    borderColor: "transparent",
+  },
+  iconButtonTouch: {
+    width: layout.minTouchTarget,
+    height: layout.minTouchTarget,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radii.control,
+    backgroundColor: colors.surface2,
+  },
   iconButton: {
     width: 28,
     height: 28,
@@ -740,10 +786,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface2,
   },
   iconButtonHover: { borderColor: colors.lineStrong },
-  iconGlyph: { color: colors.text2, fontSize: 13, lineHeight: 15 },
 
   scroll: { flex: 1, minHeight: 0 },
   scrollContent: { paddingVertical: space.x2, paddingHorizontal: 6 },
+  scrollContentTouch: { paddingVertical: space.x2, paddingHorizontal: space.x2 },
   status: { paddingHorizontal: space.x2, paddingVertical: space.x2 },
 
   match: {
@@ -781,4 +827,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.x3,
     paddingVertical: 5,
   },
+  footTouch: { borderTopColor: "transparent", paddingVertical: space.x2 },
 });
