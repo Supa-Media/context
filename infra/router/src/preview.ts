@@ -343,7 +343,14 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
   // hand-edited URL, and the honest answer is the frozen card.
   if (path.startsWith("/") || path.includes("\\")) return null;
   if (path.split("/").some((segment) => segment === "." || segment === "..")) return null;
-  if (!path.toLowerCase().endsWith(".md")) return null;
+  // A folder is a legitimate target: a team link is an address, and a folder
+  // has one. What is refused is plumbing, and it is two rules rather than one
+  // — a dot-prefixed segment catches `.history/`, and the exact root key
+  // catches `privacy.md`, which has no dot in it at all. Restated from
+  // `isPlumbing` in the control plane, which is the authority; this is the
+  // cheap refusal that keeps a probe for it from becoming a round trip.
+  if (path.split("/").some((segment) => segment.startsWith("."))) return null;
+  if (path === "privacy.md" || path === "scopes.yml") return null;
 
   return { slug, path };
 }

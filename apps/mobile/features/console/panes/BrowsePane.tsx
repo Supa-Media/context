@@ -4,11 +4,11 @@ import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { colors, radii, space } from "../../design/tokens";
 import { Breadcrumb } from "../files/Breadcrumb";
+import { FolderView } from "../files/FolderView";
 import { NoteEditor } from "../files/NoteEditor";
 import { ShareDialog } from "../files/ShareDialog";
 import { consoleOrigin } from "../files/shareOrigin";
 import { findEntry } from "../files/tree";
-import type { FileEntry, Visibility } from "../files/types";
 import { atName } from "../format";
 import { selectedContext, type ConsoleData } from "../types";
 import { tierSentence } from "../visibility";
@@ -242,12 +242,16 @@ export function BrowsePane({
         {selected === null ? (
           <Empty contextLabel={contextLabel} />
         ) : selected.kind === "folder" ? (
-          <FolderSummary
+          <FolderView
             entry={selected}
+            listing={files.listings[selected.path]}
             canSetVisibility={files.canSetVisibility}
+            canShare={files.canShare}
             onSetVisibility={(visibility) =>
               files.setVisibility(selected.path, "folder", visibility)
             }
+            onSelect={files.select}
+            onShare={() => setSharing(selected.path)}
           />
         ) : (
           <NoteEditor
@@ -286,52 +290,6 @@ function Empty({ contextLabel }: { contextLabel: string }) {
   );
 }
 
-/**
- * A folder has no body to edit, so its pane explains what its default means
- * and offers the one control that matters.
- */
-function FolderSummary({
-  entry,
-  canSetVisibility,
-  onSetVisibility,
-}: {
-  entry: FileEntry;
-  /**
-   * Owner-only, like every visibility control. This pane's button said
-   * `canEdit` once, which put "Make this folder private" in front of an
-   * editor on somebody else's context — offered, then refused by the
-   * server. Absent is the truth.
-   */
-  canSetVisibility: boolean;
-  onSetVisibility: (visibility: Visibility) => void;
-}) {
-  const current = entry.visibility;
-  return (
-    <View style={styles.folder}>
-      <Text variant="noteTitle" role="heading" aria-level={2}>
-        {entry.path}
-      </Text>
-      <Text variant="paneSub">
-        {current === "team"
-          ? "Everything in this folder is visible to the people you have granted team access, unless a note is held back as an exception."
-          : "Everything in this folder is yours alone, unless a note is shared as an exception."}
-      </Text>
-      {canSetVisibility ? (
-        <Button
-          label={
-            current === "team" ? "Make this folder private" : "Share this folder with your team"
-          }
-          variant="white"
-          style={styles.folderAction}
-          onPress={() => onSetVisibility(current === "team" ? "private" : "team")}
-        />
-      ) : null}
-      <Text variant="treeMeta">
-        team means named people you granted access to. There is no public tier.
-      </Text>
-    </View>
-  );
-}
 
 const styles = StyleSheet.create({
   /** The editor region: chrome on its top edge, the document filling the rest. */
