@@ -275,7 +275,7 @@ function targetRows(target: MenuTarget): readonly TreeRow[] | null {
  * pasted into itself or into its own descendant, which can never succeed under
  * any listing — so it is not offered rather than offered and refused.
  */
-function canPasteInto(clipboard: Clipboard, folder: string): boolean {
+export function canPasteInto(clipboard: Clipboard, folder: string): boolean {
   return folder !== clipboard.path && !folder.startsWith(`${clipboard.path}/`);
 }
 

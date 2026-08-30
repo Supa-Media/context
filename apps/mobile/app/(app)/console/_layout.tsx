@@ -629,6 +629,7 @@ function Shortcuts({
               canEdit: files.canEdit,
               selectedPath: files.selectedPath,
               listings: files.listings,
+              clipboard: files.clipboard,
             });
             if (intent === null) return false;
             return applyRowIntent(intent, files, onDialog);

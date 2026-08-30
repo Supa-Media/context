@@ -10,6 +10,7 @@ import {
 } from "../features/console/files/rowCommand";
 import { itemsFor, type MenuItem } from "../features/console/files/menu";
 import type { TreeRow } from "../features/console/files/tree";
+import type { Clipboard } from "../features/console/files/clipboard";
 import type { FolderListing } from "../features/console/files/types";
 
 /**
@@ -74,8 +75,10 @@ const LISTINGS: Record<string, FolderListing | undefined> = {
 
 const NOTE = "1-projects/note.md";
 
-function at(selectedPath: string | null, canEdit = true) {
-  return { canEdit, selectedPath, listings: LISTINGS };
+const HELD = { mode: "copy" as const, path: "2-areas/x.md", name: "x.md" };
+
+function at(selectedPath: string | null, canEdit = true, clipboard = HELD as Clipboard | null) {
+  return { canEdit, selectedPath, listings: LISTINGS, clipboard };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -182,6 +185,18 @@ describe("what a keystroke resolves to", () => {
     // who has just opened the console is in.
     expect(intentForRowCommand("newNote", at(null))).toEqual({ kind: "newNote", folder: "" });
     expect(intentForRowCommand("paste", at(null))).toEqual({ kind: "paste", folder: "" });
+  });
+
+  test("pasting nothing is not a command", () => {
+    /*
+      `menu.ts` draws no Paste row for an empty clipboard, and none for a
+      destination inside the folder that is on it. The key answers the same
+      way, through the same function — otherwise ⌘V would consume the keystroke
+      to raise a notice about a paste that could never have happened.
+    */
+    expect(intentForRowCommand("paste", at(NOTE, true, null))).toBeNull();
+    const folderOnClipboard: Clipboard = { mode: "cut", path: "1-projects", name: "1-projects" };
+    expect(intentForRowCommand("paste", at(NOTE, true, folderOnClipboard))).toBeNull();
   });
 
   test("creating inside a selected folder means inside it", () => {

@@ -1,4 +1,6 @@
 import type { FileBrowser } from "./browser";
+import type { Clipboard } from "./clipboard";
+import { canPasteInto } from "./menu";
 import { findEntry, targetFolder } from "./tree";
 import { isMarkdown, parentPath, restoreTargetFor } from "./paths";
 import type { FolderListing } from "./types";
@@ -94,6 +96,17 @@ export interface RowContext {
   canEdit: boolean;
   selectedPath: string | null;
   listings: Readonly<Record<string, FolderListing | undefined>>;
+  /**
+   * What ⌘V would paste, if anything.
+   *
+   * `menu.ts` draws no Paste row when there is nothing to paste, or when the
+   * destination is the folder on the clipboard or inside it — a paste that can
+   * never succeed is not offered rather than offered and refused. The key
+   * answers the same way, through the same function, so ⌘V on an empty
+   * clipboard leaves the browser's own paste alone instead of consuming the
+   * keystroke to raise a notice.
+   */
+  clipboard: Clipboard | null;
 }
 
 export function intentForRowCommand(
@@ -112,7 +125,10 @@ export function intentForRowCommand(
   */
   if (command === "newNote" || command === "newFolder" || command === "paste") {
     const folder = targetFolder(listings, selectedPath);
-    return command === "paste" ? { kind: "paste", folder } : { kind: command, folder };
+    if (command !== "paste") return { kind: command, folder };
+    const clipboard = context.clipboard;
+    if (clipboard === null || !canPasteInto(clipboard, folder)) return null;
+    return { kind: "paste", folder };
   }
 
   if (selectedPath === null) return null;
