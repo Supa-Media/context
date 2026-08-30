@@ -276,7 +276,7 @@ export async function runSearchShardsChecks(check) {
       if (/(?:[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff])/.test(value)) {
         sawLoneSurrogate += 1;
       }
-      if (/[^ -]/.test(value)) sawMultibyte += 1;
+      if (/[^\u0000-\u007f]/.test(value)) sawMultibyte += 1;
       cases += 1;
       if (fnv1a32(value) !== referenceFnv1a32(value)) bad += 1;
     }

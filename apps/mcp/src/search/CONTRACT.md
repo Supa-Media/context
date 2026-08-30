@@ -147,7 +147,10 @@ constants are pinned; the corpus they are computed against is per-caller.**
   itself when nothing is hidden, and throws on a predicate it cannot call —
   returning the index whole would silently restore the leak.
 - `rankedVisibleTo(ranked, isVisible, prefix) → ranked'`, the same predicate
-  applied to the output. Redundant with `visibleIndex` by construction and kept
+  applied to the output. The sequential walk is a known wall-clock cost at high shard
+counts (64 serial GETs); a fetch/parse split that reads in bounded waves while
+parsing one at a time is the queued follow-up, and amending this sentence
+without building it would be the contract describing code that does not exist. Redundant with `visibleIndex` by construction and kept
   anyway: it is the half that does not depend on `visibleIndex` being correct.
   Being redundant, it is also unreachable by any end-to-end test, so it is a
   separate function with its own checks rather than an inline filter.
@@ -240,8 +243,9 @@ deleted when budget allows — disposable, and dead weight.
 
 ## Query
 
-Gather-then-score, streaming: GET manifest → for each shard in bounded
-parallel waves (network parallel, parse sequential): parse, collect the
+Gather-then-score, streaming: GET manifest → for each non-empty shard (the
+manifest's docCount decides — an empty shard is never fetched), sequentially
+today: parse, collect the
 query terms' postings, each term's per-shard df, per-shard prefix/fuzzy vocab
 expansions, and doc metadata for candidate paths only, then release the shard.
 After all shards: assemble global `N`, `avglen` and per-term df **from the
@@ -250,7 +254,10 @@ are bookkeeping only, and never over all docs: the v1 inference-oracle rule
 (`visibleIndex`) carries over whole, so every statistic and every expansion
 vocabulary is computed on the caller's visible corpus. Score the merged
 candidates with v1 semantics; `rankedVisibleTo`/`canSee` apply unchanged at
-the output.
+the output. The sequential walk is a known wall-clock cost at high shard
+counts (64 serial GETs); a fetch/parse split that reads in bounded waves while
+parsing one at a time is the queued follow-up, and amending this sentence
+without building it would be the contract describing code that does not exist.
 
 **PageRank is neutral (rank = 1) in v2**, deliberately: a global link graph
 needs every shard in memory at maintenance time, which is the exact blowup v2
