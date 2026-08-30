@@ -1,30 +1,17 @@
 /**
- * Which characters a font can actually draw.
+ * Which characters the card font can draw.
  *
- * This exists because of what satori does when it cannot draw one: **nothing
- * visible fails.** The glyph renders as tofu — `□` — and the card ships, looking
- * broken, to every unfurler that ever caches it. There is no exception and no
- * error to catch.
+ * The same cmap reader as `infra/router/src/fontCoverage.ts`, and it is a copy
+ * because the router is a dependency-free Worker that cannot import from
+ * `apps/convex`. Two copies of a security-adjacent decision is a real cost, so
+ * `__tests__/cardCoverage.test.ts` asserts the two agree on a battery of
+ * titles rather than trusting that they do.
  *
- * So the card is only rendered when every codepoint in the title is covered,
- * and otherwise the request falls back to the static product card. A generic
- * card is a worse card; a row of empty boxes with our branding around it is a
- * bug somebody screenshots.
- *
- * ## Why the coverage is read from the font rather than generated
- *
- * The obvious alternative is a build-time script emitting a list of ranges. It
- * is faster and it can drift: swap the TTF for a different subset and the list
- * still says what the old one covered, silently. Reading the font we actually
- * embed cannot disagree with itself. It costs one parse per isolate, memoised,
- * on a file that is already in the bundle.
- *
- * ## What this deliberately does not do
- *
- * It is not a shaping engine and makes no claim about *how* text will look —
- * only whether each character has a glyph at all. Combining marks, ligatures
- * and bidi are satori's business; the fuzzing that covers those lives in the
- * card's own tests.
+ * What it exists for: satori draws a glyph it has no font for as tofu (`\u25a1`)
+ * **silently**. There is no exception to catch. A card rendered without this
+ * check is a row of empty boxes wearing our branding, written into a customer's
+ * bucket and cached by every unfurler that sees it — permanently, because
+ * Discord and WhatsApp copy the image to their own CDNs.
  */
 
 /**
@@ -36,7 +23,7 @@
  * closed — every title would fall back to the static card rather than risk
  * tofu.
  */
-export function fontCoverage(font: ArrayBuffer): Set<number> {
+function fontCoverage(font: ArrayBuffer): Set<number> {
   const bytes = new Uint8Array(font);
   const view = new DataView(font);
   const covered = new Set<number>();
@@ -166,7 +153,7 @@ function readFormat12(view: DataView, offset: number, out: Set<number>): void {
  * cmap happens not to list `\n` must not send an ordinary English title to the
  * fallback.
  */
-export function isRenderable(text: string, covered: Set<number>): boolean {
+function isRenderable(text: string, covered: Set<number>): boolean {
   for (const character of text) {
     const code = character.codePointAt(0);
     if (code === undefined) continue;
@@ -184,4 +171,22 @@ function isWhitespace(code: number): boolean {
     code === 0x0d || // carriage return
     code === 0xa0 // no-break space
   );
+}
+
+import { onestFont } from "./cardFont/onest";
+
+/** The card font's coverage, parsed once per isolate. */
+let cached: Set<number> | null = null;
+
+/**
+ * Can the card font draw every character of this title?
+ *
+ * Checked before a render is spent and before bytes are written, so a title
+ * with an uncovered glyph produces no card at all rather than a broken one.
+ */
+export function isRenderableTitle(title: string): boolean {
+  cached ??= fontCoverage(
+    onestFont().buffer.slice(0, onestFont().byteLength) as ArrayBuffer,
+  );
+  return isRenderable(title, cached);
 }

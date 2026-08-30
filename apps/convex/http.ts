@@ -743,6 +743,46 @@ export const sharePreview = httpAction(async (ctx, request) => {
 
 http.route({ path: "/share/preview", method: "POST", handler: sharePreview });
 
+/**
+ * `POST /share/card` — the card image for a share.
+ *
+ * **The second unauthenticated route**, beside `/share/preview`, and it
+ * discloses strictly less than that one: the same title, as a picture. Both are
+ * enumerated in `UNAUTHENTICATED_HTTP_ROUTES` in `__tests__/structure.test.ts`,
+ * which pins the list and forces this argument to be made again for a third.
+ *
+ * PNG bytes, or 404. Every absence is one 404 — unknown token, revoked,
+ * expired, title switched off, never rendered, bucket unreachable — so a
+ * crawler cannot tell a share that was taken back from one that never existed.
+ * The router turns any non-200 into the static product card.
+ *
+ * POST, like every route here: a GET would put the share token in an access
+ * log, a referrer header and browser history. The token is the capability.
+ */
+export const shareCard = httpAction(async (ctx, request) => {
+  const body = await readJsonBody(request);
+  const token = body === null ? null : stringField(body, "token");
+  if (token === null) return new Response(null, { status: 404 });
+
+  const bytes = await ctx.runAction(internal.functions.shareCard.cardBytesForToken, {
+    token,
+  });
+  if (bytes === null) return new Response(null, { status: 404 });
+
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      "Content-Type": "image/png",
+      // The router caches; this says nothing about how long, because the
+      // router's key carries the title hash and is the real invalidation.
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+});
+
+http.route({ path: "/share/card", method: "POST", handler: shareCard });
+
 /* -------------------------------------------------------------------------- */
 
 // POST only, every one of them. The contract has no GET shape, and a GET would

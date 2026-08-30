@@ -94,6 +94,8 @@ import {
   setFolderVisibility,
   setVisibility,
   writeFile,
+  writeImage,
+  readImage,
 } from "./lib/fileOps";
 import type { Scope } from "./lib/privacy";
 import {
@@ -133,6 +135,17 @@ const listingValidator = v.object({
   entries: v.array(entryValidator),
   truncated: v.boolean(),
   manifestUsable: v.boolean(),
+});
+
+const imageWrittenValidator = v.object({
+  kind: v.literal("imageWritten"),
+  key: v.string(),
+  etag: v.string(),
+});
+
+const imageValidator = v.object({
+  kind: v.literal("image"),
+  bytes: v.bytes(),
 });
 
 const fileValidator = v.object({
@@ -204,6 +217,8 @@ const operationResultValidator = v.union(
   visibilityResultValidator,
   folderCreatedValidator,
   privacyResetValidator,
+  imageWrittenValidator,
+  imageValidator,
 );
 
 const operationValidator = v.union(
@@ -216,6 +231,22 @@ const operationValidator = v.union(
     expectedEtag: v.optional(v.string()),
   }),
   v.object({ kind: v.literal("createFolder"), path: v.string() }),
+  /**
+   * Bytes into the opaque store, and back out again.
+   *
+   * Deliberately not `write`/`read` with a flag. Those carry a path and consult
+   * `privacy.md`; these carry a *leaf* and must not, because an object under
+   * `.images/` has no visibility of its own — it borrows the visibility of
+   * whatever note references it. Sharing the variant would mean sharing the
+   * question, and the manifest has no answer for a key it does not describe.
+   */
+  v.object({
+    kind: v.literal("writeImage"),
+    leaf: v.string(),
+    bytes: v.bytes(),
+    contentType: v.string(),
+  }),
+  v.object({ kind: v.literal("readImage"), leaf: v.string() }),
   v.object({ kind: v.literal("move"), from: v.string(), to: v.string() }),
   v.object({ kind: v.literal("copy"), from: v.string(), to: v.string() }),
   v.object({ kind: v.literal("duplicate"), path: v.string() }),
@@ -250,6 +281,8 @@ type FileOperation =
   | { kind: "delete"; path: string; confirmation: string }
   | { kind: "setVisibility"; path: string; visibility: "private" | "team" }
   | { kind: "setFolderVisibility"; path: string; visibility: "private" | "team" }
+  | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
+  | { kind: "readImage"; leaf: string }
   | { kind: "resetPrivacy" };
 
 type OperationResult =
@@ -303,7 +336,9 @@ type OperationResult =
       folders: string[];
       backedUpTo: string | null;
       partial: boolean;
-    };
+    }
+  | { kind: "imageWritten"; key: string; etag: string }
+  | { kind: "image"; bytes: ArrayBuffer };
 
 /* -------------------------------------------------------------------------- */
 /*                               authorization                                */
@@ -534,6 +569,18 @@ export async function executeOperation(
           scope,
         });
         return { kind: "visibility", ...result };
+      }
+      case "writeImage": {
+        const written = await writeImage(store, {
+          leaf: operation.leaf,
+          bytes: new Uint8Array(operation.bytes),
+          contentType: operation.contentType,
+        });
+        return { kind: "imageWritten", ...written };
+      }
+      case "readImage": {
+        const bytes = await readImage(store, operation.leaf);
+        return { kind: "image", bytes };
       }
       case "resetPrivacy": {
         const result = await resetPrivacyManifest(store, { scope, now });

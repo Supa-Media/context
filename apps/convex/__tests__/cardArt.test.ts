@@ -42,25 +42,23 @@ function repoFile(relative: string): string {
 
 describe("the embedded font is the font", () => {
   /**
-   * The one that matters. `infra/router/src/fonts/Onest.ttf` is what the edge
-   * renderer draws with and what this base64 was generated from; nothing but
-   * this test connects them.
+   * The stamped hash describes the bytes actually embedded.
    *
-   * If it fails, regenerate rather than updating the hash:
+   * This used to compare against `infra/router/src/fonts/Onest.ttf`, because
+   * the edge renderer drew with that file and two copies of one font is exactly
+   * how a share ends up with two subtly different cards. That renderer is gone
+   * — the card is drawn here and fetched by the Worker — so there is one copy
+   * again and nothing to drift from.
    *
-   *   node -e "const fs=require('fs');const b=fs.readFileSync('infra/router/src/fonts/Onest.ttf');…"
-   *
-   * — the generator is recorded in the header of `lib/cardFont/onest.ts`.
+   * The check is kept rather than deleted, aimed at what remains true: the
+   * header of `lib/cardFont/onest.ts` records `ONEST_SHA256` as the digest of
+   * the file the base64 came from, and a hand-edited or truncated string would
+   * make that a lie.
    */
-  test("matches the file infra/router draws with, byte for byte", () => {
-    const source = readFileSync(repoFile("infra/router/src/fonts/Onest.ttf"));
-    const sourceHash = createHash("sha256").update(source).digest("hex");
-
-    expect(sourceHash).toBe(ONEST_SHA256);
-
+  test("the stamped hash is the hash of the embedded bytes", () => {
     const embedded = onestFont();
     const embeddedHash = createHash("sha256").update(embedded).digest("hex");
-    expect(embeddedHash).toBe(sourceHash);
+    expect(embeddedHash).toBe(ONEST_SHA256);
   });
 
   test("decodes to a real TrueType file, not a truncated one", () => {

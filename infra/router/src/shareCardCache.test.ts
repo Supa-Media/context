@@ -34,13 +34,15 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "./index";
-import { renderShareCard } from "./ogCard";
-
-/** The last string `renderShareCard` was handed, or null. */
-let rendererSaw: string | null = null;
-vi.mock("./ogCard", () => ({
-  renderShareCard: vi.fn(async () => null),
-}));
+/**
+ * What the control plane was last asked for, and what it hands back.
+ *
+ * The renderer used to live in this Worker and was mocked here. It does not any
+ * more — the card is pre-rendered into the customer's own bucket and this
+ * Worker fetches it — so the seam moved from a module mock to the upstream
+ * `fetch`, which is what the card path now actually depends on.
+ */
+let cardRequests: string[] = [];
 
 const ENV = {
   EXPO_ORIGIN: "https://context.expo.app",
@@ -98,20 +100,28 @@ function cacheStub() {
 let caches_: ReturnType<typeof cacheStub>;
 /** What the control plane currently says this token's title is. */
 let title: string | null;
+/** The bytes the control plane hands back for a card, or null for a 404. */
+let cardBytes: Uint8Array | null;
 
 beforeEach(() => {
-  rendererSaw = null;
-  vi.mocked(renderShareCard).mockImplementation(async (text: string) => {
-    rendererSaw = text;
-    return null;
-  });
+  cardRequests = [];
   scheduled = [];
   caches_ = cacheStub();
   vi.stubGlobal("caches", caches_);
   title = "Chapter transition";
+  cardBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => new Response(JSON.stringify({ title }), { status: 200 })),
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : String(input);
+      if (url.endsWith("/share/card")) {
+        cardRequests.push(String(init?.body ?? ""));
+        return cardBytes === null
+          ? new Response(null, { status: 404 })
+          : new Response(cardBytes as unknown as BodyInit, { status: 200 });
+      }
+      return new Response(JSON.stringify({ title }), { status: 200 });
+    }),
   );
 });
 
@@ -153,17 +163,41 @@ describe("what reaches the renderer, and what reaches the cache key", () => {
     ]);
   });
 
-  it("never hands the renderer more than it will draw", async () => {
+  /**
+   * The card is fetched by **token**, never by title.
+   *
+   * When the renderer lived here there was a bound to enforce — the edge spent
+   * wasm CPU proportional to whatever title it was handed. There is no such
+   * exposure now: this Worker sends a token and receives bytes, so a title of
+   * any length costs it nothing and never reaches it. The property worth
+   * asserting is that the title is not in the request at all.
+   */
+  it("asks for a card by token, and never sends a title", async () => {
     title = "x".repeat(100_000);
     await (await card("?v=aaaaaaaa")).arrayBuffer();
     await settleWrites();
 
-    // `CLAUDE.md`: "one field, bounded twice … an edge that trusts its upstream
-    // to have been careful has no bound at all". The control plane bounds the
-    // title at 60; this edge spends wasm CPU proportional to what it is handed,
-    // so it bounds it again rather than trusting that.
-    expect(rendererSaw).not.toBeNull();
-    expect(rendererSaw!.length).toBeLessThanOrEqual(60);
+    expect(cardRequests).toHaveLength(1);
+    expect(cardRequests[0]).toBe(JSON.stringify({ token: TOKEN }));
+    expect(cardRequests[0]).not.toContain("x".repeat(100));
+  });
+
+  it("falls back to the static card when the control plane has none", async () => {
+    cardBytes = null;
+    const response = await card("?v=aaaaaaaa");
+    const bytes = new Uint8Array(await response.arrayBuffer());
+
+    expect(response.status).toBe(200);
+    // The static product card, which is what every absence renders as.
+    expect(bytes.byteLength).toBeGreaterThan(1000);
+  });
+
+  it("an empty 200 is not a card", async () => {
+    // Guarded because an empty body would otherwise be cached and served as a
+    // broken image for the whole TTL.
+    cardBytes = new Uint8Array(0);
+    const bytes = new Uint8Array(await (await card("?v=aaaaaaaa")).arrayBuffer());
+    expect(bytes.byteLength).toBeGreaterThan(1000);
   });
 
   it("still serves a card where there is no cache at all", async () => {
@@ -174,7 +208,12 @@ describe("what reaches the renderer, and what reaches the cache key", () => {
     const response = await card("?v=aaaaaaaa");
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("image/png");
-    expect((await response.arrayBuffer()).byteLength).toBe(86_220);
+    // The card the control plane returned, served without a cache to put it in.
+    // This asserted the *static* card's exact byte length when the renderer
+    // lived here and always returned null; now a real card comes back, and the
+    // property under test was never the size — it was that the handler answers
+    // 200 with an image rather than throwing.
+    expect((await response.arrayBuffer()).byteLength).toBeGreaterThan(0);
   });
 
   it("serves a card when the colo cache is unavailable", async () => {

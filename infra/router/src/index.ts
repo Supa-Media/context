@@ -9,7 +9,6 @@
  * turns a decision into an actual Response.
  */
 import { previewForShare, renderPreviewHtml } from "./preview";
-import { renderShareCard } from "./ogCard";
 import { route, type Upstream } from "./route";
 // Bundled as bytes by the `Data` rule in wrangler.jsonc, so the OpenGraph card
 // ships with the Worker. Deliberately not an Expo bundle asset: the one thing
@@ -244,6 +243,19 @@ async function shareTitle(
 const CARD_CACHE_SECONDS = 3600;
 
 /**
+ * How long the control plane gets to hand back a card.
+ *
+ * Longer than the 1.5s the title fetch allows, because this reads a *bucket* —
+ * a round trip to somebody's R2 or S3 rather than a row lookup. Still short:
+ * an unfurler waits a couple of seconds and then shows nothing, so a slow card
+ * is worth abandoning for the static one.
+ *
+ * The card is **pre-rendered**, so this is never waiting on a render. If it
+ * ever is, the design has drifted.
+ */
+const CARD_FETCH_TIMEOUT_MS = 3_000;
+
+/**
  * The longest title this edge will draw, matching `MAX_PREVIEW_TITLE` in the
  * control plane. A second copy on purpose — see where it is used.
  */
@@ -340,23 +352,38 @@ function cacheOrNull(): Cache | null {
 }
 
 async function renderedCard(token: string, env: Env): Promise<Response> {
+  const origin = readOrigin(env.CONVEX_ORIGIN);
+  if (origin === null) return staticCard();
+
   try {
-    const title = await shareTitle(token, readOrigin(env.CONVEX_ORIGIN));
-    if (title !== null) {
-      // Bounded here as well as upstream. `previewForShare` already trims to
-      // `MAX_PREVIEW_TITLE`, and `CLAUDE.md` says why that is not enough: "one
-      // field, bounded twice … an edge that trusts its upstream to have been
-      // careful has no bound at all". It matters more here than on the tag,
-      // because this edge spends wasm CPU proportional to what it is handed,
-      // on a path anybody can reach without signing in.
-      const rendered = await renderShareCard(title.slice(0, MAX_CARD_TITLE));
-      // `null` means a glyph we cannot draw — an expected answer, not a fault.
-      if (rendered !== null) return withCardHeaders(rendered);
-    }
+    const timeout =
+      typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+        ? AbortSignal.timeout(CARD_FETCH_TIMEOUT_MS)
+        : undefined;
+
+    const response = await fetch(`${origin}/share/card`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+      ...(timeout ? { signal: timeout } : {}),
+    });
+
+    // 404 is every absence: unknown token, revoked, expired, title off, never
+    // rendered, bucket unreachable. All of them mean the static product card,
+    // which is what keeps revocation invisible to a crawler.
+    if (!response.ok) return staticCard();
+
+    const bytes = await response.arrayBuffer();
+    // A zero-length body is not a card. Guarded because an empty 200 would
+    // otherwise be cached and served as a broken image forever.
+    if (bytes.byteLength === 0) return staticCard();
+
+    return withCardHeaders(new Response(bytes));
   } catch {
-    // Fall through. A crawler cannot act on an error and a 5xx shows no card.
+    // A timeout, a dead socket, a control plane mid-deploy. A crawler that gets
+    // an error shows no card at all, which is worse than a generic one.
+    return staticCard();
   }
-  return staticCard();
 }
 
 function staticCard(): Response {
