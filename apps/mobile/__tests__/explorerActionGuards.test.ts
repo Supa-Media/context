@@ -303,6 +303,7 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     toggleFolder: noop,
     selectedPath: null,
     select: noop,
+    search: async () => ({ hits: [], indexMissing: false, indexIncomplete: false }),
     editor: emptyEditor,
     setDraft: noop,
     save: noop,

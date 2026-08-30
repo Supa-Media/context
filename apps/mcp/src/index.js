@@ -67,10 +67,13 @@ import {
 } from "./session.js";
 import { enforceOrigin, isTransportPath } from "./origin.js";
 import { createSearchBudget, NOTE_INDEX_CHAR_CAP } from "./search/maintain.js";
-import { MAX_RESULTS, parseQuery, rankedVisibleTo } from "./search/query.js";
-import { collectShardCandidates, scoreCollected } from "./search/shardQuery.js";
-import { loadShard, syncShardedIndex } from "./search/shards.js";
-import { termsOf } from "./search/text.js";
+import {
+  SEARCH_RESULT_LIMIT,
+  SEARCH_SUBREQUEST_BUDGET,
+  noteTitle,
+  searchIndexedNotes,
+  snippetLinesFor,
+} from "./search/visible.js";
 import {
   ERROR_HEADER_MISMATCH,
   ERROR_METHOD_NOT_FOUND,
@@ -108,19 +111,15 @@ const GRANOLA_PENDING_PREFIX = ".granola-events/pending/";
 const GRANOLA_COMPLETED_PREFIX = ".granola-events/completed/";
 const PROPOSAL_PENDING_PREFIX = ".proposals/pending/";
 const PROPOSAL_REVIEWED_PREFIX = ".proposals/reviewed/";
-/**
- * Everything one search call may spend on storage: the index sync, its
- * conditional write, and the fresh read behind every snippet.
- *
- * Cloudflare allows 50 subrequests per worker invocation on the free tier, and
- * resolving the session, the storage binding and privacy.md already spend about
- * three of them. This replaces `SEARCH_FILE_CAP = 400`, which was not a budget
- * at all: 400 reads is eight times the limit, so a real context — measured live
- * at 154 notes — answered every unprefixed search with "Too many subrequests".
+/*
+ * `SEARCH_SUBREQUEST_BUDGET` (everything one search may spend on storage: the
+ * index sync, its conditional write, and the fresh read behind every snippet)
+ * and `SEARCH_RESULT_LIMIT` are imported from `search/visible.js`, which is
+ * where the search they bound now lives. They replaced `SEARCH_FILE_CAP = 400`,
+ * which was not a budget at all: 400 reads is eight times the free tier's
+ * per-invocation limit, so a real context — measured live at 154 notes —
+ * answered every unprefixed search with "Too many subrequests".
  */
-const SEARCH_SUBREQUEST_BUDGET = 40;
-/** Hits returned per search; each costs one fresh read for its snippets. */
-const SEARCH_RESULT_LIMIT = 10;
 /**
  * Bounds for the `SEARCH_SUBREQUEST_BUDGET` deployment override.
  *
@@ -3240,203 +3239,50 @@ async function scanVisibleNotes(store, scope, rules, overrides, query, prefix, b
   };
 }
 
-/** Lines of a freshly read note that actually carry one of the matched terms. */
-function snippetLinesFor(text, matchedTerms) {
-  const wanted = new Set(matchedTerms || []);
-  if (wanted.size === 0) return [];
-  const lines = [];
-  for (const line of String(text).split("\n")) {
-    if (!line.trim()) continue;
-    if (!termsOf(line).some((term) => wanted.has(term))) continue;
-    lines.push(line.trim().slice(0, 200));
-    if (lines.length === 3) break;
-  }
-  return lines;
-}
-
 /**
  * The one search path, shared by `search_notes` and the ChatGPT-dialect
  * `search`. Splitting it from the formatting is what keeps the two tools
  * incapable of disagreeing about what a query matches — the difference between
  * them is only the shape of the answer.
  *
- * **The privacy line is `canSee`, applied here and to everything.** The index
- * holds text drawn from private notes, which is fine where it lives — inside
- * the customer's own bucket, beside those notes — and never fine in what
- * leaves the gateway. So nothing derived from the index reaches a caller ahead
- * of this filter: not a path, not a title, not a snippet, and not a count. The
- * reported total is computed from the *filtered* list, because "14 matches"
- * over a list of four visible ones is an existence oracle for the other ten —
- * the same subtraction the console's note census is owner-only to prevent.
- *
- * Snippets are cut from a fresh read of a note the caller may see, never from
- * index data. A hit whose fresh read is gone is dropped; a hit whose fresh read
- * no longer carries the term is listed with its real title rather than a
- * fabricated line.
- *
- * `prefix` narrows the results and no longer makes the call cheaper: the sync
- * maintains one index for the whole bucket, because a per-prefix index would be
- * a second derivative to keep honest and would make the first search in an
- * unvisited folder as expensive as the scan this replaces. The tool description
- * says "narrows" rather than "faster" for that reason.
- *
- * The index is the sharded one (CONTRACT.md § v2). v1's single object had to be
- * parsed whole, so its byte cap was a ceiling a real brain reached and then
- * plateaued under forever; v2 streams shards, so the peak is one shard rather
- * than the corpus. What that costs here is the two-step shape below — sync,
- * then walk every shard the manifest names — and one honesty obligation v1 did
- * not have: a shard this call could not open is docs missing from the answer,
- * and it is reported as such rather than read as an empty shard.
+ * The indexed answer itself is `searchIndexedNotes`, in `search/visible.js`,
+ * so that the console can ask the same question of the same bucket without
+ * there being a second search. Everything specific to *this* surface stays
+ * here: the gateway's privacy engine bound into the two predicates, the
+ * subrequest budget the whole invocation shares, and the literal scan that
+ * answers when there is no usable index — a fallback a Worker can afford
+ * because the alternative is telling somebody their note does not exist.
  */
 async function searchVisibleNotes(store, scope, rules, overrides, query, prefix) {
   // Request-scoped metadata on the per-request store, same as `store.actor`:
   // the tool layer never sees `env`, and a fresh store is built per request, so
   // nothing here survives into another tenant's call.
   const budget = createSearchBudget(store.searchSubrequestBudget ?? SEARCH_SUBREQUEST_BUDGET);
-  let synced = null;
-  try {
-    synced = await syncShardedIndex(store, {
-      budget,
-      reserve: SEARCH_RESULT_LIMIT,
-      // The gateway's own plumbing rule, so the index cannot learn about a key
-      // no tool here can read back.
-      isIndexable: (key) => key.endsWith(".md") && !isPlumbing(key),
-    });
-  } catch {
-    synced = null;
-  }
-
-  // Whether there is an index to answer from at all. v1 asked
-  // `index.docs.size > 0`; the sharded equivalent is "some shard holds a doc",
-  // which is the manifest's own bookkeeping plus whatever this pass built but
-  // has not persisted yet. A bucket nothing has indexed still falls through to
-  // the scan rather than answering "(no matches)" out of an empty index.
-  const indexHasDocs = Boolean(
-    synced &&
-      (synced.manifest.stats.some((entry) => entry.docCount > 0) ||
-        [...synced.shards.values()].some((shard) => shard.docs.size > 0))
-  );
-
-  if (indexHasDocs) {
-    // Streamed one shard at a time — the memory bound v2 exists for — and every
-    // shard's contribution is restricted to docs this caller can see as it is
-    // collected. `rankedVisibleTo` is what keeps index data out of the response;
-    // this is what keeps the corpus *statistics* — every term's df, N, avglen —
-    // from being a function of notes the caller cannot read. Without it, whether
-    // a query term expanded at all was one bit about the private half of the
-    // bucket, readable off the caller's own hits.
-    const isVisible = (path) => canSee(path, scope, rules, overrides);
-    // Parsed once and asked of every shard, so no two shards can be asked a
-    // different question — and never re-tokenized per shard.
-    const { phrases, terms } = parseQuery(query);
-    const queryTerms = [...new Set([...terms, ...phrases.flat()])];
-    const collections = [];
-    // A shard this answer could not look inside. Not the same as an empty one:
-    // docs exist that these results cannot include, which is the floor language
-    // `pending` already carries for the notes a sync did not reach.
-    let shardsUnread = false;
-    for (let id = 0; id < synced.manifest.shardCount; id += 1) {
-      // What the sync already loaded or built costs nothing to re-read, and is
-      // fresher than the object in the bucket when a write was refused.
-      let shard = synced.shards.get(id);
-      if (!shard) {
-        // A shard the manifest says holds nothing is not fetched: the sync
-        // skips those on the same authority ("a GET to prove it is a
-        // subrequest spent on a 404"), and an over-sharded small bucket
-        // otherwise pays one 404 per empty shard on every query.
-        if ((synced.manifest.stats[id]?.docCount || 0) === 0) continue;
-        // Checked before the call, never inferred from it: `loadShard` answers
-        // `null` for a budget refusal and for an absent object alike, and the
-        // two mean opposite things here. The threshold is the same one the
-        // read below is given, so a `null` past this point is the bucket's
-        // answer rather than the budget's.
-        //
-        // And the reserve is the snippet reads, not zero. The sync was handed
-        // the same reserve so the answer could be *rendered*; a shard walk that
-        // spends it hands `toolSearchNotes` a full match list and no note to
-        // quote, which renders "(no matches)" — measured, on a starved
-        // twenty-shard bucket holding twenty-four matches. Coverage this call
-        // could not afford is a floor; an answer that says the thing is not
-        // written down is a lie.
-        if (budget.remaining <= SEARCH_RESULT_LIMIT) {
-          shardsUnread = true;
-          break;
-        }
-        shard = await loadShard(store, budget, SEARCH_RESULT_LIMIT, id);
-        if (!shard) {
-          // Absent or corrupt — and never empty, since empty shards were
-          // skipped above. This answer is missing docs it cannot even name,
-          // which is a floor.
-          shardsUnread = true;
-          continue;
-        }
-      }
-      // Collected and then dropped: `shard` is scoped to this iteration and
-      // nothing outside it holds a reference, so the parsed shard is
-      // collectable before the next one is read. Accumulating parsed shards
-      // into an array instead would be the whole-corpus heap v2 exists to
-      // remove, wearing a loop — `collections` holds one small summary each.
-      collections.push(collectShardCandidates(shard, queryTerms, isVisible));
-    }
-    const ranked = scoreCollected(collections, query);
-    const visible = rankedVisibleTo(ranked, isVisible, prefix);
-    const hits = [];
-    for (const { path, matchedTerms } of visible.slice(0, SEARCH_RESULT_LIMIT)) {
-      if (!budget.take()) break;
-      let object;
-      try {
-        object = await store.get(path);
-      } catch {
-        break;
-      }
-      if (!object) continue;
-      const text = await object.text();
-      hits.push({
-        key: path,
-        title: noteTitle(path, text),
-        snippets: snippetLinesFor(text, matchedTerms),
-      });
-    }
+  const found = await searchIndexedNotes(store, {
+    // The gateway's own privacy engine, bound to this caller's scope. Passed in
+    // rather than imported by that module, because the control plane holds a
+    // ported copy of these two — see `search/visible.js` on why injecting them
+    // composes two proven-identical implementations rather than inventing a
+    // third.
+    isVisible: (path) => canSee(path, scope, rules, overrides),
+    isIndexable: (key) => key.endsWith(".md") && !isPlumbing(key),
+    query,
+    prefix,
+    budget,
+  });
+  if (found.indexed) {
     return {
-      hits,
-      matchCount: visible.length,
-      // The floor is read off the *visible* list and never off `ranked`, and
-      // `MAX_RESULTS` is imported rather than mirrored, because a scoring cap
-      // retyped here is a rule stated twice with nothing running both.
-      // It was written when "the ranked list was full" was a fact about the
-      // whole index, private notes included, so a team connection holding one
-      // visible hit would learn one bit about the fifty it cannot see. Since
-      // the collector filters as it gathers, that is no longer what `ranked`
-      // means — every shard was gathered over this caller's visible docs alone,
-      // and the two lists now differ only by `prefix`. The line stays exactly as it was for two
-      // reasons: a count narrowed to a folder must not report a fullness that
-      // came from outside it, and this is the one of the two that does not
-      // depend on the collector's own filtering being right. Its cost is
-      // unchanged and still the acceptable direction — it can understate what a
-      // caller can see, never overstate it.
-      //
-      // `shardsUnread` is the second half, and it was missing. The v1 walk it
-      // was written for either read the whole index or degraded; a sharded walk
-      // can spend its subrequest budget partway and answer from the shards it
-      // reached, and the count it computes is then over a fraction of the
-      // corpus. Measured on a 16-shard fixture of 200 notes at the default
-      // budget, cold: `1 matching note`. That is not a starvation corner —
-      // ~28 shards is roughly 8,400 notes, past which every search prints a
-      // flat wrong total, permanently.
-      //
-      // Understating is the acceptable direction for a NUMBER, but an agent
-      // reading "1 matching note" over a bucket of two hundred concludes the
-      // thing is not written down, which is the failure `toolSearchNotes`'s
-      // miss copy exists to prevent. So it is a floor, in the census's own
-      // language: "A floor is never printed as a total."
-      matchCountIsFloor: visible.length >= MAX_RESULTS || shardsUnread,
-      indexIncomplete:
-        synced.pending > 0 || synced.listingTruncated || synced.manifestOverflow || shardsUnread,
+      hits: found.hits,
+      matchCount: found.matchCount,
+      matchCountIsFloor: found.matchCountIsFloor,
+      indexIncomplete: found.indexIncomplete,
       degraded: false,
     };
   }
 
-  // Recovery: whatever is left of the invocation, spent on the literal scan.
+  // Recovery: whatever is left of the invocation, spent on the literal scan. A
+  // bucket nothing has indexed yet must never be answered "(no matches)" out of
+  // an empty index.
   const scan = await scanVisibleNotes(
     store,
     scope,
@@ -3535,12 +3381,6 @@ function noteUrl(path) {
 }
 
 /** The first heading if the note has one, else its filename. */
-function noteTitle(path, text) {
-  const heading = String(text).split("\n").find((line) => /^#{1,6}\s+\S/.test(line));
-  if (heading) return heading.replace(/^#{1,6}\s+/, "").trim().slice(0, 200);
-  return path.split("/").pop().replace(/\.md$/, "");
-}
-
 async function toolOpenAiSearch(store, scope, rules, overrides, query) {
   if (!query || typeof query !== "string") return toolError("query required");
   const { hits } = await searchVisibleNotes(store, scope, rules, overrides, query, "");

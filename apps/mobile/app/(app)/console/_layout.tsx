@@ -18,6 +18,7 @@ import { ConsoleDataProvider } from "../../../features/console/ConsoleDataContex
 import { TierChip } from "../../../features/console/ConsoleShell";
 import { Explorer } from "../../../features/console/files/Explorer";
 import { itemsFromListings } from "../../../features/console/files/palette";
+import { useContextSearch } from "../../../features/console/files/useContextSearch";
 import { useTabs } from "../../../features/console/files/useTabs";
 import { readFocus, scopeForFocus } from "../../../features/console/keyboardScope";
 import { tabAt } from "../../../features/console/files/tabs";
@@ -142,6 +143,13 @@ export default function ConsoleLayout() {
   const phone = densityFor(width) === "compact";
   const insideContext = route.kind === "context";
   const browsing = route.kind === "context" && route.view === "browse";
+  /*
+    Whole-context search, behind the same palette that filters what is loaded.
+    `null` while no context is selected — an all-contexts route has no single
+    bucket to ask, so the palette falls back to filtering listings, which is
+    what it did everywhere before this.
+  */
+  const search = useContextSearch(insideContext ? data.files.search : null);
   /*
     A panel is not a preference — `frame.ts` states the rule for its own two,
     and this is a third one living outside it. The sheet can only be raised on
@@ -281,11 +289,16 @@ export default function ConsoleLayout() {
         {paletteOpen ? (
           <Palette
             items={itemsFromListings(data.files.listings)}
-            placeholder="Go to a note"
+            placeholder="Search this context"
+            /*
+              Reached only when the whole-context search is idle too — under
+              `MIN_QUERY`, or with no context selected. Once it has run, the
+              palette's own states say what happened, and none of them is this.
+            */
             noMatchMessage={
-              "Nothing loaded matches that. Only folders you have opened are searched — " +
-              "the rest of this context has not been read yet."
+              "Nothing loaded matches that. Keep typing to search the rest of this context."
             }
+            search={search}
             onChoose={(item) => {
               setPaletteOpen(false);
               data.files.select(item.id);

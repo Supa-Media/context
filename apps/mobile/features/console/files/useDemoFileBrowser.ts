@@ -100,6 +100,14 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       toggleFolder,
       selectedPath,
       select,
+      /*
+        The landing page has no bucket to search. It rejects rather than
+        answering `{ hits: [] }`, because an empty answer is a claim about
+        somebody's notes and this console has never looked at any.
+      */
+      search: async () => {
+        throw new Error("This console cannot search.");
+      },
       editor,
       setDraft: noop,
       save: noop,
