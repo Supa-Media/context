@@ -1,7 +1,8 @@
 import { StyleSheet, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
+import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { colors, radii } from "../../design/tokens";
+import { colors, layout, radii } from "../../design/tokens";
 import type { DragModifier } from "./dnd";
 import { useRowInteractions } from "./rowInteractions";
 import type { TreeRow } from "./tree";
@@ -40,6 +41,20 @@ import type { Visibility } from "./types";
  * A row that cannot be dragged is not merely inert: `privacy.md` is generated,
  * so `canDrag` is false for it and the browser refuses the drag outright rather
  * than starting one that `dnd.ts` would have to refuse after the animation.
+ *
+ * ## `touch` is a different tree, not a bigger one
+ *
+ * The mockup's row is 13px type in 5pt of padding — about 23pt tall. That is
+ * right under a pointer and unusable under a thumb, and the drawer this renders
+ * into on a phone is the *only* way to open a note there. So `touch` raises the
+ * row to `layout.touchRow`, widens the indent step so two levels are still
+ * distinguishable at that height, and grows the type to the size the rest of
+ * the phone reads at.
+ *
+ * It is passed in rather than read from `useFrame` here for the reason the rest
+ * of this file is prop-driven: the same tree is mounted inside the landing
+ * page's fake console window, where the frame is a fallback and the density is
+ * the *browser's*, not the picture's.
  */
 export function FileTree({
   rows,
@@ -50,6 +65,7 @@ export function FileTree({
   onMenu,
   drag,
   dropTarget = null,
+  touch = false,
 }: {
   rows: readonly TreeRow[];
   /**
@@ -68,6 +84,8 @@ export function FileTree({
   drag?: TreeDragHandlers;
   /** The row under a drag, washed to say the drop would land there. */
   dropTarget?: string | null;
+  /** Thumb sizing — see the file comment. */
+  touch?: boolean;
 }) {
   return (
     <>
@@ -76,7 +94,11 @@ export function FileTree({
           return (
             <View
               key={row.key}
-              style={[styles.node, { paddingLeft: 8 + 13 * (row.depth + 1) }]}
+              style={[
+                styles.node,
+                touch && styles.nodeTouch,
+                { paddingLeft: indentFor(row.depth + 1, touch) },
+              ]}
             >
               <Text variant="treeMeta">{row.name}</Text>
             </View>
@@ -94,6 +116,7 @@ export function FileTree({
             onMenu={onMenu}
             drag={drag}
             isDropTarget={dropTarget === row.path}
+            touch={touch}
           />
         );
       })}
@@ -128,6 +151,7 @@ function FileRow({
   onMenu,
   drag,
   isDropTarget,
+  touch,
 }: {
   row: TreeRow;
   /**
@@ -143,6 +167,7 @@ function FileRow({
   onMenu?: (row: TreeRow, anchor: { x: number; y: number }) => void;
   drag?: TreeDragHandlers;
   isDropTarget: boolean;
+  touch: boolean;
 }) {
   const interactions = useRowInteractions({
     path: row.path,
@@ -170,7 +195,8 @@ function FileRow({
         style={StyleSheet.flatten([
           styles.node,
           styles.nodeGrow,
-          { paddingLeft: 8 + 13 * row.depth },
+          touch && styles.nodeTouch,
+          { paddingLeft: indentFor(row.depth, touch) },
         ])}
         hoverStyle={styles.nodeHover}
         selectedStyle={styles.nodeSelected}
@@ -179,11 +205,23 @@ function FileRow({
         // — a second one here is the copy that would drift.
         {...interactions.pressableProps}
       >
-        <Text variant="treeMeta" style={styles.chevron} aria-hidden>
-          {row.kind === "folder" ? (row.expanded ? "\u25be" : "\u25b8") : " "}
-        </Text>
+        {/*
+          A folder gets a chevron and a file gets an empty box of the same
+          width, so every name in the tree starts on one vertical line. A file
+          with no reserved box would hang its name under its folder's chevron,
+          which reads as a second level of indent that is not there.
+        */}
+        <View style={[styles.chevron, touch && styles.chevronTouch]}>
+          {row.kind === "folder" ? (
+            <Icon
+              name={row.expanded ? "chevronDown" : "chevronRight"}
+              size={touch ? 15 : 12}
+              color={colors.muted}
+            />
+          ) : null}
+        </View>
         <Text
-          variant="tree"
+          variant={touch ? "treeTouch" : "tree"}
           numberOfLines={1}
           style={row.selected ? styles.nodeSelectedLabel : undefined}
         >
@@ -194,6 +232,18 @@ function FileRow({
       <VisibilityControl row={row} canSetVisibility={canSetVisibility} onPress={() => onCycleVisibility(row)} />
     </View>
   );
+}
+
+/**
+ * The indent for a depth, which is not one number times a level.
+ *
+ * A thumb row is twice as tall as a pointer row, and 13pt of indent that reads
+ * clearly against a 23pt row disappears against a 48pt one — the eye judges the
+ * step against the height of the thing being stepped. Both start from the same
+ * leading padding so the two trees have the same left margin.
+ */
+function indentFor(depth: number, touch: boolean): number {
+  return (touch ? 12 : 8) + (touch ? 17 : 13) * depth;
 }
 
 function noopPath(_path: string): void {}
@@ -300,7 +350,10 @@ const styles = StyleSheet.create({
   nodeHover: { backgroundColor: colors.surface3 },
   nodeSelected: { backgroundColor: colors.accentDim },
   nodeSelectedLabel: { color: colors.accentText },
-  chevron: { width: 9, color: colors.muted },
+  /** The same row, thumb-sized — see the file comment. */
+  nodeTouch: { minHeight: layout.touchRow, paddingVertical: 0, paddingRight: 12, gap: 6 },
+  chevron: { width: 12, alignItems: "center", justifyContent: "center" },
+  chevronTouch: { width: 18 },
 
   marker: {
     flexGrow: 0,

@@ -10,6 +10,7 @@ import {
 import { ContextRowMenu, RightClickTarget } from "./ContextRowMenu";
 import { PressRow } from "../design/components/Button";
 import { Dot } from "../design/components/Dot";
+import { Icon, type IconName } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
 import { gradient } from "../design/css";
 import { colors, layout, radii, space } from "../design/tokens";
@@ -109,7 +110,7 @@ export function ConsoleRail({
             <RailEntry
               key={section.key}
               label={section.label}
-              glyph={SECTION_GLYPHS[section.key]}
+              icon={SECTION_ICONS[section.key]}
               icons={icons}
               touch={touch}
               selected={route.kind === "app" && route.section === section.key}
@@ -144,10 +145,15 @@ export function ConsoleRail({
               >
                 <RailEntry
                   label={atName(context.slug)}
-                  // A context has no glyph of its own, so the initial stands in —
+                  // A context has no icon of its own, so the initial stands in —
                   // the same letter the avatar uses, which is what makes a
-                  // collapsed rail learnable rather than a row of identical dots.
-                  glyph={context.slug.slice(0, 1).toUpperCase()}
+                  // collapsed rail learnable rather than a row of identical
+                  // marks. It is a *letter*, which is why `RailEntry` takes an
+                  // initial and an icon separately rather than one "mark":
+                  // there is no icon that means "@seyi" and drawing a generic
+                  // one for every context is the row of identical dots this
+                  // avoids.
+                  initial={context.slug.slice(0, 1).toUpperCase()}
                   icons={icons}
                   touch={touch}
                   accessibilityLabel={`Open ${atName(context.slug)}`}
@@ -195,7 +201,7 @@ export function ConsoleRail({
             {section.claim ? (
               <RailEntry
                 label="Claim your @name"
-                glyph="+"
+                icon="plus"
                 icons={icons}
                 touch={touch}
                 accessibilityLabel="Claim your name and create your own brain"
@@ -214,7 +220,10 @@ export function ConsoleRail({
   );
 }
 
-const SECTION_GLYPHS: Record<string, string> = { map: "◈", connections: "⇌" };
+const SECTION_ICONS: Record<string, IconName> = {
+  map: "constellation",
+  connections: "exchange",
+};
 
 function Group({
   heading,
@@ -244,7 +253,8 @@ function Group({
 
 function RailEntry({
   label,
-  glyph,
+  icon,
+  initial,
   icons,
   touch = false,
   selected,
@@ -257,7 +267,10 @@ function RailEntry({
   testID,
 }: {
   label: string;
-  glyph: string;
+  /** The mark for this destination, where one exists. */
+  icon?: IconName;
+  /** A letter standing in for a destination that has no icon — see the call site. */
+  initial?: string;
   icons: boolean;
   /** Phone sizing: the row clears `layout.minTouchTarget` on both axes. */
   touch?: boolean;
@@ -286,14 +299,35 @@ function RailEntry({
       testID={testID}
     >
       {icons ? (
-        <Text style={[styles.glyph, selected && styles.glyphOn, labelStyle]} aria-hidden>
-          {glyph}
-        </Text>
+        initial === undefined ? (
+          <Icon
+            name={icon ?? "chevronRight"}
+            size={17}
+            color={selected ? colors.accentText : colors.text2}
+          />
+        ) : (
+          <Text style={[styles.glyph, selected && styles.glyphOn, labelStyle]} aria-hidden>
+            {initial}
+          </Text>
+        )
       ) : (
         <>
-          {leading}
+          {/*
+            A destination's own mark, where it has one. Drawn in the sheet as
+            well as in the collapsed rail: a phone list of six rows with two
+            different kinds of leading element — a status dot for a context, an
+            icon for a pane — is what makes the two groups legible at a glance,
+            and Obsidian's own sheets carry one per row for the same reason.
+          */}
+          {leading ?? (icon === undefined ? null : (
+            <Icon
+              name={icon}
+              size={touch ? 18 : 15}
+              color={selected ? colors.accentText : colors.muted}
+            />
+          ))}
           <Text
-            variant="rail"
+            variant={touch ? "railTouch" : "rail"}
             style={[selected ? styles.entryOnLabel : undefined, labelStyle]}
             numberOfLines={1}
           >

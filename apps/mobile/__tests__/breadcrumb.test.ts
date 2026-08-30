@@ -20,19 +20,39 @@ import { describe } from "../features/console/files/Breadcrumb";
 group("what the chip says", () => {
   test("a note carrying its own rule says so", () => {
     expect(
-      describe({ visibility: "team", inherited: "private", exception: true, readOnly: false }),
+      describe({
+        visibility: "team",
+        inherited: "private",
+        exception: true,
+        readOnly: false,
+      }),
     ).toBe("team — set on this note");
     expect(
-      describe({ visibility: "private", inherited: "team", exception: true, readOnly: false }),
+      describe({
+        visibility: "private",
+        inherited: "team",
+        exception: true,
+        readOnly: false,
+      }),
     ).toBe("private — set on this note");
   });
 
   test("a note following its folder says that instead", () => {
     expect(
-      describe({ visibility: "team", inherited: "team", exception: false, readOnly: false }),
+      describe({
+        visibility: "team",
+        inherited: "team",
+        exception: false,
+        readOnly: false,
+      }),
     ).toBe("team — follows its folder");
     expect(
-      describe({ visibility: "private", inherited: "private", exception: false, readOnly: false }),
+      describe({
+        visibility: "private",
+        inherited: "private",
+        exception: false,
+        readOnly: false,
+      }),
     ).toBe("private — follows its folder");
   });
 
@@ -57,17 +77,82 @@ group("what the chip says", () => {
     // The two agree in practice, but reading `visibility` here would make the
     // chip silently wrong the moment they ever diverged.
     expect(
-      describe({ visibility: "team", inherited: "private", exception: false, readOnly: false }),
+      describe({
+        visibility: "team",
+        inherited: "private",
+        exception: false,
+        readOnly: false,
+      }),
     ).toBe("private — follows its folder");
   });
 
   test("privacy.md is the map, not a thing on it", () => {
     expect(
-      describe({ visibility: "private", inherited: "private", exception: false, readOnly: true }),
+      describe({
+        visibility: "private",
+        inherited: "private",
+        exception: false,
+        readOnly: true,
+      }),
     ).toBe("the access map");
     // Read-only wins over everything: privacy.md has no visibility of its own.
     expect(
-      describe({ visibility: "team", inherited: "team", exception: true, readOnly: true }),
+      describe({
+        visibility: "team",
+        inherited: "team",
+        exception: true,
+        readOnly: true,
+      }),
     ).toBe("the access map");
   });
+});
+
+/**
+ * The phone's wording is shorter and is still three answers.
+ *
+ * The long form was ellipsising the note's own name out of the top of a 390pt
+ * screen, and the obvious trim — dropping to "team" and "private" — is exactly
+ * the collapse the long form's comment exists to prevent: a note that follows
+ * a shared folder and a note deliberately shared on its own would read the
+ * same, and only one of those is safe to make private without thinking.
+ */
+test("the brief wording keeps the three cases distinct", () => {
+  const inherited = describe({
+    visibility: "team",
+    inherited: "team",
+    exception: false,
+    readOnly: false,
+    brief: true,
+  });
+  const excepted = describe({
+    visibility: "team",
+    inherited: "private",
+    exception: true,
+    readOnly: false,
+    brief: true,
+  });
+  const manifest = describe({
+    visibility: "private",
+    inherited: "private",
+    exception: false,
+    readOnly: true,
+    brief: true,
+  });
+
+  expect(new Set([inherited, excepted, manifest]).size).toBe(3);
+  // The visibility itself still leads, so the chip answers "who can read
+  // this" before it answers "why".
+  expect(inherited.startsWith("team")).toBe(true);
+  expect(excepted.startsWith("team")).toBe(true);
+
+  // And it is genuinely shorter than what it replaced, which is the whole
+  // reason it exists.
+  expect(inherited.length).toBeLessThan(
+    describe({
+      visibility: "team",
+      inherited: "team",
+      exception: false,
+      readOnly: false,
+    }).length,
+  );
 });

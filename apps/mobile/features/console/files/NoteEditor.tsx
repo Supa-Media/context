@@ -1,7 +1,8 @@
-import { ScrollView, StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import { densityFor } from "../../app/frame";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { colors, fonts, radii } from "../../design/tokens";
+import { colors, fonts, radii, space } from "../../design/tokens";
 import { saveButton, type EditorState } from "./editor";
 import { LiveEditor } from "./LiveEditor";
 import { highlightMarkdown } from "./highlight";
@@ -28,6 +29,15 @@ import { highlightMarkdown } from "./highlight";
  * Read-only notes (`privacy.md`, and the whole landing-page demo) render as the
  * mockup's tinted preview rather than a disabled editor, because a disabled
  * editor looks broken and a preview looks deliberate.
+ *
+ * The preview keeps its monospace face at every width, and that is not an
+ * oversight in the phone layout beside it: `LiveEditor` grows to reading type
+ * on a phone because the thing on screen is a *note*, and the two documents
+ * that reach this branch are `privacy.md` — a generated config file, where the
+ * mono face is the whole signal that it is one — and the landing page's demo,
+ * which is a picture of the console rather than somebody's reading surface.
+ * What the preview does drop on a phone is its *box*, for the same reason the
+ * editor drops its own: a border around the only thing on the glass.
  */
 export function NoteEditor({
   state,
@@ -48,9 +58,10 @@ export function NoteEditor({
 }) {
   const editable = canEdit && !state.readOnly;
   const button = saveButton(state);
+  const compact = densityFor(useWindowDimensions().width) === "compact";
 
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, compact && styles.wrapCompact]}>
       {state.readOnly ? <ManifestNotice /> : null}
 
       {editable ? (
@@ -62,7 +73,10 @@ export function NoteEditor({
           accessibilityLabel={`${state.path} markdown`}
         />
       ) : (
-        <ScrollView style={styles.preview} contentContainerStyle={styles.previewContent}>
+        <ScrollView
+          style={[styles.preview, compact && styles.previewCompact]}
+          contentContainerStyle={compact ? styles.previewContentCompact : styles.previewContent}
+        >
           <Text variant="code">
             {highlightMarkdown(state.draft).map((span, index) => (
               <Text
@@ -96,19 +110,32 @@ export function NoteEditor({
       ) : null}
 
       {editable ? (
-        <View style={styles.statusRow}>
+        <View style={[styles.statusRow, compact && styles.statusRowCompact]}>
           <Text variant="meta" style={styles.status}>
             {statusLine(state)}
           </Text>
           {state.status === "dirty" || state.status === "error" ? (
             <Button label="Discard changes" onPress={onDiscard} />
           ) : null}
-          <Button
-            label={button.label}
-            variant={state.status === "conflict" ? "danger" : "white"}
-            disabled={button.disabled}
-            onPress={onSave}
-          />
+          {/*
+            Save is on the bottom toolbar on a phone — `check`, which dims when
+            there is nothing to save and carries a dot when there is — so
+            drawing it again here is two Save buttons on a 390pt screen, one of
+            them under the reader's thumb and one not.
+
+            Discard is *not* dropped with it. It has no other route on a phone:
+            the row menu acts on a file in the tree, and this acts on the draft
+            in front of you. A control removed because its neighbour was
+            duplicated is a capability lost to a layout decision.
+          */}
+          {compact ? null : (
+            <Button
+              label={button.label}
+              variant={state.status === "conflict" ? "danger" : "white"}
+              disabled={button.disabled}
+              onPress={onSave}
+            />
+          )}
         </View>
       ) : null}
     </View>
@@ -156,6 +183,8 @@ function statusLine(state: EditorState): string {
 
 const styles = StyleSheet.create({
   wrap: { gap: 12, flex: 1, minHeight: 0 },
+  /** The document runs to the edges; what padding there is belongs to it. */
+  wrapCompact: { gap: 0 },
 
   preview: {
     flex: 1,
@@ -169,10 +198,31 @@ const styles = StyleSheet.create({
     // screen with the rest of the note behind a scrollbar that need not exist.
   },
   previewContent: { paddingVertical: 14, paddingHorizontal: 16 },
+  previewCompact: { borderWidth: 0, borderRadius: 0, backgroundColor: "transparent" },
+  previewContentCompact: {
+    paddingTop: space.x2,
+    paddingHorizontal: space.x5,
+    paddingBottom: space.x8,
+  },
   codeKey: { color: colors.codeKey },
   codeHeading: { color: colors.text, fontWeight: "500" },
 
   statusRow: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
+  /**
+   * One quiet line under the note rather than a bar of controls.
+   *
+   * It carries the surface colour, which is not decoration: the editor above it
+   * is `flex: 1` and clips, so without a fill the row sits directly against a
+   * line of the document cut off mid-height, and the two read as one thing
+   * overlapping. A painted strip reads as the foot of the region, which is what
+   * it is.
+   */
+  statusRowCompact: {
+    paddingHorizontal: space.x5,
+    paddingTop: space.x2,
+    paddingBottom: space.x2,
+    backgroundColor: colors.surface,
+  },
   status: { flexGrow: 1, flexShrink: 1 },
 
   conflict: {

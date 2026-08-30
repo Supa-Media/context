@@ -257,8 +257,10 @@ describe("the tab strip draws what tabs.ts says", () => {
     // still have moved the × sideways.
     expect(dirtyClose.contains(strip.need(`tab-dot-${NOTES}`))).toBe(true);
 
+    // The × is drawn now rather than typed, so it is asserted by name — see
+    // `design/components/Icon`, which carries `data-icon` for exactly this.
     const cleanClose = strip.need(`tab-close-${PLAN}`);
-    expect(cleanClose.textContent).toContain("×");
+    expect(cleanClose.querySelector('[data-icon="close"]')).not.toBeNull();
     expect(strip.find(`tab-dot-${PLAN}`)).toBeNull();
 
     // …and it is still a close button while it is wearing a dot.

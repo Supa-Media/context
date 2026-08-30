@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Slot, useRouter, usePathname } from "expo-router";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { Button, PressRow } from "../../../features/design/components/Button";
 import { Dot } from "../../../features/design/components/Dot";
@@ -11,6 +11,7 @@ import { StatusBar } from "../../../features/design/components/StatusBar";
 import { Text } from "../../../features/design/components/Text";
 import { colors, layout, radii, space } from "../../../features/design/tokens";
 import { AppFrame, useFrame } from "../../../features/app/AppFrame";
+import { densityFor } from "../../../features/app/frame";
 import { BottomBar } from "../../../features/console/BottomBar";
 import { AccountBlock, Avatar, ConsoleRail } from "../../../features/console/ConsoleRail";
 import { ConsoleDataProvider } from "../../../features/console/ConsoleDataContext";
@@ -22,7 +23,9 @@ import { readFocus, scopeForFocus } from "../../../features/console/keyboardScop
 import { tabAt } from "../../../features/console/files/tabs";
 import { targetFolder } from "../../../features/console/files/tree";
 import { TabStrip } from "../../../features/console/files/TabStrip";
+import { TabSwitcher, tabCountLabel } from "../../../features/console/files/TabSwitcher";
 import { statusSegments } from "../../../features/console/files/status";
+import { dirtyCount } from "../../../features/console/files/tabs";
 import { atName } from "../../../features/console/format";
 import {
   hrefFor,
@@ -73,6 +76,7 @@ import { WELCOME_ROUTE } from "../../../features/onboarding/route";
  */
 export default function ConsoleLayout() {
   const data = useLiveConsoleData();
+  const { width } = useWindowDimensions();
   const router = useRouter();
   const pathname = usePathname();
   const route = routeForPath(pathname);
@@ -104,6 +108,13 @@ export default function ConsoleLayout() {
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   /*
+    The phone's answer to the tab strip. Held here beside `tabs` for the same
+    reason the tab model is: the switcher acts on the model, and a piece of
+    state that lives one level down from the thing it opens is a ref waiting to
+    be written.
+  */
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  /*
     A menu or a dialog raised by the tree is an overlay too, not just the
     palette. Without this, ⌘K opens the palette *behind* an open context menu:
     `keymap.ts` enforces "nothing behind an overlay fires", but only for the
@@ -122,8 +133,29 @@ export default function ConsoleLayout() {
   // context's name.
   const tabs = useTabs(data.files, data.selectedContextId);
   const current = selectedContext(data);
+  /*
+    Which half of `tabs.ts` is on screen. `TabStrip` is the pointer half and
+    `TabSwitcher` the thumb half — see either file's header for why they are two
+    components rather than one with a breakpoint. Read here rather than inside
+    them because it also decides whether the bottom toolbar carries a count.
+  */
+  const phone = densityFor(width) === "compact";
   const insideContext = route.kind === "context";
   const browsing = route.kind === "context" && route.view === "browse";
+  /*
+    A panel is not a preference — `frame.ts` states the rule for its own two,
+    and this is a third one living outside it. The sheet can only be raised on
+    a phone, on Browse; rotating a tablet out of compact, or walking to Map,
+    leaves nothing on screen that could put it away. Without this it comes back
+    the moment you rotate home, over a note you never asked about.
+
+    Cleared rather than merely not rendered, because "not rendered" is what
+    makes it come back: the flag would still be true.
+  */
+  useEffect(() => {
+    if (!phone || !browsing) setSwitcherOpen(false);
+  }, [phone, browsing]);
+
   const contextLabel = atName(current?.slug ?? "your context");
 
   return (
@@ -204,7 +236,12 @@ export default function ConsoleLayout() {
         status={<Status data={data} />}
         bottomBar={
           insideContext ? (
-            <ConsoleBottomBar data={data} onSearch={() => setPaletteOpen(true)} />
+            <ConsoleBottomBar
+              data={data}
+              tabs={tabs}
+              onSearch={() => setPaletteOpen(true)}
+              onOpenTabs={() => setSwitcherOpen(true)}
+            />
           ) : undefined
         }
       >
@@ -212,15 +249,34 @@ export default function ConsoleLayout() {
           files={data.files}
           tabs={tabs}
           onSearch={() => setPaletteOpen(true)}
-          paletteOpen={paletteOpen || treeOverlay}
+          paletteOpen={paletteOpen || treeOverlay || switcherOpen}
         />
         <EditorRegion
           browse={browsing}
           failure={data.failure}
-          tabs={browsing ? tabs : null}
+          tabs={browsing && !phone ? tabs : null}
+          phone={phone}
         >
           <Slot />
         </EditorRegion>
+
+        {/*
+          The tab sheet, mounted only where there is a control that opens it.
+          `TabSwitcher` closes itself when the last tab goes (see its effect),
+          and the guard on `tabs.length` is what stops it re-opening empty if
+          something else empties the strip while it is up.
+        */}
+        {switcherOpen && phone && tabs.state.tabs.length > 0 ? (
+          <TabSwitcher
+            state={tabs.state}
+            onActivate={(path) => {
+              tabs.activate(path);
+              setSwitcherOpen(false);
+            }}
+            onClose={tabs.close}
+            onDismiss={() => setSwitcherOpen(false)}
+          />
+        ) : null}
 
         {paletteOpen ? (
           <Palette
@@ -261,12 +317,15 @@ function EditorRegion({
   browse,
   failure,
   tabs,
+  phone,
   children,
 }: {
   browse: boolean;
   failure: ConsoleData["failure"];
   /** Absent on a route with no notes open, and on every non-Browse pane. */
   tabs: ReturnType<typeof useTabs> | null;
+  /** Compact. Decides the document panes' measure, not which regions exist. */
+  phone: boolean;
   children: ReactNode;
 }) {
   /*
@@ -315,7 +374,10 @@ function EditorRegion({
   }
 
   return (
-    <ScrollView style={styles.pane} contentContainerStyle={styles.paneContent}>
+    <ScrollView
+      style={styles.pane}
+      contentContainerStyle={[styles.paneContent, phone && styles.paneContentPhone]}
+    >
       {banner}
       {children}
     </ScrollView>
@@ -524,7 +586,17 @@ function Rail({
  * exists. The tree toggle is here as well as in the top bar because this is
  * where a thumb is, and the top bar is a stretch on a tall phone.
  */
-function ConsoleBottomBar({ data, onSearch }: { data: ConsoleData; onSearch: () => void }) {
+function ConsoleBottomBar({
+  data,
+  tabs,
+  onSearch,
+  onOpenTabs,
+}: {
+  data: ConsoleData;
+  tabs: ReturnType<typeof useTabs>;
+  onSearch: () => void;
+  onOpenTabs: () => void;
+}) {
   const frame = useFrame();
   const files = data.files;
   // The same rule the explorer's own `+` uses, from the same function: a
@@ -537,11 +609,10 @@ function ConsoleBottomBar({ data, onSearch }: { data: ConsoleData; onSearch: () 
         {
           id: "files",
           label: frame.state.drawerOpen ? "Close the file tree" : "Open the file tree",
-          glyph: "\u2630",
-          title: "Files",
+          icon: "panelLeft",
           onPress: frame.toggleExplorer,
         },
-        { id: "search", label: "Search notes", glyph: "\u2315", title: "Search", onPress: onSearch },
+        { id: "search", label: "Search notes", icon: "search" as const, onPress: onSearch },
         /*
           Absent, not dimmed. `BottomBar` argues that a fixed strip must not
           move items out from under a thumb, and that is right for Save, which
@@ -555,17 +626,41 @@ function ConsoleBottomBar({ data, onSearch }: { data: ConsoleData; onSearch: () 
               {
                 id: "new",
                 label: "New note",
-                glyph: "\uff0b",
-                title: "New",
+                icon: "plus" as const,
                 onPress: () => files.createNote(folder, "Untitled"),
+              },
+            ]
+          : []),
+        /*
+          The tab count, in the position Obsidian, Safari and Chrome all put it:
+          a number in the toolbar rather than a strip above the note. The strip
+          is not drawn at this density at all — see `EditorRegion` — so this is
+          the only way to a note that is open but not in front of you.
+
+          Absent with nothing open, rather than a `0`. There is no sheet to
+          raise, and a control that opens an empty sheet is worse than one that
+          is not there. It is the last item on the bar for that reason too:
+          appearing and disappearing must not move a target somebody is already
+          reaching for, which is `BottomBar`'s rule, and the end of the row is
+          the one place where it cannot.
+        */
+        ...(tabs.state.tabs.length > 0
+          ? [
+              {
+                id: "tabs",
+                // One phrasing, from the file that owns the counting.
+                label: tabCountLabel(tabs.state),
+                icon: "file" as const,
+                badge: tabs.state.tabs.length,
+                marker: dirtyCount(tabs.state) > 0,
+                onPress: onOpenTabs,
               },
             ]
           : []),
         {
           id: "save",
           label: "Save this note",
-          glyph: "\u2713",
-          title: "Save",
+          icon: "check" as const,
           // Absent rather than dead would move every other button mid-reach,
           // so it dims in place — see `BottomBar`.
           disabled: files.editor.status !== "dirty",
@@ -723,6 +818,19 @@ const styles = StyleSheet.create({
     paddingTop: space.x6,
     paddingHorizontal: space.x7,
     paddingBottom: space.x8,
+  },
+  /**
+   * A phone's gutter, and a phone's tail.
+   *
+   * 28pt either side of a 390pt screen leaves a 334pt measure for a document
+   * of cards; 20 leaves 350, which is a whole word per line on the settings
+   * copy. The top loses most of its padding because the chrome above it is
+   * transparent now — the 24 was clearing a ruled bar that is no longer there.
+   */
+  paneContentPhone: {
+    paddingTop: space.x3,
+    paddingHorizontal: space.x5,
+    paddingBottom: space.x6,
   },
 
   failure: { marginBottom: 18 },

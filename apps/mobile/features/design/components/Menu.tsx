@@ -2,8 +2,9 @@ import { useState, type ReactNode } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { MenuActionId, MenuItem } from "../../console/files/menu";
-import { colors, radii, space } from "../tokens";
+import { colors, radii, shadows, space } from "../tokens";
 import { PressRow } from "./Button";
+import { Icon } from "./Icon";
 import { Text } from "./Text";
 
 /**
@@ -72,21 +73,33 @@ export interface MenuProps {
 function SheetRow({
   id,
   label,
+  accessibilityLabel,
   danger = false,
+  leading,
   trailing,
   align = "left",
   onPress,
 }: {
   id: string;
   label: string;
+  /**
+   * The accessible name, where the visible label is not a whole one.
+   *
+   * The back row is the case: it draws the parent's name beside a chevron,
+   * which a person reads as "back to Visibility" and a screen reader would
+   * otherwise announce as a second button called "Visibility".
+   */
+  accessibilityLabel?: string;
   danger?: boolean;
+  /** A mark before the label. Decorative — the accessible name is `label`. */
+  leading?: ReactNode;
   trailing?: ReactNode;
   align?: "left" | "center";
   onPress: () => void;
 }) {
   return (
     <PressRow
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel ?? label}
       onPress={onPress}
       radius={radii.md}
       testID={`menu-item-${id}`}
@@ -95,6 +108,7 @@ function SheetRow({
       style={StyleSheet.flatten([styles.row, align === "center" && styles.rowCentered])}
       hoverStyle={styles.rowHover}
     >
+      {leading}
       <Text
         variant="body"
         numberOfLines={1}
@@ -168,9 +182,18 @@ export function Menu({ items, title, onSelect, onDismiss }: MenuProps) {
              * place every time.
              */
             <>
+              {/*
+                The chevron is drawn, not spelled. `‹` inside `label` made it
+                part of the *accessible name* — "single left-pointing angle
+                quotation mark, Visibility" — because `SheetRow` passes the
+                same string to `accessibilityLabel`. An icon in `leading` is
+                hidden from the name and is the same mark to look at.
+              */}
               <SheetRow
                 id="back"
-                label={`‹  ${parent.label}`}
+                label={parent.label}
+                accessibilityLabel={`Back to ${parent.label}`}
+                leading={<Icon name="chevronLeft" size={16} color={colors.muted} />}
                 onPress={() => setOpenId(null)}
               />
               <Separator />
@@ -191,9 +214,7 @@ export function Menu({ items, title, onSelect, onDismiss }: MenuProps) {
                   danger={item.danger === true}
                   trailing={
                     item.items === undefined ? null : (
-                      <Text variant="tree" aria-hidden style={styles.chevron}>
-                        ›
-                      </Text>
+                      <Icon name="chevronRight" size={16} color={colors.muted} />
                     )
                   }
                   onPress={() => {
@@ -231,8 +252,8 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   sheet: {
-    borderTopLeftRadius: radii.console,
-    borderTopRightRadius: radii.console,
+    borderTopLeftRadius: radii.floating,
+    borderTopRightRadius: radii.floating,
     borderTopWidth: 1,
     borderColor: colors.lineStrong,
     backgroundColor: colors.surface2,
@@ -240,7 +261,7 @@ const styles = StyleSheet.create({
     // A sheet that grows past this stops looking like a sheet and starts
     // looking like a screen you cannot leave; the list scrolls instead.
     maxHeight: "80%",
-    boxShadow: "0 -30px 80px -30px rgba(0,0,0,1)",
+    boxShadow: shadows.rising,
   },
   handle: {
     alignSelf: "center",

@@ -318,12 +318,24 @@ describe("a submenu is a second page, not a nested popover", () => {
     sheet.press("menu-item-visibility");
 
     expect(sheet.labels()).toEqual([
-      "‹  Visibility",
+      "Visibility",
       "Private",
       "Team",
       "Follow folder",
       "Cancel",
     ]);
+    /*
+      The back row *draws* the parent's name beside a chevron and is *named*
+      "Back to Visibility". The chevron used to be spelled into the label
+      string — `‹  Visibility` — which put a "single left-pointing angle
+      quotation mark" into the accessible name, and dropping it without
+      replacing it would leave a button announced identically to the item that
+      opened it.
+    */
+    const back = sheet.find("menu-item-back")!;
+    expect(back.getAttribute("aria-label")).toBe("Back to Visibility");
+    expect(back.querySelector('[data-icon="chevronLeft"]')).not.toBeNull();
+
     // The first page is gone rather than layered underneath.
     expect(sheet.find("menu-item-delete")).toBeNull();
 
@@ -797,7 +809,7 @@ describe("the web build picks its presentation on the window, not the bundle", (
     expect(menu.find("menu-sub")).toBeNull();
     expect(menu.find("menu-item-back")).not.toBeNull();
     expect(menu.labels()).toEqual([
-      "‹  Visibility",
+      "Visibility",
       "Private",
       "Team",
       "Follow folder",

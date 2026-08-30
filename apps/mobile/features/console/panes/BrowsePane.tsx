@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { densityFor } from "../../app/frame";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { colors, radii, space } from "../../design/tokens";
@@ -69,6 +70,15 @@ export function BrowsePane({
    * beyond a draft recipient.
    */
   const [sharing, setSharing] = useState<string | null>(null);
+
+  /*
+    The note runs to the edges of the glass on a phone, and the padding that
+    used to sit here belongs to the document instead — see `NoteEditor`. A
+    16pt frame around a note *plus* the note's own reading margin is 36pt of
+    gutter on a 390pt screen, and it is what made the measure wrap every six
+    words in the before shot.
+  */
+  const compact = densityFor(useWindowDimensions().width) === "compact";
 
   const noBucket = data.storage === null && !data.loading;
   const manifestBroken = files.listings[""]?.manifestUsable === false;
@@ -187,7 +197,7 @@ export function BrowsePane({
       ) : null}
 
       {hasNotice ? (
-        <View style={styles.notices}>
+        <View style={[styles.notices, compact && styles.noticesCompact]}>
           {tierNote !== null ? (
             <View style={styles.notice} testID="browse-tier-notice">
               {/*
@@ -276,7 +286,7 @@ export function BrowsePane({
         </View>
       ) : null}
 
-      <View style={styles.body}>
+      <View style={[styles.body, compact && styles.bodyCompact]}>
         {selected === null ? (
           <Empty contextLabel={contextLabel} />
         ) : selected.kind === "folder" ? (
@@ -336,8 +346,10 @@ const styles = StyleSheet.create({
   noteHead: { flexDirection: "row", alignItems: "center", gap: space.x2 },
   crumb: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
   body: { flex: 1, minHeight: 0, padding: space.x4 },
+  bodyCompact: { padding: 0 },
 
   notices: { paddingHorizontal: space.x4, paddingTop: space.x3, gap: space.x2 },
+  noticesCompact: { paddingHorizontal: space.x5, paddingTop: space.x2 },
   notice: {
     paddingVertical: 12,
     paddingHorizontal: 15,
