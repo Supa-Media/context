@@ -36,7 +36,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import { Compartment, EditorState } from "@codemirror/state";
+import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { livePreview, livePreviewStyles, markdownLanguage } from "./livePreview";
@@ -118,6 +118,33 @@ ${livePreviewStyles}
   document.head.appendChild(style);
 }
 
+/**
+ * Both halves of "you may not write this", which are not the same facet.
+ *
+ * `EditorView.editable` drops `contenteditable`, and CodeMirror's own doc for
+ * it says outright that it "doesn't affect API calls that change the editor
+ * content, even when those are bound to keys or buttons. See the `readOnly`
+ * facet for that." Setting only the first leaves every editing command, the
+ * `Mod-s` binding and the drop handler live on a surface that looks inert.
+ *
+ * `readOnly` here is the VIEWER's clearance, which is a different question from
+ * `OpenNote.readOnly` — that one is `key === PRIVACY_KEY`, a fact about the
+ * file and never about the person. A member reading a note they cannot write
+ * arrives as `editable: false`, and nothing further down stops them: the editor
+ * goes dirty, the bottom bar's Save is gated on the draft being dirty rather
+ * than on `canEdit`, and `save()` guards on the manifest rather than on
+ * clearance. The server refuses the write, so what this costs is a note that
+ * silently diverges on screen and a Save that lights up to fail — "a Save
+ * button that always fails is worse than no Save button".
+ *
+ * It also restores `aria-readonly`, which CodeMirror emits only for the facet.
+ * Without it the surface announces itself editable to a screen reader, which is
+ * the one reader with no other way to tell.
+ */
+function editability(editable: boolean): Extension {
+  return [EditorView.editable.of(editable), EditorState.readOnly.of(!editable)];
+}
+
 export function LiveEditor({
   value,
   editable,
@@ -170,13 +197,30 @@ export function LiveEditor({
         history(),
         EditorView.lineWrapping,
         placeholder("Write in markdown…"),
-        compartment.of(EditorView.editable.of(editable)),
+        compartment.of(editability(editable)),
         keymap.of([
           {
             key: "Mod-s",
             // Returning `true` marks the key handled, so the browser's own
-            // "Save Page" dialog never opens over the app.
-            run: () => {
+            // "Save Page" dialog never opens over the app. **Both branches
+            // below return `true` for that reason**, and the first version of
+            // the read-only gate returned `false` — which handed ⌘S back to
+            // the browser on exactly the notes a viewer is most likely to be
+            // reading rather than writing, and made this comment untrue three
+            // lines under it. `privacy.md` came out strictly worse than before:
+            // `save()` already refused it, so the keystroke used to do nothing
+            // AND swallow the dialog, and briefly did nothing AND open it.
+            //
+            // CodeMirror calls `preventDefault()` only on a truthy return
+            // (`@codemirror/view` `runHandlers`), and a binding's own
+            // `preventDefault` defaults to false, so `false` here is a real
+            // browser dialog rather than a nicety.
+            run: (target) => {
+              // Not a save on a note this viewer may not write. `editable` is
+              // captured by the effect that built this keymap, so the facet is
+              // read off the live state instead — the compartment reconfigures,
+              // the closure does not.
+              if (target.state.readOnly) return true;
               handlers.current.onSave();
               return true;
             },
@@ -226,9 +270,7 @@ export function LiveEditor({
     const current = view.current;
     if (current === null) return;
     current.dispatch({
-      effects: editableCompartment.current.reconfigure(
-        EditorView.editable.of(editable),
-      ),
+      effects: editableCompartment.current.reconfigure(editability(editable)),
     });
   }, [editable]);
 
