@@ -522,6 +522,31 @@ describe("a folder gets a link too", () => {
   });
 
   /**
+   * The guard's SHAPE, which the folder case alone does not pin: `endsWith`
+   * relaxed to `includes`, or the `toLowerCase` dropped, both leave the folder
+   * test green because the five scaffold names contain no `.md` at all. The
+   * attack stays closed under either, but the rule this whole change rests on
+   * would be held by nothing.
+   */
+  test.each([
+    ["1-projects/a.md.png", null],
+    ["1-projects/x.mdx", null],
+    // "UPPER", not "Upper": `titleFromPath` uppercases the first character and
+    // leaves the rest, which is what a note called README deserves. Measured —
+    // the first version of this line predicted title-casing and was wrong.
+    ["1-projects/UPPER.MD", "UPPER"],
+    ["1-projects/a.png.md", "A.png"],
+  ])("%s previews as %s", async (path, title) => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    await teamLink(t, ownerId, workspaceId, path);
+
+    expect(
+      await t.query(api.functions.shares.previewForNote, { slug: "owner-brain", path }),
+    ).toMatchObject({ title });
+  });
+
+  /**
    * And the refusal is byte-identical to every other one, so a probe cannot
    * tell "this is a folder, they exist" from "no such handle".
    */
