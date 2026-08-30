@@ -650,4 +650,122 @@ export async function runSearchShardQueryChecks(check) {
       );
     }
   }
+
+  // -- what one shard RETAINS is bounded, whatever its vocabulary ----------
+  //
+  // `scoreCollected` can consume at most `PREFIX_MAX_EXPANSIONS` (10) plus
+  // `FUZZY_MAX_CANDIDATES` (2) expansions per query term, and none at all once
+  // the term has a global direct hit. Everything past that is retained for
+  // nothing — and `collections` is held across the whole shard walk while the
+  // shard objects are dropped one at a time, so an unbounded per-shard
+  // retention is a retention that grows with the CORPUS. That is the ceiling
+  // v2 exists to remove, moved from the parse step to the gather step.
+  //
+  // Both halves have to be bounded for either bound to be worth anything: a
+  // vocabulary of terms that merely CONTAIN the query term clears the dice
+  // threshold without any of them being a prefix, so capping prefixes alone
+  // leaves the retention open by the other door. Measured before the cap:
+  // 6,000 retained out of an 8,000-term shard.
+  {
+    const docs = new Map();
+    for (let i = 0; i < 50; i++) {
+      docs.set(`1-projects/n${i}.md`, { len: { title: 2, headings: 1, tags: 0, body: 100 } });
+    }
+    const paths = [...docs.keys()];
+
+    const shardWith = (make, count) => {
+      const terms = new Map();
+      for (let i = 0; i < count; i++) {
+        terms.set(make(i), new Map([[paths[i % paths.length], [1]]]));
+      }
+      return { version: 2, docs, terms };
+    };
+
+    // 2,000 prefix-plausible terms for "con".
+    const prefixHeavy = shardWith((i) => `contact${i}`, 2000);
+    const prefixOut = collectShardCandidates(prefixHeavy, ["con"], () => true);
+    check(
+      "a shard retains a bounded candidate set however many PREFIX matches its vocabulary holds",
+      prefixOut.vocab.size <= 16 && prefixHeavy.terms.size === 2000,
+      `retained ${prefixOut.vocab.size} of ${prefixHeavy.terms.size}`
+    );
+
+    // 2,000 terms that contain "contactsheet" without starting with it, so
+    // every one is fuzzy-plausible and none is a prefix.
+    const fuzzyHeavy = shardWith((i) => `x${i}contactsheet`, 2000);
+    const fuzzyOut = collectShardCandidates(fuzzyHeavy, ["contactsheet"], () => true);
+    check(
+      "...and however many FUZZY ones, which is the door capping prefixes alone leaves open",
+      fuzzyOut.vocab.size <= 128 && fuzzyHeavy.terms.size === 2000,
+      `retained ${fuzzyOut.vocab.size} of ${fuzzyHeavy.terms.size}`
+    );
+
+    // A direct hit discards every expansion, so retaining thousands for one is
+    // the purest form of the waste.
+    const directOut = collectShardCandidates(prefixHeavy, ["contact7"], () => true);
+    check(
+      "...and a query term with a direct hit, whose expansions can never be consumed at all",
+      directOut.vocab.size <= 128 && directOut.postings.has("contact7"),
+      `retained ${directOut.vocab.size} of ${prefixHeavy.terms.size}`
+    );
+  }
+
+  // -- the prefix cap is exact: capping per shard changes no result ---------
+  //
+  // The bound above is only safe because alphabetical order is total and
+  // shard-independent: a term in the global first ten is preceded globally by
+  // at most nine, and the terms preceding it inside its own shard are a subset
+  // of those. So the same corpus must score identically however it is
+  // partitioned, INCLUDING when each shard's own slice throws candidates away.
+  {
+    const specs = [];
+    for (let i = 0; i < 40; i++) {
+      specs.push({ path: `1-projects/p${i}.md`, body: `contactsheet${i} filler words here` });
+    }
+    const index = buildIndex(specs);
+    const one = splitIntoShards(index, 1, () => 0);
+    const many = splitIntoShards(index, 7, (path) => path.length % 7);
+
+    const a = scoreCollected(collectAll(one, "contacts"), "contacts");
+    const b = scoreCollected(collectAll(many, "contacts"), "contacts");
+    check(
+      "a prefix expansion over 40 candidates scores identically at 1 shard and at 7",
+      a.length > 0 && scoresMatch(a, b),
+      `1 shard -> ${a.length} results, 7 shards -> ${b.length}`
+    );
+  }
+
+  // -- a future-dated `uploaded` cannot buy an unbounded recency multiplier -
+  //
+  // v2 carries its own copy of v1's recency formula, and a sabotage that
+  // deleted the `Math.max(0, ...)` clamp from it left the whole suite green:
+  // the clamp was correct and unguarded. `uploaded` comes from the storage
+  // object's `LastModified`, which is the customer's bucket — and unclamped,
+  // `e^(+age/90)` is an unbounded score multiplier one crafted timestamp away.
+  {
+    // ISO strings, not epoch numbers: `recencyMultiplier` returns 1 for
+    // anything that is not a non-empty string, so a numeric fixture makes this
+    // check compare two docs with no recency applied at all. The first version
+    // of it did exactly that and passed with the clamp deleted.
+    const iso = (ms) => new Date(ms).toISOString();
+    const docs = new Map([
+      ["1-projects/past.md", { uploaded: iso(Date.now() - 86400_000), len: { title: 0, headings: 0, tags: 0, body: 10 } }],
+      ["1-projects/future.md", { uploaded: iso(Date.now() + 100 * 365 * 86400_000), len: { title: 0, headings: 0, tags: 0, body: 10 } }],
+    ]);
+    const terms = new Map([
+      ["gateway", new Map([["1-projects/past.md", [1]], ["1-projects/future.md", [1]]])],
+    ]);
+    const scored = scoreCollected(
+      [collectShardCandidates({ version: 2, docs, terms }, ["gateway"], () => true)],
+      "gateway"
+    );
+    const future = scoreOf(scored, "1-projects/future.md");
+    const past = scoreOf(scored, "1-projects/past.md");
+    check(
+      "a century-future timestamp scores within a whisker of its present-day twin",
+      past > 0 && future / past < 1.1,
+      `future/past = ${(future / past).toFixed(4)}`
+    );
+  }
+
 }

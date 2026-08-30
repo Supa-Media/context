@@ -147,10 +147,7 @@ constants are pinned; the corpus they are computed against is per-caller.**
   itself when nothing is hidden, and throws on a predicate it cannot call —
   returning the index whole would silently restore the leak.
 - `rankedVisibleTo(ranked, isVisible, prefix) → ranked'`, the same predicate
-  applied to the output. The sequential walk is a known wall-clock cost at high shard
-counts (64 serial GETs); a fetch/parse split that reads in bounded waves while
-parsing one at a time is the queued follow-up, and amending this sentence
-without building it would be the contract describing code that does not exist. Redundant with `visibleIndex` by construction and kept
+  applied to the output. Redundant with `visibleIndex` by construction and kept
   anyway: it is the half that does not depend on `visibleIndex` being correct.
   Being redundant, it is also unreachable by any end-to-end test, so it is a
   separate function with its own checks rather than an inline filter.
@@ -269,6 +266,18 @@ the output. The sequential walk is a known wall-clock cost at high shard
 counts (64 serial GETs); a fetch/parse split that reads in bounded waves while
 parsing one at a time is the queued follow-up, and amending this sentence
 without building it would be the contract describing code that does not exist.
+
+**What a shard retains while the walk runs is bounded.** The shard objects
+themselves are streamed and dropped one at a time, which is the memory bound v2
+exists for — but the collections built from them are held until the walk ends,
+so an unbounded per-shard retention is the same blowup by another route.
+`collectShardCandidates` therefore caps expansion candidates per query term:
+alphabetically at `PREFIX_MAX_EXPANSIONS`, which is exact because alphabetical
+order is total and shard-independent, and by descending in-shard df at
+`SHARD_FUZZY_RETAIN`, which is an approximation of a global ranking and is
+documented as one at the call site. Both halves must be capped for either cap to
+bound anything: terms that merely CONTAIN a query term clear the dice threshold
+without being prefixes.
 
 **PageRank is neutral (rank = 1) in v2**, deliberately: a global link graph
 needs every shard in memory at maintenance time, which is the exact blowup v2
