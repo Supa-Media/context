@@ -3022,6 +3022,50 @@ check(
   "a note made private by exact-note override resolves no image for a team caller",
   refusalText(teamReachingIntoOverride) === REFUSAL
 );
+
+/**
+ * **And the other direction, because the fixture above only narrows.**
+ *
+ * A folder probe that honoured a *narrowing* override and ignored a *widening*
+ * one would pass every check to this point — measured, 805 of 805. The axis
+ * this file's own new fixture holds constant is the override's direction, and
+ * the law it was written to demonstrate applies to it as much as to anything
+ * else.
+ *
+ * `2-areas/private/meetings/inherited-private.md` is already published to
+ * `team` by exact override inside a private folder, further up this file, so
+ * the case costs an image and a read rather than a new scenario. It fails
+ * closed rather than open — a probe that missed it would refuse a read the
+ * owner deliberately published — which is why it is a second check here and not
+ * the first.
+ */
+const WIDENED_IMAGE = `${"8".repeat(64)}.png`;
+await contextStore.put(`.images/${WIDENED_IMAGE}`, PNG_BYTES);
+const widenedPath = "2-areas/private/meetings/widened-image.md";
+await contextStore.put(
+  widenedPath,
+  `# published inside a private folder\n\n![a screenshot](.images/${WIDENED_IMAGE})\n`
+);
+const widenedEtag = (await call("priv-token", "read_note", { path: widenedPath }))
+  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
+const widenedByOverride = await call("priv-token", "set_visibility", {
+  path: widenedPath,
+  visibility: "team",
+  expected_etag: widenedEtag,
+  confirm_team_publish: true,
+});
+check(
+  "the widening itself succeeded, so the assertion below is about visibility",
+  !widenedByOverride.isError &&
+    !(await call("team-token", "read_note", { path: widenedPath }))?.isError
+);
+check(
+  "a note published by exact-note override inside a private folder resolves its image",
+  (await call("team-token", "read_image", {
+    note: widenedPath,
+    image: `.images/${WIDENED_IMAGE}`,
+  })).content?.find((block) => block.type === "image")?.data === PNG_BASE64
+);
 const missingNote = await call("priv-token", "read_image", {
   note: "1-projects/portable/does-not-exist.md",
   image: `.images/${TEAM_IMAGE}`,
