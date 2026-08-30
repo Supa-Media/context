@@ -127,9 +127,12 @@ const BACKFILL_CONCURRENCY = 12;
  */
 const AUDIT_SHARDS_PER_SYNC = 1;
 /**
- * What one audit can cost: a GET to look, and a PUT if what arrives has to be
- * rebuilt. Held apart from the threshold below so the arithmetic says what it
- * is buying.
+ * What the *look* costs: a GET, and the PUT that follows if what arrives has to
+ * be rebuilt. Held apart from the threshold below so the arithmetic says what
+ * it is buying — and it buys the look, not the repair. A shard that turns out
+ * unreadable then rebuilds through the ordinary path and spends what a stale
+ * shard would, down to the same reserves, because at that point it *is* real
+ * work: docs the manifest vouches for that no query can reach.
  */
 const AUDIT_OPS = 2;
 /**
@@ -807,6 +810,16 @@ function auditCandidates(manifest, busy, nowMs, count = AUDIT_SHARDS_PER_SYNC) {
  * under it are written unconditionally, and a shard written by a pass whose
  * manifest write then lost the race is simply re-derived by the pass that won.
  *
+ * Then, on whatever budget the real work left, one more shard the diff asked
+ * nothing of — `AUDIT_SHARDS_PER_SYNC`, rotating. The diff is over the manifest
+ * alone, so a shard whose stored object is unreadable while none of its notes
+ * changed is in no worklist at all: it heals only when somebody edits one of
+ * its notes, and until then the manifest vouches for docs no query can reach.
+ * An audited shard that arrives unreadable needs nothing new to repair it — it
+ * is an empty shard on the loop's own terms, and the work list below is derived
+ * from the shard that arrived rather than from the manifest for exactly that
+ * reason.
+ *
  * Three ways a pass can be incomplete, and each is reported rather than
  * papered over:
  *
@@ -830,6 +843,7 @@ function auditCandidates(manifest, busy, nowMs, count = AUDIT_SHARDS_PER_SYNC) {
  *   isIndexable?: (key: string) => boolean,
  *   shardByteCap?: number,
  *   manifestByteCap?: number,
+ *   now?: Date | number,
  * }} options `reserve` is store ops the caller keeps for its own later work.
  * @returns {Promise<{
  *   manifest: ReturnType<typeof emptyManifest>,
@@ -965,6 +979,10 @@ export async function syncShardedIndex(
     // the answer does not get, and a search that renders no snippet reads as
     // "the thing is not written down". A pass with only the ordinary guard's
     // slack left is a pass whose caller still has its whole answer to buy.
+    //
+    // In steady state the read is not even lost work: a shard this loop loaded
+    // is handed back in `shards`, and the query walk in `searchVisibleNotes`
+    // reuses what the sync already read rather than fetching it again.
     if (
       auditing.has(id) &&
       ops.remaining <= reserve + MANIFEST_WRITE_RESERVE + AUDIT_OPS + shardCount

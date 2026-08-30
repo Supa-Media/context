@@ -34,7 +34,24 @@
  *   the legacy delete not gated on first creation             1  (was 2)
  *   the `NOTE_INDEX_CHAR_CAP` slice dropped                   1
  *
- * Three of those rows carry a finding rather than a count:
+ * Six more, for the spare-budget shard audit, measured the same way:
+ *
+ *   the audit removed entirely (the code before it existed)     3
+ *   `AUDIT_SHARDS_PER_SYNC` raised to 64                        2
+ *   its spare-budget threshold cut to the ordinary reserve      1
+ *   its rotation frozen (what `generatedAt` does on a pass
+ *     that writes nothing)                                      2
+ *   its "the manifest vouches for this shard" filter dropped    1  (was 0)
+ *   its "already in the worklist" filter dropped                1
+ *
+ * The fifth row is the "guard nobody has checked" shape again: an audit that
+ * rotated onto shards the manifest says are empty buys back the 404-per-empty-
+ * shard GET the loop refuses everywhere else, and nothing measured it until the
+ * check that now does. The sixth fails a *neighbouring* check rather than one of
+ * the audit's own — re-auditing a shard the pass was already about to rebuild
+ * reads it twice — which is the honest place for it to land.
+ *
+ * Three of the first nine rows carry a finding rather than a count:
  *
  * - **`shardOf` forced to 0** fails the spread and parity checks and then
  *   *throws*, because `pathsForShard` cannot find a path in shard 1 of 2. The
@@ -1058,6 +1075,33 @@ export async function runSearchShardsChecks(check) {
       "and a pass with no room to spare skips the audit rather than spending the query's ops on it",
       tight.pending === 0 &&
         bucket.counts.gets.filter((key) => key.startsWith(".index/v2/shard-")).length === 0
+    );
+  }
+
+  {
+    // An audit only opens a shard the manifest vouches for. A shard it says
+    // holds nothing has no object to be unreadable, and the loop already
+    // refuses to spend "a subrequest on a 404" to prove it — an audit that
+    // rotated onto empty ids would buy that 404 back, on every small bucket
+    // with a generous shard count, which is exactly where a search can least
+    // afford it.
+    const bucket = createBucket();
+    bucket.seed(MANIFEST_KEY, serializeManifest(emptyManifest(4)));
+    bucket.seed("1-projects/lonely.md", "# Lonely\n\nA SOLITARY OKAPI.\n");
+    const store = new R2Store(bucket);
+    await converge(store);
+    const occupied = shardKey(shardOf("1-projects/lonely.md", 4));
+    bucket.resetCounts();
+    for (let pass = 0; pass < 4; pass += 1) {
+      await syncShardedIndex(store, { budget: createSearchBudget(400), now: 4_000_000 + pass });
+    }
+    const audited = bucket.counts.gets.filter((key) => key.startsWith(".index/v2/shard-"));
+    check(
+      "the audit rotates only over shards the manifest vouches for, never onto an empty one",
+      storedManifest(bucket).shardCount === 4 &&
+        audited.length === 4 &&
+        audited.every((key) => key === occupied) &&
+        bucket.counts.put === 0
     );
   }
 

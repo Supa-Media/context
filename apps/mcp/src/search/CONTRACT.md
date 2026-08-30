@@ -249,6 +249,20 @@ conditional on the etag it was read at; on conflict serve the query and skip,
 as v1 does. A legacy `.index/search-v1.json` found while a manifest exists is
 deleted when budget allows — disposable, and dead weight.
 
+**One shard the diff wanted nothing from is audited per pass**, on budget the
+real work left over. The diff reads the manifest, so a shard whose stored
+object is unreadable — corrupt, truncated, or written in a dialect this gateway
+refuses, which a rollback past the version-3 interning makes every shard the
+newer gateway wrote — is in no worklist: the manifest keeps vouching for its
+docs, `pending` reads 0 over them, and it heals only when somebody happens to
+edit one of those notes. An audit that arrives unreadable is an empty shard on
+the loop's own terms and rebuilds through the ordinary path. It is **one** and
+never all of them because the sync does not own its budget — the query walk and
+the snippet reads that answer the search spend what is left — so it runs only
+with comfortably more than the write reserves spare, and it rotates on the
+clock rather than on `generatedAt`, which does not advance on the passes that
+find nothing and would stick the rotation on one shard forever.
+
 ## Query
 
 Gather-then-score, streaming: GET manifest → for each non-empty shard (the
