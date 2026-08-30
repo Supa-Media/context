@@ -526,3 +526,40 @@ describe("share links: the one card that may say something", () => {
     expect(meta.title.length).toBeLessThanOrEqual(60 + " — Context".length);
   });
 });
+
+describe("a console note link keeps the frozen card", () => {
+  /**
+   * The asymmetry between the two ways to send somebody a note, and it runs the
+   * opposite way to intuition.
+   *
+   * `/s/<token>` is unguessable — 32 CSPRNG bytes the owner handed to one
+   * person — so its card may carry the note's title. `/console/@seyi?note=…`
+   * is an **address**: it grants nothing, and anyone who knows the handle can
+   * type it. A nicer preview there would hand anybody in a Slack channel an
+   * existence oracle for handles *and* for the names of notes inside them,
+   * which is precisely what the frozen card exists to deny.
+   *
+   * The table answers it that way by construction, and "by construction" is
+   * exactly the kind of claim that stops being true the next time somebody adds
+   * a route.
+   */
+  it("renders the generic card, byte for byte", () => {
+    for (const pathname of [
+      "/console/@seyi",
+      "/console/@seyi/settings",
+      "/console/%40seyi",
+      "/console",
+    ]) {
+      expect(previewHtml(pathname)).toBe(previewHtml("/@alice"));
+    }
+  });
+
+  it("names neither the context nor the note", () => {
+    // The query never reaches `previewFor`, which takes a pathname — but a
+    // reader of this file should see that asserted rather than inferred.
+    const html = previewHtml("/console/@seyi");
+    for (const fragment of ["seyi", "chapter", "note"]) {
+      expect(html.toLowerCase()).not.toContain(fragment);
+    }
+  });
+});

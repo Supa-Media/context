@@ -142,11 +142,32 @@ export function useLiveConsoleData(): ConsoleData {
   // reference is reached for *inside* the memo — `api` is a proxy that mints a
   // new object on every property access, and one in a dependency array is what
   // makes `useSubscription` set state during render. See `./querySpec.ts`.
+  //
+  // `listMyInvitations` rides along in the same spec for the reason the `(app)`
+  // layout gives about its own copy: Convex dedupes identical subscriptions, so
+  // this is not a second round trip. The console needs it so that a note link
+  // into a context somebody was *invited* to sends them to the invitation
+  // rather than to the map — see `resolveContextRoute`.
   const workspacesSpec = useMemo<RequestForQueries>(
-    () => ({ workspaces: { query: api.functions.workspaces.listMyWorkspaces, args: {} } }),
+    () => ({
+      workspaces: { query: api.functions.workspaces.listMyWorkspaces, args: {} },
+      invitations: { query: api.functions.invitations.listMyInvitations, args: {} },
+    }),
     [],
   );
-  const workspacesResult = useQueries(workspacesSpec).workspaces;
+  const specResults = useQueries(workspacesSpec);
+  const workspacesResult = specResults.workspaces;
+  /**
+   * `undefined` while in flight, and deliberately not `[]`.
+   *
+   * A failed invitation query is also `undefined` here: the console renders
+   * perfectly well without it, and the only consequence is that an invited
+   * person following a note link lands on the map — the behaviour that existed
+   * before this list did. It must never take the console down.
+   */
+  const invitations = usable<Array<{ slug: string; token: string }>>(
+    specResults.invitations,
+  );
   const workspaces = usable<WorkspaceSummary[]>(workspacesResult);
   const failure =
     workspacesResult instanceof Error
@@ -397,6 +418,7 @@ export function useLiveConsoleData(): ConsoleData {
     demo: false,
     viewer,
     contexts,
+    invitations,
     selectedContextId,
     selectContext,
     graph,

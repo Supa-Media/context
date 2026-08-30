@@ -171,6 +171,15 @@ export interface ConsoleData {
    */
   viewer: ViewerIdentity;
   contexts: ConsoleContext[];
+  /**
+   * Contexts this person has been invited to and has not answered, or
+   * `undefined` while that is still loading.
+   *
+   * `undefined` is not `[]`: a note link into a context you were invited to
+   * must not send you to the map just because the list has not arrived. Absent
+   * in the demo, which has no invitations to answer.
+   */
+  invitations?: ReadonlyArray<{ slug: string; token: string }>;
   selectedContextId: string | null;
   selectContext: (id: string) => void;
   /**
