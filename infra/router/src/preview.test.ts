@@ -599,6 +599,32 @@ describe("a readable team link", () => {
     expect(consoleNoteFrom(new URL(href))).toBeNull();
   });
 
+  /**
+   * The note-only rule's own two shapes, which the cases above do NOT pin.
+   *
+   * Both were found by sabotage rather than by reading: `endsWith` swapped for
+   * `includes`, and `toLowerCase` deleted, each left all 181 checks green. The
+   * control plane pins both and is where this is enforced, so neither is a
+   * security hole here — but an unpinned copy of a rule drifts from the copy
+   * that matters, and CLAUDE.md holds two copies of a rule by running both
+   * against a corpus rather than by trusting the comment between them.
+   *
+   * `a.md.png` is the `includes` half: a name containing `.md` that is not a
+   * note. `UPPER.MD` is the `toLowerCase` half, and it fails in the other
+   * direction — a legitimate link that would silently stop unfurling.
+   */
+  it("is not routed when `.md` is in the name rather than at the end of it", () => {
+    expect(
+      consoleNoteFrom(new URL("https://context.lc/console/@seyi?note=1-projects/a.md.png")),
+    ).toBeNull();
+  });
+
+  it("is routed when the extension is upper case, which is still a note", () => {
+    expect(
+      consoleNoteFrom(new URL("https://context.lc/console/@seyi?note=1-projects/UPPER.MD")),
+    ).toEqual({ slug: "seyi", path: "1-projects/UPPER.MD" });
+  });
+
   it("routes a crawler to the lookup, and a person to the app", () => {
     const url = new URL("https://context.lc/console/@seyi?note=1-projects/a.md");
     expect(route(url, "Slackbot 1.0")).toEqual({

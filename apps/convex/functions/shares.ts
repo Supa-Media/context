@@ -1237,8 +1237,15 @@ export const previewForNote = query({
     //
     // Widening it to folders collapsed that space to five values: `scaffold.ts`
     // writes `0-inbox`, `1-projects`, `2-areas`, `3-resources` and `4-archive`
-    // into every brain this product creates. Five guesses per handle confirmed
-    // the handle existed and returned a live 64-hex token, unauthenticated.
+    // into every brain this product creates. Five guesses per handle were then
+    // enough to learn which of them their owner had team-linked, and to be
+    // handed its title and a live 64-hex token, unauthenticated.
+    //
+    // Stated precisely because the first version of this comment overstated it:
+    // a live `noteShares` row is still required below, so this was never a bare
+    // handle-existence oracle. What it published was which of a brain's five
+    // scaffolded folders had been shared — over a name space small enough to
+    // exhaust, which is the part that makes it one at all.
     //
     // So `createTeamShare` still takes a folder — the link works, members open
     // it — and this refuses to describe one. A folder unfurls as the generic

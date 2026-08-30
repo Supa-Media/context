@@ -499,9 +499,12 @@ describe("a folder gets a link too", () => {
    * Widening the preview to folders collapsed that space to five values.
    * `scaffold.ts` writes `0-inbox`, `1-projects`, `2-areas`, `3-resources` and
    * `4-archive` into every brain this product creates, and CLAUDE.md documents
-   * them. Five guesses per handle confirmed the handle existed and returned a
-   * live 64-hex token — from an unauthenticated caller who set a crawler's
-   * User-Agent.
+   * them. Five guesses per handle were then enough to learn which of those
+   * folders their owner had team-linked, and to be handed its title and a live
+   * 64-hex token — from an unauthenticated caller who set a crawler's
+   * User-Agent. A live share row was still required, so this was not a bare
+   * handle-existence oracle; what made it one at all is that the name space is
+   * small enough to exhaust.
    *
    * So the link keeps working and the card does not: a folder unfurls as the
    * generic product card, which is what every guessable address gets. This is

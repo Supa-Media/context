@@ -376,7 +376,7 @@ export async function listFolder(
   // ROOT, where the default is private and a nonexistent name is refused too.
   // The axis that fixture held constant is the one the collapse turns on.
   //
-  // So the walk is skipped and the empty shape returned. `readFile` has always
+  // So the empty shape is returned instead of a refusal. `readFile` has always
   // done the equivalent — a note it cannot see and a note that is not there
   // both throw — and this is the same collapse for the other direction, since
   // an empty listing is what an absent folder already produces here.
@@ -399,7 +399,15 @@ export async function listFolder(
   // indistinguishable from. Counted: 0 store listings against 1. The result
   // collapsed and the clock came apart, which is the same oracle one layer
   // down.
-  const pages = LIST_PAGE_CAP;
+  // ...and it is walked for exactly one page, because that is what an absent
+  // folder costs. `limit` is a hint — the store is the customer's, and Dropbox
+  // documents its own as approximate — so a page of ten turns a sixty-object
+  // private folder into six round trips against the absent folder's one, and
+  // past `LIST_PAGE_CAP` pages the body comes apart too: `truncated: true`
+  // against `false`. Both the clock and a boolean would then scale with the
+  // size of the thing being hidden, which is a coarser oracle than the name it
+  // was hiding.
+  const pages = withheld ? 1 : LIST_PAGE_CAP;
 
   for (let page = 0; page < pages; page += 1) {
     const listing = await store.list({ prefix, delimiter: "/", cursor, limit: 1000 });
@@ -467,15 +475,54 @@ export async function listFolder(
     // A withheld folder reports the default an absent one would: its own rule
     // is the fact being withheld, and printing it here would hand back through
     // the shape what the refusal was hiding.
+    //
+    // The ancestor has to be the nearest VISIBLE one and not the immediate
+    // parent, which is where the first version of this leaked. At depth one the
+    // two are the same and it read as correct; one level down the parent IS the
+    // private folder, so the branch written to withhold a rule printed exactly
+    // that rule — `1-projects/secret/anything` answering "private" where
+    // `1-projects/guess/anything` answered "team", for a guessed segment that
+    // need not exist. Every ancestor that survives this walk is one the caller
+    // can already list, so it publishes nothing they could not read off their
+    // own tree.
     folderDefault: withheld
-      ? visibilityOf(parentOf(folder), state.rules)
+      ? visibilityOf(
+          nearestVisibleAncestor(folder, options.scope, state.rules, state.overrides),
+          state.rules,
+        )
       : folder === ""
         ? visibilityOf("", state.rules)
         : visibilityOf(folder, state.rules),
-    entries,
-    truncated,
+    // Belt and braces, and labelled as such rather than left to look
+    // load-bearing: both are already empty and false for a withheld folder —
+    // nothing beneath an invisible folder is visible by `folderVisibleAtScope`'s
+    // own definition, and one page never truncates. Removing these two
+    // conditionals fails nothing, which was checked rather than assumed. They
+    // stay because the collapse then does not rest on that definition holding.
+    entries: withheld ? [] : entries,
+    truncated: withheld ? false : truncated,
     manifestUsable: state.text !== null && !state.invalid,
   };
+}
+
+/**
+ * The nearest ancestor of `folder` visible at `scope`, or `""` for the root.
+ *
+ * Used only for a withheld folder's reported default, and the walk is the whole
+ * point: it steps over every ancestor the caller cannot see, so the word it
+ * ends up printing is one they could have read off their own tree anyway.
+ */
+function nearestVisibleAncestor(
+  folder: string,
+  scope: Scope,
+  rules: readonly PrivacyRule[],
+  overrides: ReadonlyMap<string, Visibility>,
+): string {
+  let at = parentOf(folder);
+  while (at !== "" && !folderVisibleAtScope(at, scope, rules, overrides)) {
+    at = parentOf(at);
+  }
+  return at;
 }
 
 /** Folders first, then files, each alphabetically — the order Obsidian uses. */

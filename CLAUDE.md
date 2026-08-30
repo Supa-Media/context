@@ -400,11 +400,30 @@ has already been unfurled somewhere. That is a reason to keep the card's
 contents minimal — a title and nothing else — rather than a reason not to have
 one.
 
-`POST /share/preview` is therefore the one route in `http.ts` that requires no
-secret, and it is enumerated in `UNAUTHENTICATED_HTTP_ROUTES` in
-`__tests__/structure.test.ts` — which pins the list at exactly one and asserts
-the handler returns nothing but the title. A second entry there needs the whole
-argument above made again, on its own terms.
+`POST /share/preview` is therefore a route in `http.ts` that requires no secret.
+`UNAUTHENTICATED_HTTP_ROUTES` in `__tests__/structure.test.ts` enumerates them,
+pins the list by name and order, and asserts the handler returns nothing but the
+title. It held exactly one when this section was written and holds three now;
+each entry needed the whole argument above made again, on its own terms, and a
+fourth still does.
+
+**The third entry is the only one whose argument is guessable, and that costs it
+the folder.** `shareNotePreview` answers `/@name/<path>` — an address anybody
+can type — so the guessability hinge does not do for it what it does for
+`/s/<64 hex>`. What keeps it inside the rule is that it answers only for a path
+the owner explicitly team-linked, which bounds the probe to the set they already
+chose to publish. That bound is only as good as the space being probed, and for
+a **folder** the space is five: `scaffold.ts` writes `0-inbox`, `1-projects`,
+`2-areas`, `3-resources` and `4-archive` into every brain, and this file
+documents them. Five guesses per handle is an exhaustible name space, so a
+folder is refused and unfurls as the generic card; a note filename is not, so it
+may carry a title. `createTeamShare` still takes a folder and the link still
+works — describing one to an anonymous crawler is the separate question.
+
+The rule is enforced in `previewForNote` (the control plane, where it counts)
+and restated in `infra/router/src/preview.ts` (which only saves the round trip).
+Two copies of a rule are held here the way two copies are always held: by
+running both against the same shapes, not by trusting the comment between them.
 
 ### Two MCP eras, two lists, and they must never be merged
 

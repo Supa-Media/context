@@ -351,6 +351,101 @@ describe("a team-scoped caller sees only what is shared", () => {
     expect(withheldLists).toBe(lists);
     expect(lists).toBeGreaterThan(0);
   });
+
+  /**
+   * The same claim one level DEEPER, where the first fix stopped being true.
+   *
+   * `folderDefault` was reported from `parentOf(folder)` when withheld. At
+   * depth one that is right — an absent sibling inherits from the same parent,
+   * so both legs print the same word. One level down the parent IS the private
+   * folder, so the branch written to withhold a rule printed exactly that rule:
+   *
+   *     1-projects/secret-client/anything -> folderDefault "private"
+   *     1-projects/never-existed/anything -> folderDefault "team"
+   *
+   * and the guessed segment need not exist, so it is one request per name. The
+   * enumeration the withheld branch exists to close, one level down.
+   *
+   * What holds instead is the nearest ancestor VISIBLE AT THIS SCOPE. Every
+   * ancestor that survives that walk is one the caller can already list, so it
+   * publishes nothing they could not read off their own tree, and it equals
+   * what an absent path inherits at every depth including the root.
+   */
+  test("and one level deeper, where the parent is the thing being withheld", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/secret-client/brief.md", "# Brief\n");
+    await setFolderVisibility(store, {
+      path: "1-projects/secret-client",
+      visibility: "private",
+      scope: "private",
+    });
+
+    const hidden = await listFolder(store, {
+      path: "1-projects/secret-client/anything",
+      scope: "team",
+    });
+    const absent = await listFolder(store, {
+      path: "1-projects/never-existed/anything",
+      scope: "team",
+    });
+    expect(listingShape(hidden)).toBe(listingShape(absent));
+  });
+
+  /**
+   * ...and the work stays equal for a folder too big for one page.
+   *
+   * The call-count assertion above uses a one-object folder, which is the only
+   * size at which walking a withheld folder to the end costs what an absent one
+   * costs. `limit` is a hint — Dropbox documents it as approximate and the
+   * store is the customer's — so a page of ten turns a sixty-object private
+   * folder into six round trips against the absent folder's one, and past
+   * `LIST_PAGE_CAP` pages the body diverges too: `truncated: true` against
+   * `false`. Both the clock and a boolean then scale with the size of the thing
+   * being hidden, which is a coarser oracle than the name it was hiding.
+   *
+   * So a withheld folder does exactly one listing — what an absent one does —
+   * and reports the empty shape.
+   */
+  test("and the work stays equal when the hidden folder needs more than one page", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    for (let i = 0; i < 60; i += 1) {
+      store.seed(`1-projects/secret-client/n${String(i).padStart(2, "0")}.md`, "# N\n");
+    }
+    await setFolderVisibility(store, {
+      path: "1-projects/secret-client",
+      visibility: "private",
+      scope: "private",
+    });
+
+    let lists = 0;
+    const paged: FileStore = {
+      ...store,
+      list: async (options) => {
+        lists += 1;
+        const page = await store.list({ ...options, limit: 10 });
+        const objects = (page.objects ?? []).slice(0, 10);
+        const more = (page.objects ?? []).length > 10;
+        return more
+          ? { ...page, objects, truncated: true, cursor: objects[objects.length - 1]?.key }
+          : page;
+      },
+    };
+
+    const hidden = await listFolder(paged, {
+      path: "1-projects/secret-client",
+      scope: "team",
+    });
+    const withheldLists = lists;
+    lists = 0;
+    const absent = await listFolder(paged, {
+      path: "1-projects/no-such-thing",
+      scope: "team",
+    });
+    expect(listingShape(hidden)).toBe(listingShape(absent));
+    expect(withheldLists).toBe(lists);
+  });
 });
 
 /* -------------------------------------------------------------------------- */
