@@ -206,6 +206,31 @@ export const cardLocation = internalQuery({
     if (!share.titleInPreview) return null;
     if (share.cardImageLeaf === undefined) return null;
 
+    /**
+     * **The stored leaf is the hash of whatever title was current at the last
+     * SUCCESSFUL render, which is not the same as the title now.**
+     *
+     * `renderShareCard` returns early — leaving the old leaf in place, because
+     * nothing anywhere clears this field — for a title the bundled font cannot
+     * draw, for a renderer that threw, and for a bucket that refused the write.
+     * A revoke-then-reshare mints a new token and leaves it too. In every one
+     * of those the OG *text* updates while the OG *image* keeps publishing the
+     * title the owner replaced, and the card is the one thing here that cannot
+     * be taken back: Discord and WhatsApp copy it to their own CDNs, iMessage
+     * bakes it into the sent message, Facebook caches by URL.
+     *
+     * So the leaf is recomputed rather than trusted. The mismatch answers
+     * `null`, which is the same absence a share with no card yet gives — the
+     * whole point of these all being one absence is that a crawler cannot tell
+     * them apart.
+     *
+     * `previewTitle` is checked the way `cardSubject` checks it, because the
+     * comparison is only meaningful against the string a render would have been
+     * handed.
+     */
+    if (share.previewTitle === undefined || share.previewTitle.trim() === "") return null;
+    if (share.cardImageLeaf !== cardImageLeaf(share.token, share.previewTitle)) return null;
+
     return { workspaceId: share.workspaceId, leaf: share.cardImageLeaf };
   },
 });
