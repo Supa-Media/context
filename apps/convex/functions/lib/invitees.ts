@@ -20,6 +20,7 @@
  */
 
 import { ConvexError } from "convex/values";
+import { normalizeEmail } from "@context/shared";
 import { validateName, type NameRejection } from "./names";
 
 /** How an invitation names its recipient. */
@@ -80,18 +81,22 @@ function looksLikeEmail(trimmed: string): boolean {
 /**
  * Parse an invitee, or say why not. Never touches a database.
  *
- * Emails are lowercased. That is not strictly correct — RFC 5321 makes the
- * local part case-sensitive — but every mail provider anyone uses treats it as
- * insensitive, and a case-sensitive key would let `LK@example.com` and
- * `lk@example.com` be two invitations to one mailbox, one of which the
- * recipient could never see because their account holds only one spelling.
+ * Emails are lowercased, by the shared `normalizeEmail`. That is not strictly
+ * correct — RFC 5321 makes the local part case-sensitive — but every mail
+ * provider anyone uses treats it as insensitive, and a case-sensitive key would
+ * let `LK@example.com` and `lk@example.com` be two invitations to one mailbox,
+ * one of which the recipient could never see because their account holds only
+ * one spelling.
  */
 export function parseInvitee(raw: string): InviteeParse {
   const trimmed = raw.trim();
   if (trimmed.length === 0) return { ok: false, reason: "empty" };
 
   if (looksLikeEmail(trimmed)) {
-    const value = trimmed.toLowerCase();
+    // `normalizeEmail` rather than `.toLowerCase()`: the sign-in screen has to
+    // produce the same string for the same address, and it calls the same
+    // function. See `packages/shared/src/email.ts` for what disagreeing costs.
+    const value = normalizeEmail(trimmed);
     if (value.length > MAX_EMAIL_LENGTH || !EMAIL_PATTERN.test(value)) {
       return { ok: false, reason: "invalid_email" };
     }
