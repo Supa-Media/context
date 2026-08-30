@@ -160,7 +160,7 @@ jobs:
       - name: No tracked source file carries a NUL
         run: |
           python3 - <<'PY'
-          import subprocess, sys
+          import os, subprocess, sys, tempfile
 
           BINARY_SUFFIXES = (
               ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".icns",
@@ -199,6 +199,9 @@ jobs:
           assert nul_report("a.ts", b"\x00rest") == "a.ts:1 (byte 0)"
           assert nul_report("a.ts", b"x\n\x00") == "a.ts:2 (byte 2)"
           assert nul_report("a.ts", b"x" * 9000 + b"\x00") == "a.ts:1 (byte 9000)"
+          # With a newline AFTER the NUL, because every sample above agrees
+          # with a whole-blob count and only this one distinguishes the prefix.
+          assert nul_report("a.ts", b"one\n\x00\nthree\n") == "a.ts:2 (byte 4)"
 
           # A suffix, not a substring: `str.endswith` is happy with
           # `"ingest.ts"`, which exempts one guilty file by name while the
@@ -209,34 +212,67 @@ jobs:
               for suffix in BINARY_SUFFIXES
           ), "BINARY_SUFFIXES holds file extensions, not names"
 
+          def read_blob(path):
+              # The whole file. `.read(8000)` here is the same "align it with
+              # git" edit the comment above invites, one line further down than
+              # the one the 9000-byte sample blocks — and it reproduces the
+              # original bug exactly: on the tree this job was written for it
+              # finds ten files instead of twelve, missing both of the two past
+              # the window, one of them production source.
+              return open(path, "rb").read()
+
+          def classify(entries):
+              # The whole per-file loop, so a synthetic corpus can pin the
+              # counting, the reporting AND the earn-your-skip rule — which was
+              # the one guard here with prose defending it and no sample.
+              scanned = 0
+              failed = []
+              unearned = []
+              for path, blob in entries:
+                  report = nul_report(path, blob)
+                  if path.lower().endswith(BINARY_SUFFIXES):
+                      # The skip list has to EARN each entry. Pinning "is there
+                      # a NUL" while leaving "in which files" unpinned is a
+                      # guard whose decision is held and whose subject is not,
+                      # and the cheap edit is to quiet this job by adding `.ts`
+                      # to the tuple above — which passes, silently, and turns
+                      # the whole job off. A real binary asset contains a NUL;
+                      # a source file does not, so a skipped file with none is
+                      # a skip nobody justified.
+                      if report is None:
+                          unearned.append(path)
+                      continue
+                  scanned += 1
+                  if report is not None:
+                      failed.append(report)
+              return scanned, failed, unearned
+
+          assert classify([
+              ("a.ts", b"clean\n"),
+              ("b.ts", b"bad\x00\n"),
+              ("c.png", b"\x89PNG\x00"),
+              ("d.png", b"not a real asset"),
+          ]) == (2, ["b.ts:1 (byte 3)"], ["d.png"])
+
+          with tempfile.NamedTemporaryFile(suffix=".ts", delete=False) as probe:
+              probe.write(b"x" * 9000 + b"\x00")
+          assert classify([(probe.name, read_blob(probe.name))])[0] == 1
+          assert classify([(probe.name, read_blob(probe.name))])[1] != [], (
+              "read_blob is not reading past byte 8000"
+          )
+          os.unlink(probe.name)
+
           tracked = subprocess.run(
               ["git", "ls-files", "-z"], capture_output=True, check=True
           ).stdout.split(b"\0")
 
-          failed = []
-          unearned = []
-          scanned = 0
-          for raw in tracked:
-              if not raw:
-                  continue
-              path = raw.decode("utf-8", "surrogateescape")
-              blob = open(path, "rb").read()
-              report = nul_report(path, blob)
-              if path.lower().endswith(BINARY_SUFFIXES):
-                  # The skip list has to EARN each entry. Pinning "is there a
-                  # NUL" while leaving "in which files" unpinned is a guard
-                  # whose decision is held and whose subject is not, and the
-                  # cheap edit is to quiet this job by adding `.ts` to the
-                  # tuple above — which passes, silently, and turns the whole
-                  # job off. A real binary asset contains a NUL; a source file
-                  # does not, so a skipped file with none is a skip nobody
-                  # justified.
-                  if report is None:
-                      unearned.append(path)
-                  continue
-              scanned += 1
-              if report is not None:
-                  failed.append(report)
+          paths = [
+              raw.decode("utf-8", "surrogateescape") for raw in tracked if raw
+          ]
+          # A generator, so one 86KB asset is not held beside 514 other files.
+          scanned, failed, unearned = classify(
+              (path, read_blob(path)) for path in paths
+          )
 
           # A floor, because every other way this job can be wrong ends in
           # "scanned nothing, printed ok, exited 0" — an empty index, a
@@ -244,11 +280,29 @@ jobs:
           # mcp.yml, and it would scan 28 files and pass with a NUL still in
           # infra/), or `git ls-files` failing without `check=True`. Green
           # because it never executed is this repository's most-repeated
-          # failure shape, and `workflows-parse` sits ten lines above for
+          # failure shape, and `workflows-parse` in this same file exists for
           # exactly that reason.
           assert scanned > 400, f"only {scanned} files scanned — wrong root, or an empty index"
 
-          print(f"scanned {scanned} tracked files, skipped {len(tracked) - 1 - scanned}")
+          # And the roots, because a count alone does not notice a directory
+          # going missing: narrowing to `git ls-files -- apps packages` still
+          # scans 441 and clears the floor above while dropping infra/ — which
+          # holds one of the seven files this job was written for. Named roots
+          # do not drift as the file count does.
+          roots = {path.split("/")[0] for path in paths}
+          assert {"apps", "infra", "packages", ".github"} <= roots, (
+              f"whole directories missing from the walk: {sorted(roots)}"
+          )
+
+          # Conservation: every tracked path was either scanned or skipped, and
+          # the numbers printed below are the ones classify actually produced
+          # rather than a count with no counting rule behind it.
+          skipped = sum(1 for path in paths if path.lower().endswith(BINARY_SUFFIXES))
+          assert scanned + skipped == len(paths), (
+              f"{scanned} + {skipped} != {len(paths)} tracked paths"
+          )
+
+          print(f"scanned {scanned} tracked files, skipped {skipped}")
           for entry in failed:
               print(f"FAIL {entry}")
           for entry in unearned:
