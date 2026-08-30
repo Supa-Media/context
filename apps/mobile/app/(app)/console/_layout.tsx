@@ -16,7 +16,11 @@ import { BottomBar } from "../../../features/console/BottomBar";
 import { AccountBlock, Avatar, ConsoleRail } from "../../../features/console/ConsoleRail";
 import { ConsoleDataProvider } from "../../../features/console/ConsoleDataContext";
 import { TierChip } from "../../../features/console/ConsoleShell";
-import { Explorer } from "../../../features/console/files/Explorer";
+import {
+  Explorer,
+  ExplorerDialogs,
+  type Dialog,
+} from "../../../features/console/files/Explorer";
 import { itemsFromListings } from "../../../features/console/files/palette";
 import { useTabs } from "../../../features/console/files/useTabs";
 import { readFocus, scopeForFocus } from "../../../features/console/keyboardScope";
@@ -114,6 +118,14 @@ export default function ConsoleLayout() {
     be written.
   */
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  /*
+    The toolbar's `+` raises the explorer's own dialog. Held here rather than
+    inside `Explorer` because the toolbar is a sibling of the explorer, not a
+    child of it — and `ExplorerDialogs` was already split out of `Explorer` for
+    exactly this: "so the tree and the editor can drive the same set without
+    either owning it".
+  */
+  const [barDialog, setBarDialog] = useState<Dialog>(null);
   /*
     A menu or a dialog raised by the tree is an overlay too, not just the
     palette. Without this, ⌘K opens the palette *behind* an open context menu:
@@ -220,8 +232,18 @@ export default function ConsoleLayout() {
         }
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
         rail={(mode) => <Rail data={data} route={route} mode={mode} />}
+        /*
+          `browsing`, not `insideContext`.
+
+          Settings is inside a context, so gating on that shipped Browse's
+          whole toolbar to a screen with no notes on it: a file tree, a `+`
+          that wrote a note you could not see, a Save with nothing to save, and
+          a tab count whose sheet activated notes behind the settings pane.
+          Tapping a note in that drawer selected it and closed the drawer with
+          no visible change at all.
+        */
         explorer={
-          insideContext ? (
+          browsing ? (
             <Explorer
               files={data.files}
               contextLabel={contextLabel}
@@ -235,12 +257,13 @@ export default function ConsoleLayout() {
         }
         status={<Status data={data} />}
         bottomBar={
-          insideContext ? (
+          browsing ? (
             <ConsoleBottomBar
               data={data}
               tabs={tabs}
               onSearch={() => setPaletteOpen(true)}
               onOpenTabs={() => setSwitcherOpen(true)}
+              onNewNote={(folder) => setBarDialog({ kind: "newNote", folder })}
             />
           ) : undefined
         }
@@ -277,6 +300,13 @@ export default function ConsoleLayout() {
             onDismiss={() => setSwitcherOpen(false)}
           />
         ) : null}
+
+        {/* The toolbar's `+`. `Explorer` renders its own copy for the tree's. */}
+        <ExplorerDialogs
+          files={data.files}
+          dialog={barDialog}
+          onClose={() => setBarDialog(null)}
+        />
 
         {paletteOpen ? (
           <Palette
@@ -591,13 +621,15 @@ function ConsoleBottomBar({
   tabs,
   onSearch,
   onOpenTabs,
+  onNewNote,
 }: {
   data: ConsoleData;
   tabs: ReturnType<typeof useTabs>;
   onSearch: () => void;
   onOpenTabs: () => void;
+  /** Raises the naming dialog for a destination — see the `new` action. */
+  onNewNote: (folder: string) => void;
 }) {
-  const frame = useFrame();
   const files = data.files;
   // The same rule the explorer's own `+` uses, from the same function: a
   // selected *folder* is the destination, anything else means its parent.
@@ -606,12 +638,26 @@ function ConsoleBottomBar({
   return (
     <BottomBar
       actions={[
-        {
-          id: "files",
-          label: frame.state.drawerOpen ? "Close the file tree" : "Open the file tree",
-          icon: "panelLeft",
-          onPress: frame.toggleExplorer,
-        },
+        /*
+          No drawer toggle here.
+
+          There were two — this one and `AppFrame`'s top-bar button — with the
+          same icon, calling the same function, on one 390pt screen. The
+          defence written here was thumb reach: "the tree toggle is here as
+          well as in the top bar because this is where a thumb is, and the top
+          bar is a stretch on a tall phone."
+
+          That was never a fallback for any layout. `regionsFor` turns
+          `drawerToggle` on only at `compact`, which is the one density where
+          `bottomBar` is unconditionally true — so the two existed together or
+          not at all, and neither was ever the only way in.
+
+          The owner chose the top-left one (2026-08). It is where Obsidian
+          puts the sidebar toggle and where the panel it opens comes from, so
+          the button and its result are on the same side. The thumb-reach half
+          of the old argument is answered by the edge-swipe, not by a second
+          button in the other corner.
+        */
         { id: "search", label: "Search notes", icon: "search" as const, onPress: onSearch },
         /*
           Absent, not dimmed. `BottomBar` argues that a fixed strip must not
@@ -621,13 +667,28 @@ function ConsoleBottomBar({
           for exactly this case: read-only means the control is **gone**, not
           present and refusing.
         */
+        /*
+          The same dialog the explorer's own `+` raises, not a second contract.
+
+          This used to call `createNote(folder, "Untitled")` directly, which
+          made one icon mean two different things on one screen: the drawer's
+          `+` asked for a name and said where it was going, this one wrote
+          immediately and said neither. Worse, `folder` is derived from a
+          selection that lives *in the drawer* — normally shut when this button
+          is pressed — so the destination was invisible, defaulted to the
+          bucket root, and a second press failed on the name collision rather
+          than making a second note.
+
+          `ExplorerDialogs` already renders `NamePrompt` with the sentence that
+          answers all of that: "It will be created in 1-projects as markdown."
+        */
         ...(files.canEdit
           ? [
               {
                 id: "new",
                 label: "New note",
                 icon: "plus" as const,
-                onPress: () => files.createNote(folder, "Untitled"),
+                onPress: () => onNewNote(folder),
               },
             ]
           : []),

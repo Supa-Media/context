@@ -102,7 +102,17 @@ export function BrowsePane({
 
   return (
     <View style={styles.region}>
-      {selected !== null && selected.kind === "file" ? (
+      {/*
+        The breadcrumb is drawn for a selected *folder* too, not only a note.
+
+        It used to be `kind === "file"` only, and `FolderView` prints the
+        folder's own name with no path — so two folders called `notes` were the
+        same screen, and there was nowhere on a phone that said which one you
+        were in. That matters beyond orientation: the toolbar's `+` writes into
+        the selected folder, and with the drawer shut this line is the only
+        thing on screen that names it.
+      */}
+      {selected !== null ? (
         <View style={styles.noteHead}>
           <View style={styles.crumb}>
             <Breadcrumb
@@ -133,7 +143,13 @@ export function BrowsePane({
             the menu applies, and the server refuses it regardless with
             `minimum: "owner"`.
           */}
-          {files.canShare && !selected.readOnly ? (
+          {/*
+            A note only. `FolderView` draws its own Share for a folder — the
+            team-link one, which is a different offer with a different
+            explanation beside it — so rendering this here as well would put
+            two Share buttons on one folder screen.
+          */}
+          {selected.kind === "file" && files.canShare && !selected.readOnly ? (
             <Button
               label="Share…"
               onPress={() => setSharing(selected.path)}
