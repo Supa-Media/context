@@ -154,12 +154,14 @@ describe("one stroke weight for the whole set", () => {
 
   test("every stroke in one icon is drawn at that weight", () => {
     /*
-      The set's whole premise. `menu` is three bars and nothing else, so its
-      thickness is the weight directly — an icon whose strokes disagreed with
-      each other would be the Unicode problem again, drawn rather than typed.
+      The set's whole premise. `plus` is two bars and nothing else — one of
+      them turned, which `transform` applies after layout, so both are still
+      declared at the weight. An icon whose strokes disagreed with each other
+      would be the Unicode problem again, drawn rather than typed.
     */
     const size = 24;
-    const icon = mount("menu", size);
+    const icon = mount("plus", size);
+    expect(icon.strokes.length).toBe(2);
     for (const stroke of icon.strokes) {
       expect(px(stroke, "height")).toBe(strokeFor(size));
     }

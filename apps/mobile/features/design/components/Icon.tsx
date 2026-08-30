@@ -69,11 +69,16 @@ import { colors } from "../tokens";
  *
  * With the names as a value, `icons.test.ts` walks the whole set and asserts
  * each one draws something. The list is the guard; the union follows it.
+ *
+ * **It holds what is drawn today and nothing else.** A first pass also carried
+ * a hamburger, a sliders mark, a book, a share arrow and a wastebasket, none of
+ * which had a caller — a set of speculative marks is a set nobody checks, and
+ * the one that eventually gets used is the one drawn against no real control.
+ * Add an icon when a control needs it, in the same change as the control.
  */
 export const ICON_NAMES = [
   /** The sidebar toggle, as Obsidian draws it: a pane with its leading column filled. */
   "panelLeft",
-  "menu",
   "search",
   "plus",
   "check",
@@ -87,10 +92,6 @@ export const ICON_NAMES = [
   "more",
   "folder",
   "file",
-  "sliders",
-  "book",
-  "share",
-  "trash",
   /** The Map pane: nodes with edges between them. */
   "constellation",
   /** The Connections pane: a two-way exchange, which is what a grant is. */
@@ -324,13 +325,6 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         }),
       ];
 
-    case "menu":
-      return [
-        bar("a", u, w, c, { cx: 0.5, cy: 0.28, length: 0.7 }),
-        bar("b", u, w, c, { cx: 0.5, cy: 0.5, length: 0.7 }),
-        bar("c", u, w, c, { cx: 0.5, cy: 0.72, length: 0.7 }),
-      ];
-
     case "search":
       return [
         ring("lens", u, w, c, { cx: 0.43, cy: 0.43, r: 0.26 }),
@@ -407,26 +401,6 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         bar("l3", u, w, c, { cx: 0.42, cy: 0.68, length: 0.14 }),
       ];
 
-    case "sliders":
-      return [
-        bar("top", u, w, c, { cx: 0.5, cy: 0.34, length: 0.68 }),
-        dot("topKnob", u, c, { cx: 0.64, cy: 0.34, r: 0.115 }),
-        bar("bottom", u, w, c, { cx: 0.5, cy: 0.66, length: 0.68 }),
-        dot("bottomKnob", u, c, { cx: 0.36, cy: 0.66, r: 0.115 }),
-      ];
-
-    case "book":
-      return [
-        rect("body", u, w, c, { x0: 0.13, y0: 0.18, x1: 0.87, y1: 0.82, radius: 0.1 }),
-        bar("spine", u, w, c, { cx: 0.5, cy: 0.5, length: 0.64, angle: 90 }),
-      ];
-
-    case "share":
-      return [
-        bar("shaft", u, w, c, { cx: 0.5, cy: 0.5, length: 0.62, angle: -45 }),
-        chevron(u, w, c, { cx: 0.66, cy: 0.34, side: 0.34, angle: 0 }),
-      ];
-
     case "constellation":
       return [
         bar("e1", u, w, c, { cx: 0.36, cy: 0.42, length: 0.36, angle: -40 }),
@@ -444,12 +418,6 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         chevron(u, w, c, { cx: 0.34, cy: 0.66, side: 0.28, angle: -135 }),
       ];
 
-    case "trash":
-      return [
-        bar("lid", u, w, c, { cx: 0.5, cy: 0.26, length: 0.66 }),
-        bar("handle", u, w, c, { cx: 0.5, cy: 0.16, length: 0.26 }),
-        rect("body", u, w, c, { x0: 0.24, y0: 0.26, x1: 0.76, y1: 0.86, radius: 0.1 }),
-      ];
   }
 }
 
