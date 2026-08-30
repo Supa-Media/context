@@ -117,7 +117,7 @@ function SheetRow({
         second `Text` beside the first would sit next to it and push the
         chevron off the edge.
       */}
-      <View style={styles.labelColumn}>
+      <View style={styles.labelColumn} testID={`menu-labels-${id}`}>
         <Text
           variant="body"
           numberOfLines={1}
@@ -307,8 +307,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.x5,
   },
   rowCentered: { justifyContent: "center" },
-  /** `flexShrink` so a long label truncates rather than pushing the chevron off. */
-  labelColumn: { flex: 1, flexShrink: 1, gap: 2 },
+  /**
+   * The label and its detail, stacked.
+   *
+   * `flexShrink` and **not** `flex: 1`. A column that grows fills the row, and
+   * the row's `justifyContent: "center"` then has nothing left to centre — which
+   * silently left-aligns the Cancel row, the one row on this sheet that is
+   * centred on purpose. Sized to its content, the chevron sits beside the label
+   * exactly where it did before a second line was possible.
+   */
+  labelColumn: { flexShrink: 1, gap: 2 },
   rowHover: { backgroundColor: colors.surface3 },
   dangerLabel: { color: colors.critText },
   chevron: { marginLeft: "auto", color: colors.muted },

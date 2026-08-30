@@ -938,3 +938,29 @@ describe("a detail line is drawn under its label", () => {
     expect(styleOf(plain.find("menu-item-visibilityTeam")!, "height")).toBe("28px");
   });
 });
+
+/* -------------------------------------------------------------------------- */
+
+describe("Cancel stays centred", () => {
+  /*
+    A regression this file did not catch, found by looking at the sheet.
+
+    Stacking a `detail` under a label means wrapping the two in a column, and
+    the obvious `flex: 1` on that column fills the row — at which point the
+    row's `justifyContent: "center"` has nothing left to centre and Cancel
+    silently left-aligns. It is the one row on this sheet that is centred on
+    purpose, and both conditions have to hold, so both are asserted: the row
+    centres, and nothing inside it grows to swallow the space it centres in.
+  */
+  test("on the native sheet", () => {
+    const sheet = mountSheet();
+    expect(styleOf(sheet.find("menu-item-cancel")!, "justify-content")).toBe("center");
+    expect(styleOf(sheet.find("menu-labels-cancel")!, "flex-grow")).not.toBe("1");
+  });
+
+  test("and on the web sheet", () => {
+    const menu = mountWeb(PHONE, "touch");
+    expect(styleOf(menu.find("menu-item-cancel")!, "justify-content")).toBe("center");
+    expect(styleOf(menu.find("menu-labels-cancel")!, "flex-grow")).not.toBe("1");
+  });
+});

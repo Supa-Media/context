@@ -320,7 +320,7 @@ function Row({
         One column, so a detail line stacks under its label instead of sitting
         beside it and pushing the chord and the chevron off the edge.
       */}
-      <View style={styles.labelColumn}>
+      <View style={styles.labelColumn} testID={`menu-labels-${id}`}>
         <Text
           variant={touch ? "body" : "tree"}
           numberOfLines={1}
@@ -812,9 +812,16 @@ const styles = StyleSheet.create({
   rowLit: { backgroundColor: colors.accentDim },
   rowHover: { backgroundColor: colors.surface3 },
   label: { flexShrink: 1 },
-  /** The label and its detail, stacked. `flex` so the chord and chevron keep
-      their place at the end of the row. */
-  labelColumn: { flex: 1, flexShrink: 1, gap: 2, justifyContent: "center" },
+  /**
+   * The label and its detail, stacked.
+   *
+   * `flexShrink` and **not** `flex: 1`: the chord and the chevron already push
+   * themselves to the end with `marginLeft: "auto"`, and a column that grows
+   * would fill the row and leave `justifyContent: "center"` nothing to centre —
+   * silently left-aligning the Cancel row, the one row here that is centred on
+   * purpose.
+   */
+  labelColumn: { flexShrink: 1, gap: 2, justifyContent: "center" },
   labelLit: { color: colors.accentText },
   dangerLabel: { color: colors.critText },
   shortcut: { marginLeft: "auto" },
