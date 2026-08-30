@@ -334,12 +334,18 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     canSetVisibility: canEdit,
     canShare: canEdit,
     shares: undefined,
-    // Recorded, not a no-op: `expect(contextB.entries).toEqual([])` below is
-    // about a share reaching the new context, and a `() => {}` here makes that
+    // Recorded, not no-ops: `expect(contextB.entries).toEqual([])` below is
+    // about a call reaching the new context, and a `() => {}` here makes that
     // assertion unable to observe the very call it names.
     share: record("share"),
     revokeShare: record("revokeShare"),
     setSharePreviewTitle: record("setSharePreviewTitle"),
+    // `#137`'s addition. Recorded like its neighbours rather than left a
+    // no-op, and it has to keep returning a promise to satisfy the contract.
+    teamShareLink: async (...args: unknown[]) => {
+      calls.entries.push({ name: "teamShareLink", args });
+      return null;
+    },
   };
 }
 

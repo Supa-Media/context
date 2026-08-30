@@ -25,6 +25,8 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { toFileError, type FileBrowser } from "./browser";
 import type { NoteShare } from "./shares";
+import { consoleOrigin } from "./shareOrigin";
+import { noteHref } from "../nav";
 import { afterPaste, planPaste, put, type Clipboard } from "./clipboard";
 import {
   SAVE_TIMEOUT_MS,
@@ -98,8 +100,16 @@ export function useFileBrowser(options: {
    * exists — see `canResetPrivacy` on `FileBrowser`.
    */
   isOwner?: boolean;
+  /**
+   * The context's slug, for the readable team link (`/console/@slug?note=…`).
+   *
+   * Absent means no team link can be built, and `teamShareLink` answers `null`
+   * rather than handing back a URL with `undefined` in it.
+   */
+  slug?: string;
 }): FileBrowser {
   const workspaceId = options.workspaceId as Id<"workspaces"> | null;
+  const slug = options.slug ?? null;
 
   const listFiles = useAction(api.functions.files.listFiles);
   const readNote = useAction(api.functions.files.readNote);
@@ -712,6 +722,34 @@ export function useFileBrowser(options: {
     [createShare, runShare, workspaceId],
   );
 
+  const createTeamShareMutation = useMutation(api.functions.shares.createTeamShare);
+
+  const teamShareLink = useCallback(
+    async (path: string): Promise<string | null> => {
+      if (!mayShare || workspaceId === null) return null;
+      try {
+        await createTeamShareMutation({ workspaceId, path });
+        /**
+         * The **readable** URL, not `/s/<token>`.
+         *
+         * A link pasted into a document or a chat should say what it points at,
+         * and a 64-character token says nothing. The share row still exists —
+         * it is what renders the card and what makes the preview *opt-in*, so a
+         * note nobody linked unfurls as plain product branding — but the URL
+         * people see and send is the one with the note's name in it.
+         *
+         * Access is unchanged either way: the console decides by membership.
+         * The token is a locator for the card, never a grant.
+         */
+        return slug === null ? null : `${consoleOrigin()}${noteHref(slug, path)}`;
+      } catch (error) {
+        setNotice(toFileError(error).message);
+        return null;
+      }
+    },
+    [createTeamShareMutation, mayShare, slug, workspaceId],
+  );
+
   const revokeShare = useCallback(
     (shareId: string) => {
       void runShare(
@@ -790,6 +828,7 @@ export function useFileBrowser(options: {
         isOwner: options.isOwner === true,
       }),
       canShare: mayShare,
+      teamShareLink,
       shares,
       share,
       revokeShare,
@@ -827,6 +866,7 @@ export function useFileBrowser(options: {
       share,
       revokeShare,
       setSharePreviewTitle,
+      teamShareLink,
       shares,
       mayShare,
       toggleFolder,

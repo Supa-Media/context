@@ -309,7 +309,31 @@ const schema = defineSchema({
      * Explicit rather than derived from the string's shape, so no two readers
      * can guess differently. Same field pair as `workspaceInvitations`.
      */
-    recipientKind: v.union(v.literal("name"), v.literal("email")),
+    /**
+     * `name` — a `@handle` out of the shared namespace, stored undecorated.
+     * `email` — a lowercased address.
+     * `members` — **not a person at all**: anyone whose membership of this
+     *   context already lets them read the note. `recipient` is `""`, because
+     *   there is nobody to name.
+     *
+     * One field, not an `audience` beside a recipient. A share's audience
+     * stored twice is a share whose two halves can disagree, and the direction
+     * that disagreement fails is "more people can read this than the owner
+     * chose" — the same reasoning `visibilityTierForGrant` gives for keeping
+     * the privacy tier in exactly one place.
+     *
+     * A `members` share grants **nothing**. It is a locator whose reader is
+     * authorised by membership, so removing somebody from the context takes the
+     * link with them. What the token buys is that the URL is unguessable, which
+     * is what makes it safe for the link's card to carry the note's title —
+     * `/console/@slug?note=…` addresses the same note and must not, because
+     * anyone who knows the handle can type it.
+     */
+    recipientKind: v.union(
+      v.literal("name"),
+      v.literal("email"),
+      v.literal("members"),
+    ),
     recipient: v.string(),
     createdBy: v.id("users"),
     /**

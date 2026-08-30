@@ -131,6 +131,7 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       shares: undefined,
       share: noop,
       revokeShare: noop,
+      teamShareLink: async () => null,
       setSharePreviewTitle: noop,
     }),
     [editor, expanded, select, selectedPath, toggleFolder, tree],

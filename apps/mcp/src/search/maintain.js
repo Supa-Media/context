@@ -41,6 +41,46 @@ import { computeRanks } from "./query.js";
 export const SEARCH_INDEX_KEY = ".index/search-v1.json";
 
 const LIST_PAGE_LIMIT = 1000;
+/**
+ * The stored index is refused, unparsed, past this size — and rebuilt slim.
+ *
+ * The Worker's 128MB memory limit is the one ceiling no plan raises, and
+ * `JSON.parse` of a large index inflates it several-fold in the heap. Measured
+ * live: a brain whose full-text chat archives had been indexed whole grew an
+ * index big enough that parsing it killed every invocation — uncatchably, past
+ * the top-level catch — so search was down *because of* its own accelerator,
+ * and no pass survived long enough to shrink the object. Refusing to parse is
+ * what breaks that cycle: an oversized index is treated exactly like a corrupt
+ * one, rebuilt from the notes under `NOTE_INDEX_CHAR_CAP`, and overwritten.
+ *
+ * This is a ceiling, not a cure: a brain whose *capped* index still exceeds
+ * this size (roughly 10k+ notes) would churn — refused, partially rebuilt,
+ * regrown, refused again. At that scale the index needs sharding (per-folder
+ * postings, a small global-stats object); that is v2 work, stated here so the
+ * churn is recognized as this boundary rather than rediscovered as a mystery.
+ */
+const INDEX_PARSE_BYTE_CAP = 12_000_000;
+/**
+ * At most this much of one note's content is indexed.
+ *
+ * The median note is a few KB; the outliers are saved chat sessions and agent
+ * ledgers at 64KB+, and indexing those whole is what bloated the index past
+ * the memory ceiling above. The first N characters carry a long note's
+ * frontmatter, title, headings and opening prose — the parts ranking weighs
+ * most — so the recall lost is the tail of the largest logs, and the note
+ * still surfaces by everything that matters. The cut is by characters of
+ * source text, before tokenization, so `len` and tf stay consistent with what
+ * was actually indexed.
+ *
+ * 2KB, down from 8KB, and the number is a measurement: at 8KB a live brain in
+ * the mid-thousands of notes built a capped index that still crossed
+ * `INDEX_PARSE_BYTE_CAP`, so every pass refused it, rebuilt the same first
+ * budget's worth of notes, and coverage never accumulated — the churn the cap's
+ * own comment predicts, arriving well before the 10k-note guess. 2KB holds a
+ * few-thousand-note brain comfortably under the parse cap; the durable fix at
+ * the next order of magnitude is sharding, not a smaller number here.
+ */
+const NOTE_INDEX_CHAR_CAP = 2_048;
 /** Never spend the last op on listing or fetching; the write needs one. */
 const WRITE_RESERVE = 1;
 /** Nor let the listing consume everything a backfill would have used. */
@@ -247,10 +287,17 @@ export async function syncIndex(store, { budget, reserve = 0, isIndexable = defa
   const stored = await store.get(SEARCH_INDEX_KEY);
   const storedEtag = typeof stored?.etag === "string" && stored.etag ? stored.etag : null;
   if (stored) {
-    // A corrupt or wrong-version index is a rebuild, never a throw: `parseIndex`
-    // answers null for anything it cannot fully validate, and the conditional
-    // put below replaces the bad object with a good one.
-    index = parseIndex(await stored.text()) || emptyIndex();
+    // A corrupt, wrong-version, or oversized index is a rebuild, never a
+    // throw: `parseIndex` answers null for anything it cannot fully validate,
+    // the byte cap refuses to even parse an object big enough to endanger the
+    // memory limit, and the conditional put below replaces the bad object with
+    // a good one. The size is read from the bytes, not a header, because the
+    // header is the backend's word for it.
+    const bytes = await stored.arrayBuffer();
+    index =
+      (bytes.byteLength <= INDEX_PARSE_BYTE_CAP &&
+        parseIndex(new TextDecoder().decode(bytes))) ||
+      emptyIndex();
   }
 
   const { entries, regionComplete, truncated } = await listNoteObjects(
@@ -276,48 +323,83 @@ export async function syncIndex(store, { budget, reserve = 0, isIndexable = defa
     if (!doc || doc.etag !== listed.version) stale.push([path, listed]);
   }
 
+  // Fetched in parallel waves, indexed in `stale` order once a wave lands.
+  //
+  // This loop was one awaited GET at a time, and that was a wall-clock bug the
+  // subrequest budget could not see: a paid-plan budget of 600 authorizes ~580
+  // fetches, which sequentially is 30-60 seconds — past what MCP clients wait —
+  // so the client timed out, the invocation died with it, the conditional put
+  // never ran, and a *bigger* budget made convergence *less* likely. Measured
+  // live before any client saw a converged index. The budget is still taken
+  // one op per fetch, before the fetch, on one shared counter; only the
+  // waiting overlaps. `addDoc` runs wave by wave in list order, so what the
+  // index contains for a given spend is what the sequential loop would have
+  // built.
+  const BACKFILL_CONCURRENCY = 12;
   let processed = 0;
-  for (const [path, listed] of stale) {
-    if (!ops.take(reserve + WRITE_RESERVE)) break;
-    let object;
-    try {
-      object = await store.get(path);
-    } catch {
-      // One unreadable note must not cost the query its whole answer — and it
-      // must not cost the *rest of the backfill* either. This used to `break`,
-      // which parked the sync at the same note on every pass forever: the stale
-      // list is in listing order, so a single key the adapter refuses (a
-      // backslash, a control character — keys Obsidian and rclone write without
-      // asking us) stalled indexing for every note that sorts after it. That is
-      // the census's "one oddly named folder suppressed the whole count" trap,
-      // one layer down. Skip it instead: the attempt already spent its budget
-      // op, so a bucket full of unreadable notes still terminates, and the note
-      // stays in `pending`, so the floor language keeps being said.
-      continue;
+  for (let start = 0; start < stale.length; start += BACKFILL_CONCURRENCY) {
+    const wave = [];
+    for (const entry of stale.slice(start, start + BACKFILL_CONCURRENCY)) {
+      if (!ops.take(reserve + WRITE_RESERVE)) break;
+      wave.push(
+        (async ([path, listed]) => {
+          let object;
+          try {
+            object = await store.get(path);
+          } catch {
+            // One unreadable note must not cost the query its whole answer —
+            // and it must not cost the *rest of the backfill* either. An
+            // earlier version stopped the walk here, which parked the sync at
+            // the same note on every pass forever: the stale list is in
+            // listing order, so a single key the adapter refuses (a backslash,
+            // a control character — keys Obsidian and rclone write without
+            // asking us) stalled indexing for every note that sorts after it.
+            // That is the census's "one oddly named folder suppressed the
+            // whole count" trap, one layer down. Skip it: the attempt already
+            // spent its budget op, so a bucket full of unreadable notes still
+            // terminates, and the note stays in `pending`, so the floor
+            // language keeps being said.
+            return null;
+          }
+          if (!object) return { path, gone: true };
+          const full = await object.text();
+          const content = full.length > NOTE_INDEX_CHAR_CAP ? full.slice(0, NOTE_INDEX_CHAR_CAP) : full;
+          // Record the token the *next* listing will report, or the diff never
+          // converges. Where the listing carries a real etag that is the etag
+          // this read returned (a write that landed in between is caught on
+          // the next pass); where it does not, the object's real etag would
+          // never equal the synthetic token and every note would look stale
+          // forever.
+          const version =
+            listed.fromEtag && typeof object.etag === "string" && object.etag
+              ? object.etag
+              : listed.version;
+          return { path, uploaded: listed.uploaded, content, version };
+        })(entry)
+      );
     }
-    processed += 1;
-    if (!object) {
-      // Deleted between the listing and the read. Dropping it is right in a way
-      // the removal pass above cannot be: we asked for it by name and it is not
-      // there.
-      if (index.docs.has(path)) {
-        removeDoc(index, path);
-        changed = true;
+    if (wave.length === 0) break;
+    for (const result of await Promise.all(wave)) {
+      if (!result) continue;
+      processed += 1;
+      if (result.gone) {
+        // Deleted between the listing and the read. Dropping it is right in a
+        // way the removal pass above cannot be: we asked for it by name and it
+        // is not there.
+        if (index.docs.has(result.path)) {
+          removeDoc(index, result.path);
+          changed = true;
+        }
+        continue;
       }
-      continue;
+      addDoc(index, result.path, {
+        etag: result.version,
+        uploaded: result.uploaded,
+        content: result.content,
+      });
+      changed = true;
     }
-    const content = await object.text();
-    // Record the token the *next* listing will report, or the diff never
-    // converges. Where the listing carries a real etag that is the etag this
-    // read returned (a write that landed in between is caught on the next
-    // pass); where it does not, the object's real etag would never equal the
-    // synthetic token and every note would look stale forever.
-    const version =
-      listed.fromEtag && typeof object.etag === "string" && object.etag
-        ? object.etag
-        : listed.version;
-    addDoc(index, path, { etag: version, uploaded: listed.uploaded, content });
-    changed = true;
+    if (wave.length < Math.min(BACKFILL_CONCURRENCY, stale.length - start)) break;
   }
 
   if (changed) {

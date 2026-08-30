@@ -253,6 +253,25 @@ async function shareStillStands(
     if (claim?.claimedAt !== share.recipientHeldSince) return null;
   }
 
+  /**
+   * A team share is authorised by membership, not by identity.
+   *
+   * The token is what makes the *link* unguessable; it is not what grants
+   * access, and that distinction is the whole design. Somebody removed from
+   * this context loses the note while holding the same URL, which is what
+   * "anyone with access" has to mean — and it is why this checks membership
+   * live on every read rather than recording who was a member when the link
+   * was made.
+   *
+   * `getMembership` and not `requireWorkspaceAccess`: a non-member must fall
+   * through to the caller's single `null`, not raise `WORKSPACE_NOT_FOUND`,
+   * because every refusal on this path is one answer.
+   */
+  if (share.recipientKind === "members") {
+    const membership = await getMembership(ctx, share.workspaceId, userId);
+    return membership === null ? null : workspace;
+  }
+
   // Last, and the authority on who an identifier belongs to.
   const addressed = await resolveAddressedUser(ctx, {
     kind: share.recipientKind,
@@ -333,6 +352,19 @@ async function findShareFor(
         .eq("recipient", recipient.value),
     )
     .unique();
+}
+
+
+/**
+ * How a share's audience is shown to its owner.
+ *
+ * A person is named; a team share names the rule instead, because there is
+ * nobody to name — and "Anyone with access" is the sentence that tells the
+ * owner what removing somebody does to it.
+ */
+function describeAudience(kind: string, recipient: string): string {
+  if (kind === "members") return "Anyone with access";
+  return formatInvitee({ kind: kind as Invitee["kind"], value: recipient });
 }
 
 const shareSummary = v.object({
@@ -498,6 +530,111 @@ export const createShare = mutation({
 });
 
 /**
+ * A link to this note for the people who already have access.
+ *
+ * Separate from `createShare` rather than a flag on it, because the two answer
+ * different questions and only one of them has an oracle to worry about.
+ * `createShare` is addressed to a *string somebody typed*, and its whole shape
+ * — resolve late, return nothing derived from the recipient, refuse only about
+ * the string — exists so an invite box cannot enumerate the platform's names.
+ * This takes no recipient at all, so none of that applies and folding the two
+ * together would put a branch through the middle of that reasoning.
+ *
+ * **It grants nothing.** Reading is authorised by membership on every request,
+ * so removing somebody from the context takes the link with them. What the
+ * token buys is that the URL is unguessable — which is what makes it safe for
+ * the link's card to carry the note's title, where `/console/@slug?note=…`
+ * addresses the same note and must not, because anyone who knows the handle can
+ * type that one and probe for which notes exist.
+ *
+ * Idempotent: one team link per note. Asking twice hands back the same URL,
+ * because the owner has probably already pasted it somewhere.
+ */
+export const createTeamShare = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    path: v.string(),
+    titleInPreview: v.optional(v.boolean()),
+  },
+  returns: v.object({ token: v.string() }),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+    await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
+
+    const pathCheck = checkSharePath(args.path);
+    if (!pathCheck.ok) throw pathRejection(pathCheck);
+
+    const now = Date.now();
+    const chosenTitle = titleFromPath(pathCheck.path);
+
+    const existing = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_entry_recipient", (q) =>
+        q
+          .eq("workspaceId", args.workspaceId)
+          .eq("entryPath", pathCheck.path)
+          .eq("recipientKind", "members")
+          .eq("recipient", ""),
+      )
+      .unique();
+
+    if (existing !== null && existing.status === "active") {
+      await ctx.db.patch(existing._id, {
+        titleInPreview: args.titleInPreview ?? existing.titleInPreview,
+        previewTitle: chosenTitle ?? existing.previewTitle,
+      });
+      await scheduleCardRender(ctx, existing._id);
+      return { token: existing.token };
+    }
+
+    await assertShareCapacity(ctx, args.workspaceId);
+    const token = randomOpaqueToken();
+
+    let shareId: Id<"noteShares">;
+    if (existing !== null) {
+      // Revoked and re-made. A new token, so a link already taken back stays
+      // dead — the same rule `createShare` follows.
+      shareId = existing._id;
+      await ctx.db.patch(existing._id, {
+        status: "active",
+        token,
+        titleInPreview: args.titleInPreview ?? true,
+        previewTitle: chosenTitle ?? undefined,
+        createdBy: userId,
+        createdAt: now,
+        revokedAt: undefined,
+      });
+    } else {
+      shareId = await ctx.db.insert("noteShares", {
+        workspaceId: args.workspaceId,
+        entryPath: pathCheck.path,
+        // Nobody to name. See the schema: one field carries the audience, so
+        // there is no second field to disagree with it.
+        recipientKind: "members",
+        recipient: "",
+        createdBy: userId,
+        token,
+        status: "active",
+        titleInPreview: args.titleInPreview ?? true,
+        previewTitle: chosenTitle ?? undefined,
+        createdAt: now,
+      });
+    }
+
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: userId,
+      action: "share.team.created",
+      paths: [pathCheck.path],
+      details: { audience: "members" },
+    });
+
+    await scheduleCardRender(ctx, shareId);
+    return { token };
+  },
+});
+
+/**
  * Refuse a share that would take the context past its outstanding cap.
  *
  * Checked on both paths that produce a live row — the insert, and the patch
@@ -580,7 +717,7 @@ export const listShares = query({
       .map((row) => ({
         shareId: row._id,
         token: row.token,
-        recipient: formatInvitee({ kind: row.recipientKind, value: row.recipient }),
+        recipient: describeAudience(row.recipientKind, row.recipient),
         entryPath: row.entryPath,
         titleInPreview: row.titleInPreview,
         previewTitle: row.previewTitle,
@@ -624,10 +761,7 @@ export const revokeShare = mutation({
       action: "share.revoked",
       paths: [share.entryPath],
       details: {
-        recipient: formatInvitee({
-          kind: share.recipientKind,
-          value: share.recipient,
-        }),
+        recipient: describeAudience(share.recipientKind, share.recipient),
       },
     });
 
@@ -718,6 +852,12 @@ export const listSharedWithMe = query({
     const identifiers = await identifiersForUser(ctx, userId);
 
     const rows: Doc<"noteShares">[] = [];
+    /*
+      Team shares are deliberately absent from this list. It answers "what was
+      sent to *me*", and a team share was sent to nobody — it is a link into a
+      context the reader can already open, so listing it would put every note
+      anybody ever linked into a personal inbox.
+    */
     for (const identifier of identifiers) {
       const found = await ctx.db
         .query("noteShares")
@@ -995,6 +1135,75 @@ async function readThroughShare(
     throw error;
   }
 }
+
+/**
+ * The title and card for a **readable** team link, for the edge router. NO
+ * SESSION.
+ *
+ * `/console/@seyi?note=1-projects/plan.md` is the link an owner copies, because
+ * a URL pasted into a document should say what it points at — a 64-character
+ * token tells a reader nothing. That readability is the whole reason this
+ * exists rather than the token lookup beside it.
+ *
+ * ## The oracle this opens, and what bounds it
+ *
+ * A console URL is **guessable**: anyone who knows the handle can type one. So
+ * answering "what is this note called" to an unauthenticated crawler does let
+ * somebody probe paths and learn which exist.
+ *
+ * What bounds it is that this answers **only for notes the owner has
+ * explicitly team-linked** — pressing Copy link is what writes the row. A note
+ * nobody has linked is byte-identical to a note that does not exist, so the
+ * probe reveals the set the owner already chose to publish a card for, and
+ * nothing about the rest of the context. The owner accepted that trade
+ * deliberately, with the alternative (an unguessable token) in front of them,
+ * because an unreadable link is one nobody clicks.
+ *
+ * Everything else the token lookup refuses, this refuses too: no owner, no
+ * context name, no path, no dates, no counts, no listing. One field.
+ *
+ * `cardToken` is the team share's token, and it is safe to hand over here
+ * **because a team share's token grants nothing** — reading is authorised by
+ * membership on every request. It is a locator for the card image and not a
+ * capability. This must never return a *personal* share's token, which is a
+ * locator whose holder the owner chose; the query below only ever looks at
+ * `members` rows.
+ */
+export const previewForNote = query({
+  args: { slug: v.string(), path: v.string() },
+  returns: v.object({
+    title: v.union(v.string(), v.null()),
+    cardToken: v.union(v.string(), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const nothing = { title: null, cardToken: null };
+
+    const name = await findName(ctx, args.slug.replace(/^@/, "").toLowerCase());
+    if (name?.workspaceId === undefined) return nothing;
+
+    const path = normalizePath(args.path);
+    if (path === null || isPlumbing(path)) return nothing;
+
+    const share = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_entry_recipient", (q) =>
+        q
+          .eq("workspaceId", name.workspaceId!)
+          .eq("entryPath", path)
+          .eq("recipientKind", "members")
+          .eq("recipient", ""),
+      )
+      .unique();
+
+    // Not linked, revoked, expired, or its title switched off — one answer, so
+    // a crawler cannot tell "the owner took this back" from "never linked".
+    if (share === null || !isLive(share, Date.now())) return nothing;
+    if (!share.titleInPreview) return nothing;
+    if (share.previewTitle === undefined) return nothing;
+
+    return { title: share.previewTitle, cardToken: share.token };
+  },
+});
 
 /**
  * The title a share's link unfurls with, for the edge router. NO SESSION.

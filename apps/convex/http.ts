@@ -783,6 +783,37 @@ export const shareCard = httpAction(async (ctx, request) => {
 
 http.route({ path: "/share/card", method: "POST", handler: shareCard });
 
+/**
+ * `POST /share/note` — the card for a **readable** team link.
+ *
+ * `/console/@seyi?note=1-projects/plan.md` is what an owner copies, because a
+ * URL pasted into a document should say what it points at. This is what lets it
+ * unfurl.
+ *
+ * **Unauthenticated, and the third such route.** Its argument is a handle and a
+ * path, both guessable — unlike the two beside it, whose argument is a CSPRNG
+ * token. So this one does open an oracle, and what bounds it is that it answers
+ * only for notes the owner has explicitly team-linked: an unlinked note is
+ * byte-identical to one that does not exist. See `previewForNote`, which is
+ * where that trade is argued.
+ */
+export const shareNotePreview = httpAction(async (ctx, request) => {
+  const body = await readJsonBody(request);
+  const slug = body === null ? null : stringField(body, "slug");
+  const path = body === null ? null : stringField(body, "path");
+  if (slug === null || path === null) {
+    return json({ title: null, cardToken: null });
+  }
+
+  const result = await ctx.runQuery(api.functions.shares.previewForNote, {
+    slug,
+    path,
+  });
+  return json(result);
+});
+
+http.route({ path: "/share/note", method: "POST", handler: shareNotePreview });
+
 /* -------------------------------------------------------------------------- */
 
 // POST only, every one of them. The contract has no GET shape, and a GET would
