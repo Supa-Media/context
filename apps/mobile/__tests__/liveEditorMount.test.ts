@@ -28,6 +28,7 @@ import { act } from "react";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { EditorView } from "@codemirror/view";
+import { deleteCharBackward } from "@codemirror/commands";
 import { LiveEditor } from "../features/console/files/LiveEditor.web";
 
 /**
@@ -216,5 +217,81 @@ describe("editability", () => {
     view.dispatch({ changes: { from: 0, insert: "more " } });
     expect(m.changes.length).toBeGreaterThan(0);
     m.unmount();
+  });
+});
+
+/**
+ * A READING SURFACE THAT IS ONLY VISUALLY READ-ONLY.
+ *
+ * `EditorView.editable.of(false)` drops `contenteditable` and nothing else.
+ * CodeMirror says so itself, in the installed source at
+ * `@codemirror/view/dist/index.js`:
+ *
+ *   "Note that this doesn't affect API calls that change the editor content,
+ *    even when those are bound to keys or buttons. See the `readOnly` facet
+ *    for that."
+ *
+ * So the facet has to be set too, and `readOnly` in this product means
+ * `privacy.md` — `OpenNote.readOnly` is `key === PRIVACY_KEY`, never "the
+ * viewer lacks write access". A member reading a note they cannot write is
+ * `editable: false` with `readOnly` unset, and before this the editing
+ * commands, the `Mod-s` binding and the drop handler all still ran.
+ *
+ * Nothing here is a server-side breach: the control plane refuses the write.
+ * What it costs is a viewer whose note silently diverges from the file, a Save
+ * that lights up to fail — "a Save button that always fails is worse than no
+ * Save button", in the console's own words — and, because CodeMirror only sets
+ * `aria-readonly` when the facet is on, a screen reader telling a member the
+ * note is editable.
+ */
+describe("a note the viewer may not write", () => {
+  test("the readOnly facet tracks `editable`, not just `contenteditable`", () => {
+    const m = mount({ value: "# secret\n\nbody", editable: false });
+    expect(viewIn(m.container).state.readOnly).toBe(true);
+
+    // ...and back, so this is about the prop rather than a constant.
+    m.update({ editable: true });
+    expect(viewIn(m.container).state.readOnly).toBe(false);
+    m.unmount();
+  });
+
+  test("an editing command cannot change a note the viewer may not write", () => {
+    const m = mount({ value: "# secret\n\nbody", editable: false });
+    const view = viewIn(m.container);
+    view.dispatch({ selection: { anchor: view.state.doc.length } });
+
+    // The path CodeMirror's own note is about: a command bound to a key, which
+    // `EditorView.editable` does not stop.
+    const before = view.state.doc.toString();
+    const handled = deleteCharBackward(view);
+
+    expect(handled).toBe(false);
+    expect(view.state.doc.toString()).toBe(before);
+    expect(m.changes).toEqual([]);
+    m.unmount();
+  });
+
+  test("and Mod-s on it does not fire a save that is going to be refused", () => {
+    const m = mount({ value: "# secret\n\nbody", editable: false });
+    const before = m.saves;
+    const content = m.container.querySelector(".cm-content") as HTMLElement;
+    content.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true }),
+    );
+    expect(m.saves).toBe(before);
+
+    // The binding still works where it should, so this is a gate rather than a
+    // deletion — losing ⌘S for everybody would pass the assertion above.
+    const editableMount = mount({ value: "# mine\n", editable: true });
+    const editableContent = editableMount.container.querySelector(
+      ".cm-content",
+    ) as HTMLElement;
+    editableContent.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true }),
+    );
+    expect(editableMount.saves).toBe(1);
+
+    m.unmount();
+    editableMount.unmount();
   });
 });
