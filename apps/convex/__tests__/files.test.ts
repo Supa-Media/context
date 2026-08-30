@@ -467,23 +467,82 @@ describe("a team-scoped caller cannot read, list, or infer a private note", () =
     expect(errorCode(hidden)).toBe("FILE_NOT_FOUND");
   });
 
-  test("listing a private folder fails byte-identically to listing one that never existed", async () => {
+  /**
+   * End to end, and the collapse is now an ANSWER rather than a refusal.
+   *
+   * It used to be a shared `FILE_NOT_FOUND`, which read as safe and was the
+   * leak: a name that does not exist inherits its parent's default, so under a
+   * team-visible parent it was visible and returned an empty listing while a
+   * private one refused. Two answers, and the difference was the withheld fact.
+   * Both give the empty listing now — including inside a folder the caller can
+   * see, which is where the old shape came apart.
+   */
+  test("listing a private folder is byte-identical to listing one that never existed", async () => {
     const f = await fixture();
     await share(f);
     const as = asUser(f.t, f.reader);
-    const hidden = await captureError(() =>
-      as.action(api.functions.files.listFiles, {
-        workspaceId: f.workspaceId,
-        path: "2-areas",
-      }),
+    const hidden = await as.action(api.functions.files.listFiles, {
+      workspaceId: f.workspaceId,
+      path: "2-areas",
+    });
+    const absent = await as.action(api.functions.files.listFiles, {
+      workspaceId: f.workspaceId,
+      path: "9-imaginary",
+    });
+    // `path` echoes the request, so it is the one field allowed to differ.
+    expect(JSON.stringify({ ...hidden, path: null })).toBe(
+      JSON.stringify({ ...absent, path: null }),
     );
-    const absent = await captureError(() =>
-      as.action(api.functions.files.listFiles, {
-        workspaceId: f.workspaceId,
-        path: "9-imaginary",
-      }),
+  });
+
+  /**
+   * And inside a folder the caller CAN see, which is where the old shape came
+   * apart. At the root both legs were refused because the root default is
+   * private; one level in, an absent name inherits `team`, is visible, and used
+   * to return an empty listing while a private sibling refused.
+   *
+   * The private subfolder is built here rather than in `share`, because a
+   * fixture without one makes both legs absent and the comparison vacuous —
+   * which is how the first version of this test passed.
+   */
+  test("and the same holds inside a folder the caller can see", async () => {
+    const f = await fixture();
+    await share(f);
+    const owner = asUser(f.t, f.owner);
+    await owner.action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/secret-client/brief.md",
+      text: "# Brief\n",
+    });
+    await owner.action(api.functions.files.setDirectoryVisibility, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/secret-client",
+      visibility: "private",
+    });
+
+    // The owner sees it, so the collapse below is about scope rather than the
+    // folder having stopped existing.
+    expect(
+      (
+        await owner.action(api.functions.files.listFiles, {
+          workspaceId: f.workspaceId,
+          path: "1-projects/secret-client",
+        })
+      ).entries.map((e: { name: string }) => e.name),
+    ).toEqual(["brief.md"]);
+
+    const as = asUser(f.t, f.reader);
+    const hidden = await as.action(api.functions.files.listFiles, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/secret-client",
+    });
+    const absent = await as.action(api.functions.files.listFiles, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/never-existed",
+    });
+    expect(JSON.stringify({ ...hidden, path: null })).toBe(
+      JSON.stringify({ ...absent, path: null }),
     );
-    expect(errorShape(hidden)).toBe(errorShape(absent));
   });
 
   test("an editor writing into a folder they cannot see is refused, and refused the same way", async () => {

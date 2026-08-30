@@ -400,11 +400,54 @@ has already been unfurled somewhere. That is a reason to keep the card's
 contents minimal — a title and nothing else — rather than a reason not to have
 one.
 
-`POST /share/preview` is therefore the one route in `http.ts` that requires no
-secret, and it is enumerated in `UNAUTHENTICATED_HTTP_ROUTES` in
-`__tests__/structure.test.ts` — which pins the list at exactly one and asserts
-the handler returns nothing but the title. A second entry there needs the whole
-argument above made again, on its own terms.
+`POST /share/preview` is therefore a route in `http.ts` that requires no secret.
+`UNAUTHENTICATED_HTTP_ROUTES` in `__tests__/structure.test.ts` enumerates them,
+pins the list by name and order, and asserts the handler returns nothing but the
+title. It held exactly one when this section was written and holds three now;
+each entry needed the whole argument above made again, on its own terms, and a
+fourth still does.
+
+**The third entry is the only one whose argument is guessable, and that costs it
+the folder.** `shareNotePreview` answers `/@name/<path>` — an address anybody
+can type — so the guessability hinge does not do for it what it does for
+`/s/<64 hex>`. What keeps it inside the rule is that it answers only for a path
+the owner explicitly team-linked, which bounds the probe to the set they already
+chose to publish. That bound is only as good as the space being probed, and
+**the product writes a lot of that space itself.** `scaffoldFiles` lays down
+`privacy.md`, `index.md` and a `README.md` in each of the five PARA folders, the
+five folder names are documented in this file, and the connected-client house
+rules put a `todo.md` at the root. So a fresh brain arrives with roughly a dozen
+addresses anybody can guess without knowing a thing about its owner, and a
+handful of guesses per handle is an exhaustible space.
+
+Every one of those is refused and unfurls as the generic card. A name the
+**owner** chose is not guessable and may carry a title, which is the whole
+feature. `createTeamShare` still takes any of them and the link still works —
+describing one to an anonymous crawler is the separate question.
+
+An earlier version of this paragraph said the space was "five" and that "a note
+filename is not" guessable. Both were wrong, and wrong in the way this file
+warns about: counted once, for folders, and never recounted when the rule was
+written down as a general one. `isProductMandatedPath` is the list, and its test
+drives `scaffoldFiles` rather than restating it, so a new scaffolded file cannot
+quietly become a new guess. `infra/router/src/preview.ts` keeps a second copy
+because it is a separate deployment and cannot import the first; a test reads
+that file and asserts the two agree, rather than a comment saying they do.
+
+One entry is not on the product's own authority and is labelled that way.
+`todo.md` is a name the owner chose — `apps/mcp/src/index.js` deliberately
+removed the `todo.md` and agent-ledger conventions from the server instructions
+as "one customer's house rules" — and it is refused on the weaker ground that it
+is a guess anybody would make. That argument is unbounded (`notes.md`,
+`journal.md`), so the list stops at one entry and the residual is stated rather
+than papered over: a generic filename the owner picked is still previewable.
+The `custom` scaffold template is out of scope for the same reason in reverse —
+its folder names are the owner's, so nothing about them is guessable.
+
+The rule is enforced in `previewForNote` (the control plane, where it counts)
+and restated in `infra/router/src/preview.ts` (which only saves the round trip).
+Two copies of a rule are held here the way two copies are always held: by
+running both against the same shapes, not by trusting the comment between them.
 
 ### Two MCP eras, two lists, and they must never be merged
 

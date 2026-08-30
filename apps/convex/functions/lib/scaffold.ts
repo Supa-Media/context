@@ -533,6 +533,61 @@ export function renderFolderReadme(folder: string): string {
 }
 
 /**
+ * Names this product does not write, kept out anyway because they are generic.
+ *
+ * A first version called `todo.md` "mandated by the connected-client house
+ * rules". That contradicts a decision already recorded in `apps/mcp/src/index.js`
+ * — the agent-ledger and `todo.md` conventions were deliberately removed from
+ * `SERVER_INSTRUCTIONS` because "they are one customer's house rules... Ours is
+ * the product's rules only." By that decision `todo.md` is a name its owner
+ * chose, and this list would have no business holding it.
+ *
+ * It stays on the weaker and honestly weaker argument: `todo.md` at the root of
+ * a notes bucket is a guess anybody would make. **That argument is unbounded** —
+ * `notes.md`, `journal.md`, `ideas.md` are guesses too — so any list built on it
+ * is an arbitrary stopping point, and this one stops at one entry. The residual
+ * is real and is not a bug in the rule but a limit of it: a generic filename the
+ * owner picked is still previewable.
+ *
+ * Kept rather than dropped because the two directions fail differently. Refusing
+ * a name nobody would have guessed costs one owner one card; previewing one
+ * anybody would guess is the thing the whole rule exists to stop.
+ */
+export const GENERIC_ROOT_KEYS = ["todo.md"] as const;
+
+/**
+ * A path this product itself puts into every brain, and therefore one anybody
+ * can guess without knowing a thing about the owner.
+ *
+ * Used by `previewForNote` to decide what an unauthenticated crawler may be
+ * told about a **guessable** address. The card rule turns on guessability: a
+ * share link is 32 CSPRNG bytes and may carry a title, while `/@name/<path>` is
+ * typed, so it may only answer for a path the owner explicitly linked — and
+ * that bound is worth exactly as much as the name space it is defended by.
+ *
+ * The five PARA folders were the first version of this and the reason the
+ * preview refuses folders at all. Notes are a bigger list than "index.md":
+ * `scaffoldFiles` also lays a `README.md` into every PARA folder, so a fresh
+ * brain arrives with six guessable note names before its owner writes anything.
+ *
+ * The test for this drives `scaffoldFiles` rather than restating its output, so
+ * an eighth scaffolded file cannot quietly become an eighth guess.
+ *
+ * **The `custom` template is deliberately out of scope.** It also writes a
+ * `README.md` per folder, but those folder names are the owner's — `Journal/`,
+ * `Clients/` — so the guessability premise that makes this list a security
+ * control simply does not hold for them, and refusing them would cost a card
+ * for nothing. Only `PARA_FOLDERS` is consulted, and the test's claim that
+ * driving `scaffoldFiles` catches a new file is a claim about the `para`
+ * branch.
+ */
+export function isProductMandatedPath(path: string): boolean {
+  if (path === INDEX_KEY || path === PRIVACY_KEY) return true;
+  if ((GENERIC_ROOT_KEYS as readonly string[]).includes(path)) return true;
+  return PARA_FOLDERS.some((folder) => path === `${folder}/README.md`);
+}
+
+/**
  * Every file a fresh context starts with, **in write order, essentials first**.
  *
  * A folder in object storage is not a thing you create — it is the prefix of a

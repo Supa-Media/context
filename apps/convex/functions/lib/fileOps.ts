@@ -360,17 +360,56 @@ export async function listFolder(
   const folder = requireFolderPath(options.path);
   const state = await loadPrivacyState(store);
 
-  if (folder !== "" && !folderVisibleAtScope(folder, options.scope, state.rules, state.overrides)) {
-    throw notFound();
-  }
+  // **A folder the caller cannot see answers exactly as one that is not there,
+  // and refusing is not how you do that.**
+  //
+  // Refusing looked like the safe direction and is the leak. A name that does
+  // not exist inherits its parent's default, so under a team-visible parent it
+  // is VISIBLE and returns an empty listing — while a name that exists and is
+  // private refuses. Two different answers, and the difference is exactly the
+  // fact being withheld: a member who guesses a folder name is told whether it
+  // is there. `privacy.md` is kept from team scope because "handing it to a
+  // team-scoped caller would enumerate every private folder by name"; this was
+  // that, one guess at a time.
+  //
+  // It read as collapsed because the test for it compared two folders at the
+  // ROOT, where the default is private and a nonexistent name is refused too.
+  // The axis that fixture held constant is the one the collapse turns on.
+  //
+  // So the empty shape is returned instead of a refusal. `readFile` has always
+  // done the equivalent — a note it cannot see and a note that is not there
+  // both throw — and this is the same collapse for the other direction, since
+  // an empty listing is what an absent folder already produces here.
+  const withheld =
+    folder !== "" &&
+    !folderVisibleAtScope(folder, options.scope, state.rules, state.overrides);
 
   const prefix = folder === "" ? "" : `${folder}/`;
   const entries: FileEntry[] = [];
   const seenFolders = new Set<string>();
   let cursor: string | undefined;
   let truncated = false;
+  // **A withheld folder is walked exactly as any other, and skipping the walk
+  // was a bug I wrote here and then measured.**
+  //
+  // Skipping looks like the free optimisation: `canSee` filters every entry
+  // out anyway, so the answer cannot differ. But the absent folder still walks
+  // — it has to, to discover there is nothing — so skipping made the withheld
+  // case do strictly less work than the case it is supposed to be
+  // indistinguishable from. Counted: 0 store listings against 1. The result
+  // collapsed and the clock came apart, which is the same oracle one layer
+  // down.
+  // ...and it is walked for exactly one page, because that is what an absent
+  // folder costs. `limit` is a hint — the store is the customer's, and Dropbox
+  // documents its own as approximate — so a page of ten turns a sixty-object
+  // private folder into six round trips against the absent folder's one, and
+  // past `LIST_PAGE_CAP` pages the body comes apart too: `truncated: true`
+  // against `false`. Both the clock and a boolean would then scale with the
+  // size of the thing being hidden, which is a coarser oracle than the name it
+  // was hiding.
+  const pages = withheld ? 1 : LIST_PAGE_CAP;
 
-  for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+  for (let page = 0; page < pages; page += 1) {
     const listing = await store.list({ prefix, delimiter: "/", cursor, limit: 1000 });
 
     for (const object of listing.objects ?? []) {
@@ -433,11 +472,83 @@ export async function listFolder(
 
   return {
     path: folder,
-    folderDefault: folder === "" ? visibilityOf("", state.rules) : visibilityOf(folder, state.rules),
-    entries,
-    truncated,
+    // A withheld folder reports the default an absent one would: its own rule
+    // is the fact being withheld, and printing it here would hand back through
+    // the shape what the refusal was hiding.
+    //
+    // The ancestor has to be the nearest VISIBLE one and not the immediate
+    // parent, which is where the first version of this leaked. At depth one the
+    // two are the same and it read as correct; one level down the parent IS the
+    // private folder, so the branch written to withhold a rule printed exactly
+    // that rule — `1-projects/secret/anything` answering "private" where
+    // `1-projects/guess/anything` answered "team", for a guessed segment that
+    // need not exist. Every ancestor that survives this walk is one the caller
+    // can already list, so it publishes nothing they could not read off their
+    // own tree.
+    folderDefault: withheld
+      ? visibilityOf(
+          nearestVisibleAncestor(folder, options.scope, state.rules, state.overrides),
+          state.rules,
+        )
+      : folder === ""
+        ? visibilityOf("", state.rules)
+        : visibilityOf(folder, state.rules),
+    // **`truncated` is load-bearing here, and a first draft of this comment
+    // called it belt and braces on a reason that is false.**
+    //
+    // "One page never truncates" is wrong: the no-cursor branch above fires on
+    // page zero for any non-empty prefix, because that is what a store setting
+    // `IsTruncated` without a `NextContinuationToken` produces — the exact
+    // nonconforming shape the block above names B2, Wasabi, MinIO and
+    // "anything a self-hosted gateway points at" as producing. Against such a
+    // store, and with this conditional removed, a withheld folder answers
+    // `truncated: true` where an absent one answers `false`: one boolean, in
+    // the body, saying whether the private folder is there. On a supported
+    // self-hosting path.
+    //
+    // It survives sabotage only because the one-page walk masks it on a
+    // CONFORMING store, so the test below uses a nonconforming one. Two
+    // mechanisms that mask each other are one mechanism with a spare, and the
+    // comment has to say which is which — otherwise the sentence claiming it is
+    // redundant is the sentence that deletes it.
+    //
+    // `entries` is the weaker of the pair and kept on the same grounds: the
+    // filters above run over whatever keys the customer's store actually
+    // returned, and the store is theirs.
+    entries: withheld ? [] : entries,
+    truncated: withheld ? false : truncated,
     manifestUsable: state.text !== null && !state.invalid,
   };
+}
+
+/**
+ * The nearest ancestor of `folder` visible at `scope`, or `""` for the root.
+ *
+ * Used only for a withheld folder's reported default, and the walk is the whole
+ * point: it steps over every ancestor the caller cannot see, so the word it
+ * ends up printing is one they could have read off their own tree anyway.
+ *
+ * "Off their own tree" is true and is not by itself enough — it does not
+ * obviously close the case of a path several levels below anything visible. The
+ * tight argument is that `folderVisibleAtScope` is **upward-closed**: a team
+ * rule or override beneath `F` is also beneath every ancestor of `F`, so if `F`
+ * is visible its whole ancestor chain is. What this returns is therefore the
+ * LONGEST VISIBLE PREFIX of the queried path — which the caller can compute
+ * unaided by listing down from the root, and can query directly, since being
+ * visible is exactly what stops it being withheld. At any depth, it can only
+ * print something they already had.
+ */
+function nearestVisibleAncestor(
+  folder: string,
+  scope: Scope,
+  rules: readonly PrivacyRule[],
+  overrides: ReadonlyMap<string, Visibility>,
+): string {
+  let at = parentOf(folder);
+  while (at !== "" && !folderVisibleAtScope(at, scope, rules, overrides)) {
+    at = parentOf(at);
+  }
+  return at;
 }
 
 /** Folders first, then files, each alphabetically — the order Obsidian uses. */

@@ -64,6 +64,7 @@ import { recordAudit } from "./lib/audit";
 import { normalizePath } from "./lib/fileOps";
 import { linkedNotePaths } from "./lib/noteLinks";
 import { findName } from "./lib/nameClaims";
+import { isProductMandatedPath } from "./lib/scaffold";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { identifiersForUser, resolveAddressedUser } from "./lib/identities";
 import {
@@ -324,14 +325,25 @@ function checkSharePath(input: string): PathCheck {
 }
 
 /**
- * The path a **team link** may point at.
+ * The path a **team link** may point at: anything that is not plumbing.
  *
- * Wider than `checkSharePath` by exactly one thing: a folder. A team link
- * grants nothing — it is an address whose reader is authorised by membership —
- * so "a link to this folder" is a sentence that means something, where "share
- * this folder with one outsider" is not: it would have to decide what a folder
- * share reaches, and that is a scope nobody asked for. Personal shares stay
- * note-only, and `checkSharePath` above is what keeps them there.
+ * The motivating case is a folder — a team link grants nothing, it is an
+ * address whose reader is authorised by membership, so "a link to this folder"
+ * is a sentence that means something where "share this folder with one
+ * outsider" is not: that would have to decide what a folder share reaches, and
+ * it is a scope nobody asked for. Personal shares stay note-only, and
+ * `checkSharePath` above is what keeps them there.
+ *
+ * **But the rule is not "a note or a folder", and an earlier version of this
+ * comment said it was** — "wider than `checkSharePath` by exactly one thing: a
+ * folder". It is wider by everything that is not `.md`: an image, a PDF, a
+ * spreadsheet, an extensionless file. That is deliberate and it is safe for the
+ * same reason the folder case is — a member can already read those at their
+ * tier and the link confers nothing — but it is a different sentence, and
+ * "exactly one thing" would have sent somebody tightening this to a rule that
+ * silently breaks links to attachments. There is no way to tell a folder from
+ * an extensionless file by path alone anyway, so "note or folder" was never
+ * implementable here.
  *
  * Plumbing is refused for both. `.history/` is every revision of every note and
  * `privacy.md` is the access map; neither is a thing to hand anybody a link to,
@@ -1214,11 +1226,43 @@ export const previewForNote = query({
     const name = await findName(ctx, args.slug.replace(/^@/, "").toLowerCase());
     if (name?.workspaceId === undefined) return nothing;
 
-    // A folder is a legitimate target here, for the reason
-    // `checkTeamSharePath` gives: a team link is an address, and a folder has
-    // an address. Plumbing is still refused.
+    // **A folder is a legitimate LINK target and not a legitimate PREVIEW
+    // target, and the difference is guessability.**
+    //
+    // This query is unauthenticated. What licenses it answering at all is the
+    // rule in CLAUDE.md that a card may carry a title where the address is not
+    // guessable — `/s/<64 hex>` is 32 random bytes the owner handed to one
+    // person, so "the requester may not have been meant to have this URL" does
+    // not hold. A team link is `/@name/path`, which IS guessable, and the
+    // decision survived that only because the probe space was note FILENAMES.
+    //
+    // Widening it to folders collapsed that space to five values: `scaffold.ts`
+    // writes `0-inbox`, `1-projects`, `2-areas`, `3-resources` and `4-archive`
+    // into every brain this product creates. Five guesses per handle were then
+    // enough to learn which of them their owner had team-linked, and to be
+    // handed its title and a live 64-hex token, unauthenticated.
+    //
+    // Stated precisely because the first version of this comment overstated it:
+    // a live `noteShares` row is still required below, so this was never a bare
+    // handle-existence oracle. What it published was which of a brain's five
+    // scaffolded folders had been shared — over a name space small enough to
+    // exhaust, which is the part that makes it one at all.
+    //
+    // So `createTeamShare` still takes a folder — the link works, members open
+    // it — and this refuses to describe one. A folder unfurls as the generic
+    // product card, which is what every guessable address already gets.
     const path = normalizePath(args.path);
     if (path === null || isPlumbing(path)) return nothing;
+    if (!path.toLowerCase().endsWith(".md")) return nothing;
+    // **...and not one this product wrote there itself.**
+    //
+    // The note-only rule above rests on a filename not being guessable, and for
+    // a fresh brain that is false of six of them: `scaffoldFiles` lays down
+    // `index.md`, `privacy.md` and a `README.md` in each of the five PARA
+    // folders, and the house rules put a `todo.md` at the root. Those are the
+    // same exhaustible space the five folder names are, so they get the same
+    // answer. Anything the owner named themselves is not, and still may.
+    if (isProductMandatedPath(path)) return nothing;
 
     const share = await ctx.db
       .query("noteShares")

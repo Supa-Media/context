@@ -569,14 +569,95 @@ describe("a readable team link", () => {
   });
 
   /**
-   * A folder is a legitimate target. A team link is an address and a folder has
-   * one — where a *personal* share is note-only, because "share this folder
-   * with one outsider" would have to decide what a folder share reaches.
+   * A folder link works and its card stays frozen: the preview turns on
+   * guessability, and `/@name/1-projects` is five guesses per handle because
+   * `scaffold.ts` writes the PARA names into every brain. `previewForNote`
+   * enforces this; here it only saves the round trip.
    */
-  it("recognises a folder as well as a note", () => {
+  it("does not route a folder to the lookup", () => {
     expect(
       consoleNoteFrom(new URL("https://context.lc/console/@seyi?note=1-projects/pilot")),
-    ).toEqual({ slug: "seyi", path: "1-projects/pilot" });
+    ).toBeNull();
+  });
+
+  /**
+   * Two more that are not routed. `.images/a.md` is held by the dot-segment
+   * rule and dropping that rule fails this.
+   *
+   * `scopes.yml` is different and worth saying plainly: since the note-only
+   * rule landed, **nothing can pin the explicit `scopes.yml` check**, because
+   * `scopes.yml` does not end in `.md` and the note rule refuses it first.
+   * Deleting that half of the plumbing restatement leaves this green. It is
+   * kept anyway — it is the rule that becomes load-bearing again the moment the
+   * note-only line is relaxed — and this asserts the outcome rather than the
+   * mechanism, which is the honest thing a masked guard can be tested for.
+   */
+  it.each([
+    ["https://context.lc/console/@seyi?note=scopes.yml", "the legacy scope map"],
+    ["https://context.lc/console/@seyi?note=.images/a.md", "the image store"],
+  ])("%s is not one (%s)", (href) => {
+    expect(consoleNoteFrom(new URL(href))).toBeNull();
+  });
+
+  /**
+   * The note-only rule's own two shapes, which the cases above do NOT pin.
+   *
+   * Both were found by sabotage rather than by reading: `endsWith` swapped for
+   * `includes`, and `toLowerCase` deleted, each left all 181 checks green. The
+   * control plane pins both and is where this is enforced, so neither is a
+   * security hole here — but an unpinned copy of a rule drifts from the copy
+   * that matters, and CLAUDE.md holds two copies of a rule by running both
+   * against a corpus rather than by trusting the comment between them.
+   *
+   * `a.md.png` is the `includes` half: a name containing `.md` that is not a
+   * note. `UPPER.MD` is the `toLowerCase` half, and it fails in the other
+   * direction — a legitimate link that would silently stop unfurling.
+   */
+  it("is not routed when `.md` is in the name rather than at the end of it", () => {
+    expect(
+      consoleNoteFrom(new URL("https://context.lc/console/@seyi?note=1-projects/a.md.png")),
+    ).toBeNull();
+  });
+
+  /**
+   * The names the product writes itself, which are guessable however unguessable
+   * an arbitrary filename is. Restated here from
+   * `apps/convex/functions/lib/scaffold.ts` because this package is a separate
+   * deployment; the control-plane copy is driven off `scaffoldFiles` directly,
+   * so a new scaffolded file fails there and this list is the one to update —
+   * and `teamShare.test.ts` asserts these eight equal what it derives, so the
+   * update is not optional.
+   *
+   * `privacy.md` is in the list and passes here whatever the note-only rule
+   * does, because the explicit plumbing line above already refuses it.
+   */
+  it.each([
+    "index.md",
+    "privacy.md",
+    "todo.md",
+    "0-inbox/README.md",
+    "1-projects/README.md",
+    "2-areas/README.md",
+    "3-resources/README.md",
+    "4-archive/README.md",
+  ])("%s is a name anybody can guess, so it is not routed", (note) => {
+    expect(
+      consoleNoteFrom(new URL(`https://context.lc/console/@seyi?note=${note}`)),
+    ).toBeNull();
+  });
+
+  it("while a name the owner chose is routed", () => {
+    expect(
+      consoleNoteFrom(
+        new URL("https://context.lc/console/@seyi?note=1-projects/acme-migration.md"),
+      ),
+    ).toEqual({ slug: "seyi", path: "1-projects/acme-migration.md" });
+  });
+
+  it("is routed when the extension is upper case, which is still a note", () => {
+    expect(
+      consoleNoteFrom(new URL("https://context.lc/console/@seyi?note=1-projects/UPPER.MD")),
+    ).toEqual({ slug: "seyi", path: "1-projects/UPPER.MD" });
   });
 
   it("routes a crawler to the lookup, and a person to the app", () => {

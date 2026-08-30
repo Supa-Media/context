@@ -343,17 +343,72 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
   // hand-edited URL, and the honest answer is the frozen card.
   if (path.startsWith("/") || path.includes("\\")) return null;
   if (path.split("/").some((segment) => segment === "." || segment === "..")) return null;
-  // A folder is a legitimate target: a team link is an address, and a folder
-  // has one. What is refused is plumbing, and it is two rules rather than one
-  // — a dot-prefixed segment catches `.history/`, and the exact root key
-  // catches `privacy.md`, which has no dot in it at all. Restated from
-  // `isPlumbing` in the control plane, which is the authority; this is the
-  // cheap refusal that keeps a probe for it from becoming a round trip.
+  // Plumbing, in two rules rather than one — a dot-prefixed segment catches
+  // `.history/`, and the exact root key catches `privacy.md`, which has no dot
+  // in it at all. Restated from `isPlumbing` in the control plane, which is the
+  // authority; this is the cheap refusal that keeps a probe for it from
+  // becoming a round trip, and it is deliberately not normalisation: a trailing
+  // slash slips past here and is caught there.
   if (path.split("/").some((segment) => segment.startsWith("."))) return null;
+  // `scopes.yml` is masked by the note-only rule below and cannot be pinned by
+  // a test while that rule stands — it is kept because it becomes load-bearing
+  // again the moment that rule is relaxed, which is what a folder preview would
+  // require. Two guards that mask one another are one guard with a spare; this
+  // says which is which rather than leaving a reader to find out.
   if (path === "privacy.md" || path === "scopes.yml") return null;
+  // **And a note, because this is the PREVIEW path.** `createTeamShare` takes a
+  // folder and the link works; describing one to an unauthenticated crawler is
+  // a different question, and it turns on guessability. `/@name/1-projects` is
+  // five guesses per handle — `scaffold.ts` writes the PARA names into every
+  // brain — where `/@name/<filename>.md` is not. `previewForNote` refuses the
+  // same thing in the control plane, which is where it is enforced; this only
+  // saves the round trip.
+  if (!path.toLowerCase().endsWith(".md")) return null;
+  // **...and not a name the product itself wrote there.**
+  //
+  // The note-only rule rests on a filename not being guessable, and a fresh
+  // brain arrives with six that are: `scaffoldFiles` lays down `index.md`,
+  // `privacy.md` and a `README.md` in each of the five PARA folders, and the
+  // house rules add a root `todo.md`. Same exhaustible space as the folder
+  // names, same answer.
+  //
+  // This is the control plane's `isProductMandatedPath` restated, and the list
+  // is duplicated because this package cannot import from `apps/convex`. It
+  // saves the round trip; `previewForNote` is where it is enforced.
+  //
+  // Note that `privacy.md` in that Set is masked by the explicit plumbing line
+  // above and cannot be pinned here — same shape as `scopes.yml`, and named for
+  // the same reason: a masked guard should say so rather than let a reader
+  // discover it by deleting it.
+  if (PRODUCT_MANDATED_PATHS.has(path)) return null;
 
   return { slug, path };
 }
+
+/**
+ * Every note path this product writes into a brain before its owner does.
+ *
+ * `apps/convex/functions/lib/scaffold.ts` is the source of truth — `INDEX_KEY`,
+ * `PRIVACY_KEY`, a `README.md` per `PARA_FOLDERS` entry, and `GENERIC_ROOT_KEYS`.
+ * This package is a separate deployment and cannot import that module, so the
+ * list is restated here.
+ *
+ * The restatement is checked rather than trusted: `teamShare.test.ts` reads this
+ * file, extracts this literal, and asserts it equals what the control plane
+ * derives. Drift is not dangerous — the derived copy is authoritative, so a
+ * stale list here costs a wasted round trip and never a title — but it would be
+ * silent, and silent is how the folder count stayed at five.
+ */
+const PRODUCT_MANDATED_PATHS = new Set([
+  "index.md",
+  "privacy.md",
+  "todo.md",
+  "0-inbox/README.md",
+  "1-projects/README.md",
+  "2-areas/README.md",
+  "3-resources/README.md",
+  "4-archive/README.md",
+]);
 
 function decodeSafely(segment: string): string {
   try {

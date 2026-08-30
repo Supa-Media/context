@@ -23,6 +23,16 @@
 
 import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
+import { readFileSync } from "node:fs";
+import {
+  GENERIC_ROOT_KEYS,
+  INDEX_KEY,
+  PARA_FOLDERS,
+  PRIVACY_KEY,
+  isProductMandatedPath,
+  scaffoldFiles,
+} from "../functions/lib/scaffold";
+import { isPlumbing } from "../functions/lib/privacy";
 import type { Id } from "../_generated/dataModel";
 import {
   addMember,
@@ -487,7 +497,31 @@ describe("a folder gets a link too", () => {
     expect(token).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  test("its card is titled by the folder's own name", async () => {
+  /**
+   * **A folder link works; its card stays frozen.**
+   *
+   * `previewForNote` is unauthenticated, and the argument that licenses it
+   * answering at all turns on one word in CLAUDE.md: *guessable*. A share link
+   * is `/s/<64 hex>`, so the premise the frozen card protects does not hold
+   * there. A team link is `/@name/path`, which is guessable — and the original
+   * decision survived that only because the probe space was note FILENAMES.
+   *
+   * Widening the preview to folders collapsed that space to five values.
+   * `scaffold.ts` writes `0-inbox`, `1-projects`, `2-areas`, `3-resources` and
+   * `4-archive` into every brain this product creates, and CLAUDE.md documents
+   * them. Five guesses per handle were then enough to learn which of those
+   * folders their owner had team-linked, and to be handed its title and a live
+   * 64-hex token — from an unauthenticated caller who set a crawler's
+   * User-Agent. A live share row was still required, so this was not a bare
+   * handle-existence oracle; what made it one at all is that the name space is
+   * small enough to exhaust.
+   *
+   * So the link keeps working and the card does not: a folder unfurls as the
+   * generic product card, which is what every guessable address gets. This is
+   * the existing decision applied, not a new one — "a share link's preview may
+   * carry a title; nothing else's may."
+   */
+  test("a folder link's card stays frozen, because its address is guessable", async () => {
     const t = setupTest();
     const { ownerId, workspaceId } = await scenario(t);
     await teamLink(t, ownerId, workspaceId, FOLDER);
@@ -497,7 +531,145 @@ describe("a folder gets a link too", () => {
         slug: "owner-brain",
         path: FOLDER,
       }),
-    ).toMatchObject({ title: "Transition" });
+    ).toEqual({ title: null, cardToken: null });
+  });
+
+  /**
+   * The guard's SHAPE, which the folder case alone does not pin: `endsWith`
+   * relaxed to `includes`, or the `toLowerCase` dropped, both leave the folder
+   * test green because the five scaffold names contain no `.md` at all. The
+   * attack stays closed under either, but the rule this whole change rests on
+   * would be held by nothing.
+   */
+  test.each([
+    ["1-projects/a.md.png", null],
+    ["1-projects/x.mdx", null],
+    // "UPPER", not "Upper": `titleFromPath` uppercases the first character and
+    // leaves the rest, which is what a note called README deserves. Measured —
+    // the first version of this line predicted title-casing and was wrong.
+    ["1-projects/UPPER.MD", "UPPER"],
+    ["1-projects/a.png.md", "A.png"],
+  ])("%s previews as %s", async (path, title) => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    await teamLink(t, ownerId, workspaceId, path);
+
+    expect(
+      await t.query(api.functions.shares.previewForNote, { slug: "owner-brain", path }),
+    ).toMatchObject({ title });
+  });
+
+  /**
+   * The note-only rule's own premise, which the cases above assume rather than
+   * check: that a note FILENAME is not guessable.
+   *
+   * For a fresh brain that is false, and by more than one file. `scaffoldFiles`
+   * writes `privacy.md`, `index.md`, and a `README.md` into every one of the
+   * five PARA folders — six guessable note names before the owner has written
+   * anything — and the connected-client house rules put a `todo.md` at the
+   * root. That is the same exhaustible space the five folder names are, so it
+   * gets the same answer.
+   *
+   * This drives `scaffoldFiles` instead of restating its output on purpose: a
+   * seventh scaffolded file would otherwise become a seventh guess silently,
+   * and the whole reason this rule exists is that somebody counted the folders
+   * once and never counted again.
+   */
+  test.each([
+    ...scaffoldFiles("para")
+      .map((file) => file.key)
+      // `privacy.md` is in that list and cannot be team-linked at all —
+      // `checkTeamSharePath` refuses plumbing long before the preview is
+      // reached, so there is no share row for this to be asked about.
+      .filter((key) => key.toLowerCase().endsWith(".md") && !isPlumbing(key)),
+    "todo.md",
+  ])("%s is a name anybody can guess, so its card stays frozen", async (path) => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    await teamLink(t, ownerId, workspaceId, path);
+
+    expect(
+      await t.query(api.functions.shares.previewForNote, { slug: "owner-brain", path }),
+    ).toEqual({ title: null, cardToken: null });
+  });
+
+  /**
+   * The router's restated copy really does restate this one.
+   *
+   * `infra/router/src/preview.ts` refuses the same names to save a round trip,
+   * and it holds a hand-written literal because it is a separate deployment
+   * that cannot import this module. The comment there claimed the two were
+   * "held together by running both against the same names"; they were not, and
+   * a comment claiming a check nobody wrote is the thing that went wrong one
+   * commit ago in `listFolder`. So here is the check.
+   *
+   * It reads the router's source rather than importing it, which is what the
+   * mobile scope mirror does in `__tests__/consentScopes.test.ts` for the same
+   * reason. Drift is not dangerous — the derived copy here is authoritative, so
+   * a stale router costs a wasted round trip and never a title — but it is
+   * silent, and silent is how the folder count stayed at five.
+   */
+  test("the edge router refuses exactly the same names", () => {
+    const source = readFileSync(
+      new URL("../../../infra/router/src/preview.ts", import.meta.url),
+      "utf8",
+    );
+    const literal = source.match(/const PRODUCT_MANDATED_PATHS = new Set\(\[([^\]]*)\]\)/);
+    expect(literal, "PRODUCT_MANDATED_PATHS is not a literal Set in preview.ts").not.toBeNull();
+    const routed = [...literal![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+
+    const authoritative = [
+      INDEX_KEY,
+      PRIVACY_KEY,
+      ...GENERIC_ROOT_KEYS,
+      ...PARA_FOLDERS.map((folder) => `${folder}/README.md`),
+    ];
+
+    expect([...routed].sort()).toEqual([...authoritative].sort());
+    // ...and the literal is not merely equal to the list, it is equal to what
+    // the predicate actually does, which is the thing the router is mirroring.
+    for (const path of routed) expect(isProductMandatedPath(path)).toBe(true);
+  });
+
+  /**
+   * ...and a name the OWNER chose still carries its title, which is the whole
+   * point. A rule that refused every note would have been the frozen card back.
+   */
+  test("while a name the owner chose still previews", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    await teamLink(t, ownerId, workspaceId, "1-projects/acme-migration.md");
+
+    expect(
+      await t.query(api.functions.shares.previewForNote, {
+        slug: "owner-brain",
+        path: "1-projects/acme-migration.md",
+      }),
+      // "Acme migration": `titleFromPath` uppercases the first character and
+      // turns hyphens into spaces. Measured — a first guess here said
+      // "Acme-migration", which is the same mistake the `UPPER` comment above
+      // records, made a second time by predicting instead of running it.
+    ).toMatchObject({ title: "Acme migration" });
+  });
+
+  /**
+   * And the refusal is byte-identical to every other one, so a probe cannot
+   * tell "this is a folder, they exist" from "no such handle".
+   */
+  test("and that refusal is the same one an unknown handle gets", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    await teamLink(t, ownerId, workspaceId, FOLDER);
+
+    const folder = await t.query(api.functions.shares.previewForNote, {
+      slug: "owner-brain",
+      path: FOLDER,
+    });
+    const stranger = await t.query(api.functions.shares.previewForNote, {
+      slug: "nobody-at-all",
+      path: FOLDER,
+    });
+    expect(folder).toEqual(stranger);
   });
 
   test("a member opens it and a stranger does not", async () => {
@@ -528,6 +700,45 @@ describe("a folder gets a link too", () => {
     const { ownerId, workspaceId } = await scenario(t);
     expect(
       errorCode(await captureError(() => teamLink(t, ownerId, workspaceId, path))),
+    ).toBe("PATH_NOT_SHAREABLE");
+  });
+
+  /**
+   * The axis the fixtures above hold constant: every path in them is a note, a
+   * folder, or plumbing. The rule as written is none of those three — it is
+   * "anything that is not plumbing" — and narrowing it to what its own comment
+   * described ("a note, or a path with no extension") passed all 1,374 checks.
+   *
+   * So this pins what the code actually does. A member can already read a
+   * non-note file at their tier, and a team link grants nothing, so linking one
+   * is no escalation — but the rule should be held as written rather than as
+   * imagined, in both directions: wide enough for an attachment, and still
+   * refusing plumbing.
+   */
+  test("a non-note file can be linked too, because the rule is 'not plumbing'", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    const { token } = await teamLink(t, ownerId, workspaceId, "1-projects/diagram.png");
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  /** A personal share is still note-only. */
+  test("a non-note file cannot be shared with one person either", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    const lk = await createUser(t, "lk2@example.invalid");
+    await createWorkspace(t, lk, "lk2");
+
+    expect(
+      errorCode(
+        await captureError(() =>
+          asUser(t, ownerId).mutation(api.functions.shares.createShare, {
+            workspaceId,
+            path: "1-projects/diagram.png",
+            recipient: "@lk2",
+          }),
+        ),
+      ),
     ).toBe("PATH_NOT_SHAREABLE");
   });
 
