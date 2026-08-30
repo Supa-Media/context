@@ -51,12 +51,15 @@ import type { Visibility } from "./types";
 export function Explorer({
   files,
   contextLabel,
+  contextSlug,
   onOpenPinned,
   onOverlayChange,
 }: {
   files: FileBrowser;
   /** "@seyi" — named in the empty state so it is obvious whose tree this is. */
   contextLabel: string;
+  /** The context's slug, for the share dialog's team link. */
+  contextSlug?: string;
   /**
    * "Open in new tab" — opens the note *pinned*, where a plain open leaves a
    * preview tab the next click replaces. Absent where there are no tabs, and
@@ -438,7 +441,12 @@ export function Explorer({
         />
       ) : null}
 
-      <ExplorerDialogs files={files} dialog={dialog} onClose={() => setDialog(null)} />
+      <ExplorerDialogs
+        files={files}
+        dialog={dialog}
+        onClose={() => setDialog(null)}
+        contextSlug={contextSlug}
+      />
     </View>
   );
 }
@@ -471,10 +479,13 @@ export function ExplorerDialogs({
   files,
   dialog,
   onClose,
+  contextSlug,
 }: {
   files: FileBrowser;
   dialog: Dialog;
   onClose: () => void;
+  /** For the share dialog's team link. Absent while the context resolves. */
+  contextSlug?: string;
 }) {
   if (dialog === null) return null;
 
@@ -539,6 +550,7 @@ export function ExplorerDialogs({
           path={dialog.path}
           shares={files.shares}
           origin={consoleOrigin()}
+          contextSlug={contextSlug}
           onShare={(recipient) => files.share(dialog.path, recipient)}
           onRevoke={(shareId) => files.revokeShare(shareId)}
           onSetPreviewTitle={(recipient, on) =>

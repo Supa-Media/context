@@ -120,6 +120,30 @@ const SEARCH_SUBREQUEST_BUDGET = 40;
 /** Hits returned per search; each costs one fresh read for its snippets. */
 const SEARCH_RESULT_LIMIT = 10;
 /**
+ * Bounds for the `SEARCH_SUBREQUEST_BUDGET` deployment override.
+ *
+ * The default above assumes the free tier's 50. A paid-plan deployment gets
+ * 1000 per invocation, and holding it to 40 there makes a real brain's first
+ * index dozens of searches long: measured live, a bucket in the low thousands
+ * of notes backfills ~26 per pass, so a person's search for a name their notes
+ * definitely contain answers "(no matches)" for days of ordinary use. The floor
+ * keeps a typo'd var from configuring a budget too small to ever sync (listing
+ * + write + one fetch + the snippet reserve); the cap leaves the rest of the
+ * invocation's own spend (session, binding, privacy.md) under the paid limit.
+ * Anything unparseable is the default, never a throw — a bad var must not take
+ * down search.
+ */
+const SEARCH_BUDGET_MIN = 15;
+const SEARCH_BUDGET_MAX = 900;
+
+/** The per-deployment search budget: `env.SEARCH_SUBREQUEST_BUDGET` or the default. */
+function searchBudgetFor(env) {
+  const raw = env?.SEARCH_SUBREQUEST_BUDGET;
+  const parsed = typeof raw === "string" || typeof raw === "number" ? Number(raw) : NaN;
+  if (!Number.isFinite(parsed)) return SEARCH_SUBREQUEST_BUDGET;
+  return Math.min(SEARCH_BUDGET_MAX, Math.max(SEARCH_BUDGET_MIN, Math.floor(parsed)));
+}
+/**
  * The fallback scan's ceiling, for the calls where the index is unusable. Well
  * under the budget on purpose: this path exists because something already went
  * wrong, and it must degrade rather than become the original failure again.
@@ -526,6 +550,11 @@ async function route(request, env, ctx) {
           503
         );
       }
+
+      // The deployment's search budget rides the per-request store the way
+      // `store.actor` does: the tool layer never sees `env`, and the store dies
+      // with the request, so a reused isolate carries nothing across tenants.
+      store.searchSubrequestBudget = searchBudgetFor(env);
 
       return path === "/inbox"
         ? handleInbox(request, env, store, session)
@@ -3257,7 +3286,10 @@ function snippetLinesFor(text, matchedTerms) {
  * says "narrows" rather than "faster" for that reason.
  */
 async function searchVisibleNotes(store, scope, rules, overrides, query, prefix) {
-  const budget = createSearchBudget(SEARCH_SUBREQUEST_BUDGET);
+  // Request-scoped metadata on the per-request store, same as `store.actor`:
+  // the tool layer never sees `env`, and a fresh store is built per request, so
+  // nothing here survives into another tenant's call.
+  const budget = createSearchBudget(store.searchSubrequestBudget ?? SEARCH_SUBREQUEST_BUDGET);
   let synced = null;
   try {
     synced = await syncIndex(store, {

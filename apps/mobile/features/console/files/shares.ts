@@ -136,3 +136,42 @@ export function sharesFor(
     .filter((share) => share.entryPath === path)
     .sort((a, b) => b.createdAt - a.createdAt);
 }
+
+
+/* -------------------------------------------------------------------------- *
+ * Two kinds of link, and the difference is the whole thing
+ * -------------------------------------------------------------------------- */
+
+/**
+ * What the team link is, in the words it costs.
+ *
+ * **It grants nothing.** It is an address for a note, and whoever opens it sees
+ * it only if their membership already lets them — so it is the right link for
+ * the people you have already given access to, and the wrong one for everybody
+ * else. Remove somebody from the context and the same URL shows them nothing.
+ *
+ * That is also why it is safe to paste into a group chat where some readers are
+ * members and some are not: the non-members get the same nothing they would get
+ * by typing the URL themselves.
+ */
+export function describeTeamLink(): string {
+  return (
+    "Anyone you have given access to this context can open it. It grants " +
+    "nothing on its own — remove someone and the link stops working for them."
+  );
+}
+
+/**
+ * …and what a personal share is for, said next to it.
+ *
+ * The distinction people get wrong is which one to reach for, so the dialog
+ * names the *audience* rather than the mechanism: somebody who already has
+ * access needs no share, and somebody who does not should not be made a member
+ * of your whole context to read one note.
+ */
+export function describePersonalShare(): string {
+  return (
+    "For somebody who does not have access to this context. They get this note " +
+    "and the notes it links to — nothing else — and you can take it back."
+  );
+}

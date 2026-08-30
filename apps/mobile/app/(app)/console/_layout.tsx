@@ -82,6 +82,10 @@ export default function ConsoleLayout() {
     contexts: data.contexts,
     selectedContextId: data.selectedContextId,
     loading: data.loading,
+    // `undefined` while the query is in flight, which reads as "nobody told
+    // me" rather than "there are none" — so a slow list never sends an invited
+    // person to the map before their invitation has arrived.
+    invitations: data.invitations,
   });
 
   const { selectContext } = data;

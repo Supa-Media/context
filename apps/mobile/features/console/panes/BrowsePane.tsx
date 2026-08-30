@@ -176,6 +176,7 @@ export function BrowsePane({
           path={sharing}
           shares={files.shares}
           origin={consoleOrigin()}
+          contextSlug={current?.slug}
           onShare={(recipient) => files.share(sharing, recipient)}
           onRevoke={(shareId) => files.revokeShare(shareId)}
           onSetPreviewTitle={(recipient, on) =>
