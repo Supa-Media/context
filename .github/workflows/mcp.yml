@@ -129,6 +129,14 @@ jobs:
       # `\u0000` in the source is the same string at runtime, so nothing about
       # any fixture's meaning changes.
       #
+      # **The rule is NUL and nothing else, deliberately.** A raw DEL or ESC in
+      # a fixture is invisible to a reviewer too, which is the weaker half of
+      # the same argument — but it does not flip git's verdict, so it costs no
+      # diff, and a rule over C0 generally has to carve out tab, LF and CR and
+      # becomes a style rule with exceptions. The one raw DEL left in the tree
+      # is escaped in this commit for consistency on its own line; the job does
+      # not police it.
+      #
       # **The skip list names what is binary, never what is text.** An
       # allow-list of source extensions was written first and already missed
       # six kinds present in the tree (.jsonc, .patch, .npmrc, .gitkeep,
@@ -139,8 +147,13 @@ jobs:
       # is the same trade `CREDENTIAL_BARRIERS` makes: the enumeration is the
       # mitigation because extending it forces a conversation.
       #
-      # It lives here rather than in a package suite because this workflow has
-      # no `paths:` filter — see the header. The rule spans four packages, and
+      # It lives here rather than in a package suite because this workflow's
+      # `pull_request` trigger has no `paths:` filter — see the header. (Its
+      # `push` trigger does filter, so a direct push to main touching only
+      # apps/convex would not run this; merges go through the pull-request run,
+      # so coverage is real, and saying otherwise would be one of the
+      # overstatements this repository keeps a list of.) The rule spans four
+      # packages, and
       # a guard in any one of their filtered jobs would be silent on pull
       # requests touching the others, which is this repository's most-repeated
       # failure shape.
@@ -162,6 +175,39 @@ jobs:
           # otherwise a `return -1` here is a green run forever.
           assert first_nul(b'const a = "x";\n') == -1
           assert first_nul(b'const a = "\x00";\n') == 11
+          # A sample past git's window, because the comment above is an active
+          # invitation to "align the checker with git" by writing
+          # `blob[:8000].find(...)`. Both samples above are fifteen bytes, so
+          # they pass under that edit — and on the tree this job was written
+          # for it would find five of seven and still exit 1, looking like it
+          # worked while missing exactly the two files that motivated it.
+          assert first_nul(b"x" * 9000 + b"\x00") == 9000
+
+          def nul_report(path, blob):
+              # The WHOLE per-file decision, in one function, because the
+              # comparison at a call site is as mutable as the search itself:
+              # with `first_nul` pinned and the site left as `if at != -1`,
+              # rewriting that site to `if at > 0` passes every sample that
+              # does not begin with a NUL, and drops the byte-0 case silently.
+              at = first_nul(blob)
+              if at == -1:
+                  return None
+              line = blob[:at].count(b"\n") + 1
+              return f"{path}:{line} (byte {at})"
+
+          assert nul_report("a.ts", b'const a = "x";\n') is None
+          assert nul_report("a.ts", b"\x00rest") == "a.ts:1 (byte 0)"
+          assert nul_report("a.ts", b"x\n\x00") == "a.ts:2 (byte 2)"
+          assert nul_report("a.ts", b"x" * 9000 + b"\x00") == "a.ts:1 (byte 9000)"
+
+          # A suffix, not a substring: `str.endswith` is happy with
+          # `"ingest.ts"`, which exempts one guilty file by name while the
+          # earn-your-skip rule below sees nothing wrong — that file really
+          # does hold a NUL. The wide edit is caught; this is the narrow one.
+          assert all(
+              suffix.startswith(".") and suffix.count(".") == 1
+              for suffix in BINARY_SUFFIXES
+          ), "BINARY_SUFFIXES holds file extensions, not names"
 
           tracked = subprocess.run(
               ["git", "ls-files", "-z"], capture_output=True, check=True
@@ -175,7 +221,7 @@ jobs:
                   continue
               path = raw.decode("utf-8", "surrogateescape")
               blob = open(path, "rb").read()
-              at = first_nul(blob)
+              report = nul_report(path, blob)
               if path.lower().endswith(BINARY_SUFFIXES):
                   # The skip list has to EARN each entry. Pinning "is there a
                   # NUL" while leaving "in which files" unpinned is a guard
@@ -185,13 +231,22 @@ jobs:
                   # job off. A real binary asset contains a NUL; a source file
                   # does not, so a skipped file with none is a skip nobody
                   # justified.
-                  if at == -1:
+                  if report is None:
                       unearned.append(path)
                   continue
               scanned += 1
-              if at != -1:
-                  line = blob[:at].count(b"\n") + 1
-                  failed.append(f"{path}:{line} (byte {at})")
+              if report is not None:
+                  failed.append(report)
+
+          # A floor, because every other way this job can be wrong ends in
+          # "scanned nothing, printed ok, exited 0" — an empty index, a
+          # `working-directory:` added to the step (plausible in a file called
+          # mcp.yml, and it would scan 28 files and pass with a NUL still in
+          # infra/), or `git ls-files` failing without `check=True`. Green
+          # because it never executed is this repository's most-repeated
+          # failure shape, and `workflows-parse` sits ten lines above for
+          # exactly that reason.
+          assert scanned > 400, f"only {scanned} files scanned — wrong root, or an empty index"
 
           print(f"scanned {scanned} tracked files, skipped {len(tracked) - 1 - scanned}")
           for entry in failed:

@@ -114,7 +114,7 @@ describe("normalising a title the owner typed", () => {
    * beats fixing it at every read.
    */
   test("control characters are stripped", () => {
-    expect(normalizePreviewTitle("Chapter\u0000\ntransition")).toBe(
+    expect(normalizePreviewTitle("Chapter\u0000\ntransition\u007f")).toBe(
       "Chapter transition",
     );
   });
