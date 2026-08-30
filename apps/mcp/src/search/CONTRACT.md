@@ -210,8 +210,19 @@ peak memory is one shard.
   of per-shard `{docCount, lenTotals: {title, headings, tags, body}}`. The
   maintenance diff needs no shard reads: listing vs manifest decides staleness.
   Serialized as arrays of pairs throughout — the v1 prototype-pollution rule.
-- `.index/v2/shard-<nnn>.json` — `nnn` is the zero-padded decimal shard id. A
-  shard is a v1-shaped `{version: 2, docs, terms}` over only its docs.
+- `.index/v2/shard-<nnn>.json` — `nnn` is the zero-padded decimal shard id.
+  Written as `{version: 3, generatedAt, docs, terms}` over only its docs, where
+  `docs` is a sorted array of `[path, meta]` pairs and each posting in `terms`
+  is `[docIndex, tf]` — the doc's position in that `docs` array, not its path.
+  The interning is load-bearing, not cosmetic: path-keyed postings repeat every
+  doc's path once per unique term (~150-250 terms against 50-80-byte paths),
+  which crossed `SHARD_PARSE_BYTE_CAP` at about half of the 300-doc target and
+  plateaued the live brain's backfill permanently — every pass rebuilt the same
+  oversized shard and had its write refused. Readers also accept the earlier
+  `{version: 2, docs, terms}` dialect (postings keyed by path string), because
+  refusing it would rebuild every under-cap shard a working index already
+  holds; writers emit version 3 only. A version-3 posting whose index is not an
+  integer inside the `docs` array refuses the shard whole.
 
 A note belongs to shard `fnv1a32(path) % shardCount` (FNV-1a, 32-bit,
 offset-basis 2166136261, prime 16777619 — pinned so every writer agrees).

@@ -83,7 +83,7 @@ Zero npm dependencies — keep it that way. It runs on the Workers runtime, so
 use Web Crypto and `fetch`, not Node APIs.
 
 `pnpm test` in `apps/mcp` runs the suite against an in-memory store stub. It is
-fast, offline, and currently 936 checks. **Do not let it regress.** If you
+fast, offline, and currently 940 checks. **Do not let it regress.** If you
 change behavior, change the test in the same commit and say why.
 
 The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,
@@ -1054,6 +1054,13 @@ what belongs here is what a tidy-up would break:
   computes every statistic over the caller's visible docs, and PageRank is
   deliberately neutral (a global link graph needs every shard in memory,
   which is the blowup v2 removes). CONTRACT.md § v2 pins the format.
+  **Shard postings are interned — `[docIndex, tf]` against the shard's own
+  docs array, never `[path, tf]`** — because path-keyed postings repeat every
+  doc's path once per unique term, which crossed the shard byte cap at about
+  half the 300-doc target and plateaued the live brain permanently: each pass
+  rebuilt the same oversized shard and had its write (correctly) refused.
+  Un-interning is the tidy-up that re-breaks this; readers still accept the
+  old path-keyed dialect so a working index is not rebuilt for no gain.
 - **The size cap has two sides and one number, and dropping either is a loop
   rather than a smaller cap.** `INDEX_PARSE_BYTE_CAP` refuses a stored index
   past it *and* refuses to write one past it. For a while only the read had a
