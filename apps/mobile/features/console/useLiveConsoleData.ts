@@ -383,6 +383,7 @@ export function useLiveConsoleData(): ConsoleData {
   });
 
   const files = useFileBrowser({
+    slug: selected?.slug,
     workspaceId: selectedContextId,
     canEdit,
     // Not `canEdit`: an `editor` may write notes and may not rewrite the access

@@ -15,6 +15,8 @@ import {
   previewFromProfile,
   renderPreviewHtml,
   shareTokenFrom,
+  consoleNoteFrom,
+  previewForNote,
 } from "./preview";
 import { route } from "./route";
 
@@ -527,39 +529,98 @@ describe("share links: the one card that may say something", () => {
   });
 });
 
-describe("a console note link keeps the frozen card", () => {
+describe("a readable team link", () => {
   /**
-   * The asymmetry between the two ways to send somebody a note, and it runs the
-   * opposite way to intuition.
+   * The rule that replaced "every console URL is frozen", and the two halves
+   * are what make it safe:
    *
-   * `/s/<token>` is unguessable — 32 CSPRNG bytes the owner handed to one
-   * person — so its card may carry the note's title. `/console/@seyi?note=…`
-   * is an **address**: it grants nothing, and anyone who knows the handle can
-   * type it. A nicer preview there would hand anybody in a Slack channel an
-   * existence oracle for handles *and* for the names of notes inside them,
-   * which is precisely what the frozen card exists to deny.
+   *  - A console URL **with no linked note** is frozen, exactly as before.
+   *  - A note link unfurls **only when the owner has team-linked that note** —
+   *    the control plane answers `null` for everything else, and `null` renders
+   *    GENERIC_PREVIEW byte for byte.
    *
-   * The table answers it that way by construction, and "by construction" is
-   * exactly the kind of claim that stops being true the next time somebody adds
-   * a route.
+   * So probing `?note=<guess>` reveals the set of notes the owner already chose
+   * to publish a card for, and nothing about the rest of the context. That was
+   * their call, made with the unguessable-token alternative in front of them,
+   * because a link nobody can read is a link nobody clicks.
    */
-  it("renders the generic card, byte for byte", () => {
-    for (const pathname of [
-      "/console/@seyi",
-      "/console/@seyi/settings",
-      "/console/%40seyi",
-      "/console",
-    ]) {
+  it("is recognised only in the shape the console actually produces", () => {
+    expect(
+      consoleNoteFrom(new URL("https://context.lc/console/@seyi?note=1-projects/a.md")),
+    ).toEqual({ slug: "seyi", path: "1-projects/a.md" });
+    expect(
+      consoleNoteFrom(new URL("https://context.lc/console/%40seyi?note=a.md")),
+    ).toEqual({ slug: "seyi", path: "a.md" });
+  });
+
+  it.each([
+    ["https://context.lc/console/@seyi", "no note"],
+    ["https://context.lc/console/@seyi/settings?note=a.md", "not the browse route"],
+    ["https://context.lc/console?note=a.md", "no context"],
+    ["https://context.lc/console/@seyi?note=/etc/passwd", "rooted"],
+    ["https://context.lc/console/@seyi?note=../../privacy.md", "traversal"],
+    ["https://context.lc/console/@seyi?note=1-projects/../../x.md", "traversal inside"],
+    ["https://context.lc/console/@seyi?note=slides.pdf", "not a note"],
+    ["https://context.lc/console/@Seyi?note=a.md", "not a handle shape"],
+    ["https://context.lc/@seyi?note=a.md", "not a console URL"],
+  ])("%s is not one (%s)", (href) => {
+    expect(consoleNoteFrom(new URL(href))).toBeNull();
+  });
+
+  it("routes a crawler to the lookup, and a person to the app", () => {
+    const url = new URL("https://context.lc/console/@seyi?note=1-projects/a.md");
+    expect(route(url, "Slackbot 1.0")).toEqual({
+      kind: "note-preview",
+      slug: "seyi",
+      path: "1-projects/a.md",
+    });
+    expect(
+      route(url, "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/120 Safari/537.36")
+        .kind,
+    ).toBe("proxy");
+  });
+
+  it("a linked note gets its title, and its card", () => {
+    const meta = previewForNote("Chapter transition", "a".repeat(64));
+    expect(meta.title).toBe("Chapter transition — Context");
+    expect(meta.imageUrl).toContain(`/og/s/${"a".repeat(64)}.png`);
+  });
+
+  /**
+   * THE test. Unlinked, revoked, expired, title switched off, control plane
+   * unreachable — every one arrives as a falsy title, and every one must render
+   * the frozen card byte for byte. That is what keeps the probe to "has the
+   * owner published this one".
+   */
+  it.each([[null], [undefined], [""], ["   "]])(
+    "an unlinked note (%p) is the frozen card, byte for byte",
+    (title) => {
+      expect(renderPreviewHtml(previewForNote(title, "a".repeat(64)))).toBe(
+        renderPreviewHtml(GENERIC_PREVIEW),
+      );
+    },
+  );
+
+  it("a console URL with no note is still frozen", () => {
+    for (const pathname of ["/console/@seyi", "/console/@seyi/settings", "/console"]) {
       expect(previewHtml(pathname)).toBe(previewHtml("/@alice"));
     }
   });
 
-  it("names neither the context nor the note", () => {
-    // The query never reaches `previewFor`, which takes a pathname — but a
-    // reader of this file should see that asserted rather than inferred.
-    const html = previewHtml("/console/@seyi");
-    for (const fragment of ["seyi", "chapter", "note"]) {
-      expect(html.toLowerCase()).not.toContain(fragment);
-    }
+  it("still refuses everything the frozen card refuses", () => {
+    const html = renderPreviewHtml(previewForNote("Chapter transition", "b".repeat(64)));
+    expect(html).toContain('<link rel="canonical" href="https://context.lc/">');
+    expect(meta(html, "name", "robots")).toEqual(["noindex, nofollow"]);
+    // The title, and nothing else about the context.
+    expect(html).not.toContain("seyi");
+    expect(html).not.toContain("1-projects");
+  });
+
+  it("a hostile title cannot break out of the markup", () => {
+    const html = renderPreviewHtml(
+      previewForNote('</title><script>alert(1)</script>', "c".repeat(64)),
+    );
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
   });
 });

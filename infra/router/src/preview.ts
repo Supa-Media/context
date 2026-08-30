@@ -306,6 +306,86 @@ export function shareTokenFrom(pathname: string): string | null {
 }
 
 /**
+ * A readable team link: `/console/@seyi?note=1-projects/plan.md`.
+ *
+ * Returns the handle and the note path, or `null` when the URL is not one.
+ * Shape-checked here, before anything is fetched, for the same reason
+ * `shareTokenFrom` is: a path that is not a console note link never becomes an
+ * upstream request.
+ *
+ * ## Why this may unfurl at all, when `/@seyi` may not
+ *
+ * It is guessable, and that normally settles it — the frozen card exists
+ * because a nicer preview of a guessable path is an existence oracle. The
+ * difference is what the answer is drawn from: the control plane replies only
+ * for notes the owner has **explicitly team-linked**, so an unlinked note is
+ * byte-identical to one that does not exist. The probe reveals the set the
+ * owner already chose to publish a card for.
+ *
+ * That was the owner's call, made with the unguessable alternative in front of
+ * them, on the grounds that a link nobody can read is a link nobody clicks.
+ */
+export function consoleNoteFrom(url: URL): { slug: string; path: string } | null {
+  const segments = normalisePath(url.pathname).split("/").filter(Boolean);
+  // `console`, `@slug`, and nothing after it — a settings URL is not a note.
+  if (segments.length !== 2 || segments[0] !== "console") return null;
+
+  const handle = decodeSafely(segments[1]);
+  if (!handle.startsWith("@")) return null;
+  const slug = handle.slice(1);
+  // The same shape a name claim can have. Anything else never existed, so it
+  // costs no round trip to say so.
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(slug)) return null;
+
+  const path = url.searchParams.get("note");
+  if (path === null || path === "" || path.length > 512) return null;
+  // Refused rather than forwarded: a rooted or traversing path is a
+  // hand-edited URL, and the honest answer is the frozen card.
+  if (path.startsWith("/") || path.includes("\\")) return null;
+  if (path.split("/").some((segment) => segment === "." || segment === "..")) return null;
+  if (!path.toLowerCase().endsWith(".md")) return null;
+
+  return { slug, path };
+}
+
+function decodeSafely(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+/**
+ * The card a readable team link unfurls with.
+ *
+ * `previewForShare`'s reasoning applies unchanged — title only, canonical still
+ * the site root, `noindex` intact, and an absent title rendering
+ * GENERIC_PREVIEW byte for byte so an unlinked note and a revoked one are one
+ * answer.
+ */
+export function previewForNote(
+  title: string | null | undefined,
+  cardToken?: string | null,
+): PreviewMeta {
+  const clean = title?.trim();
+  if (!clean) return GENERIC_PREVIEW;
+
+  const bounded = clean.slice(0, 60);
+  return {
+    ...GENERIC_PREVIEW,
+    title: `${bounded} — Context`,
+    description:
+      "Shared with you on Context. Sign in to read it — plain markdown in a " +
+      "bucket its owner controls.",
+    imageUrl:
+      cardToken === undefined || cardToken === null
+        ? undefined
+        : `${ORIGIN}${shareCardPath(cardToken, bounded)}`,
+  };
+}
+
+/**
  * The card a shared link unfurls with.
  *
  * ## Why this is allowed to say something when nothing else is

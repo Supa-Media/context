@@ -45,14 +45,13 @@ import {
   sharesFor,
   type NoteShare,
 } from "./shares";
-import { noteHref } from "../nav";
 
 export function ShareDialog({
   path,
   shares,
   origin,
-  contextSlug,
   onShare,
+  onTeamLink,
   onRevoke,
   onSetPreviewTitle,
   onClose,
@@ -62,13 +61,9 @@ export function ShareDialog({
   shares: readonly NoteShare[] | undefined;
   /** Where this console is served from. See `shareUrl`. */
   origin: string;
-  /**
-   * The context's slug, for the team link. Absent while the console is still
-   * resolving which context it is in — the section is then not drawn, rather
-   * than drawn with a link that points nowhere.
-   */
-  contextSlug?: string;
   onShare: (recipient: string) => void;
+  /** Mint-or-reuse the team link and hand back its URL, or `null` on failure. */
+  onTeamLink: () => Promise<string | null>;
   onRevoke: (shareId: string) => void;
   onSetPreviewTitle: (recipient: string, titleInPreview: boolean) => void;
   onClose: () => void;
@@ -105,21 +100,37 @@ export function ShareDialog({
               to are people they have already given access to, and for them a
               share would be redundant machinery around a grant they have.
             */}
-            {contextSlug === undefined ? null : (
-              <View style={styles.section}>
-                <Text variant="eyebrow">PEOPLE WITH ACCESS</Text>
-                <Text variant="paneSub">{describeTeamLink()}</Text>
-                <Button
-                  label={copied === TEAM_LINK ? "Copied" : "Copy link"}
-                  variant="white"
-                  onPress={() => {
-                    void writeClipboard(
-                      `${origin.replace(/\/+$/, "")}${noteHref(contextSlug, path)}`,
-                    ).then((ok) => setCopied(ok ? TEAM_LINK : null));
-                  }}
-                />
-              </View>
-            )}
+            <View style={styles.section}>
+              <Text variant="eyebrow">PEOPLE WITH ACCESS</Text>
+              <Text variant="paneSub">{describeTeamLink()}</Text>
+              <Button
+                label={copied === TEAM_LINK ? "Copied" : "Copy link"}
+                variant="white"
+                onPress={() => {
+                  /*
+                    Minted on demand rather than up front: a token per note for
+                    every note anybody opened would fill the share list with
+                    links nobody asked for. Pressing this is the ask.
+
+                    `/s/<token>` and not `/console/@slug?note=…`, and the two
+                    are not interchangeable. Both open the same note for the
+                    same people, but only the token is unguessable — which is
+                    what lets its card carry the note's title. A console URL is
+                    typeable by anyone who knows the handle, so a titled card
+                    there would answer "does this note exist?" to whoever asked.
+                  */
+                  void onTeamLink().then((url) => {
+                    if (url === null) {
+                      setCopied(null);
+                      return;
+                    }
+                    void writeClipboard(url).then((ok) =>
+                      setCopied(ok ? TEAM_LINK : null),
+                    );
+                  });
+                }}
+              />
+            </View>
 
             <View style={styles.section}>
               <Text variant="eyebrow">SOMEBODY WITHOUT ACCESS</Text>

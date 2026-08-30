@@ -8,7 +8,7 @@
  * resolves an upstream to a real origin, validates that configuration, and
  * turns a decision into an actual Response.
  */
-import { previewForShare, renderPreviewHtml } from "./preview";
+import { previewForNote, previewForShare, renderPreviewHtml } from "./preview";
 import { route, type Upstream } from "./route";
 // Bundled as bytes by the `Data` rule in wrangler.jsonc, so the OpenGraph card
 // ships with the Worker. Deliberately not an Expo bundle asset: the one thing
@@ -114,6 +114,23 @@ export default {
 
       case "share-card":
         return await shareCardResponse(request.url, decision.token, env, ctx);
+
+      case "note-preview": {
+        const meta = previewForNote(
+          ...(await noteTitle(decision.slug, decision.path, readOrigin(env.CONVEX_ORIGIN))),
+        );
+        return new Response(renderPreviewHtml(meta), {
+          status: 200,
+          headers: {
+            "Content-Type": "text/html; charset=utf-8",
+            "Cache-Control": "no-store",
+            Vary: "User-Agent",
+            "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+          },
+        });
+      }
 
       case "og-card":
         return new Response(ogCard, {
@@ -399,4 +416,48 @@ function withCardHeaders(response: Response): Response {
   headers.set("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
   headers.set("X-Content-Type-Options", "nosniff");
   return new Response(response.body, { status: 200, headers });
+}
+
+/**
+ * The title and card for a readable team link, or nothing.
+ *
+ * `[null, null]` on every failure — no CONVEX_ORIGIN, a non-200, a body that is
+ * not JSON, a timeout, a thrown fetch — and `previewForNote(null)` renders
+ * GENERIC_PREVIEW byte for byte. So an unlinked note, a revoked link and a
+ * control plane mid-deploy are one answer, which is what keeps the probe to
+ * "which notes has the owner published a card for".
+ *
+ * POST, like every route it talks to: a GET would put a handle and a note path
+ * in this Worker's outbound URL and from there into logs.
+ */
+async function noteTitle(
+  slug: string,
+  path: string,
+  convexOrigin: string | null,
+): Promise<[string | null, string | null]> {
+  if (!convexOrigin) return [null, null];
+
+  const timeout =
+    typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+      ? AbortSignal.timeout(SHARE_TITLE_TIMEOUT_MS)
+      : undefined;
+
+  try {
+    const response = await fetch(`${convexOrigin}/share/note`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug, path }),
+      ...(timeout ? { signal: timeout } : {}),
+    });
+    if (!response.ok) return [null, null];
+    const body: unknown = await response.json();
+    const title = (body as { title?: unknown } | null)?.title;
+    const cardToken = (body as { cardToken?: unknown } | null)?.cardToken;
+    return [
+      typeof title === "string" && title.trim() !== "" ? title : null,
+      typeof cardToken === "string" && /^[0-9a-f]{64}$/.test(cardToken) ? cardToken : null,
+    ];
+  } catch {
+    return [null, null];
+  }
 }

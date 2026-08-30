@@ -550,8 +550,8 @@ export function ExplorerDialogs({
           path={dialog.path}
           shares={files.shares}
           origin={consoleOrigin()}
-          contextSlug={contextSlug}
           onShare={(recipient) => files.share(dialog.path, recipient)}
+          onTeamLink={() => files.teamShareLink(dialog.path)}
           onRevoke={(shareId) => files.revokeShare(shareId)}
           onSetPreviewTitle={(recipient, on) =>
             files.setSharePreviewTitle(dialog.path, recipient, on)

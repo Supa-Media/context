@@ -163,6 +163,23 @@ export interface FileBrowser {
   revokeShare: (shareId: string) => void;
 
   /**
+   * A link to this note for the people who already have access.
+   *
+   * Resolves to the URL, because the caller's next act is to put it on the
+   * clipboard — unlike `share`, which is fire-and-forget because its result is
+   * a row in a list the dialog is already watching.
+   *
+   * Grants nothing: reading is authorised by membership on every request, so
+   * removing somebody from the context takes the link with them. The token is
+   * there to make the URL unguessable, which is what lets its card carry the
+   * note's title.
+   *
+   * `null` on a browser that cannot share, and on failure — the caller then
+   * leaves the button's label alone rather than claiming a copy it did not make.
+   */
+  teamShareLink: (path: string) => Promise<string | null>;
+
+  /**
    * Turn the link's preview title on or off for one share.
    *
    * Routed through `createShare`, which supersedes an existing share in place
