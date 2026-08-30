@@ -83,7 +83,7 @@ Zero npm dependencies — keep it that way. It runs on the Workers runtime, so
 use Web Crypto and `fetch`, not Node APIs.
 
 `pnpm test` in `apps/mcp` runs the suite against an in-memory store stub. It is
-fast, offline, and currently 940 checks. **Do not let it regress.** If you
+fast, offline, and currently 947 checks. **Do not let it regress.** If you
 change behavior, change the test in the same commit and say why.
 
 The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,
@@ -1118,6 +1118,47 @@ what belongs here is what a tidy-up would break:
   copy of one line of `TextEncoder` — it exists so enforcing a memory ceiling
   does not allocate a second copy of the body to do it — and it is held the way
   two copies of a rule are always held here, by running both against a corpus.
+
+### The console searches through the gateway's search, not a copy of it
+
+The console's palette filtered the folders somebody had happened to expand,
+and said so: "only folders you have opened are searched". That is a file
+picker. The question search exists for — "where did I write about this person"
+— is asked precisely about the folders nobody has opened, so the honest message
+did not make the answer less wrong.
+
+It answers from the index now, and the load-bearing part is *whose* code runs.
+`searchIndexedNotes` moved out of `apps/mcp/src/index.js` into
+`src/search/visible.js` so that `search_notes`, the ChatGPT-dialect `search`
+and the console are three callers of one function rather than three
+implementations. "One search path" was already the rule for the first two,
+because a second path is a second place for a visibility bug; a console with
+its own scorer would have been that second place, with a person's whole bucket
+behind it.
+
+**Privacy is injected rather than imported, and that is not a loophole.**
+`isVisible` and `isIndexable` are parameters because the two callers hold the
+privacy engine in two runtimes — the gateway's copy is module-private in
+`index.js`, the control plane's is `functions/lib/privacy.ts` — and
+`__tests__/privacyEngine.test.ts` already runs both over a matrix of manifests,
+keys and scopes asserting identical output, rejections included. So the
+parameter composes two proven-equal implementations; it does not invent a
+third. What it must never become is a caller passing a predicate for a
+different scope than the one it serves: sabotage `isVisible` to `() => true` on
+either side and the suites fail (eight gateway checks, two control-plane ones),
+which is the guard.
+
+Two console-specific answers differ from the gateway's, deliberately. The
+budget is larger (`CONSOLE_SEARCH_BUDGET`), because Cloudflare's subrequest cap
+per invocation is what sets the gateway's and a Convex action has no such cap —
+so a console search on a cold bucket makes real progress on the backfill rather
+than nibbling at it. And there is no literal-scan fallback: `indexed: false`
+comes back as `indexMissing`, and the console says the context is still being
+indexed while its own filename filter keeps working. **Collapsing that into "no
+matches" is the bug this whole feature exists to remove** — a console that
+reports absence for a bucket nothing has read yet is worse than the message it
+replaced, and the palette carries the same rule for a search that is still
+running or that failed.
 
 ### The hook is a capture-only OAuth client, and that is the whole design
 

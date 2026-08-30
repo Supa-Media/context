@@ -73,6 +73,7 @@ function browser(
     toggleFolder: noop,
     selectedPath: null,
     select: noop,
+    search: async () => ({ hits: [], indexMissing: false, indexIncomplete: false }),
     // A note already open at mount, which is what reloading the console on a
     // note looks like. Without one, a redundant reset at mount hits
     // `useReducer`'s bail-out and is invisible.

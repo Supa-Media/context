@@ -417,8 +417,8 @@ export function Explorer({
         ) : matches !== null ? (
           matches.length === 0 ? (
             <Text variant="treeMeta" style={styles.status}>
-              Nothing here matches “{query}”. Only folders you have opened are searched — the
-              rest of {contextLabel} has not been read yet.
+              Nothing here matches “{query}”. This filters the tree you have open;
+              search {contextLabel} itself from the search box.
             </Text>
           ) : (
             matches.map((match) => (

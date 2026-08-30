@@ -90,6 +90,8 @@ import {
   listFolder,
   movePath,
   readFile,
+  searchNotes,
+  type SearchResults,
   resetPrivacyManifest,
   setFolderVisibility,
   setVisibility,
@@ -208,6 +210,22 @@ const privacyResetValidator = v.object({
   partial: v.boolean(),
 });
 
+const searchResultsValidator = v.object({
+  kind: v.literal("searchResults"),
+  hits: v.array(
+    v.object({ path: v.string(), title: v.string(), snippets: v.array(v.string()) }),
+  ),
+  matchCount: v.number(),
+  matchCountIsFloor: v.boolean(),
+  indexIncomplete: v.boolean(),
+  /**
+   * Nothing has indexed this bucket yet. Distinct from "no matches" on
+   * purpose — see `searchNotes` in `lib/fileOps.ts` on why collapsing the two
+   * would tell somebody their note does not exist.
+   */
+  indexMissing: v.boolean(),
+});
+
 const operationResultValidator = v.union(
   listingValidator,
   fileValidator,
@@ -219,11 +237,17 @@ const operationResultValidator = v.union(
   privacyResetValidator,
   imageWrittenValidator,
   imageValidator,
+  searchResultsValidator,
 );
 
 const operationValidator = v.union(
   v.object({ kind: v.literal("list"), path: v.string() }),
   v.object({ kind: v.literal("read"), path: v.string() }),
+  v.object({
+    kind: v.literal("search"),
+    query: v.string(),
+    prefix: v.optional(v.string()),
+  }),
   v.object({
     kind: v.literal("write"),
     path: v.string(),
@@ -272,6 +296,7 @@ const operationValidator = v.union(
 type FileOperation =
   | { kind: "list"; path: string }
   | { kind: "read"; path: string }
+  | { kind: "search"; query: string; prefix?: string }
   | { kind: "write"; path: string; text: string; expectedEtag?: string }
   | { kind: "createFolder"; path: string }
   | { kind: "move"; from: string; to: string }
@@ -286,6 +311,7 @@ type FileOperation =
   | { kind: "resetPrivacy" };
 
 type OperationResult =
+  | ({ kind: "searchResults" } & SearchResults)
   | {
       kind: "listing";
       path: string;
@@ -507,6 +533,14 @@ export async function executeOperation(
         const file = await readFile(store, { path: operation.path, scope });
         return { kind: "file", ...file };
       }
+      case "search": {
+        const results = await searchNotes(store, {
+          query: operation.query,
+          prefix: operation.prefix,
+          scope,
+        });
+        return { kind: "searchResults", ...results };
+      }
       case "write": {
         const written = await writeFile(store, {
           path: operation.path,
@@ -679,6 +713,42 @@ export const readNote = action({
       operation: { kind: "read", path: args.path },
     });
     return result as Extract<OperationResult, { kind: "file" }>;
+  },
+});
+
+/**
+ * Search this context's notes. Any member may search what their scope can see.
+ *
+ * The console's palette used to filter the folders somebody had happened to
+ * expand, and said so — "only folders you have opened are searched". That is
+ * a file picker, not search: the answer to "where did I write about Ikenna"
+ * lived in a folder the person had not opened, which is exactly the case
+ * search exists for. This asks the bucket, through the same index and the
+ * same code an AI client's `search_notes` answers from.
+ */
+export const searchContext = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    query: v.string(),
+    prefix: v.optional(v.string()),
+  },
+  returns: searchResultsValidator,
+  handler: async (
+      ctx,
+      args,
+    ): Promise<Extract<OperationResult, { kind: "searchResults" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "member",
+    });
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      operation: { kind: "search", query: args.query, prefix: args.prefix },
+    });
+    return result as Extract<OperationResult, { kind: "searchResults" }>;
   },
 });
 
