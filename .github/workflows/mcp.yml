@@ -217,8 +217,12 @@ jobs:
               # git" edit the comment above invites, one line further down than
               # the one the 9000-byte sample blocks — and it reproduces the
               # original bug exactly: on the tree this job was written for it
-              # finds ten files instead of twelve, missing both of the two past
-              # the window, one of them production source.
+              # finds five files instead of seven, missing both of the two past
+              # the window, one of them production source. (Measured. An
+              # earlier version of this comment said ten of twelve, which was a
+              # reviewer's count over a scope that included the five PNGs this
+              # job skips — and it contradicted the correct figure written
+              # twice elsewhere in this same file.)
               return open(path, "rb").read()
 
           def classify(entries):
@@ -262,6 +266,20 @@ jobs:
           )
           os.unlink(probe.name)
 
+          def exit_code(failed, unearned):
+              # Whether this run fails, separated from the printing so both
+              # branches have a sample. Every helper above is self-tested and
+              # this was not: deleting `sys.exit(1)` from either report block
+              # is invisible to all of them, and the job then prints every
+              # FAIL line it found and exits 0 — the "green because it never
+              # executed" shape the floor's own comment cites.
+              return 1 if (failed or unearned) else 0
+
+          assert exit_code([], []) == 0
+          assert exit_code(["a.ts:1 (byte 0)"], []) == 1
+          assert exit_code([], ["d.png"]) == 1
+          assert exit_code(["a.ts:1 (byte 0)"], ["d.png"]) == 1
+
           tracked = subprocess.run(
               ["git", "ls-files", "-z"], capture_output=True, check=True
           ).stdout.split(b"\0")
@@ -290,9 +308,15 @@ jobs:
           # holds one of the seven files this job was written for. Named roots
           # do not drift as the file count does.
           roots = {path.split("/")[0] for path in paths}
-          assert {"apps", "infra", "packages", ".github"} <= roots, (
+          assert {"apps", "infra", "packages", "scripts", ".github"} <= roots, (
               f"whole directories missing from the walk: {sorted(roots)}"
           )
+          # What this does NOT pin, stated rather than implied: a pathspec that
+          # names all five still passes, and would silently drop patches/,
+          # docs/ and the root files. Naming them all would make this list
+          # churn on every new directory, which is its own kind of untrue. The
+          # five are the ones that hold source, and scripts/ is in the list
+          # because dropping it takes three other CI guards with it.
 
           # Conservation: every tracked path was either scanned or skipped, and
           # the numbers printed below are the ones classify actually produced
@@ -312,7 +336,6 @@ jobs:
               print("BINARY_SUFFIXES is for binary assets. Something textual is being")
               print("skipped by it, which switches this job off for that whole file")
               print("type. Remove the suffix rather than the coverage.")
-              sys.exit(1)
           if failed:
               print("")
               print("A NUL makes git treat the file as binary, so it has no diff and")
@@ -320,8 +343,12 @@ jobs:
               print("string literal is the same string at runtime. If this is a new")
               print("kind of binary ASSET, add its suffix to BINARY_SUFFIXES above,")
               print("deliberately, rather than widening the rule.")
-              sys.exit(1)
-          print("ok   every tracked source file can be diffed")
+          if not failed and not unearned:
+              print("ok   every tracked source file can be diffed")
+          # One exit, from the tested function. Two `sys.exit(1)` calls inside
+          # print blocks were two places for the exit to go missing without a
+          # sample noticing.
+          sys.exit(exit_code(failed, unearned))
           PY
 
   no-dependencies:
