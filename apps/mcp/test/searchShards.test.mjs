@@ -1069,12 +1069,29 @@ export async function runSearchShardsChecks(check) {
     // And "spare" is not "whatever is left after the manifest write". A budget
     // that covers the sync and little else is a budget the query walk still has
     // to come out of, so it buys no audit at all.
-    bucket.resetCounts();
-    const tight = await syncShardedIndex(store, { budget: createSearchBudget(8), now: base + 5 });
+    //
+    // Swept rather than sampled at one budget, because a single tight fixture
+    // leaves the margin unpinned: `AUDIT_OPS` could be deleted from the
+    // threshold and nothing would notice, which was measured — 0 failures
+    // across 952. Measured boundary for this fixture: the audit first fires at
+    // budget 11, so 8..10 is the band where those two ops are what is holding
+    // it back, and the constant is held by its effect rather than by its own
+    // doc comment.
+    let auditedWhileTight = 0;
+    for (let budget = 8; budget <= 10; budget += 1) {
+      bucket.resetCounts();
+      const tight = await syncShardedIndex(store, {
+        budget: createSearchBudget(budget),
+        now: base + 5 + budget,
+      });
+      if (tight.pending !== 0) auditedWhileTight = -1;
+      auditedWhileTight += bucket.counts.gets.filter((key) =>
+        key.startsWith(".index/v2/shard-")
+      ).length;
+    }
     check(
       "and a pass with no room to spare skips the audit rather than spending the query's ops on it",
-      tight.pending === 0 &&
-        bucket.counts.gets.filter((key) => key.startsWith(".index/v2/shard-")).length === 0
+      auditedWhileTight === 0
     );
   }
 

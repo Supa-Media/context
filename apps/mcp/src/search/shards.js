@@ -110,11 +110,20 @@ const BACKFILL_CONCURRENCY = 12;
  * object is unreadable while none of its notes changed is in no worklist, so
  * nothing opens it, the manifest keeps vouching for its docs, and `pending`
  * reads 0 over notes no query can reach. It heals only when somebody happens
- * to edit one of them. That went from a corner to a likely state when shard
- * writers moved to the interned version-3 dialect: an older gateway refuses
- * every version-3 shard while the manifest — still version 2, still valid —
- * keeps vouching, so a rollback or a mixed deployment leaves every shard the
- * newer gateway rewrote permanently unsearchable.
+ * to edit one of them.
+ *
+ * **The version-3 rollback is NOT what this fixes, and a first draft of this
+ * comment said it was.** The gateway that refuses a version-3 shard is the one
+ * from before the interning — and it does not contain this audit, so in that
+ * state there is no auditor. The gateway that does contain it reads both
+ * dialects (`parseShard`, below), so those shards are healthy to it and there
+ * is nothing to find. There is no configuration in which that pair produces
+ * work here; the sentence was written the wrong way round.
+ *
+ * What it does fix: a shard corrupt for any ordinary reason — a half-written
+ * PUT, bucket-side damage, an object somebody hand-edited — and a dialect a
+ * *future* deployment writes that this one then refuses after a rollback,
+ * which is survivable only because this audit exists from here on.
  *
  * **One, and never "every shard the manifest names", because this loop does
  * not own its budget.** `searchVisibleNotes` creates one `createSearchBudget`,
@@ -124,6 +133,22 @@ const BACKFILL_CONCURRENCY = 12;
  * on exactly the widest buckets — which is the "(no matches)" failure the query
  * walk's own reserve exists to prevent. One per pass, rotating, makes coverage
  * eventual, which is all a disposable derivative needs.
+ *
+ * **"Eventual" has a measured ceiling, and above it the audit never runs at
+ * all.** The gate below is `reserve + 1 + AUDIT_OPS + shardCount`, which at the
+ * one real call site is `13 + shardCount`; on the default budget of 40 a pass
+ * reaches this loop with about 33 ops left, so the audit stops firing entirely
+ * at `shardCount >= 20` — roughly 5,700 notes at `ceil(notes / 300)`. Not
+ * "rarely": never, on that budget. Those brains keep the blind spot exactly as
+ * it was, and they are the population it costs most.
+ *
+ * That is stated rather than left implied because this file's own rule is that
+ * a floor is never printed as a total, and a coverage claim a measurement
+ * contradicts is the same defect in prose. Raising `SEARCH_SUBREQUEST_BUDGET`
+ * restores it (measured: 24 shards audit at 60, 48 and 64 at 120). Closing it
+ * properly means bounding the walk's reserve by what the walk will actually
+ * spend rather than by `shardCount`, which needs its own argument and its own
+ * measurements.
  */
 const AUDIT_SHARDS_PER_SYNC = 1;
 /**
