@@ -1225,11 +1225,27 @@ export const previewForNote = query({
     const name = await findName(ctx, args.slug.replace(/^@/, "").toLowerCase());
     if (name?.workspaceId === undefined) return nothing;
 
-    // A folder is a legitimate target here, for the reason
-    // `checkTeamSharePath` gives: a team link is an address, and a folder has
-    // an address. Plumbing is still refused.
+    // **A folder is a legitimate LINK target and not a legitimate PREVIEW
+    // target, and the difference is guessability.**
+    //
+    // This query is unauthenticated. What licenses it answering at all is the
+    // rule in CLAUDE.md that a card may carry a title where the address is not
+    // guessable — `/s/<64 hex>` is 32 random bytes the owner handed to one
+    // person, so "the requester may not have been meant to have this URL" does
+    // not hold. A team link is `/@name/path`, which IS guessable, and the
+    // decision survived that only because the probe space was note FILENAMES.
+    //
+    // Widening it to folders collapsed that space to five values: `scaffold.ts`
+    // writes `0-inbox`, `1-projects`, `2-areas`, `3-resources` and `4-archive`
+    // into every brain this product creates. Five guesses per handle confirmed
+    // the handle existed and returned a live 64-hex token, unauthenticated.
+    //
+    // So `createTeamShare` still takes a folder — the link works, members open
+    // it — and this refuses to describe one. A folder unfurls as the generic
+    // product card, which is what every guessable address already gets.
     const path = normalizePath(args.path);
     if (path === null || isPlumbing(path)) return nothing;
+    if (!path.toLowerCase().endsWith(".md")) return nothing;
 
     const share = await ctx.db
       .query("noteShares")

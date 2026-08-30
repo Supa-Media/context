@@ -343,14 +343,27 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
   // hand-edited URL, and the honest answer is the frozen card.
   if (path.startsWith("/") || path.includes("\\")) return null;
   if (path.split("/").some((segment) => segment === "." || segment === "..")) return null;
-  // A folder is a legitimate target: a team link is an address, and a folder
-  // has one. What is refused is plumbing, and it is two rules rather than one
-  // — a dot-prefixed segment catches `.history/`, and the exact root key
-  // catches `privacy.md`, which has no dot in it at all. Restated from
-  // `isPlumbing` in the control plane, which is the authority; this is the
-  // cheap refusal that keeps a probe for it from becoming a round trip.
+  // Plumbing, in two rules rather than one — a dot-prefixed segment catches
+  // `.history/`, and the exact root key catches `privacy.md`, which has no dot
+  // in it at all. Restated from `isPlumbing` in the control plane, which is the
+  // authority; this is the cheap refusal that keeps a probe for it from
+  // becoming a round trip, and it is deliberately not normalisation: a trailing
+  // slash slips past here and is caught there.
   if (path.split("/").some((segment) => segment.startsWith("."))) return null;
+  // `scopes.yml` is masked by the note-only rule below and cannot be pinned by
+  // a test while that rule stands — it is kept because it becomes load-bearing
+  // again the moment that rule is relaxed, which is what a folder preview would
+  // require. Two guards that mask one another are one guard with a spare; this
+  // says which is which rather than leaving a reader to find out.
   if (path === "privacy.md" || path === "scopes.yml") return null;
+  // **And a note, because this is the PREVIEW path.** `createTeamShare` takes a
+  // folder and the link works; describing one to an unauthenticated crawler is
+  // a different question, and it turns on guessability. `/@name/1-projects` is
+  // five guesses per handle — `scaffold.ts` writes the PARA names into every
+  // brain — where `/@name/<filename>.md` is not. `previewForNote` refuses the
+  // same thing in the control plane, which is where it is enforced; this only
+  // saves the round trip.
+  if (!path.toLowerCase().endsWith(".md")) return null;
 
   return { slug, path };
 }

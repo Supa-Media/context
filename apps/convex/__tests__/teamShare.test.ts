@@ -487,7 +487,28 @@ describe("a folder gets a link too", () => {
     expect(token).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  test("its card is titled by the folder's own name", async () => {
+  /**
+   * **A folder link works; its card stays frozen.**
+   *
+   * `previewForNote` is unauthenticated, and the argument that licenses it
+   * answering at all turns on one word in CLAUDE.md: *guessable*. A share link
+   * is `/s/<64 hex>`, so the premise the frozen card protects does not hold
+   * there. A team link is `/@name/path`, which is guessable — and the original
+   * decision survived that only because the probe space was note FILENAMES.
+   *
+   * Widening the preview to folders collapsed that space to five values.
+   * `scaffold.ts` writes `0-inbox`, `1-projects`, `2-areas`, `3-resources` and
+   * `4-archive` into every brain this product creates, and CLAUDE.md documents
+   * them. Five guesses per handle confirmed the handle existed and returned a
+   * live 64-hex token — from an unauthenticated caller who set a crawler's
+   * User-Agent.
+   *
+   * So the link keeps working and the card does not: a folder unfurls as the
+   * generic product card, which is what every guessable address gets. This is
+   * the existing decision applied, not a new one — "a share link's preview may
+   * carry a title; nothing else's may."
+   */
+  test("a folder link's card stays frozen, because its address is guessable", async () => {
     const t = setupTest();
     const { ownerId, workspaceId } = await scenario(t);
     await teamLink(t, ownerId, workspaceId, FOLDER);
@@ -497,7 +518,27 @@ describe("a folder gets a link too", () => {
         slug: "owner-brain",
         path: FOLDER,
       }),
-    ).toMatchObject({ title: "Transition" });
+    ).toEqual({ title: null, cardToken: null });
+  });
+
+  /**
+   * And the refusal is byte-identical to every other one, so a probe cannot
+   * tell "this is a folder, they exist" from "no such handle".
+   */
+  test("and that refusal is the same one an unknown handle gets", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    await teamLink(t, ownerId, workspaceId, FOLDER);
+
+    const folder = await t.query(api.functions.shares.previewForNote, {
+      slug: "owner-brain",
+      path: FOLDER,
+    });
+    const stranger = await t.query(api.functions.shares.previewForNote, {
+      slug: "nobody-at-all",
+      path: FOLDER,
+    });
+    expect(folder).toEqual(stranger);
   });
 
   test("a member opens it and a stranger does not", async () => {

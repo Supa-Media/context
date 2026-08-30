@@ -569,14 +569,34 @@ describe("a readable team link", () => {
   });
 
   /**
-   * A folder is a legitimate target. A team link is an address and a folder has
-   * one — where a *personal* share is note-only, because "share this folder
-   * with one outsider" would have to decide what a folder share reaches.
+   * A folder link works and its card stays frozen: the preview turns on
+   * guessability, and `/@name/1-projects` is five guesses per handle because
+   * `scaffold.ts` writes the PARA names into every brain. `previewForNote`
+   * enforces this; here it only saves the round trip.
    */
-  it("recognises a folder as well as a note", () => {
+  it("does not route a folder to the lookup", () => {
     expect(
       consoleNoteFrom(new URL("https://context.lc/console/@seyi?note=1-projects/pilot")),
-    ).toEqual({ slug: "seyi", path: "1-projects/pilot" });
+    ).toBeNull();
+  });
+
+  /**
+   * Two more that are not routed. `.images/a.md` is held by the dot-segment
+   * rule and dropping that rule fails this.
+   *
+   * `scopes.yml` is different and worth saying plainly: since the note-only
+   * rule landed, **nothing can pin the explicit `scopes.yml` check**, because
+   * `scopes.yml` does not end in `.md` and the note rule refuses it first.
+   * Deleting that half of the plumbing restatement leaves this green. It is
+   * kept anyway — it is the rule that becomes load-bearing again the moment the
+   * note-only line is relaxed — and this asserts the outcome rather than the
+   * mechanism, which is the honest thing a masked guard can be tested for.
+   */
+  it.each([
+    ["https://context.lc/console/@seyi?note=scopes.yml", "the legacy scope map"],
+    ["https://context.lc/console/@seyi?note=.images/a.md", "the image store"],
+  ])("%s is not one (%s)", (href) => {
+    expect(consoleNoteFrom(new URL(href))).toBeNull();
   });
 
   it("routes a crawler to the lookup, and a person to the app", () => {
