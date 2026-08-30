@@ -34,7 +34,24 @@
  *   the legacy delete not gated on first creation             1  (was 2)
  *   the `NOTE_INDEX_CHAR_CAP` slice dropped                   1
  *
- * Three of those rows carry a finding rather than a count:
+ * Six more, for the spare-budget shard audit, measured the same way:
+ *
+ *   the audit removed entirely (the code before it existed)     3
+ *   `AUDIT_SHARDS_PER_SYNC` raised to 64                        2
+ *   its spare-budget threshold cut to the ordinary reserve      1
+ *   its rotation frozen (what `generatedAt` does on a pass
+ *     that writes nothing)                                      2
+ *   its "the manifest vouches for this shard" filter dropped    1  (was 0)
+ *   its "already in the worklist" filter dropped                1
+ *
+ * The fifth row is the "guard nobody has checked" shape again: an audit that
+ * rotated onto shards the manifest says are empty buys back the 404-per-empty-
+ * shard GET the loop refuses everywhere else, and nothing measured it until the
+ * check that now does. The sixth fails a *neighbouring* check rather than one of
+ * the audit's own — re-auditing a shard the pass was already about to rebuild
+ * reads it twice — which is the honest place for it to land.
+ *
+ * Three of the first nine rows carry a finding rather than a count:
  *
  * - **`shardOf` forced to 0** fails the spread and parity checks and then
  *   *throws*, because `pathsForShard` cannot find a path in shard 1 of 2. The
@@ -593,7 +610,12 @@ export async function runSearchShardsChecks(check) {
       idle.pending === 0 &&
         bucket.counts.noteGets.length === 0 &&
         bucket.counts.put === 0 &&
-        bucket.counts.gets.filter((key) => key.startsWith(".index/v2/shard-")).length === 0
+        // One shard read, and only one: the audit below, which opens a single
+        // vouched-for shard per pass so an unreadable one is noticed rather
+        // than vouched for until somebody edits a note in it. It finds this one
+        // healthy, which is why nothing above it moves — no note body, no write.
+        // The bound is what this half pins; the audit's own block pins the rest.
+        bucket.counts.gets.filter((key) => key.startsWith(".index/v2/shard-")).length <= 1
     );
   }
 
@@ -643,8 +665,12 @@ export async function runSearchShardsChecks(check) {
     check(
       "editing one note re-reads and re-writes exactly the shard that note is in",
       incremental.pending === 0 &&
-        shardGets.length === 1 &&
-        shardGets[0] === shardKey(editedShard) &&
+        // Read: the edited note's shard, plus at most the one shard a pass may
+        // audit on spare budget — never a second shard of *work*. Written: the
+        // edited shard alone, because an audit that finds its shard readable
+        // writes nothing. And exactly one note body, whatever the audit read.
+        shardGets.includes(shardKey(editedShard)) &&
+        shardGets.length <= 2 &&
         shardPuts.length === 1 &&
         shardPuts[0] === shardKey(editedShard) &&
         bucket.counts.noteGets.length === 1 &&
@@ -945,12 +971,10 @@ export async function runSearchShardsChecks(check) {
     // that one, and leave four notes unsearchable until each was next edited —
     // silently, since the manifest would then agree with the shard.
     //
-    // The honest limit of a manifest-only diff is the other half of this and is
-    // deliberate: a corrupt shard that *nothing* touches is invisible here,
-    // because noticing it costs one GET per shard per pass, which is exactly
-    // what the manifest exists to avoid. The query side degrades on it (an
-    // unparseable shard contributes nothing) and the next edit in that shard
-    // heals it, as below.
+    // This is the half a stale note drives. The other half — a corrupt shard
+    // that *nothing* touches, which no diff over the manifest can see — is the
+    // block below: opening every shard per pass is the cost the manifest exists
+    // to avoid, so one shard per pass is audited on spare budget instead.
     bucket.seed(shardKey(0), "{ this is not the shard you are looking for");
     bucket.seed("1-projects/note-2.md", "# Note 2\n\nA MANATEE now, not a dugong.\n");
     bucket.resetCounts();
@@ -962,6 +986,139 @@ export async function runSearchShardsChecks(check) {
         storedShard(bucket, 0)?.docs.size === 5 &&
         storedShard(bucket, 0).terms.has("manatee") &&
         storedManifest(bucket).docsByShard[0].size === 5
+    );
+  }
+
+  // -- a corrupt shard nothing edits is audited, on genuinely spare budget --
+
+  {
+    // The other half of the block above, and the case it used to call an
+    // acceptable blind spot. A shard whose stored object is unreadable while
+    // *no note in it changes* is in no worklist, so nothing ever opens it: the
+    // manifest keeps vouching for its docs, `pending` reads 0 over them, and
+    // the only cure is somebody happening to edit one of those notes. Since a
+    // version-3 shard is refused by a gateway older than the interning change,
+    // a rollback or a mixed deployment makes that every shard the newer one
+    // rewrote — permanently unsearchable, silently.
+    //
+    // Fat budget and no edits anywhere, which is exactly the pass that used to
+    // do nothing. The audit is one shard per pass and rotates on an injected
+    // clock, so four passes over four shards reach the victim exactly once.
+    const bucket = createBucket();
+    bucket.seed(MANIFEST_KEY, serializeManifest(emptyManifest(4)));
+    for (let n = 0; n < 24; n += 1) {
+      bucket.seed(`1-projects/note-${n}.md`, `# Note ${n}\n\nA PANGOLIN, ${n}.\n`);
+    }
+    const store = new R2Store(bucket);
+    await converge(store);
+    const before = storedManifest(bucket);
+    // The fullest shard, chosen from the manifest rather than assumed: which
+    // ids `fnv1a32` fills is not this check's business.
+    const victim = before.docsByShard.reduce(
+      (best, docs, id) => (docs.size > before.docsByShard[best].size ? id : best),
+      0
+    );
+    const vouched = [...before.docsByShard[victim].keys()];
+    bucket.seed(shardKey(victim), "{ truncated by a writer this gateway refuses");
+    bucket.resetCounts();
+
+    // `base % 4 === 0`, so the four passes rotate over the four shards.
+    const base = 4_000_000;
+    let repairedOnPass = null;
+    for (let pass = 0; pass < 4 && repairedOnPass === null; pass += 1) {
+      await syncShardedIndex(store, { budget: createSearchBudget(400), now: base + pass });
+      if (storedShard(bucket, victim)?.docs.size === vouched.length) repairedOnPass = pass;
+    }
+    check(
+      "a corrupt shard no note of which was edited is audited and rebuilt, not vouched for forever",
+      vouched.length > 0 &&
+        repairedOnPass !== null &&
+        vouched.every((path) => storedShard(bucket, victim).docs.has(path)) &&
+        storedManifest(bucket).docsByShard[victim].size === vouched.length
+    );
+    check(
+      "and the repair is the existing rebuild path: only the unreadable shard is rewritten",
+      bucket.counts.puts.filter((key) => key.startsWith(".index/v2/shard-")).length === 1 &&
+        bucket.counts.puts.includes(shardKey(victim)) &&
+        bucket.counts.noteGets.length === vouched.length &&
+        bucket.counts.noteGets.every((path) => vouched.includes(path))
+    );
+
+    // The bound itself, and the reason it is a bound: the sync does not own its
+    // budget. `searchVisibleNotes` creates one budget, hands it here, and the
+    // shard walk and snippet reads that answer the query spend what is left, so
+    // an audit that grew into "open every shard the manifest names" would trade
+    // a rare correctness bug for a permanent per-search cost — paid out of the
+    // answer on exactly the widest buckets. One shard per pass, pinned as a
+    // literal rather than read off the constant under test: an expectation
+    // derived from that number moves with it and pins nothing.
+    bucket.resetCounts();
+    const healthy = await syncShardedIndex(store, {
+      budget: createSearchBudget(400),
+      now: base + 4,
+    });
+    check(
+      "a healthy pass audits at most one shard, and never reads every shard the manifest names",
+      healthy.pending === 0 &&
+        before.shardCount === 4 &&
+        bucket.counts.gets.filter((key) => key.startsWith(".index/v2/shard-")).length <= 1 &&
+        bucket.counts.puts.length === 0 &&
+        bucket.counts.noteGets.length === 0
+    );
+
+    // And "spare" is not "whatever is left after the manifest write". A budget
+    // that covers the sync and little else is a budget the query walk still has
+    // to come out of, so it buys no audit at all.
+    //
+    // Swept rather than sampled at one budget, because a single tight fixture
+    // leaves the margin unpinned: `AUDIT_OPS` could be deleted from the
+    // threshold and nothing would notice, which was measured — 0 failures
+    // across 952. Measured boundary for this fixture: the audit first fires at
+    // budget 11, so 8..10 is the band where those two ops are what is holding
+    // it back, and the constant is held by its effect rather than by its own
+    // doc comment.
+    let auditedWhileTight = 0;
+    for (let budget = 8; budget <= 10; budget += 1) {
+      bucket.resetCounts();
+      const tight = await syncShardedIndex(store, {
+        budget: createSearchBudget(budget),
+        now: base + 5 + budget,
+      });
+      if (tight.pending !== 0) auditedWhileTight = -1;
+      auditedWhileTight += bucket.counts.gets.filter((key) =>
+        key.startsWith(".index/v2/shard-")
+      ).length;
+    }
+    check(
+      "and a pass with no room to spare skips the audit rather than spending the query's ops on it",
+      auditedWhileTight === 0
+    );
+  }
+
+  {
+    // An audit only opens a shard the manifest vouches for. A shard it says
+    // holds nothing has no object to be unreadable, and the loop already
+    // refuses to spend "a subrequest on a 404" to prove it — an audit that
+    // rotated onto empty ids would buy that 404 back, on every small bucket
+    // with a generous shard count, which is exactly where a search can least
+    // afford it.
+    const bucket = createBucket();
+    bucket.seed(MANIFEST_KEY, serializeManifest(emptyManifest(4)));
+    bucket.seed("1-projects/lonely.md", "# Lonely\n\nA SOLITARY OKAPI.\n");
+    const store = new R2Store(bucket);
+    await converge(store);
+    const occupied = shardKey(shardOf("1-projects/lonely.md", 4));
+    bucket.resetCounts();
+    for (let pass = 0; pass < 4; pass += 1) {
+      await syncShardedIndex(store, { budget: createSearchBudget(400), now: 4_000_000 + pass });
+    }
+    const audited = bucket.counts.gets.filter((key) => key.startsWith(".index/v2/shard-"));
+    check(
+      "the audit rotates only over shards the manifest vouches for, never onto an empty one",
+      storedManifest(bucket).shardCount === 4 &&
+        audited.length === 4 &&
+        audited.every((key) => key === occupied) &&
+        bucket.counts.put === 0
     );
   }
 

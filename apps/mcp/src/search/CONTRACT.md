@@ -249,6 +249,30 @@ conditional on the etag it was read at; on conflict serve the query and skip,
 as v1 does. A legacy `.index/search-v1.json` found while a manifest exists is
 deleted when budget allows — disposable, and dead weight.
 
+**One shard the diff wanted nothing from is audited per pass**, on budget the
+real work left over. The diff reads the manifest, so a shard whose stored
+object is unreadable — corrupt, truncated, half-written, or in a dialect this
+gateway refuses — is in no worklist: the manifest keeps vouching for its
+docs, `pending` reads 0 over them, and it heals only when somebody happens to
+edit one of those notes. An audit that arrives unreadable is an empty shard on
+the loop's own terms and rebuilds through the ordinary path. It is **one** and
+never all of them because the sync does not own its budget — the query walk and
+the snippet reads that answer the search spend what is left — so it runs only
+with comfortably more than the write reserves spare, and it rotates on the
+clock rather than on `generatedAt`, which does not advance on the passes that
+find nothing and would stick the rotation on one shard forever.
+
+Two things about that are worth stating rather than leaving to be inferred.
+**The refused dialect is a future one, not the version-2/3 pair**: the gateway
+that refuses a version-3 shard predates this audit and so cannot run it, and the
+gateway that runs it reads both dialects, so those shards are healthy to it. The
+audit is what makes the *next* such rollback survivable. And **the audit has a
+budget cutoff above which it never runs**: the gate is `reserve + 1 +
+AUDIT_OPS + shardCount`, so on the default `SEARCH_SUBREQUEST_BUDGET` of 40 it
+stops firing at `shardCount >= 20` — about 5,700 notes. Coverage is eventual
+below that line and absent above it, which is the opposite of where it is most
+needed; raising the budget restores it.
+
 ## Query
 
 Gather-then-score, streaming: GET manifest → for each non-empty shard (the
