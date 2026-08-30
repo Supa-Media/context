@@ -73,6 +73,22 @@ import { trigrams } from "./text.js";
 
 const EMPTY_LEN = { title: 0, headings: 0, tags: 0, body: 0 };
 
+/**
+ * Fuzzy expansion candidates one shard may retain for one query term.
+ *
+ * `FUZZY_MAX_CANDIDATES` (2) is what the scorer consumes globally; this is
+ * deliberately far above it, because the per-shard slice is an approximation of
+ * a global ranking (see `collectShardCandidates`) and the headroom is what keeps
+ * the approximation from biting. Reaching 64 near-duplicates of one misspelled
+ * term inside a single shard is a corpus nobody has; reaching 6,000 with no cap
+ * at all was measured on a fixture that took ten lines to write.
+ *
+ * It is not exported from `query.js` with the scoring constants on purpose: it
+ * tunes memory, it does not define the ranking, and CONTRACT.md pins the ones
+ * that do.
+ */
+const SHARD_FUZZY_RETAIN = 64;
+
 /** Dice coefficient of two trigram sets, as arrays (small — arrays beat Set overhead here). */
 function diceOf(gramsA, gramsB) {
   if (gramsA.length === 0 || gramsB.length === 0) return 0;
@@ -82,18 +98,16 @@ function diceOf(gramsA, gramsB) {
   return (2 * overlap) / (gramsA.length + gramsB.length);
 }
 
-/**
- * Whether `vocabTerm` is a plausible prefix-or-fuzzy expansion of `queryTerm`
- * — the same predicate `scoreCollected` re-checks globally, used here by the
- * collector to decide what is worth carrying out of one shard at all. Never
- * true for a term equal to the query term itself: that is a direct hit, not
- * an expansion.
+/*
+ * There was an `isPlausibleExpansion(queryTerm, vocabTerm)` here, answering
+ * prefix-or-fuzzy as one boolean. The collector cannot use one boolean any
+ * more: the two halves are capped differently and for different reasons — the
+ * prefix cap is exact and the fuzzy cap is an approximation — so it has to know
+ * WHICH kind of plausible a term is, and the test is inlined at the one place
+ * that asks. Deleted rather than left beside its replacement, because two
+ * copies of a rule with only one call site is the copy that drifts, and
+ * `apps/mcp` has no lint to notice it went dead.
  */
-function isPlausibleExpansion(queryTerm, vocabTerm) {
-  if (vocabTerm === queryTerm) return false;
-  if (queryTerm.length >= PREFIX_MIN_CHARS && vocabTerm.startsWith(queryTerm)) return true;
-  return diceOf(trigrams(queryTerm), trigrams(vocabTerm)) >= FUZZY_MIN_DICE;
-}
 
 /**
  * One shard's contribution to a query, restricted throughout to docs
@@ -160,24 +174,43 @@ export function collectShardCandidates(shardIndex, queryTerms, isVisible) {
 
   // -- pass 2: walk this shard's vocabulary once. For each term, restrict its
   // postings to visible docs; keep the result as a direct hit if the term is
-  // one of the query terms, and/or as an over-collected expansion candidate
-  // if it is plausible for ANY query term (see module doc comment) — a term
-  // can be both at once (e.g. query terms ["cat", "cats"]: "cats" is a direct
-  // hit for itself AND a legitimate prefix-expansion candidate for "cat" if
-  // "cat" itself turns out to have global df 0).
+  // one of the query terms, and/or as an expansion candidate if it is
+  // plausible for ANY query term — a term can be both at once (e.g. query
+  // terms ["cat", "cats"]: "cats" is a direct hit for itself AND a legitimate
+  // prefix-expansion candidate for "cat" if "cat" itself turns out to have
+  // global df 0).
+  //
+  // **What this shard RETAINS is bounded; what it CONSIDERS is not.** Every
+  // plausible candidate used to be kept, with its full visible postings, and
+  // `scoreCollected` can only ever consume `PREFIX_MAX_EXPANSIONS` (10) plus
+  // `FUZZY_MAX_CANDIDATES` (2) of them per query term — and discards all of
+  // them the moment the term's global df is above zero. Measured on one shard
+  // with an 8,000-term vocabulary, the query "con" retained 6,000 candidate
+  // postings maps and a direct hit on "contact7" retained 5,999, every one of
+  // them dead. Since `collections` is held across the whole walk while the
+  // shard objects themselves are dropped one at a time, that is a retention
+  // that grows with the CORPUS — which is the ceiling v2 exists to remove,
+  // moved from the parse step to the gather step.
+  const prefixCandidates = new Map(); // query term -> [{ term, visibleForTerm }]
+  const fuzzyCandidates = new Map(); // query term -> [{ term, df, visibleForTerm }]
+  for (const qt of queryTermList) {
+    prefixCandidates.set(qt, []);
+    fuzzyCandidates.set(qt, []);
+  }
+
   for (const [term, termPostings] of terms) {
     const isDirect = queryTermList.includes(term);
     // Checked regardless of `isDirect`: a term can be both a direct hit for
     // itself AND a plausible expansion for a *different* query term (the
     // ["cat", "cats"] case in the module doc comment above).
-    let isCandidateFor = false;
+    const prefixFor = [];
+    const fuzzyFor = [];
     for (const qt of queryTermList) {
-      if (isPlausibleExpansion(qt, term)) {
-        isCandidateFor = true;
-        break;
-      }
+      if (term === qt) continue;
+      if (qt.length >= PREFIX_MIN_CHARS && term.startsWith(qt)) prefixFor.push(qt);
+      else if (diceOf(trigrams(qt), trigrams(term)) >= FUZZY_MIN_DICE) fuzzyFor.push(qt);
     }
-    if (!isDirect && !isCandidateFor) continue; // irrelevant to this query — skip it
+    if (!isDirect && prefixFor.length === 0 && fuzzyFor.length === 0) continue;
 
     const visibleForTerm = new Map();
     for (const [path, tuple] of termPostings) {
@@ -190,9 +223,60 @@ export function collectShardCandidates(shardIndex, queryTerms, isVisible) {
       dfByTerm.set(term, visibleForTerm.size);
       for (const path of visibleForTerm.keys()) noteMeta(path);
     }
-    if (isCandidateFor) {
-      vocab.set(term, { df: visibleForTerm.size, postings: visibleForTerm });
-      for (const path of visibleForTerm.keys()) noteMeta(path);
+    for (const qt of prefixFor) prefixCandidates.get(qt).push({ term, visibleForTerm });
+    for (const qt of fuzzyFor) {
+      fuzzyCandidates.get(qt).push({ term, df: visibleForTerm.size, visibleForTerm });
+    }
+  }
+
+  function retain(term, visibleForTerm) {
+    if (vocab.has(term)) return;
+    vocab.set(term, { df: visibleForTerm.size, postings: visibleForTerm });
+    for (const path of visibleForTerm.keys()) noteMeta(path);
+  }
+
+  for (const qt of queryTermList) {
+    // **The prefix cap is exact — it cannot change a single result.**
+    // `scoreCollected` sorts the merged prefix candidates ALPHABETICALLY and
+    // keeps the first `PREFIX_MAX_EXPANSIONS`. Alphabetical order is total and
+    // shard-independent, so any term in the global first ten is preceded
+    // globally by at most nine terms, and the terms preceding it within its
+    // own shard are a subset of those — it is therefore in its own shard's
+    // first ten too. Dropping the rest here drops only terms that were going
+    // to be sliced off anyway.
+    const prefix = prefixCandidates.get(qt) ?? [];
+    prefix.sort((a, b) => (a.term < b.term ? -1 : a.term > b.term ? 1 : 0));
+    for (const { term, visibleForTerm } of prefix.slice(0, PREFIX_MAX_EXPANSIONS)) {
+      retain(term, visibleForTerm);
+    }
+
+    // **The fuzzy cap is NOT exact, and that is a deliberate trade rather than
+    // the same argument made twice.**
+    //
+    // `scoreCollected` ranks fuzzy candidates by GLOBAL df descending, and a
+    // global df is a sum across shards — so unlike alphabetical order it does
+    // not decompose, and a term crowded out of one shard's top slice has its
+    // df understated from then on. The module comment above warns against
+    // exactly this: a decision that should be global, made from a partial
+    // view.
+    //
+    // It is bounded anyway, because the alternative measured worse. Fuzzy
+    // candidates are as unbounded as prefix ones — a vocabulary of terms that
+    // merely CONTAIN the query term ("x1contactsheet", "x2contactsheet", ...)
+    // puts 5,000 of them past the dice threshold without one of them being a
+    // prefix — so leaving this half open leaves the whole retention open and
+    // the exact half buys nothing.
+    //
+    // What the approximation can cost is bounded and small: fuzzy expansion
+    // only runs for a query term whose global df is ZERO and for which prefix
+    // expansion found nothing — a typo, in other words — and the cost is that
+    // the second-best correction may be picked over the best. The cap is set
+    // far above `FUZZY_MAX_CANDIDATES` so that reaching it needs a vocabulary
+    // where hundreds of terms are near-duplicates of one misspelling.
+    const fuzzy = fuzzyCandidates.get(qt) ?? [];
+    fuzzy.sort((a, b) => b.df - a.df || (a.term < b.term ? -1 : 1));
+    for (const { term, visibleForTerm } of fuzzy.slice(0, SHARD_FUZZY_RETAIN)) {
+      retain(term, visibleForTerm);
     }
   }
 

@@ -30,10 +30,15 @@
  *    no private byte, and a count of exactly what it listed. Both tool dialects, because
  *    `search_notes` and the ChatGPT-dialect `search` share one path and a
  *    second path would be a second place for a visibility bug.
- * 3. **A shard the answer could not open is said out loud.** `loadShard`
- *    answers `null` for a budget refusal and for an absent object alike, so
- *    the gateway checks the budget *before* asking. Treating a refusal as an
- *    empty shard is silently answering a query from part of the corpus.
+ * 3. **A shard the answer could not open is said out loud — in both the
+ *    banner and the number.** `loadShard` answers `null` for a budget refusal
+ *    and for an absent object alike, so the gateway checks the budget *before*
+ *    asking. Treating a refusal as an empty shard is silently answering a
+ *    query from part of the corpus. The banner and the count are two lines a
+ *    reader believes separately, so `matchCount` carries the census's floor
+ *    mark of its own: a walk that opened four shards of twenty printed
+ *    `4 matching notes` over a bucket of twenty-four, which is a wrong total,
+ *    not a cautious one.
  * 4. **v1's object is deleted, once, on the pass that first writes a
  *    manifest.** Dead weight in a customer's bucket is still their bucket.
  *
@@ -71,12 +76,25 @@
  *    `searchShardQuery.test.mjs` holds the collector's own predicate. Sabotage
  *    1 above is what it is *for*, and is why it is not deleted for being
  *    unreachable.
+ * 4. **`shardsUnread` dropped from `matchCountIsFloor`** (leaving
+ *    `visible.length >= MAX_RESULTS` alone, which is what the line was before
+ *    the sharded walk existed). 1 check failed, alone: the starved count below.
+ *    Nothing else in 947 catches it, and that is the point — every other
+ *    fixture here has budget to spare, so `shardsUnread` is false and the two
+ *    versions of the line are the same line. The starved answer renders
+ *    `4 matching notes` under the mutation and `4+ matching notes` without it,
+ *    over twenty-four matching notes the roomy run counts.
+ * 5. **`matchCountIsFloor: true` hardcoded**, the direction a test that only
+ *    pinned the floor would pass. 5 checks failed: the converse below, this
+ *    file's exact-count check, and three in `searchIntegration.test.mjs`. So
+ *    the mark is held from both sides, and by more than one file.
  */
 
 import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
 import { SEARCH_INDEX_KEY, createSearchBudget, syncIndex } from "../src/search/maintain.js";
 import { parseIndex } from "../src/search/indexer.js";
+import { MAX_RESULTS } from "../src/search/query.js";
 import {
   LEGACY_V1_KEY,
   MANIFEST_KEY,
@@ -254,6 +272,19 @@ function indexedPaths(bucket) {
 /** The note paths a `search_notes` answer actually listed, in the order it listed them. */
 function pathsIn(text) {
   return (String(text).match(/^\S+\.md$/gm) || []).filter((line) => !line.startsWith("["));
+}
+
+/**
+ * The count line a `search_notes` answer opens with, parsed the way a reader
+ * meets it: the number, and whether it carries the census's floor mark.
+ *
+ * Read off the rendered text rather than off `searchVisibleNotes`'s return,
+ * because the `+` is the whole of the claim — a floor a caller cannot tell
+ * from a total is not a floor, it is a wrong number with a flag set behind it.
+ */
+function reportedCount(text) {
+  const match = /^(\d+)(\+?) matching notes?/m.exec(String(text));
+  return match ? { count: Number(match[1]), isFloor: match[2] === "+" } : null;
 }
 
 const utf8 = new TextEncoder();
@@ -524,6 +555,53 @@ export async function runSearchV2IntegrationChecks(check) {
       "the starved answer is still an answer, from the shards it did reach",
       pathsIn(starved).length > 0 &&
         pathsIn(starved).every((path) => path.startsWith("1-projects/spread/"))
+    );
+
+    // -- and the NUMBER beside that answer is a floor too --------------------
+    //
+    // "still catching up" is the *index's* sentence: it says a sync has notes
+    // left to reach. It says nothing about the total printed above it, and the
+    // two are separate lines a reader can believe separately. `matchCount` is
+    // computed over the shards this call could afford to open, so on a starved
+    // walk it is a count over a fraction of the corpus — and understating is
+    // the acceptable direction for a number only while the number says it is
+    // understating. Unmarked, this answer reads `4 matching notes` over a
+    // bucket holding twenty-four, and an agent told there are four stops
+    // looking, which is the miss copy's own failure with a total in front of
+    // it. The census's language is the rule: **a floor is never printed as a
+    // total.**
+    //
+    // The pair is one fixture, one query, and one difference — the budget —
+    // so neither half can be true for a reason the other does not share.
+    const starvedCount = reportedCount(starved);
+    const roomyCount = reportedCount(roomy);
+    const spreadNotes = [...spread.objects.keys()].filter((key) =>
+      key.startsWith("1-projects/spread/")
+    ).length;
+    check(
+      "the count a starved walk prints is marked a floor, because it was computed over unread shards",
+      starvedCount !== null &&
+        starvedCount.isFloor === true &&
+        // The fixture is proved starving rather than assumed to be: the same
+        // query on the same bucket with budget to spare sees several times as
+        // many notes as this answer counted.
+        starvedCount.count < roomyCount?.count &&
+        starvedCount.count < spreadNotes &&
+        // And far under `MAX_RESULTS`, so the mark cannot have come from the
+        // other half of that line. A fixture whose ranked list was simply full
+        // would pin `visible.length >= MAX_RESULTS` and nothing about a shard
+        // the budget never opened.
+        starvedCount.count < MAX_RESULTS
+    );
+    check(
+      "and the same query with every occupied shard read prints a total, not a floor",
+      roomyCount !== null &&
+        roomyCount.isFloor === false &&
+        // Every note that matches, counted — so the walk plainly reached every
+        // occupied shard — and still short of the scoring cap, which is the
+        // only other thing that may raise this mark.
+        roomyCount.count === spreadNotes &&
+        roomyCount.count < MAX_RESULTS
     );
 
     // 24 notes over 20 shards leaves some shards genuinely empty, and the walk

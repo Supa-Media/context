@@ -3414,7 +3414,22 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
       // depend on the collector's own filtering being right. Its cost is
       // unchanged and still the acceptable direction — it can understate what a
       // caller can see, never overstate it.
-      matchCountIsFloor: visible.length >= MAX_RESULTS,
+      //
+      // `shardsUnread` is the second half, and it was missing. The v1 walk it
+      // was written for either read the whole index or degraded; a sharded walk
+      // can spend its subrequest budget partway and answer from the shards it
+      // reached, and the count it computes is then over a fraction of the
+      // corpus. Measured on a 16-shard fixture of 200 notes at the default
+      // budget, cold: `1 matching note`. That is not a starvation corner —
+      // ~28 shards is roughly 8,400 notes, past which every search prints a
+      // flat wrong total, permanently.
+      //
+      // Understating is the acceptable direction for a NUMBER, but an agent
+      // reading "1 matching note" over a bucket of two hundred concludes the
+      // thing is not written down, which is the failure `toolSearchNotes`'s
+      // miss copy exists to prevent. So it is a floor, in the census's own
+      // language: "A floor is never printed as a total."
+      matchCountIsFloor: visible.length >= MAX_RESULTS || shardsUnread,
       indexIncomplete:
         synced.pending > 0 || synced.listingTruncated || synced.manifestOverflow || shardsUnread,
       degraded: false,
