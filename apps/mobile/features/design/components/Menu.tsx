@@ -73,6 +73,7 @@ export interface MenuProps {
 function SheetRow({
   id,
   label,
+  detail,
   accessibilityLabel,
   danger = false,
   leading,
@@ -82,6 +83,8 @@ function SheetRow({
 }: {
   id: string;
   label: string;
+  /** A second line, for an outcome the verb cannot carry alone. */
+  detail?: string;
   /**
    * The accessible name, where the visible label is not a whole one.
    *
@@ -109,14 +112,28 @@ function SheetRow({
       hoverStyle={styles.rowHover}
     >
       {leading}
-      <Text
-        variant="body"
-        numberOfLines={1}
-        testID={`menu-label-${id}`}
-        style={danger ? styles.dangerLabel : undefined}
-      >
-        {label}
-      </Text>
+      {/*
+        The label and its detail are one column so the row stays a row: a
+        second `Text` beside the first would sit next to it and push the
+        chevron off the edge.
+      */}
+      <View style={styles.labelColumn}>
+        <Text
+          variant="body"
+          numberOfLines={1}
+          testID={`menu-label-${id}`}
+          style={danger ? styles.dangerLabel : undefined}
+        >
+          {label}
+        </Text>
+        {detail === undefined ? null : (
+          // Two lines, not one: this is a phone, and the sentence it carries
+          // is the reason somebody presses one of these rather than the other.
+          <Text variant="treeMeta" numberOfLines={2} testID={`menu-detail-${id}`}>
+            {detail}
+          </Text>
+        )}
+      </View>
       {trailing}
     </PressRow>
   );
@@ -211,6 +228,7 @@ export function Menu({ items, title, onSelect, onDismiss }: MenuProps) {
                 <SheetRow
                   id={item.id}
                   label={item.label}
+                  detail={item.detail}
                   danger={item.danger === true}
                   trailing={
                     item.items === undefined ? null : (
@@ -289,6 +307,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.x5,
   },
   rowCentered: { justifyContent: "center" },
+  /** `flexShrink` so a long label truncates rather than pushing the chevron off. */
+  labelColumn: { flex: 1, flexShrink: 1, gap: 2 },
   rowHover: { backgroundColor: colors.surface3 },
   dangerLabel: { color: colors.critText },
   chevron: { marginLeft: "auto", color: colors.muted },

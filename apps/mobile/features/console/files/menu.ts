@@ -75,6 +75,15 @@ export type MenuActionId =
 export interface MenuItem {
   id: MenuActionId;
   label: string;
+  /**
+   * A second line under the label, for an outcome a verb cannot carry alone.
+   *
+   * Deliberately rare — a menu where every row explains itself is a menu
+   * nobody reads. It exists for the folder visibility items, where the
+   * label says what happens and the thing people get wrong is what *does
+   * not*: a note with its own setting keeps it.
+   */
+  detail?: string;
   /** Printed on the right on web. Absent on touch. */
   shortcut?: string;
   danger?: boolean;
@@ -186,7 +195,7 @@ function makeItem(
   context: MenuContext,
   id: MenuActionId,
   label: string,
-  extra: { danger?: boolean; items?: MenuItem[] } = {},
+  extra: { danger?: boolean; items?: MenuItem[]; detail?: string } = {},
 ): MenuItem {
   const command = COMMANDS[id];
   const shortcut =
@@ -196,6 +205,7 @@ function makeItem(
   return {
     id,
     label,
+    ...(extra.detail === undefined ? {} : { detail: extra.detail }),
     ...(shortcut === undefined ? {} : { shortcut }),
     ...(extra.danger === true ? { danger: true } : {}),
     ...(extra.items === undefined ? {} : { items: extra.items }),
@@ -281,12 +291,41 @@ function canPasteInto(clipboard: Clipboard, folder: string): boolean {
  * set it by hand, leaving a redundant exception behind that then stops
  * tracking the folder.
  */
-function visibilityGroup(context: MenuContext, isFolder: boolean): MenuItem[] {
-  const children = [
-    makeItem(context, "visibilityPrivate", "Private"),
-    makeItem(context, "visibilityTeam", "Team"),
-    ...(isFolder ? [] : [makeItem(context, "visibilityFollow", "Follow folder")]),
-  ];
+function visibilityGroup(context: MenuContext, isFolder: boolean, count: number): MenuItem[] {
+  /*
+    These read as verbs because they are controls, and they used to read
+    "Private" and "Team", which are the words the tree's marker and the
+    breadcrumb's chip already use for the *current state*. The same two words
+    in the same colours doing two different jobs is a menu you cannot act on
+    without experimenting: nothing on screen said whether pressing "Team" set
+    the visibility or filtered by it, and the experiment costs a privacy change
+    on somebody else's context.
+
+    A folder's pair is worded for reach rather than for the folder — "Share this
+    folder with the team" is a sentence about a folder, and what actually
+    happens is that its notes become readable by other people. The detail line
+    carries the half people get wrong, which is what *keeps* its own setting.
+  */
+  // "here" is one folder. Several folders are "in 3 folders", which is the
+  // same rule the archive and delete labels follow — a label that names how
+  // much it touches, so a selection can never be mistaken for a row.
+  const where = count === 1 ? "here" : `in ${count} folders`;
+  const children = isFolder
+    ? [
+        makeItem(context, "visibilityPrivate", `Make everything ${where} private`, {
+          detail: "Except notes with a setting of their own.",
+        }),
+        makeItem(context, "visibilityTeam", `Share everything ${where} with the team`, {
+          detail: "Except notes with a setting of their own.",
+        }),
+      ]
+    : [
+        makeItem(context, "visibilityPrivate", "Make private"),
+        makeItem(context, "visibilityTeam", "Share with the team"),
+        // Not "Follow folder": that names the state this leaves behind, and the
+        // act is removing this note's own exception.
+        makeItem(context, "visibilityFollow", "Use the folder's setting"),
+      ];
   return [makeItem(context, "visibility", "Visibility", { items: children })];
 }
 
@@ -438,7 +477,7 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
     // nothing for a folder, and a submenu that applies to some of what is
     // selected is the partial success this menu exists to avoid.
     context.canSetVisibility && (single !== null || isFolder || isFile)
-      ? visibilityGroup(context, isFolder)
+      ? visibilityGroup(context, isFolder, count)
       : [],
 
     [
