@@ -21,7 +21,7 @@
  * test cannot fail for the reason this one exists.
  */
 
-import { afterEach, describe, expect, test } from "@jest/globals";
+import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
 // React refuses to run `act` without this, and warns on every call otherwise.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -80,7 +80,7 @@ const LISTING: FolderListing = {
  * A literal rather than the demo hook, because the two things under test —
  * `canShare` and `readOnly` — are exactly the fields the demo pins to `false`.
  */
-function paneWith(over: Partial<FileBrowser> = {}, entry: Partial<FolderListing["entries"][number]> = {}) {
+function dataWith(over: Partial<FileBrowser> = {}, entry: Partial<FolderListing["entries"][number]> = {}): ConsoleData {
   const path = entry.path ?? NOTE;
   /**
    * The listing is keyed by the entry's **parent folder**, because that is how
@@ -150,8 +150,55 @@ function paneWith(over: Partial<FileBrowser> = {}, entry: Partial<FolderListing[
     members: { rows: [], invitations: [] },
   } as unknown as ConsoleData;
 
-  return mount(createElement(BrowsePane, { data }));
+  return data;
 }
+
+function paneWith(
+  over: Partial<FileBrowser> = {},
+  entry: Partial<FolderListing["entries"][number]> = {},
+): HTMLElement {
+  return mount(createElement(BrowsePane, { data: dataWith(over, entry) }));
+}
+
+/**
+ * A pane that can be re-rendered, which is the only way to reach the case
+ * below: `<Slot/>` in `app/(app)/console/_layout.tsx` reconciles by component
+ * type with **no `key`**, so this component and its `sharing` state survive
+ * `/console/@a` → `/console/@b`. A fresh mount per assertion cannot see that.
+ */
+function paneRoot(): {
+  container: HTMLElement;
+  render: (data: ConsoleData) => void;
+} {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+  roots.push(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+  return {
+    container,
+    render: (data: ConsoleData) =>
+      act(() => {
+        root.render(createElement(BrowsePane, { data }));
+      }),
+  };
+}
+
+function press(testID: string): void {
+  const node = document.body.querySelector<HTMLElement>(`[data-testid="${testID}"]`);
+  if (node === null) throw new Error(`no element with testID ${testID}`);
+  act(() => {
+    for (const type of ["mousedown", "mouseup", "click"]) {
+      node.dispatchEvent(new MouseEvent(type, { bubbles: true }));
+    }
+  });
+}
+
+/** The dialog names the note it is about; that is what makes a stale one visible. */
+const shareDialogFor = (name: string) =>
+  document.body.querySelector(`[aria-label="Share ${name}"]`);
 
 describe("an owner reading a note can share it", () => {
   /**
@@ -166,6 +213,75 @@ describe("an owner reading a note can share it", () => {
 
   test("and it says what it is, with the ellipsis that promises a dialog", () => {
     expect(paneWith().textContent).toContain("Share");
+  });
+});
+
+/**
+ * **The button was the whole test, and everything past it was unpinned.**
+ *
+ * Nothing pressed it. Measured: pointing `onPress` at `"privacy.md"` — so that
+ * the button on any note opens a dialog for the access map — left all 1,650
+ * checks green, as did making the button inert, as did rendering the dialog
+ * unconditionally for every open note. The file's own read-only test is *about*
+ * `privacy.md`, which is what makes the first of those worth naming.
+ */
+describe("the dialog is about the note the reader is looking at", () => {
+  test("pressing Share opens a dialog named after this note", () => {
+    const pane = paneRoot();
+    pane.render(dataWith());
+    expect(shareDialogFor("plan.md")).toBeNull();
+    press("browse-share");
+    expect(shareDialogFor("plan.md")).not.toBeNull();
+  });
+
+  /**
+   * **The one that matters.** `{sharing !== null ? <ShareDialog … />}` re-checks
+   * nothing — not `canShare`, not the selection, not `readOnly` — and `<Slot/>`
+   * reconciles this pane by component type with no `key`, so `sharing` survives
+   * a context switch.
+   *
+   * Left open, submitting called the *new* context's `share` with the *old*
+   * context's path. `createShare` checks `requireWorkspaceRole(owner)` and the
+   * path's syntax, and never that the path exists in that workspace — so under
+   * PARA conventions, where `1-projects/plan.md` plausibly exists in both, the
+   * owner grants a recipient read access to a note they did not aim at.
+   *
+   * The guard closes the keyboard route too. `BrowsePane` reports no
+   * `onOverlayChange`, so every GLOBAL binding fires behind this dialog and the
+   * palette can change the selection under it; a dialog pinned to the current
+   * selection cannot then act on a stale path.
+   */
+  test("it does not follow the reader into another context", () => {
+    const pane = paneRoot();
+    pane.render(dataWith());
+    press("browse-share");
+    // The positive control: without it, a dialog that never opened would
+    // satisfy the assertion below.
+    expect(shareDialogFor("plan.md")).not.toBeNull();
+
+    const shareB = jest.fn();
+    pane.render(
+      dataWith(
+        { selectedPath: "1-projects/other.md", share: shareB },
+        { path: "1-projects/other.md", name: "other.md" },
+      ),
+    );
+
+    expect(shareDialogFor("plan.md")).toBeNull();
+    expect(shareB).not.toHaveBeenCalled();
+  });
+
+  test("nor does it outlive the capability that opened it", () => {
+    const pane = paneRoot();
+    pane.render(dataWith());
+    press("browse-share");
+    expect(shareDialogFor("plan.md")).not.toBeNull();
+
+    // Ownership can go away under a mounted console — that is the whole subject
+    // of `explorerMenuStaleGate.test.ts`. A dialog is a control like any other:
+    // absent, not present-and-refused.
+    pane.render(dataWith({ canShare: false }));
+    expect(shareDialogFor("plan.md")).toBeNull();
   });
 });
 

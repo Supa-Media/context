@@ -133,7 +133,45 @@ export function BrowsePane({
         </View>
       ) : null}
 
-      {sharing !== null ? (
+      {/*
+        The dialog is pinned to the note it names, and to the capability that
+        opened it, because neither of those holds still while it is on screen.
+
+        `<Slot/>` in `app/(app)/console/_layout.tsx` reconciles this pane by
+        component type with **no `key`**, so `sharing` survives
+        `/console/@a` → `/console/@b` — the same mechanism `Explorer.tsx`
+        documents for its own callbacks. Left unchecked, the dialog stayed open
+        across a context switch still titled after the old context's note, and
+        submitting called the *new* context's `share` with the *old* context's
+        path. `createShare` checks `requireWorkspaceRole(owner)` and the path's
+        syntax, never that the path exists in that workspace — so under PARA
+        conventions, where `1-projects/plan.md` plausibly exists in both, the
+        owner grants a recipient read access to a note they did not aim at.
+
+        `files.canShare` is re-checked for the reason the button reads it
+        inline: it is `canEdit && isOwner`, so it moves independently, and this
+        codebase treats a control that is present and refused as the defect
+        rather than the refusal.
+
+        It closes the keyboard route as a side effect, and that is worth
+        knowing rather than rediscovering. `BrowsePane` reports no
+        `onOverlayChange`, so `scopeForFocus` answers `global` with this dialog
+        open and every GLOBAL binding in `keymap.ts` still fires behind it —
+        ⌘K can change the selection under the dialog. Pinned to the selection,
+        the dialog closes rather than acting on a stale path. The missing
+        overlay channel is filed separately; this is not a substitute for it.
+
+        `!selected.readOnly` is an **equivalent mutant** today and is kept
+        anyway: dropping it fails nothing, because the button that sets
+        `sharing` already requires it and `readOnly` is `key === PRIVACY_KEY`,
+        so a note cannot acquire it while staying the selected one. It mirrors
+        the button rather than reasoning from what `readOnly` happens to mean,
+        and it stops being equivalent the day anything else is read-only. Said
+        plainly because "sabotaging it fails nothing" is otherwise indis-
+        tinguishable from an untested guard, which is what this file's
+        neighbours keep turning out to be.
+      */}
+      {sharing !== null && files.canShare && selected?.path === sharing && !selected.readOnly ? (
         <ShareDialog
           path={sharing}
           shares={files.shares}
