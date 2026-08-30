@@ -756,6 +756,65 @@ export async function runSearchIntegrationChecks(check) {
       );
     }
 
+    // -- an oversized index is refused unparsed, and rebuilt slim ------------
+    //
+    // The 128MB memory limit is the ceiling no plan raises, and JSON.parse of
+    // a many-MB index inflates several-fold in the heap. Measured live: chat
+    // archives indexed whole grew the index until parsing it killed every
+    // invocation, uncatchably — search down because of its own accelerator,
+    // with no surviving pass to shrink the object. The byte cap breaks the
+    // cycle: valid-but-huge is treated exactly like corrupt.
+    {
+      const bloated = createBucket();
+      bloated.seed("privacy.md", PRIVACY_MANIFEST);
+      bloated.seed("1-projects/small.md", "# Small\n\nA PANGOLIN appears early.\n");
+      // The oversized object is a VALID index whose one doc entry carries the
+      // real note's real etag, padded past the byte cap. If the sync parses it
+      // anyway, the entry is fresh (etag matches the listing) and survives with
+      // its bloated title; if the cap refuses to parse, the note is re-indexed
+      // from its content and gets its real title. The first version of this
+      // check asserted on a doc the listing did not contain, which the removal
+      // pass deleted either way — the sabotage returned zero failures, so the
+      // check was measuring nothing.
+      const realEtag = bloated.objects.get("1-projects/small.md").etag;
+      bloated.seed(
+        SEARCH_INDEX_KEY,
+        JSON.stringify({
+          version: 1,
+          generatedAt: new Date().toISOString(),
+          docs: [["1-projects/small.md", { etag: realEtag, uploaded: null, title: "x".repeat(12_000_001), links: [], len: { title: 1, headings: 0, tags: 0, body: 0 }, rank: 0 }]],
+          terms: [],
+        })
+      );
+      const rebuilt = await syncIndex(new R2Store(bloated), { budget: createSearchBudget(200) });
+      const slim = bloated.objects.get(SEARCH_INDEX_KEY);
+      check(
+        "a valid but oversized index is refused unparsed and rebuilt slim from the notes",
+        rebuilt.index.docs.get("1-projects/small.md")?.title === "Small" &&
+          slim.body.length < 100_000
+      );
+    }
+
+    // -- a giant note is indexed by its head, not its whole body -------------
+    //
+    // The outliers are 64KB+ saved sessions; indexing them whole is what
+    // bloated the index past the memory ceiling. The head carries the
+    // frontmatter, title, headings and opening prose ranking weighs most.
+    {
+      const capped = createBucket();
+      capped.seed("privacy.md", PRIVACY_MANIFEST);
+      capped.seed(
+        "1-projects/log.md",
+        `# Log\n\nThe AXOLOTL is in the head.\n${"filler words here ".repeat(600)}\nThe CAPYBARA hides in the tail.\n`
+      );
+      const cappedSync = await syncIndex(new R2Store(capped), { budget: createSearchBudget(50) });
+      check(
+        "a giant note is searchable by its head and its tail is deliberately not indexed",
+        searchIndex(cappedSync.index, "axolotl").length === 1 &&
+          searchIndex(cappedSync.index, "capybara").length === 0
+      );
+    }
+
     // -- the budget is a deployment setting, bounded ------------------------
     //
     // The default assumes the free tier's 50-subrequest ceiling; a paid-plan
