@@ -75,6 +75,32 @@ describe("which screen a reader gets", () => {
     expect(view.kind === "signIn" && view.href).toContain(encodeURIComponent(shareHref(TOKEN)));
   });
 
+  /**
+   * The gate holds whatever the note state is, and that is the half the tests
+   * above did not reach: every signed-out fixture passed `note: undefined`, so
+   * `!isAuthenticated` could be narrowed to `!isAuthenticated && note ===
+   * undefined` and all 1,676 stayed green — while a reader who signs out with a
+   * note already in state keeps reading it. Auth expiring mid-read is the same
+   * shape, and it is not hypothetical: `note` is component state and survives
+   * the auth flip.
+   *
+   * `undefined` is included so the three cases sit together and the axis is
+   * visible rather than implied.
+   */
+  test.each([
+    ["nothing loaded yet", undefined],
+    ["a note already on screen", note()],
+    ["a refusal already on screen", new Error("nope")],
+  ])("signed out refuses with %s", (_label, loaded) => {
+    const view = resolveShareView({
+      token: TOKEN,
+      auth: SIGNED_OUT,
+      note: loaded as SharedNote | Error | undefined,
+      requestedPath: null,
+    });
+    expect(view.kind).toBe("signIn");
+  });
+
   test("signed out on a linked note comes back to that note, not the entry", () => {
     const view = resolveShareView({
       token: TOKEN,
@@ -87,10 +113,18 @@ describe("which screen a reader gets", () => {
     );
   });
 
-  test("auth still resolving decides nothing", () => {
+  // Both truth values of `isAuthenticated`, because the only fixture had it
+  // false — so `isLoading` could be narrowed to `isLoading && !isAuthenticated`
+  // undetected, and a session still resolving would render on the strength of a
+  // stale `isAuthenticated: true`. "Still resolving" has to mean wait whatever
+  // the other flag currently says.
+  test.each([
+    ["signed out", false],
+    ["apparently signed in", true],
+  ])("auth still resolving decides nothing (%s)", (_label, isAuthenticated) => {
     const view = resolveShareView({
       token: TOKEN,
-      auth: { isLoading: true, isAuthenticated: false },
+      auth: { isLoading: true, isAuthenticated },
       note: undefined,
       requestedPath: null,
     });
@@ -236,6 +270,42 @@ describe("a hostile note cannot reach the reader", () => {
 
   test("a control character in a URL makes it text", () => {
     expect(safeHref("https://example.invalid/\u0000x")).toBeNull();
+  });
+
+  /**
+   * The anchor, which every case above leaves unpinned.
+   *
+   * Each hostile href in the list has its scheme at position 0, so dropping the
+   * `^` from SAFE_SCHEME rejects all of them anyway and the mutation goes
+   * unnoticed — the fixtures hold "where the scheme sits" constant, which is
+   * the one axis this regex is about. Unanchored, any `javascript:` URL that
+   * mentions a safe scheme *later* becomes tappable, and a hostile note is
+   * written by somebody who gets to choose the rest of the string.
+   */
+  test.each([
+    'javascript:fetch("https://example.invalid")',
+    "javascript:void(0);//https:",
+    "data:text/html,<a href=mailto:x@y.invalid>z</a>",
+    "vbscript:msgbox(1)'tel:123",
+  ])("%s stays text even though a safe scheme appears later in it", (href) => {
+    expect(safeHref(href)).toBeNull();
+  });
+
+  test("a safe scheme in caps is still a link", () => {
+    // The `i` flag has no test: the existing "JavaScript:alert(1)" case is
+    // refused with or without it, so only a POSITIVE case pins it. Dropping the
+    // flag fails closed — an uppercase-scheme URL in somebody's note quietly
+    // stops being tappable — which is a regression nobody would see reported.
+    expect(safeHref("HTTPS://example.invalid/x")).toBe("HTTPS://example.invalid/x");
+    expect(safeHref("MailTo:someone@example.invalid")).toBe("MailTo:someone@example.invalid");
+  });
+
+  test("and the rule is about the scheme, not a substring blacklist", () => {
+    // An ordinary https URL whose *query* names a hostile scheme is a link. A
+    // blacklist over the whole string would refuse it, and the note's author
+    // would have no way to write about javascript: at all.
+    const href = "https://example.invalid/docs?q=javascript:alert(1)";
+    expect(safeHref(href)).toBe(href);
   });
 
   /**
