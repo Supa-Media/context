@@ -28,6 +28,10 @@ import { useTabs } from "../../../features/console/files/useTabs";
 import { readFocus, scopeForFocus } from "../../../features/console/keyboardScope";
 import { tabAt } from "../../../features/console/files/tabs";
 import { targetFolder } from "../../../features/console/files/tree";
+import {
+  applyRowIntent,
+  intentForRowCommand,
+} from "../../../features/console/files/rowCommand";
 import { TabStrip } from "../../../features/console/files/TabStrip";
 import { TabSwitcher, tabCountLabel } from "../../../features/console/files/TabSwitcher";
 import { statusSegments } from "../../../features/console/files/status";
@@ -309,6 +313,7 @@ export default function ConsoleLayout() {
           files={data.files}
           tabs={tabs}
           onCloseTab={closeTab}
+          onDialog={setBarDialog}
           onSearch={() => setPaletteOpen(true)}
           paletteOpen={paletteOpen || treeOverlay || switcherOpen}
         />
@@ -373,7 +378,7 @@ export default function ConsoleLayout() {
           toolbar already owns the safe area. See `ToastHost`.
         */}
         <ToastHost
-          toasts={[...data.files.toasts]}
+          toasts={data.files.toasts}
           onDismiss={data.files.dismissToast}
         />
 
@@ -511,6 +516,7 @@ function Shortcuts({
   files,
   tabs,
   onCloseTab,
+  onDialog,
   onSearch,
   paletteOpen,
 }: {
@@ -518,6 +524,8 @@ function Shortcuts({
   tabs: ReturnType<typeof useTabs>;
   /** ⌘W. Asks before discarding a draft, exactly as the × does. */
   onCloseTab: (path: string) => void;
+  /** Raise one of the tree's dialogs — the same set the toolbar's `+` uses. */
+  onDialog: (dialog: Dialog) => void;
   onSearch: () => void;
   paletteOpen: boolean;
 }) {
@@ -588,12 +596,35 @@ function Shortcuts({
           case "cut":
           case "paste":
           case "archive":
-          case "deleteForever":
-            // These act on a tree row and are raised from the tree's own menu,
-            // which owns the dialogs they need. Reaching them from here would
-            // mean a second copy of that dialog state living in the frame.
-            // Deliberately unhandled *here*; `Explorer` binds them itself.
-            return false;
+          case "deleteForever": {
+            /*
+              These used to return `false` under a comment saying "`Explorer`
+              binds them itself". It binds no key at all — it has no keyboard
+              handler of any kind — so every chord the row menu prints beside
+              these ten was dead: `F2`, `⌘D`, `⌘⇧M`, `⌘C`, `⌘X`, `⌘V`, `⌘⌫`,
+              `⌘⇧⌫`. `menu.ts` argues that routing a printed chord through
+              `describeBinding` means it is a real one; that proves the chord is
+              in the table, not that anything is listening. This is what listens.
+
+              The dialog state is here rather than duplicated — the toolbar's
+              `+` already raises `ExplorerDialogs` from this component, which is
+              why `ExplorerDialogs` was split out of `Explorer` in the first
+              place.
+
+              A keystroke acts on the *selection*; the menu acts on the row
+              under the pointer. `rowCommand.ts` owns what they must agree
+              about, and answers `null` for a command with no target — which
+              leaves the browser's own behaviour alone, as an unhandled command
+              should.
+            */
+            const intent = intentForRowCommand(command, {
+              canEdit: files.canEdit,
+              selectedPath: files.selectedPath,
+              listings: files.listings,
+            });
+            if (intent === null) return false;
+            return applyRowIntent(intent, files, onDialog);
+          }
 
           default: {
             // ⌘1–⌘9. Written as a fall-through rather than nine cases.
@@ -606,7 +637,7 @@ function Shortcuts({
           }
         }
       },
-      [files, tabs, onCloseTab, frame, onSearch],
+      [files, tabs, onCloseTab, onDialog, frame, onSearch],
     ),
   });
 

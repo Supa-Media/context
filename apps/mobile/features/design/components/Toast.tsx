@@ -52,7 +52,7 @@ export function ToastHost({
   onDismiss,
   bottomInset = 0,
 }: {
-  toasts: ToastSpec[];
+  toasts: readonly ToastSpec[];
   onDismiss: (id: string) => void;
   /**
    * Chrome the toasts must clear, measured from the bottom of whatever this is

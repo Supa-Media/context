@@ -22,8 +22,15 @@ import type { Scope } from "../design/keymap";
  *  - **`overlay`** — the palette or a menu is open. Nothing behind it may fire;
  *    this is checked first and beats everything, including the editor.
  *  - **`editor`** — the caret is in the note. ⌘S saves, ⌘E toggles the preview.
- *  - **`tree`** — focus is inside the explorer. F2 renames, ⌘⌫ archives, the
- *    arrows walk the rows.
+ *  - **`tree`** — focus is inside the explorer. F2 renames, ⌘⌫ archives; both
+ *    act on the selection, and `files/rowCommand.ts` decides what that means.
+ *    This used to end "the arrows walk the rows". They do not: `treeUp`,
+ *    `treeDown`, `treeCollapse` and `treeExpand` are bound in `keymap.ts` and
+ *    answered only by `Palette`, in `overlay` scope. Nothing listens for them
+ *    in the tree. It is written here rather than left out because a scope
+ *    description is where somebody looks to find out what a region does with
+ *    the keyboard, and the previous sentence sent them looking for a handler
+ *    that has never existed.
  *  - **`global`** — anywhere else. Only the frame-level chords.
  *
  * The order is not arbitrary and each swap is a bug: overlay after editor lets
