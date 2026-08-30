@@ -19,9 +19,9 @@
  * real `decryptSecret`. Only the socket is fake.
  */
 
-import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
+import * as fileFunctions from "../functions/files";
 import type { Id } from "../_generated/dataModel";
 import { DELETE_CONFIRMATION } from "../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
@@ -576,11 +576,6 @@ describe("a team-scoped caller cannot read, list, or infer a private note", () =
 /*                              tenant isolation                              */
 /* -------------------------------------------------------------------------- */
 
-/** `functions/files.ts` as text, for the endpoint-coverage assertion below. */
-function fileFunctionsSource(): string {
-  return readFileSync(new URL("../functions/files.ts", import.meta.url), "utf8");
-}
-
 describe("a stranger cannot reach another workspace's files", () => {
   test("every file endpoint answers exactly as it does for a workspace that never existed", async () => {
     const f = await fixture();
@@ -639,32 +634,44 @@ describe("a stranger cannot reach another workspace's files", () => {
       (workspaceId) => as.action(api.functions.files.resetPrivacy, { workspaceId }),
     ];
 
-    // **The list above is derived from, and checked against, `files.ts` itself.**
+    // **The list above is checked against what Convex says is public, not
+    // against what a regex can find in the source.**
     //
-    // It was hand-maintained, and it went stale the way a hand-maintained list
-    // of security-critical endpoints always does: `searchContext` shipped as
-    // the twelfth of thirteen public actions and nobody added it here, so the
-    // endpoint that reaches furthest into a bucket had no isolation check at
-    // all. `resetPrivacy` had been missing since it was written.
+    // It was hand-maintained and went stale the way a hand-maintained list of
+    // security-critical endpoints always does: `searchContext` arrived with
+    // #154 and nobody added it here, so the endpoint that reaches furthest into
+    // a bucket had no isolation check at all. `resetPrivacy` had been missing
+    // since it was written.
     //
-    // Closures are read with `toString()` rather than the file with `readFile`,
-    // so what is compared is the calls this test actually makes — a name in a
-    // comment, or in a call that was deleted, cannot satisfy it. If a bundler
-    // ever mangles the source, the regex finds nothing and this fails loudly,
-    // which is the right direction for it to break.
+    // The first version of this guard grepped `^export const (\w+) = action\(`
+    // out of the file, and `structure.test.ts` had already written down why
+    // that is wrong — "a guard a rename defeats is not a guard". Measured, it
+    // was defeated twice: a public `query` in this module was invisible to it
+    // (a public existence oracle over any `workspaceId` sat in `files.ts` with
+    // all 1,403 checks green), and so was an ordinary line break, since
+    // `export const x =\n  action({` does not match. Nothing in CI reformats
+    // `apps/convex`, so that is a live hole rather than a stylistic one.
     //
-    // Same discipline as `CREDENTIAL_BARRIERS` and `encryptedColumnsIn`: adding
-    // a public action fails CI until somebody says what a stranger gets from it.
+    // `isPublic` is Convex's own flag on the registered function, which is what
+    // `structure.test.ts` classifies by. It does not care about the builder, the
+    // line breaks, the name, or a type annotation.
+    //
+    // **What it still does not cover, stated rather than implied:** a file
+    // endpoint that lands in a different module. This reads `functions/files.ts`
+    // alone, because the neighbouring modules have their own isolation stories
+    // and sweeping them here would assert something this test has not thought
+    // about. A new module of file endpoints needs its own entry, and no check
+    // here will say so.
     const covered = new Set(
       calls.flatMap((call) =>
         [...call.toString().matchAll(/api\.functions\.files\.(\w+)/g)].map((m) => m[1]),
       ),
     );
-    const publicActions = [
-      ...fileFunctionsSource().matchAll(/^export const (\w+) = action\(/gm),
-    ].map((m) => m[1]);
-    expect(publicActions.length).toBeGreaterThan(10);
-    expect([...covered].sort()).toEqual([...publicActions].sort());
+    const publicEndpoints = Object.entries(fileFunctions)
+      .filter(([, value]) => (value as { isPublic?: boolean } | null)?.isPublic === true)
+      .map(([name]) => name);
+    expect(publicEndpoints.length).toBeGreaterThan(10);
+    expect([...covered].sort()).toEqual([...publicEndpoints].sort());
 
     for (const call of calls) {
       const theirs = await captureError(() => call(f.workspaceId));
