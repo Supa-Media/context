@@ -73,11 +73,20 @@ const LIST_PAGE_LIMIT = 1000;
  * assumes such an object exists.** A bucket whose very first pass already
  * overflows has no readable predecessor at all: the write is refused, so
  * nothing is ever stored, and every search re-lists, re-fetches every note
- * body it can afford, rebuilds from empty and throws the result away. That is
- * more expensive than the churn this cap removes, not less — the difference is
- * only that it cannot corrupt what is stored, because nothing is. Driven
- * against the real loop at a 5,000-byte cap over 20 notes: three consecutive
- * passes, `stored: absent`, `puts: 0`, 20 note reads each.
+ * body it can afford, rebuilds from empty and answers from that. It is the
+ * most expensive shape here — and it is still **cheaper than what this change
+ * replaced**, which is worth stating plainly because the opposite reads like a
+ * reason to revert. Both loops measured on one bucket, 20 notes against a
+ * 5,000-byte cap, three consecutive passes each:
+ *
+ *              subrequests   puts   note reads   bytes read   bytes written
+ *   read cap        24         1        20         51,386        42,976
+ *   both sides      23         0        20          8,410             0
+ *
+ * with `docs: 20, pending: 0` on both. The old path did not accumulate
+ * anything either — it wrote an object it refused on the next read, then paid
+ * to read it again. Refusing the write drops a subrequest, the write, and the
+ * re-read, and costs nothing.
  *
  * Reaching it takes a bucket whose *capped* index overflows inside one pass.
  * Index size at a given note count is a function of distinct-token volume and
@@ -85,10 +94,10 @@ const LIST_PAGE_LIMIT = 1000;
  * that names it: at 880 notes of 2KB the real indexer spans 0.19MB to 19.15MB
  * across vocabularies, and Zipfian prose lands at 6.4-8.3MB. It is a corner
  * rather than the norm, and it is stated because it is the one shape the
- * plateau does not cover. At that scale
- * the index needs sharding (per-folder postings, a small global-stats object);
- * that is v2 work, stated here so the plateau is recognized as this boundary
- * rather than rediscovered as a mystery.
+ * plateau does not cover. At that scale the index needs sharding (per-folder
+ * postings, a small global-stats object); that is v2 work, stated here so the
+ * plateau is recognized as this boundary rather than rediscovered as a
+ * mystery.
  */
 const INDEX_PARSE_BYTE_CAP = 12_000_000;
 /**
@@ -110,9 +119,9 @@ const INDEX_PARSE_BYTE_CAP = 12_000_000;
  * comment predicted before the write side existed, arriving well before the
  * 10k-note guess. (That churn is now a plateau; what 8KB proved is that a
  * mid-thousands brain crosses the parse cap, which is why this number moved.)
- * 2KB holds a
- * few-thousand-note brain comfortably under the parse cap; the durable fix at
- * the next order of magnitude is sharding, not a smaller number here.
+ * 2KB holds a few-thousand-note brain comfortably under the parse cap; the
+ * durable fix at the next order of magnitude is sharding, not a smaller number
+ * here.
  */
 const NOTE_INDEX_CHAR_CAP = 2_048;
 /** Never spend the last op on listing or fetching; the write needs one. */
@@ -529,7 +538,13 @@ export async function syncIndex(
 
   if (changed) {
     computeRanks(index);
-    if (ops.take(0)) {
+    // `remaining` rather than `take`, because the op must not be charged until
+    // the write is actually going to happen: a refused pass that spent one
+    // anyway takes it from a budget the caller shares with its snippet reads,
+    // so on exactly the buckets this cap refuses, every search silently lost a
+    // snippet to a `put` that never ran. Measured at 24 spent against 23 real
+    // store calls. Nothing else spends between the peek and the take.
+    if (ops.remaining > 0) {
       const body = serializeIndex(index);
       // **Never write an object this same function will refuse to read.** See
       // INDEX_PARSE_BYTE_CAP: an unwritten index costs this pass its
@@ -537,6 +552,7 @@ export async function syncIndex(
       // answered from `index` in memory either way. Storing it would cost the
       // last readable index instead, and buy an object no read ever parses.
       if (exceedsUtf8Bytes(body, byteCap)) return finish();
+      ops.take(0);
       // Conditional on the etag read at the top. Where no index object existed
       // the write is unconditional: the ContextStore surface offers
       // `onlyIf.etagMatches` and nothing else — both adapters refuse an

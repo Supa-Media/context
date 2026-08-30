@@ -72,12 +72,12 @@
  *    with a list the view deliberately did not narrow; the same sabotage fails
  *    2 there.
  *
- * 7. **The write-side byte cap and its byte counter, eighteen mutations.**
+ * 7. **The write-side byte cap and its byte counter, nineteen mutations.**
  *    Every count below is as measured against the final fixtures. They were
- *    re-taken after each of the three rounds of new checks and moved every
+ *    re-taken after each of the four rounds of new checks and moved every
  *    time, which is the register's own "a measurement has a timestamp"
- *    arriving inside a sabotage record: the first version of this list was
- *    written before rounds two and three landed and was wrong within its own
+ *    arriving inside a sabotage record: earlier versions of this list were
+ *    written before the next round landed and were wrong within their own
  *    commit, twice.
  *
  *      the write guard, off entirely                        5
@@ -88,7 +88,7 @@
  *      the read consulting the module constant              1
  *      the read made strict (`< byteCap`)                   1
  *      `length * 3 > cap`, never measuring                  4
- *      fast-accept bound, 3 -> 2 bytes per unit             3
+ *      fast-accept bound, 3 -> 2 bytes per unit             4
  *      `Number.isFinite` deleted                            2
  *      `Number.isFinite` -> `??`                            1
  *      `Number.isFinite` -> `== null`                       1
@@ -96,14 +96,23 @@
  *      a lone surrogate counted as two                      3
  *      the 2-byte boundary off by one                       2
  *      `>=` for `>`                                         4
- *      pair detection dropping the second-half check        2
+ *      pair detection dropping the second-half check        3
  *      pair upper bound 0xdc00 -> 0xe000                    2
+ *      the budget op charged before the size check          1
  *
  *    One more is an **equivalent mutant** and correctly fails 0: dropping
  *    `i + 1 < value.length` from pair detection, because `charCodeAt` past the
  *    end is `NaN` and `NaN & 0xfc00` is never `0xdc00`. The bound stays as
  *    written rather than as relied-upon arithmetic.
- * 8. **Three rounds, and each round's fixtures were found by attacking the
+ *
+ *    Two of these are mutations of a *fixture* rather than of the module, and
+ *    both are the plausible edit rather than an invented one: giving the
+ *    at-cap fixture a byte of headroom to look less brittle (which walks the
+ *    strict-read mutation through, so `boundaryCap` is asserted equal to the
+ *    measured body), and widening the fuzz's first branch so every string is
+ *    plain ASCII (which makes the check's own name false, so its distribution
+ *    is counted).
+ * 8. **Four rounds, and each round's fixtures were found by attacking the
  *    previous round's.** Round one's five were all on/off or operator
  *    replacements and left three holes: `length * 3 > cap` never measures and
  *    nothing sat in the measurement band; a second return literal walked
@@ -115,20 +124,33 @@
  *    fixture, and the corpus check's own size guard was `compared ===
  *    corpus.length * 8`, which derives both sides from the same array and
  *    holds for an empty corpus. Round three is the literal `144`, a `NaN`
- *    cap, and a listing shaped to truncate *and* overflow at once.
+ *    cap, and a listing shaped to truncate *and* overflow at once — and left
+ *    three more, two of them the same self-referential shape one level up:
+ *    `fuzzCases === 4000 * 6` is a fact about the loop rather than about the
+ *    corpus, the at-cap fixture asserted a fact about the *body* that is true
+ *    at any cap above it, and the budget op was charged before the size check
+ *    so a refused pass spent a subrequest on a `put` that never ran. Round
+ *    four counts the fuzz's own distribution, names the cap once and asserts
+ *    it equals the measured size, and compares `spent` against the store's
+ *    real call count rather than against the budget object it came from.
  * 9. **The counter is held by a corpus rather than by reading it**, in
  *    `searchIndexer.test.mjs`: every one of the 65,536 BMP code units, padded
  *    so neither O(1) bound can decide it, plus a seeded xorshift corpus of
  *    astral pairs and unpaired surrogates — 220,608 comparisons against
- *    `TextEncoder`, under a second. The hand-picked corpus beside it says
+ *    `TextEncoder`, under a second. The BMP pad is two-byte on purpose: with
+ *    an ASCII pad, 128 of those cases are refused by the O(1) length bound and
+ *    never counted at all, so the loop was not testing what it is named for. The hand-picked corpus beside it says
  *    which cases somebody thought of, and it needed three entries added before
  *    it could tell the surrogate mutations apart: in every case originally
  *    there the two readings totalled the same, so those mutations agreed with
  *    the encoder by coincidence.
  *
- * The three channels above were all measured *before* the fix and all three
- * failed, end to end through the worker with a real `context:read` editor
- * grant — not reasoned about from the source.
+ * (Entries 1-6 above concern the visibility channels; the three named in 4-6
+ * were all measured *before* the fix and all three failed, end to end through
+ * the worker with a real `context:read` editor grant — not reasoned about from
+ * the source. Entries 7-9 are the byte cap and have no channels; the sentence
+ * used to sit at the end of the list, where a reader landed on it and
+ * mis-attributed it.)
  */
 
 import worker from "../src/index.js";
@@ -915,14 +937,20 @@ export async function runSearchIntegrationChecks(check) {
       // every other body here sits well under a third of its cap or far over
       // it.
       grow.remove(SEARCH_INDEX_KEY);
-      await syncIndex(growStore, { budget: createSearchBudget(300), byteCap: smallBytes });
+      // One variable, and the check asserts the cap *is* the body's size rather
+      // than that the body is `smallBytes` — which is a fact about the body and
+      // true at any cap above it. Giving this a byte of headroom to look less
+      // brittle is the obvious edit, and it walks the strict-read mutation
+      // straight through; written this way the headroom fails the check itself.
+      const boundaryCap = smallBytes;
+      await syncIndex(growStore, { budget: createSearchBudget(300), byteCap: boundaryCap });
       const atCap = stored();
       grow.resetCounts();
-      const reread = await syncIndex(growStore, { budget: createSearchBudget(300), byteCap: smallBytes });
+      const reread = await syncIndex(growStore, { budget: createSearchBudget(300), byteCap: boundaryCap });
       check(
         "an index exactly at the cap is written, and reads back — the boundary is one boundary",
         atCap !== undefined &&
-          new TextEncoder().encode(atCap.body).byteLength === smallBytes &&
+          new TextEncoder().encode(atCap.body).byteLength === boundaryCap &&
           grow.counts.noteGets.length === 0 &&
           reread.index.docs.size === 4
       );
@@ -1017,6 +1045,10 @@ export async function runSearchIntegrationChecks(check) {
         loose.seed("privacy.md", PRIVACY_MANIFEST);
         for (const [key, object] of wide.objects) if (key !== "privacy.md") loose.seed(key, object.body);
         const wrote = await syncIndex(new R2Store(loose), { budget: createSearchBudget(6) });
+        check(
+          "a refused pass charges no subrequest for the write it did not make",
+          cut.spent === wide.ops
+        );
         check(
           "a refused write on a truncated listing still reports the truncation, not a literal false",
           cut.listingTruncated === true &&

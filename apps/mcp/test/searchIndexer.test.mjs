@@ -356,19 +356,27 @@ export async function runSearchIndexerChecks(check) {
     // and the reason a doc comment may not cite a fuzz run that lives only in
     // a terminal somewhere. Seeded, so a failure is reproducible and the suite
     // stays deterministic; still well under a second.
+    // The pad is two-byte on purpose. With an ASCII pad, an ASCII code unit at
+    // `cap = truth - 1` has `length > cap` and is refused by the O(1) bound
+    // without ever being counted — 128 of the cases below, silently not
+    // testing the thing this loop is named for. A pad whose bytes outnumber
+    // its code units keeps `length` under every cap tried here.
+    const pad = "\u00e9\u00e9\u00e9";
     let unitCases = 0;
     let unitBad = 0;
+    let unitScanned = 0;
     for (let unit = 0; unit <= 0xffff; unit += 1) {
-      const value = `pad${String.fromCharCode(unit)}pad`;
+      const value = `${pad}${String.fromCharCode(unit)}${pad}`;
       const truth = encoder.encode(value).byteLength;
       for (const cap of [truth - 1, truth, truth + 1]) {
         unitCases += 1;
+        if (value.length <= cap && value.length * 3 > cap) unitScanned += 1;
         if (exceedsUtf8Bytes(value, cap) !== truth > cap) unitBad += 1;
       }
     }
     check(
       "every BMP code unit, padded so neither O(1) bound can decide it, is counted as TextEncoder counts it",
-      unitCases === 65536 * 3 && unitBad === 0
+      unitCases === 65536 * 3 && unitScanned === unitCases && unitBad === 0
     );
 
     let seed = 0x9e3779b9;
@@ -383,6 +391,14 @@ export async function runSearchIndexerChecks(check) {
     };
     let fuzzCases = 0;
     let fuzzBad = 0;
+    // Counted, because `fuzzCases === 4000 * 6` is a fact about the loop rather
+    // than about the corpus: widen the first branch to `roll < 1000` and every
+    // string is plain ASCII, the check's own name becomes false, and nothing
+    // fails. These are what the name claims are in here.
+    let sawAstral = 0;
+    let sawLoneSurrogate = 0;
+    let sawTwoByte = 0;
+    let sawThreeByte = 0;
     for (let trial = 0; trial < 4000; trial += 1) {
       let value = "";
       const length = 1 + (next() % 24);
@@ -396,6 +412,14 @@ export async function runSearchIndexerChecks(check) {
         // makes the corpus adversarial rather than merely wide.
         else value += String.fromCharCode(0xd800 + (next() % 0x800));
       }
+      if (/[\u{10000}-\u{10ffff}]/u.test(value)) sawAstral += 1;
+      // Not `\p{Surrogate}` — a well-formed pair does not match a lone one, and
+      // it is the lone half this corpus exists to carry.
+      if (/(?:[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff])/.test(value)) {
+        sawLoneSurrogate += 1;
+      }
+      if (/[\u0080-\u07ff]/.test(value)) sawTwoByte += 1;
+      if (/[\u0800-\ud7ff\ue000-\uffff]/.test(value)) sawThreeByte += 1;
       const truth = encoder.encode(value).byteLength;
       for (const cap of [0, truth - 1, truth, truth + 1, value.length, value.length * 3]) {
         fuzzCases += 1;
@@ -404,7 +428,12 @@ export async function runSearchIndexerChecks(check) {
     }
     check(
       "and so is every string a seeded corpus of astral pairs and unpaired surrogates can produce",
-      fuzzCases === 4000 * 6 && fuzzBad === 0
+      fuzzCases === 4000 * 6 &&
+        fuzzBad === 0 &&
+        sawAstral > 1000 &&
+        sawLoneSurrogate > 1000 &&
+        sawTwoByte > 1000 &&
+        sawThreeByte > 1000
     );
   }
 }
