@@ -305,6 +305,33 @@ describe("badges and markers", () => {
     expect(bar.need("bottom-bar-tabs").querySelector("[data-icon]")).not.toBeNull();
   });
 
+  test("a count is drawn as the control, not as a badge on one", () => {
+    /*
+      Obsidian's tab control on mobile is a rounded box with the number of open
+      notes inside it and no icon at all. Ours was a document icon with a filled
+      accent badge on its corner, which reads as a *notification* — something
+      has happened, go and look — rather than as a count of what is already
+      open. The number is the whole message, so it is the whole control.
+    */
+    const bar = mountBar([action({ id: "tabs", label: "3 notes open", icon: "file", count: 3 })]);
+
+    expect(bar.need("bottom-bar-tabs-count").textContent).toBe("3");
+    // Not both: an icon behind the box would be the old control with a new
+    // decoration in front of it.
+    expect(bar.find("bottom-bar-tabs-badge")).toBeNull();
+    expect(bar.need("bottom-bar-tabs").textContent).not.toContain("file");
+  });
+
+  test("a count still keeps its unsaved marker", () => {
+    // We do not autosave and Obsidian does, so the one thing our tab control
+    // carries that theirs does not is whether something in there is unsaved.
+    const bar = mountBar([
+      action({ id: "tabs", label: "3 notes open, 1 unsaved", icon: "file", count: 3, marker: true }),
+    ]);
+    expect(bar.find("bottom-bar-tabs-count")).not.toBeNull();
+    expect(bar.find("bottom-bar-tabs-marker")).not.toBeNull();
+  });
+
   test("an action with no badge field has no badge", () => {
     const bar = mountBar([action({ id: "menu" })]);
     expect(bar.find("bottom-bar-menu-badge")).toBeNull();

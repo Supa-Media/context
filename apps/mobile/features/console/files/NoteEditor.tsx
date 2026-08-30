@@ -64,10 +64,30 @@ export function NoteEditor({
     <View style={[styles.wrap, compact && styles.wrapCompact]}>
       {state.readOnly ? <ManifestNotice /> : null}
 
-      {editable ? (
+      {/*
+        **A note you cannot edit is still a note.**
+
+        This used to branch on `editable`: anything read-only fell through to
+        the syntax-highlighted source below — monospace, with its `#` and `**`
+        showing. That is a reasonable *inspector*, and it was reaching people it
+        was never meant for. `browser.ts` is explicit that `canEdit: false` is a
+        signed-in workspace **member**, not a landing-page visitor, so every
+        note in a context somebody was invited into was read as raw Markdown in
+        a code face on a phone.
+
+        The reading surface is the same one, with editing switched off:
+        `LiveEditor` already takes `editable`, CodeMirror's own `contenteditable`
+        goes with it, and the live-preview decorations do not care. So a member
+        reads what an editor reads, which is what Obsidian's reading view is.
+
+        The source view survives where it earns its keep — a pointer, where the
+        window is wide enough to inspect a file beside the tree that names it,
+        and where `previewContentCompact` was never the layout anyway.
+      */}
+      {editable || compact ? (
         <LiveEditor
           value={state.draft}
-          editable
+          editable={editable}
           onChange={onChange}
           onSave={onSave}
           accessibilityLabel={`${state.path} markdown`}
