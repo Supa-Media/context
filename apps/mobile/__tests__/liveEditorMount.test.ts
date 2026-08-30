@@ -294,4 +294,34 @@ describe("a note the viewer may not write", () => {
     m.unmount();
     editableMount.unmount();
   });
+
+  /**
+   * ...and it still swallows the browser's own Save-Page dialog while doing so.
+   *
+   * The check above counts saves, and a gate that returns `false` satisfies it
+   * perfectly while handing ⌘S back to the browser — which is what the first
+   * version of this fix did, on exactly the notes somebody is most likely to be
+   * reading rather than writing. `privacy.md` was strictly worse than before it:
+   * `save()` already refused the manifest, so the keystroke did nothing and
+   * swallowed the dialog, and briefly did nothing and opened it.
+   *
+   * `preventDefault()` is called by CodeMirror only for a truthy return, and a
+   * binding's own `preventDefault` defaults to false, so this is the difference
+   * between a no-op and a browser dialog over the app.
+   */
+  test("and the keystroke is still swallowed, so no Save-Page dialog opens", () => {
+    const m = mount({ value: "# secret\n\nbody", editable: false });
+    const content = m.container.querySelector(".cm-content") as HTMLElement;
+    const event = new KeyboardEvent("keydown", {
+      key: "s",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    content.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(m.saves).toBe(0);
+    m.unmount();
+  });
 });

@@ -202,13 +202,25 @@ export function LiveEditor({
           {
             key: "Mod-s",
             // Returning `true` marks the key handled, so the browser's own
-            // "Save Page" dialog never opens over the app.
+            // "Save Page" dialog never opens over the app. **Both branches
+            // below return `true` for that reason**, and the first version of
+            // the read-only gate returned `false` — which handed ⌘S back to
+            // the browser on exactly the notes a viewer is most likely to be
+            // reading rather than writing, and made this comment untrue three
+            // lines under it. `privacy.md` came out strictly worse than before:
+            // `save()` already refused it, so the keystroke used to do nothing
+            // AND swallow the dialog, and briefly did nothing AND open it.
+            //
+            // CodeMirror calls `preventDefault()` only on a truthy return
+            // (`@codemirror/view` `runHandlers`), and a binding's own
+            // `preventDefault` defaults to false, so `false` here is a real
+            // browser dialog rather than a nicety.
             run: (target) => {
-              // Not on a note this viewer may not write. `editable` is captured
-              // by the effect that built this keymap, so the facet is read off
-              // the live state instead — the compartment reconfigures, the
-              // closure does not.
-              if (target.state.readOnly) return false;
+              // Not a save on a note this viewer may not write. `editable` is
+              // captured by the effect that built this keymap, so the facet is
+              // read off the live state instead — the compartment reconfigures,
+              // the closure does not.
+              if (target.state.readOnly) return true;
               handlers.current.onSave();
               return true;
             },
