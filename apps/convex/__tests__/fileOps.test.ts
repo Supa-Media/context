@@ -116,6 +116,18 @@ function errorShape(error: FileOpError): string {
   });
 }
 
+/**
+ * A listing's answer, minus the path the caller supplied.
+ *
+ * `path` echoes the request, so it is the one field that may differ between a
+ * withheld folder and an absent one without disclosing which is which. Every
+ * other field has to match, and that is what these comparisons assert.
+ */
+function listingShape(listing: FolderListing): string {
+  const { path: _echoed, ...rest } = listing;
+  return JSON.stringify(rest);
+}
+
 function names(entries: { name: string }[]): string[] {
   return entries.map((entry) => entry.name);
 }
@@ -236,11 +248,107 @@ describe("a team-scoped caller sees only what is shared", () => {
   test("listing a private folder fails exactly as listing a folder that never existed", async () => {
     const store = bucket();
     await shareProjects(store);
-    const hidden = await capture(() => listFolder(store, { path: "2-areas", scope: "team" }));
-    const absent = await capture(() =>
-      listFolder(store, { path: "9-imaginary", scope: "team" }),
-    );
-    expect(errorShape(hidden)).toBe(errorShape(absent));
+    const hidden = await listFolder(store, { path: "2-areas", scope: "team" });
+    const absent = await listFolder(store, { path: "9-imaginary", scope: "team" });
+    expect(listingShape(hidden)).toBe(listingShape(absent));
+  });
+
+  /**
+   * The same claim one level in, where it stops being true.
+   *
+   * The test above compares two folders at the ROOT, and the root default is
+   * private — so a folder that never existed is not visible either, and both
+   * legs refuse for the same reason. The axis it holds constant is the parent's
+   * visibility, and that is the axis the collapse actually turns on.
+   *
+   * Inside a **team-visible** parent, a name that does not exist inherits
+   * `team`, is visible, and returns an empty listing; a name that exists and is
+   * private refuses. A member who guesses a folder name learns which one it is
+   * — and `privacy.md` is withheld from team scope precisely so that "handing
+   * it to a team-scoped caller would enumerate every private folder by name"
+   * cannot happen. This is that, one guess at a time.
+   *
+   * `readFile` already collapses these two (a note it cannot see and a note
+   * that is not there both throw); only the folder walk diverged.
+   */
+  /**
+   * A private folder that CONTAINS something shared is still listable, and that
+   * is what `folderVisibleAtScope` is for rather than `canSee`.
+   *
+   * `canSee` asks whether the folder's own default admits the caller; this asks
+   * whether anything beneath it does. Swapping one for the other survived all
+   * 1,383 checks and would re-break what that function's own comment records
+   * having already been broken once: an owner who shared `2-areas/shared` out
+   * of a private `2-areas` got a folder reachable only by somebody who already
+   * knew its name.
+   *
+   * It matters more since the withheld branch stopped throwing: the failure is
+   * now an empty listing rather than an error, which is the quieter of the two.
+   */
+  test("a private folder holding a shared one is still listable at team scope", async () => {
+    const store = bucket();
+    store.seed("2-areas/shared/a.md", "# A\n");
+    await setFolderVisibility(store, {
+      path: "2-areas/shared",
+      visibility: "team",
+      scope: "private",
+    });
+
+    const listing = await listFolder(store, { path: "2-areas", scope: "team" });
+    expect(names(listing.entries)).toEqual(["shared"]);
+    expect(names((await listFolder(store, { path: "2-areas/shared", scope: "team" })).entries)).toEqual([
+      "a.md",
+    ]);
+  });
+
+  test("and the same holds inside a folder the caller CAN see", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/secret-client/brief.md", "# Brief\n");
+    await setFolderVisibility(store, {
+      path: "1-projects/secret-client",
+      visibility: "private",
+      scope: "private",
+    });
+
+    const hidden = await listFolder(store, {
+      path: "1-projects/secret-client",
+      scope: "team",
+    });
+    const absent = await listFolder(store, {
+      path: "1-projects/no-such-thing",
+      scope: "team",
+    });
+    expect(listingShape(hidden)).toBe(listingShape(absent));
+    // And the owner still sees it, so the collapse is about scope and not
+    // about the folder having stopped existing.
+    expect(
+      names((await listFolder(store, { path: "1-projects/secret-client", scope: "private" })).entries),
+    ).toEqual(["brief.md"]);
+
+    // The two do the same WORK, not just give the same answer.
+    //
+    // The first version of this fix skipped the walk for a withheld folder —
+    // `canSee` filters every entry out anyway, so the answer cannot differ.
+    // Measured, that was backwards: the absent folder still walks, because it
+    // has to discover there is nothing, so skipping made the withheld case do
+    // strictly less work than the one it must be indistinguishable from. 0
+    // listings against 1. Collapsing the result while forking the clock is the
+    // same oracle one layer down, so this counts rather than argues.
+    let lists = 0;
+    const counted: FileStore = {
+      ...store,
+      list: (options) => {
+        lists += 1;
+        return store.list(options);
+      },
+    };
+    await listFolder(counted, { path: "1-projects/secret-client", scope: "team" });
+    const withheldLists = lists;
+    lists = 0;
+    await listFolder(counted, { path: "1-projects/no-such-thing", scope: "team" });
+    expect(withheldLists).toBe(lists);
+    expect(lists).toBeGreaterThan(0);
   });
 });
 
@@ -2590,8 +2698,15 @@ describe("a bulk operation acts only on what the caller can see", () => {
     expect(manifest).not.toContain("2-areas/shared: team");
     // ...so the folder is gone from the caller's tree rather than sitting there
     // empty, and the survivor is still private and still there.
-    const gone = await capture(() => listFolder(store, { path: "2-areas/shared", scope: "team" }));
-    expect(gone.code).toBe("FILE_NOT_FOUND");
+    // Gone from the caller's tree — the root listing no longer names it — and
+    // asking for it directly gives the same empty answer any absent name does,
+    // rather than a refusal that would confirm it is still there.
+    expect(names((await listFolder(store, { path: "2-areas", scope: "team" })).entries)).not.toContain(
+      "shared",
+    );
+    const gone = await listFolder(store, { path: "2-areas/shared", scope: "team" });
+    const never = await listFolder(store, { path: "2-areas/never-existed", scope: "team" });
+    expect(listingShape(gone)).toBe(listingShape(never));
     const leak = await capture(() =>
       readFile(store, { path: "2-areas/shared/held.md", scope: "team" }),
     );

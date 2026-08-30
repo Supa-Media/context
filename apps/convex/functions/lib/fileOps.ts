@@ -360,17 +360,48 @@ export async function listFolder(
   const folder = requireFolderPath(options.path);
   const state = await loadPrivacyState(store);
 
-  if (folder !== "" && !folderVisibleAtScope(folder, options.scope, state.rules, state.overrides)) {
-    throw notFound();
-  }
+  // **A folder the caller cannot see answers exactly as one that is not there,
+  // and refusing is not how you do that.**
+  //
+  // Refusing looked like the safe direction and is the leak. A name that does
+  // not exist inherits its parent's default, so under a team-visible parent it
+  // is VISIBLE and returns an empty listing — while a name that exists and is
+  // private refuses. Two different answers, and the difference is exactly the
+  // fact being withheld: a member who guesses a folder name is told whether it
+  // is there. `privacy.md` is kept from team scope because "handing it to a
+  // team-scoped caller would enumerate every private folder by name"; this was
+  // that, one guess at a time.
+  //
+  // It read as collapsed because the test for it compared two folders at the
+  // ROOT, where the default is private and a nonexistent name is refused too.
+  // The axis that fixture held constant is the one the collapse turns on.
+  //
+  // So the walk is skipped and the empty shape returned. `readFile` has always
+  // done the equivalent — a note it cannot see and a note that is not there
+  // both throw — and this is the same collapse for the other direction, since
+  // an empty listing is what an absent folder already produces here.
+  const withheld =
+    folder !== "" &&
+    !folderVisibleAtScope(folder, options.scope, state.rules, state.overrides);
 
   const prefix = folder === "" ? "" : `${folder}/`;
   const entries: FileEntry[] = [];
   const seenFolders = new Set<string>();
   let cursor: string | undefined;
   let truncated = false;
+  // **A withheld folder is walked exactly as any other, and skipping the walk
+  // was a bug I wrote here and then measured.**
+  //
+  // Skipping looks like the free optimisation: `canSee` filters every entry
+  // out anyway, so the answer cannot differ. But the absent folder still walks
+  // — it has to, to discover there is nothing — so skipping made the withheld
+  // case do strictly less work than the case it is supposed to be
+  // indistinguishable from. Counted: 0 store listings against 1. The result
+  // collapsed and the clock came apart, which is the same oracle one layer
+  // down.
+  const pages = LIST_PAGE_CAP;
 
-  for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+  for (let page = 0; page < pages; page += 1) {
     const listing = await store.list({ prefix, delimiter: "/", cursor, limit: 1000 });
 
     for (const object of listing.objects ?? []) {
@@ -433,7 +464,14 @@ export async function listFolder(
 
   return {
     path: folder,
-    folderDefault: folder === "" ? visibilityOf("", state.rules) : visibilityOf(folder, state.rules),
+    // A withheld folder reports the default an absent one would: its own rule
+    // is the fact being withheld, and printing it here would hand back through
+    // the shape what the refusal was hiding.
+    folderDefault: withheld
+      ? visibilityOf(parentOf(folder), state.rules)
+      : folder === ""
+        ? visibilityOf("", state.rules)
+        : visibilityOf(folder, state.rules),
     entries,
     truncated,
     manifestUsable: state.text !== null && !state.invalid,
