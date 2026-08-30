@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { FocusRing } from "../../design/components/FocusRing";
+import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { colors, radii } from "../../design/tokens";
 import { tabLabel, type Tab, type TabsState } from "./tabs";
@@ -345,9 +346,7 @@ function TabItem({
         {showDot ? (
           <View style={styles.dirtyDot} testID={`tab-dot-${tab.path}`} />
         ) : (
-          <Text style={[styles.closeGlyph, active ? styles.labelActive : styles.labelIdle]}>
-            ×
-          </Text>
+          <Icon name="close" size={13} color={active ? colors.text : colors.muted} />
         )}
       </Pressable>
     </View>
@@ -525,11 +524,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 6,
     borderRadius: radii.xs,
-  },
-
-  closeGlyph: {
-    fontSize: 15,
-    lineHeight: 17,
   },
 
   dirtyDot: {

@@ -241,6 +241,7 @@ export default function ConsoleLayout() {
           browse={browsing}
           failure={data.failure}
           tabs={browsing && !phone ? tabs : null}
+          phone={phone}
         >
           <Slot />
         </EditorRegion>
@@ -302,12 +303,15 @@ function EditorRegion({
   browse,
   failure,
   tabs,
+  phone,
   children,
 }: {
   browse: boolean;
   failure: ConsoleData["failure"];
   /** Absent on a route with no notes open, and on every non-Browse pane. */
   tabs: ReturnType<typeof useTabs> | null;
+  /** Compact. Decides the document panes' measure, not which regions exist. */
+  phone: boolean;
   children: ReactNode;
 }) {
   /*
@@ -356,7 +360,10 @@ function EditorRegion({
   }
 
   return (
-    <ScrollView style={styles.pane} contentContainerStyle={styles.paneContent}>
+    <ScrollView
+      style={styles.pane}
+      contentContainerStyle={[styles.paneContent, phone && styles.paneContentPhone]}
+    >
       {banner}
       {children}
     </ScrollView>
@@ -797,6 +804,19 @@ const styles = StyleSheet.create({
     paddingTop: space.x6,
     paddingHorizontal: space.x7,
     paddingBottom: space.x8,
+  },
+  /**
+   * A phone's gutter, and a phone's tail.
+   *
+   * 28pt either side of a 390pt screen leaves a 334pt measure for a document
+   * of cards; 20 leaves 350, which is a whole word per line on the settings
+   * copy. The top loses most of its padding because the chrome above it is
+   * transparent now — the 24 was clearing a ruled bar that is no longer there.
+   */
+  paneContentPhone: {
+    paddingTop: space.x3,
+    paddingHorizontal: space.x5,
+    paddingBottom: space.x6,
   },
 
   failure: { marginBottom: 18 },

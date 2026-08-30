@@ -553,9 +553,7 @@ function SearchTrigger({ onPress }: { onPress: () => void }) {
       testID="frame-search"
       style={[styles.search, hovered && styles.searchHover]}
     >
-      <Text variant="treeMeta" aria-hidden>
-        ⌕
-      </Text>
+      <Icon name="search" size={15} color={colors.muted} />
       <Text variant="rowSub">Search notes and commands</Text>
       {Platform.OS === "web" ? (
         <View style={styles.kbd}>

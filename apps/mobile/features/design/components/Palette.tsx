@@ -19,6 +19,7 @@ import { rank, type Match, type PaletteItem } from "../../console/files/palette"
 import { resolve } from "../keymap";
 import { colors, fonts, layout, radii, space } from "../tokens";
 import { Button } from "./Button";
+import { Icon } from "./Icon";
 import { Text } from "./Text";
 
 /**
@@ -550,9 +551,7 @@ export function Palette({
           testID="palette-panel"
         >
           <View style={styles.panelHeader}>
-            <Text variant="treeMeta" aria-hidden>
-              ⌕
-            </Text>
+            <Icon name="search" size={16} color={colors.muted} />
             {field}
           </View>
           {heading}

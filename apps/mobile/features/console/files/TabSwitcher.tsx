@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FocusRing } from "../../design/components/FocusRing";
+import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { colors, radii } from "../../design/tokens";
+import { colors, radii, shadows } from "../../design/tokens";
 import { baseName, parentPath } from "./paths";
 import { dirtyCount, type Tab, type TabsState } from "./tabs";
 
@@ -222,7 +223,7 @@ function SwitcherRow({
         style={styles.rowClose}
         testID={`switch-close-${tab.path}`}
       >
-        <Text style={styles.closeGlyph}>×</Text>
+        <Icon name="close" size={17} color={colors.muted} />
       </Pressable>
     </View>
   );
@@ -274,15 +275,25 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.55)",
   },
 
+  /**
+   * The same geometry the action sheet uses — `radii.floating` and
+   * `shadows.rising`, not the panel radius and a hairline.
+   *
+   * Two sheets rising from the same edge of the same phone, drawn with
+   * different corners and one of them without a shadow, read as two different
+   * kinds of object. They are not: both are "a list of things, over the note,
+   * with a grabber". `Menu.tsx` is the other one.
+   */
   sheet: {
     paddingTop: 8,
     paddingHorizontal: 12,
-    borderTopLeftRadius: radii.panel,
-    borderTopRightRadius: radii.panel,
+    borderTopLeftRadius: radii.floating,
+    borderTopRightRadius: radii.floating,
     borderTopWidth: 1,
     borderTopColor: colors.lineStrong,
     backgroundColor: colors.surface,
     maxHeight: "70%",
+    boxShadow: shadows.rising,
   },
 
   grabber: {
@@ -350,9 +361,4 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  closeGlyph: {
-    fontSize: 19,
-    lineHeight: 21,
-    color: colors.muted,
-  },
 });

@@ -479,9 +479,7 @@ export function Explorer({
             style={styles.refusalDismiss}
             hoverStyle={styles.matchHover}
           >
-            <Text variant="treeMeta" aria-hidden>
-              ×
-            </Text>
+            <Icon name="close" size={13} color={colors.warnText} />
           </PressRow>
         </View>
       ) : null}
