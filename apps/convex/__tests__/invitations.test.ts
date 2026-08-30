@@ -133,40 +133,50 @@ describe("parsing an invitee", () => {
    * `CLAUDE.md` names when it insists the consent-scope mirror be "asserted
    * against the control plane's rather than claimed in a comment".
    *
-   * **This is the copy CI depends on, and it covers both directions.**
-   * `gateway-contracts.yml` carries no `paths` filter and runs this whole
-   * suite on every pull request **into `main`**, so a change to either
-   * implementation reaches it — including a mobile-only change, which
-   * `ci / Test Convex Backend` would skip. (`branches: [main]` filters on the
-   * base, so a pull request stacked onto a feature branch runs neither this
-   * nor `ci.yml`; nothing covers the pair there.)
+   * **The repair landed, and it changes what this test is for.** Both sides
+   * now call `normalizeEmail` from `packages/shared`, so over the domain
+   * `parseInvitee` accepts they agree *by construction* rather than by two
+   * chains happening to match. The mirror in `signInEmail.test.ts` is gone with
+   * its table — two identical fixture tables in two packages, pinned to their
+   * own literals and not to each other, were the sentence this test exists to
+   * fix, one level up, and they had already drifted inside their own commits.
    *
-   * A second copy lives in `signInEmail.test.ts` for fast local feedback — 0.6s
-   * in `jest` against ~10s for this suite — not because anything here fails to
-   * cover it. **That copy costs an unguarded sync**: two identical fixture
-   * tables in two packages with nothing pinning them to each other, which is
-   * the sentence this test exists to fix, one level up. It is not
-   * hypothetical — they drifted inside this change's own commits, one shipping
-   * four rows against five. The `packages/shared` repair below is what retires
-   * the duplication; until it lands, the tables must be edited in pairs.
+   * **What is left here is a DIVERGENCE detector, which is not the same as a
+   * duplication detector.** No behavioural test can see a behaviourally
+   * identical copy: re-inlining `raw.trim().toLowerCase()` into
+   * `normalizeSignInEmail` leaves every check here green, and left every mobile
+   * check green too until an identity assertion was added there for exactly
+   * this. What this table catches is the moment such a copy *drifts* — dropping
+   * the lowercase fails 3 here and 4 there — and any asymmetric change to the
+   * shared rule itself, where dropping the trim fails 2 here. It also holds the
+   * control plane's own side, which nothing in `apps/mobile` can any longer
+   * see: `const value = trimmed` in place of `normalizeEmail(trimmed)` fails 5
+   * here and 0 there. This is the copy CI depends on: `gateway-contracts.yml` carries no `paths` filter
+   * and runs this whole suite on every pull request **into `main`**, so a
+   * mobile-only change reaches it where `ci / Test Convex Backend` would skip.
+   * (`branches: [main]` filters on the base, so a pull request stacked onto a
+   * feature branch runs neither this nor `ci.yml`; nothing covers the pair
+   * there.) `packages/shared/**` is additionally in **both** the `mobile` and
+   * `convex` change filters of the reusable pipeline — read at source in
+   * `supa-framework/.github/workflows/ci.yml`, not assumed — so a change to the
+   * shared rule itself runs both suites.
    *
    * The convex suite already reaches into the mobile app (see
-   * `dropboxConnect.test.ts`), so the import costs nothing new.
+   * `dropboxConnect.test.ts`), so the import costs nothing new — and it has to
+   * be the mobile function rather than the shared one, or the test proves only
+   * that `packages/shared` agrees with itself.
    *
-   * **What is asserted is narrower than the invariant named above.** The guard
-   * below means the table only covers addresses `parseInvitee` *accepts*, and
-   * over that domain the two agree by construction — both are
-   * `trim()` + `toLowerCase()`. Outside it they diverge today:
-   * `parseInvitee` refuses an over-length or pattern-failing address that
-   * `normalizeSignInEmail` normalises without complaint. So this is a drift
-   * detector for the shared domain, not a proof of the invariant, and the
-   * durable repair is a single `normalizeEmail` in `packages/shared` that both
-   * call — the same move `gateway-contracts.yml`'s header prescribes for the
-   * Dropbox constants. Filed, not done here.
+   * **What is asserted is still narrower than the invariant named above.** The
+   * guard below means the table only covers addresses `parseInvitee`
+   * *accepts*. Outside that domain the two genuinely diverge: `parseInvitee`
+   * refuses an over-length or pattern-failing address that
+   * `normalizeSignInEmail` normalises without complaint, because the sign-in
+   * screen applies no such rule. That asymmetry is real, is recorded
+   * separately, and was deliberately not papered over by widening
+   * `normalizeEmail`'s job.
    *
-   * The failure it prevents is the one `signInEmail.test.ts` already describes:
-   * one human ends up with two accounts and the invitation lands on the one
-   * they cannot sign in to.
+   * The failure it prevents: one human ends up with two accounts and the
+   * invitation lands on the one they cannot sign in to.
    */
   test.each([
     "LK@Example.Invalid",

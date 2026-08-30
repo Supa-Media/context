@@ -1,73 +1,51 @@
 import { describe, expect, test } from "@jest/globals";
-import { parseInvitee } from "@context/convex/functions/lib/invitees";
+import { normalizeEmail } from "@context/shared";
 
 import { normalizeSignInEmail } from "../features/auth/email";
 
 /**
  * The invariant these all serve: whatever a person types, pastes, or lets a
  * password manager fill, the address handed to `signIn` must be the same string
- * an invitation to them would have been addressed to. `parseInvitee` in
- * `apps/convex/functions/lib/invitees.ts` trims and lowercases; so does this.
+ * an invitation to them would have been addressed to. When they disagree, one
+ * human ends up with two accounts and the invitation lands on the one they
+ * cannot sign in to — see the block comment on `normalizeSignInEmail` for the
+ * full chain.
  *
- * When they disagree, one human ends up with two accounts and the invitation
- * lands on the one they cannot sign in to — see the block comment on
- * `normalizeSignInEmail` for the full chain.
+ * **That used to be a two-package invariant named in prose, then a fixture
+ * table duplicated in two packages.** Both halves were pinned to their own
+ * literals and neither to the other; the duplicate tables then drifted inside
+ * their own commits, one shipping four rows against five. Both sides now call
+ * `normalizeEmail` from `packages/shared`, so over the domain `parseInvitee`
+ * accepts they agree by construction, and the table is gone from here rather
+ * than kept in sync by hand.
  *
- * **That last sentence used to be the whole of it: a two-package invariant
- * named in prose, with only this side imported.** Both halves were pinned to
- * their own literals and neither to the other, which is what `CLAUDE.md` means
- * when it insists a mirror be "asserted against the control plane's rather
- * than claimed in a comment".
+ * **This file no longer imports the control plane**, which is the point of the
+ * move: a rule with a copy on each side of a package boundary is a rule that
+ * will drift, and a reusable pipeline's path filters cannot see a cross-package
+ * import, so the tests that would catch the drift are skipped on exactly the
+ * changes that cause it.
  *
- * The same assertion exists in `apps/convex/__tests__/invitations.test.ts`,
- * and **that copy is the one CI depends on.** It runs on every pull request
- * into `main`, whatever it touches, because `gateway-contracts.yml` carries no
- * `paths` filter and runs the whole control-plane suite — so it catches either
- * side drifting, in both directions. (`branches: [main]` filters on the base,
- * so a pull request stacked onto a feature branch runs neither that workflow
- * nor `ci.yml`, and nothing covers the pair there.)
+ * **The first check below is the one that closes the duplication rather than
+ * its symptom.** No behavioural assertion can see a behaviourally identical
+ * copy: measured with that check removed, re-inlining `raw.trim().toLowerCase()`
+ * into `normalizeSignInEmail` left **every** check green — 1,594 here and 1,292
+ * in the control plane. So `email.ts` re-exports the shared rule under its own
+ * name and this asserts the two are the same function object; the same
+ * re-inline now fails here, and only here.
  *
- * This copy is therefore **redundant for CI, and kept for speed**: somebody
- * changing `normalizeSignInEmail` sees it fail in `jest` in 0.6s rather than
- * running the control plane's ~10s suite, and this is the file where the
- * invariant is stated in prose, so the assertion belongs beside it.
- *
- * **What it costs is an unguarded sync.** Two identical tables in two packages,
- * with nothing pinning them to each other — the sentence this test exists to
- * fix, one level up. Not hypothetical: they drifted inside this change's own
- * commits, one shipping four rows here against five there. Edit them in pairs
- * until the `packages/shared` repair retires both.
- *
- * (An earlier version of this note said the two copies each closed a direction
- * nothing else closed, citing a measurement that `ci / Test Convex Backend` is
- * skipped on mobile-only pull requests. That measurement was real and is still
- * true of *that* job — and it was taken five hours before
- * `gateway-contracts.yml` existed, which is the thing that makes the convex
- * copy universal. **A CI fact measured yesterday is not a CI fact.**)
- *
- * **What is asserted is narrower than the sentence above**, and deliberately:
- * the table covers addresses `parseInvitee` *accepts*, where the two agree by
- * construction. Outside it they genuinely diverge — `parseInvitee` refuses an
- * over-length or pattern-failing address that `normalizeSignInEmail` will
- * happily normalise — so this is a drift detector, not a proof of the
- * invariant.
+ * The rest is the sign-in side's behaviour, which is worth keeping beside the
+ * alias: they are what says *what* the shared rule has to do for this screen,
+ * and they fail if the shared rule changes under it. Drift between the two
+ * implementations is caught by `apps/convex/__tests__/invitations.test.ts`,
+ * which compares this function against `parseInvitee` and runs on every pull
+ * request into `main` via `gateway-contracts.yml`.
  */
 describe("the address that reaches auth", () => {
-  // The mirror, asserted. See the note above on why this is duplicated in the
-  // control plane's suite rather than living in one place.
-  test.each([
-    "LK@Example.Invalid",
-    "  lk@example.invalid  ",
-    "MiXeD.CaSe+tag@Example.Invalid",
-    "\tada@example.invalid\n",
-    "ALLCAPS@EXAMPLE.INVALID",
-  ])("agrees with the invitee parser on %j", (raw) => {
-    const parsed = parseInvitee(raw);
-    expect(parsed.ok).toBe(true);
-    if (!parsed.ok || parsed.invitee.kind !== "email") {
-      throw new Error("fixture is not an email address");
-    }
-    expect(normalizeSignInEmail(raw)).toBe(parsed.invitee.value);
+  test("is the shared rule itself, not a second copy of it", () => {
+    // Identity, not behaviour. `toBe` on a function object is what makes a
+    // re-inlined `raw.trim().toLowerCase()` fail here — every assertion after
+    // this one would still pass with such a copy in place.
+    expect(normalizeSignInEmail).toBe(normalizeEmail);
   });
 
   test("matches what an invitation to the same person is addressed to", () => {

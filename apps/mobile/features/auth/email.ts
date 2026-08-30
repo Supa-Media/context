@@ -38,11 +38,29 @@
  * repository's rule is upstream-first, and that change is filed separately.
  * Rows created before this landed are unaffected and need a data check.
  *
- * Lowercasing the whole address is deliberate. RFC 5321 makes only the domain
- * case-insensitive, so a mailbox may in principle distinguish `Ada` from `ada`
- * — but every provider that matters folds case, and treating them as two
- * people is the far worse failure of the two, being the one above.
+ * ## The rule itself lives in `packages/shared`, and this is an ALIAS for it
+ *
+ * `normalizeSignInEmail` is the sign-in side's *name* for the rule — kept
+ * because that is what `LoginScreen` calls and because the reasoning above is
+ * about this screen. It is a re-export rather than a one-line wrapper, and that
+ * is the whole guard: `normalizeSignInEmail === normalizeEmail` is checkable by
+ * identity, so replacing it with a function — even one spelled
+ * `raw.trim().toLowerCase()`, which is what the rule does *today* — fails a
+ * test immediately rather than at some later point when the two have drifted.
+ *
+ * That matters because a behavioural test cannot see the difference. Measured
+ * before the identity check existed: re-inlining the identical chain here left
+ * **every** check in both suites green — 1,594 in `apps/mobile`, 1,292 in
+ * `apps/convex`. With the check, it fails one. Duplication is the defect this
+ * move exists to remove; waiting for it to *become* a divergence is waiting for
+ * the bug.
+ *
+ * `parseInvitee` cannot be pinned the same way — it calls `normalizeEmail`
+ * inside a larger parse, so there is no identity to compare. Its half is held
+ * behaviourally, by the table in `apps/convex/__tests__/invitations.test.ts`.
+ * The asymmetry is real and is better said than glossed.
+ *
+ * Why the whole address is lowercased, RFC 5321 notwithstanding, is argued
+ * where the rule now lives.
  */
-export function normalizeSignInEmail(raw: string): string {
-  return raw.trim().toLowerCase();
-}
+export { normalizeEmail as normalizeSignInEmail } from "@context/shared";
