@@ -105,9 +105,11 @@
  *    end is `NaN` and `NaN & 0xfc00` is never `0xdc00`. The bound stays as
  *    written rather than as relied-upon arithmetic.
  *
- *    Two of these are mutations of a *fixture* rather than of the module, and
- *    both are the plausible edit rather than an invented one: giving the
- *    at-cap fixture a byte of headroom to look less brittle (which walks the
+ *    Two **more**, outside the nineteen above and each failing 1, are
+ *    mutations of a *fixture* rather than of the module — twenty-two driven in
+ *    total, counting the equivalent mutant. Both are the plausible edit rather
+ *    than an invented one: giving the at-cap fixture a byte of headroom to
+ *    look less brittle (which walks the
  *    strict-read mutation through, so `boundaryCap` is asserted equal to the
  *    measured body), and widening the fuzz's first branch so every string is
  *    plain ASCII (which makes the check's own name false, so its distribution
