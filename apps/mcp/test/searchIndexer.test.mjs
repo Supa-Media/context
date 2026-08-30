@@ -20,6 +20,7 @@ import {
   parseIndex,
 } from "../src/search/indexer.js";
 import { exceedsUtf8Bytes } from "../src/search/maintain.js";
+import { termsOf, tokenize } from "../src/search/text.js";
 
 export async function runSearchIndexerChecks(check) {
   // -- field extraction --------------------------------------------------
@@ -276,6 +277,46 @@ export async function runSearchIndexerChecks(check) {
     check(
       "an ordinary plain object is unaffected by any of the above",
       JSON.stringify({}) === "{}"
+    );
+  }
+
+  // -- the tokenizer's floor, which nothing had pinned ----------------------
+  //
+  // `token.length >= 2` in text.js, and it is load-bearing in BOTH directions
+  // while being tested in neither: mutated to `>= 1` or to `>= 3` the whole
+  // suite stayed green, and only `>= 4` failed — through the per-note cap's
+  // token count, which is a different rule entirely.
+  //
+  // At `>= 3`, every two-character term silently stops being searchable. "AI",
+  // "ML", "US", "id", "ok", "go", "PR" are ordinary words in a personal brain,
+  // and the failure mode is a miss with no explanation attached — the same
+  // shape as a term past the per-note cap, and this one would not even have the
+  // sentence on the miss to explain it.
+  //
+  // At `>= 1`, every stray letter becomes a vocabulary entry. That is index
+  // size, and index size is what `INDEX_PARSE_BYTE_CAP` exists to bound: a
+  // brain of prose has a single-letter run on most lines.
+  //
+  // text.js calls itself "the one copy of the rules", and `searchQuery`'s
+  // header is explicit that it borrows `termsOf` as a fixture helper rather
+  // than as a subject. So this is the tokenizer's first test.
+  {
+    const twoChars = tokenize("AI and ML at 3M, PR go ok");
+    check(
+      "a two-character run is a term, so ordinary short words stay searchable",
+      ["ai", "ml", "at", "3m", "pr", "go", "ok"].every((term) => twoChars.includes(term))
+    );
+    check(
+      "a one-character run is not a term, so single letters stay out of the vocabulary",
+      tokenize("a b c 1 2 x").length === 0 &&
+        tokenize("one a two").join(" ") === "one two"
+    );
+    // Through `termsOf` as well, since that is what the indexer and the query
+    // parser both call — a floor enforced in `tokenize` and lost in the wrapper
+    // would be a floor that holds nowhere it matters.
+    check(
+      "and the same floor holds through termsOf, which is what both sides call",
+      termsOf("a b AI").join(" ") === "ai" && !termsOf("x y z").length
     );
   }
 
