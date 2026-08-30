@@ -212,10 +212,6 @@ importers:
         version: 4.126.0(@cloudflare/workers-types@5.20260826.1)
 
   infra/router:
-    dependencies:
-      '@cf-wasm/og':
-        specifier: ^0.5.0
-        version: 0.5.0(react@19.1.0)
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^5.20260719.1
@@ -774,15 +770,6 @@ packages:
 
   '@bcoe/v8-coverage@0.2.3':
     resolution: {integrity: sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw==}
-
-  '@cf-wasm/og@0.5.0':
-    resolution: {integrity: sha512-NAITsw8hVDGfnNxYwcA+KJs9MBQJnJ/PkTgqqSIV/4mnOAMFJfMzLAlJ4B5RZaFthTdy6fDo6EnJP5LcH9oC0Q==}
-
-  '@cf-wasm/resvg@0.4.0':
-    resolution: {integrity: sha512-p45IjI5EDYPTsJzhoqJ48f/TcNhR3/F9l2CCFomEHBJ0jbedQQMFB9CQfRaqcqdhDTNy4fSjN8hvOeKDMnz3zA==}
-
-  '@cf-wasm/satori@0.4.0':
-    resolution: {integrity: sha512-sFZZcqrIwx28DQyL0kXr1lnGUEfzzH6KLLjdxHV5f51uIqiv730nGrbyh5MIsczDgABjQR7NmG9h4vH3Dp5lQQ==}
 
   '@cloudflare/kv-asset-handler@0.5.0':
     resolution: {integrity: sha512-jxQYkj8dSIzc0cD6cMMNdOc1UVjqSqu8BZdor5s8cGjW2I8BjODt/kWPVdY+u9zj3ms75Q5qaZgnxUad83+eAg==}
@@ -1512,12 +1499,6 @@ packages:
     resolution: {integrity: sha512-4aQzz9vgxcNXFfo/iyNgDDYfsU5XGKKxWxZopw0cVotHiW+U8IJbIxMaxsINs6bHhtkG3StKNPcOrn3eBuxKPw==}
     hasBin: true
 
-  '@hedgedoc/html-to-react@2.1.1':
-    resolution: {integrity: sha512-jZQYG8XWi7CmhUo5F3YcnDjwlTIaY3PwuCSRgcP01CXEVHz8+dYKtHwaP7Fpu9qMRMoMQSWLgHXIKaGgbch/bA==}
-    engines: {node: '>=12'}
-    peerDependencies:
-      react: '>=16.0'
-
   '@humanwhocodes/config-array@0.13.0':
     resolution: {integrity: sha512-DZLEEqFWQFiyK6h5YIeynKx7JlvCYWL0cImfSRXZ9l4Sg2efkFGTuFf6vzXjK1cq6IYkU+Eg/JizXw+TD2vRNw==}
     engines: {node: '>=10.10.0'}
@@ -2234,10 +2215,6 @@ packages:
 
   '@react-navigation/routers@7.6.4':
     resolution: {integrity: sha512-GI7eJm8/KsZUQaYcXvEExikKurRZRgEsSzyZ7faENfi65yqJBCXjDMwyN1pF6pNW1MoLH1ErDwDivFxY6BzD3w==}
-
-  '@resvg/resvg-wasm@2.4.1':
-    resolution: {integrity: sha512-yi6R0HyHtsoWTRA06Col4WoDs7SvlXU3DLMNP2bdAgs7HK18dTEVl1weXgxRzi8gwLteGUbIg29zulxIB3GSdg==}
-    engines: {node: '>= 10'}
 
   '@resvg/resvg-wasm@2.6.2':
     resolution: {integrity: sha512-FqALmHI8D4o6lk/LRWDnhw95z5eO+eAa6ORjVg09YRR7BkcM6oPHU9uyC0gtQG5vpFLvgpeU4+zEAz2H8APHNw==}
@@ -3209,23 +3186,10 @@ packages:
     resolution: {integrity: sha512-yS+Q5i3hBf7GBkd4KG8a7eBNNWNGLTaEwwYWUijIYM7zrlYDM0BFXHjjPWlWZ1Rg7UaddZeIDmi9jF3HmqiQ2w==}
     engines: {node: '>=6.0.0'}
 
-  dom-serializer@2.0.0:
-    resolution: {integrity: sha512-wIkAryiqt/nV5EQKqQpo3SToSOV9J0DnbJqwK7Wv/Trc92zIAYZ4FlMu+JPFW1DfGFt81ZTCGgDEabffXeLyJg==}
-
-  domelementtype@2.3.0:
-    resolution: {integrity: sha512-OLETBj6w0OsagBwdXnPdN0cnMfF9opN69co+7ZrbfPGrdpPVNBUj02spi6B1N7wChLQiPn4CSH/zJvXw56gmHw==}
-
   domexception@4.0.0:
     resolution: {integrity: sha512-A2is4PLG+eeSfoTMA95/s4pvAoSo2mKtiM5jlHkAVewmiO8ISFTFKZjH7UAM1Atli/OT/7JHOrJRJiMKUZKYBw==}
     engines: {node: '>=12'}
     deprecated: Use your platform's native DOMException instead
-
-  domhandler@5.0.3:
-    resolution: {integrity: sha512-cgwlv/1iFQiFnU96XXgROh8xTeetsnJiDsTc7TYCLFd9+/WNkIqPTxiM/8pSd8VIrhXGTf1Ny1q1hquVqDJB5w==}
-    engines: {node: '>= 4'}
-
-  domutils@3.2.2:
-    resolution: {integrity: sha512-6kZKyUajlDuqlHKVX1w7gyslj9MPIXzIFiz/rGu35uC1wMi+kMhQwGhl4lt9unC9Vb9INnY9Z3/ZA3+FhASLaw==}
 
   dotenv-expand@11.0.7:
     resolution: {integrity: sha512-zIHwmZPRshsCdpMDyVsqGmgyP0yT8GAgXUnkdAoJisxvf33k7yO6OuoKmcTGuXPWSsm8Oh88nZicRLA9Y0rUeA==}
@@ -3263,10 +3227,6 @@ packages:
   encodeurl@2.0.0:
     resolution: {integrity: sha512-Q0n9HRi4m6JuGIV1eFlmvJB7ZEVxu93IrMyiMsGC0lrMJMWzRgx6WGquyfQgZVb31vhGgXnfmPNNXmxnOkRBrg==}
     engines: {node: '>= 0.8'}
-
-  entities@4.5.0:
-    resolution: {integrity: sha512-V0hjH4dGPh9Ao5p0MoRY6BVqtwCjhz6vI5LT8AJ55H+4g9/4vbHx1I54fS0XuclLhDHArPQCiMjDxjaL8fPxhw==}
-    engines: {node: '>=0.12'}
 
   entities@6.0.1:
     resolution: {integrity: sha512-aN97NXWF6AWBTahfVOIrB/NShkzi5H7F9r1s9mD3cDj4Ko5f2qhhVoYMibXF7GlLveb/D2ioWay8lxI97Ven3g==}
@@ -3776,9 +3736,6 @@ packages:
 
   html-escaper@2.0.2:
     resolution: {integrity: sha512-H2iMtd0I4Mt5eYiapRdIDjp+XzelXQ0tFE4JS7YFwFevXXMmOp9myNrUvCg0D6ws8iqkRPBfKHgbwig1SmlLfg==}
-
-  htmlparser2@9.1.0:
-    resolution: {integrity: sha512-5zfg6mHUoaer/97TxnGpxmbR7zJtPwIYFMZ/H5ucTlPZhKvtum05yiPK3Mgai3a0DyVxv7qYqoweaEd2nrYQzQ==}
 
   http-errors@2.0.1:
     resolution: {integrity: sha512-4FbRdAX+bSdmo4AUFuS0WNiPz8NgFt+r8ThgNWmlrjQjt1Q7ZR9+zTlce2859x4KSXrwIsaeTqDoKQmtP8pLmQ==}
@@ -6480,23 +6437,6 @@ snapshots:
 
   '@bcoe/v8-coverage@0.2.3': {}
 
-  '@cf-wasm/og@0.5.0(react@19.1.0)':
-    dependencies:
-      '@cf-wasm/resvg': 0.4.0
-      '@cf-wasm/satori': 0.4.0
-      '@hedgedoc/html-to-react': 2.1.1(react@19.1.0)
-    transitivePeerDependencies:
-      - react
-
-  '@cf-wasm/resvg@0.4.0':
-    dependencies:
-      '@resvg/resvg-wasm': 2.6.2
-      '@resvg/resvg-wasm-legacy': '@resvg/resvg-wasm@2.4.1'
-
-  '@cf-wasm/satori@0.4.0':
-    dependencies:
-      satori: 0.29.0
-
   '@cloudflare/kv-asset-handler@0.5.0': {}
 
   '@cloudflare/unenv-preset@2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260825.1)':
@@ -7227,13 +7167,6 @@ snapshots:
       '@babel/code-frame': 7.29.7
       chalk: 4.1.2
       js-yaml: 4.3.1
-
-  '@hedgedoc/html-to-react@2.1.1(react@19.1.0)':
-    dependencies:
-      domelementtype: 2.3.0
-      domhandler: 5.0.3
-      htmlparser2: 9.1.0
-      react: 19.1.0
 
   '@humanwhocodes/config-array@0.13.0':
     dependencies:
@@ -8119,8 +8052,6 @@ snapshots:
   '@react-navigation/routers@7.6.4':
     dependencies:
       nanoid: 3.3.18
-
-  '@resvg/resvg-wasm@2.4.1': {}
 
   '@resvg/resvg-wasm@2.6.2': {}
 
@@ -9076,27 +9007,9 @@ snapshots:
     dependencies:
       esutils: 2.0.3
 
-  dom-serializer@2.0.0:
-    dependencies:
-      domelementtype: 2.3.0
-      domhandler: 5.0.3
-      entities: 4.5.0
-
-  domelementtype@2.3.0: {}
-
   domexception@4.0.0:
     dependencies:
       webidl-conversions: 7.0.0
-
-  domhandler@5.0.3:
-    dependencies:
-      domelementtype: 2.3.0
-
-  domutils@3.2.2:
-    dependencies:
-      dom-serializer: 2.0.0
-      domelementtype: 2.3.0
-      domhandler: 5.0.3
 
   dotenv-expand@11.0.7:
     dependencies:
@@ -9123,8 +9036,6 @@ snapshots:
   encodeurl@1.0.2: {}
 
   encodeurl@2.0.0: {}
-
-  entities@4.5.0: {}
 
   entities@6.0.1: {}
 
@@ -9770,13 +9681,6 @@ snapshots:
     optional: true
 
   html-escaper@2.0.2: {}
-
-  htmlparser2@9.1.0:
-    dependencies:
-      domelementtype: 2.3.0
-      domhandler: 5.0.3
-      domutils: 3.2.2
-      entities: 4.5.0
 
   http-errors@2.0.1:
     dependencies:
