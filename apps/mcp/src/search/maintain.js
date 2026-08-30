@@ -283,10 +283,17 @@ export async function syncIndex(store, { budget, reserve = 0, isIndexable = defa
     try {
       object = await store.get(path);
     } catch {
-      // One unreadable note must not cost the query its whole answer, and it
-      // must not cost the budget either: stop the backfill, leave the rest
-      // pending, serve from what is already built.
-      break;
+      // One unreadable note must not cost the query its whole answer — and it
+      // must not cost the *rest of the backfill* either. This used to `break`,
+      // which parked the sync at the same note on every pass forever: the stale
+      // list is in listing order, so a single key the adapter refuses (a
+      // backslash, a control character — keys Obsidian and rclone write without
+      // asking us) stalled indexing for every note that sorts after it. That is
+      // the census's "one oddly named folder suppressed the whole count" trap,
+      // one layer down. Skip it instead: the attempt already spent its budget
+      // op, so a bucket full of unreadable notes still terminates, and the note
+      // stays in `pending`, so the floor language keeps being said.
+      continue;
     }
     processed += 1;
     if (!object) {

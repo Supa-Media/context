@@ -140,7 +140,10 @@ constants are pinned; the corpus they are computed against is per-caller.**
 ## Maintenance (maintain.js) — the sync loop
 
 On each search call, under one subrequest budget (callers pass it; the worker
-free tier allows 50 per invocation, so search uses ≤ 40 total):
+free tier allows 50 per invocation, so search defaults to ≤ 40 total, and a
+paid-plan deployment raises it with `SEARCH_SUBREQUEST_BUDGET` in the
+environment — clamped, and unparseable values fall back to the default,
+because a typo'd var must not take search down or unbounded):
 
 1. `store.get(".index/search-v1.json")` → parse (null ⇒ empty index).
 2. One bounded listing of note keys (paths + etags where the store reports
