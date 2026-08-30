@@ -180,8 +180,11 @@ export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
       if (!state.tabs.some((tab) => tab.path === action.path)) return state;
       // A dirty tab closes. Whether to ask first is a question about a modal,
       // and a modal decision has no business living inside a data structure —
-      // the reducer publishes `dirty` and `dirtyCount`, and the UI confirms
-      // before dispatching. A reducer that refused would also be undoable only
+      // the reducer publishes `dirty`, `dirtyCount` and `isTabDirty`, and the
+      // UI confirms before dispatching. For a long time nothing did: the ×,
+      // the switcher sheet and ⌘W all reached this case directly, and this
+      // paragraph described a guard that was never written. See
+      // `app/(app)/console/_layout.tsx`, which now asks. A reducer that refused would also be undoable only
       // by a second, differently-named action, which is how "close anyway"
       // buttons end up bypassing the check entirely.
       const { tabs, activePath } = without(state, action.path);
@@ -258,6 +261,18 @@ export function tabAt(state: TabsState, index: number): string | null {
 }
 
 /** What the tab strip and the mobile count button show. */
+/**
+ * Whether closing this tab would throw a draft away.
+ *
+ * Exported so the confirm the reducer's `closed` case asks for is a question
+ * about *this* tab rather than a caller reaching into `state.tabs` three
+ * times. The reducer still closes whatever it is handed — see `closed` — and
+ * this is how the UI keeps the half of that bargain it had not been keeping.
+ */
+export function isTabDirty(state: TabsState, path: string): boolean {
+  return state.tabs.some((tab) => tab.path === path && tab.dirty);
+}
+
 export function dirtyCount(state: TabsState): number {
   return state.tabs.reduce((count, tab) => count + (tab.dirty ? 1 : 0), 0);
 }

@@ -51,7 +51,12 @@ export interface FileBrowser {
 
   selectedPath: string | null;
   /** Refused, with a prompt, when the open note has unsaved changes. */
-  select: (path: string) => void;
+  /**
+   * Open a note or a folder. Answers **false** when the unsaved-changes guard
+   * refused, so a caller that also moves other state — the tab strip — can
+   * stay in step with the editor instead of moving without it.
+   */
+  select: (path: string) => boolean;
 
   editor: EditorState;
   setDraft: (text: string) => void;

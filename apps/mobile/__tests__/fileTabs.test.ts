@@ -17,6 +17,7 @@ import {
   MAX_REOPENABLE,
   dirtyCount,
   emptyTabs,
+  isTabDirty,
   tabAt,
   tabLabel,
   tabsReducer,
@@ -541,5 +542,63 @@ describe("a context switch empties the strip", () => {
     // person just left, which is the same rule `tabs.ts` already follows when a
     // path stops resolving.
     expect(after.closed).toEqual([]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                          the confirm the reducer asks for                  */
+/* -------------------------------------------------------------------------- */
+
+describe("isTabDirty — the question the close confirm asks", () => {
+  /*
+    `closed`'s comment has always said "the reducer publishes `dirty` and
+    `dirtyCount`, and the UI confirms before dispatching". Nothing did: the
+    tab's ×, the switcher sheet and ⌘W all reached the reducer directly, so a
+    dirty tab closed in silence — and since nothing autosaves and nothing
+    persists the draft, that was the draft gone.
+
+    The console asks now (`app/(app)/console/_layout.tsx`), and it asks through
+    this function so the three routes cannot each grow their own answer.
+  */
+  test("only the tab that is dirty answers true", () => {
+    const state = run(
+      pinned("a.md", "b.md"),
+      { type: "edited", path: "b.md" },
+    );
+
+    expect(isTabDirty(state, "b.md")).toBe(true);
+    expect(isTabDirty(state, "a.md")).toBe(false);
+  });
+
+  test("a tab that is not open is not dirty", () => {
+    // The switcher can outlive the tab it was listing — its own effect closes
+    // the sheet when the last one goes, and a stale press must not open a
+    // confirm about a note that is no longer there.
+    expect(isTabDirty(pinned("a.md"), "gone.md")).toBe(false);
+  });
+
+  test("saving clears it, so a saved tab closes without a prompt", () => {
+    const state = run(
+      pinned("a.md"),
+      { type: "edited", path: "a.md" },
+      { type: "saved", path: "a.md" },
+    );
+
+    expect(isTabDirty(state, "a.md")).toBe(false);
+    expect(dirtyCount(state)).toBe(0);
+  });
+
+  test("the reducer still closes whatever it is handed", () => {
+    // The division of labour the comment describes: asking is the UI's job,
+    // and a reducer that refused would need a second, differently-named action
+    // to override it — "which is how 'close anyway' buttons end up bypassing
+    // the check entirely".
+    const state = run(
+      pinned("a.md", "b.md"),
+      { type: "edited", path: "b.md" },
+      { type: "closed", path: "b.md" },
+    );
+
+    expect(paths(state)).toEqual(["a.md"]);
   });
 });

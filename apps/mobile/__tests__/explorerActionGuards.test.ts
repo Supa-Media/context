@@ -302,7 +302,9 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     expanded: new Set<string>(),
     toggleFolder: noop,
     selectedPath: null,
-    select: noop,
+    // `select` answers whether the unsaved-changes guard let go; these
+    // fixtures have no draft, so it always does.
+    select: () => true,
     editor: emptyEditor,
     setDraft: noop,
     save: noop,

@@ -21,6 +21,7 @@ import {
   ExplorerDialogs,
   type Dialog,
 } from "../../../features/console/files/Explorer";
+import { Confirm } from "../../../features/console/files/Dialogs";
 import { itemsFromListings } from "../../../features/console/files/palette";
 import { useTabs } from "../../../features/console/files/useTabs";
 import { readFocus, scopeForFocus } from "../../../features/console/keyboardScope";
@@ -29,7 +30,9 @@ import { targetFolder } from "../../../features/console/files/tree";
 import { TabStrip } from "../../../features/console/files/TabStrip";
 import { TabSwitcher, tabCountLabel } from "../../../features/console/files/TabSwitcher";
 import { statusSegments } from "../../../features/console/files/status";
-import { dirtyCount } from "../../../features/console/files/tabs";
+import { dirtyCount, isTabDirty } from "../../../features/console/files/tabs";
+import { isDirty } from "../../../features/console/files/editor";
+import { useUnsavedGuard } from "../../../features/console/files/useUnsavedGuard";
 import { atName } from "../../../features/console/format";
 import {
   hrefFor,
@@ -127,6 +130,24 @@ export default function ConsoleLayout() {
   */
   const [barDialog, setBarDialog] = useState<Dialog>(null);
   /*
+    The tab whose close is waiting on a confirm.
+
+    `tabs.ts`'s `closed` case says a modal decision has no business inside a
+    data structure and that "the UI confirms before dispatching". Nothing did:
+    the tab's ×, the switcher sheet and ⌘W all reached the reducer directly, so
+    a dirty tab closed silently and the draft — which nothing autosaves and
+    nothing persists — was gone. One state, so all three routes ask.
+  */
+  const [closingTab, setClosingTab] = useState<string | null>(null);
+
+  /*
+    The exit the app does not own. `guardLeaving` covers opening another note
+    and the confirm above covers closing a tab; this covers closing the browser
+    tab and reloading, which lost the draft in silence. Native is deliberately
+    a no-op — see the hook.
+  */
+  useUnsavedGuard(isDirty(data.files.editor));
+  /*
     A menu or a dialog raised by the tree is an overlay too, not just the
     palette. Without this, ⌘K opens the palette *behind* an open context menu:
     `keymap.ts` enforces "nothing behind an overlay fires", but only for the
@@ -167,6 +188,21 @@ export default function ConsoleLayout() {
   useEffect(() => {
     if (!phone || !browsing) setSwitcherOpen(false);
   }, [phone, browsing]);
+
+  /**
+   * Close a tab, asking first when that would throw a draft away.
+   *
+   * The clean tabs — nearly all of them — still close on one press. A confirm
+   * on every close would train people to dismiss it, which is how the one that
+   * mattered gets dismissed too.
+   */
+  const closeTab = useCallback(
+    (path: string) => {
+      if (isTabDirty(tabs.state, path)) setClosingTab(path);
+      else tabs.close(path);
+    },
+    [tabs],
+  );
 
   const contextLabel = atName(current?.slug ?? "your context");
 
@@ -271,6 +307,7 @@ export default function ConsoleLayout() {
         <Shortcuts
           files={data.files}
           tabs={tabs}
+          onCloseTab={closeTab}
           onSearch={() => setPaletteOpen(true)}
           paletteOpen={paletteOpen || treeOverlay || switcherOpen}
         />
@@ -278,6 +315,7 @@ export default function ConsoleLayout() {
           browse={browsing}
           failure={data.failure}
           tabs={browsing && !phone ? tabs : null}
+          onCloseTab={closeTab}
           phone={phone}
         >
           <Slot />
@@ -296,10 +334,23 @@ export default function ConsoleLayout() {
               tabs.activate(path);
               setSwitcherOpen(false);
             }}
-            onClose={tabs.close}
+            onClose={closeTab}
             onDismiss={() => setSwitcherOpen(false)}
           />
         ) : null}
+
+        {closingTab === null ? null : (
+          <Confirm
+            title="Discard unsaved changes?"
+            body={`${closingTab} has changes that have not been saved to your bucket. Closing this tab throws them away — nothing here is autosaved.`}
+            confirmLabel="Discard and close"
+            onCancel={() => setClosingTab(null)}
+            onConfirm={() => {
+              tabs.close(closingTab);
+              setClosingTab(null);
+            }}
+          />
+        )}
 
         {/* The toolbar's `+`. `Explorer` renders its own copy for the tree's. */}
         <ExplorerDialogs
@@ -347,6 +398,7 @@ function EditorRegion({
   browse,
   failure,
   tabs,
+  onCloseTab,
   phone,
   children,
 }: {
@@ -354,6 +406,8 @@ function EditorRegion({
   failure: ConsoleData["failure"];
   /** Absent on a route with no notes open, and on every non-Browse pane. */
   tabs: ReturnType<typeof useTabs> | null;
+  /** Closes a tab, asking first when it holds an unsaved draft. */
+  onCloseTab: (path: string) => void;
   /** Compact. Decides the document panes' measure, not which regions exist. */
   phone: boolean;
   children: ReactNode;
@@ -392,7 +446,7 @@ function EditorRegion({
           <TabStrip
             state={tabs.state}
             onActivate={tabs.activate}
-            onClose={tabs.close}
+            onClose={onCloseTab}
             onCloseOthers={tabs.closeOthers}
             onReopen={tabs.reopen}
           />
@@ -438,11 +492,14 @@ function EditorRegion({
 function Shortcuts({
   files,
   tabs,
+  onCloseTab,
   onSearch,
   paletteOpen,
 }: {
   files: FileBrowser;
   tabs: ReturnType<typeof useTabs>;
+  /** ⌘W. Asks before discarding a draft, exactly as the × does. */
+  onCloseTab: (path: string) => void;
   onSearch: () => void;
   paletteOpen: boolean;
 }) {
@@ -484,7 +541,7 @@ function Shortcuts({
           /* ---- tabs ----------------------------------------------------- */
           case "closeTab":
             if (tabs.state.activePath === null) return false;
-            tabs.close(tabs.state.activePath);
+            onCloseTab(tabs.state.activePath);
             return true;
           case "reopenTab":
             if (tabs.state.closed.length === 0) return false;
@@ -531,7 +588,7 @@ function Shortcuts({
           }
         }
       },
-      [files, tabs, frame, onSearch],
+      [files, tabs, onCloseTab, frame, onSearch],
     ),
   });
 

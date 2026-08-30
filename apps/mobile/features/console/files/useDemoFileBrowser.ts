@@ -58,12 +58,14 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
   });
 
   const select = useCallback(
-    (path: string) => {
+    (path: string): boolean => {
       setSelectedPath(path);
       const note = demoNote(tree, path);
       // A folder has no body, so the pane shows its summary instead of an editor.
       if (note === null) dispatch({ type: "closed" });
       else dispatch({ type: "opened", note });
+      // Always allowed: the demo cannot edit, so there is never a draft to guard.
+      return true;
     },
     [tree],
   );

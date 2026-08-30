@@ -81,7 +81,9 @@ function browser(canSetVisibility: boolean): FileBrowser {
     expanded: new Set<string>(),
     toggleFolder: noop,
     selectedPath: null,
-    select: noop,
+    // `select` answers whether the unsaved-changes guard let go; these
+    // fixtures have no draft, so it always does.
+    select: () => true,
     // `emptyEditor` rather than a hand-written literal. The first version of
     // this fixture was copied from a shape `EditorState` no longer has — it was
     // missing `status` and `baseline` and carried four fields that are gone —

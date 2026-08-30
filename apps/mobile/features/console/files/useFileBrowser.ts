@@ -239,11 +239,11 @@ export function useFileBrowser(options: {
   );
 
   const select = useCallback(
-    (path: string) => {
+    (path: string): boolean => {
       const guard = guardLeaving(editorRef.current);
       if (!guard.allowed) {
         setNotice(guard.prompt ?? null);
-        return;
+        return false;
       }
       setSelectedPath(path);
       setNotice(null);
@@ -273,15 +273,18 @@ export function useFileBrowser(options: {
         // Its own listing, so the folder view has contents to draw rather than
         // an empty screen. `refresh` is a no-op for a folder already loaded.
         if (listings[path] === undefined) void refresh([path]);
-        return;
+        return true;
       }
-      if (workspaceId === null) return;
+      if (workspaceId === null) return true;
       readNote({ workspaceId, path })
         .then((note: OpenNote) => dispatch({ type: "opened", note }))
         .catch((error: unknown) => {
           dispatch({ type: "closed" });
           setNotice(toFileError(error).message);
         });
+      // The selection moved; whether the *read* lands is a separate question
+      // this answer is not about. A caller only needs to know the guard let go.
+      return true;
     },
     [listings, readNote, refresh, workspaceId],
   );
