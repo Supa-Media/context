@@ -401,7 +401,7 @@ export async function captureFingerprint(
   raw: Uint8Array,
 ): Promise<string> {
   const externalId = messageId ? messageId : `sha256:${await sha256HexBytes(raw)}`;
-  return sha256Hex(`email ${externalId}`);
+  return sha256Hex(`email\u0000${externalId}`);
 }
 
 /**

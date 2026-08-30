@@ -102,6 +102,119 @@ jobs:
               sys.exit(1)
           PY
 
+  no-nul-bytes:
+    name: Source stays diffable
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      # A raw NUL in a source file makes git call it binary, and a binary file
+      # has no diff: `git show` and GitHub both render `Bin 0 -> N bytes,
+      # 0 insertions(+)`. Five test files had one, as a hostile-input fixture —
+      # among them the security tests for the newest surfaces. In a repository
+      # whose stated model is that self-review is the only review, the files
+      # carrying the evidence for those pull requests could not be read by the
+      # only review they were going to get.
+      #
+      # This checks for the NUL, not for git's verdict, because the two are not
+      # the same set and the difference is a trap. Git sniffs only the FIRST
+      # 8000 BYTES: of the seven files that carried one, five had it early
+      # enough to be called binary and two did not — including one in
+      # production source. Those two were latent, one edit away from flipping,
+      # and a guard written against `git diff --numstat` would have missed
+      # them. Driven to confirm the mechanism: the same content with the NUL at
+      # byte 100 diffs as `-  -`, at byte 9000 as `3  0`.
+      #
+      # `\u0000` in the source is the same string at runtime, so nothing about
+      # any fixture's meaning changes.
+      #
+      # **The skip list names what is binary, never what is text.** An
+      # allow-list of source extensions was written first and already missed
+      # six kinds present in the tree (.jsonc, .patch, .npmrc, .gitkeep,
+      # .gitignore, .example), and would have kept missing every kind added
+      # after it — silently, which is the failure this job exists to stop.
+      # Inverted, a new source type is covered the day it appears and a new
+      # binary asset type fails once, loudly, and gets added on purpose. That
+      # is the same trade `CREDENTIAL_BARRIERS` makes: the enumeration is the
+      # mitigation because extending it forces a conversation.
+      #
+      # It lives here rather than in a package suite because this workflow has
+      # no `paths:` filter — see the header. The rule spans four packages, and
+      # a guard in any one of their filtered jobs would be silent on pull
+      # requests touching the others, which is this repository's most-repeated
+      # failure shape.
+      - name: No tracked source file carries a NUL
+        run: |
+          python3 - <<'PY'
+          import subprocess, sys
+
+          BINARY_SUFFIXES = (
+              ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".icns",
+              ".woff", ".woff2", ".ttf", ".otf", ".eot",
+              ".pdf", ".wasm", ".zip", ".gz", ".tgz", ".mp4", ".mov", ".keystore",
+          )
+
+          def first_nul(blob):
+              return blob.find(b"\x00")
+
+          # The checker, checked. A sample it must flag and one it must not —
+          # otherwise a `return -1` here is a green run forever.
+          assert first_nul(b'const a = "x";\n') == -1
+          assert first_nul(b'const a = "\x00";\n') == 11
+
+          tracked = subprocess.run(
+              ["git", "ls-files", "-z"], capture_output=True, check=True
+          ).stdout.split(b"\0")
+
+          failed = []
+          unearned = []
+          scanned = 0
+          for raw in tracked:
+              if not raw:
+                  continue
+              path = raw.decode("utf-8", "surrogateescape")
+              blob = open(path, "rb").read()
+              at = first_nul(blob)
+              if path.lower().endswith(BINARY_SUFFIXES):
+                  # The skip list has to EARN each entry. Pinning "is there a
+                  # NUL" while leaving "in which files" unpinned is a guard
+                  # whose decision is held and whose subject is not, and the
+                  # cheap edit is to quiet this job by adding `.ts` to the
+                  # tuple above — which passes, silently, and turns the whole
+                  # job off. A real binary asset contains a NUL; a source file
+                  # does not, so a skipped file with none is a skip nobody
+                  # justified.
+                  if at == -1:
+                      unearned.append(path)
+                  continue
+              scanned += 1
+              if at != -1:
+                  line = blob[:at].count(b"\n") + 1
+                  failed.append(f"{path}:{line} (byte {at})")
+
+          print(f"scanned {scanned} tracked files, skipped {len(tracked) - 1 - scanned}")
+          for entry in failed:
+              print(f"FAIL {entry}")
+          for entry in unearned:
+              print(f"FAIL {entry}: on the binary skip list and holds no NUL — it is text, so scan it")
+          if unearned and not failed:
+              print("")
+              print("BINARY_SUFFIXES is for binary assets. Something textual is being")
+              print("skipped by it, which switches this job off for that whole file")
+              print("type. Remove the suffix rather than the coverage.")
+              sys.exit(1)
+          if failed:
+              print("")
+              print("A NUL makes git treat the file as binary, so it has no diff and")
+              print("cannot be reviewed. Write it as an escape instead — \\u0000 in a")
+              print("string literal is the same string at runtime. If this is a new")
+              print("kind of binary ASSET, add its suffix to BINARY_SUFFIXES above,")
+              print("deliberately, rather than widening the rule.")
+              sys.exit(1)
+          print("ok   every tracked source file can be diffed")
+          PY
+
   no-dependencies:
     name: Gateway stays dependency-free
     runs-on: ubuntu-latest
