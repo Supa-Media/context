@@ -30,6 +30,26 @@
  *    a conditional write somebody else won — none of them may quietly return
  *    fewer results than the answer implies.
  *
+ * ## Which index each block drives, since there are now two
+ *
+ * The gateway answers from the **sharded** index (CONTRACT.md § v2): a search
+ * through the worker syncs `.index/v2/manifest.json` and its shards, and never
+ * touches `.index/search-v1.json`. So every block here that goes through
+ * `searchText` / `callTool` exercises v2 and reads its objects; the blocks that
+ * call `syncIndex` directly — the plateau and byte-cap fixtures, the per-note
+ * char cap, the parallel-wave backfill, the etag-less backend — are checks
+ * about the v1 module, which is retained and unchanged, and they stay as they
+ * were rather than being deleted for testing code the gateway no longer calls.
+ *
+ * The sabotage record below is in the same two halves. **Entries 1-6 were
+ * measured against the v1 gateway path and are kept as the history of how those
+ * channels were found, not as claims about the code running today** — the
+ * numbers for v2 are re-measured in `searchV2Integration.test.mjs`, and one of
+ * them inverts (dropping the visibility predicate now fails the *inference*
+ * checks while `rankedVisibleTo` catches the content leak). Entries 7-9 are the
+ * v1 byte cap and are about the module those blocks still drive, so they are
+ * current.
+ *
  * ## Sabotage record
  *
  * Run as temporary local edits and reverted:
@@ -164,8 +184,14 @@ import {
   defaultIsIndexable,
   syncIndex,
 } from "../src/search/maintain.js";
+import {
+  MANIFEST_KEY,
+  parseManifest,
+  parseShard,
+  shardKey,
+  syncShardedIndex,
+} from "../src/search/shards.js";
 import { searchIndex } from "../src/search/query.js";
-import { parseIndex } from "../src/search/indexer.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 
 /** Mirrors `SEARCH_SUBREQUEST_BUDGET` / `SEARCH_RESULT_LIMIT` in src/index.js. */
@@ -318,9 +344,51 @@ async function searchText(env, token, args) {
   return (await callTool(env, token, "search_notes", args))?.content?.[0]?.text;
 }
 
-function storedIndex(bucket) {
-  const raw = bucket.objects.get(SEARCH_INDEX_KEY);
-  return raw ? parseIndex(raw.body) : null;
+/**
+ * The gateway answers from the sharded index now, so "what did the worker
+ * build" is a manifest plus its shard objects rather than one parsed blob —
+ * which is what the three helpers below read. The v1 module checks further
+ * down still drive `syncIndex` directly and read its object by key, because
+ * they are checks about that module rather than about the gateway.
+ */
+function storedManifest(bucket) {
+  const raw = bucket.objects.get(MANIFEST_KEY);
+  return raw ? parseManifest(raw.body) : null;
+}
+
+/** Every doc path the stored v2 index holds, across every shard it names. */
+function indexedPaths(bucket) {
+  const manifest = storedManifest(bucket);
+  if (!manifest) return null;
+  const paths = [];
+  for (let id = 0; id < manifest.shardCount; id += 1) {
+    const raw = bucket.objects.get(shardKey(id));
+    const shard = raw ? parseShard(raw.body) : null;
+    if (shard) paths.push(...shard.docs.keys());
+  }
+  return paths;
+}
+
+/** Every v2 object gone, which is what "nothing has indexed this bucket" means. */
+function removeV2Index(bucket) {
+  for (const key of [...bucket.objects.keys()]) {
+    if (key.startsWith(".index/v2/")) bucket.remove(key);
+  }
+}
+
+/**
+ * The v2 sync run to convergence, standing in for the many searches a real
+ * context would spend getting there. The fixtures below use it wherever they
+ * need the *whole* bucket indexed before a worker search asks a question about
+ * ranking or about counts.
+ */
+async function convergeV2(store) {
+  let pass = null;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    pass = await syncShardedIndex(store, { budget: createSearchBudget(300) });
+    if (pass.pending === 0) break;
+  }
+  return pass;
 }
 
 export async function runSearchIntegrationChecks(check) {
@@ -404,17 +472,19 @@ export async function runSearchIntegrationChecks(check) {
     bucket.resetCounts();
     const firstOwner = await searchText(env, OWNER_TOKEN, { query: "zebrafish" });
     const firstOps = bucket.ops;
-    const builtIndex = storedIndex(bucket);
+    const builtManifest = storedManifest(bucket);
+    const builtPaths = indexedPaths(bucket);
     check(
-      "the first search builds a valid index object and answers from it",
-      builtIndex !== null &&
-        builtIndex.docs.size > 0 &&
+      "the first search builds a valid manifest and its shards, and answers from them",
+      builtManifest !== null &&
+        builtManifest.shardCount >= 1 &&
+        builtPaths.length > 0 &&
         typeof firstOwner === "string" &&
         firstOwner.includes("1-projects/alpha/protocol.md")
     );
     check(
       "the index never holds a plumbing key, whatever is sitting beside the notes",
-      [...builtIndex.docs.keys()].every(
+      builtPaths.every(
         (key) =>
           key.endsWith(".md") &&
           key !== "privacy.md" &&
@@ -438,7 +508,7 @@ export async function runSearchIntegrationChecks(check) {
     check(
       "a second search re-uses the index rather than re-reading the bucket",
       bucket.counts.noteGets.length <= ownerHitCount &&
-        bucket.counts.noteGets.length < builtIndex.docs.size &&
+        bucket.counts.noteGets.length < builtPaths.length &&
         bucket.counts.put === 0
     );
     check(
@@ -516,35 +586,42 @@ export async function runSearchIntegrationChecks(check) {
     check(
       "a deleted note disappears from results and from the index",
       afterDelete.includes("(no matches)") &&
-        !storedIndex(bucket).docs.has("1-projects/alpha/notes.md")
+        !indexedPaths(bucket).includes("1-projects/alpha/notes.md")
     );
 
-    // (f) a corrupt index is a rebuild, never a throw and never a wrong answer
-    bucket.seed(SEARCH_INDEX_KEY, "{ this is not the index you are looking for");
+    // (f) a corrupt manifest is a rebuild, never a throw and never a wrong
+    // answer. The manifest is the diff surface, so garbage there is the whole
+    // index gone as far as the next pass is concerned — v1's single object
+    // wearing v2's shape.
+    bucket.seed(MANIFEST_KEY, "{ this is not the manifest you are looking for");
     const afterCorrupt = await searchText(env, OWNER_TOKEN, { query: "zebrafish" });
     check(
-      "a corrupt index object still answers correctly",
+      "a corrupt manifest still answers correctly",
       afterCorrupt.includes("1-projects/alpha/protocol.md") &&
         afterCorrupt.includes("1-projects/vault/secret.md")
     );
     check(
-      "and is replaced with a valid one",
-      storedIndex(bucket) !== null && storedIndex(bucket).docs.size > 0
+      "and is replaced with a valid one, with the notes back in its shards",
+      storedManifest(bucket) !== null && indexedPaths(bucket).length > 0
     );
 
-    // (g) a conditional-put conflict is a skipped write, not a retry loop
+    // (g) a conditional-put conflict is a skipped write, not a retry loop. The
+    // manifest is v2's concurrency point — shards are written unconditionally
+    // under it — so the race is run on the manifest and counted there.
     bucket.seed("1-projects/beta/plan.md", "# Beta plan\n\nA CUTTLEFISH joins the milestone.\n");
     bucket.resetCounts();
+    let manifestPuts = 0;
     bucket.setBeforePut((key, options) => {
       // Somebody else's sync landed between our read and our write. Changing the
       // stored etag makes the real precondition fail, rather than simulating it.
-      if (key === SEARCH_INDEX_KEY && options?.onlyIf) {
+      if (key !== MANIFEST_KEY) return;
+      manifestPuts += 1;
+      if (options?.onlyIf) {
         const stored = bucket.objects.get(key);
         if (stored) stored.etag = `${stored.etag}-raced`;
       }
     });
     const afterConflict = await searchText(env, OWNER_TOKEN, { query: "cuttlefish" });
-    const conflictPuts = bucket.counts.put;
     bucket.setBeforePut(null);
     check(
       "a lost conditional write still answers the query it was serving",
@@ -552,7 +629,7 @@ export async function runSearchIntegrationChecks(check) {
     );
     check(
       "and does not retry: one attempt, then on with the query",
-      conflictPuts === 1 && bucket.ops - PRIVACY_MANIFEST_READ <= SEARCH_SUBREQUEST_BUDGET
+      manifestPuts === 1 && bucket.ops - PRIVACY_MANIFEST_READ <= SEARCH_SUBREQUEST_BUDGET
     );
 
     // The count's floor is read off what the caller can see, and this is the
@@ -562,10 +639,13 @@ export async function runSearchIntegrationChecks(check) {
     // owner-only to prevent.
     //
     // The fifty-five below no longer *can* fill a team connection's ranked
-    // list: since `visibleIndex` that list is scored over a corpus they are not
-    // in. So this block now proves the arithmetic guard on the owner's side and
-    // the emptiness of the channel on the team side, which is why both checks
-    // stay. (An earlier version of this comment survived the fix that made it
+    // list: the shard collector gathers only the docs this caller can see, so
+    // that list is scored over a corpus the private notes are not in — v1
+    // narrowed the same corpus with `visibleIndex`, one whole index at a time,
+    // and v2 does it one shard at a time, which is the only difference the
+    // checks below can see. So this block now proves the arithmetic guard on
+    // the owner's side and the emptiness of the channel on the team side,
+    // which is why both checks stay. (An earlier version of this comment survived the fix that made it
     // false, in the same commit that corrected its twin ninety lines above —
     // caught by review, and the third time a retracted sentence has outlived
     // its own retraction here.)
@@ -576,10 +656,7 @@ export async function runSearchIntegrationChecks(check) {
       );
     }
     const bucketStore = new R2Store(bucket);
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      const pass = await syncIndex(bucketStore, { budget: createSearchBudget(300) });
-      if (pass.pending === 0) break;
-    }
+    await convergeV2(bucketStore);
     const teamAfterBulk = await searchText(env, TEAM_TOKEN, { query: "zebrafish" });
     const ownerAfterBulk = await searchText(env, OWNER_TOKEN, { query: "zebrafish" });
     check(
@@ -594,8 +671,10 @@ export async function runSearchIntegrationChecks(check) {
     // (d2) THE INFERENCE LINE. Everything above asks what index *data* reaches a
     // team connection. This asks the other question: does the SHAPE of a team
     // connection's own answer change when a note it cannot see changes? Both
-    // channels below are the corpus statistics — `N`, `df`, `avglen` — which
-    // `searchIndex` reads over every doc in the index, private ones included.
+    // channels below are the corpus statistics — `N`, `df`, `avglen` — which a
+    // scorer reads over every doc it is handed, private ones included, unless
+    // the step in front of it withholds them: `visibleIndex` in v1,
+    // `collectShardCandidates` per shard in v2.
     //
     // CONTRACT.md § the index contains text drawn from private notes already
     // forbids this in its own words: "Nothing derived from a term's presence in
@@ -604,28 +683,22 @@ export async function runSearchIntegrationChecks(check) {
     // which is the step that does not hold. A rewrite whose *trigger* is a
     // private note's contents is an output channel however it is spelled.
 
-    // Channel one: whether an expansion fires at all. `searchIndex` expands a
+    // Channel one: whether an expansion fires at all. The scorer expands a
     // query term only when its df is zero, and df is counted over the whole
-    // index. So planting a word in a note the caller can see, and asking for a
+    // corpus it was given. So planting a word in a note the caller can see, and asking for a
     // prefix of it, turns the team connection's own answer into a test for
     // whether that exact prefix appears in some note it cannot see.
     bucket.seed(
       "1-projects/alpha/marsupials.md",
       "# Field notes\n\nThe QUOKKATRON survey ran all summer.\n"
     );
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      const pass = await syncIndex(bucketStore, { budget: createSearchBudget(300) });
-      if (pass.pending === 0) break;
-    }
+    await convergeV2(bucketStore);
     const teamBeforePlant = await searchText(env, TEAM_TOKEN, { query: "quokka" });
     bucket.seed(
       "1-projects/vault/expedition.md",
       "# Vault\n\nThe QUOKKA itself is filed privately and must never leave.\n"
     );
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      const pass = await syncIndex(bucketStore, { budget: createSearchBudget(300) });
-      if (pass.pending === 0) break;
-    }
+    await convergeV2(bucketStore);
     const teamAfterPlant = await searchText(env, TEAM_TOKEN, { query: "quokka" });
     check(
       "a private note appearing does not change what a team connection's own query answers",
@@ -649,10 +722,7 @@ export async function runSearchIntegrationChecks(check) {
     // a list every path in which the caller may read.
     bucket.seed("2-areas/aa-wombat.md", "# Wombat census\n\nCounting burrows.\n");
     bucket.seed("2-areas/zz-numbat.md", "# Numbat census\n\nCounting termites.\n");
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      const pass = await syncIndex(bucketStore, { budget: createSearchBudget(300) });
-      if (pass.pending === 0) break;
-    }
+    await convergeV2(bucketStore);
     const orderOf = (text) =>
       (text.match(/^2-areas\/(?:aa-wombat|zz-numbat)\.md$/gm) || []).join(",");
     const teamOrderBefore = orderOf(await searchText(env, TEAM_TOKEN, { query: "wombat numbat" }));
@@ -662,10 +732,7 @@ export async function runSearchIntegrationChecks(check) {
         `# Vault wombat ${n}\n\nA private WOMBAT sighting, number ${n}.\n`
       );
     }
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      const pass = await syncIndex(bucketStore, { budget: createSearchBudget(300) });
-      if (pass.pending === 0) break;
-    }
+    await convergeV2(bucketStore);
     const teamOrderAfter = orderOf(await searchText(env, TEAM_TOKEN, { query: "wombat numbat" }));
     check(
       "and notes it cannot see do not reorder the ones it can",
@@ -676,19 +743,21 @@ export async function runSearchIntegrationChecks(check) {
       teamOrderBefore.split(",").length === 2
     );
 
-    // Channel three: the same reordering through `rank` rather than `idf`. This
-    // one is separate because it is the one `visibleIndex` cannot close by
-    // filtering — PageRank is computed once at index time over the whole link
-    // graph and stored on the doc — so it is the half that has to be recomputed
-    // on the visible subgraph, and the half a test has to hold on its own. The
-    // two notes below carry one term between them, so idf is a common factor
-    // and nothing but the link graph can separate them.
+    // Channel three: the same reordering through `rank` rather than `idf`. In
+    // v1 this was the channel filtering could not close — PageRank is computed
+    // once at index time over the whole link graph and stored on the doc — so it
+    // had to be recomputed on the visible subgraph, and held by its own check.
+    // v2 answers it by not having it: the link graph is global and a global
+    // graph needs every shard in memory at maintenance time, which is the exact
+    // blowup sharding exists to remove, so every doc carries a neutral rank
+    // (CONTRACT.md § v2 "Query"). The check stays and is now about the property
+    // rather than about the recomputation: whatever the ranking is built from,
+    // a private note citing a visible one must not move it. The two notes below
+    // carry one term between them, so idf is a common factor and nothing but the
+    // link graph could separate them.
     bucket.seed("2-areas/aa-bilby.md", "# Bilby east\n\nEastern BILBY survey.\n");
     bucket.seed("2-areas/zz-bilby.md", "# Bilby west\n\nWestern BILBY survey.\n");
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      const pass = await syncIndex(bucketStore, { budget: createSearchBudget(300) });
-      if (pass.pending === 0) break;
-    }
+    await convergeV2(bucketStore);
     const bilbyOrder = (text) =>
       (text.match(/^2-areas\/(?:aa|zz)-bilby\.md$/gm) || []).join(",");
     const teamBilbyBefore = bilbyOrder(await searchText(env, TEAM_TOKEN, { query: "bilby" }));
@@ -700,10 +769,7 @@ export async function runSearchIntegrationChecks(check) {
         `# Citation ${n}\n\nSee [the west](../../2-areas/zz-bilby.md) for the private workup.\n`
       );
     }
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      const pass = await syncIndex(bucketStore, { budget: createSearchBudget(300) });
-      if (pass.pending === 0) break;
-    }
+    await convergeV2(bucketStore);
     const teamBilbyAfter = bilbyOrder(await searchText(env, TEAM_TOKEN, { query: "bilby" }));
     check(
       "and private notes citing a visible one do not promote it for a team connection",
@@ -744,7 +810,10 @@ export async function runSearchIntegrationChecks(check) {
     const bigSecond = await searchText(env, BIG_TOKEN, { query: "widget" });
     check(
       "the second search on that context is bounded too, and continues the backfill",
-      big.ops - PRIVACY_MANIFEST_READ <= SEARCH_SUBREQUEST_BUDGET && big.counts.put === 1
+      // Two writes rather than v1's one, and which two is the point: the shard
+      // the backfill landed in, then the manifest over it. A pass that wrote
+      // only the manifest would be vouching for docs no shard holds.
+      big.ops - PRIVACY_MANIFEST_READ <= SEARCH_SUBREQUEST_BUDGET && big.counts.put === 2
     );
     check(
       "results stay bounded at the result limit however many notes match",
@@ -1202,7 +1271,7 @@ export async function runSearchIntegrationChecks(check) {
     // first index across dozens of searches. `SEARCH_SUBREQUEST_BUDGET` in the
     // environment raises it; garbage must fall back to the default rather than
     // take search down.
-    big.remove(SEARCH_INDEX_KEY);
+    removeV2Index(big);
     big.resetCounts();
     const bigBudget = await searchText(
       { ...env, SEARCH_SUBREQUEST_BUDGET: "200" },
@@ -1215,7 +1284,7 @@ export async function runSearchIntegrationChecks(check) {
         !bigBudget.includes("still catching up") &&
         big.ops > SEARCH_SUBREQUEST_BUDGET
     );
-    big.remove(SEARCH_INDEX_KEY);
+    removeV2Index(big);
     big.resetCounts();
     const bigGarbage = await searchText(
       { ...env, SEARCH_SUBREQUEST_BUDGET: "not-a-number" },
@@ -1260,9 +1329,11 @@ export async function runSearchIntegrationChecks(check) {
         `# Fallback ${n}\n\nThis one mentions the LIGHTHOUSE marker.\n`
       );
     }
-    // The index object itself is unreadable: a storage error on the very first
-    // call of the sync, which is what a revoked key or a 500 looks like here.
-    broken.failGetKeys.add(SEARCH_INDEX_KEY);
+    // The manifest is unreadable: a storage error on the very first call of the
+    // sync — which is what a revoked key or a 500 looks like here, and it is the
+    // *first* op v2 spends, so nothing downstream of it gets a chance to paper
+    // over the failure.
+    broken.failGetKeys.add(MANIFEST_KEY);
     broken.resetCounts();
     const fallback = await searchText(env, BROKEN_TOKEN, { query: "lighthouse" });
     check(

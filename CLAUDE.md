@@ -83,7 +83,7 @@ Zero npm dependencies — keep it that way. It runs on the Workers runtime, so
 use Web Crypto and `fetch`, not Node APIs.
 
 `pnpm test` in `apps/mcp` runs the suite against an in-memory store stub. It is
-fast, offline, and currently 837 checks. **Do not let it regress.** If you
+fast, offline, and currently 936 checks. **Do not let it regress.** If you
 change behavior, change the test in the same commit and say why.
 
 The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,
@@ -1046,6 +1046,14 @@ what belongs here is what a tidy-up would break:
 - **One search path.** `search_notes` and the ChatGPT-dialect `search` share
   `searchVisibleNotes` the way they shared the scan before it; a second path
   is a second place for a visibility bug.
+- **The index is sharded (v2) because the single object hit a real ceiling.**
+  A brain in the mid-thousands of notes built a capped index that could never
+  be parsed within the Worker's 128MB, so coverage plateaued forever —
+  measured live. `.index/v2/` holds a manifest plus fnv1a32-sharded objects,
+  each under its own parse cap; the query streams shards one at a time and
+  computes every statistic over the caller's visible docs, and PageRank is
+  deliberately neutral (a global link graph needs every shard in memory,
+  which is the blowup v2 removes). CONTRACT.md § v2 pins the format.
 - **The size cap has two sides and one number, and dropping either is a loop
   rather than a smaller cap.** `INDEX_PARSE_BYTE_CAP` refuses a stored index
   past it *and* refuses to write one past it. For a while only the read had a

@@ -22,32 +22,37 @@
 import { termsOf, trigrams } from "./text.js";
 
 // -- pinned scoring constants (CONTRACT.md § Scoring) -----------------------
+//
+// Exported so the v2 sharded query path (shardQuery.js) can score gathered
+// candidates with the identical numbers rather than a second hand-typed copy
+// that could drift from this one — this file stays the master. Exporting a
+// `const` changes nothing about how this module uses them.
 
-const FIELD_ORDER = ["title", "headings", "tags", "body"]; // tf tuple order
-const FIELD_WEIGHT = { title: 4.0, headings: 2.5, tags: 3.0, body: 1.0 };
-const FIELD_B = { title: 0.4, headings: 0.5, tags: 0.3, body: 0.75 };
-const K1 = 1.2;
+export const FIELD_ORDER = ["title", "headings", "tags", "body"]; // tf tuple order
+export const FIELD_WEIGHT = { title: 4.0, headings: 2.5, tags: 3.0, body: 1.0 };
+export const FIELD_B = { title: 0.4, headings: 0.5, tags: 0.3, body: 0.75 };
+export const K1 = 1.2;
 
-const COVERAGE_MULTIPLIER = 2.0;
+export const COVERAGE_MULTIPLIER = 2.0;
 
-const PREFIX_MIN_CHARS = 3;
-const PREFIX_MAX_EXPANSIONS = 10;
-const PREFIX_MULTIPLIER = 0.7;
+export const PREFIX_MIN_CHARS = 3;
+export const PREFIX_MAX_EXPANSIONS = 10;
+export const PREFIX_MULTIPLIER = 0.7;
 
-const FUZZY_MIN_DICE = 0.55;
-const FUZZY_MAX_CANDIDATES = 2;
-const FUZZY_MULTIPLIER = 0.5;
+export const FUZZY_MIN_DICE = 0.55;
+export const FUZZY_MAX_CANDIDATES = 2;
+export const FUZZY_MULTIPLIER = 0.5;
 
-const PAGERANK_DAMPING = 0.85;
-const PAGERANK_ITERATIONS = 20;
-const PAGERANK_BASE = 0.75;
-const PAGERANK_SPAN = 0.25;
+export const PAGERANK_DAMPING = 0.85;
+export const PAGERANK_ITERATIONS = 20;
+export const PAGERANK_BASE = 0.75;
+export const PAGERANK_SPAN = 0.25;
 
-const RECENCY_MAX_BONUS = 0.3;
-const RECENCY_DECAY_DAYS = 90;
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
+export const RECENCY_MAX_BONUS = 0.3;
+export const RECENCY_DECAY_DAYS = 90;
+export const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-const MAX_RESULTS = 50;
+export const MAX_RESULTS = 50;
 
 /** First-occurrence order preserved; later duplicates dropped. */
 function dedupe(list) {

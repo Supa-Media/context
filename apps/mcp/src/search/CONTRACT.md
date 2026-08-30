@@ -147,7 +147,10 @@ constants are pinned; the corpus they are computed against is per-caller.**
   itself when nothing is hidden, and throws on a predicate it cannot call —
   returning the index whole would silently restore the leak.
 - `rankedVisibleTo(ranked, isVisible, prefix) → ranked'`, the same predicate
-  applied to the output. Redundant with `visibleIndex` by construction and kept
+  applied to the output. The sequential walk is a known wall-clock cost at high shard
+counts (64 serial GETs); a fetch/parse split that reads in bounded waves while
+parsing one at a time is the queued follow-up, and amending this sentence
+without building it would be the contract describing code that does not exist. Redundant with `visibleIndex` by construction and kept
   anyway: it is the half that does not depend on `visibleIndex` being correct.
   Being redundant, it is also unreachable by any end-to-end test, so it is a
   separate function with its own checks rather than an inline filter.
@@ -188,3 +191,84 @@ because a typo'd var must not take search down or unbounded):
 The index never gates correctness: a search with no usable index falls back to
 the bounded scan, and the scan is itself capped below the subrequest budget so
 it degrades instead of throwing `Too many subrequests`.
+
+# The sharded index — format contract (v2)
+
+v1's single object has a hard ceiling: it must be parsed whole, so
+`INDEX_PARSE_BYTE_CAP` bounds it, and a brain whose capped index exceeds that
+bound plateaus at partial coverage forever — measured live at roughly a
+thousand docs of contact-heavy vocabulary. v2 removes the whole-object parse:
+many small shards, each always under its own cap, streamed at query time so
+peak memory is one shard.
+
+## Objects
+
+- `.index/v2/manifest.json` — the diff surface and the stats. Carries
+  `{version: 2, shardCount, generatedAt, docsByShard, stats}` where
+  `docsByShard` is an array of `shardCount` arrays of `[path, version]` pairs
+  (the same listing-derived version token v1 stores), and `stats` is an array
+  of per-shard `{docCount, lenTotals: {title, headings, tags, body}}`. The
+  maintenance diff needs no shard reads: listing vs manifest decides staleness.
+  Serialized as arrays of pairs throughout — the v1 prototype-pollution rule.
+- `.index/v2/shard-<nnn>.json` — `nnn` is the zero-padded decimal shard id. A
+  shard is a v1-shaped `{version: 2, docs, terms}` over only its docs.
+
+A note belongs to shard `fnv1a32(path) % shardCount` (FNV-1a, 32-bit,
+offset-basis 2166136261, prime 16777619 — pinned so every writer agrees).
+`shardCount` is chosen when the manifest is first created —
+`clamp(ceil(listedNoteCount / 300), 1, 64)` — and never changes for the life
+of the index; a brain that outgrows it is re-sharded by deleting the manifest
+(everything here is disposable). A one-note brain gets one shard, so small
+contexts pay v1's costs plus one manifest read.
+
+## Caps
+
+`SHARD_PARSE_BYTE_CAP = 2MB` per shard and the same rule in both directions as
+v1: a shard too big to read is refused unparsed and rebuilt; a shard the sync
+built past the cap is not written (that shard plateaus, `pending` says so).
+The manifest has its own `MANIFEST_PARSE_BYTE_CAP = 4MB`; an unreadable or
+oversized manifest is a full rebuild. `NOTE_INDEX_CHAR_CAP` stays as v1.
+
+## Maintenance
+
+Per pass, budget-bounded exactly as v1: GET manifest → list notes → diff
+against `docsByShard` → group stale docs by shard → for each shard with stale
+docs (in shard-id order): GET shard (skip if the manifest says it has no docs
+yet), fetch stale notes in waves, addDoc/removeDoc, write the shard
+(byte-capped, unconditional — the manifest is the concurrency point), update
+that shard's `docsByShard`/`stats` entries → finally write the manifest
+conditional on the etag it was read at; on conflict serve the query and skip,
+as v1 does. A legacy `.index/search-v1.json` found while a manifest exists is
+deleted when budget allows — disposable, and dead weight.
+
+## Query
+
+Gather-then-score, streaming: GET manifest → for each non-empty shard (the
+manifest's docCount decides — an empty shard is never fetched), sequentially
+today: parse, collect the
+query terms' postings, each term's per-shard df, per-shard prefix/fuzzy vocab
+expansions, and doc metadata for candidate paths only, then release the shard.
+After all shards: assemble global `N`, `avglen` and per-term df **from the
+visible docs encountered during the walk** — never from manifest stats, which
+are bookkeeping only, and never over all docs: the v1 inference-oracle rule
+(`visibleIndex`) carries over whole, so every statistic and every expansion
+vocabulary is computed on the caller's visible corpus. Score the merged
+candidates with v1 semantics; `rankedVisibleTo`/`canSee` apply unchanged at
+the output. The sequential walk is a known wall-clock cost at high shard
+counts (64 serial GETs); a fetch/parse split that reads in bounded waves while
+parsing one at a time is the queued follow-up, and amending this sentence
+without building it would be the contract describing code that does not exist.
+
+**PageRank is neutral (rank = 1) in v2**, deliberately: a global link graph
+needs every shard in memory at maintenance time, which is the exact blowup v2
+exists to remove. The 0.75–1.0 multiplier band is given up; BM25F, coverage,
+expansion and recency carry ranking. Revisit only with a design that keeps the
+one-shard memory bound.
+
+## Costs
+
+Steady state: 1 manifest GET + `shardCount` shard GETs + 2–4 lists + 10
+snippet reads. At 64 shards that is ~80 ops — paid-plan territory; a
+deployment on the free tier keeps small brains (shardCount 1–2) inside its
+budget and larger ones degrade to the bounded scan honestly, which is v1's
+behavior too.

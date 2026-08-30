@@ -6,6 +6,9 @@ import { runOrientationChecks } from "./orientation.test.mjs";
 import { runSearchIndexerChecks } from "./searchIndexer.test.mjs";
 import { runSearchIntegrationChecks } from "./searchIntegration.test.mjs";
 import { runSearchQueryChecks } from "./searchQuery.test.mjs";
+import { runSearchShardQueryChecks } from "./searchShardQuery.test.mjs";
+import { runSearchShardsChecks } from "./searchShards.test.mjs";
+import { runSearchV2IntegrationChecks } from "./searchV2Integration.test.mjs";
 import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
 import {
@@ -3366,6 +3369,12 @@ await runOrientationChecks(check);
 await runSearchIndexerChecks(check);
 await runSearchQueryChecks(check);
 await runSearchIntegrationChecks(check);
+// The sharded index (v2), in the same three layers: the storage half against
+// its own instrumented bucket, the query half as pure functions over fixtures,
+// and the gateway wired to both through the worker.
+await runSearchShardsChecks(check);
+await runSearchShardQueryChecks(check);
+await runSearchV2IntegrationChecks(check);
 
 await runTenancyChecks(check);
 
