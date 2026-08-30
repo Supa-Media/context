@@ -2961,6 +2961,111 @@ check(
   "a note the caller cannot see resolves nothing",
   refusalText(teamReachingIntoPrivate) === REFUSAL
 );
+
+/**
+ * **The exact-note override, which every other fixture here is uniform against.**
+ *
+ * `teamReachingIntoPrivate` above is private by its FOLDER — `secret-thing` is
+ * a `folder_defaults` entry — and so is every other private note in this
+ * suite's manifest, whose `note_overrides` block is seeded empty. That
+ * uniformity is the axis `toolReadImage`'s single `canSee(notePath, …)` was
+ * unpinned along, and it was found by measurement rather than by reading:
+ * replacing that call with a probe of the note's FOLDER left every check in
+ * this file passing.
+ *
+ * It would not be an idle refactor to make. `visibleIndex` in
+ * `src/search/query.js` calls `canSee` "the expensive thing in this function",
+ * which is an invitation to cache it per folder — and
+ * `effectiveVisibility(key, rules, overrides)` is
+ * `overrides?.get(key) || visibilityOf(key, rules)`, keyed on the note's OWN
+ * path. A folder probe therefore never sees an override, and a team connection
+ * would read every image referenced by a note its owner had deliberately made
+ * private inside a shared folder — the exception mechanism, which is the whole
+ * point of having one.
+ *
+ * The note below lives in `1-projects/portable`, a team folder, and is narrowed
+ * by `set_visibility` rather than by the manifest. The team read BEFORE the
+ * narrowing is the positive control: without it a note that was never readable
+ * would satisfy the assertion after.
+ */
+const OVERRIDE_IMAGE = `${"9".repeat(64)}.png`;
+await contextStore.put(`.images/${OVERRIDE_IMAGE}`, PNG_BYTES);
+const overridePath = "1-projects/portable/override-image.md";
+await contextStore.put(
+  overridePath,
+  `# team note, for now\n\n![a screenshot](.images/${OVERRIDE_IMAGE})\n`
+);
+check(
+  "the positive control: a team folder's note resolves its image for a team caller",
+  (await call("team-token", "read_image", {
+    note: overridePath,
+    image: `.images/${OVERRIDE_IMAGE}`,
+  })).content?.find((block) => block.type === "image")?.data === PNG_BASE64
+);
+const overrideEtag = (await call("priv-token", "read_note", { path: overridePath }))
+  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
+const narrowedByOverride = await call("priv-token", "set_visibility", {
+  path: overridePath,
+  visibility: "private",
+  expected_etag: overrideEtag,
+});
+check(
+  "the narrowing itself succeeded, so the assertion below is about visibility",
+  !narrowedByOverride.isError &&
+    (await call("team-token", "read_note", { path: overridePath }))?.isError === true
+);
+const teamReachingIntoOverride = await call("team-token", "read_image", {
+  note: overridePath,
+  image: `.images/${OVERRIDE_IMAGE}`,
+});
+check(
+  "a note made private by exact-note override resolves no image for a team caller",
+  refusalText(teamReachingIntoOverride) === REFUSAL
+);
+
+/**
+ * **And the other direction, because the fixture above only narrows.**
+ *
+ * A folder probe that honoured a *narrowing* override and ignored a *widening*
+ * one would pass every check to this point — measured, 805 of 805. The axis
+ * this file's own new fixture holds constant is the override's direction, and
+ * the law it was written to demonstrate applies to it as much as to anything
+ * else.
+ *
+ * `2-areas/private/meetings/inherited-private.md` is already published to
+ * `team` by exact override inside a private folder, further up this file, so
+ * the case costs an image and a read rather than a new scenario. It fails
+ * closed rather than open — a probe that missed it would refuse a read the
+ * owner deliberately published — which is why it is a second check here and not
+ * the first.
+ */
+const WIDENED_IMAGE = `${"8".repeat(64)}.png`;
+await contextStore.put(`.images/${WIDENED_IMAGE}`, PNG_BYTES);
+const widenedPath = "2-areas/private/meetings/widened-image.md";
+await contextStore.put(
+  widenedPath,
+  `# published inside a private folder\n\n![a screenshot](.images/${WIDENED_IMAGE})\n`
+);
+const widenedEtag = (await call("priv-token", "read_note", { path: widenedPath }))
+  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
+const widenedByOverride = await call("priv-token", "set_visibility", {
+  path: widenedPath,
+  visibility: "team",
+  expected_etag: widenedEtag,
+  confirm_team_publish: true,
+});
+check(
+  "the widening itself succeeded, so the assertion below is about visibility",
+  !widenedByOverride.isError &&
+    !(await call("team-token", "read_note", { path: widenedPath }))?.isError
+);
+check(
+  "a note published by exact-note override inside a private folder resolves its image",
+  (await call("team-token", "read_image", {
+    note: widenedPath,
+    image: `.images/${WIDENED_IMAGE}`,
+  })).content?.find((block) => block.type === "image")?.data === PNG_BASE64
+);
 const missingNote = await call("priv-token", "read_image", {
   note: "1-projects/portable/does-not-exist.md",
   image: `.images/${TEAM_IMAGE}`,
@@ -2978,6 +3083,7 @@ check(
     refusalText(unreferenced),
     refusalText(orphan),
     refusalText(teamReachingIntoPrivate),
+    refusalText(teamReachingIntoOverride),
     refusalText(missingNote),
     refusalText(missingImage),
   ]).size === 1
