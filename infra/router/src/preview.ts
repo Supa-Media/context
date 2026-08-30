@@ -374,9 +374,12 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
   //
   // This is the control plane's `isProductMandatedPath` restated, and the list
   // is duplicated because this package cannot import from `apps/convex`. It
-  // saves the round trip; `previewForNote` is where it is enforced. The two
-  // copies are held together by running both against the same names rather
-  // than by this comment.
+  // saves the round trip; `previewForNote` is where it is enforced.
+  //
+  // Note that `privacy.md` in that Set is masked by the explicit plumbing line
+  // above and cannot be pinned here — same shape as `scopes.yml`, and named for
+  // the same reason: a masked guard should say so rather than let a reader
+  // discover it by deleting it.
   if (PRODUCT_MANDATED_PATHS.has(path)) return null;
 
   return { slug, path };
@@ -386,10 +389,15 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
  * Every note path this product writes into a brain before its owner does.
  *
  * `apps/convex/functions/lib/scaffold.ts` is the source of truth — `INDEX_KEY`,
- * `PRIVACY_KEY` and a `README.md` per `PARA_FOLDERS` entry — plus the root
- * `todo.md` the connected-client house rules mandate. This package is a
- * separate deployment and cannot import that module, so the list is restated
- * and pinned by a test that names the same seven.
+ * `PRIVACY_KEY`, a `README.md` per `PARA_FOLDERS` entry, and `GENERIC_ROOT_KEYS`.
+ * This package is a separate deployment and cannot import that module, so the
+ * list is restated here.
+ *
+ * The restatement is checked rather than trusted: `teamShare.test.ts` reads this
+ * file, extracts this literal, and asserts it equals what the control plane
+ * derives. Drift is not dangerous — the derived copy is authoritative, so a
+ * stale list here costs a wasted round trip and never a title — but it would be
+ * silent, and silent is how the folder count stayed at five.
  */
 const PRODUCT_MANDATED_PATHS = new Set([
   "index.md",

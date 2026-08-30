@@ -527,6 +527,16 @@ export async function listFolder(
  * Used only for a withheld folder's reported default, and the walk is the whole
  * point: it steps over every ancestor the caller cannot see, so the word it
  * ends up printing is one they could have read off their own tree anyway.
+ *
+ * "Off their own tree" is true and is not by itself enough — it does not
+ * obviously close the case of a path several levels below anything visible. The
+ * tight argument is that `folderVisibleAtScope` is **upward-closed**: a team
+ * rule or override beneath `F` is also beneath every ancestor of `F`, so if `F`
+ * is visible its whole ancestor chain is. What this returns is therefore the
+ * LONGEST VISIBLE PREFIX of the queried path — which the caller can compute
+ * unaided by listing down from the root, and can query directly, since being
+ * visible is exactly what stops it being withheld. At any depth, it can only
+ * print something they already had.
  */
 function nearestVisibleAncestor(
   folder: string,

@@ -23,7 +23,15 @@
 
 import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
-import { scaffoldFiles } from "../functions/lib/scaffold";
+import { readFileSync } from "node:fs";
+import {
+  GENERIC_ROOT_KEYS,
+  INDEX_KEY,
+  PARA_FOLDERS,
+  PRIVACY_KEY,
+  isProductMandatedPath,
+  scaffoldFiles,
+} from "../functions/lib/scaffold";
 import { isPlumbing } from "../functions/lib/privacy";
 import type { Id } from "../_generated/dataModel";
 import {
@@ -583,6 +591,44 @@ describe("a folder gets a link too", () => {
     expect(
       await t.query(api.functions.shares.previewForNote, { slug: "owner-brain", path }),
     ).toEqual({ title: null, cardToken: null });
+  });
+
+  /**
+   * The router's restated copy really does restate this one.
+   *
+   * `infra/router/src/preview.ts` refuses the same names to save a round trip,
+   * and it holds a hand-written literal because it is a separate deployment
+   * that cannot import this module. The comment there claimed the two were
+   * "held together by running both against the same names"; they were not, and
+   * a comment claiming a check nobody wrote is the thing that went wrong one
+   * commit ago in `listFolder`. So here is the check.
+   *
+   * It reads the router's source rather than importing it, which is what the
+   * mobile scope mirror does in `__tests__/consentScopes.test.ts` for the same
+   * reason. Drift is not dangerous — the derived copy here is authoritative, so
+   * a stale router costs a wasted round trip and never a title — but it is
+   * silent, and silent is how the folder count stayed at five.
+   */
+  test("the edge router refuses exactly the same names", () => {
+    const source = readFileSync(
+      new URL("../../../infra/router/src/preview.ts", import.meta.url),
+      "utf8",
+    );
+    const literal = source.match(/const PRODUCT_MANDATED_PATHS = new Set\(\[([^\]]*)\]\)/);
+    expect(literal, "PRODUCT_MANDATED_PATHS is not a literal Set in preview.ts").not.toBeNull();
+    const routed = [...literal![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+
+    const authoritative = [
+      INDEX_KEY,
+      PRIVACY_KEY,
+      ...GENERIC_ROOT_KEYS,
+      ...PARA_FOLDERS.map((folder) => `${folder}/README.md`),
+    ];
+
+    expect([...routed].sort()).toEqual([...authoritative].sort());
+    // ...and the literal is not merely equal to the list, it is equal to what
+    // the predicate actually does, which is the thing the router is mirroring.
+    for (const path of routed) expect(isProductMandatedPath(path)).toBe(true);
   });
 
   /**

@@ -429,10 +429,20 @@ An earlier version of this paragraph said the space was "five" and that "a note
 filename is not" guessable. Both were wrong, and wrong in the way this file
 warns about: counted once, for folders, and never recounted when the rule was
 written down as a general one. `isProductMandatedPath` is the list, and its test
-drives `scaffoldFiles` rather than restating it, so a seventh scaffolded file
-cannot quietly become a seventh guess. `infra/router/src/preview.ts` keeps a
-second copy because it is a separate deployment and cannot import the first; the
-two are held together by running both against the same names.
+drives `scaffoldFiles` rather than restating it, so a new scaffolded file cannot
+quietly become a new guess. `infra/router/src/preview.ts` keeps a second copy
+because it is a separate deployment and cannot import the first; a test reads
+that file and asserts the two agree, rather than a comment saying they do.
+
+One entry is not on the product's own authority and is labelled that way.
+`todo.md` is a name the owner chose — `apps/mcp/src/index.js` deliberately
+removed the `todo.md` and agent-ledger conventions from the server instructions
+as "one customer's house rules" — and it is refused on the weaker ground that it
+is a guess anybody would make. That argument is unbounded (`notes.md`,
+`journal.md`), so the list stops at one entry and the residual is stated rather
+than papered over: a generic filename the owner picked is still previewable.
+The `custom` scaffold template is out of scope for the same reason in reverse —
+its folder names are the owner's, so nothing about them is guessable.
 
 The rule is enforced in `previewForNote` (the control plane, where it counts)
 and restated in `infra/router/src/preview.ts` (which only saves the round trip).

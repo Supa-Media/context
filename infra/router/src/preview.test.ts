@@ -624,7 +624,12 @@ describe("a readable team link", () => {
    * an arbitrary filename is. Restated here from
    * `apps/convex/functions/lib/scaffold.ts` because this package is a separate
    * deployment; the control-plane copy is driven off `scaffoldFiles` directly,
-   * so a seventh scaffolded file fails there and this list is the one to update.
+   * so a new scaffolded file fails there and this list is the one to update —
+   * and `teamShare.test.ts` asserts these eight equal what it derives, so the
+   * update is not optional.
+   *
+   * `privacy.md` is in the list and passes here whatever the note-only rule
+   * does, because the explicit plumbing line above already refuses it.
    */
   it.each([
     "index.md",
