@@ -72,18 +72,46 @@
  *    with a list the view deliberately did not narrow; the same sabotage fails
  *    2 there.
  *
- * 7. **The write-side byte cap**, five ways. Guard off (`if (false && …)`) and
- *    a write cap of its own (`byteCap * 3`) each failed 3; measuring UTF-16
- *    code units instead of UTF-8 bytes, and the fast-accept bound tightened
- *    from three bytes per unit to two, each failed 1 — the multibyte check, in
- *    both cases the only one that could tell. The read consulting the module
- *    constant while the write consulted the injected parameter failed 1, the
- *    both-directions check. Each was run four times: the first version of the
- *    grow assertions compared stored *bodies* and caught the third mutation
- *    only 3 runs in 8, because a rebuild of the same notes differs from the
- *    original in `generatedAt` alone and the two syncs often land in the same
+ * 7. **The write-side byte cap.** Counts below are as measured against the
+ *    final fixtures, re-taken after each round of new checks — the first
+ *    version of this list was written before findings 8 and 9 landed and was
+ *    wrong within the same commit, which is the register's own "a measurement
+ *    has a timestamp" arriving inside a sabotage record.
+ *
+ *      guard off (`if (false && …)`)                     4
+ *      UTF-16 code units instead of bytes                1
+ *      a write cap of its own (`byteCap * 3`)            1
+ *      the read consulting the module constant           1
+ *      fast-accept bound tightened, 3 -> 2 bytes/unit    2
+ *
+ *    Each was run three or four times. The first version of the grow
+ *    assertions compared stored *bodies* and caught the third mutation in only
+ *    3 runs of 8: a rebuild of the same notes differs from the original in
+ *    `generatedAt` alone, and the two syncs often land in the same
  *    millisecond. Comparing the stub's per-put etag makes "was it replaced" an
- *    identity question, and all five became deterministic.
+ *    identity question, and every count above became deterministic — including
+ *    that mutation's, which is honestly 1 rather than the 3 the flaky version
+ *    reported.
+ * 8. **Three more, found in review, walking straight through all five above**,
+ *    each now failing 1: a strictly-conservative `value.length * 3 > cap` that
+ *    never measures — never wrong about an overflow, and silently pinning a
+ *    Latin-script bucket at a third of the real ceiling, invisible because
+ *    every fixture body sat well under `cap/3` or far over `cap`; a **second
+ *    return literal** on the refusal path, which the commit message credited
+ *    `finish()` with preventing while nothing read `pending`, `listingTruncated`
+ *    or `spent`; and a **read made strict** (`< byteCap`), which is the
+ *    two-caps-disagree loop one byte wide. The fixtures that close them are a
+ *    body *exactly* at the cap, and a refusal driven on a pass that ran out of
+ *    budget — a converged fixture cannot tell `pending` from a hardcoded `0`.
+ *    A fourth, `byteCap` losing its `Number.isFinite` check, also fails 1.
+ * 9. **The byte counter itself, five ways**, all caught by the corpus check in
+ *    `searchIndexer.test.mjs`: a surrogate pair counted as three bytes; a lone
+ *    surrogate as two; the 2-byte boundary off by one; `>=` for `>` (2, since
+ *    it also moves the boundary fixture); and pair detection dropping the
+ *    check on the *second* half. The last needed two corpus entries added — in
+ *    every case already there the two readings total the same (a lone high
+ *    before a space is 3 + 1, mistaking it for a pair is 4), so the mutation
+ *    agreed with the encoder by coincidence.
  *
  * The three channels above were all measured *before* the fix and all three
  * failed, end to end through the worker with a real `context:read` editor
@@ -845,7 +873,7 @@ export async function runSearchIntegrationChecks(check) {
       // stub mints a fresh etag per put, and a rebuild of the same four notes
       // differs from the original only in `generatedAt` — a millisecond apart
       // or not at all depending on the clock, which is a flaky test either way.
-      const smallEtag = stored().etag;
+      let smallEtag = stored().etag;
 
       // One number, both directions. A converged index costs no note reads; the
       // same index under a cap it already exceeds costs four, because it is
@@ -863,10 +891,48 @@ export async function runSearchIntegrationChecks(check) {
         idleGets === 0 && grow.counts.noteGets.length === 4
       );
 
+      // The boundary itself, in both directions at once. A cap set to exactly
+      // the index's size must WRITE it — the read accepts `<=`, so anything
+      // stricter on the write is the two-caps-disagree loop, one byte wide —
+      // and the object it wrote must then parse, which is the same claim from
+      // the other side. This is also the only fixture in the band where the
+      // measurement actually happens: every other body here is either well
+      // under a third of its cap or far over it, so a rule of `length * 3 >
+      // cap` — strictly conservative, never wrong about an overflow, and
+      // silently pinning a Latin-script bucket at a third of the real ceiling
+      // — passes everything else in this file.
+      grow.remove(SEARCH_INDEX_KEY);
+      await syncIndex(growStore, { budget: createSearchBudget(300), byteCap: smallBytes });
+      const atCap = stored();
+      grow.resetCounts();
+      const reread = await syncIndex(growStore, { budget: createSearchBudget(300), byteCap: smallBytes });
+      check(
+        "an index exactly at the cap is written, and reads back — the boundary is one boundary",
+        atCap !== undefined &&
+          new TextEncoder().encode(atCap.body).byteLength === smallBytes &&
+          grow.counts.noteGets.length === 0 &&
+          reread.index.docs.size === 4
+      );
+
+      // A default parameter fires on `undefined` alone, so an explicit `null`
+      // or a non-number is not the default — it is `length > null`, true for
+      // every non-empty body, and the index is never persisted again.
+      grow.remove(SEARCH_INDEX_KEY);
+      await syncIndex(growStore, { budget: createSearchBudget(300), byteCap: null });
+      check(
+        "a byteCap that is not a finite number falls back to the module's own, rather than refusing everything",
+        stored() !== undefined
+      );
+
+      // The two probes above deliberately replaced the stored object, so the
+      // baseline for "was it replaced" is re-taken rather than assumed.
+      smallEtag = stored().etag;
+
       // Well past three times the small index, so a write cap that drifted to
       // its own larger number is caught rather than accommodated.
       seedNotes(4, 60);
-      const overCap = { budget: createSearchBudget(300), byteCap: smallBytes + 200 };
+      const overBudget = createSearchBudget(300);
+      const overCap = { budget: overBudget, byteCap: smallBytes + 200 };
       const capped = await syncIndex(growStore, overCap);
       check(
         "an index that would cross the cap is not written, so the last readable one survives",
@@ -876,6 +942,30 @@ export async function runSearchIntegrationChecks(check) {
         "and the query that triggered the sync is still answered from what it built",
         capped.index.docs.size === 60
       );
+      // The refusal returns through the same `finish()` as the ordinary path,
+      // and until this check nothing in the file read any of its three numbers.
+      // A second return literal there — the cheap shape to expect, since the
+      // early return is right beside them — would be a caller told the index is
+      // complete by a pass that persisted nothing. `spent` is compared against
+      // the caller's own budget object rather than a constant, so a literal
+      // cannot coincide with it.
+      check(
+        "the refusal reports the live budget rather than a number of its own",
+        capped.spent === overBudget.spent && capped.spent > 0
+      );
+      {
+        // The discriminating half: a converged fixture cannot tell `pending`
+        // from a hardcoded `0`, so the refusal is also driven on a pass that
+        // ran out of budget, where the two differ.
+        const short = await syncIndex(growStore, {
+          budget: createSearchBudget(20),
+          byteCap: smallBytes + 200,
+        });
+        check(
+          "and a refusal on a pass that ran out of budget still says what it did not reach",
+          short.pending > 0 && short.index.docs.size < 60 && stored()?.etag === smallEtag
+        );
+      }
       const again = await syncIndex(growStore, { ...overCap, budget: createSearchBudget(300) });
       check(
         "a second pass under the same cap plateaus rather than cycling through a rebuild",

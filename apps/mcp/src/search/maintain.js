@@ -61,13 +61,21 @@ const LIST_PAGE_LIMIT = 1000;
  * the top-level catch — so search was down *because of* its own accelerator,
  * and no pass survived long enough to shrink the object. Refusing to parse is
  * what breaks that cycle: an oversized index is treated exactly like a corrupt
- * one, rebuilt from the notes under `NOTE_INDEX_CHAR_CAP`, and overwritten.
+ * one and rebuilt from the notes under `NOTE_INDEX_CHAR_CAP` — and overwritten
+ * *if the rebuild fits*, which since the write side exists is a condition
+ * rather than a promise.
  *
  * This is a ceiling, not a cure. A brain whose *capped* index still exceeds
  * this size (roughly 10k+ notes) plateaus: the last object small enough to
  * read survives, each pass rebuilds a fuller index in memory, answers the
  * query it was called for, and declines to persist it. Partial and stable
- * beats complete and unreachable, and `pending` keeps saying so. At that scale
+ * beats complete and unreachable, and `pending` keeps saying so. **The plateau
+ * assumes such an object exists.** A bucket whose very first pass overflows —
+ * measured with the real indexer at 880 dense 2KB notes, 12.2MB from empty —
+ * has no readable predecessor to fall back to, so it re-reads the unusable
+ * object on every search and never replaces it. Realistic prose at that note
+ * count is 5.6-7.9MB, so this is a corner rather than the norm; it is stated
+ * because it is the one shape the plateau does not cover. At that scale
  * the index needs sharding (per-folder postings, a small global-stats object);
  * that is v2 work, stated here so the plateau is recognized as this boundary
  * rather than rediscovered as a mystery.
@@ -89,7 +97,10 @@ const INDEX_PARSE_BYTE_CAP = 12_000_000;
  * the mid-thousands of notes built a capped index that still crossed
  * `INDEX_PARSE_BYTE_CAP`, so every pass refused it, rebuilt the same first
  * budget's worth of notes, and coverage never accumulated — the churn the cap's
- * own comment predicts, arriving well before the 10k-note guess. 2KB holds a
+ * comment predicted before the write side existed, arriving well before the
+ * 10k-note guess. (That churn is now a plateau; what 8KB proved is that a
+ * mid-thousands brain crosses the parse cap, which is why this number moved.)
+ * 2KB holds a
  * few-thousand-note brain comfortably under the parse cap; the durable fix at
  * the next order of magnitude is sharding, not a smaller number here.
  */
@@ -109,18 +120,46 @@ const FETCH_FLOOR = 2;
  * cap and then refuse it on every read after — the same defect wearing a
  * different alphabet.
  *
- * Encoding a twelve-megabyte string in order to count it allocates twelve
- * megabytes to enforce a memory ceiling, which is the wrong shape. Two exact
- * bounds make that unnecessary outside a narrow band: UTF-8 is never *fewer*
+ * **It counts without allocating**, which is the whole reason it is not one
+ * line of `new TextEncoder().encode(value).byteLength`. Encoding to measure
+ * spends a second full copy of the body — up to twelve megabytes, beside the
+ * ~24MB UTF-16 string it is copying — inside the 128MB limit this cap exists
+ * to respect. An earlier version did encode, and excused it as a narrow band
+ * the two bounds below would usually skip; that was backwards. An ASCII index
+ * has one byte to the code unit, so **everything from `cap/3` to `cap` — the
+ * entire useful range for a Latin-script bucket — is the band**, and the
+ * bounds spared only CJK-heavy or absurdly long bodies. Measured at twelve
+ * million characters the scan costs 44ms against 12ms for encoding, and the
+ * 12MB it does not allocate is the trade.
+ *
+ * The two bounds stay because they are exact and O(1): UTF-8 is never *fewer*
  * bytes than the string has UTF-16 code units, and never more than three per
- * unit (a surrogate pair is two units and four bytes). So a string longer than
- * the cap is over it, one under a third of the cap is under it, and only in
- * between is anything measured.
+ * unit (a surrogate pair is two units and four bytes; a lone surrogate is one
+ * unit and becomes U+FFFD, three). So a string longer than the cap is over it
+ * and one under a third of the cap is under it, without looking at a
+ * character. In between, the scan walks code units and stops the moment the
+ * running total crosses — checked against `TextEncoder` on all 65,536 BMP
+ * units and 40,000 random strings carrying astral pairs and unpaired
+ * surrogates, 607,680 comparisons, zero disagreements.
  */
-function exceedsUtf8Bytes(value, cap) {
+export function exceedsUtf8Bytes(value, cap) {
   if (value.length > cap) return true;
   if (value.length * 3 <= cap) return false;
-  return new TextEncoder().encode(value).byteLength > cap;
+  let bytes = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    const unit = value.charCodeAt(i);
+    if (unit < 0x80) bytes += 1;
+    else if (unit < 0x800) bytes += 2;
+    else if (unit >= 0xd800 && unit < 0xdc00 && i + 1 < value.length && (value.charCodeAt(i + 1) & 0xfc00) === 0xdc00) {
+      // A well-formed pair is one code point in four bytes. Consume both units;
+      // anything else — including a lone surrogate of either half — is the
+      // three-byte replacement character, which is what `TextEncoder` emits.
+      bytes += 4;
+      i += 1;
+    } else bytes += 3;
+    if (bytes > cap) return true;
+  }
+  return false;
 }
 
 /**
@@ -328,10 +367,18 @@ export async function syncIndex(
      * passes it. It is **one** parameter rather than a read cap and a write
      * cap, because two numbers that can disagree is the state this exists to
      * remove.
+     *
+     * Re-checked rather than trusted, the way `createSearchBudget` re-checks
+     * its own argument, because a default parameter only fires on `undefined`:
+     * `null` makes `length > cap` true for every non-empty body and the index
+     * is never persisted again, silently, while `NaN` or a string makes both
+     * comparisons false — the write always allowed and the read always refusing
+     * — which is precisely the divergent loop the single parameter removes.
      */
-    byteCap = INDEX_PARSE_BYTE_CAP,
+    byteCap: requestedByteCap = INDEX_PARSE_BYTE_CAP,
   } = {},
 ) {
+  const byteCap = Number.isFinite(requestedByteCap) ? requestedByteCap : INDEX_PARSE_BYTE_CAP;
   const ops = typeof budget === "object" && budget ? budget : createSearchBudget(budget);
 
   let index = emptyIndex();

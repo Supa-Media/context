@@ -19,6 +19,7 @@ import {
   serializeIndex,
   parseIndex,
 } from "../src/search/indexer.js";
+import { exceedsUtf8Bytes } from "../src/search/maintain.js";
 
 export async function runSearchIndexerChecks(check) {
   // -- field extraction --------------------------------------------------
@@ -275,6 +276,67 @@ export async function runSearchIndexerChecks(check) {
     check(
       "an ordinary plain object is unaffected by any of the above",
       JSON.stringify({}) === "{}"
+    );
+  }
+
+  // -- the write cap's byte count, against the encoder it stands in for ------
+  //
+  // `exceedsUtf8Bytes` exists so the sync can decide whether the serialized
+  // index fits *without* allocating a second copy of it to find out, inside
+  // the 128MB limit the cap is there to respect. That makes it a hand-written
+  // reimplementation of one line of `TextEncoder`, and the way to hold a
+  // second copy of a rule is to run both against a corpus rather than to read
+  // it — the method that beat reading in `#121`.
+  //
+  // The corpus is chosen for the four widths and the two ways a surrogate can
+  // appear, because those are what a plausible edit gets wrong: a pair is one
+  // code point in four bytes, and a *lone* surrogate of either half is not a
+  // code point at all — `TextEncoder` emits the three-byte replacement
+  // character, and a count that treated it as two would drift under the cap on
+  // exactly the malformed input a note is free to contain.
+  {
+    const encoder = new TextEncoder();
+    const corpus = [
+      "",
+      "a",
+      "plain ascii index body",
+      "\u0000\u007f\u0080\u07ff",
+      "\u0800\uffff",
+      "見出しの日本語",
+      "\u{1f600}\u{10ffff}",
+      "lone high \ud800 then text",
+      "lone low \udc00 then text",
+      "\ud800\ud800\udc00\udfff",
+      // A high surrogate followed by a multi-byte character. Not decoration:
+      // in every other malformed case here the two readings happen to total
+      // the same — a lone high before a space is 3 + 1, and mistaking them for
+      // a pair is 4 — so a pair test that never checks the *second* half
+      // agrees with the encoder by coincidence. These two are where it stops.
+      "\ud800\u6f22",
+      "\ud800\ud800",
+      "mixed aé漢\u{1f4a9}z",
+      "x".repeat(300),
+      "é".repeat(300),
+      "漢".repeat(300),
+      "\u{1f600}".repeat(300),
+    ];
+    let compared = 0;
+    const disagreements = [];
+    for (const value of corpus) {
+      const truth = encoder.encode(value).byteLength;
+      for (const cap of [0, 1, truth - 1, truth, truth + 1, Math.floor(truth / 2), value.length, value.length * 3]) {
+        compared += 1;
+        if (exceedsUtf8Bytes(value, cap) !== truth > cap) disagreements.push([value, cap, truth]);
+      }
+    }
+    check(
+      "the write cap's byte count agrees with TextEncoder on every width, both surrogate shapes, and each cap either side of the true size",
+      compared === corpus.length * 8 && disagreements.length === 0
+    );
+    check(
+      "and it answers without allocating: a body under a third of the cap and one longer than it are decided from the length alone",
+      exceedsUtf8Bytes("\u{1f600}".repeat(10), 1000) === false &&
+        exceedsUtf8Bytes("a".repeat(1001), 1000) === true
     );
   }
 }
