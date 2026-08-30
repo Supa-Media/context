@@ -146,9 +146,9 @@ describe("parsing an invitee", () => {
    * identical copy, on either side: re-inlining `raw.trim().toLowerCase()` into
    * `normalizeSignInEmail` left every check green until an identity assertion
    * was added there, and re-inlining `trimmed.toLowerCase()` into
-   * `parseInvitee` left **all 1,595 mobile and all 1,292 checks here** green —
-   * this table included, because it compares two functions that still return
-   * the same string. That half is now held by
+   * `parseInvitee` left **every check in both suites** green — this table
+   * included, because it compares two functions that still return the same
+   * string. That half is now held by
    * `__tests__/sharedEmailRule.test.ts`, which asserts the *call*.
    *
    * What this table catches is the moment such a copy *drifts* — dropping the

@@ -28,8 +28,8 @@ import { normalizeSignInEmail } from "../features/auth/email";
  * **The first check below is the one that closes the duplication rather than
  * its symptom.** No behavioural assertion can see a behaviourally identical
  * copy: measured with that check removed, re-inlining `raw.trim().toLowerCase()`
- * into `normalizeSignInEmail` left **every** check green — 1,594 here and 1,292
- * in the control plane. So `email.ts` re-exports the shared rule under its own
+ * into `normalizeSignInEmail` left **every** check green — zero failures here
+ * and zero in the control plane. So `email.ts` re-exports the shared rule under its own
  * name and this asserts the two are the same function object; the same
  * re-inline now fails here, and only here.
  *

@@ -13,14 +13,19 @@ import { describe, expect, test, vi } from "vitest";
  * The mobile half is pinned by identity — `email.ts` re-exports `normalizeEmail`
  * under its own name, so a copy is a different function object and
  * `signInEmail.test.ts` fails immediately. **The control plane's half had no
- * such pin, and the comment that said it did was wrong.** Measured before this
- * file existed:
+ * such pin, and the comment that said it did was wrong.** Measured with this
+ * file removed, which is the state it was written for:
  *
  * ```
  * const value = normalizeEmail(trimmed)  ->  const value = trimmed.toLowerCase()
- *   apps/mobile   1595 passed / 1595      0 failures
- *   apps/convex   1292 passed / 1292      0 failures
+ *   apps/mobile   0 failures
+ *   apps/convex   0 failures
  * ```
+ *
+ * With it, that mutation fails one — this file's first check. The zero is the
+ * point rather than the totals, which are counted here deliberately: a suite
+ * total is somebody else's merge away from being stale, and this comment has
+ * already carried one across a merge that moved it.
  *
  * That is the exact defect the shared rule was extracted to remove — a second
  * copy that agrees today — and the drift table in `invitations.test.ts` cannot
@@ -39,7 +44,7 @@ import { describe, expect, test, vi } from "vitest";
  *
  * ```
  * normalizeEmail(trimmed);
- * const value = trimmed.toLowerCase();   ->  1294 passed / 1294, 0 failures
+ * const value = trimmed.toLowerCase();   ->  0 failures, either suite
  * ```
  *
  * because the value is compared against the same rule applied to the same

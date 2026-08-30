@@ -50,8 +50,10 @@
  *
  * That matters because a behavioural test cannot see the difference. Measured
  * before the identity check existed: re-inlining the identical chain here left
- * **every** check in both suites green — 1,594 in `apps/mobile`, 1,292 in
- * `apps/convex`. With the check, it fails one. Duplication is the defect this
+ * **every** check in both suites green — zero failures either side. With the
+ * check, it fails one. (Failure counts rather than suite totals, throughout:
+ * a total is somebody else's merge away from being stale, and one in this
+ * change already went stale that way.) Duplication is the defect this
  * move exists to remove; waiting for it to *become* a divergence is waiting for
  * the bug.
  *
