@@ -41,10 +41,164 @@ import { computeRanks } from "./query.js";
 export const SEARCH_INDEX_KEY = ".index/search-v1.json";
 
 const LIST_PAGE_LIMIT = 1000;
+/**
+ * The one size the index may reach, in bytes, and it governs both directions.
+ *
+ * A stored index past it is refused unparsed and rebuilt slim; an index the
+ * sync builds past it is not written at all. Those are two halves of one rule
+ * — **never store an object this same function will refuse to read** — and
+ * splitting them is not a smaller version of the cap, it is a loop: the write
+ * had no check for a while, so a growing brain stored an index it already knew
+ * it would reject, rebuilt from empty on the next pass, regrew, and refused
+ * again. Measured at 2,000 notes the coverage cycled `594 -> 1188 -> 1782 ->
+ * 594` forever, and at 900 larger-vocabulary notes a *converged* index
+ * (`pending: 0`) was written at 12.37MB and discarded unread.
+ *
+ * The Worker's 128MB memory limit is the one ceiling no plan raises, and
+ * `JSON.parse` of a large index inflates it several-fold in the heap. Measured
+ * live: a brain whose full-text chat archives had been indexed whole grew an
+ * index big enough that parsing it killed every invocation — uncatchably, past
+ * the top-level catch — so search was down *because of* its own accelerator,
+ * and no pass survived long enough to shrink the object. Refusing to parse is
+ * what breaks that cycle: an oversized index is treated exactly like a corrupt
+ * one and rebuilt from the notes under `NOTE_INDEX_CHAR_CAP` — and overwritten
+ * *if the rebuild fits*, which since the write side exists is a condition
+ * rather than a promise.
+ *
+ * This is a ceiling, not a cure. A brain whose *capped* index still exceeds
+ * this size (roughly 10k+ notes) plateaus: the last object small enough to
+ * read survives, each pass rebuilds a fuller index in memory, answers the
+ * query it was called for, and declines to persist it. Partial and stable
+ * beats complete and unreachable, and `pending` keeps saying so. **The plateau
+ * assumes such an object exists.** A bucket whose very first pass already
+ * overflows has no readable predecessor at all: the write is refused, so
+ * nothing is ever stored, and every search re-lists, re-fetches every note
+ * body it can afford, rebuilds from empty and answers from that. It is the
+ * most expensive shape here — and it is still **cheaper than what this change
+ * replaced**, which is worth stating plainly because the opposite reads like a
+ * reason to revert. Both loops measured on one bucket, 20 notes against a
+ * 5,000-byte cap, three consecutive passes each:
+ *
+ *              subrequests   puts   note reads   bytes read   bytes written
+ *   read cap        24         1        20         51,386        42,976
+ *   both sides      23         0        20          8,410             0
+ *
+ * with `docs: 20, pending: 0` on both. The old path did not accumulate
+ * anything either — it wrote an object it refused on the next read, then paid
+ * to read it again. Refusing the write drops a subrequest, the write, and the
+ * re-read, and costs nothing.
+ *
+ * Reaching it takes a bucket whose *capped* index overflows inside one pass.
+ * Index size at a given note count is a function of distinct-token volume and
+ * path length rather than of note size alone, so there is no single note count
+ * that names it: at 880 notes of 2KB the real indexer spans 0.19MB to 19.15MB
+ * across vocabularies, and Zipfian prose lands at 6.4-8.3MB. It is a corner
+ * rather than the norm, and it is stated because it is the one shape the
+ * plateau does not cover. At that scale the index needs sharding (per-folder
+ * postings, a small global-stats object); that is v2 work, stated here so the
+ * plateau is recognized as this boundary rather than rediscovered as a
+ * mystery.
+ */
+const INDEX_PARSE_BYTE_CAP = 12_000_000;
+/**
+ * At most this much of one note's content is indexed.
+ *
+ * An ordinary note is estimated at a few KB and the outliers are saved chat
+ * sessions and agent ledgers at 64KB+ — an estimate, never measured, and said
+ * as one because every other number in this file is a measurement and an
+ * unmarked guess beside them reads as one. Indexing the outliers whole is what
+ * bloated the index past the memory ceiling above.
+ *
+ * The first N characters carry a note's frontmatter, title and opening prose —
+ * the parts ranking weighs most — and, on a long note, only the headings that
+ * fall inside them, since `extractFields` runs on the sliced text.
+ *
+ * At 8KB the recall lost really was "the tail of the largest logs". At 2KB
+ * that sentence is no longer true and saying it anyway would be the comment
+ * describing the number it used to hold: on the estimate above an ordinary
+ * note is now indexed by its opening rather than to its end, and a term deep
+ * inside one does not match. That is a real loss of recall on ordinary notes,
+ * accepted because an index that cannot be parsed loses all of them — and it
+ * is said out loud to the caller on a miss (`toolSearchNotes`) rather than
+ * left as a silent wrong answer. The cut is by characters of source text,
+ * before tokenization, so `len` and tf stay consistent with what was actually
+ * indexed.
+ *
+ * 2KB, down from 8KB. What is measured is that **8KB failed**: a live brain in
+ * the mid-thousands of notes built a capped index that still crossed
+ * `INDEX_PARSE_BYTE_CAP`, so every pass refused it, rebuilt the same first
+ * budget's worth of notes, and coverage never accumulated — the churn the cap's
+ * comment predicted before the write side existed, arriving well before the
+ * 10k-note guess. (That churn is now a plateau; what 8KB proved is that a
+ * mid-thousands brain crosses the parse cap, which is why this number moved.)
+ * 2KB is a four-fold extrapolation from that measurement rather than a second
+ * measurement, and it should be read as one: it holds a few-thousand-note
+ * brain under the parse cap by arithmetic, not by observation. The durable fix
+ * at the next order of magnitude is sharding, not a smaller number here — and
+ * a smaller number is now visibly expensive, because it costs recall on
+ * ordinary notes rather than on 64KB logs.
+ */
+export const NOTE_INDEX_CHAR_CAP = 2_048;
 /** Never spend the last op on listing or fetching; the write needs one. */
 const WRITE_RESERVE = 1;
 /** Nor let the listing consume everything a backfill would have used. */
 const FETCH_FLOOR = 2;
+
+/**
+ * Does `value` encode to more than `cap` bytes of UTF-8?
+ *
+ * The read side compares `bytes.byteLength`, so the write side has to answer
+ * in the same currency or the two disagree on exactly the buckets that need
+ * them to agree: a CJK index runs three bytes to the character, so a check
+ * counted in UTF-16 code units would store an object at up to three times the
+ * cap and then refuse it on every read after — the same defect wearing a
+ * different alphabet.
+ *
+ * **It counts without allocating**, which is the whole reason it is not one
+ * line of `new TextEncoder().encode(value).byteLength`. Encoding to measure
+ * spends a second full copy of the body — up to twelve megabytes, beside the
+ * ~24MB UTF-16 string it is copying — inside the 128MB limit this cap exists
+ * to respect. An earlier version did encode, and excused it as a narrow band
+ * the two bounds below would usually skip; that was backwards. An ASCII index
+ * has one byte to the code unit, so **everything from `cap/3` to `cap` — the
+ * entire useful range for a Latin-script bucket — is the band**, and the
+ * bounds spared only CJK-heavy or absurdly long bodies. Measured at twelve
+ * million characters the scan costs 44ms against 12ms for encoding, and the
+ * 12MB it does not allocate is the trade.
+ *
+ * The two bounds stay because they are exact and O(1): UTF-8 is never *fewer*
+ * bytes than the string has UTF-16 code units, and never more than three per
+ * unit (a surrogate pair is two units and four bytes; a lone surrogate is one
+ * unit and becomes U+FFFD, three). So a string longer than the cap is over it
+ * and one under a third of the cap is under it, without looking at a
+ * character. In between, the scan walks code units and stops the moment the
+ * running total crosses.
+ *
+ * Being a hand-written second copy of one line of `TextEncoder`, it is held
+ * the way two copies of any rule are held here — **both run against a corpus**,
+ * in `searchIndexer.test.mjs`, exhaustively over every BMP code unit and over
+ * a seeded pseudo-random corpus carrying astral pairs and unpaired surrogates
+ * of both halves. Reading it is not the check; the count in that file is.
+ */
+export function exceedsUtf8Bytes(value, cap) {
+  if (value.length > cap) return true;
+  if (value.length * 3 <= cap) return false;
+  let bytes = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    const unit = value.charCodeAt(i);
+    if (unit < 0x80) bytes += 1;
+    else if (unit < 0x800) bytes += 2;
+    else if (unit >= 0xd800 && unit < 0xdc00 && i + 1 < value.length && (value.charCodeAt(i + 1) & 0xfc00) === 0xdc00) {
+      // A well-formed pair is one code point in four bytes. Consume both units;
+      // anything else — including a lone surrogate of either half — is the
+      // three-byte replacement character, which is what `TextEncoder` emits.
+      bytes += 4;
+      i += 1;
+    } else bytes += 3;
+    if (bytes > cap) return true;
+  }
+  return false;
+}
 
 /**
  * The shared subrequest counter. Every `get`, `put` and `list` this module
@@ -229,6 +383,7 @@ async function listNoteObjects(store, budget, reserve, isIndexable) {
  *   budget: number | ReturnType<typeof createSearchBudget>,
  *   reserve?: number,
  *   isIndexable?: (key: string) => boolean,
+ *   byteCap?: number,
  * }} options `reserve` is store ops the caller keeps for its own later work.
  * @returns {Promise<{
  *   index: ReturnType<typeof emptyIndex>,
@@ -237,7 +392,31 @@ async function listNoteObjects(store, budget, reserve, isIndexable) {
  *   spent: number,
  * }>} `pending` is stale notes this pass did not get to.
  */
-export async function syncIndex(store, { budget, reserve = 0, isIndexable = defaultIsIndexable } = {}) {
+export async function syncIndex(
+  store,
+  {
+    budget,
+    reserve = 0,
+    isIndexable = defaultIsIndexable,
+    /**
+     * Injectable so a test can drive the whole loop against a small number
+     * instead of building twelve real megabytes of JSON, which would take
+     * thousands of notes and minutes of wall clock. Nothing in production
+     * passes it. It is **one** parameter rather than a read cap and a write
+     * cap, because two numbers that can disagree is the state this exists to
+     * remove.
+     *
+     * Re-checked rather than trusted, the way `createSearchBudget` re-checks
+     * its own argument, because a default parameter only fires on `undefined`:
+     * `null` makes `length > cap` true for every non-empty body and the index
+     * is never persisted again, silently, while `NaN` or a string makes both
+     * comparisons false — the write always allowed and the read always refusing
+     * — which is precisely the divergent loop the single parameter removes.
+     */
+    byteCap: requestedByteCap = INDEX_PARSE_BYTE_CAP,
+  } = {},
+) {
+  const byteCap = Number.isFinite(requestedByteCap) ? requestedByteCap : INDEX_PARSE_BYTE_CAP;
   const ops = typeof budget === "object" && budget ? budget : createSearchBudget(budget);
 
   let index = emptyIndex();
@@ -247,10 +426,17 @@ export async function syncIndex(store, { budget, reserve = 0, isIndexable = defa
   const stored = await store.get(SEARCH_INDEX_KEY);
   const storedEtag = typeof stored?.etag === "string" && stored.etag ? stored.etag : null;
   if (stored) {
-    // A corrupt or wrong-version index is a rebuild, never a throw: `parseIndex`
-    // answers null for anything it cannot fully validate, and the conditional
-    // put below replaces the bad object with a good one.
-    index = parseIndex(await stored.text()) || emptyIndex();
+    // A corrupt, wrong-version, or oversized index is a rebuild, never a
+    // throw: `parseIndex` answers null for anything it cannot fully validate,
+    // the byte cap refuses to even parse an object big enough to endanger the
+    // memory limit, and the conditional put below replaces the bad object with
+    // a good one. The size is read from the bytes, not a header, because the
+    // header is the backend's word for it.
+    const bytes = await stored.arrayBuffer();
+    index =
+      (bytes.byteLength <= byteCap &&
+        parseIndex(new TextDecoder().decode(bytes))) ||
+      emptyIndex();
   }
 
   const { entries, regionComplete, truncated } = await listNoteObjects(
@@ -276,54 +462,112 @@ export async function syncIndex(store, { budget, reserve = 0, isIndexable = defa
     if (!doc || doc.etag !== listed.version) stale.push([path, listed]);
   }
 
+  // Fetched in parallel waves, indexed in `stale` order once a wave lands.
+  //
+  // This loop was one awaited GET at a time, and that was a wall-clock bug the
+  // subrequest budget could not see: a paid-plan budget of 600 authorizes ~580
+  // fetches, which sequentially is 30-60 seconds — past what MCP clients wait —
+  // so the client timed out, the invocation died with it, the conditional put
+  // never ran, and a *bigger* budget made convergence *less* likely. Measured
+  // live before any client saw a converged index. The budget is still taken
+  // one op per fetch, before the fetch, on one shared counter; only the
+  // waiting overlaps. `addDoc` runs wave by wave in list order, so what the
+  // index contains for a given spend is what the sequential loop would have
+  // built.
+  const BACKFILL_CONCURRENCY = 12;
   let processed = 0;
-  for (const [path, listed] of stale) {
-    if (!ops.take(reserve + WRITE_RESERVE)) break;
-    let object;
-    try {
-      object = await store.get(path);
-    } catch {
-      // One unreadable note must not cost the query its whole answer — and it
-      // must not cost the *rest of the backfill* either. This used to `break`,
-      // which parked the sync at the same note on every pass forever: the stale
-      // list is in listing order, so a single key the adapter refuses (a
-      // backslash, a control character — keys Obsidian and rclone write without
-      // asking us) stalled indexing for every note that sorts after it. That is
-      // the census's "one oddly named folder suppressed the whole count" trap,
-      // one layer down. Skip it instead: the attempt already spent its budget
-      // op, so a bucket full of unreadable notes still terminates, and the note
-      // stays in `pending`, so the floor language keeps being said.
-      continue;
+  for (let start = 0; start < stale.length; start += BACKFILL_CONCURRENCY) {
+    const wave = [];
+    for (const entry of stale.slice(start, start + BACKFILL_CONCURRENCY)) {
+      if (!ops.take(reserve + WRITE_RESERVE)) break;
+      wave.push(
+        (async ([path, listed]) => {
+          let object;
+          try {
+            object = await store.get(path);
+          } catch {
+            // One unreadable note must not cost the query its whole answer —
+            // and it must not cost the *rest of the backfill* either. An
+            // earlier version stopped the walk here, which parked the sync at
+            // the same note on every pass forever: the stale list is in
+            // listing order, so a single key the adapter refuses (a backslash,
+            // a control character — keys Obsidian and rclone write without
+            // asking us) stalled indexing for every note that sorts after it.
+            // That is the census's "one oddly named folder suppressed the
+            // whole count" trap, one layer down. Skip it: the attempt already
+            // spent its budget op, so a bucket full of unreadable notes still
+            // terminates, and the note stays in `pending`, so the floor
+            // language keeps being said.
+            return null;
+          }
+          if (!object) return { path, gone: true };
+          const full = await object.text();
+          const content = full.length > NOTE_INDEX_CHAR_CAP ? full.slice(0, NOTE_INDEX_CHAR_CAP) : full;
+          // Record the token the *next* listing will report, or the diff never
+          // converges. Where the listing carries a real etag that is the etag
+          // this read returned (a write that landed in between is caught on
+          // the next pass); where it does not, the object's real etag would
+          // never equal the synthetic token and every note would look stale
+          // forever.
+          const version =
+            listed.fromEtag && typeof object.etag === "string" && object.etag
+              ? object.etag
+              : listed.version;
+          return { path, uploaded: listed.uploaded, content, version };
+        })(entry)
+      );
     }
-    processed += 1;
-    if (!object) {
-      // Deleted between the listing and the read. Dropping it is right in a way
-      // the removal pass above cannot be: we asked for it by name and it is not
-      // there.
-      if (index.docs.has(path)) {
-        removeDoc(index, path);
-        changed = true;
+    if (wave.length === 0) break;
+    for (const result of await Promise.all(wave)) {
+      if (!result) continue;
+      processed += 1;
+      if (result.gone) {
+        // Deleted between the listing and the read. Dropping it is right in a
+        // way the removal pass above cannot be: we asked for it by name and it
+        // is not there.
+        if (index.docs.has(result.path)) {
+          removeDoc(index, result.path);
+          changed = true;
+        }
+        continue;
       }
-      continue;
+      addDoc(index, result.path, {
+        etag: result.version,
+        uploaded: result.uploaded,
+        content: result.content,
+      });
+      changed = true;
     }
-    const content = await object.text();
-    // Record the token the *next* listing will report, or the diff never
-    // converges. Where the listing carries a real etag that is the etag this
-    // read returned (a write that landed in between is caught on the next
-    // pass); where it does not, the object's real etag would never equal the
-    // synthetic token and every note would look stale forever.
-    const version =
-      listed.fromEtag && typeof object.etag === "string" && object.etag
-        ? object.etag
-        : listed.version;
-    addDoc(index, path, { etag: version, uploaded: listed.uploaded, content });
-    changed = true;
+    if (wave.length < Math.min(BACKFILL_CONCURRENCY, stale.length - start)) break;
   }
+
+  // One return shape, computed at call time, so the refusal path below cannot
+  // drift from the ordinary one. A second copy of this object is a second place
+  // for `pending` to start lying about what was reached.
+  const finish = () => ({
+    index,
+    pending: stale.length - processed,
+    listingTruncated: truncated,
+    spent: ops.spent,
+  });
 
   if (changed) {
     computeRanks(index);
-    if (ops.take(0)) {
+    // `remaining` rather than `take`, because the op must not be charged until
+    // the write is actually going to happen: a refused pass that spent one
+    // anyway takes it from a budget the caller shares with its snippet reads,
+    // so on exactly the buckets this cap refuses, every search silently lost a
+    // snippet to a `put` that never ran. Measured at 24 spent against 23 real
+    // store calls. Nothing else spends between the peek and the take.
+    if (ops.remaining > 0) {
       const body = serializeIndex(index);
+      // **Never write an object this same function will refuse to read.** See
+      // INDEX_PARSE_BYTE_CAP: an unwritten index costs this pass its
+      // persistence and costs the caller nothing, because the query in hand is
+      // answered from `index` in memory either way. Storing it would cost the
+      // last readable index instead, and buy an object no read ever parses.
+      if (exceedsUtf8Bytes(body, byteCap)) return finish();
+      ops.take(0);
       // Conditional on the etag read at the top. Where no index object existed
       // the write is unconditional: the ContextStore surface offers
       // `onlyIf.etagMatches` and nothing else — both adapters refuse an
@@ -340,10 +584,5 @@ export async function syncIndex(store, { budget, reserve = 0, isIndexable = defa
     }
   }
 
-  return {
-    index,
-    pending: stale.length - processed,
-    listingTruncated: truncated,
-    spent: ops.spent,
-  };
+  return finish();
 }

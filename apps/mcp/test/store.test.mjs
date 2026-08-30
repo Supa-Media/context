@@ -425,7 +425,7 @@ export async function runStoreChecks(check, gateway) {
     "1-projects//a.md",
     "/1-projects/a.md",
     "1-projects/a\\..\\b.md",
-    "1-projects/a .md",
+    "1-projects/a\u0000.md",
     "1-projects/a\r\nb.md",
     "",
   ];

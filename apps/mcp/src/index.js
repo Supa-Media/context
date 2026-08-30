@@ -66,7 +66,7 @@ import {
   storeForSession,
 } from "./session.js";
 import { enforceOrigin, isTransportPath } from "./origin.js";
-import { createSearchBudget, syncIndex } from "./search/maintain.js";
+import { createSearchBudget, NOTE_INDEX_CHAR_CAP, syncIndex } from "./search/maintain.js";
 import { rankedVisibleTo, searchIndex, visibleIndex } from "./search/query.js";
 import { termsOf } from "./search/text.js";
 import {
@@ -3399,7 +3399,10 @@ async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg)
     : "(no matches)\n\nA miss usually means the wrong word rather than the wrong assumption — " +
       "this searches the words in the notes, not their meaning. Before concluding it is not " +
       "written down: try the term the user would have typed, drop the prefix if you passed " +
-      "one, or call orient / list_notes to see which folders exist.";
+      "one, or call orient / list_notes to see which folders exist. And if the note is long, " +
+      `a note is indexed by its opening ${NOTE_INDEX_CHAR_CAP.toLocaleString("en-US")} characters, ` +
+      "so a term deep inside a saved session or a long log will not match here even though " +
+      "read_note returns the whole file.";
   // The floor, in the language the census and orient already use. Deliberately
   // no number: how many notes are still unindexed is a fact about the whole
   // bucket, private notes included, and this connection may not be able to see

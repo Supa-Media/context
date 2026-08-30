@@ -83,7 +83,7 @@ Zero npm dependencies — keep it that way. It runs on the Workers runtime, so
 use Web Crypto and `fetch`, not Node APIs.
 
 `pnpm test` in `apps/mcp` runs the suite against an in-memory store stub. It is
-fast, offline, and currently 810 checks. **Do not let it regress.** If you
+fast, offline, and currently 832 checks. **Do not let it regress.** If you
 change behavior, change the test in the same commit and say why.
 
 The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,
@@ -1046,6 +1046,20 @@ what belongs here is what a tidy-up would break:
 - **One search path.** `search_notes` and the ChatGPT-dialect `search` share
   `searchVisibleNotes` the way they shared the scan before it; a second path
   is a second place for a visibility bug.
+- **The size cap has two sides and one number, and dropping either is a loop
+  rather than a smaller cap.** `INDEX_PARSE_BYTE_CAP` refuses a stored index
+  past it *and* refuses to write one past it. For a while only the read had a
+  check, so the sync stored objects it already knew it would reject, rebuilt
+  from empty on the next pass and never converged — measured, a *converged*
+  index was written at 12.37MB and discarded unread. Refusing the write makes
+  coverage plateau instead: the last object small enough to read survives,
+  `pending` keeps saying what is missing, and the query in hand is answered
+  from memory either way. The comparison is in **UTF-8 bytes**, because that is
+  what the read compares; counted in UTF-16 code units a CJK index goes through
+  at up to three times the cap. `exceedsUtf8Bytes` is a hand-written second
+  copy of one line of `TextEncoder` — it exists so enforcing a memory ceiling
+  does not allocate a second copy of the body to do it — and it is held the way
+  two copies of a rule are always held here, by running both against a corpus.
 
 ### The hook is a capture-only OAuth client, and that is the whole design
 

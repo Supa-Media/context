@@ -37,6 +37,20 @@ an output channel however it is spelled. The same is true of `N`, `avglen` and
 `docs`, which narrows all four, and recomputes `rank` over the visible subgraph
 because that one is stored rather than derived at query time.
 
+## What is indexed of a note
+
+**The first `NOTE_INDEX_CHAR_CAP` characters of the source, and no more.** The
+cut is by characters of raw text before tokenization, so `len` and every `tf`
+are consistent with what was actually indexed rather than with the file — and
+`extractFields` runs on the sliced text, so a heading past the cut is not a
+heading as far as this index is concerned.
+
+This is a real, user-visible loss of recall, not an implementation detail: a
+term deep inside a long note does not match, though `read_note` returns the
+whole file. `toolSearchNotes` says so on a miss, because a search that is
+silently partial is a search that tells an agent the thing is not written down.
+The cap's own comment in `maintain.js` carries why the number is what it is.
+
 ## In-memory shape
 
 Maps, not plain objects: note paths and note words become keys, and
@@ -52,7 +66,8 @@ object as property names.
     uploaded: string|null, // ISO timestamp from the listing, for recency
     title: string,         // first ATX heading's text, else filename sans .md
     links: string[],       // resolved in-bucket .md paths this note links to
-    len: { title, headings, tags, body },  // token counts per field
+    len: { title, headings, tags, body },  // token counts per field, over the
+                                          // CAPPED text — see below
     rank: number,          // PageRank prior; 0 until computeRanks runs
   }>,
   terms: Map<term, Map<path, [tfTitle, tfHeadings, tfTags, tfBody]>>,
@@ -145,7 +160,11 @@ paid-plan deployment raises it with `SEARCH_SUBREQUEST_BUDGET` in the
 environment — clamped, and unparseable values fall back to the default,
 because a typo'd var must not take search down or unbounded):
 
-1. `store.get(".index/search-v1.json")` → parse (null ⇒ empty index).
+1. `store.get(".index/search-v1.json")` → parse (null ⇒ empty index). An
+   object larger than `INDEX_PARSE_BYTE_CAP` is **refused unparsed** and
+   treated exactly like a corrupt one: `JSON.parse` of a many-MB index
+   inflates several-fold in a 128MB heap, and an index big enough to kill the
+   invocation kills it before any pass can shrink it.
 2. One bounded listing of note keys (paths + etags where the store reports
    them; the R2/S3 listings do).
 3. Diff: keys whose etag differs or is absent from `docs` ⇒ stale; `docs`
@@ -154,10 +173,17 @@ because a typo'd var must not take search down or unbounded):
    (removals are free); recompute ranks; conditional `put` with the etag read
    in step 1 — on conflict, **serve the query from what was built and skip the
    write**: a lost write is one extra sync later, a retry loop is budget spent
-   on plumbing.
+   on plumbing. The same cap applies here, in UTF-8 bytes, and it is the same
+   number: **an index that would exceed it is not written at all.** A cap on
+   one side only is not a smaller cap, it is a loop — the write stores an
+   object the read then refuses, so the next pass rebuilds from empty and the
+   index never converges.
 5. Answer from the (possibly still partial) index and report honestly:
    `pending > 0` means results carry the same kind of floor language the
-   census and orient already use.
+   census and orient already use. `pending` describes *the answer*, not the
+   object: a pass that refused its own write can still report `pending: 0`,
+   because the index it answered from was complete in memory even though
+   nothing was persisted.
 
 The index never gates correctness: a search with no usable index falls back to
 the bounded scan, and the scan is itself capped below the subrequest budget so
