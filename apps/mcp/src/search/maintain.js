@@ -41,6 +41,38 @@ import { computeRanks } from "./query.js";
 export const SEARCH_INDEX_KEY = ".index/search-v1.json";
 
 const LIST_PAGE_LIMIT = 1000;
+/**
+ * The stored index is refused, unparsed, past this size — and rebuilt slim.
+ *
+ * The Worker's 128MB memory limit is the one ceiling no plan raises, and
+ * `JSON.parse` of a large index inflates it several-fold in the heap. Measured
+ * live: a brain whose full-text chat archives had been indexed whole grew an
+ * index big enough that parsing it killed every invocation — uncatchably, past
+ * the top-level catch — so search was down *because of* its own accelerator,
+ * and no pass survived long enough to shrink the object. Refusing to parse is
+ * what breaks that cycle: an oversized index is treated exactly like a corrupt
+ * one, rebuilt from the notes under `NOTE_INDEX_CHAR_CAP`, and overwritten.
+ *
+ * This is a ceiling, not a cure: a brain whose *capped* index still exceeds
+ * this size (roughly 10k+ notes) would churn — refused, partially rebuilt,
+ * regrown, refused again. At that scale the index needs sharding (per-folder
+ * postings, a small global-stats object); that is v2 work, stated here so the
+ * churn is recognized as this boundary rather than rediscovered as a mystery.
+ */
+const INDEX_PARSE_BYTE_CAP = 12_000_000;
+/**
+ * At most this much of one note's content is indexed.
+ *
+ * The median note is a few KB; the outliers are saved chat sessions and agent
+ * ledgers at 64KB+, and indexing those whole is what bloated the index past
+ * the memory ceiling above. The first N characters carry a long note's
+ * frontmatter, title, headings and opening prose — the parts ranking weighs
+ * most — so the recall lost is the tail of the largest logs, and the note
+ * still surfaces by everything that matters. The cut is by characters of
+ * source text, before tokenization, so `len` and tf stay consistent with what
+ * was actually indexed.
+ */
+const NOTE_INDEX_CHAR_CAP = 8_192;
 /** Never spend the last op on listing or fetching; the write needs one. */
 const WRITE_RESERVE = 1;
 /** Nor let the listing consume everything a backfill would have used. */
@@ -247,10 +279,17 @@ export async function syncIndex(store, { budget, reserve = 0, isIndexable = defa
   const stored = await store.get(SEARCH_INDEX_KEY);
   const storedEtag = typeof stored?.etag === "string" && stored.etag ? stored.etag : null;
   if (stored) {
-    // A corrupt or wrong-version index is a rebuild, never a throw: `parseIndex`
-    // answers null for anything it cannot fully validate, and the conditional
-    // put below replaces the bad object with a good one.
-    index = parseIndex(await stored.text()) || emptyIndex();
+    // A corrupt, wrong-version, or oversized index is a rebuild, never a
+    // throw: `parseIndex` answers null for anything it cannot fully validate,
+    // the byte cap refuses to even parse an object big enough to endanger the
+    // memory limit, and the conditional put below replaces the bad object with
+    // a good one. The size is read from the bytes, not a header, because the
+    // header is the backend's word for it.
+    const bytes = await stored.arrayBuffer();
+    index =
+      (bytes.byteLength <= INDEX_PARSE_BYTE_CAP &&
+        parseIndex(new TextDecoder().decode(bytes))) ||
+      emptyIndex();
   }
 
   const { entries, regionComplete, truncated } = await listNoteObjects(
@@ -315,7 +354,8 @@ export async function syncIndex(store, { budget, reserve = 0, isIndexable = defa
             return null;
           }
           if (!object) return { path, gone: true };
-          const content = await object.text();
+          const full = await object.text();
+          const content = full.length > NOTE_INDEX_CHAR_CAP ? full.slice(0, NOTE_INDEX_CHAR_CAP) : full;
           // Record the token the *next* listing will report, or the diff never
           // converges. Where the listing carries a real etag that is the etag
           // this read returned (a write that landed in between is caught on
