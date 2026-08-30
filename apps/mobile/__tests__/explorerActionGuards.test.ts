@@ -336,6 +336,7 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     shares: undefined,
     share: () => {},
     revokeShare: () => {},
+    teamShareLink: async () => null,
     setSharePreviewTitle: () => {},
   };
 }

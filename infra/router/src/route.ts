@@ -37,6 +37,7 @@
 import {
   isCrawler,
   OG_CARD_PATH,
+  consoleNoteFrom,
   previewFor,
   shareCardTokenFrom,
   shareTokenFrom,
@@ -61,6 +62,10 @@ export type RouteDecision =
   // for the preview HTML, so it sits AHEAD of the crawler check with the other
   // machine endpoints — a crawler asking for a PNG wants the bytes.
   | { kind: "share-card"; token: string }
+  // A crawler asking for a readable team link. Shape-checked before it gets
+  // here, so `slug` and `path` are well-formed and nothing an attacker types
+  // reaches an upstream unchecked.
+  | { kind: "note-preview"; slug: string; path: string }
   // The Worker's own OpenGraph card image, served from the bundle.
   | { kind: "og-card" }
   // `path` is the full path + query to request from the upstream. It is never
@@ -170,6 +175,13 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
   // up in a static table — it never consults an upstream, so nothing about the
   // requested name reaches the response. See preview.ts.
   if (isCrawler(userAgent)) {
+    // A readable team link. Guessable, and answered only for notes the owner
+    // has explicitly linked — see `consoleNoteFrom`.
+    const note = consoleNoteFrom(url);
+    if (note !== null) {
+      return { kind: "note-preview", slug: note.slug, path: note.path };
+    }
+
     // The one path whose card is not decided here. A share token is
     // unguessable and was handed out deliberately, so its link may carry the
     // note's title — see `previewForShare`. Everything else, including every

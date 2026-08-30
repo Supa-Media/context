@@ -119,6 +119,7 @@ function browser(canSetVisibility: boolean): FileBrowser {
     shares: undefined,
     share: () => {},
     revokeShare: () => {},
+    teamShareLink: async () => null,
     setSharePreviewTitle: () => {},
   };
 }

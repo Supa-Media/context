@@ -104,6 +104,7 @@ function browser(
     shares: undefined,
     share: () => {},
     revokeShare: () => {},
+    teamShareLink: async () => null,
     setSharePreviewTitle: () => {},
   };
 }
