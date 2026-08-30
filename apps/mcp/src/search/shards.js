@@ -105,6 +105,34 @@ const FETCH_FLOOR = 2;
 /** Fetched in parallel, indexed in list order once a wave lands — see the wave loop. */
 const BACKFILL_CONCURRENCY = 12;
 /**
+ * Shards a pass may open that its diff found no work for — the audit, and the
+ * answer to the one blind spot in a manifest-only diff: a shard whose stored
+ * object is unreadable while none of its notes changed is in no worklist, so
+ * nothing opens it, the manifest keeps vouching for its docs, and `pending`
+ * reads 0 over notes no query can reach. It heals only when somebody happens
+ * to edit one of them. That went from a corner to a likely state when shard
+ * writers moved to the interned version-3 dialect: an older gateway refuses
+ * every version-3 shard while the manifest — still version 2, still valid —
+ * keeps vouching, so a rollback or a mixed deployment leaves every shard the
+ * newer gateway rewrote permanently unsearchable.
+ *
+ * **One, and never "every shard the manifest names", because this loop does
+ * not own its budget.** `searchVisibleNotes` creates one `createSearchBudget`,
+ * hands it here, and the shard walk and snippet reads that answer the query
+ * spend what is left. Auditing every vouched-for shard each pass would trade a
+ * rare correctness bug for a permanent per-search cost, taken out of the answer
+ * on exactly the widest buckets — which is the "(no matches)" failure the query
+ * walk's own reserve exists to prevent. One per pass, rotating, makes coverage
+ * eventual, which is all a disposable derivative needs.
+ */
+const AUDIT_SHARDS_PER_SYNC = 1;
+/**
+ * What one audit can cost: a GET to look, and a PUT if what arrives has to be
+ * rebuilt. Held apart from the threshold below so the arithmetic says what it
+ * is buying.
+ */
+const AUDIT_OPS = 2;
+/**
  * PageRank is neutral in v2, deliberately (CONTRACT.md § Query): a global link
  * graph needs every shard in memory at maintenance time, which is the exact
  * blowup sharding exists to remove. `computeRanks` is therefore never called
@@ -725,6 +753,50 @@ function pushInto(map, key, value) {
 }
 
 /**
+ * `now` as milliseconds, the way `searchIndex` reads its own: a `Date`, a
+ * finite number, and anything else is the wall clock. Injectable only so a test
+ * can pin which shard a pass rotates onto; nothing in production passes it.
+ */
+function nowMsOf(now) {
+  if (now instanceof Date) {
+    const ms = now.getTime();
+    return Number.isFinite(ms) ? ms : Date.now();
+  }
+  if (typeof now === "number" && Number.isFinite(now)) return now;
+  return Date.now();
+}
+
+/**
+ * Up to `AUDIT_SHARDS_PER_SYNC` shard ids to open even though the diff wants
+ * nothing from them: vouched for by the manifest (a shard it says is empty has
+ * no object to be corrupt) and not already in the worklist.
+ *
+ * **The rotation is clock-derived, and deliberately not `manifest.generatedAt`.**
+ * The obvious rotation — step the offset with each manifest write — sticks: an
+ * audit that finds the shard healthy writes nothing, so `generatedAt` does not
+ * advance, and every later pass re-checks that same shard forever while the
+ * unreadable one is never reached. Coverage has to advance on passes that
+ * change nothing, which is exactly the pass this exists for, so it advances on
+ * the only thing that moves on its own.
+ *
+ * The scan steps forward from the offset so a shard the worklist already holds
+ * costs the audit a neighbour rather than the whole pass.
+ */
+function auditCandidates(manifest, busy, nowMs, count = AUDIT_SHARDS_PER_SYNC) {
+  const { shardCount } = manifest;
+  const picked = [];
+  if (count < 1 || !Number.isInteger(shardCount) || shardCount < 1) return picked;
+  const start = ((Math.floor(nowMs) % shardCount) + shardCount) % shardCount;
+  for (let step = 0; step < shardCount && picked.length < count; step += 1) {
+    const id = (start + step) % shardCount;
+    if (busy.has(id)) continue;
+    if (manifest.docsByShard[id].size === 0) continue;
+    picked.push(id);
+  }
+  return picked;
+}
+
+/**
  * Bring `.index/v2/` as close to the bucket as one budget allows, and hand back
  * what was built — CONTRACT.md § "The sharded index … Maintenance".
  *
@@ -786,6 +858,13 @@ export async function syncShardedIndex(
      */
     shardByteCap: requestedShardCap = SHARD_PARSE_BYTE_CAP,
     manifestByteCap: requestedManifestCap = MANIFEST_PARSE_BYTE_CAP,
+    /**
+     * The clock the audit rotates on — a `Date`, a number of milliseconds, or
+     * absent for the wall clock. Injectable for the same reason `searchIndex`'s
+     * is: which shard a pass audits is otherwise a function of when the test
+     * ran. Nothing in production passes it.
+     */
+    now,
   } = {}
 ) {
   const shardCap = Number.isFinite(requestedShardCap) ? requestedShardCap : SHARD_PARSE_BYTE_CAP;
@@ -869,11 +948,29 @@ export async function syncShardedIndex(
   }
 
   const ids = [...new Set([...staleByShard.keys(), ...removalsByShard.keys()])].sort((a, b) => a - b);
+  // Appended rather than merged into the sorted order: the work the diff asked
+  // for goes first and spends first, and an audit gets only what that leaves.
+  // The shard-id order the contract states is the order of the real work.
+  const auditing = new Set(auditCandidates(manifest, new Set(ids), nowMsOf(now)));
   let pending = 0;
 
-  for (const id of ids) {
+  for (const id of [...ids, ...auditing]) {
     const stale = staleByShard.get(id) || [];
     const removals = removalsByShard.get(id) || [];
+    // An audit is spare-budget work, so "spare" is measured where it would be
+    // spent rather than before the real work spent anything. The threshold is
+    // the ordinary guard below **plus** what an audit can cost (a read and a
+    // rebuild's write) plus one op per shard for the query walk that follows
+    // this sync on the same budget — because ops taken here are snippet reads
+    // the answer does not get, and a search that renders no snippet reads as
+    // "the thing is not written down". A pass with only the ordinary guard's
+    // slack left is a pass whose caller still has its whole answer to buy.
+    if (
+      auditing.has(id) &&
+      ops.remaining <= reserve + MANIFEST_WRITE_RESERVE + AUDIT_OPS + shardCount
+    ) {
+      continue;
+    }
     // Checked, not attempted. A budget refusal inside `loadShard` is
     // indistinguishable from an empty shard, and rebuilding a shard from
     // "empty" when we were never allowed to look at it would write away every
