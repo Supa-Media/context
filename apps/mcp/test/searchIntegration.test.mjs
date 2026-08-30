@@ -72,46 +72,59 @@
  *    with a list the view deliberately did not narrow; the same sabotage fails
  *    2 there.
  *
- * 7. **The write-side byte cap.** Counts below are as measured against the
- *    final fixtures, re-taken after each round of new checks — the first
- *    version of this list was written before findings 8 and 9 landed and was
- *    wrong within the same commit, which is the register's own "a measurement
- *    has a timestamp" arriving inside a sabotage record.
+ * 7. **The write-side byte cap and its byte counter, eighteen mutations.**
+ *    Every count below is as measured against the final fixtures. They were
+ *    re-taken after each of the three rounds of new checks and moved every
+ *    time, which is the register's own "a measurement has a timestamp"
+ *    arriving inside a sabotage record: the first version of this list was
+ *    written before rounds two and three landed and was wrong within its own
+ *    commit, twice.
  *
- *      guard off (`if (false && …)`)                     4
- *      UTF-16 code units instead of bytes                1
- *      a write cap of its own (`byteCap * 3`)            1
- *      the read consulting the module constant           1
- *      fast-accept bound tightened, 3 -> 2 bytes/unit    2
+ *      the write guard, off entirely                        5
+ *      UTF-16 code units instead of bytes                   1
+ *      a write cap of its own (`byteCap * 3`)               1
+ *      a second return literal (`pending: 0, …: false`)     2
+ *      a literal lying only about `listingTruncated`        1
+ *      the read consulting the module constant              1
+ *      the read made strict (`< byteCap`)                   1
+ *      `length * 3 > cap`, never measuring                  4
+ *      fast-accept bound, 3 -> 2 bytes per unit             3
+ *      `Number.isFinite` deleted                            2
+ *      `Number.isFinite` -> `??`                            1
+ *      `Number.isFinite` -> `== null`                       1
+ *      a surrogate pair counted as three bytes              2
+ *      a lone surrogate counted as two                      3
+ *      the 2-byte boundary off by one                       2
+ *      `>=` for `>`                                         4
+ *      pair detection dropping the second-half check        2
+ *      pair upper bound 0xdc00 -> 0xe000                    2
  *
- *    Each was run three or four times. The first version of the grow
- *    assertions compared stored *bodies* and caught the third mutation in only
- *    3 runs of 8: a rebuild of the same notes differs from the original in
- *    `generatedAt` alone, and the two syncs often land in the same
- *    millisecond. Comparing the stub's per-put etag makes "was it replaced" an
- *    identity question, and every count above became deterministic — including
- *    that mutation's, which is honestly 1 rather than the 3 the flaky version
- *    reported.
- * 8. **Three more, found in review, walking straight through all five above**,
- *    each now failing 1: a strictly-conservative `value.length * 3 > cap` that
- *    never measures — never wrong about an overflow, and silently pinning a
- *    Latin-script bucket at a third of the real ceiling, invisible because
- *    every fixture body sat well under `cap/3` or far over `cap`; a **second
- *    return literal** on the refusal path, which the commit message credited
- *    `finish()` with preventing while nothing read `pending`, `listingTruncated`
- *    or `spent`; and a **read made strict** (`< byteCap`), which is the
- *    two-caps-disagree loop one byte wide. The fixtures that close them are a
- *    body *exactly* at the cap, and a refusal driven on a pass that ran out of
- *    budget — a converged fixture cannot tell `pending` from a hardcoded `0`.
- *    A fourth, `byteCap` losing its `Number.isFinite` check, also fails 1.
- * 9. **The byte counter itself, five ways**, all caught by the corpus check in
- *    `searchIndexer.test.mjs`: a surrogate pair counted as three bytes; a lone
- *    surrogate as two; the 2-byte boundary off by one; `>=` for `>` (2, since
- *    it also moves the boundary fixture); and pair detection dropping the
- *    check on the *second* half. The last needed two corpus entries added — in
- *    every case already there the two readings total the same (a lone high
- *    before a space is 3 + 1, mistaking it for a pair is 4), so the mutation
- *    agreed with the encoder by coincidence.
+ *    One more is an **equivalent mutant** and correctly fails 0: dropping
+ *    `i + 1 < value.length` from pair detection, because `charCodeAt` past the
+ *    end is `NaN` and `NaN & 0xfc00` is never `0xdc00`. The bound stays as
+ *    written rather than as relied-upon arithmetic.
+ * 8. **Three rounds, and each round's fixtures were found by attacking the
+ *    previous round's.** Round one's five were all on/off or operator
+ *    replacements and left three holes: `length * 3 > cap` never measures and
+ *    nothing sat in the measurement band; a second return literal walked
+ *    through because nothing read `pending`, `listingTruncated` or `spent`;
+ *    and a read made strict is the two-caps-disagree loop one byte wide. Round
+ *    two closed those with a body *exactly* at the cap and a refusal driven on
+ *    a budget-starved pass — and left three more: `NaN` was named in a comment
+ *    and tested nowhere, `listingTruncated` was still `false` in every
+ *    fixture, and the corpus check's own size guard was `compared ===
+ *    corpus.length * 8`, which derives both sides from the same array and
+ *    holds for an empty corpus. Round three is the literal `144`, a `NaN`
+ *    cap, and a listing shaped to truncate *and* overflow at once.
+ * 9. **The counter is held by a corpus rather than by reading it**, in
+ *    `searchIndexer.test.mjs`: every one of the 65,536 BMP code units, padded
+ *    so neither O(1) bound can decide it, plus a seeded xorshift corpus of
+ *    astral pairs and unpaired surrogates — 220,608 comparisons against
+ *    `TextEncoder`, under a second. The hand-picked corpus beside it says
+ *    which cases somebody thought of, and it needed three entries added before
+ *    it could tell the surrogate mutations apart: in every case originally
+ *    there the two readings totalled the same, so those mutations agreed with
+ *    the encoder by coincidence.
  *
  * The three channels above were all measured *before* the fix and all three
  * failed, end to end through the worker with a real `context:read` editor
@@ -895,12 +908,12 @@ export async function runSearchIntegrationChecks(check) {
       // the index's size must WRITE it — the read accepts `<=`, so anything
       // stricter on the write is the two-caps-disagree loop, one byte wide —
       // and the object it wrote must then parse, which is the same claim from
-      // the other side. This is also the only fixture in the band where the
-      // measurement actually happens: every other body here is either well
-      // under a third of its cap or far over it, so a rule of `length * 3 >
-      // cap` — strictly conservative, never wrong about an overflow, and
-      // silently pinning a Latin-script bucket at a third of the real ceiling
-      // — passes everything else in this file.
+      // the other side. It is also the fixture that pins the *measurement*: a
+      // rule of `length * 3 > cap` — strictly conservative, never wrong about
+      // an overflow, and silently pinning a Latin-script bucket at a third of
+      // the real ceiling — is refused by nothing else in this block, because
+      // every other body here sits well under a third of its cap or far over
+      // it.
       grow.remove(SEARCH_INDEX_KEY);
       await syncIndex(growStore, { budget: createSearchBudget(300), byteCap: smallBytes });
       const atCap = stored();
@@ -922,6 +935,18 @@ export async function runSearchIntegrationChecks(check) {
       check(
         "a byteCap that is not a finite number falls back to the module's own, rather than refusing everything",
         stored() !== undefined
+      );
+      // The other half of the same comment, and the one a tidy-up actually
+      // reaches: `??` and `== null` both look like the modern spelling of this
+      // default and both let `NaN` through, where every comparison is false —
+      // the write always allowed and the read always refusing. It is the read
+      // half that is observable, so a converged bucket is re-synced and its
+      // note reads counted.
+      grow.resetCounts();
+      await syncIndex(growStore, { budget: createSearchBudget(300), byteCap: Number.NaN });
+      check(
+        "and a NaN cap does not silently become 'write anything, parse nothing'",
+        grow.counts.noteGets.length === 0 && stored() !== undefined
       );
 
       // The two probes above deliberately replaced the stored object, so the
@@ -946,9 +971,11 @@ export async function runSearchIntegrationChecks(check) {
       // and until this check nothing in the file read any of its three numbers.
       // A second return literal there — the cheap shape to expect, since the
       // early return is right beside them — would be a caller told the index is
-      // complete by a pass that persisted nothing. `spent` is compared against
-      // the caller's own budget object rather than a constant, so a literal
-      // cannot coincide with it.
+      // complete by a pass that persisted nothing. `spent` is read off the
+      // caller's own budget object rather than a constant — which pins it
+      // against a hardcoded number but *not* against a second literal that
+      // still writes `spent: ops.spent`, since that coincides exactly. The two
+      // checks below are what hold the other two fields.
       check(
         "the refusal reports the live budget rather than a number of its own",
         capped.spent === overBudget.spent && capped.spent > 0
@@ -964,6 +991,40 @@ export async function runSearchIntegrationChecks(check) {
         check(
           "and a refusal on a pass that ran out of budget still says what it did not reach",
           short.pending > 0 && short.index.docs.size < 60 && stored()?.etag === smallEtag
+        );
+      }
+      {
+        // `listingTruncated` is the third field of that return and the one no
+        // fixture above drives away from its default, because a bucket small
+        // enough to over-run the byte cap is normally listed to the end. This
+        // one is shaped to do both at once: a budget that finishes the root
+        // listing and runs out inside the folders, and a cap nothing fits
+        // under. All three numbers are then non-default on a refused write.
+        const wide = createBucket();
+        wide.seed("privacy.md", PRIVACY_MANIFEST);
+        wide.seed("root-a.md", "# A\n\nalpha marker\n");
+        wide.seed("root-b.md", "# B\n\nbeta marker\n");
+        for (let folder = 0; folder < 6; folder += 1) {
+          for (let n = 0; n < 3; n += 1) {
+            wide.seed(`f${folder}/n${n}.md`, `# F${folder}N${n}\n\nword${folder}${n}\n`);
+          }
+        }
+        const wideStore = new R2Store(wide);
+        const cut = await syncIndex(wideStore, { budget: createSearchBudget(6), byteCap: 50 });
+        // The control: the same pass with the ordinary cap writes, so the
+        // refusal below is the cap's doing and not the budget's.
+        const loose = createBucket();
+        loose.seed("privacy.md", PRIVACY_MANIFEST);
+        for (const [key, object] of wide.objects) if (key !== "privacy.md") loose.seed(key, object.body);
+        const wrote = await syncIndex(new R2Store(loose), { budget: createSearchBudget(6) });
+        check(
+          "a refused write on a truncated listing still reports the truncation, not a literal false",
+          cut.listingTruncated === true &&
+            cut.pending > 0 &&
+            cut.index.docs.size > 0 &&
+            wide.objects.get(SEARCH_INDEX_KEY) === undefined &&
+            wrote.listingTruncated === true &&
+            loose.objects.get(SEARCH_INDEX_KEY) !== undefined
         );
       }
       const again = await syncIndex(growStore, { ...overCap, budget: createSearchBudget(300) });

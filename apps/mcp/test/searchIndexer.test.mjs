@@ -314,6 +314,12 @@ export async function runSearchIndexerChecks(check) {
       // agrees with the encoder by coincidence. These two are where it stops.
       "\ud800\u6f22",
       "\ud800\ud800",
+      // Two adjacent LOW surrogates. Widening the pair test's upper bound from
+      // 0xdc00 to 0xe000 — one word, and it reads like a tidier "is this a
+      // surrogate" — makes this pair four bytes where the encoder says six,
+      // and undercounting is the direction that stores an object the read then
+      // refuses.
+      "\udc00\udc00",
       "mixed aé漢\u{1f4a9}z",
       "x".repeat(300),
       "é".repeat(300),
@@ -331,12 +337,74 @@ export async function runSearchIndexerChecks(check) {
     }
     check(
       "the write cap's byte count agrees with TextEncoder on every width, both surrogate shapes, and each cap either side of the true size",
-      compared === corpus.length * 8 && disagreements.length === 0
+      // The literal is the point. `compared === corpus.length * 8` derives both
+      // sides from the same array, so it holds for any corpus including an
+      // empty one — the corpus could be gutted, taking the surrogate cases with
+      // it, and this check would still pass while a mutation it is credited
+      // with catching walked through.
+      compared === 144 && disagreements.length === 0
     );
     check(
       "and it answers without allocating: a body under a third of the cap and one longer than it are decided from the length alone",
       exceedsUtf8Bytes("\u{1f600}".repeat(10), 1000) === false &&
         exceedsUtf8Bytes("a".repeat(1001), 1000) === true
+    );
+
+    // The hand-picked corpus above says which cases somebody thought of. This
+    // says what the encoder says, over every code unit there is and over
+    // strings nobody chose — the difference between a fixture and a corpus,
+    // and the reason a doc comment may not cite a fuzz run that lives only in
+    // a terminal somewhere. Seeded, so a failure is reproducible and the suite
+    // stays deterministic; still well under a second.
+    let unitCases = 0;
+    let unitBad = 0;
+    for (let unit = 0; unit <= 0xffff; unit += 1) {
+      const value = `pad${String.fromCharCode(unit)}pad`;
+      const truth = encoder.encode(value).byteLength;
+      for (const cap of [truth - 1, truth, truth + 1]) {
+        unitCases += 1;
+        if (exceedsUtf8Bytes(value, cap) !== truth > cap) unitBad += 1;
+      }
+    }
+    check(
+      "every BMP code unit, padded so neither O(1) bound can decide it, is counted as TextEncoder counts it",
+      unitCases === 65536 * 3 && unitBad === 0
+    );
+
+    let seed = 0x9e3779b9;
+    const next = () => {
+      // xorshift32 — deterministic, and short enough not to be a dependency.
+      seed ^= seed << 13;
+      seed >>>= 0;
+      seed ^= seed >>> 17;
+      seed ^= seed << 5;
+      seed >>>= 0;
+      return seed;
+    };
+    let fuzzCases = 0;
+    let fuzzBad = 0;
+    for (let trial = 0; trial < 4000; trial += 1) {
+      let value = "";
+      const length = 1 + (next() % 24);
+      for (let i = 0; i < length; i += 1) {
+        const roll = next() % 100;
+        if (roll < 35) value += String.fromCharCode(next() % 0x80);
+        else if (roll < 55) value += String.fromCharCode(0x80 + (next() % 0x780));
+        else if (roll < 75) value += String.fromCharCode(0x800 + (next() % 0xd000));
+        else if (roll < 90) value += String.fromCodePoint(0x10000 + (next() % 0xfffff));
+        // The last tenth is a bare surrogate of either half, which is what
+        // makes the corpus adversarial rather than merely wide.
+        else value += String.fromCharCode(0xd800 + (next() % 0x800));
+      }
+      const truth = encoder.encode(value).byteLength;
+      for (const cap of [0, truth - 1, truth, truth + 1, value.length, value.length * 3]) {
+        fuzzCases += 1;
+        if (exceedsUtf8Bytes(value, cap) !== truth > cap) fuzzBad += 1;
+      }
+    }
+    check(
+      "and so is every string a seeded corpus of astral pairs and unpaired surrogates can produce",
+      fuzzCases === 4000 * 6 && fuzzBad === 0
     );
   }
 }

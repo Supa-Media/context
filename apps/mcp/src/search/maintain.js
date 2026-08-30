@@ -70,12 +70,22 @@ const LIST_PAGE_LIMIT = 1000;
  * read survives, each pass rebuilds a fuller index in memory, answers the
  * query it was called for, and declines to persist it. Partial and stable
  * beats complete and unreachable, and `pending` keeps saying so. **The plateau
- * assumes such an object exists.** A bucket whose very first pass overflows —
- * measured with the real indexer at 880 dense 2KB notes, 12.2MB from empty —
- * has no readable predecessor to fall back to, so it re-reads the unusable
- * object on every search and never replaces it. Realistic prose at that note
- * count is 5.6-7.9MB, so this is a corner rather than the norm; it is stated
- * because it is the one shape the plateau does not cover. At that scale
+ * assumes such an object exists.** A bucket whose very first pass already
+ * overflows has no readable predecessor at all: the write is refused, so
+ * nothing is ever stored, and every search re-lists, re-fetches every note
+ * body it can afford, rebuilds from empty and throws the result away. That is
+ * more expensive than the churn this cap removes, not less — the difference is
+ * only that it cannot corrupt what is stored, because nothing is. Driven
+ * against the real loop at a 5,000-byte cap over 20 notes: three consecutive
+ * passes, `stored: absent`, `puts: 0`, 20 note reads each.
+ *
+ * Reaching it takes a bucket whose *capped* index overflows inside one pass.
+ * Index size at a given note count is a function of distinct-token volume and
+ * path length rather than of note size alone, so there is no single note count
+ * that names it: at 880 notes of 2KB the real indexer spans 0.19MB to 19.15MB
+ * across vocabularies, and Zipfian prose lands at 6.4-8.3MB. It is a corner
+ * rather than the norm, and it is stated because it is the one shape the
+ * plateau does not cover. At that scale
  * the index needs sharding (per-folder postings, a small global-stats object);
  * that is v2 work, stated here so the plateau is recognized as this boundary
  * rather than rediscovered as a mystery.
@@ -138,9 +148,13 @@ const FETCH_FLOOR = 2;
  * unit and becomes U+FFFD, three). So a string longer than the cap is over it
  * and one under a third of the cap is under it, without looking at a
  * character. In between, the scan walks code units and stops the moment the
- * running total crosses — checked against `TextEncoder` on all 65,536 BMP
- * units and 40,000 random strings carrying astral pairs and unpaired
- * surrogates, 607,680 comparisons, zero disagreements.
+ * running total crosses.
+ *
+ * Being a hand-written second copy of one line of `TextEncoder`, it is held
+ * the way two copies of any rule are held here — **both run against a corpus**,
+ * in `searchIndexer.test.mjs`, exhaustively over every BMP code unit and over
+ * a seeded pseudo-random corpus carrying astral pairs and unpaired surrogates
+ * of both halves. Reading it is not the check; the count in that file is.
  */
 export function exceedsUtf8Bytes(value, cap) {
   if (value.length > cap) return true;
