@@ -56,6 +56,15 @@ PUBLIC_ORIGIN = "https://mcp.context.lc"
 ALLOWED_ORIGINS = "https://context.lc"
 # Self-hosting: put your own console origin here, not that one.
 
+# Store operations one search may spend (index sync + conditional write +
+# snippet reads). The code's default of 40 fits the free tier's 50-subrequest
+# ceiling; this deployment runs on the paid plan (1000), and at 40 a brain with
+# thousands of notes backfills its index ~26 notes per search — measured live
+# as a name with multiple notes answering "(no matches)" for days. Clamped in
+# code to [15, 900]; unset or unparseable falls back to 40. Self-hosting on the
+# free tier: leave this unset.
+SEARCH_SUBREQUEST_BUDGET = "600"
+
 # Self-host only. Comma-separated allowlist of Worker binding names that a
 # control-plane storage binding is permitted to name.
 #
