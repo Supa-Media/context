@@ -11,8 +11,10 @@
   "dependencies": {
     "@context/shared": "workspace:*",
     "@convex-dev/auth": "^0.0.90",
+    "@resvg/resvg-wasm": "^2.6.2",
     "@supa-media/convex": "^1.2.0",
-    "convex": "^1.31.3"
+    "convex": "^1.31.3",
+    "satori": "0.29.0"
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",

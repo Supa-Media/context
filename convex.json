@@ -1,3 +1,9 @@
 {
-  "functions": "apps/convex"
+  "functions": "apps/convex",
+  "node": {
+    "externalPackages": [
+      "satori",
+      "@resvg/resvg-wasm"
+    ]
+  }
 }
