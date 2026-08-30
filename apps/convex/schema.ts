@@ -1203,6 +1203,37 @@ const schema = defineSchema({
    * `details` is deliberately a flat record of scalars: it structurally cannot
    * carry a nested note body, and callers must never put a secret in it.
    */
+  /**
+   * Assets the *product* needs, in our own storage rather than a customer's.
+   *
+   * Exactly one row today: the card renderer's wasm. It is here because Convex
+   * bundles JavaScript and not a package's `.wasm`, so a `require.resolve` of it
+   * deploys cleanly and throws at runtime — and 3.15 MB of base64 in a source
+   * module is the alternative.
+   *
+   * **Nothing customer-owned belongs in this table.** Their bytes live in their
+   * bucket; that is non-negotiable #1. This is a build artifact of ours that
+   * happens to need somewhere to sit.
+   */
+  renderAssets: defineTable({
+    kind: v.literal("resvgWasm"),
+    storageId: v.id("_storage"),
+    updatedAt: v.number(),
+  }),
+
+  /**
+   * A wasm install in progress, in pieces. Empty except during one.
+   *
+   * Exists because `convex run` cannot take 3.15 MB of base64 in an argument
+   * and has no stdin form — see `installWasm`. Rows are deleted the moment they
+   * are assembled.
+   */
+  renderAssetChunks: defineTable({
+    index: v.number(),
+    total: v.number(),
+    chunk: v.bytes(),
+  }),
+
   auditEvents: defineTable({
     workspaceId: v.id("workspaces"),
     actorUserId: v.optional(v.id("users")),
