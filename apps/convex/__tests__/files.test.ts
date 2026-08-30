@@ -652,9 +652,28 @@ describe("a stranger cannot reach another workspace's files", () => {
     // `export const x =\n  action({` does not match. Nothing in CI reformats
     // `apps/convex`, so that is a live hole rather than a stylistic one.
     //
-    // `isPublic` is Convex's own flag on the registered function, which is what
-    // `structure.test.ts` classifies by. It does not care about the builder, the
-    // line breaks, the name, or a type annotation.
+    // `isPublic` is Convex's own flag on the registered function. It does not
+    // care about the builder, the line breaks, the name, or a type annotation.
+    //
+    // **`isHttp` is read too, and leaving it out was this guard's third hole.**
+    // `httpActionGeneric` sets `isHttp` and neither `isPublic` nor `isInternal`
+    // (convex/dist/esm/server/impl/registration_impl.js:245, against 124/172/210
+    // for query/mutation/action), so an `httpAction` exported from this module
+    // is invisible to an `isPublic` test. Measured: an unauthenticated
+    // `GET /files/raw` listing any workspace's bucket at OWNER scope, routed for
+    // real in `http.ts`, left all 1,403 checks green.
+    //
+    // `structure.test.ts` had already written this down — its `classify()`
+    // returns `isPublic: true` for an `isHttp` function and calls it "the hole
+    // this whole file exists to close, hiding in plain sight". An earlier
+    // version of this comment claimed parity with that function while omitting
+    // the one case it exists for.
+    //
+    // An `httpAction` can never appear in `covered`, because it is not reachable
+    // through `api.`. So this makes the equality fail permanently the moment one
+    // lands in `files.ts`, which is the intended outcome rather than a gap:
+    // an HTTP route into file operations needs its own argument, in
+    // `UNAUTHENTICATED_HTTP_ROUTES` or beside it, not a line in this table.
     //
     // **What it still does not cover, stated rather than implied:** a file
     // endpoint that lands in a different module. This reads `functions/files.ts`
@@ -668,7 +687,10 @@ describe("a stranger cannot reach another workspace's files", () => {
       ),
     );
     const publicEndpoints = Object.entries(fileFunctions)
-      .filter(([, value]) => (value as { isPublic?: boolean } | null)?.isPublic === true)
+      .filter(([, value]) => {
+        const fn = value as { isPublic?: boolean; isHttp?: boolean } | null;
+        return fn?.isPublic === true || fn?.isHttp === true;
+      })
       .map(([name]) => name);
     expect(publicEndpoints.length).toBeGreaterThan(10);
     expect([...covered].sort()).toEqual([...publicEndpoints].sort());
