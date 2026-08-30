@@ -626,7 +626,12 @@ export function FrameIconButton({
       style={({ pressed }) => [
         styles.iconButton,
         round && styles.iconButtonRound,
-        hovered && !round && styles.iconButtonHover,
+        // `iconButtonHover` tints an untinted square; on a filled circle it
+        // would paint `surface3` *over* `chrome`, which is darker than the
+        // resting state and reads as the control switching off. The circle
+        // lights the way it does under a thumb instead — this is reachable on
+        // a narrowed desktop browser, which is a real surface here.
+        hovered && (round ? styles.iconButtonPressed : styles.iconButtonHover),
         selected && styles.iconButtonOn,
         round && pressed && styles.iconButtonPressed,
       ]}
