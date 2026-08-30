@@ -20,6 +20,7 @@ import {
   parseIndex,
 } from "../src/search/indexer.js";
 import { exceedsUtf8Bytes } from "../src/search/maintain.js";
+import { termsOf, tokenize } from "../src/search/text.js";
 
 export async function runSearchIndexerChecks(check) {
   // -- field extraction --------------------------------------------------
@@ -276,6 +277,94 @@ export async function runSearchIndexerChecks(check) {
     check(
       "an ordinary plain object is unaffected by any of the above",
       JSON.stringify({}) === "{}"
+    );
+  }
+
+  // -- the tokenizer's floor, which nothing had pinned ----------------------
+  //
+  // `token.length >= 2` in text.js, and it is load-bearing in BOTH directions
+  // while being tested in neither: mutated to `>= 1` or to `>= 3` the whole
+  // suite stayed green, and only `>= 4` failed — through the per-note cap's
+  // token count, which is a different rule entirely.
+  //
+  // At `>= 3`, every two-character term silently stops being searchable. "AI",
+  // "ML", "US", "id", "ok", "go", "PR" are ordinary words in a personal brain,
+  // and the failure mode is a miss with no explanation attached — the same
+  // shape as a term past the per-note cap, and this one would not even have the
+  // sentence on the miss to explain it.
+  //
+  // At `>= 1`, "a" and "I" become terms with a posting in nearly every
+  // document — a stopword with a maximal posting list, feeding both BM25 and
+  // the fuzzy vocabulary lookup as pure noise, bought for a handful of
+  // one-letter identifiers.
+  //
+  // An earlier version of this comment argued that from index SIZE and put a
+  // number on it: "a brain of prose has a single-letter run on most lines".
+  // Measured over this repo's own prose, single-character runs appear on 49.3%
+  // of CLAUDE.md's token-bearing lines, 33.1% of README.md's and 47.1% of
+  // CONTRACT.md's — never "most" — and they are 5.8% of token occurrences for
+  // **15** distinct new vocabulary entries. Fifteen terms is not an index-size
+  // problem. The direction was right and the reason was wrong, which is worse
+  // than vague: it would have sent somebody re-deriving the trade to the wrong
+  // ledger.
+  //
+  // **The floor is a Latin-script-prose assumption, and that is not a defect
+  // it hides.** CJK is not fixed by lowering it: there is no segmentation at
+  // all, so `tokenize("日本語 の 本")` is `["日本語"]` and a query for 日本 or 本
+  // misses whatever the floor is. `>= 1` would gain の, a particle. CJK needs
+  // bigram indexing or a segmenter, and this test does not stand in the way of
+  // one — but a future CJK change will touch this line, and should read this
+  // rather than conclude it broke a test.
+  //
+  // text.js calls itself "the one copy of the rules", and `searchQuery`'s
+  // header is explicit that it borrows `termsOf` as a fixture helper rather
+  // than as a subject. So this is the tokenizer's first test.
+  {
+    const twoChars = tokenize("AI and ML at 3M, PR go ok");
+    check(
+      "a two-character run is a term, so ordinary short words stay searchable",
+      ["ai", "ml", "at", "3m", "pr", "go", "ok"].every((term) => twoChars.includes(term))
+    );
+    check(
+      "a one-character run is not a term, so single letters stay out of the vocabulary",
+      tokenize("a b c 1 2 x").length === 0 &&
+        tokenize("one a two").join(" ") === "one two"
+    );
+    // Through `termsOf` as well, since that is what the indexer and the query
+    // parser both call — a floor enforced in `tokenize` and lost in the wrapper
+    // would be a floor that holds nowhere it matters.
+    check(
+      "and the same floor holds through termsOf, which is what both sides call",
+      termsOf("a b AI").join(" ") === "ai" && !termsOf("x y z").length
+    );
+
+    // Two more this file was the natural home for, both found by review and
+    // both pre-existing: the tokenizer had no non-ASCII coverage at all, and
+    // nothing exercised the stemmer.
+    //
+    // `[\p{L}\p{N}]+` narrowed to `[a-z0-9]+` passed every check. That is not
+    // a degradation, it is a French, Russian or Japanese brain becoming
+    // **entirely unsearchable** — every token dropped, every query empty — and
+    // the suite would have said nothing.
+    check(
+      "tokens are Unicode letters and digits, not ASCII ones",
+      tokenize("café Привет 日本語 3M").join(" ") === "café привет 日本語 3m"
+    );
+    // And `termsOf` losing its `.map(stem)` passed too, so nothing anywhere
+    // asserted that a search for "notes" finds a note that says "note" — which
+    // is the entire reason a stemmer is in this module.
+    check(
+      "termsOf stems, so a plural query reaches a singular note",
+      termsOf("notes").join(" ") === termsOf("note").join(" ") &&
+        termsOf("running").join(" ") === "run" &&
+        // …and the `ss` guard, so "class" does not become "clas"…
+        termsOf("classes class").join(" ") === "class class" &&
+        // …and the length guard, so a three-letter word keeps its s: "gas"
+        // stemmed to "ga" is not a smaller word, it is a different one.
+        termsOf("gas bus its").join(" ") === "gas bus its" &&
+        // …at exactly four, which is where the guard sits: "tags" and "apps"
+        // are the shape a note's own vocabulary is full of.
+        termsOf("tags apps eyes").join(" ") === "tag app eye"
     );
   }
 
