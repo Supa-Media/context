@@ -1139,9 +1139,15 @@ export async function runSearchIntegrationChecks(check) {
     // probe of this constant measures the expander as much as the cap.
     //
     // The body is uniform four-character groups, so `len.body` is a direct
-    // function of the cap. Measured: 2,045 and 2,053 both fail, 2,046 through
-    // 2,052 pass — the pin is one token group wide, which is as tight as a
-    // token count can be, and it catches 8,192, 10,000 and 64 outright.
+    // function of the cap. Measured at every value from 2,043 to 2,055: 2,046
+    // through 2,049 pass and everything either side fails — four values, one
+    // token group, which is as tight as a token count can be, and it catches
+    // 8,192, 10,000 and 64 outright. (An earlier version of this comment said
+    // "2,046 through 2,052", which was seven values and therefore could not be
+    // one group wide. It came from running 2,045-2,048 and 2,053-2,055 and
+    // writing the untested gap between them as if it had been measured, under
+    // the word "Measured". The band's width is set by `tokenize`'s
+    // `token.length >= 2` filter: a trailing "a" is dropped, "ab" is kept.)
     {
       const edge = createBucket();
       edge.seed("privacy.md", PRIVACY_MANIFEST);
