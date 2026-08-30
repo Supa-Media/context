@@ -1,3 +1,4 @@
+import type { ReactElement } from "react";
 import { StyleSheet, View, type ViewStyle } from "react-native";
 import { colors } from "../tokens";
 
@@ -56,31 +57,47 @@ import { colors } from "../tokens";
  *   exactly the shape of guard this repo keeps finding was never checked.
  */
 
-export type IconName =
+/**
+ * Every icon in the set, as a value.
+ *
+ * An array with the type derived from it, rather than a union with the names
+ * typed again in a test. `draw` below is a `switch` with no `default`, so a
+ * name added to the union and not to the `switch` returns `undefined` — an
+ * icon that renders an empty box of the right size, in a control that still
+ * has its accessible name, on a surface with no hover to reveal what it was
+ * meant to be. Nothing about that is loud.
+ *
+ * With the names as a value, `icons.test.ts` walks the whole set and asserts
+ * each one draws something. The list is the guard; the union follows it.
+ */
+export const ICON_NAMES = [
   /** The sidebar toggle, as Obsidian draws it: a pane with its leading column filled. */
-  | "panelLeft"
-  | "menu"
-  | "search"
-  | "plus"
-  | "check"
-  | "close"
-  | "chevronLeft"
-  | "chevronRight"
-  | "chevronUp"
-  | "chevronDown"
-  | "arrowLeft"
-  | "arrowRight"
-  | "more"
-  | "folder"
-  | "file"
-  | "sliders"
-  | "book"
-  | "share"
-  | "trash"
+  "panelLeft",
+  "menu",
+  "search",
+  "plus",
+  "check",
+  "close",
+  "chevronLeft",
+  "chevronRight",
+  "chevronUp",
+  "chevronDown",
+  "arrowLeft",
+  "arrowRight",
+  "more",
+  "folder",
+  "file",
+  "sliders",
+  "book",
+  "share",
+  "trash",
   /** The Map pane: nodes with edges between them. */
-  | "constellation"
+  "constellation",
   /** The Connections pane: a two-way exchange, which is what a grant is. */
-  | "exchange";
+  "exchange",
+] as const;
+
+export type IconName = (typeof ICON_NAMES)[number];
 
 /**
  * The stroke weight for a box of this size.
@@ -284,7 +301,15 @@ function chevron(
   );
 }
 
-function draw(name: IconName, u: number, c: string, w: number) {
+/**
+ * The drawing, as one or more absolutely-positioned strokes.
+ *
+ * The return type is written out rather than inferred: inferred, a `switch`
+ * missing a case widens to `… | undefined` and compiles, which is the silent
+ * empty box `ICON_NAMES` exists to catch. Written, the compiler catches it
+ * first and the test is the second line of defence rather than the only one.
+ */
+function draw(name: IconName, u: number, c: string, w: number): ReactElement | ReactElement[] {
   switch (name) {
     case "panelLeft":
       return [

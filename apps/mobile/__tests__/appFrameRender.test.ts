@@ -199,6 +199,38 @@ describe("the frame owns the viewport", () => {
 });
 
 describe("a phone", () => {
+  /**
+   * The toolbar's gap from the bottom of the glass, which is one number and not
+   * two added together.
+   *
+   * `BottomBar` is a floating pill and needs a gap under it; a notched phone's
+   * home indicator inset already *is* a gap. Summing them is the "bar floating
+   * 68px above the home indicator" that file warns about, and because the frame
+   * is `100dvh` and clips, the overflow comes out of the editor rather than
+   * growing the frame. So the frame takes whichever is larger — and `BottomBar`
+   * itself sets nothing on that edge, which the toolbar's own suite asserts
+   * separately.
+   *
+   * Driven from both sides: a browser with no inset must still get a gap, and a
+   * notched phone must not get one on top of its inset.
+   */
+  test("the toolbar's bottom gap is the larger of the inset and the float, never both", () => {
+    mockInsets.bottom = 0;
+    let app = mountFrame(390);
+    let band = app.find("bottom")!.parentElement!;
+    expect(Number.parseFloat(styleOf(band, "padding-bottom"))).toBe(layout.floatingInset);
+    app.unmount();
+
+    mockInsets.bottom = 34;
+    app = mountFrame(390);
+    band = app.find("bottom")!.parentElement!;
+    expect(Number.parseFloat(styleOf(band, "padding-bottom"))).toBe(34);
+    app.unmount();
+
+    // Left as the suite found it: `mockInsets` is module-level and shared.
+    mockInsets.bottom = 0;
+  });
+
   test("is the editor and a bottom toolbar, with no rail", () => {
     const app = mountFrame(390);
 

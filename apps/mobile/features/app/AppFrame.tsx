@@ -529,8 +529,29 @@ export function AppFrame({
 
         {regions.statusBar && status ? <View style={styles.status}>{status}</View> : null}
 
+        {/*
+          The toolbar's room, and both of its edges.
+
+          `max` rather than a sum: on a notched phone the home indicator's inset
+          is already a gap, and adding the float inset on top of it is the "bar
+          floating 68px above the home indicator" `BottomBar` warns about. On a
+          phone or a browser with no inset there is nothing, and a pill flush
+          against the bottom of the glass is not a floating object. So the pill
+          gets whichever gap is larger, from here, and `BottomBar` sets nothing
+          on that edge at all.
+        */}
         {regions.bottomBar && bottomBar ? (
-          <View style={[styles.bottomBar, { paddingBottom: insets.bottom }]}>{bottomBar}</View>
+          <View
+            style={[
+              styles.bottomBar,
+              {
+                paddingTop: layout.floatingInset,
+                paddingBottom: Math.max(insets.bottom, layout.floatingInset),
+              },
+            ]}
+          >
+            {bottomBar}
+          </View>
         ) : null}
       </View>
     </FrameContext.Provider>
@@ -569,11 +590,13 @@ function SearchTrigger({ onPress }: { onPress: () => void }) {
  *
  * Two shapes, and the difference is not decoration. Under a pointer it is a
  * 30pt square that tints on hover, sitting in a ruled bar — the hover is what
- * says it is a control, so the resting state can be nothing at all. A phone has
- * no hover and no rule: `round` gives it a filled circle and a shadow, because
- * on a floating chrome the visible object *is* the target, and it is drawn at
- * `layout.chromeButton` rather than at the 44pt floor for the reason that token
- * gives.
+ * says it is a control, so the resting state can be nothing at all, and 30 is
+ * fine because the *bar* around it is the 44pt band.
+ *
+ * A phone has no hover and no band. `round` gives it a filled circle with a
+ * shadow, at `layout.chromeButton` — which is exactly `minTouchTarget`, and
+ * derived from it rather than typed, because here the visible circle is the
+ * whole target and there is no padding around it to make up a shortfall.
  */
 export function FrameIconButton({
   label,
@@ -714,9 +737,10 @@ const styles = StyleSheet.create({
    * with a hairline under it is a *desktop* toolbar, and on a 390pt screen it
    * spends the top 45pt of the glass saying so.
    *
-   * Taller than `topBarHeight` because the circles inside it are 40 and need
-   * air; the hairline that made `topBarHeight` `minTouchTarget + 1` is gone
-   * here, so the pixel it was buying back has nowhere to hide either.
+   * Taller than `topBarHeight`, and derived rather than typed: a row of 44pt
+   * circles in a 45pt bar is a bar with half a point of air either side. The
+   * hairline that made `topBarHeight` `minTouchTarget + 1` is gone here too,
+   * so the pixel it was buying back has nowhere left to hide.
    */
   topBarCompact: {
     height: layout.chromeButton + space.x4,

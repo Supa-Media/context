@@ -142,6 +142,20 @@ export default function ConsoleLayout() {
   const phone = densityFor(width) === "compact";
   const insideContext = route.kind === "context";
   const browsing = route.kind === "context" && route.view === "browse";
+  /*
+    A panel is not a preference — `frame.ts` states the rule for its own two,
+    and this is a third one living outside it. The sheet can only be raised on
+    a phone, on Browse; rotating a tablet out of compact, or walking to Map,
+    leaves nothing on screen that could put it away. Without this it comes back
+    the moment you rotate home, over a note you never asked about.
+
+    Cleared rather than merely not rendered, because "not rendered" is what
+    makes it come back: the flag would still be true.
+  */
+  useEffect(() => {
+    if (!phone || !browsing) setSwitcherOpen(false);
+  }, [phone, browsing]);
+
   const contextLabel = atName(current?.slug ?? "your context");
 
   return (

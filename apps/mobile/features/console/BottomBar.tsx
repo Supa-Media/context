@@ -70,12 +70,15 @@ import { colors, layout, radii, shadows, space } from "../design/tokens";
  *
  * ## Two things this deliberately does not do
  *
- * **It adds no safe-area padding.** `AppFrame` already applies `insets.bottom`
- * to the slot this renders into. Adding it here as well would double it, which
- * on a notched phone reads as a bar floating 68px above the home indicator, and
- * — because the frame is `100dvh` and clips — pushes the icons off the bottom
- * of the editor's space rather than growing the frame. If this component ever
- * gains padding at the bottom, it is a bug.
+ * **It sets nothing on its bottom edge.** `AppFrame` owns that edge: it applies
+ * `max(insets.bottom, floatingInset)` to the slot this renders into, so the
+ * pill clears the home indicator on a notched phone and still has a gap on one
+ * without. Setting anything here as well would stack, which is a bar floating
+ * 68px above the home indicator, and — because the frame is `100dvh` and clips
+ * — pushes the icons off the bottom of the editor's space rather than growing
+ * the frame. The inset either side is a `marginHorizontal` for the same reason
+ * in reverse: nothing else is deciding the horizontal edges. If this component
+ * ever gains a bottom margin or padding, it is a bug.
  *
  * **It does not reimplement the tab count.** `TabCountButton` in
  * `files/TabSwitcher.tsx` already owns the count square, its unsaved dot and
@@ -244,11 +247,10 @@ const styles = StyleSheet.create({
       `bottomBarHeight` tall — the number `frame.ts` reserves and the test
       asserts — while the room it floats in grows around it.
 
-      No `marginBottom` beyond the inset. `AppFrame` applies `insets.bottom` to
-      this slot; see the file comment.
+      Horizontal only. The bottom edge belongs to `AppFrame`, which is the one
+      that knows the safe-area inset; see the file comment.
     */
     marginHorizontal: layout.floatingInset,
-    marginBottom: layout.floatingInset,
     borderRadius: radii.floating,
     backgroundColor: colors.chrome,
     boxShadow: shadows.floating,

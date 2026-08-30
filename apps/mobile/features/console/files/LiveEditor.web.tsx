@@ -93,10 +93,13 @@ function ensureStyles(): void {
   injected once for the document and has no React state to read; the breakpoint
   is layout.narrowBreakpoint, which is what densityFor calls compact, so the
   two surfaces change over at the same width instead of at two numbers that
-  agree until somebody edits one. (No backticks in here: this comment is inside
-  a template literal, and one would end the string.)
+  agree until somebody edits one. Minus 0.02 rather than minus 1: densityFor
+  says compact below the breakpoint, and CSS max-width is inclusive, so a whole
+  point would leave a window between 879 and 880 where one surface had changed
+  over and the other had not. (No backticks in here: this comment is inside a
+  template literal, and one would end the string.)
 */
-@media (max-width: ${layout.narrowBreakpoint - 1}px) {
+@media (max-width: ${layout.narrowBreakpoint - 0.02}px) {
   .cm-lp-root .cm-scroller {
     font-size: 16.5px;
     line-height: 1.65;
