@@ -334,9 +334,12 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     canSetVisibility: canEdit,
     canShare: canEdit,
     shares: undefined,
-    share: () => {},
-    revokeShare: () => {},
-    setSharePreviewTitle: () => {},
+    // Recorded, not a no-op: `expect(contextB.entries).toEqual([])` below is
+    // about a share reaching the new context, and a `() => {}` here makes that
+    // assertion unable to observe the very call it names.
+    share: record("share"),
+    revokeShare: record("revokeShare"),
+    setSharePreviewTitle: record("setSharePreviewTitle"),
   };
 }
 
@@ -575,6 +578,55 @@ describe("an overlay does not follow the reader into another context", () => {
     explorer.render("@b", contextB);
 
     expect(shareDialogFor("note.md")).toBeNull();
+    expect(contextB.entries).toEqual([]);
+  });
+
+  /**
+   * **The row menu is worse than the dialog, and was held by nothing.**
+   *
+   * Removing `setMenu(null)` from the reset passed all 1,674 checks. It is not
+   * cosmetic: `duplicate`, `copy`, `cut`, `paste`, `restore` and the three
+   * visibility actions fire straight from `runAction` with **no dialog in
+   * between** — a menu that survives the switch is one click from acting on the
+   * old context's path in the new context.
+   */
+  test("the row menu does not survive the context change", () => {
+    const explorer = mountSwitchable();
+    explorer.render("@a");
+    openRowMenu(explorer.container, "note.md");
+    expect(document.body.textContent).toContain("Duplicate");
+
+    const contextB: Calls = { entries: [], props: [] };
+    explorer.render("@b", contextB);
+
+    expect(document.body.textContent).not.toContain("Duplicate");
+    expect(contextB.entries).toEqual([]);
+  });
+
+  /**
+   * **And a pending drag is the destructive one.**
+   *
+   * A drop is a `move`, not a read grant. `onDragEnd` cannot rescue it either:
+   * the source row is unmounted by the re-render into the new context, so its
+   * listener is gone and `dragend` never arrives to clear `drag`.
+   *
+   * Nor does this need somebody to switch context mid-gesture —
+   * `selectedContextId` falls back to the first workspace, so losing membership
+   * under a mounted console re-renders the tree beneath a pending drag.
+   */
+  test("a pending drag does not drop into the next context", () => {
+    const explorer = mountSwitchable();
+    explorer.render("@a");
+    act(() => {
+      rowNode(explorer.container, "note.md").dispatchEvent(dragEvent("dragstart"));
+    });
+
+    const contextB: Calls = { entries: [], props: [] };
+    explorer.render("@b", contextB);
+    act(() => {
+      rowNode(explorer.container, "1-projects").dispatchEvent(dragEvent("drop"));
+    });
+
     expect(contextB.entries).toEqual([]);
   });
 

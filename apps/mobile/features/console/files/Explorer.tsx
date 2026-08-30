@@ -92,33 +92,53 @@ export function Explorer({
   }, [overlayOpen, onOverlayChange]);
 
   /*
-    An overlay names a note in a context, so changing context ends it.
+    Everything here names a note in a context, so changing context ends it.
 
     `<Explorer>` is mounted in `app/(app)/console/_layout.tsx` — in the layout,
-    above `<Slot/>` — so it survives `/console/@a` → `/console/@b` even more
-    thoroughly than a pane does, and `dialog` is ordinary component state that
-    nothing was resetting. Left alone, the share dialog stayed open across the
-    switch still titled after the old context's note, and submitting called the
-    NEW context's `share` with the OLD context's path. `createShare` checks
-    `requireWorkspaceRole(owner)` and the path's syntax and never that the path
-    exists in that workspace, so under PARA conventions — where
-    `1-projects/plan.md` plausibly exists in both — the owner grants a recipient
-    read access to a note they did not aim at.
+    above `<Slot/>` — so it survives `/console/@a` to `/console/@b`, and all of
+    this is ordinary `useState` that nothing was resetting. Each one that
+    outlives a switch is a control aimed at a context nobody is in any more:
 
-    `contextLabel` is the signal because it is what `<Explorer>` is given to
-    identify whose tree this is; `files` changes identity for reasons that are
-    not a context switch, and a reset keyed on it would close a dialog somebody
-    is typing into.
+      dialog       the share dialog stayed open titled after the old note, and
+                   submitting called the NEW context's `share` with the OLD
+                   context's path. `createShare` checks the role and the path's
+                   syntax, never that the path exists in that workspace.
+      menu         worse, because `duplicate`, `copy`, `cut`, `paste`, `restore`
+                   and the three visibility actions fire straight from
+                   `runAction` with no dialog in between — one click.
+      drag         worst: a pending drag dropped into the new context's tree is
+                   a `move`, which is destructive rather than a read grant. And
+                   `onDragEnd` cannot save it — the source row is unmounted by
+                   the re-render, so its listener is gone and `dragend` never
+                   arrives.
 
-    The row menu matters more here than the pane's button did, not less: on a
-    phone it is the only way to reach Share for a note you are not reading,
-    which is the whole reason that control was moved onto the note in the first
-    place.
+    A `key` on the mount site would be the structural form of this and would
+    cover state added later, which an enumeration cannot — this list reached
+    three instances in two passes. It is not taken because nothing in the suite
+    mounts that layout, so the guard would be unverifiable, and an unchecked
+    guard is the failure this file's neighbours keep recording. Filed rather
+    than assumed away.
+
+    `setDropTarget(null)` alone fails nothing when removed, and that is stated
+    rather than left ambiguous: `dropTarget` is a row highlight, and `drag`
+    being null already refuses the drop, so losing it costs a stale outline on
+    a row in the new context and no more. It is kept because the pair is one
+    gesture and splitting them invites the next reader to wonder which half
+    mattered.
+
+    Keyed on `contextLabel` because it is what identifies whose tree this is.
+    Slugs are globally unique and cannot contain `@` or a space, so no two
+    contexts share a label and the unresolved fallback cannot alias one.
   */
   useEffect(() => {
     setDialog(null);
     setMenu(null);
+    setDrag(null);
+    setDropTarget(null);
+    setRefusal(null);
   }, [contextLabel]);
+
+
 
   const rows = useMemo(
     () =>
