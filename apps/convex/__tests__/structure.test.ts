@@ -438,7 +438,7 @@ const ROUTE_FACTORIES: Record<string, string> = {
  * The tests in `sharePreview.test.ts` are what hold that; the entry here is
  * what stops a second one being added without the same argument.
  */
-const UNAUTHENTICATED_HTTP_ROUTES = new Set(["sharePreview"]);
+const UNAUTHENTICATED_HTTP_ROUTES = new Set(["sharePreview", "shareCard"]);
 
 /**
  * Build the graph and return every way a public function can reach a decrypt.
@@ -1554,8 +1554,13 @@ describe("the gateway's HTTP routes", () => {
    * that entry #1 already had — the same discipline `CREDENTIAL_BARRIERS`
    * follows one section above.
    */
-  test("there is exactly one route that requires no secret, and it is the share preview", () => {
-    expect([...UNAUTHENTICATED_HTTP_ROUTES]).toEqual(["sharePreview"]);
+  test("the routes that require no secret are exactly the two share previews", () => {
+    // `shareCard` joined `sharePreview` when the card moved into the
+    // customer's bucket. It discloses strictly less than its neighbour — the
+    // same owner-chosen title, as a picture — and is bounded the same way: a
+    // 64-character CSPRNG token the owner handed out, a key computed from that
+    // token rather than supplied, and one 404 for every absence.
+    expect([...UNAUTHENTICATED_HTTP_ROUTES]).toEqual(["sharePreview", "shareCard"]);
 
     const source = httpModule().source;
     const start = source.indexOf("export const sharePreview");

@@ -26,7 +26,9 @@ import type * as functions_invitationEmail from "../functions/invitationEmail.js
 import type * as functions_invitations from "../functions/invitations.js";
 import type * as functions_lib_audit from "../functions/lib/audit.js";
 import type * as functions_lib_cardArt from "../functions/lib/cardArt.js";
+import type * as functions_lib_cardCoverage from "../functions/lib/cardCoverage.js";
 import type * as functions_lib_cardFont_onest from "../functions/lib/cardFont/onest.js";
+import type * as functions_lib_cardKey from "../functions/lib/cardKey.js";
 import type * as functions_lib_cloudflare from "../functions/lib/cloudflare.js";
 import type * as functions_lib_consentScopes from "../functions/lib/consentScopes.js";
 import type * as functions_lib_crypto from "../functions/lib/crypto.js";
@@ -51,6 +53,7 @@ import type * as functions_lib_verification from "../functions/lib/verification.
 import type * as functions_lib_workspaceAuth from "../functions/lib/workspaceAuth.js";
 import type * as functions_names from "../functions/names.js";
 import type * as functions_provisioning from "../functions/provisioning.js";
+import type * as functions_shareCard from "../functions/shareCard.js";
 import type * as functions_shares from "../functions/shares.js";
 import type * as functions_storage from "../functions/storage.js";
 import type * as functions_workspaces from "../functions/workspaces.js";
@@ -81,7 +84,9 @@ declare const fullApi: ApiFromModules<{
   "functions/invitations": typeof functions_invitations;
   "functions/lib/audit": typeof functions_lib_audit;
   "functions/lib/cardArt": typeof functions_lib_cardArt;
+  "functions/lib/cardCoverage": typeof functions_lib_cardCoverage;
   "functions/lib/cardFont/onest": typeof functions_lib_cardFont_onest;
+  "functions/lib/cardKey": typeof functions_lib_cardKey;
   "functions/lib/cloudflare": typeof functions_lib_cloudflare;
   "functions/lib/consentScopes": typeof functions_lib_consentScopes;
   "functions/lib/crypto": typeof functions_lib_crypto;
@@ -106,6 +111,7 @@ declare const fullApi: ApiFromModules<{
   "functions/lib/workspaceAuth": typeof functions_lib_workspaceAuth;
   "functions/names": typeof functions_names;
   "functions/provisioning": typeof functions_provisioning;
+  "functions/shareCard": typeof functions_shareCard;
   "functions/shares": typeof functions_shares;
   "functions/storage": typeof functions_storage;
   "functions/workspaces": typeof functions_workspaces;

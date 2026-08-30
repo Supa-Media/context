@@ -2341,3 +2341,36 @@ export async function writeImage(
   }
   return { key, etag: put.etag };
 }
+
+/**
+ * Read bytes back out of the opaque store.
+ *
+ * The mirror of `writeImage`, and exempt from the same three rules for the same
+ * reasons: no `.md`, no manifest, no history. **It applies the identical leaf
+ * check**, which is what stops it being a general object reader — the same
+ * property `read_image` in the gateway is built around. Without it, a caller
+ * naming `../privacy.md` would walk straight out of `.images/` and hand back
+ * the access map.
+ *
+ * Missing is `FILE_NOT_FOUND`, the same code an invisible note gets, so a
+ * caller cannot tell "no card yet" from "never existed".
+ */
+export async function readImage(store: FileStore, leaf: string): Promise<ArrayBuffer> {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(leaf) || leaf.length > 200) {
+    throw new FileOpError("PATH_INVALID", "That is not a valid stored-object name.");
+  }
+  const object = await store.get(`${IMAGE_PREFIX}${leaf}`);
+  if (object === null) throw notFound();
+  // `arrayBuffer` rather than `text`: a PNG decoded as UTF-8 is mojibake, and
+  // the adapters that predate images only guaranteed `text`.
+  const reader = object as { arrayBuffer?: () => Promise<ArrayBuffer> };
+  if (typeof reader.arrayBuffer !== "function") {
+    // Every real adapter has it; the narrow `ScaffoldStore` type predates
+    // images and only promises `text`. `FILE_NOT_FOUND` rather than a new code:
+    // from the caller's side a store that cannot hand back bytes and a card
+    // that was never written are the same absence, and both mean "serve the
+    // static card".
+    throw notFound();
+  }
+  return await reader.arrayBuffer();
+}

@@ -373,6 +373,26 @@ const schema = defineSchema({
      */
     previewTitle: v.optional(v.string()),
     /**
+     * The leaf of the card image in the owner's own bucket, under `.images/`.
+     *
+     * **Their bytes, in their storage.** A card is derived from a note they
+     * wrote and lives where that note lives, so revoking our storage credential
+     * takes the previews with it — which is the product's whole promise, not a
+     * cost of it.
+     *
+     * Absent until the card has been rendered, and absent forever for a share
+     * whose title has a glyph the bundled font cannot draw. Both mean the same
+     * thing to every reader: serve the static product card.
+     *
+     * The leaf carries a hash of the title, so retitling a share writes a new
+     * object rather than mutating one — the Workers cache is per-datacenter and
+     * has no global purge, so a changed URL is the only invalidation available.
+     * The old object is deliberately left behind: these are the customer's
+     * bytes in the customer's bucket, and the images feature's rule is that
+     * nothing here ever collects.
+     */
+    cardImageLeaf: v.optional(v.string()),
+    /**
      * Absent means no expiry, and that is the default.
      *
      * Deliberately unlike an invitation, which is a one-time offer that should

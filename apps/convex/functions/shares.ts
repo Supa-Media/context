@@ -74,6 +74,7 @@ import {
 } from "./lib/invitees";
 import { isPlumbing } from "./lib/privacy";
 import { normalizePreviewTitle, titleFromPath } from "./lib/shareTitle";
+import { scheduleCardRender } from "./shareCard";
 import { getMembership, requireWorkspaceRole } from "./lib/workspaceAuth";
 
 /**
@@ -422,6 +423,10 @@ export const createShare = mutation({
         // access", and re-sharing is the same grant, not a renewal of it.
         expiresAt: args.expiresAt ?? existing.expiresAt,
       });
+      // The title may have changed, so the card may be stale. Scheduled, never
+      // awaited: a render that is slow or fails must not make sharing slow or
+      // fail. See `scheduleCardRender`.
+      await scheduleCardRender(ctx, existing._id);
       return { token: existing.token };
     }
 
@@ -441,9 +446,11 @@ export const createShare = mutation({
         ? (await findName(ctx, parsed.invitee.value))?.claimedAt
         : undefined;
 
+    let shareId: Id<"noteShares">;
     if (existing !== null) {
       // Revoked, and now re-shared. A **new** token, so the link that was
       // revoked stays dead — otherwise "revoke" would have meant "pause".
+      shareId = existing._id;
       await ctx.db.patch(existing._id, {
         status: "active",
         token,
@@ -459,7 +466,7 @@ export const createShare = mutation({
         revokedAt: undefined,
       });
     } else {
-      await ctx.db.insert("noteShares", {
+      shareId = await ctx.db.insert("noteShares", {
         workspaceId: args.workspaceId,
         entryPath: pathCheck.path,
         recipientKind: parsed.invitee.kind,
@@ -485,6 +492,7 @@ export const createShare = mutation({
       details: { recipient: formatInvitee(parsed.invitee) },
     });
 
+    await scheduleCardRender(ctx, shareId);
     return { token };
   },
 });
