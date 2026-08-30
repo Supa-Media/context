@@ -531,6 +531,45 @@ describe("a folder gets a link too", () => {
     ).toBe("PATH_NOT_SHAREABLE");
   });
 
+  /**
+   * The axis the fixtures above hold constant: every path in them is a note, a
+   * folder, or plumbing. The rule as written is none of those three — it is
+   * "anything that is not plumbing" — and narrowing it to what its own comment
+   * described ("a note, or a path with no extension") passed all 1,374 checks.
+   *
+   * So this pins what the code actually does. A member can already read a
+   * non-note file at their tier, and a team link grants nothing, so linking one
+   * is no escalation — but the rule should be held as written rather than as
+   * imagined, in both directions: wide enough for an attachment, and still
+   * refusing plumbing.
+   */
+  test("a non-note file can be linked too, because the rule is 'not plumbing'", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    const { token } = await teamLink(t, ownerId, workspaceId, "1-projects/diagram.png");
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  /** A personal share is still note-only. */
+  test("a non-note file cannot be shared with one person either", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    const lk = await createUser(t, "lk2@example.invalid");
+    await createWorkspace(t, lk, "lk2");
+
+    expect(
+      errorCode(
+        await captureError(() =>
+          asUser(t, ownerId).mutation(api.functions.shares.createShare, {
+            workspaceId,
+            path: "1-projects/diagram.png",
+            recipient: "@lk2",
+          }),
+        ),
+      ),
+    ).toBe("PATH_NOT_SHAREABLE");
+  });
+
   /** A personal share is still note-only. */
   test("a folder cannot be shared with one person", async () => {
     const t = setupTest();

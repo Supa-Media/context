@@ -324,14 +324,25 @@ function checkSharePath(input: string): PathCheck {
 }
 
 /**
- * The path a **team link** may point at.
+ * The path a **team link** may point at: anything that is not plumbing.
  *
- * Wider than `checkSharePath` by exactly one thing: a folder. A team link
- * grants nothing — it is an address whose reader is authorised by membership —
- * so "a link to this folder" is a sentence that means something, where "share
- * this folder with one outsider" is not: it would have to decide what a folder
- * share reaches, and that is a scope nobody asked for. Personal shares stay
- * note-only, and `checkSharePath` above is what keeps them there.
+ * The motivating case is a folder — a team link grants nothing, it is an
+ * address whose reader is authorised by membership, so "a link to this folder"
+ * is a sentence that means something where "share this folder with one
+ * outsider" is not: that would have to decide what a folder share reaches, and
+ * it is a scope nobody asked for. Personal shares stay note-only, and
+ * `checkSharePath` above is what keeps them there.
+ *
+ * **But the rule is not "a note or a folder", and an earlier version of this
+ * comment said it was** — "wider than `checkSharePath` by exactly one thing: a
+ * folder". It is wider by everything that is not `.md`: an image, a PDF, a
+ * spreadsheet, an extensionless file. That is deliberate and it is safe for the
+ * same reason the folder case is — a member can already read those at their
+ * tier and the link confers nothing — but it is a different sentence, and
+ * "exactly one thing" would have sent somebody tightening this to a rule that
+ * silently breaks links to attachments. There is no way to tell a folder from
+ * an extensionless file by path alone anyway, so "note or folder" was never
+ * implementable here.
  *
  * Plumbing is refused for both. `.history/` is every revision of every note and
  * `privacy.md` is the access map; neither is a thing to hand anybody a link to,
