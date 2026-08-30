@@ -12,6 +12,7 @@ import { loadedFolders, type FileBrowser } from "./browser";
 import { Confirm, DeleteForever, MovePicker, NamePrompt } from "./Dialogs";
 import { ShareDialog } from "./ShareDialog";
 import { consoleOrigin } from "./shareOrigin";
+import { sharesBreakingWarning } from "./shares";
 import { canDrop as verdictFor, type DragSource } from "./dnd";
 import { FileTree, type TreeDragHandlers } from "./FileTree";
 import { itemsFor, type MenuActionId } from "./menu";
@@ -569,6 +570,7 @@ export function ExplorerDialogs({
       return (
         <NamePrompt
           title="Rename"
+          description={sharesBreakingWarning(files.shares, dialog.path, "Renaming") ?? undefined}
           initialValue={baseName(dialog.path)}
           confirmLabel="Rename"
           onCancel={onClose}
@@ -582,6 +584,7 @@ export function ExplorerDialogs({
       return (
         <MovePicker
           title={`Move ${baseName(dialog.path)}`}
+          description={sharesBreakingWarning(files.shares, dialog.path, "Moving") ?? undefined}
           folders={loadedFolders(files.listings).filter(
             (folder) => dialog.path !== folder && !folder.startsWith(`${dialog.path}/`),
           )}
@@ -623,9 +626,21 @@ export function ExplorerDialogs({
       );
     case "archive":
       return (
+        /*
+          "Nothing is deleted" is true of the bytes and was false of the
+          access: a share is stored against the path, so archiving takes every
+          outstanding link with it. The sentence is appended rather than
+          replacing the reassurance, because both are true and the reassurance
+          is the one people came for.
+        */
         <Confirm
           title="Archive"
-          body={`${dialog.path} moves into 4-archive/ with its original path kept inside, so you can move it straight back. Nothing is deleted.`}
+          body={[
+            `${dialog.path} moves into 4-archive/ with its original path kept inside, so you can move it straight back. Nothing is deleted.`,
+            sharesBreakingWarning(files.shares, dialog.path, "Archiving"),
+          ]
+            .filter(Boolean)
+            .join(" ")}
           confirmLabel="Archive it"
           onCancel={onClose}
           onConfirm={() => {

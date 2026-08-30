@@ -103,12 +103,15 @@ export function NamePrompt({
  */
 export function MovePicker({
   title,
+  description,
   folders,
   currentFolder,
   onCancel,
   onConfirm,
 }: {
   title: string;
+  /** A consequence worth reading before choosing — see `sharesBreakingWarning`. */
+  description?: string;
   folders: readonly string[];
   currentFolder: string;
   onCancel: () => void;
@@ -118,6 +121,7 @@ export function MovePicker({
 
   return (
     <Shell title={title} onClose={onCancel}>
+      {description ? <Text variant="paneSub">{description}</Text> : null}
       <Text variant="paneSub">Pick where it should live. Nothing is overwritten.</Text>
       <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
         {folders.map((folder) => {

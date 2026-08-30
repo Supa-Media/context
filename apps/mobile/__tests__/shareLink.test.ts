@@ -20,6 +20,7 @@ import {
   describeShare,
   shareEligibility,
   shareUrl,
+  sharesBreakingWarning,
   sharesFor,
   type NoteShare,
 } from "../features/console/files/shares";
@@ -204,5 +205,55 @@ describe("the shares on one note", () => {
     expect(sharesFor([share({ entryPath: "other.md" })], "1-projects/plan.md")).toEqual(
       [],
     );
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+describe("what renaming a shared note costs", () => {
+  /*
+    A share is stored against `entryPath` and the file operations never touch
+    the `noteShares` table, so renaming, moving or archiving a note leaves every
+    outstanding link pointing at a path that no longer exists — silently, with
+    nothing in any of the three dialogs saying so. The archive dialog went
+    further and said "Nothing is deleted", which is true of the bytes and false
+    of the access.
+  */
+  test("it names the count and the verb", () => {
+    const text = sharesBreakingWarning(
+      [share({ shareId: "a" }), share({ shareId: "b" })],
+      "1-projects/plan.md",
+      "Renaming",
+    );
+
+    expect(text).toContain("2 people hold links");
+    expect(text).toContain("Renaming");
+    expect(text).toContain("them");
+  });
+
+  test("one link is singular, in both halves of the sentence", () => {
+    // "1 people hold links … breaks them" is the tell of a count formatted once
+    // and a pronoun forgotten.
+    const text = sharesBreakingWarning([share({ shareId: "a" })], "1-projects/plan.md", "Moving");
+
+    expect(text).toContain("1 person holds a link");
+    expect(text).toContain("breaks it");
+    expect(text).not.toContain("people");
+  });
+
+  test("a note nobody holds says nothing at all", () => {
+    expect(
+      sharesBreakingWarning([share({ entryPath: "other.md" })], "1-projects/plan.md", "Archiving"),
+    ).toBeNull();
+  });
+
+  test("a list that has not loaded is silent, not reassuring", () => {
+    /*
+      The distinction `sharesFor` already draws, and the direction it has to
+      fail in. Rendering "not loaded" as "no shares" would print *nothing* over
+      a note somebody has in fact shared — a reassurance by omission, at the
+      moment they are about to break it.
+    */
+    expect(sharesBreakingWarning(undefined, "1-projects/plan.md", "Renaming")).toBeNull();
   });
 });
