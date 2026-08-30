@@ -658,7 +658,7 @@ describe("a stranger cannot reach another workspace's files", () => {
     // **`isHttp` is read too, and leaving it out was this guard's third hole.**
     // `httpActionGeneric` sets `isHttp` and neither `isPublic` nor `isInternal`
     // (convex/dist/esm/server/impl/registration_impl.js:245, against 124/172/210
-    // for query/mutation/action), so an `httpAction` exported from this module
+    // for mutation/query/action), so an `httpAction` exported from this module
     // is invisible to an `isPublic` test. Measured: an unauthenticated
     // `GET /files/raw` listing any workspace's bucket at OWNER scope, routed for
     // real in `http.ts`, left all 1,403 checks green.
