@@ -1,9 +1,12 @@
+import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { colors, radii, space } from "../../design/tokens";
 import { Breadcrumb } from "../files/Breadcrumb";
 import { NoteEditor } from "../files/NoteEditor";
+import { ShareDialog } from "../files/ShareDialog";
+import { consoleOrigin } from "../files/shareOrigin";
 import { findEntry } from "../files/tree";
 import type { FileEntry, Visibility } from "../files/types";
 import { atName } from "../format";
@@ -57,6 +60,16 @@ export function BrowsePane({
   const selected =
     files.selectedPath === null ? null : findEntry(files.listings, files.selectedPath);
 
+  /**
+   * The note the share dialog is open for, or `null`.
+   *
+   * Held here rather than lifted into `Explorer`'s dialog union: that state
+   * belongs to the *tree*, and this is the editor region. Two entry points to
+   * one dialog is not two dialogs — `ShareDialog` holds nothing of its own
+   * beyond a draft recipient.
+   */
+  const [sharing, setSharing] = useState<string | null>(null);
+
   const noBucket = data.storage === null && !data.loading;
   const manifestBroken = files.listings[""]?.manifestUsable === false;
   /*
@@ -80,14 +93,57 @@ export function BrowsePane({
   return (
     <View style={styles.region}>
       {selected !== null && selected.kind === "file" ? (
-        <Breadcrumb
-          path={selected.path}
-          contextLabel={contextLabel}
-          visibility={selected.visibility}
-          inherited={selected.inherited}
-          exception={selected.exception}
-          readOnly={selected.readOnly}
-          onSelectFolder={files.select}
+        <View style={styles.noteHead}>
+          <View style={styles.crumb}>
+            <Breadcrumb
+              path={selected.path}
+              contextLabel={contextLabel}
+              visibility={selected.visibility}
+              inherited={selected.inherited}
+              exception={selected.exception}
+              readOnly={selected.readOnly}
+              onSelectFolder={files.select}
+            />
+          </View>
+          {/*
+            Share is here, beside the note, and not only in the row's menu.
+
+            It was menu-only first, and that made it a feature nobody had: on a
+            phone the menu is a long-press on a *file row*, so somebody reading
+            a note — which is exactly when they decide to send it to a
+            colleague — had no row to press and no button to find. `Empty`
+            below already states the rule this broke: "a right-click menu
+            nobody discovers is a feature nobody has."
+
+            It stays in the menu too. The menu is how you act on a note you are
+            not looking at; this is how you act on the one you are.
+
+            Absent rather than disabled for anyone who is not the owner, and
+            absent for `privacy.md` and anything else read-only — the same rule
+            the menu applies, and the server refuses it regardless with
+            `minimum: "owner"`.
+          */}
+          {files.canShare && !selected.readOnly ? (
+            <Button
+              label="Share…"
+              onPress={() => setSharing(selected.path)}
+              testID="browse-share"
+            />
+          ) : null}
+        </View>
+      ) : null}
+
+      {sharing !== null ? (
+        <ShareDialog
+          path={sharing}
+          shares={files.shares}
+          origin={consoleOrigin()}
+          onShare={(recipient) => files.share(sharing, recipient)}
+          onRevoke={(shareId) => files.revokeShare(shareId)}
+          onSetPreviewTitle={(recipient, on) =>
+            files.setSharePreviewTitle(sharing, recipient, on)
+          }
+          onClose={() => setSharing(null)}
         />
       ) : null}
 
@@ -279,6 +335,9 @@ function FolderSummary({
 const styles = StyleSheet.create({
   /** The editor region: chrome on its top edge, the document filling the rest. */
   region: { flex: 1, minHeight: 0 },
+  /** The breadcrumb takes the room it needs; Share sits at the end of the line. */
+  noteHead: { flexDirection: "row", alignItems: "center", gap: space.x2 },
+  crumb: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
   body: { flex: 1, minHeight: 0, padding: space.x4 },
 
   notices: { paddingHorizontal: space.x4, paddingTop: space.x3, gap: space.x2 },
