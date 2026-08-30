@@ -22,6 +22,7 @@ import { EditorState } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 import {
   decorationsFor,
+  frontmatterRange,
   markdownLanguage,
   hiddenMarkRanges,
   selectionTouches,
@@ -330,5 +331,111 @@ describe("the decoration set is well-formed", () => {
     const state = stateFor(doc, 4);
     decorationsFor(state);
     expect(state.doc.toString()).toBe(doc);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+describe("frontmatter is metadata, not the note's largest heading", () => {
+  /**
+   * **What this fixes, and why it was on every note.**
+   *
+   * The lezer Markdown grammar has no frontmatter node — the file's own header
+   * says so — and CommonMark reads the closing `---` as a **setext underline**.
+   * So a note that opens the way every Obsidian note opens:
+   *
+   *     ---
+   *     updated: 2026-08-26
+   *     ---
+   *
+   * had its two metadata keys drawn as a level-2 heading, bold and two-thirds
+   * larger than the body, above the actual title. It was the first thing on the
+   * screen and the loudest thing on it, on every note in a synced bucket.
+   */
+  const FRONT = "---\nupdated: 2026-08-26\nstatus: active\n---\n\n# Real title\n";
+
+  function classesIn(doc: string): string[] {
+    const set = decorationsFor(stateFor(doc, 500));
+    const found: string[] = [];
+    const iter = set.iter();
+    while (iter.value !== null) {
+      const spec = iter.value.spec as { class?: string };
+      if (spec.class) found.push(spec.class);
+      iter.next();
+    }
+    return found;
+  }
+
+  test("the grammar really does call it a heading", () => {
+    /*
+      The premise, asserted rather than assumed. If a future grammar learns
+      about frontmatter this fails, and the fix is to delete the workaround
+      rather than to discover it is now doing nothing.
+    */
+    const state = stateFor(FRONT);
+    const names: string[] = [];
+    syntaxTree(state).iterate({ enter: (node) => void names.push(node.name) });
+    expect(names).toContain("SetextHeading2");
+  });
+
+  test("and it is not drawn as one", () => {
+    const classes = classesIn(FRONT);
+    expect(classes).toContain("cm-lp-frontmatter");
+    expect(classes).not.toContain("cm-lp-h2");
+  });
+
+  test("the note's own headings still are", () => {
+    // The other direction, so the fix cannot be "stop styling headings".
+    expect(classesIn(FRONT)).toContain("cm-lp-h1");
+  });
+
+  test("the range covers the block and stops at the closing fence", () => {
+    const range = frontmatterRange(FRONT)!;
+    expect(range.from).toBe(0);
+    expect(FRONT.slice(range.from, range.to)).toBe(
+      "---\nupdated: 2026-08-26\nstatus: active\n---",
+    );
+  });
+
+  test("a rule further down the note is still a rule", () => {
+    // Frontmatter is a property of the *first* line. A `---` in the middle of a
+    // document is a horizontal rule and dimming it would be a new bug.
+    expect(frontmatterRange("# Title\n\n---\nnot: frontmatter\n---\n")).toBeNull();
+  });
+
+  test("an unterminated fence is a horizontal rule, not a swallowed note", () => {
+    /*
+      The case that rules out a `@lezer/markdown` block parser here:
+      `BlockContext` cannot rewind, so recognising the opener and then failing
+      to find a closer would consume the rest of the document. Reading the text
+      answers before anything is consumed.
+    */
+    expect(frontmatterRange("---\nthis note has no closing fence\n")).toBeNull();
+    expect(classesIn("---\nthis note has no closing fence\n")).not.toContain(
+      "cm-lp-frontmatter",
+    );
+  });
+
+  test("both fences are visible, not just the opening one", () => {
+    /*
+      The asymmetry this rules out. The opening `---` parses as a
+      HorizontalRule and the closing one as a setext HeaderMark, so ordinary
+      mark-hiding removed the closing fence and left the opening one — and the
+      block read as an unterminated rule above two stray keys.
+    */
+    expect(visibleText(FRONT, 500)).toContain("---\nupdated: 2026-08-26\nstatus: active\n---");
+  });
+
+  test("YAML's other closing fence counts", () => {
+    // `...` ends a YAML document too, and Obsidian accepts it.
+    const doc = "---\na: 1\n...\nbody\n";
+    const range = frontmatterRange(doc)!;
+    expect(doc.slice(range.from, range.to)).toBe("---\na: 1\n...");
+  });
+
+  test("an empty document, and a bare fence, are not frontmatter", () => {
+    expect(frontmatterRange("")).toBeNull();
+    expect(frontmatterRange("---")).toBeNull();
+    expect(frontmatterRange("---\n")).toBeNull();
   });
 });

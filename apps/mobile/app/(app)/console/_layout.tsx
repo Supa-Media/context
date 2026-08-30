@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Slot, useRouter, usePathname } from "expo-router";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useAuthActions } from "@convex-dev/auth/react";
@@ -28,6 +28,15 @@ import { useContextSearch } from "../../../features/console/files/useContextSear
 import { useTabs } from "../../../features/console/files/useTabs";
 import { readFocus, scopeForFocus } from "../../../features/console/keyboardScope";
 import { tabAt } from "../../../features/console/files/tabs";
+import {
+  canGoBack,
+  canGoForward,
+  currentPath,
+  emptyHistory,
+  stepped,
+  visited,
+  type HistoryState,
+} from "../../../features/console/files/history";
 import { targetFolder } from "../../../features/console/files/tree";
 import {
   applyRowIntent,
@@ -171,6 +180,55 @@ export default function ConsoleLayout() {
   // arrive at — and the strip showed one context's note names under another
   // context's name.
   const tabs = useTabs(data.files, data.selectedContextId);
+  /*
+    Where you have been in this context, for the toolbar's `‹` and `›`.
+
+    Recorded from the selection rather than from `select` call sites, because
+    the selection moves from the tree, the tab strip, the palette, a search hit
+    and a rename, and a history that only knew about some of those would send
+    you back somewhere you had not been. Keyed on the context for the reason
+    `useTabs` is: a path is relative to a bucket.
+  */
+  const [history, setHistory] = useState<HistoryState>(emptyHistory);
+  /*
+    Set while a back or forward press is moving the selection, so the effect
+    below does not record the move as a fresh visit — which would truncate the
+    forward tail on the first press of `‹` and make `›` dead.
+  */
+  const navigating = useRef(false);
+  const selectedPath = data.files.selectedPath;
+
+  useEffect(() => {
+    setHistory(emptyHistory);
+  }, [data.selectedContextId]);
+
+  useEffect(() => {
+    if (selectedPath === null) return;
+    if (navigating.current) {
+      navigating.current = false;
+      return;
+    }
+    setHistory((current) => visited(current, selectedPath));
+  }, [selectedPath]);
+
+  const step = useCallback(
+    (delta: -1 | 1) => {
+      setHistory((current) => {
+        const next = stepped(current, delta);
+        const path = currentPath(next);
+        if (next === current || path === null) return current;
+        navigating.current = true;
+        // The guard can still refuse — an unsaved draft. Then the selection
+        // does not move, and neither should the cursor.
+        if (!data.files.select(path)) {
+          navigating.current = false;
+          return current;
+        }
+        return next;
+      });
+    },
+    [data.files],
+  );
   const current = selectedContext(data);
   /*
     Which half of `tabs.ts` is on screen. `TabStrip` is the pointer half and
@@ -310,6 +368,8 @@ export default function ConsoleLayout() {
             <ConsoleBottomBar
               data={data}
               tabs={tabs}
+              history={history}
+              onStep={step}
               onSearch={() => setPaletteOpen(true)}
               onOpenTabs={() => setSwitcherOpen(true)}
               onNewNote={(folder) => setBarDialog({ kind: "newNote", folder })}
@@ -739,12 +799,17 @@ function Rail({
 function ConsoleBottomBar({
   data,
   tabs,
+  history,
+  onStep,
   onSearch,
   onOpenTabs,
   onNewNote,
 }: {
   data: ConsoleData;
   tabs: ReturnType<typeof useTabs>;
+  /** Where you have been, for `‹` and `›`. */
+  history: HistoryState;
+  onStep: (delta: -1 | 1) => void;
   onSearch: () => void;
   onOpenTabs: () => void;
   /** Raises the naming dialog for a destination — see the `new` action. */
@@ -778,6 +843,32 @@ function ConsoleBottomBar({
           of the old argument is answered by the edge-swipe, not by a second
           button in the other corner.
         */
+        /*
+          `‹` and `›` lead the bar, which is where Obsidian puts them and where
+          every browser puts them. A phone shows one note at a time, so "the one
+          I was just looking at" is a destination somebody reaches constantly
+          and cannot see — and before this the only route to it was to open the
+          drawer and find it in the tree again.
+
+          Dimmed in place rather than removed at the ends of the history, which
+          is `BottomBar`'s own rule for Save and is doubly right here: these two
+          spend most of a session with at least one of them unavailable, and a
+          bar whose first two positions come and go moves every other target.
+        */
+        {
+          id: "back",
+          label: "Go back",
+          icon: "chevronLeft" as const,
+          disabled: !canGoBack(history),
+          onPress: () => onStep(-1),
+        },
+        {
+          id: "forward",
+          label: "Go forward",
+          icon: "chevronRight" as const,
+          disabled: !canGoForward(history),
+          onPress: () => onStep(1),
+        },
         { id: "search", label: "Search notes", icon: "search" as const, onPress: onSearch },
         /*
           Absent, not dimmed. `BottomBar` argues that a fixed strip must not
@@ -832,7 +923,11 @@ function ConsoleBottomBar({
                 // One phrasing, from the file that owns the counting.
                 label: tabCountLabel(tabs.state),
                 icon: "file" as const,
-                badge: tabs.state.tabs.length,
+                // The number *is* the control — see `count` in `BottomBar`.
+                // The accent badge it replaces read as a notification about
+                // something that had happened, rather than a count of what is
+                // already open.
+                count: tabs.state.tabs.length,
                 marker: dirtyCount(tabs.state) > 0,
                 onPress: onOpenTabs,
               },

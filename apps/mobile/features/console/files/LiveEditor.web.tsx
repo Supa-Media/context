@@ -101,9 +101,15 @@ function ensureStyles(): void {
 */
 @media (max-width: ${layout.narrowBreakpoint - 0.02}px) {
   .cm-lp-root .cm-scroller {
-    font-size: 16.5px;
-    line-height: 1.65;
-    padding: 8px 20px 32px;
+    /*
+      Measured off Obsidian mobile: 16px on a 24px line box, 24px of side
+      padding. Ours was 16.5/1.65 in 20px, which is a 27px line box — 13%
+      looser than the reference and enough to make a paragraph read as a list
+      of lines rather than a block of prose.
+    */
+    font-size: 16px;
+    line-height: 1.5;
+    padding: 8px 24px 32px;
   }
   .cm-lp-root .cm-content { color: ${colors.text}; }
 }

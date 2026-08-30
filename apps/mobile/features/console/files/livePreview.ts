@@ -212,10 +212,26 @@ export function hiddenMarkRanges(
 ): TextRange[] {
   const hidden: TextRange[] = [];
 
+  /*
+    Nothing is hidden inside the frontmatter, and the asymmetry is why.
+
+    The opening `---` parses as a HorizontalRule and the closing one as a setext
+    HeaderMark — so mark-hiding took the closing fence away and left the opening
+    one, and the block read as an unterminated rule above two stray keys. Both
+    are metadata a person may need to edit, and the block is already drawn small
+    and dim, which is what stops them shouting.
+
+    Decided here rather than in `decorationsFor` so every caller gets it: this
+    function is the one answer to "what is hidden", and a second copy of the
+    rule beside it is a second thing to keep in step.
+  */
+  const front = doc === undefined ? null : frontmatterRange(doc.sliceString(0, docLength));
+
   tree.iterate({
     from: 0,
     to: docLength,
     enter(node) {
+      if (front !== null && node.from < front.to) return;
       const isMark = HIDDEN_MARKS.has(node.name);
       if (!isMark && !isHiddenPlumbing(node.node)) return;
       // A zero-width mark is nothing to hide, and an empty replace decoration
@@ -277,6 +293,59 @@ export function styleClassFor(nodeName: string): string | null {
 const hideMark = Decoration.replace({});
 
 /**
+ * The YAML frontmatter block at the top of a note, if there is one.
+ *
+ * ## Why this exists at all
+ *
+ * The lezer Markdown grammar has no frontmatter node, and the file comment
+ * above already admitted as much — "a frontmatter key it has no node type for".
+ * What it did not say is what happens instead, and it is not nothing:
+ *
+ *     ---
+ *     updated: 2026-08-26
+ *     status: active
+ *     ---
+ *
+ * CommonMark reads the closing `---` as a **setext underline**, so the two YAML
+ * keys above it become a level-2 heading. Every note in a bucket written by
+ * Obsidian opens with its metadata drawn two-thirds the size of its title, in
+ * bold, above the actual first line. It is the first thing on the screen and it
+ * was the loudest thing on it.
+ *
+ * ## Why a pure function over the text, and not a block parser
+ *
+ * A `@lezer/markdown` block parser is the tidier-looking answer and cannot be
+ * written correctly here: recognising the block means scanning forward for the
+ * closing fence, `BlockContext` advances with `nextLine()` and cannot rewind,
+ * and `peekLine()` sees exactly one line. So an unterminated `---` — an
+ * ordinary horizontal rule on the first line — would swallow the rest of the
+ * document with no way back.
+ *
+ * Reading the text is exact, total, and testable without a parser, which is the
+ * rule the rest of this file already follows.
+ *
+ * Returns `null` unless the document *opens* with the fence: a `---` further
+ * down is a horizontal rule and must stay one. The closing fence may be `---`
+ * or `...`, which YAML allows and Obsidian accepts.
+ */
+export function frontmatterRange(doc: string): { from: number; to: number } | null {
+  const lines = doc.split("\n");
+  if (lines.length < 2 || !/^---[ \t]*$/.test(lines[0])) return null;
+
+  let at = lines[0].length + 1;
+  for (let index = 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (/^(---|\.\.\.)[ \t]*$/.test(line)) return { from: 0, to: at + line.length };
+    at += line.length + 1;
+  }
+  // Unterminated. Not frontmatter — the first line is a horizontal rule, and
+  // pretending otherwise would dim the whole note.
+  return null;
+}
+
+const frontmatterLine = Decoration.line({ class: "cm-lp-frontmatter" });
+
+/**
  * Build the full decoration set for a state.
  *
  * Two passes over one iteration: styling is unconditional (a heading is drawn
@@ -294,6 +363,26 @@ export function decorationsFor(state: EditorState): DecorationSet {
     to: range.to,
   }));
 
+  /*
+    Frontmatter is decided from the text, before the tree is consulted, and
+    everything the tree says inside it is discarded — see `frontmatterRange`.
+    The grammar reads the closing `---` as a setext underline, so without this
+    a note's metadata is drawn as its largest heading.
+  */
+  const front = frontmatterRange(state.doc.toString());
+
+  const lines: Range<Decoration>[] = [];
+  if (front !== null) {
+    for (
+      let line = state.doc.lineAt(front.from);
+      line.from <= front.to;
+      line = state.doc.lineAt(line.to + 1)
+    ) {
+      lines.push(frontmatterLine.range(line.from));
+      if (line.to >= state.doc.length) break;
+    }
+  }
+
   const styles: Range<Decoration>[] = [];
   tree.iterate({
     from: 0,
@@ -302,10 +391,14 @@ export function decorationsFor(state: EditorState): DecorationSet {
       const className = styleClassFor(node.name);
       if (className === null) return;
       if (node.to <= node.from) return;
+      // Inside the frontmatter the tree is describing a heading that is not
+      // one. Drawn plain instead, by the line decoration above.
+      if (front !== null && node.from < front.to) return;
       styles.push(Decoration.mark({ class: className }).range(node.from, node.to));
     },
   });
 
+  // `hiddenMarkRanges` excludes the frontmatter itself — see its own comment.
   const hides = hiddenMarkRanges(tree, selection, state.doc.length, state.doc).map((range) =>
     hideMark.range(range.from, range.to),
   );
@@ -313,7 +406,7 @@ export function decorationsFor(state: EditorState): DecorationSet {
   // `sort: true` because the two lists interleave: a heading's style starts
   // before its own `##` mark ends, so neither list alone is in document order
   // once they are concatenated.
-  return RangeSet.of([...styles, ...hides], true);
+  return RangeSet.of([...lines, ...styles, ...hides], true);
 }
 
 /**
@@ -349,12 +442,30 @@ export const livePreviewStyles = `
 .cm-lp-h1, .cm-lp-h2, .cm-lp-h3, .cm-lp-h4, .cm-lp-h5, .cm-lp-h6 {
   font-weight: 600;
   color: var(--lp-heading);
-  line-height: 1.25;
+  line-height: 1.3;
 }
-.cm-lp-h1 { font-size: 1.7em; }
-.cm-lp-h2 { font-size: 1.4em; }
-.cm-lp-h3 { font-size: 1.2em; }
+/*
+  Measured off Obsidian mobile rather than chosen: 1.625em, 1.3em and 1.15em
+  against a 16px body. The multiples were 1.7 / 1.4 / 1.2, which is a wider
+  ladder than a document needs and made an H1 the loudest thing on a phone
+  screen that is mostly body text.
+*/
+.cm-lp-h1 { font-size: 1.625em; }
+.cm-lp-h2 { font-size: 1.3em; }
+.cm-lp-h3 { font-size: 1.15em; }
 .cm-lp-h4, .cm-lp-h5, .cm-lp-h6 { font-size: 1.05em; }
+/*
+  A note's metadata, drawn as metadata. Not hidden: the buffer is the Markdown,
+  and a block the editor refuses to show is a block you cannot fix. See
+  frontmatterRange above for what this replaced. (No backticks in this comment:
+  it is inside a template literal and one would end the string.)
+*/
+.cm-lp-frontmatter {
+  font-family: var(--lp-mono);
+  font-size: 0.82em;
+  line-height: 1.7;
+  color: var(--lp-muted);
+}
 .cm-lp-strong { font-weight: 650; color: var(--lp-heading); }
 .cm-lp-em { font-style: italic; }
 .cm-lp-strike { text-decoration: line-through; opacity: 0.7; }

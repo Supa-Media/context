@@ -429,7 +429,22 @@ export function AppFrame({
           */}
           {onSearch && !compact ? <SearchTrigger onPress={onSearch} /> : null}
 
-          <View style={styles.topTrail}>{topTrailing}</View>
+          {/*
+            On a phone these become one object rather than two loose chips.
+
+            Obsidian's top-right is a single rounded pill holding its
+            note-scoped actions, and the reason is the ground underneath: at
+            this density the top bar has no fill and no rule (see
+            `topBarCompact`), so anything in it is floating over the note. Two
+            chips floating separately read as debris; one pill reads as chrome.
+            At every other density the bar has its own surface and its own
+            hairline, and a second container inside it would be a box in a box.
+          */}
+          {topTrailing == null ? null : (
+            <View style={[styles.topTrail, compact && styles.topTrailCompact]}>
+              {topTrailing}
+            </View>
+          )}
         </View>
 
         <View style={styles.body}>
@@ -772,6 +787,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: space.x2,
+  },
+  /** See the comment at the call site: one floating object, not two. */
+  topTrailCompact: {
+    gap: space.x1,
+    paddingHorizontal: space.x2,
+    paddingVertical: 3,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface2,
   },
 
   search: {

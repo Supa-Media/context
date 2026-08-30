@@ -90,17 +90,23 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
   },
-  /** See the file comment: the phone reads, it does not inspect. */
+  /**
+   * See the file comment: the phone reads, it does not inspect.
+   *
+   * 16 on a 24 line box in 24 of side padding, measured off Obsidian mobile —
+   * and the same three numbers the web half sets in CSS, because a note that
+   * reflows differently on the two platforms is two documents.
+   */
   reading: {
     borderWidth: 0,
     borderRadius: 0,
     backgroundColor: "transparent",
     color: colors.text,
     fontFamily: fonts.body,
-    fontSize: 16.5,
-    lineHeight: leading(16.5, 1.65),
+    fontSize: 16,
+    lineHeight: leading(16, 1.5),
     paddingTop: space.x2,
-    paddingHorizontal: space.x5,
+    paddingHorizontal: space.x6,
     paddingBottom: space.x8,
   },
 });

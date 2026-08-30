@@ -137,6 +137,21 @@ export interface BottomBarAction {
   onPress: () => void;
   /** A count badge, e.g. open tabs. `0` draws nothing, rather than "0". */
   badge?: number;
+  /**
+   * A count drawn **as** the control, inside an outlined box, in place of the
+   * icon.
+   *
+   * Obsidian's tab control on mobile is exactly this: a rounded square with the
+   * number of open notes inside it, and no icon at all. Ours was a document
+   * icon with a filled accent badge stuck on its corner, which reads as a
+   * notification — something has happened that you should attend to — rather
+   * than as a count of things you already have open. The number is the whole
+   * message, so it is the whole control.
+   *
+   * `icon` is still required and still the accessible fallback; nothing draws
+   * it while a count is present.
+   */
+  count?: number;
   /** A dot, e.g. unsaved changes. */
   marker?: boolean;
   disabled?: boolean;
@@ -162,7 +177,7 @@ export function BottomBar({ actions }: { actions: BottomBarAction[] }): JSX.Elem
  * targets is an invisible one.
  */
 function BottomBarButton({ action }: { action: BottomBarAction }): JSX.Element {
-  const { label, icon, title, onPress, badge, marker, disabled = false } = action;
+  const { label, icon, title, onPress, badge, count, marker, disabled = false } = action;
   const [focused, setFocused] = useState(false);
   const showBadge = badge !== undefined && badge > 0;
 
@@ -192,7 +207,13 @@ function BottomBarButton({ action }: { action: BottomBarAction }): JSX.Element {
       testID={`bottom-bar-${action.id}`}
     >
       <View style={styles.mark}>
-        <Icon name={icon} size={title === undefined ? 22 : 20} color={colors.text2} />
+        {count === undefined ? (
+          <Icon name={icon} size={title === undefined ? 22 : 20} color={colors.text2} />
+        ) : (
+          <View style={styles.count} aria-hidden testID={`bottom-bar-${action.id}-count`}>
+            <Text style={styles.countLabel}>{count}</Text>
+          </View>
+        )}
 
         {/*
           The badge sits on the trailing top corner and the marker on the
@@ -289,6 +310,30 @@ const styles = StyleSheet.create({
     marginTop: 1,
     color: colors.muted,
     textAlign: "center",
+  },
+
+  /**
+   * The tab count, drawn as Obsidian draws it: an outlined rounded square with
+   * the number inside. Sized so the box is the same optical weight as the
+   * monoline icons beside it rather than a filled chip competing with them.
+   */
+  count: {
+    minWidth: 21,
+    height: 21,
+    paddingHorizontal: 3,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radii.xs,
+    borderWidth: 1.5,
+    borderColor: colors.text2,
+  },
+
+  countLabel: {
+    fontSize: 11.5,
+    lineHeight: 14,
+    fontWeight: "600",
+    color: colors.text2,
+    fontVariant: ["tabular-nums"],
   },
 
   badge: {
