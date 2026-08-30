@@ -31,8 +31,24 @@ import { describe, expect, test, vi } from "vitest";
  * `vi.mock` with `importOriginal` wraps the real implementation rather than
  * replacing it, so `parseInvitee` behaves exactly as it does in production and
  * the assertion is about the edge it went through, not about a stubbed answer.
- * The value is checked too: a spy that was called but whose result was
- * discarded would satisfy a call-count assertion on its own.
+ *
+ * **The value assertion does not close the obvious hole in that, and an earlier
+ * version of this comment implied it did.** It said a spy "called but whose
+ * result was discarded" would satisfy a call count on its own — true as far as
+ * it goes, and measured, the natural discard does not fail anything:
+ *
+ * ```
+ * normalizeEmail(trimmed);
+ * const value = trimmed.toLowerCase();   ->  1294 passed / 1294, 0 failures
+ * ```
+ *
+ * because the value is compared against the same rule applied to the same
+ * fixture, so a discard that recomputes the identical string is invisible here
+ * — and a discard that *drifts* is already caught by the table in
+ * `invitations.test.ts`. What the value assertion actually holds is the
+ * relationship between what goes in and what comes back: `parseInvitee` trims
+ * before calling, so it is one of the three failures when the shared rule stops
+ * trimming. That is worth having and is not what it was advertised as.
  *
  * Its own file, deliberately. `vi.mock` is hoisted to the top of the module it
  * appears in, so putting this beside the drift table would hand every other

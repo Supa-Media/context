@@ -153,7 +153,7 @@ describe("parsing an invitee", () => {
    *
    * What this table catches is the moment such a copy *drifts* — dropping the
    * lowercase fails 3 here and 4 in `apps/mobile` — and any asymmetric change
-   * to the shared rule itself, where dropping the trim fails 2 here. It also
+   * to the shared rule itself, where dropping the trim fails 3 here. It also
    * covers the control plane's own drift, which nothing in `apps/mobile` can
    * any longer see: `const value = trimmed` fails 6 here and 0 there. This is
    * the copy CI depends on: `gateway-contracts.yml` carries no `paths` filter
