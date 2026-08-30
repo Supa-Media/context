@@ -42,6 +42,7 @@ import {
   ensureMarkdown,
   joinPath,
   parentPath,
+  isMarkdown,
 } from "./paths";
 import { raceTimeout } from "../storage/timeout";
 import { findEntry, foldersToRefresh, namesIn } from "./tree";
@@ -247,11 +248,31 @@ export function useFileBrowser(options: {
       setSelectedPath(path);
       setNotice(null);
 
-      // A folder has no body. Reading one would come back `FILE_NOT_FOUND`,
-      // and the console would tell somebody their own folder does not exist
-      // every time they opened it.
-      if (findEntry(listings, path)?.kind === "folder") {
+      /**
+       * A folder has no body. Reading one comes back `FILE_NOT_FOUND`, and the
+       * console then tells somebody their own folder does not exist.
+       *
+       * **`findEntry` is not enough to decide this, and that is the bug this
+       * comment used to describe and not prevent.** It looks a path up in its
+       * *parent's* listing, so on a cold load — following a team link straight
+       * to `/console/@seyi?note=1-projects/pilot`, where nothing has been
+       * expanded yet — the parent is absent, the entry is unknown, and the
+       * folder falls through to `readNote`. The screenshot of that says "That
+       * file does not exist" over an empty page.
+       *
+       * So the entry decides when it is known, and the path's own shape decides
+       * when it is not. A note is `.md` by construction: `createNote` appends
+       * it, `writeNote` refuses anything else, and `checkSharePath` requires it.
+       * Anything else is a folder, and treating an unknown `.md` as a note is
+       * the right failure anyway — that is a real read whose refusal is honest.
+       */
+      const known = findEntry(listings, path);
+      const isFolder = known === null ? !isMarkdown(path) : known.kind === "folder";
+      if (isFolder) {
         dispatch({ type: "closed" });
+        // Its own listing, so the folder view has contents to draw rather than
+        // an empty screen. `refresh` is a no-op for a folder already loaded.
+        if (listings[path] === undefined) void refresh([path]);
         return;
       }
       if (workspaceId === null) return;
@@ -262,7 +283,7 @@ export function useFileBrowser(options: {
           setNotice(toFileError(error).message);
         });
     },
-    [listings, readNote, workspaceId],
+    [listings, readNote, refresh, workspaceId],
   );
 
   /**
