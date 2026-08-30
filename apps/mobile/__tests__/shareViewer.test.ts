@@ -95,7 +95,7 @@ describe("which screen a reader gets", () => {
     const view = resolveShareView({
       token: TOKEN,
       auth: SIGNED_OUT,
-      note: loaded as never,
+      note: loaded as SharedNote | Error | undefined,
       requestedPath: null,
     });
     expect(view.kind).toBe("signIn");
@@ -113,10 +113,18 @@ describe("which screen a reader gets", () => {
     );
   });
 
-  test("auth still resolving decides nothing", () => {
+  // Both truth values of `isAuthenticated`, because the only fixture had it
+  // false — so `isLoading` could be narrowed to `isLoading && !isAuthenticated`
+  // undetected, and a session still resolving would render on the strength of a
+  // stale `isAuthenticated: true`. "Still resolving" has to mean wait whatever
+  // the other flag currently says.
+  test.each([
+    ["signed out", false],
+    ["apparently signed in", true],
+  ])("auth still resolving decides nothing (%s)", (_label, isAuthenticated) => {
     const view = resolveShareView({
       token: TOKEN,
-      auth: { isLoading: true, isAuthenticated: false },
+      auth: { isLoading: true, isAuthenticated },
       note: undefined,
       requestedPath: null,
     });
@@ -281,6 +289,15 @@ describe("a hostile note cannot reach the reader", () => {
     "vbscript:msgbox(1)'tel:123",
   ])("%s stays text even though a safe scheme appears later in it", (href) => {
     expect(safeHref(href)).toBeNull();
+  });
+
+  test("a safe scheme in caps is still a link", () => {
+    // The `i` flag has no test: the existing "JavaScript:alert(1)" case is
+    // refused with or without it, so only a POSITIVE case pins it. Dropping the
+    // flag fails closed — an uppercase-scheme URL in somebody's note quietly
+    // stops being tappable — which is a regression nobody would see reported.
+    expect(safeHref("HTTPS://example.invalid/x")).toBe("HTTPS://example.invalid/x");
+    expect(safeHref("MailTo:someone@example.invalid")).toBe("MailTo:someone@example.invalid");
   });
 
   test("and the rule is about the scheme, not a substring blacklist", () => {
