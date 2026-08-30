@@ -158,6 +158,7 @@
 import worker from "../src/index.js";
 import { R2Store } from "../src/store/r2.js";
 import {
+  NOTE_INDEX_CHAR_CAP,
   SEARCH_INDEX_KEY,
   createSearchBudget,
   defaultIsIndexable,
@@ -185,6 +186,7 @@ const OWNER_TOKEN = `cat_searchidx_owner_${"0".repeat(16)}`;
 const TEAM_TOKEN = `cat_searchidx_member_${"0".repeat(15)}`;
 const BIG_TOKEN = `cat_searchidx_big_${"0".repeat(18)}`;
 const BROKEN_TOKEN = `cat_searchidx_broken_${"0".repeat(15)}`;
+const DEEP_TOKEN = `cat_searchidx_deep_${"0".repeat(17)}`;
 
 const PRIVACY_MANIFEST =
   "---\nrole: privacy-manifest\nversion: 1\n---\n\n" +
@@ -328,11 +330,15 @@ export async function runSearchIntegrationChecks(check) {
     const bucket = createBucket();
     const big = createBucket();
     const broken = createBucket();
+    // Its own bucket, so the per-note cap's fixtures cannot disturb the counts
+    // the shared one is asserted on.
+    const deep = createBucket();
 
     for (const [workspace, slug, binding] of [
       ["ws_search", "search", "SEARCH_BUCKET"],
       ["ws_search_big", "searchbig", "BIG_BUCKET"],
       ["ws_search_broken", "searchbroken", "BROKEN_BUCKET"],
+      ["ws_search_deep", "searchdeep", "DEEP_BUCKET"],
     ]) {
       controlPlane.addWorkspace(workspace, slug, {
         provider: "r2-binding",
@@ -346,6 +352,7 @@ export async function runSearchIntegrationChecks(check) {
       [TEAM_TOKEN, "ws_search", "editor", ["context:read"], "member", "u_member"],
       [BIG_TOKEN, "ws_search_big", "owner", ["context:read", "context:private"], "big", "u_big"],
       [BROKEN_TOKEN, "ws_search_broken", "owner", ["context:read", "context:private"], "broken", "u_broken"],
+      [DEEP_TOKEN, "ws_search_deep", "owner", ["context:read", "context:private"], "deep", "u_deep"],
     ]) {
       await controlPlane.addGrant({
         accessToken: token,
@@ -360,10 +367,11 @@ export async function runSearchIntegrationChecks(check) {
     const env = {
       CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
       GATEWAY_SECRET,
-      NATIVE_BINDINGS: "SEARCH_BUCKET,BIG_BUCKET,BROKEN_BUCKET",
+      NATIVE_BINDINGS: "SEARCH_BUCKET,BIG_BUCKET,BROKEN_BUCKET,DEEP_BUCKET",
       SEARCH_BUCKET: bucket,
       BIG_BUCKET: big,
       BROKEN_BUCKET: broken,
+      DEEP_BUCKET: deep,
     };
 
     // -- the main fixture: a team note and a private note sharing one term ----
@@ -1113,6 +1121,71 @@ export async function runSearchIntegrationChecks(check) {
         "a giant note is searchable by its head and its tail is deliberately not indexed",
         searchIndex(cappedSync.index, "axolotl").length === 1 &&
           searchIndex(cappedSync.index, "capybara").length === 0
+      );
+    }
+
+    // -- and the cap is 2,048 characters, pinned in both directions ----------
+    //
+    // `#140` moved this constant from 8,192 and shipped no test of its own, so
+    // a clean revert — or 10,000, or 64 — was invisible to CI: the fixture
+    // above puts its discriminating token at one extreme far past the cap, and
+    // every value in a wide range passes it.
+    //
+    // The pin is the indexed TOKEN COUNT, not a search hit, and that is the
+    // whole point of the fixture. The first version put a marker either side of
+    // the boundary and asserted one matched and one did not — and every cap
+    // from 2,045 to 2,048 passed it, because a cut marker leaves a prefix in
+    // the vocabulary and `df === 0` expansion finds it anyway. A search-based
+    // probe of this constant measures the expander as much as the cap.
+    //
+    // The body is uniform four-character groups, so `len.body` is a direct
+    // function of the cap. Measured: 2,045 and 2,053 both fail, 2,046 through
+    // 2,052 pass — the pin is one token group wide, which is as tight as a
+    // token count can be, and it catches 8,192, 10,000 and 64 outright.
+    {
+      const edge = createBucket();
+      edge.seed("privacy.md", PRIVACY_MANIFEST);
+      edge.seed("1-projects/edge.md", "abc ".repeat(4000));
+      const edgeSync = await syncIndex(new R2Store(edge), { budget: createSearchBudget(50) });
+      const doc = edgeSync.index.docs.get("1-projects/edge.md");
+      check(
+        "the per-note cap is 2,048 characters, pinned by the token count it produces",
+        // 512 = 2,048 characters of "abc " groups. A literal, not
+        // `NOTE_INDEX_CHAR_CAP / 4`: an expected value derived from the
+        // constant under test moves with it and pins nothing.
+        doc?.len.body === 512
+      );
+    }
+
+    // -- a miss says why it might be a miss, and truncation is one of the whys
+    //
+    // Indexing a note by its head is a new way for a search to be incomplete,
+    // and the advice on a miss enumerated the others while leaving this one
+    // out: "try the term the user would have typed, drop the prefix, call
+    // orient". A term 5KB into a saved session answers to none of those, and
+    // the agent concludes it is not written down — about a note it can read in
+    // full. Deliberately no count and no per-query signal: which notes are
+    // long is a fact about the whole bucket, private ones included.
+    {
+      deep.seed("privacy.md", PRIVACY_MANIFEST);
+      deep.seed(
+        "1-projects/session.md",
+        `# Session\n\nopening prose\n${"filler words here ".repeat(600)}\nThe PLATYPUS is 10KB in.\n`
+      );
+      const missed = await searchText(env, DEEP_TOKEN, { query: "platypus" });
+      check(
+        "a term past the per-note cap misses, and the advice says a long note is indexed by its head",
+        missed.includes("(no matches)") &&
+          /indexed by (its|their) open/i.test(missed) &&
+          // The number in the sentence is the constant, not a retyped copy of
+          // it: prose saying 2,000 while the code says 2,048 is the "two
+          // copies of a rule" failure with nothing running both.
+          missed.includes(NOTE_INDEX_CHAR_CAP.toLocaleString("en-US"))
+      );
+      const hit = await searchText(env, DEEP_TOKEN, { query: "opening" });
+      check(
+        "and that sentence is on the miss, not appended to every answer",
+        hit.includes("1-projects/session.md") && !/indexed by (its|their) open/i.test(hit)
       );
     }
 
