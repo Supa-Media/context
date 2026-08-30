@@ -91,6 +91,35 @@ export function Explorer({
     onOverlayChange?.(overlayOpen);
   }, [overlayOpen, onOverlayChange]);
 
+  /*
+    An overlay names a note in a context, so changing context ends it.
+
+    `<Explorer>` is mounted in `app/(app)/console/_layout.tsx` — in the layout,
+    above `<Slot/>` — so it survives `/console/@a` → `/console/@b` even more
+    thoroughly than a pane does, and `dialog` is ordinary component state that
+    nothing was resetting. Left alone, the share dialog stayed open across the
+    switch still titled after the old context's note, and submitting called the
+    NEW context's `share` with the OLD context's path. `createShare` checks
+    `requireWorkspaceRole(owner)` and the path's syntax and never that the path
+    exists in that workspace, so under PARA conventions — where
+    `1-projects/plan.md` plausibly exists in both — the owner grants a recipient
+    read access to a note they did not aim at.
+
+    `contextLabel` is the signal because it is what `<Explorer>` is given to
+    identify whose tree this is; `files` changes identity for reasons that are
+    not a context switch, and a reset keyed on it would close a dialog somebody
+    is typing into.
+
+    The row menu matters more here than the pane's button did, not less: on a
+    phone it is the only way to reach Share for a note you are not reading,
+    which is the whole reason that control was moved onto the note in the first
+    place.
+  */
+  useEffect(() => {
+    setDialog(null);
+    setMenu(null);
+  }, [contextLabel]);
+
   const rows = useMemo(
     () =>
       buildTreeRows({
@@ -545,6 +574,15 @@ export function ExplorerDialogs({
         />
       );
     case "share":
+      /*
+        Re-checked here rather than trusted from the menu that opened it.
+        `canShare` is `canEdit && isOwner`, so it moves independently of
+        `canEdit` — the reason `openMenu` lists it in its own dependency array —
+        and ownership can go away under a mounted console. A control that is
+        present and refused is the defect this codebase records as a live
+        breach, not the refusal.
+      */
+      if (!files.canShare) return null;
       return (
         <ShareDialog
           path={dialog.path}

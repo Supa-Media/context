@@ -220,7 +220,7 @@ describe("an owner reading a note can share it", () => {
  * **The button was the whole test, and everything past it was unpinned.**
  *
  * Nothing pressed it. Measured: pointing `onPress` at `"privacy.md"` — so that
- * the button on any note opens a dialog for the access map — left all 1,650
+ * the button on any note opens a dialog for the access map — left all 1,668
  * checks green, as did making the button inert, as did rendering the dialog
  * unconditionally for every open note. The file's own read-only test is *about*
  * `privacy.md`, which is what makes the first of those worth naming.

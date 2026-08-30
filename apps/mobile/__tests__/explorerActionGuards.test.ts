@@ -379,6 +379,75 @@ function mount(canEdit: boolean): { container: HTMLElement; calls: Calls } {
 }
 
 /**
+ * The same mounted `<Explorer>`, re-rendered — which is the only way to reach
+ * a context switch. `<Explorer>` lives in `app/(app)/console/_layout.tsx`,
+ * above `<Slot/>`, so a fresh mount per assertion cannot see what survives one.
+ */
+function mountSwitchable(): {
+  container: HTMLElement;
+  calls: Calls;
+  render: (contextLabel: string, calls?: Calls, over?: Partial<FileBrowser>) => void;
+} {
+  const first: Calls = { entries: [], props: [] };
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+  roots.push(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+  return {
+    container,
+    calls: first,
+    render: (contextLabel, calls = first, over = {}) =>
+      act(() => {
+        root.render(
+          createElement(
+            SafeAreaProvider,
+            { initialMetrics: METRICS },
+            createElement(Explorer, {
+              files: { ...browser(true, calls), ...over },
+              contextLabel,
+            }),
+          ),
+        );
+      }),
+  };
+}
+
+/**
+ * Right-click a row. `rowInteractions.web.ts` binds `contextmenu` through a ref
+ * callback rather than a React prop, so there is no handler to find — the event
+ * is dispatched at the node carrying the listener.
+ */
+function openRowMenu(container: HTMLElement, name: string): void {
+  // Inside `act`, or the menu's state update is not flushed and the item this
+  // returns to is not on screen yet.
+  act(() => {
+    rowNode(container, name).dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, clientX: 10, clientY: 10 }),
+    );
+  });
+}
+
+function pressMenuItem(label: string): void {
+  const node = [...document.body.querySelectorAll("*")].find(
+    (candidate) => candidate.textContent?.trim() === label && candidate.children.length === 0,
+  );
+  // jest's `expect` takes no message argument — that is vitest's signature, and
+  // carrying it across is a mistake this suite has now made twice.
+  if (node === undefined) throw new Error(`no menu item labelled ${label}`);
+  act(() => {
+    for (const type of ["mousedown", "mouseup", "click"]) {
+      node.dispatchEvent(new MouseEvent(type, { bubbles: true }));
+    }
+  });
+}
+
+const shareDialogFor = (name: string) =>
+  document.body.querySelector(`[aria-label="Share ${name}"]`);
+
+/**
  * The element `useRowInteractions` attached to, found by the attribute it
  * writes.
  *
@@ -472,6 +541,78 @@ describe("a console that cannot edit cannot start the gestures that write", () =
     const reader = mount(false);
     expect(newNote(reader.container)).toBeNull();
     expect(newFolder(reader.container)).toBeNull();
+  });
+});
+
+/**
+ * **The row menu's share dialog, which is the other one.**
+ *
+ * `#133` guarded `BrowsePane`'s dialog and left this one, and the record it
+ * shipped said "the share dialog". There are two, and this is the one that
+ * matters more on a phone: the row menu is the only way to reach Share for a
+ * note you are *not* reading, which is the whole reason that control was moved
+ * onto the note in the first place.
+ *
+ * It is also more persistent. `<Explorer>` is mounted in
+ * `app/(app)/console/_layout.tsx` **above `<Slot/>`**, so it survives a context
+ * switch more thoroughly than a pane does — and `dialog` was ordinary state
+ * that nothing reset. Driven before the fix: the dialog stayed open titled
+ * after the old context's note, and submitting called the new context's `share`
+ * with the old context's path.
+ */
+describe("an overlay does not follow the reader into another context", () => {
+  test("the row menu's share dialog closes when the context changes", () => {
+    const explorer = mountSwitchable();
+    explorer.render("@a");
+    openRowMenu(explorer.container, "note.md");
+    pressMenuItem("Share…");
+
+    // The positive control: without it, a dialog that never opened would
+    // satisfy the assertion below.
+    expect(shareDialogFor("note.md")).not.toBeNull();
+
+    const contextB: Calls = { entries: [], props: [] };
+    explorer.render("@b", contextB);
+
+    expect(shareDialogFor("note.md")).toBeNull();
+    expect(contextB.entries).toEqual([]);
+  });
+
+  /**
+   * **The other direction, and the one that would be worse to get wrong.**
+   *
+   * A reset keyed on `files` rather than on `contextLabel` passes both checks
+   * above — measured — because this fixture changes the two together. It would
+   * also close the dialog on every listing refresh, every save, every tab
+   * change: somebody halfway through typing a recipient loses it, silently, for
+   * no reason they can see. A guard that closes a dialog somebody is using is
+   * worse than the bug it fixes, so the distinction gets its own check.
+   */
+  test("but an ordinary re-render in the same context does not close it", () => {
+    const explorer = mountSwitchable();
+    explorer.render("@a");
+    openRowMenu(explorer.container, "note.md");
+    pressMenuItem("Share…");
+    expect(shareDialogFor("note.md")).not.toBeNull();
+
+    // A new `files` object, same context — `browser()` builds a fresh one per
+    // render, which is what a listing refresh looks like from here.
+    explorer.render("@a");
+    expect(shareDialogFor("note.md")).not.toBeNull();
+  });
+
+  test("and closes when the capability that opened it goes away", () => {
+    const explorer = mountSwitchable();
+    explorer.render("@a");
+    openRowMenu(explorer.container, "note.md");
+    pressMenuItem("Share…");
+    expect(shareDialogFor("note.md")).not.toBeNull();
+
+    // Ownership can go away under a mounted console — the subject of
+    // `explorerMenuStaleGate.test.ts`. `canShare` is `canEdit && isOwner`, so
+    // it moves on its own.
+    explorer.render("@a", explorer.calls, { canShare: false });
+    expect(shareDialogFor("note.md")).toBeNull();
   });
 });
 
