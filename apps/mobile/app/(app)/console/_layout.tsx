@@ -23,7 +23,7 @@ import {
   type Dialog,
 } from "../../../features/console/files/Explorer";
 import { Confirm } from "../../../features/console/files/Dialogs";
-import { itemsFromListings } from "../../../features/console/files/palette";
+import { itemsFromListings, searchScopeNote } from "../../../features/console/files/palette";
 import { useTabs } from "../../../features/console/files/useTabs";
 import { readFocus, scopeForFocus } from "../../../features/console/keyboardScope";
 import { tabAt } from "../../../features/console/files/tabs";
@@ -386,9 +386,17 @@ export default function ConsoleLayout() {
           <Palette
             items={itemsFromListings(data.files.listings)}
             placeholder="Go to a note"
+            /*
+              The reach, stated above the results rather than only when there
+              are none. This palette searches the listings already in memory, so
+              four results out of six hundred notes look like a complete answer
+              and nothing on screen said otherwise — the person concludes the
+              note is not there and writes it again.
+            */
+            scopeNote={searchScopeNote(data.files.listings) ?? undefined}
             noMatchMessage={
-              "Nothing loaded matches that. Only folders you have opened are searched — " +
-              "the rest of this context has not been read yet."
+              "Nothing loaded matches that. Open the folder it is in, or connect " +
+              "an AI client, which searches the whole context."
             }
             onChoose={(item) => {
               setPaletteOpen(false);

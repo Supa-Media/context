@@ -147,6 +147,14 @@ export interface PaletteProps {
   placeholder: string;
   /** Rendered above the list when the query is empty (e.g. "Recent"). */
   emptyHeading?: string;
+  /**
+   * What this search actually covers, shown above the results in every state.
+   *
+   * Not a heading and not an empty state: a palette that only admits its reach
+   * when it finds nothing is a palette that lies whenever it finds something.
+   * Four results out of six hundred notes look like a complete answer.
+   */
+  scopeNote?: string;
   /** Shown when the query matches nothing. Must say what to do next. */
   noMatchMessage?: string;
   onChoose: (item: PaletteItem) => void;
@@ -292,6 +300,7 @@ function PaletteRow({
 export function Palette({
   items,
   placeholder,
+  scopeNote,
   emptyHeading,
   noMatchMessage,
   onChoose,
@@ -492,6 +501,18 @@ export function Palette({
       </Text>
     ) : null;
 
+  /*
+    Between the field and the list, and unconditional. Above the results rather
+    than under them because it qualifies what is about to be read, and a caveat
+    read after the conclusion has already been drawn is not a caveat.
+  */
+  const scope =
+    scopeNote === undefined ? null : (
+      <Text variant="treeMeta" style={styles.scope} testID="palette-scope">
+        {scopeNote}
+      </Text>
+    );
+
   /* ------------------------------ the sheet ------------------------------ */
 
   if (touch) {
@@ -521,6 +542,7 @@ export function Palette({
               style={styles.cancel}
             />
           </View>
+          {scope}
           {heading}
           {list}
         </KeyboardAvoidingView>
@@ -554,6 +576,7 @@ export function Palette({
             <Icon name="search" size={16} color={colors.muted} />
             {field}
           </View>
+          {scope}
           {heading}
           {list}
         </Pressable>
@@ -635,6 +658,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.x4,
     paddingTop: space.x3,
     paddingBottom: space.x1,
+  },
+  /** A hairline under it, so the caveat reads as chrome rather than as a row. */
+  scope: {
+    paddingHorizontal: space.x4,
+    paddingVertical: space.x2,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
   },
   empty: {
     paddingHorizontal: space.x4,

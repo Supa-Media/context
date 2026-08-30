@@ -562,6 +562,19 @@ export function AppFrame({
 /*                                   pieces                                   */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * ⌘K.
+ *
+ * It said "Search notes and commands" and there are no commands: the palette
+ * this opens is built from `itemsFromListings` and offers notes and folders,
+ * full stop. A field that names a thing it does not contain teaches somebody to
+ * type a verb into it, get nothing, and stop using it — and the same words are
+ * its accessible name, so a screen reader announced the same promise.
+ *
+ * "Go to a note" is what the palette's own placeholder says, and the two
+ * agreeing is the point: the trigger and the thing it opens should not describe
+ * two different tools.
+ */
 function SearchTrigger({ onPress }: { onPress: () => void }) {
   const [hovered, setHovered] = useState(false);
   return (
@@ -570,12 +583,12 @@ function SearchTrigger({ onPress }: { onPress: () => void }) {
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
       role="button"
-      accessibilityLabel="Search notes and commands"
+      accessibilityLabel="Go to a note"
       testID="frame-search"
       style={[styles.search, hovered && styles.searchHover]}
     >
       <Icon name="search" size={15} color={colors.muted} />
-      <Text variant="rowSub">Search notes and commands</Text>
+      <Text variant="rowSub">Go to a note</Text>
       {Platform.OS === "web" ? (
         <View style={styles.kbd}>
           <Text variant="treeMeta">⌘K</Text>
