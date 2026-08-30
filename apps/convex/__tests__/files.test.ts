@@ -19,6 +19,7 @@
  * real `decryptSecret`. Only the socket is fake.
  */
 
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -575,6 +576,11 @@ describe("a team-scoped caller cannot read, list, or infer a private note", () =
 /*                              tenant isolation                              */
 /* -------------------------------------------------------------------------- */
 
+/** `functions/files.ts` as text, for the endpoint-coverage assertion below. */
+function fileFunctionsSource(): string {
+  return readFileSync(new URL("../functions/files.ts", import.meta.url), "utf8");
+}
+
 describe("a stranger cannot reach another workspace's files", () => {
   test("every file endpoint answers exactly as it does for a workspace that never existed", async () => {
     const f = await fixture();
@@ -619,7 +625,46 @@ describe("a stranger cannot reach another workspace's files", () => {
           path: "a",
           visibility: "team",
         }),
+      // Search reaches the whole context by design, so it is the endpoint that
+      // returns the most from one call: paths, titles and body snippets across
+      // every folder. Stripping its `callerId` + `authorizeFileAccess` and
+      // hardcoding `scope: "private"` left all 1,403 checks green before this
+      // line existed — a stranger reading another tenant's bucket at OWNER
+      // scope, invisible to the suite.
+      (workspaceId) =>
+        as.action(api.functions.files.searchContext, { workspaceId, query: "shared" }),
+      // Owner-only, and absent here since it was written. The one exit from a
+      // broken `privacy.md`, so reaching it across tenants would rewrite
+      // somebody else's access map to all-private.
+      (workspaceId) => as.action(api.functions.files.resetPrivacy, { workspaceId }),
     ];
+
+    // **The list above is derived from, and checked against, `files.ts` itself.**
+    //
+    // It was hand-maintained, and it went stale the way a hand-maintained list
+    // of security-critical endpoints always does: `searchContext` shipped as
+    // the twelfth of thirteen public actions and nobody added it here, so the
+    // endpoint that reaches furthest into a bucket had no isolation check at
+    // all. `resetPrivacy` had been missing since it was written.
+    //
+    // Closures are read with `toString()` rather than the file with `readFile`,
+    // so what is compared is the calls this test actually makes — a name in a
+    // comment, or in a call that was deleted, cannot satisfy it. If a bundler
+    // ever mangles the source, the regex finds nothing and this fails loudly,
+    // which is the right direction for it to break.
+    //
+    // Same discipline as `CREDENTIAL_BARRIERS` and `encryptedColumnsIn`: adding
+    // a public action fails CI until somebody says what a stranger gets from it.
+    const covered = new Set(
+      calls.flatMap((call) =>
+        [...call.toString().matchAll(/api\.functions\.files\.(\w+)/g)].map((m) => m[1]),
+      ),
+    );
+    const publicActions = [
+      ...fileFunctionsSource().matchAll(/^export const (\w+) = action\(/gm),
+    ].map((m) => m[1]);
+    expect(publicActions.length).toBeGreaterThan(10);
+    expect([...covered].sort()).toEqual([...publicActions].sort());
 
     for (const call of calls) {
       const theirs = await captureError(() => call(f.workspaceId));
