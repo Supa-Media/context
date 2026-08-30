@@ -71,8 +71,16 @@ const INDEX_PARSE_BYTE_CAP = 12_000_000;
  * still surfaces by everything that matters. The cut is by characters of
  * source text, before tokenization, so `len` and tf stay consistent with what
  * was actually indexed.
+ *
+ * 2KB, down from 8KB, and the number is a measurement: at 8KB a live brain in
+ * the mid-thousands of notes built a capped index that still crossed
+ * `INDEX_PARSE_BYTE_CAP`, so every pass refused it, rebuilt the same first
+ * budget's worth of notes, and coverage never accumulated — the churn the cap's
+ * own comment predicts, arriving well before the 10k-note guess. 2KB holds a
+ * few-thousand-note brain comfortably under the parse cap; the durable fix at
+ * the next order of magnitude is sharding, not a smaller number here.
  */
-const NOTE_INDEX_CHAR_CAP = 8_192;
+const NOTE_INDEX_CHAR_CAP = 2_048;
 /** Never spend the last op on listing or fetching; the write needs one. */
 const WRITE_RESERVE = 1;
 /** Nor let the listing consume everything a backfill would have used. */
