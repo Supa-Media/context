@@ -137,6 +137,34 @@ export function sharesFor(
     .sort((a, b) => b.createdAt - a.createdAt);
 }
 
+/**
+ * What renaming, moving or archiving this note does to the links people hold.
+ *
+ * **It breaks them, silently, and nothing warned.** A share is stored against
+ * `entryPath` (`apps/convex/functions/shares.ts`), and the file operations
+ * never touch the `noteShares` table — so the path moves and the share is left
+ * pointing at somewhere that no longer exists. The archive dialog even said
+ * "Nothing is deleted", which is true of the bytes and false of the access.
+ *
+ * Returns `null` when there is nothing to say: no shares on this note, or the
+ * list has not loaded. **A list that has not loaded is not "no shares"** — the
+ * same distinction `sharesFor` draws by answering `undefined` — so it stays
+ * quiet rather than promising there is nothing to lose.
+ *
+ * The verb is passed in because the three dialogs are three different sentences
+ * and a generic "this action" is the wording nobody reads.
+ */
+export function sharesBreakingWarning(
+  shares: readonly NoteShare[] | undefined,
+  path: string,
+  verb: "Renaming" | "Moving" | "Archiving",
+): string | null {
+  const live = sharesFor(shares, path);
+  if (live === undefined || live.length === 0) return null;
+  const count = live.length === 1 ? "1 person holds a link" : `${live.length} people hold links`;
+  return `${count} to this note. ${verb} it breaks ${live.length === 1 ? "it" : "them"} — a share follows the path, not the note.`;
+}
+
 
 /* -------------------------------------------------------------------------- *
  * Two kinds of link, and the difference is the whole thing

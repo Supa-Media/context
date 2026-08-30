@@ -598,6 +598,7 @@ export function Palette({
       </Text>
     ) : null;
 
+
   /* ------------------------------ the sheet ------------------------------ */
 
   if (touch) {

@@ -27,6 +27,7 @@ import type { Clipboard } from "./clipboard";
 import type { EditorState } from "./editor";
 import { ConvexError } from "convex/values";
 import type { NoteShare } from "./shares";
+import type { ToastSpec } from "../../design/components/Toast";
 import type { FileError, FolderListing, Visibility } from "./types";
 
 /** What one search found, and whether there was an index to find it in. */
@@ -68,7 +69,12 @@ export interface FileBrowser {
 
   selectedPath: string | null;
   /** Refused, with a prompt, when the open note has unsaved changes. */
-  select: (path: string) => void;
+  /**
+   * Open a note or a folder. Answers **false** when the unsaved-changes guard
+   * refused, so a caller that also moves other state — the tab strip — can
+   * stay in step with the editor instead of moving without it.
+   */
+  select: (path: string) => boolean;
 
   /**
    * Search the whole context, not the folders that happen to be loaded.
@@ -96,6 +102,23 @@ export interface FileBrowser {
   /** The last thing that went wrong, or a confirmation of what just happened. */
   notice: string | null;
   dismissNotice: () => void;
+
+  /**
+   * Completed operations that have a way back, newest last.
+   *
+   * Separate from `notice` because they answer different questions. A notice is
+   * a *refusal* or a *failure* — "that name is taken", "that did not work" —
+   * and it sits in the pane until it is dismissed or replaced, which is right
+   * for something the person has to act on. A toast reports something that
+   * already succeeded and offers the inverse of it, which is only useful for a
+   * few seconds and must not become furniture.
+   *
+   * At most one at a time in practice: `run` clears the list before every
+   * operation, so the offer is always the inverse of the last thing that
+   * happened and never of something three moves ago that no longer inverts.
+   */
+  toasts: readonly ToastSpec[];
+  dismissToast: (id: string) => void;
 
   clipboard: Clipboard | null;
   copy: (path: string) => void;

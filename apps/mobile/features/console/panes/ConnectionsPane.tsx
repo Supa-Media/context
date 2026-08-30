@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Card, Grow, Row } from "../../design/components/Card";
@@ -10,6 +9,7 @@ import { Text } from "../../design/components/Text";
 import { colors } from "../../design/tokens";
 import { ConnectClients } from "../clients/ConnectClients";
 import { MembersSection } from "../members/MembersSection";
+import { useArming } from "../useArming";
 import { shareBackSuggestions } from "../members/members";
 import { PaneHead } from "../ConsoleShell";
 import { selectedContext, type ConsoleClient, type ConsoleData } from "../types";
@@ -128,14 +128,29 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
 }
 
 /**
- * Deletion is two presses and says what it does first. The copy leads with
- * the one fact people fear getting wrong: notes in their own storage are not
- * ours to delete and stay where they are. What goes is the control plane's
- * record — contexts, memberships, storage connections, sign-in — which is
- * exactly what somebody re-testing onboarding wants gone.
+ * Deletion is two presses, the second one expires, and the copy says what it
+ * does first.
+ *
+ * The lead is still the fact people fear getting wrong: notes in their own
+ * storage are not ours to delete and stay where they are. What follows it are
+ * two consequences the copy used to leave out, both of which reach other
+ * people:
+ *
+ *  - **Every context you solely own is destroyed, even where editors and
+ *    members remain.** `account.ts` states that edge deliberately — "an
+ *    ownerless context has nobody who can rebind storage or revoke a grant,
+ *    which is not a state to leave anybody in" — so somebody you invited loses
+ *    access, and the old wording ("removes your … memberships") read as though
+ *    only yours went.
+ *  - **Your name is released**, and because ingestion is on the apex that
+ *    includes your capture address: `you@context.lc` becomes claimable.
+ *
+ * The arming window is `useArming`'s, which expires. It was a bare `useState`
+ * with no way back to `idle`, so an armed Delete stayed armed until something
+ * pressed it.
  */
 export function DeleteAccountCard({ deleteAccount }: { deleteAccount: () => Promise<void> }) {
-  const [arming, setArming] = useState<"idle" | "armed" | "working">("idle");
+  const arming = useArming(deleteAccount);
   return (
     <View style={styles.account}>
       <Text variant="eyebrow" style={styles.accountHead}>
@@ -146,29 +161,26 @@ export function DeleteAccountCard({ deleteAccount }: { deleteAccount: () => Prom
           <Grow>
             <Text variant="rowTitle">Delete this account</Text>
             <Text variant="rowSub" style={styles.accountSub}>
-              Removes your contexts, storage connections, memberships and sign-in.
-              Notes in your own bucket or Dropbox stay exactly where they are.
+              Notes in your own bucket or Dropbox stay exactly where they are — they
+              are not ours to delete. What goes is everything Context knows: your
+              contexts, storage connections, memberships and sign-in. Any context you
+              are the only owner of is deleted with it, so people you invited lose
+              access, and your name is released — including your capture address, which
+              somebody else can then claim.
             </Text>
           </Grow>
           <Button
             label={
-              arming === "working"
+              arming.stage === "working"
                 ? "Deleting…"
-                : arming === "armed"
+                : arming.stage === "armed"
                   ? "Press again to delete"
                   : "Delete account"
             }
             variant="danger"
-            disabled={arming === "working"}
+            disabled={arming.stage === "working"}
             testID="delete-account"
-            onPress={() => {
-              if (arming === "idle") {
-                setArming("armed");
-                return;
-              }
-              setArming("working");
-              void deleteAccount();
-            }}
+            onPress={arming.press}
           />
         </Row>
       </Card>

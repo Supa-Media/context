@@ -9,6 +9,7 @@ import { Pill } from "../../../features/design/components/Pill";
 import { Palette } from "../../../features/design/components/Palette";
 import { StatusBar } from "../../../features/design/components/StatusBar";
 import { Text } from "../../../features/design/components/Text";
+import { ToastHost } from "../../../features/design/components/Toast";
 import { colors, layout, radii, space } from "../../../features/design/tokens";
 import { AppFrame, useFrame } from "../../../features/app/AppFrame";
 import { densityFor } from "../../../features/app/frame";
@@ -16,17 +17,28 @@ import { BottomBar } from "../../../features/console/BottomBar";
 import { AccountBlock, Avatar, ConsoleRail } from "../../../features/console/ConsoleRail";
 import { ConsoleDataProvider } from "../../../features/console/ConsoleDataContext";
 import { TierChip } from "../../../features/console/ConsoleShell";
-import { Explorer } from "../../../features/console/files/Explorer";
+import {
+  Explorer,
+  ExplorerDialogs,
+  type Dialog,
+} from "../../../features/console/files/Explorer";
+import { Confirm } from "../../../features/console/files/Dialogs";
 import { itemsFromListings } from "../../../features/console/files/palette";
 import { useContextSearch } from "../../../features/console/files/useContextSearch";
 import { useTabs } from "../../../features/console/files/useTabs";
 import { readFocus, scopeForFocus } from "../../../features/console/keyboardScope";
 import { tabAt } from "../../../features/console/files/tabs";
 import { targetFolder } from "../../../features/console/files/tree";
+import {
+  applyRowIntent,
+  intentForRowCommand,
+} from "../../../features/console/files/rowCommand";
 import { TabStrip } from "../../../features/console/files/TabStrip";
 import { TabSwitcher, tabCountLabel } from "../../../features/console/files/TabSwitcher";
 import { statusSegments } from "../../../features/console/files/status";
-import { dirtyCount } from "../../../features/console/files/tabs";
+import { dirtyCount, isTabDirty } from "../../../features/console/files/tabs";
+import { isDirty } from "../../../features/console/files/editor";
+import { useUnsavedGuard } from "../../../features/console/files/useUnsavedGuard";
 import { atName } from "../../../features/console/format";
 import {
   hrefFor,
@@ -116,6 +128,32 @@ export default function ConsoleLayout() {
   */
   const [switcherOpen, setSwitcherOpen] = useState(false);
   /*
+    The toolbar's `+` raises the explorer's own dialog. Held here rather than
+    inside `Explorer` because the toolbar is a sibling of the explorer, not a
+    child of it — and `ExplorerDialogs` was already split out of `Explorer` for
+    exactly this: "so the tree and the editor can drive the same set without
+    either owning it".
+  */
+  const [barDialog, setBarDialog] = useState<Dialog>(null);
+  /*
+    The tab whose close is waiting on a confirm.
+
+    `tabs.ts`'s `closed` case says a modal decision has no business inside a
+    data structure and that "the UI confirms before dispatching". Nothing did:
+    the tab's ×, the switcher sheet and ⌘W all reached the reducer directly, so
+    a dirty tab closed silently and the draft — which nothing autosaves and
+    nothing persists — was gone. One state, so all three routes ask.
+  */
+  const [closingTab, setClosingTab] = useState<string | null>(null);
+
+  /*
+    The exit the app does not own. `guardLeaving` covers opening another note
+    and the confirm above covers closing a tab; this covers closing the browser
+    tab and reloading, which lost the draft in silence. Native is deliberately
+    a no-op — see the hook.
+  */
+  useUnsavedGuard(isDirty(data.files.editor));
+  /*
     A menu or a dialog raised by the tree is an overlay too, not just the
     palette. Without this, ⌘K opens the palette *behind* an open context menu:
     `keymap.ts` enforces "nothing behind an overlay fires", but only for the
@@ -163,6 +201,21 @@ export default function ConsoleLayout() {
   useEffect(() => {
     if (!phone || !browsing) setSwitcherOpen(false);
   }, [phone, browsing]);
+
+  /**
+   * Close a tab, asking first when that would throw a draft away.
+   *
+   * The clean tabs — nearly all of them — still close on one press. A confirm
+   * on every close would train people to dismiss it, which is how the one that
+   * mattered gets dismissed too.
+   */
+  const closeTab = useCallback(
+    (path: string) => {
+      if (isTabDirty(tabs.state, path)) setClosingTab(path);
+      else tabs.close(path);
+    },
+    [tabs],
+  );
 
   const contextLabel = atName(current?.slug ?? "your context");
 
@@ -228,8 +281,18 @@ export default function ConsoleLayout() {
         }
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
         rail={(mode) => <Rail data={data} route={route} mode={mode} />}
+        /*
+          `browsing`, not `insideContext`.
+
+          Settings is inside a context, so gating on that shipped Browse's
+          whole toolbar to a screen with no notes on it: a file tree, a `+`
+          that wrote a note you could not see, a Save with nothing to save, and
+          a tab count whose sheet activated notes behind the settings pane.
+          Tapping a note in that drawer selected it and closed the drawer with
+          no visible change at all.
+        */
         explorer={
-          insideContext ? (
+          browsing ? (
             <Explorer
               files={data.files}
               contextLabel={contextLabel}
@@ -243,12 +306,13 @@ export default function ConsoleLayout() {
         }
         status={<Status data={data} />}
         bottomBar={
-          insideContext ? (
+          browsing ? (
             <ConsoleBottomBar
               data={data}
               tabs={tabs}
               onSearch={() => setPaletteOpen(true)}
               onOpenTabs={() => setSwitcherOpen(true)}
+              onNewNote={(folder) => setBarDialog({ kind: "newNote", folder })}
             />
           ) : undefined
         }
@@ -256,6 +320,8 @@ export default function ConsoleLayout() {
         <Shortcuts
           files={data.files}
           tabs={tabs}
+          onCloseTab={closeTab}
+          onDialog={setBarDialog}
           onSearch={() => setPaletteOpen(true)}
           paletteOpen={paletteOpen || treeOverlay || switcherOpen}
         />
@@ -263,6 +329,7 @@ export default function ConsoleLayout() {
           browse={browsing}
           failure={data.failure}
           tabs={browsing && !phone ? tabs : null}
+          onCloseTab={closeTab}
           phone={phone}
         >
           <Slot />
@@ -281,10 +348,47 @@ export default function ConsoleLayout() {
               tabs.activate(path);
               setSwitcherOpen(false);
             }}
-            onClose={tabs.close}
+            onClose={closeTab}
             onDismiss={() => setSwitcherOpen(false)}
           />
         ) : null}
+
+        {closingTab === null ? null : (
+          <Confirm
+            title="Discard unsaved changes?"
+            body={`${closingTab} has changes that have not been saved to your bucket. Closing this tab throws them away — nothing here is autosaved.`}
+            confirmLabel="Discard and close"
+            onCancel={() => setClosingTab(null)}
+            onConfirm={() => {
+              tabs.close(closingTab);
+              setClosingTab(null);
+            }}
+          />
+        )}
+
+        {/* The toolbar's `+`. `Explorer` renders its own copy for the tree's. */}
+        <ExplorerDialogs
+          files={data.files}
+          dialog={barDialog}
+          onClose={() => setBarDialog(null)}
+        />
+
+        {/*
+          The way back from a move, a rename or an archive.
+
+          Mounted here rather than beside the notice line in `BrowsePane`,
+          because the operations that raise it are reachable from the tree, the
+          toolbar and the keyboard — and a toast that lives inside the pane
+          would be absent on the one layout where the tree is a drawer over it.
+
+          `bottomInset` is left at its default: this renders inside `AppFrame`'s
+          editor region, which already ends where the toolbar begins, and the
+          toolbar already owns the safe area. See `ToastHost`.
+        */}
+        <ToastHost
+          toasts={data.files.toasts}
+          onDismiss={data.files.dismissToast}
+        />
 
         {paletteOpen ? (
           <Palette
@@ -330,6 +434,7 @@ function EditorRegion({
   browse,
   failure,
   tabs,
+  onCloseTab,
   phone,
   children,
 }: {
@@ -337,6 +442,8 @@ function EditorRegion({
   failure: ConsoleData["failure"];
   /** Absent on a route with no notes open, and on every non-Browse pane. */
   tabs: ReturnType<typeof useTabs> | null;
+  /** Closes a tab, asking first when it holds an unsaved draft. */
+  onCloseTab: (path: string) => void;
   /** Compact. Decides the document panes' measure, not which regions exist. */
   phone: boolean;
   children: ReactNode;
@@ -375,7 +482,7 @@ function EditorRegion({
           <TabStrip
             state={tabs.state}
             onActivate={tabs.activate}
-            onClose={tabs.close}
+            onClose={onCloseTab}
             onCloseOthers={tabs.closeOthers}
             onReopen={tabs.reopen}
           />
@@ -421,11 +528,17 @@ function EditorRegion({
 function Shortcuts({
   files,
   tabs,
+  onCloseTab,
+  onDialog,
   onSearch,
   paletteOpen,
 }: {
   files: FileBrowser;
   tabs: ReturnType<typeof useTabs>;
+  /** ⌘W. Asks before discarding a draft, exactly as the × does. */
+  onCloseTab: (path: string) => void;
+  /** Raise one of the tree's dialogs — the same set the toolbar's `+` uses. */
+  onDialog: (dialog: Dialog) => void;
   onSearch: () => void;
   paletteOpen: boolean;
 }) {
@@ -467,7 +580,7 @@ function Shortcuts({
           /* ---- tabs ----------------------------------------------------- */
           case "closeTab":
             if (tabs.state.activePath === null) return false;
-            tabs.close(tabs.state.activePath);
+            onCloseTab(tabs.state.activePath);
             return true;
           case "reopenTab":
             if (tabs.state.closed.length === 0) return false;
@@ -496,12 +609,36 @@ function Shortcuts({
           case "cut":
           case "paste":
           case "archive":
-          case "deleteForever":
-            // These act on a tree row and are raised from the tree's own menu,
-            // which owns the dialogs they need. Reaching them from here would
-            // mean a second copy of that dialog state living in the frame.
-            // Deliberately unhandled *here*; `Explorer` binds them itself.
-            return false;
+          case "deleteForever": {
+            /*
+              These used to return `false` under a comment saying "`Explorer`
+              binds them itself". It binds no key at all — it has no keyboard
+              handler of any kind — so every chord the row menu prints beside
+              these ten was dead: `F2`, `⌘D`, `⌘⇧M`, `⌘C`, `⌘X`, `⌘V`, `⌘⌫`,
+              `⌘⇧⌫`. `menu.ts` argues that routing a printed chord through
+              `describeBinding` means it is a real one; that proves the chord is
+              in the table, not that anything is listening. This is what listens.
+
+              The dialog state is here rather than duplicated — the toolbar's
+              `+` already raises `ExplorerDialogs` from this component, which is
+              why `ExplorerDialogs` was split out of `Explorer` in the first
+              place.
+
+              A keystroke acts on the *selection*; the menu acts on the row
+              under the pointer. `rowCommand.ts` owns what they must agree
+              about, and answers `null` for a command with no target — which
+              leaves the browser's own behaviour alone, as an unhandled command
+              should.
+            */
+            const intent = intentForRowCommand(command, {
+              canEdit: files.canEdit,
+              selectedPath: files.selectedPath,
+              listings: files.listings,
+              clipboard: files.clipboard,
+            });
+            if (intent === null) return false;
+            return applyRowIntent(intent, files, onDialog);
+          }
 
           default: {
             // ⌘1–⌘9. Written as a fall-through rather than nine cases.
@@ -514,7 +651,7 @@ function Shortcuts({
           }
         }
       },
-      [files, tabs, frame, onSearch],
+      [files, tabs, onCloseTab, onDialog, frame, onSearch],
     ),
   });
 
@@ -604,13 +741,15 @@ function ConsoleBottomBar({
   tabs,
   onSearch,
   onOpenTabs,
+  onNewNote,
 }: {
   data: ConsoleData;
   tabs: ReturnType<typeof useTabs>;
   onSearch: () => void;
   onOpenTabs: () => void;
+  /** Raises the naming dialog for a destination — see the `new` action. */
+  onNewNote: (folder: string) => void;
 }) {
-  const frame = useFrame();
   const files = data.files;
   // The same rule the explorer's own `+` uses, from the same function: a
   // selected *folder* is the destination, anything else means its parent.
@@ -619,12 +758,26 @@ function ConsoleBottomBar({
   return (
     <BottomBar
       actions={[
-        {
-          id: "files",
-          label: frame.state.drawerOpen ? "Close the file tree" : "Open the file tree",
-          icon: "panelLeft",
-          onPress: frame.toggleExplorer,
-        },
+        /*
+          No drawer toggle here.
+
+          There were two — this one and `AppFrame`'s top-bar button — with the
+          same icon, calling the same function, on one 390pt screen. The
+          defence written here was thumb reach: "the tree toggle is here as
+          well as in the top bar because this is where a thumb is, and the top
+          bar is a stretch on a tall phone."
+
+          That was never a fallback for any layout. `regionsFor` turns
+          `drawerToggle` on only at `compact`, which is the one density where
+          `bottomBar` is unconditionally true — so the two existed together or
+          not at all, and neither was ever the only way in.
+
+          The owner chose the top-left one (2026-08). It is where Obsidian
+          puts the sidebar toggle and where the panel it opens comes from, so
+          the button and its result are on the same side. The thumb-reach half
+          of the old argument is answered by the edge-swipe, not by a second
+          button in the other corner.
+        */
         { id: "search", label: "Search notes", icon: "search" as const, onPress: onSearch },
         /*
           Absent, not dimmed. `BottomBar` argues that a fixed strip must not
@@ -634,13 +787,28 @@ function ConsoleBottomBar({
           for exactly this case: read-only means the control is **gone**, not
           present and refusing.
         */
+        /*
+          The same dialog the explorer's own `+` raises, not a second contract.
+
+          This used to call `createNote(folder, "Untitled")` directly, which
+          made one icon mean two different things on one screen: the drawer's
+          `+` asked for a name and said where it was going, this one wrote
+          immediately and said neither. Worse, `folder` is derived from a
+          selection that lives *in the drawer* — normally shut when this button
+          is pressed — so the destination was invisible, defaulted to the
+          bucket root, and a second press failed on the name collision rather
+          than making a second note.
+
+          `ExplorerDialogs` already renders `NamePrompt` with the sentence that
+          answers all of that: "It will be created in 1-projects as markdown."
+        */
         ...(files.canEdit
           ? [
               {
                 id: "new",
                 label: "New note",
                 icon: "plus" as const,
-                onPress: () => files.createNote(folder, "Untitled"),
+                onPress: () => onNewNote(folder),
               },
             ]
           : []),

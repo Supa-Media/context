@@ -58,12 +58,14 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
   });
 
   const select = useCallback(
-    (path: string) => {
+    (path: string): boolean => {
       setSelectedPath(path);
       const note = demoNote(tree, path);
       // A folder has no body, so the pane shows its summary instead of an editor.
       if (note === null) dispatch({ type: "closed" });
       else dispatch({ type: "opened", note });
+      // Always allowed: the demo cannot edit, so there is never a draft to guard.
+      return true;
     },
     [tree],
   );
@@ -116,6 +118,11 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       discard: noop,
       notice: null,
       dismissNotice: noop,
+      // Nothing on the landing page mutates anything, so nothing there has an
+      // inverse to offer. Empty rather than absent, because it is a required
+      // member of the interface — see `browser.ts` on inert methods.
+      toasts: [],
+      dismissToast: noop,
       clipboard: null,
       copy: noop,
       cut: noop,

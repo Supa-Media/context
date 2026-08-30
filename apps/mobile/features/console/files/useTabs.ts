@@ -139,10 +139,23 @@ export function useTabs(
     dispatch({ type: "reset" });
   }, [contextKey]);
 
+  /**
+   * Move the editor first, and the strip only if it went.
+   *
+   * This dispatched *then* selected, and `select` refuses while the open note
+   * has unsaved changes — so the strip highlighted the tab you pressed while
+   * the editor still held the old one, and the effect below re-fired the same
+   * refusal on every render. That is the desync the effect's own comment says
+   * "this hook's one-direction rule exists to prevent", arriving through the
+   * one call that skipped the rule.
+   *
+   * `select` reports the guard's answer rather than this asking `guardLeaving`
+   * itself: the refusal also sets the notice that explains it, and two places
+   * deciding "may I leave this note" is how they come to disagree.
+   */
   const activate = useCallback(
     (path: string) => {
-      dispatch({ type: "activated", path });
-      files.select(path);
+      if (files.select(path)) dispatch({ type: "activated", path });
     },
     [files],
   );

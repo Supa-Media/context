@@ -81,7 +81,9 @@ function browser(canSetVisibility: boolean): FileBrowser {
     expanded: new Set<string>(),
     toggleFolder: noop,
     selectedPath: null,
-    select: noop,
+    // `select` answers whether the unsaved-changes guard let go; these
+    // fixtures have no draft, so it always does.
+    select: () => true,
     search: async () => ({ hits: [], indexMissing: false, indexIncomplete: false }),
     // `emptyEditor` rather than a hand-written literal. The first version of
     // this fixture was copied from a shape `EditorState` no longer has — it was
@@ -98,6 +100,8 @@ function browser(canSetVisibility: boolean): FileBrowser {
     discard: noop,
     notice: null,
     dismissNotice: noop,
+    toasts: [],
+    dismissToast: noop,
     // Stable across renders on purpose: `null` is what the context-switch reset
     // effect writes onto an already-`null` clipboard, which React bails on.
     clipboard: null,

@@ -23,6 +23,7 @@
  * `privacy.md` still learns how it works by using the tree.
  */
 
+import { isMarkdown } from "./paths";
 import type { FileEntry, FolderListing, Visibility } from "./types";
 
 export interface TreeRow {
@@ -200,8 +201,22 @@ export function targetFolder(
   selectedPath: string | null,
 ): string {
   if (selectedPath === null) return "";
+  /*
+    `findEntry` looks a path up in its *parent's* listing, so it answers `null`
+    for a folder whose parent has never been fetched — which is the ordinary
+    state after a deep link. Treating that `null` as "not a folder" sent the
+    destination one level above the folder the person was looking at.
+
+    `useFileBrowser.select` already met this and documents it: "`findEntry` is
+    not enough to decide this, and that is the bug this comment used to
+    describe and not prevent." A note is `.md` by construction — `createNote`
+    appends it, `writeNote` refuses anything else — so an unknown path that is
+    not markdown is a folder. Same rule here, so the folder on screen and the
+    folder a new note lands in cannot disagree.
+  */
   const entry = findEntry(listings, selectedPath);
-  if (entry?.kind === "folder") return selectedPath;
+  const isFolder = entry === null ? !isMarkdown(selectedPath) : entry.kind === "folder";
+  if (isFolder) return selectedPath;
   const slash = selectedPath.lastIndexOf("/");
   return slash < 0 ? "" : selectedPath.slice(0, slash);
 }

@@ -168,7 +168,7 @@ function mount(
     root.render(
       createElement(Palette, {
         items: ITEMS,
-        placeholder: "Search notes and commands",
+        placeholder: "Search this context",
         emptyHeading: "Recent",
         noMatchMessage: "Nothing here matches. Try fewer letters.",
         onChoose: (item) => chosen.push(item),

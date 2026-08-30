@@ -205,6 +205,22 @@ function mountSheet(items: MenuItem[] = sheetItems()): Mounted {
 const styleOf = (node: HTMLElement, property: string): string =>
   window.getComputedStyle(node).getPropertyValue(property);
 
+/** The real folder menu, whose visibility submenu is the one carrying details. */
+function folderRow(path: string): TreeRow {
+  return { ...note(path), kind: "folder", path, name: path };
+}
+
+function folderItems(platform: "web" | "touch"): MenuItem[] {
+  return itemsFor({
+    target: { kind: "row", row: folderRow("1-projects") },
+    canEdit: true,
+    canSetVisibility: true,
+    canShare: true,
+    clipboard: null,
+    platform,
+  });
+}
+
 /* -------------------------------------------------------------------------- */
 
 describe("the sheet draws the menu it was given", () => {
@@ -319,9 +335,9 @@ describe("a submenu is a second page, not a nested popover", () => {
 
     expect(sheet.labels()).toEqual([
       "Visibility",
-      "Private",
-      "Team",
-      "Follow folder",
+      "Make private",
+      "Share with the team",
+      "Use the folder's setting",
       "Cancel",
     ]);
     /*
@@ -705,6 +721,34 @@ function mountWeb(
     platform,
   });
 
+  return mountWebWith(items, view);
+}
+
+/**
+ * The same mount, given the items outright.
+ *
+ * `mountWeb` builds the note menu; a submenu page is a list this file has to
+ * hand over itself, because the popover renders a child page from the items it
+ * was given rather than by opening the parent.
+ */
+function mountWebWith(
+  items: MenuItem[],
+  view: { width: number; height: number },
+): {
+  find: (testID: string) => HTMLElement | null;
+  labels: () => string[];
+  text: () => string;
+} {
+  Object.defineProperty(document.documentElement, "clientWidth", {
+    value: view.width,
+    configurable: true,
+  });
+  Object.defineProperty(document.documentElement, "clientHeight", {
+    value: view.height,
+    configurable: true,
+  });
+  window.dispatchEvent(new Event("resize"));
+
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -810,9 +854,9 @@ describe("the web build picks its presentation on the window, not the bundle", (
     expect(menu.find("menu-item-back")).not.toBeNull();
     expect(menu.labels()).toEqual([
       "Visibility",
-      "Private",
-      "Team",
-      "Follow folder",
+      "Make private",
+      "Share with the team",
+      "Use the folder's setting",
       "Cancel",
     ]);
   });
@@ -827,5 +871,96 @@ describe("the web build picks its presentation on the window, not the bundle", (
     expect(styleOf(danger!, "color").replace(/\s/g, "")).toBe(
       `rgb(${[1, 3, 5].map((at) => parseInt(colors.critText.slice(at, at + 2), 16)).join(",")})`,
     );
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+describe("a detail line is drawn under its label", () => {
+  /**
+   * The folder visibility pair is the only place in this menu that carries one,
+   * and the sentence it carries is the reason somebody presses one row rather
+   * than the other: `setFolderVisibility` sets the folder's default, and a note
+   * with its own exception keeps it. A control that said "Share everything
+   * here" and silently meant "except four notes" would be the console
+   * overstating what it had just done to somebody's access.
+   */
+  function submenuOf(items: MenuItem[]): MenuItem[] {
+    return items.find((item) => item.id === "visibility")?.items ?? [];
+  }
+
+  test("the sheet draws it", () => {
+    const sheet = mountSheet(submenuOf(folderItems("touch")));
+    expect(sheet.find("menu-detail-visibilityTeam")?.textContent).toBe(
+      "Except notes with a setting of their own.",
+    );
+  });
+
+  test("and a row with nothing to add draws nothing", () => {
+    // Not vacuous in the other direction: a component that rendered the field
+    // unconditionally would put an empty line under every row on the sheet.
+    const sheet = mountSheet();
+    expect(sheet.find("menu-detail-archive")).toBeNull();
+  });
+
+  test("the pointer popover draws it, at the height its geometry assumed", () => {
+    /*
+      The popover declares its own box size — `heightFor` — and that number is
+      what the flip-above-the-pointer decision reads. A row rendered taller than
+      it was measured is a menu that runs off the bottom of the window instead
+      of flipping, which is exactly the failure the fixed 28px row height exists
+      to prevent. So the tall row is a declared height too, not a `minHeight`.
+    */
+    const tall = mountWebWith(submenuOf(folderItems("web")), { width: 1280, height: 800 });
+    expect(tall.find("menu-detail-visibilityTeam")).not.toBeNull();
+    // 28 (`ROW_HEIGHT`) + 18 (`DETAIL_BLOCK`), the number `heightFor` adds.
+    expect(styleOf(tall.find("menu-item-visibilityTeam")!, "height")).toBe("46px");
+
+  });
+
+  test("a popover row with no detail keeps the ordinary height", () => {
+    // The control for the case above, in its own test because every query here
+    // reads from `document.body` — `Modal` portals — so two menus mounted
+    // together answer as one.
+    const plain = mountWebWith(
+      submenuOf(
+        itemsFor({
+          target: { kind: "row", row: note("1-projects/plan.md") },
+          canEdit: true,
+          canSetVisibility: true,
+          canShare: true,
+          clipboard: null,
+          platform: "web",
+        }),
+      ),
+      { width: 1280, height: 800 },
+    );
+    expect(styleOf(plain.find("menu-item-visibilityTeam")!, "height")).toBe("28px");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+describe("Cancel stays centred", () => {
+  /*
+    A regression this file did not catch, found by looking at the sheet.
+
+    Stacking a `detail` under a label means wrapping the two in a column, and
+    the obvious `flex: 1` on that column fills the row — at which point the
+    row's `justifyContent: "center"` has nothing left to centre and Cancel
+    silently left-aligns. It is the one row on this sheet that is centred on
+    purpose, and both conditions have to hold, so both are asserted: the row
+    centres, and nothing inside it grows to swallow the space it centres in.
+  */
+  test("on the native sheet", () => {
+    const sheet = mountSheet();
+    expect(styleOf(sheet.find("menu-item-cancel")!, "justify-content")).toBe("center");
+    expect(styleOf(sheet.find("menu-labels-cancel")!, "flex-grow")).not.toBe("1");
+  });
+
+  test("and on the web sheet", () => {
+    const menu = mountWeb(PHONE, "touch");
+    expect(styleOf(menu.find("menu-item-cancel")!, "justify-content")).toBe("center");
+    expect(styleOf(menu.find("menu-labels-cancel")!, "flex-grow")).not.toBe("1");
   });
 });

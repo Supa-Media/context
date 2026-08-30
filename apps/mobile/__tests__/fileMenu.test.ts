@@ -320,13 +320,27 @@ describe("paste appears only where something can land", () => {
 
 describe("the visibility submenu", () => {
   /**
-   * "Follow folder" removes the file's exact-note exception rather than
-   * writing a value, which is the only way back to tracking the folder.
+   * **These are verbs, and that is the point of them.**
+   *
+   * They read "Private" and "Team" for as long as this menu existed — the same
+   * two words, in the same two colours, that the tree's marker and the
+   * breadcrumb's chip use for the *current state*. Nothing on screen said
+   * whether pressing "Team" set the visibility or filtered by it, and the only
+   * way to find out was to press it and watch what happened to somebody's
+   * access.
+   *
+   * The last item is the one worth reading twice. "Follow folder" named the
+   * state it leaves behind; the act is removing this note's own exception,
+   * which is the only way back to tracking the folder.
    */
-  test("a note gets three: private, team, follow folder", () => {
+  test("a note's three items say what pressing them does", () => {
     const submenu = find(menu({ kind: "row", row: note("1-projects/plan.md") }), "visibility");
     expect(submenu?.label).toBe("Visibility");
-    expect(labels(submenu?.items ?? [])).toEqual(["Private", "Team", "Follow folder"]);
+    expect(labels(submenu?.items ?? [])).toEqual([
+      "Make private",
+      "Share with the team",
+      "Use the folder's setting",
+    ]);
     expect(ids(submenu?.items ?? [])).toEqual([
       "visibilityPrivate",
       "visibilityTeam",
@@ -337,7 +351,39 @@ describe("the visibility submenu", () => {
   /** A folder's default *is* the value being set; there is no outer default. */
   test("a folder gets two, because it has no folder to follow", () => {
     const submenu = find(menu({ kind: "row", row: dir("1-projects") }), "visibility");
-    expect(labels(submenu?.items ?? [])).toEqual(["Private", "Team"]);
+    expect(labels(submenu?.items ?? [])).toEqual([
+      "Make everything here private",
+      "Share everything here with the team",
+    ]);
+  });
+
+  test("a folder's items say what they do not reach", () => {
+    /*
+      The half people get wrong. `setFolderVisibility` sets the folder's
+      default, and a note carrying its own exception keeps it — which is
+      exactly why the tree marks the exceptions and not the followers. A
+      control that said "Share everything here" and meant "everything except
+      four notes you cannot see from this menu" would be the console
+      overstating what it just did to somebody's access.
+
+      A count is deliberately not offered beside it. Listings are fetched per
+      folder, so the client can only see the folders somebody has expanded, and
+      it cannot tell a subfolder with its own rule from one merely inheriting —
+      so any number would be wrong in both directions at once. This repo's own
+      rule is that a floor is never printed as a total; a sentence is the
+      honest form of what is actually known.
+    */
+    const submenu = find(menu({ kind: "row", row: dir("1-projects") }), "visibility");
+    for (const item of submenu?.items ?? []) {
+      expect(item.detail).toBe("Except notes with a setting of their own.");
+    }
+  });
+
+  test("a note's items carry no detail line", () => {
+    // A menu where every row explains itself is a menu nobody reads. The
+    // folder pair earns one because its reach is not visible from the row.
+    const submenu = find(menu({ kind: "row", row: note("1-projects/plan.md") }), "visibility");
+    for (const item of submenu?.items ?? []) expect(item.detail).toBeUndefined();
   });
 
   test("the parent carries an id no dispatcher can mistake for an action", () => {
@@ -356,12 +402,17 @@ describe("the visibility submenu", () => {
       rows: [note("1-projects/a.md"), note("1-projects/b.md")],
     });
     expect(labels(find(files, "visibility")?.items ?? [])).toEqual([
-      "Private",
-      "Team",
-      "Follow folder",
+      "Make private",
+      "Share with the team",
+      "Use the folder's setting",
     ]);
+    // A selection names how much it touches, the same rule Archive and Delete
+    // follow — "here" is one folder and would read as one for two of them.
     const folders = menu({ kind: "selection", rows: [dir("1-projects"), dir("2-areas")] });
-    expect(labels(find(folders, "visibility")?.items ?? [])).toEqual(["Private", "Team"]);
+    expect(labels(find(folders, "visibility")?.items ?? [])).toEqual([
+      "Make everything in 2 folders private",
+      "Share everything in 2 folders with the team",
+    ]);
   });
 
   /** An item that applies to some of what is selected is a partial success. */

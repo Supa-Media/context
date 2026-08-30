@@ -782,11 +782,25 @@ describe("targetFolder", () => {
     expect(targetFolder(listings, null)).toBe("");
   });
 
-  test("an unloaded path falls back to its parent rather than guessing", () => {
-    // Not in any listing, so `findEntry` cannot say whether it is a folder.
-    // Treating it as a note is the safe reading: worst case the note lands one
-    // level up, where the person can see it, rather than inside something.
+  test("an unloaded note falls back to its parent", () => {
+    // Not in any listing, so `findEntry` cannot say what it is — but a note is
+    // `.md` by construction (`createNote` appends it, `writeNote` refuses
+    // anything else), so the extension answers.
     expect(targetFolder(listings, "2-areas/health.md")).toBe("2-areas");
+  });
+
+  test("an unloaded FOLDER is the destination, not its parent", () => {
+    /*
+      The case a deep link produces, and the one this used to get wrong.
+      `findEntry` looks a path up in its *parent's* listing, so a folder whose
+      parent has not been fetched answers `null` — and the old rule read that
+      `null` as "not a folder" and went up a level. The pane meanwhile drew the
+      folder, because `useFileBrowser.select` had already been given the
+      extension rule. So the screen said `2-areas/health` and `+` wrote into
+      `2-areas`.
+    */
+    expect(targetFolder(listings, "2-areas/health")).toBe("2-areas/health");
+    expect(targetFolder(listings, "2-areas")).toBe("2-areas");
   });
 });
 

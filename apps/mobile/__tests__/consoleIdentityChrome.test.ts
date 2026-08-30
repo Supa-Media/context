@@ -119,6 +119,8 @@ function mockConsoleData(): never {
     discard: () => {},
     notice: null,
     dismissNotice: () => {},
+    toasts: [],
+    dismissToast: () => {},
     clipboard: null,
     copy: () => {},
     cut: () => {},

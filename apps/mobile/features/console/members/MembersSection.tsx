@@ -24,6 +24,7 @@ import {
   type MembersFailure,
   type MembersView,
 } from "./members";
+import { useArming } from "../useArming";
 import { memberReachSentence } from "../visibility";
 
 /**
@@ -188,8 +189,12 @@ function MemberRow({
    * Removing somebody is not undoable and takes their AI clients with it, so it
    * asks once. Two taps rather than a modal: the section has to survive being
    * mounted anywhere, and a dialog would drag a layer of the app in with it.
+   *
+   * The second tap expires — `useArming`, not a bare flag. Armed and left
+   * armed, this sat beside "Make editor" in a wrapping row, and the next press
+   * anywhere near it removed somebody minutes after the decision to.
    */
-  const [confirming, setConfirming] = useState(false);
+  const removal = useArming(() => run(() => actions!.remove(member.userId)));
 
   const swap = oppositeRole(member.role);
   // The owner's row never carries controls: an owner cannot be removed and
@@ -206,7 +211,6 @@ function MemberRow({
       setFailure(describeMembersFailure(error));
     } finally {
       setBusy(false);
-      setConfirming(false);
     }
   }
 
@@ -239,26 +243,20 @@ function MemberRow({
         ) : null}
         {manageable ? (
           <Button
-            label={confirming ? "Confirm" : "Remove"}
+            label={removal.stage === "idle" ? "Remove" : "Confirm"}
             variant="danger"
             disabled={busy}
             accessibilityLabel={
-              confirming
-                ? `Confirm removing ${memberLabel(member)}`
-                : `Remove ${memberLabel(member)}`
+              removal.stage === "idle"
+                ? `Remove ${memberLabel(member)}`
+                : `Confirm removing ${memberLabel(member)}`
             }
             testID={`member-remove-${member.userId}`}
-            onPress={() => {
-              if (!confirming) {
-                setConfirming(true);
-                return;
-              }
-              void run(() => actions!.remove(member.userId));
-            }}
+            onPress={removal.press}
           />
         ) : null}
       </Row>
-      {confirming ? (
+      {removal.stage === "armed" ? (
         <Hint>
           <Text variant="hint">
             {`Removing ${memberLabel(member)} cuts off every AI client they have connected to this context, immediately.`}

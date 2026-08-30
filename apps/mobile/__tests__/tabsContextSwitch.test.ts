@@ -72,7 +72,9 @@ function browser(
     expanded: new Set<string>(),
     toggleFolder: noop,
     selectedPath: null,
-    select: noop,
+    // `select` answers whether the unsaved-changes guard let go; these
+    // fixtures have no draft, so it always does.
+    select: () => true,
     search: async () => ({ hits: [], indexMissing: false, indexIncomplete: false }),
     // A note already open at mount, which is what reloading the console on a
     // note looks like. Without one, a redundant reset at mount hits
@@ -85,6 +87,8 @@ function browser(
     discard: noop,
     notice: null,
     dismissNotice: noop,
+    toasts: [],
+    dismissToast: noop,
     clipboard: null,
     copy: noop,
     cut: noop,

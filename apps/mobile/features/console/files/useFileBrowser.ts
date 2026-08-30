@@ -25,6 +25,7 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { toFileError, type FileBrowser } from "./browser";
 import type { NoteShare } from "./shares";
+import type { ToastSpec } from "../../design/components/Toast";
 import { consoleOrigin } from "./shareOrigin";
 import { noteHref } from "../nav";
 import { afterPaste, planPaste, put, type Clipboard } from "./clipboard";
@@ -37,6 +38,7 @@ import {
 } from "./editor";
 import {
   ancestorsOf,
+  baseName,
   describeMoveProblem,
   describeNameProblem,
   ensureMarkdown,
@@ -87,6 +89,17 @@ const TIMED_OUT_MESSAGE =
 const STALE_LISTING_MESSAGE =
   "That worked, but the file list did not reload. What you see may be out of date.";
 
+/**
+ * A folder, as it should read in the middle of a sentence.
+ *
+ * The root is `""`, and "Moved to ." is not a sentence. Every other place that
+ * has to name the root spells it out too — the move picker's `detail`, the new
+ * note dialog's description — so this says the same thing they do.
+ */
+function folderLabel(folder: string): string {
+  return folder === "" ? "the root of your context" : folder;
+}
+
 type Listings = Record<string, FolderListing | undefined>;
 
 export function useFileBrowser(options: {
@@ -132,6 +145,7 @@ export function useFileBrowser(options: {
   const [editor, dispatch] = useReducer(editorReducer, emptyEditor);
   const [clipboard, setClipboard] = useState<Clipboard | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<readonly ToastSpec[]>([]);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -140,6 +154,26 @@ export function useFileBrowser(options: {
   // captured when the row was rendered.
   const editorRef = useRef(editor);
   editorRef.current = editor;
+
+  /*
+    The selection, readable from a callback that outlives the render that made
+    it. An undo runs seconds after the operation it inverts, by which time the
+    `selectedPath` captured in that render may be somebody else's.
+  */
+  const selectedPathRef = useRef(selectedPath);
+  selectedPathRef.current = selectedPath;
+
+  /*
+    Toast identity. A counter rather than the message or the path, because two
+    archives of the same note in one session would collide on either of those
+    and React would reuse the first toast's element — including its timer, which
+    is what decides when the undo goes away.
+  */
+  const nextToastId = useRef(0);
+  const dismissToast = useCallback(
+    (id: string) => setToasts((current) => current.filter((toast) => toast.id !== id)),
+    [],
+  );
 
   /**
    * The generation counter and timer handle for the save in flight.
@@ -263,11 +297,11 @@ export function useFileBrowser(options: {
   );
 
   const select = useCallback(
-    (path: string) => {
+    (path: string): boolean => {
       const guard = guardLeaving(editorRef.current);
       if (!guard.allowed) {
         setNotice(guard.prompt ?? null);
-        return;
+        return false;
       }
       setSelectedPath(path);
       setNotice(null);
@@ -297,15 +331,18 @@ export function useFileBrowser(options: {
         // Its own listing, so the folder view has contents to draw rather than
         // an empty screen. `refresh` is a no-op for a folder already loaded.
         if (listings[path] === undefined) void refresh([path]);
-        return;
+        return true;
       }
-      if (workspaceId === null) return;
+      if (workspaceId === null) return true;
       readNote({ workspaceId, path })
         .then((note: OpenNote) => dispatch({ type: "opened", note }))
         .catch((error: unknown) => {
           dispatch({ type: "closed" });
           setNotice(toFileError(error).message);
         });
+      // The selection moved; whether the *read* lands is a separate question
+      // this answer is not about. A caller only needs to know the guard let go.
+      return true;
     },
     [listings, readNote, refresh, workspaceId],
   );
@@ -332,16 +369,36 @@ export function useFileBrowser(options: {
    *    same `try`, so a rename that succeeded and then failed to reload its
    *    folder was reported as "That did not work. Try again." — and the retry
    *    it invited failed on the duplicate name the first one had created.
+   *
+   * ## Where the result goes
+   *
+   * A `message` becomes a notice — it sits until dismissed, which is what a
+   * refusal or a half-failure needs. A `message` *with* an `undo` becomes a
+   * toast instead, because the offer it carries is only good for a few seconds
+   * and a permanent line offering to undo something from ten minutes ago is a
+   * line that gets pressed by mistake.
+   *
+   * Toasts are cleared here, before the work starts, so there is never an offer
+   * to invert an operation that a later one has since moved out from under. The
+   * undo of a move is "put it back where it was"; run it after somebody has
+   * renamed the file and it is a request to move a path that no longer exists.
    */
   const run = useCallback(
     async (
-      work: () => Promise<{ touched: string[]; cascadeFrom?: string; message?: string }>,
+      work: () => Promise<{
+        touched: string[];
+        cascadeFrom?: string;
+        message?: string;
+        /** The exact inverse, offered for `TOAST_MS` beside `message`. */
+        undo?: () => void;
+      }>,
     ): Promise<boolean> => {
       if (!options.canEdit || workspaceId === null) return false;
       operationRun.current += 1;
       const mine = operationRun.current;
       setBusy(true);
       setNotice(null);
+      setToasts([]);
 
       const settled = await raceTimeout(
         // Called inside the race so a `work()` that throws synchronously is a
@@ -385,8 +442,18 @@ export function useFileBrowser(options: {
 
       if (operationRun.current !== mine) return true;
       setBusy(false);
-      if (!listingReloaded) setNotice(STALE_LISTING_MESSAGE);
-      else if (result.message !== undefined) setNotice(result.message);
+      if (!listingReloaded) {
+        // The tree on screen may be wrong, so an undo offered against it would
+        // be acting on a listing we have just said not to trust. The notice
+        // wins; there is nothing here worth undoing blind.
+        setNotice(STALE_LISTING_MESSAGE);
+      } else if (result.message !== undefined && result.undo !== undefined) {
+        const undo = result.undo;
+        nextToastId.current += 1;
+        setToasts([{ id: `op-${nextToastId.current}`, message: result.message, undo }]);
+      } else if (result.message !== undefined) {
+        setNotice(result.message);
+      }
       return true;
     },
     [listings, options.canEdit, refresh, workspaceId],
@@ -506,9 +573,23 @@ export function useFileBrowser(options: {
       );
       if (problem !== null) return setNotice(problem);
       const to = joinPath(destinationFolder, path.slice(path.lastIndexOf("/") + 1));
+      const from = parentPath(path);
       void run(async () => {
         await moveEntry({ workspaceId: workspaceId!, from: path, to });
-        return { touched: [path, to] };
+        return {
+          touched: [path, to],
+          message: `Moved to ${folderLabel(destinationFolder)}.`,
+          // `moveEntry` is its own inverse — the same action with the ends
+          // swapped — so this is the real operation and not a re-derivation of
+          // it. It goes through `run` for the same reason the move did: a
+          // failure has to reach the notice line, and the tree has to reload.
+          undo: () => {
+            void run(async () => {
+              await moveEntry({ workspaceId: workspaceId!, from: to, to: path });
+              return { touched: [to, path], message: `Moved back to ${folderLabel(from)}.` };
+            });
+          },
+        };
       });
       if (selectedPath === path) {
         setSelectedPath(null);
@@ -525,9 +606,24 @@ export function useFileBrowser(options: {
       const problem = describeNameProblem(name) ?? collision(listings, folder, name);
       if (problem !== null) return setNotice(problem);
       const to = joinPath(folder, name);
+      const was = baseName(path);
       void run(async () => {
         await moveEntry({ workspaceId: workspaceId!, from: path, to });
-        return { touched: [path, to] };
+        return {
+          touched: [path, to],
+          message: `Renamed to ${name}.`,
+          undo: () => {
+            void run(async () => {
+              await moveEntry({ workspaceId: workspaceId!, from: to, to: path });
+              return { touched: [to, path], message: `Renamed back to ${was}.` };
+            }).then((ok) => {
+              // The editor follows the file, in both directions. Without this
+              // an undone rename left the open tab pointing at a path the
+              // bucket no longer has.
+              if (ok && selectedPathRef.current === to) select(path);
+            });
+          },
+        };
       }).then((ok) => {
         if (ok && selectedPath === path) select(to);
       });
@@ -551,7 +647,21 @@ export function useFileBrowser(options: {
         const result = await archiveEntry({ workspaceId: workspaceId!, path });
         return {
           touched: [path, result.to],
-          message: `Archived to ${result.to}. Move it back to restore it.`,
+          message: `Archived ${baseName(path)}.`,
+          // The inverse is a move, not an "unarchive": `archiveEntry` puts the
+          // file under a timestamped folder in `4-archive/`, so the way back is
+          // to move it out of there to where it was. `restoreTargetFor` reads
+          // that original path back out and the row menu's Restore uses the
+          // same function, so the two ways back cannot disagree.
+          undo: () => {
+            void run(async () => {
+              await moveEntry({ workspaceId: workspaceId!, from: result.to, to: path });
+              return {
+                touched: [result.to, path],
+                message: `Restored to ${folderLabel(parentPath(path))}.`,
+              };
+            });
+          },
         };
       });
       if (selectedPath === path) {
@@ -559,7 +669,7 @@ export function useFileBrowser(options: {
         dispatch({ type: "closed" });
       }
     },
-    [archiveEntry, run, selectedPath, workspaceId],
+    [archiveEntry, moveEntry, run, selectedPath, workspaceId],
   );
 
   const destroy = useCallback(
@@ -844,6 +954,8 @@ export function useFileBrowser(options: {
       discard,
       notice,
       dismissNotice,
+      toasts,
+      dismissToast,
       clipboard,
       copy: (path: string) => setClipboard(put("copy", path)),
       cut: (path: string) => setClipboard(put("cut", path)),
@@ -890,6 +1002,7 @@ export function useFileBrowser(options: {
       destroy,
       discard,
       dismissNotice,
+      dismissToast,
       duplicate,
       editor,
       expanded,
@@ -912,6 +1025,7 @@ export function useFileBrowser(options: {
       setVisibility,
       share,
       revokeShare,
+      toasts,
       setSharePreviewTitle,
       teamShareLink,
       shares,

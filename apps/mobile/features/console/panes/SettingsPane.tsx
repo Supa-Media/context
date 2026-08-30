@@ -3,7 +3,7 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Card, Row } from "../../design/components/Card";
 import { Dot } from "../../design/components/Dot";
-import { Check, FieldGrid } from "../../design/components/Field";
+import { Check, FieldGrid, Hint } from "../../design/components/Field";
 import { FormError, Notice } from "../../design/components/Input";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
@@ -14,6 +14,7 @@ import { atName } from "../format";
 import { loadedFolders } from "../files/browser";
 import { IngestionCard } from "../ingestion/IngestionCard";
 import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageActions } from "../types";
+import { useArming } from "../useArming";
 import { ConnectForm } from "../storage/ConnectForm";
 import { StorageChoice } from "../storage/StorageChoice";
 import { forcePathStyleToAddressing } from "../storage/connect";
@@ -237,6 +238,11 @@ function BindingCard({
     actions ? actions.workspaceId : null,
   );
   const [disconnecting, setDisconnecting] = useState(false);
+  const disconnect = useArming(() => {
+    if (actions === undefined) return;
+    setDisconnecting(true);
+    void actions.disconnect().finally(() => setDisconnecting(false));
+  });
 
   const addressing = forcePathStyleToAddressing(storage.forcePathStyle);
   const isDropbox = storage.provider === "dropbox";
@@ -414,18 +420,47 @@ function BindingCard({
           onPress={onRebind}
           testID="storage-rebind"
         />
+        {/*
+          Two presses, and the second expires.
+
+          This was one tap with no confirmation, sitting in the same row and at
+          the same size as Re-verify and Rotate key — the two buttons people
+          open this pane to use — differing only in border colour. What it does
+          is delete the binding, and the encrypted secret goes with it: this
+          pane says a few lines above that "the secret is never sent back down
+          from the control plane", so reconnecting needs a value R2 or S3 shows
+          exactly once, at creation. There is no undo and no copy of it here.
+        */}
         <Button
-          label={disconnecting ? "Disconnecting…" : "Disconnect"}
+          label={
+            disconnecting
+              ? "Disconnecting…"
+              : disconnect.stage === "armed"
+                ? "Press again to disconnect"
+                : "Disconnect"
+          }
           variant="danger"
           disabled={actions === undefined || disconnecting}
-          onPress={() => {
-            if (actions === undefined) return;
-            setDisconnecting(true);
-            void actions.disconnect().finally(() => setDisconnecting(false));
-          }}
+          onPress={disconnect.press}
           testID="storage-disconnect"
         />
       </Row>
+
+      {/*
+        The reversibility the product actually promises, at the moment of the
+        press rather than in a paragraph scrolled off the top of the pane — and
+        beside the one thing that is *not* reversible.
+      */}
+      {disconnect.stage === "armed" ? (
+        <Hint>
+          <Text variant="hint">
+            Your bucket and every file in it are untouched — Context only forgets how
+            to reach them, and you can reconnect by pasting a key. What it cannot give
+            back is this secret: it is never sent down from the control plane, so you
+            will need the one your provider showed you when you created the key.
+          </Text>
+        </Hint>
+      ) : null}
 
       {!demo && actions === undefined ? (
         <Text variant="foot" style={styles.readOnly}>

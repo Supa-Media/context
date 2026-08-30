@@ -130,19 +130,44 @@ const MAX_WIDTH = 340;
 const CHAR_WIDTH = 7;
 const ROW_CHROME = 34;
 
+/**
+ * What a `detail` line adds to a row.
+ *
+ * `treeMeta` is 10px on `leading(10, 1.55)` — 15.5 — plus the 2px gap the label
+ * column puts between the two lines, rounded up. It is a *measured* addition
+ * rather than slack: `heightFor` decides the box's declared height and that
+ * height is what the flip-above-the-pointer decision reads, so a row rendered
+ * taller than it was measured is a menu that runs off the bottom of the window
+ * rather than flipping.
+ */
+const DETAIL_BLOCK = 18;
+
+/** The height one row occupies, which is not the same for every row. */
+function rowHeight(item: MenuItem): number {
+  return ROW_HEIGHT + (item.detail === undefined ? 0 : DETAIL_BLOCK);
+}
+
 function widthFor(items: readonly MenuItem[]): number {
   let widest = MIN_WIDTH;
   for (const item of items) {
     const chord = item.shortcut === undefined ? 0 : item.shortcut.length + 3;
     const chevron = item.items === undefined ? 0 : 2;
     widest = Math.max(widest, (item.label.length + chord + chevron) * CHAR_WIDTH + ROW_CHROME);
+    // A detail sits under the label with none of the row's trailing furniture
+    // beside it, so it is measured on its own. Wrapping is still allowed —
+    // `MAX_WIDTH` wins, and the text is capped at two lines — but a sentence
+    // that fits should not be broken to keep the box narrow.
+    if (item.detail !== undefined) {
+      widest = Math.max(widest, item.detail.length * CHAR_WIDTH + ROW_CHROME);
+    }
   }
   return Math.min(MAX_WIDTH, Math.round(widest));
 }
 
 function heightFor(items: readonly MenuItem[]): number {
   const rules = items.filter((item) => item.separatorBefore === true).length;
-  return PADDING * 2 + BORDER * 2 + items.length * ROW_HEIGHT + rules * SEPARATOR_BLOCK;
+  const rows = items.reduce((total, item) => total + rowHeight(item), 0);
+  return PADDING * 2 + BORDER * 2 + rows + rules * SEPARATOR_BLOCK;
 }
 
 /** How far below the top of the box a given row's own top edge sits. */
@@ -150,7 +175,7 @@ function offsetOfRow(items: readonly MenuItem[], index: number): number {
   let offset = PADDING + BORDER;
   for (let at = 0; at < index; at += 1) {
     if (items[at].separatorBefore === true) offset += SEPARATOR_BLOCK;
-    offset += ROW_HEIGHT;
+    offset += rowHeight(items[at]);
   }
   if (items[index]?.separatorBefore === true) offset += SEPARATOR_BLOCK;
   return offset;
@@ -239,6 +264,7 @@ function fixedAt(box: Box): ViewStyle {
 function Row({
   id,
   label,
+  detail,
   accessibilityLabel,
   leading,
   touch,
@@ -252,6 +278,8 @@ function Row({
 }: {
   id: string;
   label: string;
+  /** A second line, for an outcome the verb cannot carry alone. */
+  detail?: string;
   /** The accessible name, where the visible label is not a whole one. */
   accessibilityLabel?: string;
   /** A mark before the label. Decorative — the accessible name is `label`. */
@@ -282,19 +310,31 @@ function Row({
       style={[
         styles.row,
         touch ? styles.rowTouch : styles.rowPointer,
+        !touch && detail !== undefined && styles.rowPointerTall,
         align === "center" && styles.rowCentered,
         lit && (touch ? styles.rowHover : styles.rowLit),
       ]}
     >
       {leading}
-      <Text
-        variant={touch ? "body" : "tree"}
-        numberOfLines={1}
-        testID={`menu-label-${id}`}
-        style={[styles.label, danger && styles.dangerLabel, lit && !touch && styles.labelLit]}
-      >
-        {label}
-      </Text>
+      {/*
+        One column, so a detail line stacks under its label instead of sitting
+        beside it and pushing the chord and the chevron off the edge.
+      */}
+      <View style={styles.labelColumn} testID={`menu-labels-${id}`}>
+        <Text
+          variant={touch ? "body" : "tree"}
+          numberOfLines={1}
+          testID={`menu-label-${id}`}
+          style={[styles.label, danger && styles.dangerLabel, lit && !touch && styles.labelLit]}
+        >
+          {label}
+        </Text>
+        {detail === undefined ? null : (
+          <Text variant="treeMeta" numberOfLines={2} testID={`menu-detail-${id}`}>
+            {detail}
+          </Text>
+        )}
+      </View>
       {touch || shortcut === undefined ? null : (
         <Text variant="treeMeta" style={styles.shortcut}>
           {shortcut}
@@ -329,6 +369,7 @@ function ItemRow({
     <Row
       id={item.id}
       label={item.label}
+      detail={item.detail}
       touch={touch}
       danger={item.danger === true}
       shortcut={item.shortcut}
@@ -757,12 +798,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.x5,
     borderRadius: radii.md,
   },
+  /**
+   * A pointer row carrying a detail, at exactly the height `rowHeight` says it
+   * is. Declared rather than left to `minHeight` because the popover's
+   * placement arithmetic — `heightFor`, `offsetOfRow` — imposes these numbers,
+   * and a row that grows past what was measured is a menu that runs off the
+   * bottom of the window instead of flipping above the pointer.
+   */
+  rowPointerTall: { height: ROW_HEIGHT + DETAIL_BLOCK },
   rowCentered: { justifyContent: "center" },
   /** Hover and keyboard focus are the same visual state, on purpose: there is
    * one highlighted row at a time whichever device moved it. */
   rowLit: { backgroundColor: colors.accentDim },
   rowHover: { backgroundColor: colors.surface3 },
   label: { flexShrink: 1 },
+  /**
+   * The label and its detail, stacked.
+   *
+   * `flexShrink` and **not** `flex: 1`: the chord and the chevron already push
+   * themselves to the end with `marginLeft: "auto"`, and a column that grows
+   * would fill the row and leave `justifyContent: "center"` nothing to centre —
+   * silently left-aligning the Cancel row, the one row here that is centred on
+   * purpose.
+   */
+  labelColumn: { flexShrink: 1, gap: 2, justifyContent: "center" },
   labelLit: { color: colors.accentText },
   dangerLabel: { color: colors.critText },
   shortcut: { marginLeft: "auto" },
