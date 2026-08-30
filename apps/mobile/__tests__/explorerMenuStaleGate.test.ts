@@ -99,6 +99,8 @@ function browser(canSetVisibility: boolean): FileBrowser {
     discard: noop,
     notice: null,
     dismissNotice: noop,
+    toasts: [],
+    dismissToast: noop,
     // Stable across renders on purpose: `null` is what the context-switch reset
     // effect writes onto an already-`null` clipboard, which React bails on.
     clipboard: null,

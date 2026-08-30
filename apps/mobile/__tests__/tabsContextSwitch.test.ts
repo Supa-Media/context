@@ -86,6 +86,8 @@ function browser(
     discard: noop,
     notice: null,
     dismissNotice: noop,
+    toasts: [],
+    dismissToast: noop,
     clipboard: null,
     copy: noop,
     cut: noop,

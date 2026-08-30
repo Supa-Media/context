@@ -313,6 +313,8 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     discard: noop,
     notice: null,
     dismissNotice: noop,
+    toasts: [],
+    dismissToast: noop,
     clipboard: null,
     copy: record("copy"),
     cut: record("cut"),

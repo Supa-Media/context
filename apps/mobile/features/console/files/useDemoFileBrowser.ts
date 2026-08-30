@@ -110,6 +110,11 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       discard: noop,
       notice: null,
       dismissNotice: noop,
+      // Nothing on the landing page mutates anything, so nothing there has an
+      // inverse to offer. Empty rather than absent, because it is a required
+      // member of the interface — see `browser.ts` on inert methods.
+      toasts: [],
+      dismissToast: noop,
       clipboard: null,
       copy: noop,
       cut: noop,

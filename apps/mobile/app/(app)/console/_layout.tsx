@@ -9,6 +9,7 @@ import { Pill } from "../../../features/design/components/Pill";
 import { Palette } from "../../../features/design/components/Palette";
 import { StatusBar } from "../../../features/design/components/StatusBar";
 import { Text } from "../../../features/design/components/Text";
+import { ToastHost } from "../../../features/design/components/Toast";
 import { colors, layout, radii, space } from "../../../features/design/tokens";
 import { AppFrame, useFrame } from "../../../features/app/AppFrame";
 import { densityFor } from "../../../features/app/frame";
@@ -357,6 +358,23 @@ export default function ConsoleLayout() {
           files={data.files}
           dialog={barDialog}
           onClose={() => setBarDialog(null)}
+        />
+
+        {/*
+          The way back from a move, a rename or an archive.
+
+          Mounted here rather than beside the notice line in `BrowsePane`,
+          because the operations that raise it are reachable from the tree, the
+          toolbar and the keyboard — and a toast that lives inside the pane
+          would be absent on the one layout where the tree is a drawer over it.
+
+          `bottomInset` is left at its default: this renders inside `AppFrame`'s
+          editor region, which already ends where the toolbar begins, and the
+          toolbar already owns the safe area. See `ToastHost`.
+        */}
+        <ToastHost
+          toasts={[...data.files.toasts]}
+          onDismiss={data.files.dismissToast}
         />
 
         {paletteOpen ? (

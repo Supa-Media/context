@@ -1,19 +1,27 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import { Animated, Platform, StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, radii, space } from "../tokens";
 import { useReducedMotion } from "../useReducedMotion";
 import { Button } from "./Button";
 import { Text } from "./Text";
 
 /**
- * Transient notices, and the place an optimistic action goes to be undone.
+ * Transient notices, and the place a completed action goes to be undone.
  *
- * The console moves files optimistically — the row jumps to its new folder
- * before the bucket has confirmed anything — and an optimistic action needs two
- * things the console's single `notice` line cannot give it: somewhere for a
- * *failure* to appear while the person has already looked away at whatever they
- * did next, and a way back that does not require finding the file again.
+ * ## What this is not
+ *
+ * This comment used to open by saying "the console moves files optimistically —
+ * the row jumps to its new folder before the bucket has confirmed anything".
+ * It does not, and never did: `useFileBrowser`'s own header says the opposite
+ * in as many words, because a rename that failed but already moved on screen is
+ * a console telling somebody their bucket contains something it does not.
+ *
+ * The real reason is the plainer one. A move, a rename and an archive all
+ * *succeed*, silently and completely, and the console's single `notice` line
+ * can only say so — it cannot offer a way back, and "move it back" means
+ * finding the file again in a tree it has just left. So the undo is here, on
+ * the operations that have an exact inverse, and the notice line keeps the
+ * refusals and the failures it is good at.
  */
 
 export interface ToastSpec {
@@ -47,21 +55,27 @@ export function ToastHost({
   toasts: ToastSpec[];
   onDismiss: (id: string) => void;
   /**
-   * Chrome the toasts must clear — the phone layout's bottom toolbar. Passed in
-   * rather than read from the layout tokens here, because which regions exist
-   * at a given width is `features/app/frame.ts`'s decision, and a component
-   * that guessed would be wrong in exactly the layouts nobody resizes into.
+   * Chrome the toasts must clear, measured from the bottom of whatever this is
+   * mounted inside. Passed in rather than read from the layout tokens here,
+   * because which regions exist at a given width is `features/app/frame.ts`'s
+   * decision, and a component that guessed would be wrong in exactly the
+   * layouts nobody resizes into.
+   *
+   * **The safe area is not added here.** It is the frame's, the same rule
+   * `BottomBar` follows and for the same reason: `AppFrame` pads the toolbar's
+   * bottom edge by `max(inset, floatingInset)`, so a host mounted in the editor
+   * region is already above both. Adding the inset a second time would float
+   * the toasts a home indicator's height clear of the chrome they are meant to
+   * sit on.
    */
   bottomInset?: number;
 }): JSX.Element {
-  const insets = useSafeAreaInsets();
-
   return (
     <View
       // `box-none`: the host spans the width, so it must not swallow clicks
       // aimed at the editor underneath. Only the toasts themselves are targets.
       pointerEvents="box-none"
-      style={[styles.host, { bottom: bottomInset + insets.bottom + space.x4 }]}
+      style={[styles.host, { bottom: bottomInset + space.x4 }]}
       testID="toast-host"
     >
       {toasts.map((toast) => (
