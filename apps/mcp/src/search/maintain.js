@@ -103,27 +103,42 @@ const INDEX_PARSE_BYTE_CAP = 12_000_000;
 /**
  * At most this much of one note's content is indexed.
  *
- * The median note is a few KB; the outliers are saved chat sessions and agent
- * ledgers at 64KB+, and indexing those whole is what bloated the index past
- * the memory ceiling above. The first N characters carry a long note's
- * frontmatter, title, headings and opening prose — the parts ranking weighs
- * most — so the recall lost is the tail of the largest logs, and the note
- * still surfaces by everything that matters. The cut is by characters of
- * source text, before tokenization, so `len` and tf stay consistent with what
- * was actually indexed.
+ * An ordinary note is estimated at a few KB and the outliers are saved chat
+ * sessions and agent ledgers at 64KB+ — an estimate, never measured, and said
+ * as one because every other number in this file is a measurement and an
+ * unmarked guess beside them reads as one. Indexing the outliers whole is what
+ * bloated the index past the memory ceiling above.
  *
- * 2KB, down from 8KB, and the number is a measurement: at 8KB a live brain in
+ * The first N characters carry a note's frontmatter, title and opening prose —
+ * the parts ranking weighs most — and, on a long note, only the headings that
+ * fall inside them, since `extractFields` runs on the sliced text.
+ *
+ * At 8KB the recall lost really was "the tail of the largest logs". At 2KB
+ * that sentence is no longer true and saying it anyway would be the comment
+ * describing the number it used to hold: on the estimate above an ordinary
+ * note is now indexed by its opening rather than to its end, and a term deep
+ * inside one does not match. That is a real loss of recall on ordinary notes,
+ * accepted because an index that cannot be parsed loses all of them — and it
+ * is said out loud to the caller on a miss (`toolSearchNotes`) rather than
+ * left as a silent wrong answer. The cut is by characters of source text,
+ * before tokenization, so `len` and tf stay consistent with what was actually
+ * indexed.
+ *
+ * 2KB, down from 8KB. What is measured is that **8KB failed**: a live brain in
  * the mid-thousands of notes built a capped index that still crossed
  * `INDEX_PARSE_BYTE_CAP`, so every pass refused it, rebuilt the same first
  * budget's worth of notes, and coverage never accumulated — the churn the cap's
  * comment predicted before the write side existed, arriving well before the
  * 10k-note guess. (That churn is now a plateau; what 8KB proved is that a
  * mid-thousands brain crosses the parse cap, which is why this number moved.)
- * 2KB holds a few-thousand-note brain comfortably under the parse cap; the
- * durable fix at the next order of magnitude is sharding, not a smaller number
- * here.
+ * 2KB is a four-fold extrapolation from that measurement rather than a second
+ * measurement, and it should be read as one: it holds a few-thousand-note
+ * brain under the parse cap by arithmetic, not by observation. The durable fix
+ * at the next order of magnitude is sharding, not a smaller number here — and
+ * a smaller number is now visibly expensive, because it costs recall on
+ * ordinary notes rather than on 64KB logs.
  */
-const NOTE_INDEX_CHAR_CAP = 2_048;
+export const NOTE_INDEX_CHAR_CAP = 2_048;
 /** Never spend the last op on listing or fetching; the write needs one. */
 const WRITE_RESERVE = 1;
 /** Nor let the listing consume everything a backfill would have used. */

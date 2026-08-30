@@ -37,6 +37,20 @@ an output channel however it is spelled. The same is true of `N`, `avglen` and
 `docs`, which narrows all four, and recomputes `rank` over the visible subgraph
 because that one is stored rather than derived at query time.
 
+## What is indexed of a note
+
+**The first `NOTE_INDEX_CHAR_CAP` characters of the source, and no more.** The
+cut is by characters of raw text before tokenization, so `len` and every `tf`
+are consistent with what was actually indexed rather than with the file — and
+`extractFields` runs on the sliced text, so a heading past the cut is not a
+heading as far as this index is concerned.
+
+This is a real, user-visible loss of recall, not an implementation detail: a
+term deep inside a long note does not match, though `read_note` returns the
+whole file. `toolSearchNotes` says so on a miss, because a search that is
+silently partial is a search that tells an agent the thing is not written down.
+The cap's own comment in `maintain.js` carries why the number is what it is.
+
 ## In-memory shape
 
 Maps, not plain objects: note paths and note words become keys, and
@@ -52,7 +66,8 @@ object as property names.
     uploaded: string|null, // ISO timestamp from the listing, for recency
     title: string,         // first ATX heading's text, else filename sans .md
     links: string[],       // resolved in-bucket .md paths this note links to
-    len: { title, headings, tags, body },  // token counts per field
+    len: { title, headings, tags, body },  // token counts per field, over the
+                                          // CAPPED text — see below
     rank: number,          // PageRank prior; 0 until computeRanks runs
   }>,
   terms: Map<term, Map<path, [tfTitle, tfHeadings, tfTags, tfBody]>>,
