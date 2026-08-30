@@ -721,6 +721,41 @@ export async function runSearchIntegrationChecks(check) {
     );
     big.failGetKeys.delete("1-projects/bulk/note-000.md");
 
+    // -- the backfill fetches in parallel waves, not one awaited GET ---------
+    //
+    // A sequential loop was a wall-clock bug the budget could not see: a
+    // paid-plan budget authorizes hundreds of fetches, which one at a time is
+    // 30-60 seconds — past what MCP clients wait — so the client timed out,
+    // the invocation died with it, and the conditional put never ran. Measured
+    // live: a bigger budget made convergence *less* likely. The stub's gets
+    // resolve on a real timer here so overlap is observable; one in-flight at
+    // a time is the regression.
+    {
+      const slow = createBucket();
+      slow.seed("privacy.md", PRIVACY_MANIFEST);
+      for (let n = 0; n < 30; n += 1) {
+        slow.seed(`1-projects/wave/note-${String(n).padStart(2, "0")}.md`, `# W${n}\n\nwave marker\n`);
+      }
+      let inFlight = 0;
+      let maxInFlight = 0;
+      const rawGet = slow.get.bind(slow);
+      slow.get = async (key) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        try {
+          return await rawGet(key);
+        } finally {
+          inFlight -= 1;
+        }
+      };
+      const waved = await syncIndex(new R2Store(slow), { budget: createSearchBudget(200) });
+      check(
+        "stale notes are fetched concurrently, so a large budget converges in seconds not minutes",
+        waved.pending === 0 && waved.index.docs.size === 30 && maxInFlight > 1
+      );
+    }
+
     // -- the budget is a deployment setting, bounded ------------------------
     //
     // The default assumes the free tier's 50-subrequest ceiling; a paid-plan

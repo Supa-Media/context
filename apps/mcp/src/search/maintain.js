@@ -276,48 +276,82 @@ export async function syncIndex(store, { budget, reserve = 0, isIndexable = defa
     if (!doc || doc.etag !== listed.version) stale.push([path, listed]);
   }
 
+  // Fetched in parallel waves, indexed in `stale` order once a wave lands.
+  //
+  // This loop was one awaited GET at a time, and that was a wall-clock bug the
+  // subrequest budget could not see: a paid-plan budget of 600 authorizes ~580
+  // fetches, which sequentially is 30-60 seconds — past what MCP clients wait —
+  // so the client timed out, the invocation died with it, the conditional put
+  // never ran, and a *bigger* budget made convergence *less* likely. Measured
+  // live before any client saw a converged index. The budget is still taken
+  // one op per fetch, before the fetch, on one shared counter; only the
+  // waiting overlaps. `addDoc` runs wave by wave in list order, so what the
+  // index contains for a given spend is what the sequential loop would have
+  // built.
+  const BACKFILL_CONCURRENCY = 12;
   let processed = 0;
-  for (const [path, listed] of stale) {
-    if (!ops.take(reserve + WRITE_RESERVE)) break;
-    let object;
-    try {
-      object = await store.get(path);
-    } catch {
-      // One unreadable note must not cost the query its whole answer — and it
-      // must not cost the *rest of the backfill* either. This used to `break`,
-      // which parked the sync at the same note on every pass forever: the stale
-      // list is in listing order, so a single key the adapter refuses (a
-      // backslash, a control character — keys Obsidian and rclone write without
-      // asking us) stalled indexing for every note that sorts after it. That is
-      // the census's "one oddly named folder suppressed the whole count" trap,
-      // one layer down. Skip it instead: the attempt already spent its budget
-      // op, so a bucket full of unreadable notes still terminates, and the note
-      // stays in `pending`, so the floor language keeps being said.
-      continue;
+  for (let start = 0; start < stale.length; start += BACKFILL_CONCURRENCY) {
+    const wave = [];
+    for (const entry of stale.slice(start, start + BACKFILL_CONCURRENCY)) {
+      if (!ops.take(reserve + WRITE_RESERVE)) break;
+      wave.push(
+        (async ([path, listed]) => {
+          let object;
+          try {
+            object = await store.get(path);
+          } catch {
+            // One unreadable note must not cost the query its whole answer —
+            // and it must not cost the *rest of the backfill* either. An
+            // earlier version stopped the walk here, which parked the sync at
+            // the same note on every pass forever: the stale list is in
+            // listing order, so a single key the adapter refuses (a backslash,
+            // a control character — keys Obsidian and rclone write without
+            // asking us) stalled indexing for every note that sorts after it.
+            // That is the census's "one oddly named folder suppressed the
+            // whole count" trap, one layer down. Skip it: the attempt already
+            // spent its budget op, so a bucket full of unreadable notes still
+            // terminates, and the note stays in `pending`, so the floor
+            // language keeps being said.
+            return null;
+          }
+          if (!object) return { path, gone: true };
+          const content = await object.text();
+          // Record the token the *next* listing will report, or the diff never
+          // converges. Where the listing carries a real etag that is the etag
+          // this read returned (a write that landed in between is caught on
+          // the next pass); where it does not, the object's real etag would
+          // never equal the synthetic token and every note would look stale
+          // forever.
+          const version =
+            listed.fromEtag && typeof object.etag === "string" && object.etag
+              ? object.etag
+              : listed.version;
+          return { path, uploaded: listed.uploaded, content, version };
+        })(entry)
+      );
     }
-    processed += 1;
-    if (!object) {
-      // Deleted between the listing and the read. Dropping it is right in a way
-      // the removal pass above cannot be: we asked for it by name and it is not
-      // there.
-      if (index.docs.has(path)) {
-        removeDoc(index, path);
-        changed = true;
+    if (wave.length === 0) break;
+    for (const result of await Promise.all(wave)) {
+      if (!result) continue;
+      processed += 1;
+      if (result.gone) {
+        // Deleted between the listing and the read. Dropping it is right in a
+        // way the removal pass above cannot be: we asked for it by name and it
+        // is not there.
+        if (index.docs.has(result.path)) {
+          removeDoc(index, result.path);
+          changed = true;
+        }
+        continue;
       }
-      continue;
+      addDoc(index, result.path, {
+        etag: result.version,
+        uploaded: result.uploaded,
+        content: result.content,
+      });
+      changed = true;
     }
-    const content = await object.text();
-    // Record the token the *next* listing will report, or the diff never
-    // converges. Where the listing carries a real etag that is the etag this
-    // read returned (a write that landed in between is caught on the next
-    // pass); where it does not, the object's real etag would never equal the
-    // synthetic token and every note would look stale forever.
-    const version =
-      listed.fromEtag && typeof object.etag === "string" && object.etag
-        ? object.etag
-        : listed.version;
-    addDoc(index, path, { etag: version, uploaded: listed.uploaded, content });
-    changed = true;
+    if (wave.length < Math.min(BACKFILL_CONCURRENCY, stale.length - start)) break;
   }
 
   if (changed) {
