@@ -248,3 +248,4 @@ export function selectedContext(data: ConsoleData): ConsoleContext | null {
   if (data.selectedContextId === null) return null;
   return data.contexts.find((c) => c.id === data.selectedContextId) ?? null;
 }
+

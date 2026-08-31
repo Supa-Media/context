@@ -80,6 +80,7 @@ function browser(canSetVisibility: boolean): FileBrowser {
     listings: { "": ROOT_LISTING },
     expanded: new Set<string>(),
     toggleFolder: noop,
+    collapseAll: noop,
     selectedPath: null,
     // `select` answers whether the unsaved-changes guard let go; these
     // fixtures have no draft, so it always does.
@@ -97,6 +98,8 @@ function browser(canSetVisibility: boolean): FileBrowser {
     save: noop,
     useTheirs: noop,
     keepMine: noop,
+    conflict: null,
+    resolveWith: noop,
     discard: noop,
     notice: null,
     dismissNotice: noop,
@@ -181,7 +184,7 @@ function mountExplorer(): {
  */
 function openRowMenu(container: HTMLElement): void {
   const nodes = [...container.querySelectorAll("*")].filter((node) =>
-    node.textContent?.includes("note.md"),
+    node.textContent?.includes("note"),
   );
   expect(nodes.length).toBeGreaterThan(0);
   act(() => {

@@ -35,13 +35,45 @@
  * as controlled would mean rebuilding them from scratch on every character.
  */
 
-import { useEffect, useRef } from "react";
-import { Compartment, EditorState, type Extension } from "@codemirror/state";
+import { useEffect, useRef, type CSSProperties } from "react";
+import { Compartment, EditorSelection, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, redo, undo } from "@codemirror/commands";
 import { livePreview, livePreviewStyles, markdownLanguage } from "./livePreview";
 import { fonts, layout } from "../../design/tokens";
 import { useColors, type Colors } from "../../design/theme";
+import { useFrame } from "../../app/AppFrame";
+
+/**
+ * The handful of things a *button* can ask the editor to do.
+ *
+ * On a phone there is no keymap and no menu: `NoteAccessory` is the only route
+ * to bold, to a heading, to undo. That bar cannot reach into either editor —
+ * one is a CodeMirror view, the other a `TextInput`, and neither has a text
+ * model the other would recognise — so this is the seam between them, declared
+ * once and implemented twice.
+ *
+ * **It is deliberately five verbs and not a command registry.** Everything
+ * here is something the reference's accessory bar actually does; a sixth
+ * method added speculatively is a method one of the two implementations will
+ * get wrong quietly, because only one platform's version is exercised by any
+ * given test run.
+ *
+ * Every method goes out through the ordinary `onChange`, which is what keeps
+ * the accessory bar honest: `NoteEditor` re-attaches a note's frontmatter in
+ * front of every edit on a phone, so a command that wrote to the buffer by
+ * some other route would silently drop the YAML block of every captured note.
+ * `noteAccessory.test.ts` pins exactly that.
+ */
+export interface EditorControls {
+  /** Wrap the selection, or insert the pair at the caret with it between them. */
+  wrap(before: string, after: string): void;
+  /** Put `prefix` at the start of the caret's line, or remove it if already there. */
+  toggleLinePrefix(prefix: string): void;
+  undo(): void;
+  redo(): void;
+  blur(): void;
+}
 
 export interface LiveEditorProps {
   /** The authoritative text. Written into the editor only when it differs. */
@@ -51,6 +83,87 @@ export interface LiveEditorProps {
   /** Save. Wired to Cmd/Ctrl-S, because that is what people press. */
   onSave: () => void;
   accessibilityLabel: string;
+  /**
+   * Receives the imperative handle when the editor is ready, and **`null` when
+   * it goes away**.
+   *
+   * The null is not politeness. The accessory bar outlives a note change on a
+   * phone — the same bar, a different document — and a handle held past
+   * unmount points at a destroyed `EditorView`, where CodeMirror's own
+   * `dispatch` throws rather than no-ops. Handing `null` back makes the stale
+   * case a control that does nothing rather than a crash on a keystroke.
+   */
+  controls?: (api: EditorControls | null) => void;
+  /**
+   * The editing surface took or lost the caret.
+   *
+   * `NoteEditor` shows the accessory bar from this, because the bar exists to
+   * ride above the keyboard and the keyboard is up exactly while this surface
+   * is focused. Not derived from the keyboard's own visibility: the keyboard
+   * can be up over a different screen entirely.
+   */
+  onFocus?: () => void;
+  onBlur?: () => void;
+}
+
+/**
+ * Bold, italic — the pair of markers around whatever is selected.
+ *
+ * `changeByRange` rather than one dispatch per marker, because a document with
+ * more than one cursor in it is an ordinary CodeMirror document and two
+ * separate dispatches would apply the second one against positions the first
+ * has already moved. The returned range spans the original selection shifted
+ * by the opening marker, so wrapping a word leaves the word selected and
+ * wrapping nothing leaves the caret between the two markers — which is the
+ * behaviour that makes `**` on an empty line worth pressing at all.
+ */
+function wrapSelection(view: EditorView, before: string, after: string): void {
+  if (view.state.readOnly) return;
+  view.dispatch(
+    view.state.update(
+      view.state.changeByRange((range) => ({
+        changes: [
+          { from: range.from, insert: before },
+          { from: range.to, insert: after },
+        ],
+        range: EditorSelection.range(
+          range.from + before.length,
+          range.to + before.length,
+        ),
+      })),
+      { scrollIntoView: true, userEvent: "input" },
+    ),
+  );
+  view.focus();
+}
+
+/**
+ * `# `, `- [ ] ` — a prefix on the caret's line, and off it again.
+ *
+ * A toggle rather than an insert, because the bar has one key per prefix and
+ * pressing "heading" twice on the same line otherwise produces `## `, which is
+ * a different heading rather than the undo the second press means.
+ *
+ * Only the line the caret's *head* is on. Applying it across a multi-line
+ * selection is what a desktop editor does; here the whole selection is
+ * whatever a thumb dragged, and turning six lines into six headings by
+ * accident is a worse failure than only doing one.
+ *
+ * No `selection` in the transaction: CodeMirror maps the existing selection
+ * through the change, which is what keeps the caret in the same place in the
+ * *text* as the line grows or shrinks under it.
+ */
+function toggleLinePrefixIn(view: EditorView, prefix: string): void {
+  if (view.state.readOnly) return;
+  const line = view.state.doc.lineAt(view.state.selection.main.head);
+  view.dispatch({
+    changes: line.text.startsWith(prefix)
+      ? { from: line.from, to: line.from + prefix.length, insert: "" }
+      : { from: line.from, insert: prefix },
+    scrollIntoView: true,
+    userEvent: "input",
+  });
+  view.focus();
 }
 
 /**
@@ -120,6 +233,19 @@ function ensureStyles(colors: Colors): void {
   template literal, and one would end the string.)
 */
 @media (max-width: ${layout.narrowBreakpoint - 0.02}px) {
+  /*
+    On a phone this editor does not scroll: it grows.
+
+    The note, its inline title and its Properties panel are one document on one
+    full-bleed scroll surface owned by NoteEditor, so the title can pass under
+    the floating toolbar the way the reference's does. An editor that kept its
+    own scroller inside that surface would be a scrollbar inside a scrollbar,
+    with the title pinned above a box that scrolled separately. So the height
+    cap comes off and the scroller stops scrolling; the ScrollView above is the
+    only one on the screen.
+  */
+  .cm-lp-root, .cm-lp-root .cm-editor { height: auto; }
+  .cm-lp-root .cm-scroller { overflow: visible; }
   .cm-lp-root .cm-scroller {
     /*
       Measured off Obsidian mobile: 16px on a 24px line box, 24px of side
@@ -129,7 +255,19 @@ function ensureStyles(colors: Colors): void {
     */
     font-size: 16px;
     line-height: 1.5;
-    padding: 8px 24px 32px;
+    /*
+      The side margin is the token every other band on a phone lines up with,
+      so the inline title, the Properties panel, the notices and the first
+      character of the note share one left edge. It was 24 here and 20, 24 and
+      28 elsewhere: four guesses at one measurement.
+
+      No vertical padding at all. The room the floating chrome takes at each end
+      is content padding on the ScrollView this now sits inside — one payment,
+      by the surface that actually scrolls — and a tail here as well would be a
+      second gap under the last line. (No backticks in here: see the note
+      above.)
+    */
+    padding: 0 ${layout.readingMargin}px;
   }
   .cm-lp-root .cm-content { color: ${colors.text}; }
 }
@@ -170,11 +308,25 @@ export function LiveEditor({
   editable,
   onChange,
   onSave,
+  controls,
+  onFocus,
+  onBlur,
   accessibilityLabel,
 }: LiveEditorProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const view = useRef<EditorView | null>(null);
   const colors = useColors();
+  /*
+    Whether this editor is a box that scrolls or a block that grows.
+
+    On a phone it grows: the note, its inline title and its Properties panel are
+    one document on one scroll surface owned by `NoteEditor`, and the room the
+    floating chrome takes is that surface's content padding. See the compact
+    rule in the stylesheet above — this is the same decision, in the half of the
+    styling CSS cannot reach, because these three properties are set inline and
+    an inline style wins over a media query.
+  */
+  const grows = useFrame().density === "compact";
 
   /**
    * The note's colours, kept in step with the app's.
@@ -210,8 +362,8 @@ export function LiveEditor({
    * `onChange` forever, and every keystroke after the first state change would
    * be sent to a stale reducer.
    */
-  const handlers = useRef({ onChange, onSave });
-  handlers.current = { onChange, onSave };
+  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur });
+  handlers.current = { onChange, onSave, controls, onFocus, onBlur };
 
   // What the editor is known to hold. Compared against the incoming `value` to
   // decide whether a write is a genuine external change or the echo of our own
@@ -267,6 +419,24 @@ export function LiveEditor({
           latestValue.current = text;
           handlers.current.onChange(text);
         }),
+        /*
+          Focus, out to React. Read off the ref rather than closed over,
+          exactly like `onChange` above and for the same reason: these
+          extensions are built once and would otherwise report to the first
+          render's callbacks forever. Both handlers return `false` — they are
+          observers, and claiming the event would stop CodeMirror doing its own
+          focus bookkeeping.
+        */
+        EditorView.domEventHandlers({
+          focus: () => {
+            handlers.current.onFocus?.();
+            return false;
+          },
+          blur: () => {
+            handlers.current.onBlur?.();
+            return false;
+          },
+        }),
       ],
     });
 
@@ -274,7 +444,34 @@ export function LiveEditor({
     view.current = created;
     latestValue.current = value;
 
+    /*
+      The imperative handle, built against `created` rather than `view.current`
+      so it cannot be aimed at a later editor by a race — and handed back as
+      `null` in the teardown below, before `destroy()`, so nothing can dispatch
+      into a destroyed view. See `LiveEditorProps.controls`.
+
+      `undo`/`redo` are CodeMirror's own commands over the `history()` extension
+      already configured above, which is the same history `historyKeymap` gives
+      ⌘Z. A hand-rolled value stack here would be a *second* history disagreeing
+      with the keyboard's on the one platform that has a keyboard.
+    */
+    const api: EditorControls = {
+      wrap: (before, after) => wrapSelection(created, before, after),
+      toggleLinePrefix: (prefix) => toggleLinePrefixIn(created, prefix),
+      undo: () => {
+        undo(created);
+        created.focus();
+      },
+      redo: () => {
+        redo(created);
+        created.focus();
+      },
+      blur: () => created.contentDOM.blur(),
+    };
+    handlers.current.controls?.(api);
+
     return () => {
+      handlers.current.controls?.(null);
       created.destroy();
       view.current = null;
     };
@@ -312,7 +509,18 @@ export function LiveEditor({
       ref={host}
       className="cm-lp-root"
       aria-label={accessibilityLabel}
-      style={{ flex: 1, minHeight: 0, overflow: "hidden" }}
+      /*
+        A pointer layout gives this the height it is allotted and lets
+        CodeMirror scroll inside it; a phone lets it be as tall as the note and
+        scrolls the page. `overflow: hidden` goes with the first — clipping a
+        block that is meant to grow inside somebody else's scroller is how the
+        bottom half of a long note disappears.
+      */
+      style={
+        grows
+          ? ({ flex: "none", minHeight: 0 } as CSSProperties)
+          : ({ flex: 1, minHeight: 0, overflow: "hidden" } as CSSProperties)
+      }
     />
   );
 }

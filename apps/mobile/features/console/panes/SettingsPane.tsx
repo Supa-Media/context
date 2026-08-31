@@ -9,6 +9,7 @@ import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { leading } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { APP_SECTIONS, type AppSectionKey } from "../nav";
 import { relativeTime } from "../format";
 import { PaneHead } from "../ConsoleShell";
 import { atName } from "../format";
@@ -53,7 +54,19 @@ import type { ReverifyState } from "../storage/reverify";
  * owner-only, so rendering them for an editor would be offering a button whose
  * only possible outcome is a permission error.
  */
-export function SettingsPane({ data, onClose }: { data: ConsoleData; onClose: () => void }) {
+export function SettingsPane({
+  data,
+  onClose,
+  onOpenSection,
+}: {
+  data: ConsoleData;
+  onClose: () => void;
+  /**
+   * Open Map or Connections. Absent on the landing page's picture of the
+   * console, which has nowhere to send anybody.
+   */
+  onOpenSection?: (section: AppSectionKey) => void;
+}) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const storage = data.storage;
@@ -201,9 +214,69 @@ export function SettingsPane({ data, onClose }: { data: ConsoleData; onClose: ()
         fallbackAddress={data.ingestionAddress}
         folders={loadedFolders(data.files.listings)}
       />
+
+      {/*
+        Map and Connections, re-homed.
+
+        They used to be an `App` group at the top of the rail, and on a phone
+        that made the rail a *second left navigation*: the same edge and the
+        same gesture produced either the file tree or a panel headed APP /
+        YOURS / SHARED WITH YOU, depending on which control you had pressed.
+        Obsidian has one sidebar whose contents switch; it never becomes a
+        different panel. So the rail is the vault switcher now and these two
+        live here, behind the gear at the foot of the tree.
+
+        Here rather than deleted, and here rather than anywhere else: the
+        constellation is the clearest picture this product has of what it *is*,
+        and the grants list is the one place a person revokes an AI client. Both
+        are facts about a context you would come to settings to check, and
+        neither is a place you navigate to in order to read a note.
+
+        `onOpenSection` is absent on the landing page's copy of this pane, which
+        is a picture with nowhere to send anybody — so the rows are not drawn
+        there rather than drawn dead.
+      */}
+      {onOpenSection === undefined ? null : (
+        <>
+          <Text variant="eyebrow" style={styles.sectionHeadLater}>
+            This context, from further out
+          </Text>
+          <Card>
+            {APP_SECTIONS.map((section, index) => (
+              <Row key={section.key} divided={index > 0}>
+                <View style={styles.sectionRow}>
+                  <View style={styles.sectionRowText}>
+                    <Text variant="rowTitle">{section.label}</Text>
+                    <Text variant="rowSub" style={styles.rowSub}>
+                      {SECTION_BLURBS[section.key]}
+                    </Text>
+                  </View>
+                  <Button
+                    label="Open"
+                    accessibilityLabel={`Open ${section.label}`}
+                    onPress={() => onOpenSection(section.key)}
+                    testID={`settings-open-${section.key}`}
+                  />
+                </View>
+              </Row>
+            ))}
+          </Card>
+        </>
+      )}
     </View>
   );
 }
+
+/**
+ * What each re-homed pane is for, said once.
+ *
+ * A row that is only a name is a row people press to find out what it does,
+ * which on a settings page is a navigation somebody has to come back from.
+ */
+const SECTION_BLURBS: Record<AppSectionKey, string> = {
+  map: "Every context you can reach, and every AI client connected to one, as a diagram.",
+  connections: "The MCP endpoint, and the clients holding a grant. Revoke one without disturbing the others.",
+};
 
 function StatusPill({ storage }: { storage: ConsoleStorage }) {
   if (storage.connected) {
@@ -530,6 +603,10 @@ function joinSentences(...parts: Array<string | undefined>): string | undefined 
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
+  /** A re-homed pane's row: what it is on the left, the way in on the right. */
+  sectionRow: { flexDirection: "row", alignItems: "center", gap: 14 },
+  sectionRowText: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
+
   headActions: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
   sectionHead: { marginBottom: 4 },
   sectionHeadLater: { marginTop: 30, marginBottom: 4 },

@@ -151,6 +151,24 @@ function styleOf(node: HTMLElement, property: string): string {
   return window.getComputedStyle(node).getPropertyValue(property);
 }
 
+/**
+ * ⌘B, and the vault switcher — reached through the frame's own API.
+ *
+ * Module level because two describes need it. On a phone with a file tree there
+ * is no rail control in the top bar any more: it is the vault switcher at the
+ * foot of the tree, which `_layout` passes into `Explorer`'s `vault` slot. The
+ * explorer is a stub here, so the command is invoked the way that switcher
+ * invokes it.
+ */
+function RailProbe() {
+  const frame = useFrame();
+  return createElement(
+    "button",
+    { "data-testid": "probe-toggle-rail", onClick: frame.toggleRail },
+    "toggle the rail",
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 
 describe("the frame owns the viewport", () => {
@@ -213,12 +231,16 @@ describe("a phone", () => {
    *
    * Driven from both sides: a browser with no inset must still get a gap, and a
    * notched phone must not get one on top of its inset.
+   *
+   * The floor is `floatingGap` (25), measured off Obsidian — its bar ends about
+   * 25pt above the bottom of the glass. It used to be `floatingInset` (10),
+   * which is near enough to the edge that the pill read as attached to it.
    */
   test("the toolbar's bottom gap is the larger of the inset and the float, never both", () => {
     mockInsets.bottom = 0;
     let app = mountFrame(390);
     let band = app.find("bottom")!.parentElement!;
-    expect(Number.parseFloat(styleOf(band, "padding-bottom"))).toBe(layout.floatingInset);
+    expect(Number.parseFloat(styleOf(band, "padding-bottom"))).toBe(layout.floatingGap);
     app.unmount();
 
     mockInsets.bottom = 34;
@@ -229,6 +251,31 @@ describe("a phone", () => {
 
     // Left as the suite found it: `mockInsets` is module-level and shared.
     mockInsets.bottom = 0;
+  });
+
+  /**
+   * And its gap from the *side* edges, which is the frame's too.
+   *
+   * The pill used to be sized by its own contents and centred, so the inset
+   * either side was whatever was left over — a number that changes with how
+   * many actions the current route offers. A device measured it at 78pt on a
+   * context the reader is only a member of, where there is no New note, against
+   * the reference's 52.
+   *
+   * So the slot carries the inset and the bar fills it, and that is why this is
+   * asserted here rather than in `bottomBar.test.ts`: the toolbar cannot know
+   * how wide the glass is, and the number was never its to hold.
+   */
+  test("the toolbar is inset from the side edges by the frame, not by its contents", () => {
+    const app = mountFrame(440);
+    const band = app.find("bottom")!.parentElement!;
+
+    expect(Number.parseFloat(styleOf(band, "padding-left"))).toBe(layout.bottomBarInset);
+    expect(Number.parseFloat(styleOf(band, "padding-right"))).toBe(layout.bottomBarInset);
+    // The reference, on the reference's screen: 52 either side of 440 leaves
+    // the 336pt pill Obsidian draws.
+    expect(440 - layout.bottomBarInset * 2).toBe(336);
+    app.unmount();
   });
 
   test("is the editor and a bottom toolbar, with no rail", () => {
@@ -303,7 +350,9 @@ describe("a phone", () => {
   });
 
   test("the toggle is named by what the switcher says, on every platform", () => {
-    const app = mountFrame(390);
+    // A route with no tree, which is where the chip lives now — see the test
+    // above it and `Regions.navToggle`.
+    const app = mountFrame(390, "the note", { explorer: false });
     const toggle = app.find("frame-nav-toggle")!;
 
     // Spelled out rather than derived from the content. On web the content
@@ -320,7 +369,7 @@ describe("a phone", () => {
   });
 
   test("the chevron turns over, and is hidden from the name", () => {
-    const app = mountFrame(390);
+    const app = mountFrame(390, "the note", { explorer: false });
     /*
       Read off `data-icon` rather than off text. The chevron is drawn from
       `View`s now and contributes no text content at all, so the previous
@@ -342,7 +391,7 @@ describe("a phone", () => {
     // Without this, Tab from the switcher lands in the note the sheet is
     // covering, and a screen reader walks the whole editor before reaching the
     // navigation somebody just asked for.
-    const app = mountFrame(390);
+    const app = mountFrame(390, "the note", { explorer: false });
     const editor = () => app.find("app-frame")!.querySelector("[inert]");
 
     expect(editor()).toBeNull();
@@ -357,7 +406,7 @@ describe("a phone", () => {
   });
 
   test("the scrim announces as a control rather than as a mystery tab stop", () => {
-    const app = mountFrame(390);
+    const app = mountFrame(390, "the note", { explorer: false });
     app.press("frame-nav-toggle");
     const scrim = app.find("frame-scrim")!;
 
@@ -374,7 +423,7 @@ describe("a phone", () => {
     // clear it — no sheet, no scrim, no toggle, and ⌘B means `railCollapsed`
     // there. So it waited. Rotate an iPad out of portrait and back and a sheet
     // you never raised is over your note behind a full-body scrim.
-    const app = mountFrame(390);
+    const app = mountFrame(390, "the note", { explorer: false });
 
     app.press("frame-nav-toggle");
     expect(app.find("frame-nav-sheet")).not.toBeNull();
@@ -410,7 +459,7 @@ describe("a phone", () => {
     // It is the primary navigation on this surface, and the chip inside it is
     // about 32pt tall. `BottomBar` holds the bottom row to this floor; a control in
     // the top bar that every phone session has to hit is not exempt from it.
-    const app = mountFrame(390);
+    const app = mountFrame(390, "the note", { explorer: false });
     const toggle = app.find("frame-nav-toggle")!;
 
     expect(Number.parseFloat(styleOf(toggle, "min-height"))).toBeGreaterThanOrEqual(
@@ -421,7 +470,7 @@ describe("a phone", () => {
   });
 
   test("the scrim closes the sheet, and so does the switcher again", () => {
-    const app = mountFrame(390);
+    const app = mountFrame(390, "the note", { explorer: false });
 
     app.press("frame-nav-toggle");
     app.press("frame-scrim");
@@ -439,16 +488,45 @@ describe("a phone", () => {
   test("raising one panel puts the other away", () => {
     // They come in from the same edge under the same scrim. Two at once is a
     // panel hidden behind a panel.
-    const app = mountFrame(390);
+    //
+    // The rail is raised through `toggleRail` rather than through a top-bar
+    // chip, because on a route *with* a tree there is no chip — the control is
+    // the vault switcher at the foot of that tree, and the tree is a stub here.
+    // See `RailProbe`.
+    const app = mountFrame(390, createElement(RailProbe));
 
-    app.press("frame-nav-toggle");
+    app.press("probe-toggle-rail");
     app.press("frame-drawer-toggle");
     expect(app.find("frame-drawer")).not.toBeNull();
     expect(app.find("frame-nav-sheet")).toBeNull();
 
-    app.press("frame-nav-toggle");
+    app.press("probe-toggle-rail");
     expect(app.find("frame-nav-sheet")).not.toBeNull();
     expect(app.find("frame-drawer")).toBeNull();
+
+    app.unmount();
+  });
+
+  test("the top bar over a note is a toggle and one group, and nothing between", () => {
+    /*
+      The complaint this whole branch answers, as an assertion.
+
+      Obsidian's reading view spends one transparent row on chrome: a sidebar
+      toggle at the leading edge and one grouped container at the trailing edge.
+      Ours spent two — a row carrying the toggle *and* a context chip, and a
+      breadcrumb row under it. The breadcrumb is gone from the pane; this is the
+      other half, and it is the half that is easy to put back by "just" dropping
+      a control into the middle of the bar.
+
+      On a route with a tree the context chip is the vault switcher at the foot
+      of that tree, so nothing here names the context at all.
+    */
+    const app = mountFrame(390);
+
+    expect(app.find("frame-drawer-toggle")).not.toBeNull();
+    expect(app.find("frame-nav-toggle")).toBeNull();
+    expect(app.find("switcher")).toBeNull();
+    expect(app.find("frame-search")).toBeNull();
 
     app.unmount();
   });
@@ -691,15 +769,6 @@ describe("what toggling the explorer means", () => {
     );
   }
 
-  function RailProbe() {
-    const frame = useFrame();
-    return createElement(
-      "button",
-      { "data-testid": "probe-toggle-rail", onClick: frame.toggleRail },
-      "toggle the rail",
-    );
-  }
-
   test("on a phone it pulls the drawer in, and puts it back", () => {
     const app = mountFrame(390, createElement(CommandProbe));
 
@@ -794,15 +863,20 @@ describe("what toggling the explorer means", () => {
     // Both directions, because `regionsFor`'s rail-wins precedence hides a
     // `toggleRail` that stops clearing `drawerOpen`: the sheet still looks
     // right, and the drawer springs open the moment you close it.
-    const app = mountFrame(390, createElement(CommandProbe));
+    // Both probes: with a tree on the route the rail has no control in the top
+    // bar, so `toggleRail` is reached the way the vault switcher reaches it.
+    const app = mountFrame(
+      390,
+      createElement("div", null, createElement(CommandProbe), createElement(RailProbe)),
+    );
 
-    app.press("frame-nav-toggle");
+    app.press("probe-toggle-rail");
     app.press("probe-toggle-explorer");
     expect(app.find("frame-drawer")).not.toBeNull();
     expect(app.find("frame-nav-sheet")).toBeNull();
 
-    app.press("frame-nav-toggle");
-    app.press("frame-nav-toggle");
+    app.press("probe-toggle-rail");
+    app.press("probe-toggle-rail");
     expect(app.find("frame-nav-sheet")).toBeNull();
     expect(app.find("frame-drawer")).toBeNull();
     expect(app.find("frame-scrim")).toBeNull();

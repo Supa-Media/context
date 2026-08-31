@@ -31,6 +31,7 @@ import {
 import { put } from "../features/console/files/clipboard";
 import { BINDINGS, describeBinding } from "../features/design/keymap";
 import type { TreeRow } from "../features/console/files/tree";
+import { displayName } from "../features/console/files/paths";
 
 /* -------------------------------------------------------------------------- */
 /*                                  fixtures                                  */
@@ -42,6 +43,7 @@ function row(kind: TreeRow["kind"], path: string, over: Partial<TreeRow> = {}): 
     key: path,
     path,
     name: path.slice(path.lastIndexOf("/") + 1),
+    label: displayName(path.slice(path.lastIndexOf("/") + 1)),
     depth: 0,
     expanded: false,
     selected: false,

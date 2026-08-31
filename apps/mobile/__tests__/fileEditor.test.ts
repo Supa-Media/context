@@ -18,6 +18,7 @@ import {
   describeDeleteForever,
   describeMoveProblem,
   describeNameProblem,
+  displayName,
   duplicateName,
   ensureMarkdown,
   formatBytes,
@@ -157,6 +158,60 @@ describe("duplicate naming matches the server's", () => {
 });
 
 /* -------------------------------------------------------------------------- */
+/*                          what a row is called                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `.md` is stripped for display and for nothing else.
+ *
+ * The danger this pins is not that a row reads `README` — it is that the same
+ * function is reached for the next time something needs "the name", and a note
+ * gets renamed `foo` in somebody's bucket. `privacy.md`'s exact-note rules only
+ * address `.md` paths, so such a note would silently lose its own visibility on
+ * the way past. Hence: `TreeRow.name` is what is on disk, `TreeRow.label` is
+ * what is drawn, and they are separate fields rather than one field and a
+ * convention.
+ */
+describe("the display name", () => {
+  test("a note is drawn without its extension", () => {
+    expect(displayName("README.md")).toBe("README");
+    expect(displayName("3efac11d4eead8832e5b1236.md")).toBe("3efac11d4eead8832e5b1236");
+    // Case, because a bucket will happily hold `NOTES.MD`.
+    expect(displayName("NOTES.MD")).toBe("NOTES");
+  });
+
+  test("a folder and an attachment keep their names", () => {
+    expect(displayName("1-projects")).toBe("1-projects");
+    // The extension is the one thing distinguishing this from the note beside
+    // it, so it is information rather than noise.
+    expect(displayName("diagram.png")).toBe("diagram.png");
+    expect(displayName("notes.md.bak")).toBe("notes.md.bak");
+  });
+
+  test("a file called nothing but an extension keeps it, rather than becoming blank", () => {
+    expect(displayName(".md")).toBe(".md");
+  });
+
+  test("the row carries both, and the one on disk is untouched", () => {
+    const rows = buildTreeRows({
+      listings: { "": listing("", [file("README.md"), folder("1-projects")]) },
+      expanded: new Set(),
+      selectedPath: null,
+    });
+
+    const note = rows.find((row) => row.kind === "file")!;
+    expect(note.label).toBe("README");
+    // The two that address the bucket are unchanged, which is the whole point.
+    expect(note.name).toBe("README.md");
+    expect(note.path).toBe("README.md");
+
+    const dir = rows.find((row) => row.kind === "folder")!;
+    expect(dir.label).toBe("1-projects");
+    expect(dir.name).toBe("1-projects");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
 /*                              the marker rule                               */
 /* -------------------------------------------------------------------------- */
 
@@ -195,7 +250,7 @@ function listing(path: string, entries: FileEntry[]): FolderListing {
   };
 }
 
-describe("a file is marked only when it differs from its folder", () => {
+describe("a row is marked only when it differs from the folder it is in", () => {
   test("a file that inherits its folder's default gets no marker", () => {
     expect(markerFor(file("2-areas/a.md"))).toBeUndefined();
     expect(
@@ -215,8 +270,36 @@ describe("a file is marked only when it differs from its folder", () => {
     ).toBe("team");
   });
 
-  /** The folder carries the default instead, so the information is not lost. */
-  test("a folder always shows its own default", () => {
+  /**
+   * A folder is held to the same rule as a file, against its *parent's*
+   * default.
+   *
+   * This is the half that changed. A folder used to print its own default
+   * unconditionally, which on a bucket laid out the standard way put a label
+   * beside every one of the PARA roots — five labels stating the two facts the
+   * root already states. What is left is the folder somebody deliberately made
+   * different, which is the only one worth a glance.
+   *
+   * `parentDefault` is the *listing's* default, not the folder's own. Passing
+   * the folder's own would make every folder match itself and mark nothing,
+   * which is the mistake this pair of cases exists to catch.
+   */
+  test("a folder is marked only when its default differs from its parent's", () => {
+    expect(markerFor(folder("2-areas", "private"), "private")).toBeUndefined();
+    expect(markerFor(folder("1-projects", "team"), "team")).toBeUndefined();
+    expect(markerFor(folder("1-projects", "team"), "private")).toBe("team");
+    expect(markerFor(folder("2-areas", "private"), "team")).toBe("private");
+  });
+
+  /**
+   * With no parent default in hand, a folder keeps the old, safe answer.
+   *
+   * The argument is optional so a caller holding only an entry — there is one
+   * in the landing page's demo data — gets a label rather than a silent
+   * `undefined`. Over-labelling is a worse screen; under-labelling is a wrong
+   * one.
+   */
+  test("a folder with no parent default given still states its own", () => {
     expect(markerFor(folder("2-areas", "private"))).toBe("private");
     expect(markerFor(folder("1-projects", "team"))).toBe("team");
   });
@@ -242,7 +325,50 @@ describe("a file is marked only when it differs from its folder", () => {
     const fileRows = rows.filter((row) => row.kind === "file");
     expect(fileRows).toHaveLength(3);
     expect(fileRows.every((row) => row.marker === undefined)).toBe(true);
-    expect(rows.find((row) => row.kind === "folder")?.marker).toBe("private");
+    // And the folder is unmarked too: `listing("")` defaults to `private`, so
+    // a private `2-areas` inside it is the ordinary case, not the notable one.
+    expect(rows.find((row) => row.kind === "folder")?.marker).toBeUndefined();
+  });
+
+  /**
+   * The whole tree, drawn silent.
+   *
+   * The property the rule is *for*, stated once at the level a person sees:
+   * open a context where every folder and every note takes the default and
+   * there is not one label on the screen. Before this, the same context drew
+   * one on every folder row.
+   */
+  test("a context where nothing is unusual draws no markers at all", () => {
+    const rows = buildTreeRows({
+      listings: {
+        "": listing("", [folder("1-projects"), folder("2-areas"), file("index.md")]),
+        "1-projects": listing("1-projects", [file("1-projects/plan.md")]),
+        "2-areas": listing("2-areas", [file("2-areas/a.md")]),
+      },
+      expanded: new Set(["1-projects", "2-areas"]),
+      selectedPath: null,
+    });
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.marker === undefined)).toBe(true);
+  });
+
+  /**
+   * And the one exception is the only thing on it.
+   *
+   * The counterpart to the case above, so "draws nothing" cannot be satisfied
+   * by a rule that draws nothing ever.
+   */
+  test("one deliberately shared folder is the only marked row", () => {
+    const rows = buildTreeRows({
+      listings: {
+        "": listing("", [folder("1-projects", "team"), folder("2-areas")]),
+        "1-projects": listing("1-projects", [file("1-projects/plan.md")]),
+      },
+      expanded: new Set(["1-projects"]),
+      selectedPath: null,
+    });
+    const marked = rows.filter((row) => row.marker !== undefined);
+    expect(marked.map((row) => [row.path, row.marker])).toEqual([["1-projects", "team"]]);
   });
 });
 

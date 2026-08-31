@@ -13,6 +13,7 @@ import { Explorer, ExplorerDialogs } from "../features/console/files/Explorer";
 import type { FileBrowser } from "../features/console/files/browser";
 import type { FolderListing } from "../features/console/files/types";
 import { emptyEditor } from "../features/console/files/editor";
+import { displayName } from "../features/console/files/paths";
 
 /**
  * **The `Explorer` guards that decide whether the console asks the server at
@@ -301,6 +302,7 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     listings: { "": ROOT_LISTING, "1-projects": PROJECTS_LISTING },
     expanded: new Set<string>(),
     toggleFolder: noop,
+    collapseAll: noop,
     selectedPath: null,
     // `select` answers whether the unsaved-changes guard let go; these
     // fixtures have no draft, so it always does.
@@ -311,6 +313,8 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     save: noop,
     useTheirs: noop,
     keepMine: noop,
+    conflict: null,
+    resolveWith: noop,
     discard: noop,
     notice: null,
     dismissNotice: noop,
@@ -471,8 +475,14 @@ const shareDialogFor = (name: string) =>
  * would deliver a `drop` several times over.
  */
 function rowNode(container: HTMLElement, name: string): HTMLElement {
+  // Named by the file's real name — `note.md` — and matched against what the
+  // row *draws*, which is `displayName(name)`: the tree strips a `.md` for
+  // display and keeps it everywhere else (see `paths.ts`). Resolving through
+  // the same function the component uses is what stops this helper from being
+  // a second opinion about how a row is labelled.
+  const drawn = displayName(name);
   const nodes = [...container.querySelectorAll("[draggable]")].filter((node) =>
-    node.textContent?.includes(name),
+    node.textContent?.includes(drawn),
   );
   expect(nodes.length).toBe(1);
   return nodes[0] as HTMLElement;

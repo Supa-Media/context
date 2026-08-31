@@ -20,18 +20,19 @@ import { toBindStorageArgs, type Provider } from "./storage/connect";
 import { atName, contextTone, describeScopes, formatCount, grantTone, lastUsedLabel } from "./format";
 import { ownPersonalContext, viewerIdentity } from "./identity";
 import { formatNotesTotal, totalNotes } from "./noteTotals";
+import { defaultContext } from "./nav";
 import {
   buildConstellation,
   contextKindFor,
   type ClientInput,
   type ContextInput,
 } from "./map/graph";
-import type {
-  ConsoleClient,
-  ConsoleContext,
-  ConsoleData,
-  ConsoleStorage,
-  StorageActions,
+import {
+  type ConsoleClient,
+  type ConsoleContext,
+  type ConsoleData,
+  type ConsoleStorage,
+  type StorageActions,
 } from "./types";
 
 /**
@@ -220,14 +221,19 @@ export function useLiveConsoleData(): ConsoleData {
   // ordinary sign-out anyway — this reference exists only for deletion.
   const authActions = useAuthActions();
 
-  // An authenticated session resolves to a *set* of contexts. Default to the
-  // first rather than assuming there is exactly one — and drop an explicit
-  // selection that no longer exists rather than rendering an empty console.
+  // An authenticated session resolves to a *set* of contexts, never to one, and
+  // an explicit selection that no longer exists is dropped rather than
+  // rendering an empty console. With no explicit choice, `defaultContext`
+  // prefers a context you own — "the first of the list" opened somebody else's,
+  // which greets a person with a filtered view of a place they visit. It is
+  // `nav.ts`'s because the *URL* answers the same question through
+  // `landingHref`, and a rule with two implementations here would be a rule the
+  // redirect quietly overrides.
   const selectedContextId: Id<"workspaces"> | null =
     explicitContextId !== null &&
     (workspaces ?? []).some((w) => w.workspaceId === explicitContextId)
       ? explicitContextId
-      : (workspaces?.[0]?.workspaceId ?? null);
+      : (defaultContext(workspaces ?? [])?.workspaceId ?? null);
 
   const contexts: ConsoleContext[] = (workspaces ?? []).map((workspace) => ({
     id: workspace.workspaceId,
@@ -395,6 +401,10 @@ export function useLiveConsoleData(): ConsoleData {
       selected === null
         ? undefined
         : "You have read-only access to this context. Ask an owner for editor access to change anything.",
+    // From the connect-time probe, through the binding query this hook already
+    // subscribes to. A second subscription would be a second answer that could
+    // disagree with the one the settings pane and the status bar draw from.
+    conditionalWrite: storage?.conditionalWrite,
   });
 
   // The viewer, not the viewed. The avatar and the account block used to take

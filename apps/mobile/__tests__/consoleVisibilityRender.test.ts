@@ -2,7 +2,20 @@
  * @jest-environment jsdom
  */
 
-import { afterEach, describe, expect, test } from "@jest/globals";
+import { afterEach, describe, expect, jest, test } from "@jest/globals";
+
+/*
+  The notch and the home indicator, as a number.
+
+  Every screen now clears them through `features/app/Screen.tsx`, which reads
+  `useSafeAreaInsets` — and that hook throws outside a `SafeAreaProvider`
+  rather than answering zero. Mocking the hook is the same trade
+  `appFrameRender.test.ts` makes: the insets are the platform's business, and a
+  provider here would be a second thing under test.
+*/
+jest.mock("react-native-safe-area-context", () => ({
+  useSafeAreaInsets: () => ({ top: 47, bottom: 34, left: 0, right: 0 }),
+}));
 
 // React refuses to run `act` without this, and warns on every call otherwise.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -142,22 +155,130 @@ describe("Browse says so in words, because Browse is where the absence is invisi
     filtered one, which is the single strongest reason this notice exists at
     all and why the *sentence* stays here even though the chip moved up to the
     frame.
+
+    **Once per screen, and on every screen of the context.** It was drawn only
+    with nothing open, on the argument that it is a fact about the context and
+    not about the file in front of you. The argument is right and the conclusion
+    was wrong: a team link opens straight into a note or a folder, so the one
+    person who has never seen this context — and is looking at a listing with
+    things missing from it — is precisely the person who was told nothing.
+
+    What made that look reasonable was a comment claiming a fallback: "inside a
+    note or a folder the chip at the foot of the file tree carries the same
+    claim". There is no such chip on a phone. A safeguard asserted in a comment
+    and absent from the screen is worse than no safeguard, because it stops
+    anybody looking.
+
+    So: one line, wherever you are, scrolling with the document. The *paragraph*
+    is what does not travel — see the last test here and the members card.
   */
+  const LINE = "Team access";
+
   test("a context you are only a member of gets the sentence", () => {
-    expect(browse(MEMBER_OF)).toContain("invisible here");
+    expect(browseRoot(MEMBER_OF)).toContain(LINE);
   });
 
   test("a context you can edit is told write access did not include it", () => {
     // The conflation `functions/files.ts` exists to prevent, said out loud:
     // being trusted to write is a separate thing from seeing what somebody
     // marked private.
-    expect(browse(EDITOR_OF)).toContain("you can edit this context");
+    expect(browseRoot(EDITOR_OF)).toContain("you can edit this context");
   });
 
   test("your own context carries no notice at all", () => {
-    expect(browse(OWNED)).not.toContain("invisible here");
+    expect(browseRoot(OWNED)).not.toContain(LINE);
+  });
+
+  test("a role that has not loaded is told nothing, rather than assumed filtered", () => {
+    /*
+      The failure this rules out is the one the owner reported as "I am the
+      owner??": a predicate that defaults to "filtered until proven otherwise"
+      would put "Team access" in front of an owner on every cold load, and
+      permanently if the role never arrived.
+
+      Driven through the pane rather than through `tierSentence` alone, because
+      the pure rule was already right and the question is whether the pane can
+      reach a state that renders it anyway.
+    */
+    const loading = { ...atRoot(demoData(MEMBER_OF)), loading: true, contexts: [] } as ConsoleData;
+    expect(mount(() => createElement(BrowsePane, { data: loading })).textContent).not.toContain(
+      LINE,
+    );
+  });
+
+  test("a team link into a note is told the view is filtered", () => {
+    /*
+      The demo console opens on a note, which is what makes it the right fixture
+      for this: `demoData` is the "inside a file" state, and it is the state a
+      team link lands somebody in.
+    */
+    const data = demoData(MEMBER_OF);
+    expect(mount(() => createElement(BrowsePane, { data })).textContent).toContain(LINE);
+  });
+
+  test("a team link into a folder is told the same", () => {
+    const data = demoData(MEMBER_OF);
+    const folder = Object.keys(data.files.listings).find((path) => path !== "");
+    // A fixture that silently had no folder in it would make this vacuous.
+    expect(folder).toBeDefined();
+    const inFolder = {
+      ...data,
+      files: { ...data.files, selectedPath: folder! },
+    } as ConsoleData;
+    expect(mount(() => createElement(BrowsePane, { data: inFolder })).textContent).toContain(LINE);
+  });
+
+  test("it is drawn once, not once per thing that could carry it", () => {
+    for (const data of [demoData(MEMBER_OF), atRoot(demoData(MEMBER_OF))]) {
+      const container = mount(() => createElement(BrowsePane, { data }));
+      expect(container.querySelectorAll('[data-testid="browse-tier-notice"]')).toHaveLength(1);
+    }
+  });
+
+  test("the line is one line, and the argument for it is nowhere near it", () => {
+    /*
+      Both halves matter and they used to be printed together, four lines deep,
+      on the one screen the notice appeared on. `tierExplanation`'s own docstring
+      says the paragraph belongs where somebody has gone looking for it and "not
+      on every screen" — and now that the line *is* on every screen, printing
+      the paragraph with it would be that mistake multiplied.
+    */
+    for (const text of [browseRoot(MEMBER_OF), browse(MEMBER_OF), browseRoot(EDITOR_OF)]) {
+      expect(text).not.toContain("Only a context's owner sees their private notes.");
+      expect(text).not.toContain("Being trusted to write is a separate thing");
+    }
+  });
+
+  test("and the argument is reachable, on the card that is about who can read this", () => {
+    // Where `tierExplanation` says it belongs, and where the owner's half of
+    // the same fact (`memberReachSentence`) has always been drawn.
+    expect(members(MEMBER_OF, "member").textContent).toContain(
+      "Only a context's owner sees their private notes.",
+    );
+    expect(members(EDITOR_OF, "editor").textContent).toContain(
+      "Being trusted to write is a separate thing",
+    );
+    // And it is the reader's own half only: an owner is told what having
+    // members handed over, never that their own view is filtered.
+    expect(members(OWNED, "owner").textContent).not.toContain("is invisible here");
   });
 });
+
+/**
+ * The same console with nothing open — the context's own view.
+ *
+ * The demo hook selects a note on mount, because a picture of the product with
+ * an empty editor in it is a bad picture. This is the other state, which is the
+ * one the tier line is drawn on.
+ */
+function atRoot(data: ConsoleData): ConsoleData {
+  return { ...data, files: { ...data.files, selectedPath: null } };
+}
+
+function browseRoot(contextId: string): string {
+  const data = atRoot(demoData(contextId));
+  return mount(() => createElement(BrowsePane, { data })).textContent ?? "";
+}
 
 describe("the owner's side of the same fact lives with the people it is about", () => {
   test("an owner is told what having members did and did not hand over", () => {

@@ -83,31 +83,83 @@ export function tierChipLabel(role: string | null | undefined): string | null {
 }
 
 /**
- * What the pill means, spelled out, or `null` when there is nothing to explain.
+ * What the pill means, in one line, or `null` when there is nothing to explain.
  *
  * An `owner` gets `null`: they are not limited, and a line reassuring them that
  * they can see their own notes is noise that makes the non-owner line easier to
- * miss. The two limited roles get different sentences because the surprising
- * part is different. A `member` needs to know the view is filtered at all; an
- * `editor` needs to know that being trusted to *write* did not come with
- * seeing what the owner marked private — the exact conflation the module
- * comment in `functions/files.ts` exists to prevent.
+ * miss. **A role that has not loaded gets `null` too**, and by construction
+ * rather than by a check — only `member` and `editor` match, so `undefined`,
+ * `null` and a role string this build has never heard of all fall through. That
+ * matters more than it looks: a default of "assume filtered until proven
+ * otherwise" would flash "team access" at an owner on every cold load, which is
+ * exactly what somebody would report as the console calling them a guest in
+ * their own context.
  *
- * Voice matched to `ConsentScreen`'s `tierStatement`, which is the only other
- * place in the product that states a tier consequence to a person.
+ * ## Why it is one line now
+ *
+ * It was three sentences, and it appeared on the context root, on every folder
+ * and on every note — so the same 60-word paragraph about the security model
+ * was in front of somebody four screens running. The second sentence ("being
+ * trusted to write is a separate thing from seeing what somebody marked
+ * private") is an argument for the rule rather than a statement of what is true
+ * of the reader right now, and an argument printed on every screen is one
+ * nobody finishes reading.
+ *
+ * So the line says the state and `tierExplanation` keeps the reasoning for the
+ * surface that is *about* visibility.
+ *
+ * `BrowsePane` draws this line **once per screen, on every screen of the
+ * context**. It drew it only where nothing was open, which is where the
+ * paragraph's argument was mistakenly applied to the sentence too: the
+ * repetition that was worth removing is 60 words about the security model, not
+ * ten words saying the list you are looking at has things missing from it. A
+ * team link opens straight into a note or a folder, so the reader with the
+ * least context was the one nobody told.
+ *
+ * The two roles still get different words, because the surprising part is
+ * different: a `member` needs to know the view is filtered at all, and an
+ * `editor` needs to know that being trusted to write did not come with it —
+ * the exact conflation the module comment in `functions/files.ts` exists to
+ * prevent.
  */
 export function tierSentence(role: string | null | undefined): string | null {
   if (role === "member") {
+    return "Team access — notes marked private are not shown here.";
+  }
+  if (role === "editor") {
+    return "Team access — you can edit this context, but notes marked private are not shown here.";
+  }
+  return null;
+}
+
+/**
+ * The same fact with the reasoning behind it, for a surface that is about
+ * visibility rather than one that merely happens to be filtered.
+ *
+ * This is the paragraph `tierSentence` used to be. It is kept rather than
+ * deleted because the argument is worth making *once*, where somebody has gone
+ * looking for it, and not on every screen of the console — which matters more
+ * now that the sentence itself is on every screen.
+ *
+ * **Where that is: `MembersSection`.** This used to name "the note's Properties
+ * panel, and the context's settings", and nothing rendered it on either — so
+ * the reasoning was written down and unreachable while `BrowsePane`, the one
+ * place it was explicitly not supposed to be, printed it anyway. It is on the
+ * card that answers "who can read this context", one row from
+ * `memberReachSentence`, which is the owner's half of the same fact. Exactly
+ * one of the two is ever non-null for a given reader.
+ */
+export function tierExplanation(role: string | null | undefined): string | null {
+  if (role === "member") {
     return (
-      "Team notes only — anything the owner marked private is invisible here, not hidden " +
-      "behind a control you could ask for. Only a context's owner sees their private notes."
+      "Anything the owner marked private is invisible here, not hidden behind a control you " +
+      "could ask for. Only a context's owner sees their private notes."
     );
   }
   if (role === "editor") {
     return (
-      "Team notes only — you can edit this context, but anything the owner marked private " +
-      "is invisible here. Being trusted to write is a separate thing from seeing what " +
-      "somebody marked private."
+      "Anything the owner marked private is invisible here. Being trusted to write is a " +
+      "separate thing from seeing what somebody marked private."
     );
   }
   return null;

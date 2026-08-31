@@ -105,6 +105,31 @@ export function resolveProtectedRoute(
  * The `(auth)` group. A signed-in visitor has no business on the sign-in
  * screen; bounce them to the console, or to `next` when it is safe.
  */
+/**
+ * `/`, which is two different places depending on what you are holding.
+ *
+ * On the web it is the landing page and stays the landing page, signed in or
+ * not: it is the product's front door, and the CTA changes rather than the page
+ * redirecting out from under somebody who deliberately navigated there.
+ *
+ * **On a phone it is nothing of the sort.** A native app that opens on "Create
+ * your brain / Read the architecture / Also on your phone: iOS · Android" is
+ * pitching the app to somebody who has already installed it, and offering them
+ * a download link for the thing they are looking at. There is no front door to
+ * be at on a device you had to install this from a store to reach — so `/` is
+ * the console, or sign-in when there is no session.
+ *
+ * It sends people to `/console` rather than to a context, because
+ * `app/(app)/console/index.tsx` already owns "which context does this account
+ * open on" and answers it from the rail's own order. Deciding it twice is how
+ * the two answers come to disagree.
+ */
+export function resolveRootRoute(state: AuthState, web: boolean): RouteDecision {
+  if (web) return { action: "render" };
+  if (state.isLoading) return { action: "wait" };
+  return { action: "redirect", href: state.isAuthenticated ? CONSOLE_ROUTE : LOGIN_ROUTE };
+}
+
 export function resolveAuthRoute(state: AuthState, next?: string): RouteDecision {
   if (state.isLoading) return { action: "wait" };
   if (!state.isAuthenticated) return { action: "render" };

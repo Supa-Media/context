@@ -117,8 +117,11 @@ function mountHook() {
 
 describe("the viewer's identity, from the live console hook", () => {
   test("it is the owned personal context, not the first personal one and not the selection", () => {
-    // The guest context is first, so it is both the default selection and the
-    // first `kind === "personal"` match — the two wrong answers at once.
+    // The guest context is first in the list, so it is the first
+    // `kind === "personal"` match — one of the two wrong answers. The other is
+    // the selection, and it is now chosen explicitly: the console opens on a
+    // context you *own* (`defaultContextId`), which would otherwise hide this
+    // test's whole point by making the selection and the identity agree.
     answer({
       [getFunctionName(api.functions.workspaces.listMyWorkspaces)]: [
         GUEST_WORKSPACE,
@@ -126,6 +129,10 @@ describe("the viewer's identity, from the live console hook", () => {
       ],
     });
     const hook = mountHook();
+    // And the default itself, asserted on the way past: signing in must not
+    // land somebody in a context they are only a member of.
+    expect(hook.data.selectedContextId).toBe("ws_own");
+    hook.select("ws_guest");
 
     expect(hook.data.selectedContextId).toBe("ws_guest");
     expect(hook.data.viewer.name).toBe("@seyi");

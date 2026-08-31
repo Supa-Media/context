@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Linking, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import { Linking, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { useConvexAuth } from "convex/react";
 import { Button, PressRow } from "../design/components/Button";
 import { Text } from "../design/components/Text";
 import { clamp, fonts, layout, leading, radii, tracking } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
+import { ScreenScroll } from "../app/Screen";
 import { landingCtaHref, landingCtaLabel } from "../auth/redirect";
 import { ConsoleShell } from "../console/ConsoleShell";
 import { BrowsePane } from "../console/panes/BrowsePane";
@@ -80,7 +81,7 @@ export function Landing() {
   const heroWidth = { maxWidth: heroHeadingWidth(heroSize) };
 
   return (
-    <ScrollView
+    <ScreenScroll
       style={styles.ground}
       contentContainerStyle={styles.scroll}
       // The stage's grid and halo are painted behind everything, so the scroll
@@ -250,7 +251,7 @@ export function Landing() {
           </View>
         </View>
       </View>
-    </ScrollView>
+    </ScreenScroll>
   );
 }
 

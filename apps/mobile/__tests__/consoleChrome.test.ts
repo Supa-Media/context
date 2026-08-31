@@ -87,6 +87,8 @@ function mockConsoleData(): never {
     save: () => {},
     useTheirs: () => {},
     keepMine: () => {},
+    conflict: null,
+    resolveWith: () => {},
     discard: () => {},
     notice: null,
     dismissNotice: () => {},
@@ -286,7 +288,6 @@ describe("on a phone", () => {
     // not things you do *to* an existing note, so the row's long-press menu
     // cannot reach them — this bar is it.
     const app = mountConsole(390);
-    const text = app.container.textContent ?? "";
 
     // Labels, not glyphs: the glyphs are aria-hidden, so what a screen reader
     // gets is the whole affordance.
@@ -295,7 +296,30 @@ describe("on a phone", () => {
     );
     expect(labels).toContain("Search notes");
     expect(labels).toContain("New note");
-    expect(text).not.toBe("");
+    // The bar is really on the screen, and not merely a set of labels somewhere
+    // in the tree. It used to be enough to assert the console had rendered *any*
+    // text; it renders none at this width now, because the top bar is a toggle
+    // and one group of icons with nothing in the middle — which is the point.
+    expect(app.find("bottom-bar")).not.toBeNull();
+
+    app.unmount();
+  });
+
+  test("the top bar carries no words at all — a toggle, and nothing beside it", () => {
+    /*
+      The two-rows-of-chrome complaint, at the console level.
+
+      `appFrameRender.test.ts` pins the frame's own rule; this pins that the
+      console does not hand it something to put in the middle. The context chip
+      that used to sit here is the vault switcher at the foot of the file tree,
+      and the note's name is an inline title inside the document — so on Browse
+      the whole top band is one transparent row with a 44pt circle in it.
+    */
+    const app = mountConsole(390);
+
+    expect(app.find("frame-drawer-toggle")).not.toBeNull();
+    expect(app.find("frame-nav-toggle")).toBeNull();
+    expect(app.find("storage-pill")).toBeNull();
 
     app.unmount();
   });
@@ -334,29 +358,45 @@ describe("the phone's way off a pane", () => {
     const app = mountConsole(390);
 
     expect(app.find("frame-nav-sheet")).toBeNull();
-    app.press(app.find("frame-nav-toggle"));
+    /*
+      The route to the rail on a phone with a tree: open the tree, then press
+      the vault switcher at the foot of it. There is no chip in the top bar any
+      more — that band is a toggle and one group of actions, which is the whole
+      of what `Regions.navToggle` now says.
+    */
+    app.press(app.find("frame-drawer-toggle"));
+    app.press(app.find("vault-switcher"));
     expect(app.find("frame-nav-sheet")).not.toBeNull();
+    // Raising one panel puts the other away, so the tree is gone with it.
+    expect(app.find("frame-drawer")).toBeNull();
 
-    // Connections is an app-level pane, so this is a real change of route.
-    app.press(app.byLabel("Connections"));
+    /*
+      A context, because a context is all this sheet holds now. It used to
+      carry Map and Connections under an APP heading, which is what made it a
+      second left navigation rather than the vault switcher — see
+      `ConsoleRail`. Those two live in a context's settings; what the sheet
+      answers is "whose notes am I about to open", and choosing an answer must
+      put it away.
+    */
+    app.press(app.byLabel("Open @seyi"));
     expect(app.find("frame-nav-sheet")).toBeNull();
     expect(app.find("frame-scrim")).toBeNull();
 
     app.unmount();
   });
 
-  test("and so does choosing the pane you are already on", () => {
+  test("and so does choosing the context you are already in", () => {
     // The router has nothing to do here — `sameRoute` short-circuits it — and a
     // sheet that stays put because of that reads as a dead press.
-    mockPathname = "/console";
+    mockPathname = "/console/@seyi";
     const app = mountConsole(390);
 
-    app.press(app.find("frame-nav-toggle"));
-    app.press(app.byLabel("Map"));
+    app.press(app.find("frame-drawer-toggle"));
+    app.press(app.find("vault-switcher"));
+    app.press(app.byLabel("Open @seyi"));
     expect(app.find("frame-nav-sheet")).toBeNull();
 
     app.unmount();
-    mockPathname = "/console/@seyi";
   });
 
   test("sign-out is reachable, and is a target a thumb can hit", () => {

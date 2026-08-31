@@ -1,16 +1,19 @@
 import { useState } from "react";
-import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import { ScreenViewport, useSurfacePadding } from "../../app/Screen";
 import { densityFor } from "../../app/frame";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { radii, space } from "../../design/tokens";
+import { layout, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { Breadcrumb } from "../files/Breadcrumb";
+import { ConflictResolver } from "../files/ConflictResolver";
 import { FolderView } from "../files/FolderView";
 import { NoteEditor } from "../files/NoteEditor";
 import { ShareDialog } from "../files/ShareDialog";
 import { consoleOrigin } from "../files/shareOrigin";
-import { findEntry } from "../files/tree";
+import { noteHeading } from "../files/frontmatter";
+import { entryAt } from "../files/tree";
 import { atName } from "../format";
 import { selectedContext, type ConsoleData } from "../types";
 import { tierSentence } from "../visibility";
@@ -33,8 +36,15 @@ import { tierSentence } from "../visibility";
  * All of it is gone, and every operation still exists. The tree became a region
  * of the frame (`files/Explorer.tsx`); the buttons became the row's own
  * right-click menu and long-press sheet; the card header became a one-line
- * breadcrumb at the top of the region. What is left is a tab strip, a
- * breadcrumb, and the document — which is what the editor was always for.
+ * breadcrumb at the top of the region.
+ *
+ * On a phone even that line has gone, because Obsidian spends nothing on it:
+ * the note names itself with an inline title inside the document, its
+ * visibility is a Properties row, and Share is in the top bar's trailing
+ * group. What is left at that density is one full-bleed scroll surface with
+ * the document on it and the chrome floating over both ends. A pointer layout
+ * keeps the tab strip and the breadcrumb — there the line is a region header
+ * that also carries folder navigation, which an inline title cannot.
  *
  * ## Why the note is no longer in a card
  *
@@ -60,8 +70,16 @@ export function BrowsePane({
   const current = selectedContext(data);
   const contextLabel = atName(current?.slug ?? "your context");
 
+  /*
+    `entryAt`, not `findEntry`: a folder reached by a link, a restored tab or a
+    reload with the tree collapsed has no parent listing to be found in, and
+    this pane used to answer that with its "choose a note" empty state — over a
+    folder whose contents had already arrived. See `entryAt`.
+  */
   const selected =
-    files.selectedPath === null ? null : findEntry(files.listings, files.selectedPath);
+    files.selectedPath === null
+      ? null
+      : entryAt(files.listings, files.selectedPath, files.editor);
 
   /**
    * The note the share dialog is open for, or `null`.
@@ -81,18 +99,56 @@ export function BrowsePane({
     words in the before shot.
   */
   const compact = densityFor(useWindowDimensions().width) === "compact";
+  /*
+    The two bands the floating chrome occupies, spent as content padding at
+    both ends.
+
+    Nothing in this region is pushed clear of the chrome any more. The region
+    runs full-bleed from the top of the glass to the bottom, the bars lie over
+    it, and the scroller inside pays for them in `contentContainerStyle` — so
+    the first line and the last can both be scrolled out from under, and
+    everything in between passes behind. That is the whole of what
+    `FrameApi.contentInsets` is for, and until this change only the bottom half
+    of it was being used: the top band carried a breadcrumb, so the region was
+    padded down past the chrome and the note began underneath it.
+  */
+  const padding = useSurfacePadding();
 
   const noBucket = data.storage === null && !data.loading;
   const manifestBroken = files.listings[""]?.manifestUsable === false;
   /*
-    The one notice here that is not an event.
+    The one notice here that is not an event, and the one that is drawn **once
+    per context rather than once per file**.
 
     Browse is the pane where an absence is invisible: a folder the owner keeps
     private does not appear in the tree, so an editor reading a short list has
-    no way to tell a small context from a filtered one. That is the whole
-    reason this line exists, and it is why it stays up rather than being
-    dismissible — the condition it reports never stops being true. `null` for
-    an owner, and `null` while the role is still loading.
+    no way to tell a small context from a filtered one. That is why the line
+    exists, and why it is not dismissible — the condition it reports never stops
+    being true.
+
+    It is a fact about the *context* rather than about the note in front of
+    you, and for a while that was read as "so draw it only where nothing is
+    open". The reading was wrong in the case that matters most: a team link
+    opens straight into a note or a folder, so the person who has never seen
+    this context — looking at a listing with things absent from it — was the one
+    person the notice never reached. What made that look safe was a comment
+    claiming the chip at the foot of the file tree carried the same claim
+    inside a note. **There is no such chip on a phone**, and a safeguard
+    asserted in a comment and missing from the screen is worse than none,
+    because it stops anybody looking for the real one.
+
+    So it is drawn wherever you are, and it is *one line*. The paragraph behind
+    it — `tierExplanation` — is not printed here: its own docstring says it
+    belongs where somebody has gone looking for it and not on every screen, and
+    the line now is on every screen. It lives on the members card, beside the
+    owner's half of the same fact.
+
+    Once per screen, still: this is the only place it is built, and it reaches a
+    note through `notices` and a folder through the page scroller — the two
+    branches at the foot of this file, never both.
+
+    `null` for an owner, and `null` while the role is still loading — by
+    construction in `tierSentence` rather than by a check here; see its comment.
   */
   const tierNote = tierSentence(current?.role);
   const hasNotice =
@@ -102,23 +158,224 @@ export function BrowsePane({
     files.notice !== null ||
     (files.readOnlyReason !== undefined && !files.canEdit);
 
+  /**
+   * What this pane has to say about the note, above it.
+   *
+   * A node rather than inline JSX because on a phone it belongs **inside** the
+   * scroll surface — it is part of the document's flow, not a band pinned above
+   * it — and the scroller a note lives in belongs to `NoteEditor` (see the
+   * `notices` prop there and `NoteAccessory` for why). A pointer layout keeps
+   * it where it was, above a region that scrolls itself.
+   */
+  const notices = !hasNotice ? null : (
+    <View style={[styles.notices, compact && styles.noticesCompact]}>
+      {tierNote !== null ? (
+        <View style={styles.notice} testID="browse-tier-notice">
+          {/*
+            The sentence without the chip. The chip is in the top bar, on
+            every route of this context — repeating it two inches below
+            reads as two different claims rather than one. What earns its
+            height here is the sentence: a private folder in this tree is
+            not dimmed, it is *absent*, so somebody reading a short list
+            otherwise cannot tell a small context from a filtered one.
+          */}
+          <Text variant="hint">{tierNote}</Text>
+        </View>
+      ) : null}
+
+      {files.readOnlyReason !== undefined && !files.canEdit ? (
+        <View style={styles.notice}>
+          <Text variant="hint">{files.readOnlyReason}</Text>
+        </View>
+      ) : null}
+
+      {noBucket ? (
+        <View style={[styles.notice, styles.noticeWarn]}>
+          <Text variant="hint" style={styles.noticeWarnText}>
+            No bucket is connected to this context yet, so there is nowhere to keep notes.
+            Point it at an S3-compatible bucket you own and everything here starts working
+            — your name and your capture address are already yours.
+          </Text>
+          {onOpenSettings ? (
+            <Button
+              label="Connect a bucket"
+              onPress={onOpenSettings}
+              style={styles.dismiss}
+              testID="browse-connect-storage"
+            />
+          ) : null}
+        </View>
+      ) : null}
+
+      {manifestBroken ? (
+        <View style={[styles.notice, styles.noticeWarn]}>
+          {/*
+            This used to end "Write a valid privacy.md at the root of the
+            bucket, or ask a connected AI client to", and **neither was
+            possible**. Every write path in the product refuses that key:
+            the console's own `writeFile` answers
+            PRIVACY_MANIFEST_READ_ONLY, the gateway's `write_note` answers
+            "that path is reserved", and `set_folder_visibility` answers
+            "privacy.md is required before folder visibility can be
+            changed". The only exit was rclone or the provider's web
+            console — so the sentence sent people to try two things that
+            cannot work, in a state where nothing else works either.
+
+            The button is the exit. It is absent rather than disabled for
+            anyone who is not the owner, so the copy has to carry both
+            cases: an editor reads the same explanation and is told whose
+            fix it is.
+          */}
+          <Text variant="hint" style={styles.noticeWarnText}>
+            privacy.md is missing or could not be read, so everything is treated as private
+            and nothing can be shared until it is fixed. Nothing is exposed by this — it
+            fails closed.{" "}
+            {files.canResetPrivacy
+              ? "Resetting it writes a fresh one declaring the folders this bucket has, every one of them private, and keeps the unreadable file in .history/. Nothing becomes visible to anybody; you choose what to share afterwards."
+              : "Only the owner of this context can rewrite it — ask them to reset it from their console, or fix it in the bucket directly."}
+          </Text>
+          {files.canResetPrivacy ? (
+            <Button
+              label="Reset privacy.md"
+              onPress={files.resetPrivacy}
+              disabled={files.busy}
+              style={styles.dismiss}
+              testID="browse-reset-privacy"
+            />
+          ) : null}
+        </View>
+      ) : null}
+
+      {files.notice !== null ? (
+        <View style={[styles.notice, styles.noticeWarn]}>
+          <Text variant="hint" style={styles.noticeWarnText}>
+            {files.notice}
+          </Text>
+          <Button label="Dismiss" onPress={files.dismissNotice} style={styles.dismiss} />
+        </View>
+      ) : null}
+    </View>
+  );
+
+  /**
+   * The three things that can be in front of somebody, built once.
+   *
+   * They are placed differently at the two densities — a phone scrolls a folder
+   * listing as a page and hands a note its own scroller — and building them
+   * here rather than in each branch is what stops the two placements drifting
+   * into two sets of props.
+   */
+  const openDocument =
+    selected === null ? (
+      <Empty contextLabel={contextLabel} />
+    ) : selected.kind === "folder" ? (
+      <FolderView
+        entry={selected}
+        listing={files.listings[selected.path]}
+        canSetVisibility={files.canSetVisibility}
+        canShare={files.canShare}
+        onSetVisibility={(visibility) => files.setVisibility(selected.path, "folder", visibility)}
+        onSelect={files.select}
+        onShare={() => setSharing(selected.path)}
+      />
+    ) : files.conflict?.path === selected.path ? (
+      /*
+        A conflict takes the region.
+
+        Not a strip under the note and not a modal over it: answering one means
+        reading two versions and, where a merge is possible, editing a proposed
+        third before anything is saved. That is a document-sized surface, and
+        putting it anywhere but here would mean two places to make one decision.
+
+        Pinned to `selected.path` for the reason the share dialog is: this pane
+        is reconciled with no `key` across a context switch, and a resolver
+        still showing the previous note's two versions would offer to write one
+        of them at the path now selected.
+
+        Everything else stays reachable — the tree, the tabs and the rail are
+        outside this region — so the conflict never strands anybody on a train
+        the way blocking the whole editor would.
+      */
+      <ConflictResolver
+        review={files.conflict}
+        onKeepTheirs={files.useTheirs}
+        onResolveWith={files.resolveWith}
+      />
+    ) : (
+      <NoteEditor
+        state={files.editor}
+        canEdit={files.canEdit}
+        /*
+          What the note's own frontmatter cannot say. `visibility:` in a note
+          is prose — `privacy.md` decides access — so the Properties panel
+          shows the manifest's answer under that key rather than the file's,
+          which is where the breadcrumb's chip has gone.
+        */
+        visibility={{
+          visibility: selected.visibility,
+          inherited: selected.inherited,
+          exception: selected.exception,
+          readOnly: selected.readOnly,
+        }}
+        notices={compact ? notices : null}
+        onChange={files.setDraft}
+        onSave={files.save}
+        onDiscard={files.discard}
+        onUseTheirs={files.useTheirs}
+        onKeepMine={files.keepMine}
+      />
+    );
+
   return (
     <View style={styles.region}>
       {/*
-        The breadcrumb is drawn for a selected *folder* too, not only a note.
+        The breadcrumb is drawn for a selected *folder* too, not only a note —
+        **and only on a pointer layout.**
 
         It used to be `kind === "file"` only, and `FolderView` prints the
         folder's own name with no path — so two folders called `notes` were the
-        same screen, and there was nowhere on a phone that said which one you
-        were in. That matters beyond orientation: the toolbar's `+` writes into
-        the selected folder, and with the drawer shut this line is the only
-        thing on screen that names it.
+        same screen, and there was nowhere that said which one you were in. That
+        matters beyond orientation: the toolbar's `+` writes into the selected
+        folder, and this line is what names it.
+
+        ## Why a phone has none
+
+        Obsidian on iOS has no breadcrumb, and that is not an omission: on a
+        phone the *sidebar* is where you navigate folders, and the note names
+        itself with an inline title at the top of its own text. A path pinned
+        above the document is a second band of chrome under a bar that is
+        already floating there — the two rows this branch exists to collapse
+        into one — and it cost the note its first screen to say something the
+        drawer says better.
+
+        So at `compact` the three things this row carried have each gone
+        somewhere they belong rather than being deleted: the note's name is the
+        inline title inside the document (`NoteEditor`), the visibility chip is
+        a Properties row (also `NoteEditor` — `visibility:` is filing metadata),
+        and Share is in the top bar's trailing group (`_layout`, where Obsidian
+        puts the ⋯ container). Folder navigation is the tree's, which is the one
+        thing a phone genuinely has a better surface for.
       */}
-      {selected !== null ? (
-        <View style={styles.noteHead}>
+      {selected !== null && !compact ? (
+        <View style={[styles.noteHead, compact && styles.noteHeadCompact]}>
           <View style={styles.crumb}>
             <Breadcrumb
               path={selected.path}
+              /*
+                What the note calls itself, where it calls itself anything.
+
+                Only when the editor is holding *this* note: `files.editor` is
+                one buffer and the selection can move ahead of it, so titling
+                the breadcrumb from a draft belonging to a different path would
+                put one note's subject over another note's name. A folder has no
+                text and gets no title, which leaves `baseName` — its own name,
+                which is what a folder is called.
+              */
+              title={
+                selected.kind === "file" && files.editor.path === selected.path
+                  ? noteHeading(files.editor.draft, selected.path)
+                  : undefined
+              }
               contextLabel={contextLabel}
               visibility={selected.visibility}
               inherited={selected.inherited}
@@ -155,6 +412,7 @@ export function BrowsePane({
             <Button
               label="Share…"
               onPress={() => setSharing(selected.path)}
+              style={styles.share}
               testID="browse-share"
             />
           ) : null}
@@ -214,123 +472,59 @@ export function BrowsePane({
         />
       ) : null}
 
-      {hasNotice ? (
-        <View style={[styles.notices, compact && styles.noticesCompact]}>
-          {tierNote !== null ? (
-            <View style={styles.notice} testID="browse-tier-notice">
-              {/*
-                The sentence without the chip. The chip is in the top bar, on
-                every route of this context — repeating it two inches below
-                reads as two different claims rather than one. What earns its
-                height here is the sentence: a private folder in this tree is
-                not dimmed, it is *absent*, so somebody reading a short list
-                otherwise cannot tell a small context from a filtered one.
-              */}
-              <Text variant="hint">{tierNote}</Text>
-            </View>
-          ) : null}
+      {/*
+        The document, and the one full-bleed scroll surface it lives on.
 
-          {files.readOnlyReason !== undefined && !files.canEdit ? (
-            <View style={styles.notice}>
-              <Text variant="hint">{files.readOnlyReason}</Text>
-            </View>
-          ) : null}
+        On a phone nothing here is a band the note is kept out of. The region
+        runs from the top of the glass to the bottom, the toolbar and the top
+        bar lie over it, and the scroller pays for both in **content padding**
+        with matching `scrollIndicatorInsets` — so the first line and the last
+        can each be brought out from under the chrome and everything between
+        passes behind it. Padding the content rather than shrinking the viewport
+        is the whole difference: a scroller that stops where the toolbar begins
+        has a hard edge across the glass and can never scroll its last line
+        clear of anything.
 
-          {noBucket ? (
-            <View style={[styles.notice, styles.noticeWarn]}>
-              <Text variant="hint" style={styles.noticeWarnText}>
-                No bucket is connected to this context yet, so there is nowhere to keep notes.
-                Point it at an S3-compatible bucket you own and everything here starts working
-                — your name and your capture address are already yours.
-              </Text>
-              {onOpenSettings ? (
-                <Button
-                  label="Connect a bucket"
-                  onPress={onOpenSettings}
-                  style={styles.dismiss}
-                  testID="browse-connect-storage"
-                />
-              ) : null}
-            </View>
-          ) : null}
-
-          {manifestBroken ? (
-            <View style={[styles.notice, styles.noticeWarn]}>
-              {/*
-                This used to end "Write a valid privacy.md at the root of the
-                bucket, or ask a connected AI client to", and **neither was
-                possible**. Every write path in the product refuses that key:
-                the console's own `writeFile` answers
-                PRIVACY_MANIFEST_READ_ONLY, the gateway's `write_note` answers
-                "that path is reserved", and `set_folder_visibility` answers
-                "privacy.md is required before folder visibility can be
-                changed". The only exit was rclone or the provider's web
-                console — so the sentence sent people to try two things that
-                cannot work, in a state where nothing else works either.
-
-                The button is the exit. It is absent rather than disabled for
-                anyone who is not the owner, so the copy has to carry both
-                cases: an editor reads the same explanation and is told whose
-                fix it is.
-              */}
-              <Text variant="hint" style={styles.noticeWarnText}>
-                privacy.md is missing or could not be read, so everything is treated as private
-                and nothing can be shared until it is fixed. Nothing is exposed by this — it
-                fails closed.{" "}
-                {files.canResetPrivacy
-                  ? "Resetting it writes a fresh one declaring the folders this bucket has, every one of them private, and keeps the unreadable file in .history/. Nothing becomes visible to anybody; you choose what to share afterwards."
-                  : "Only the owner of this context can rewrite it — ask them to reset it from their console, or fix it in the bucket directly."}
-              </Text>
-              {files.canResetPrivacy ? (
-                <Button
-                  label="Reset privacy.md"
-                  onPress={files.resetPrivacy}
-                  disabled={files.busy}
-                  style={styles.dismiss}
-                  testID="browse-reset-privacy"
-                />
-              ) : null}
-            </View>
-          ) : null}
-
-          {files.notice !== null ? (
-            <View style={[styles.notice, styles.noticeWarn]}>
-              <Text variant="hint" style={styles.noticeWarnText}>
-                {files.notice}
-              </Text>
-              <Button label="Dismiss" onPress={files.dismissNotice} style={styles.dismiss} />
-            </View>
-          ) : null}
-        </View>
-      ) : null}
-
-      <View style={[styles.body, compact && styles.bodyCompact]}>
-        {selected === null ? (
-          <Empty contextLabel={contextLabel} />
-        ) : selected.kind === "folder" ? (
-          <FolderView
-            entry={selected}
-            listing={files.listings[selected.path]}
-            canSetVisibility={files.canSetVisibility}
-            canShare={files.canShare}
-            onSetVisibility={(visibility) =>
-              files.setVisibility(selected.path, "folder", visibility)
-            }
-            onSelect={files.select}
-            onShare={() => setSharing(selected.path)}
-          />
-        ) : (
-          <NoteEditor
-            state={files.editor}
-            canEdit={files.canEdit}
-            onChange={files.setDraft}
-            onSave={files.save}
-            onDiscard={files.discard}
-            onUseTheirs={files.useTheirs}
-            onKeepMine={files.keepMine}
-          />
-        )}
-      </View>
+        A note brings its own scroller rather than sitting in this one, and that
+        is not a preference. `NoteAccessory` rides above the keyboard by being
+        absolutely positioned at the bottom of the *region*; inside a scroll
+        container it would anchor to the bottom of the content instead and ride
+        away with it. So `NoteEditor` owns a scroller with the accessory bar as
+        its sibling, and takes the notices as a prop so they scroll with the
+        document rather than pinning a band above it.
+      */}
+      {compact && selected !== null && selected.kind === "file" ? (
+        openDocument
+      ) : compact ? (
+        /*
+          The status bar's band goes on the box *around* the scroller and our
+          own chrome inside it — see `SurfacePadding` in `app/frame.ts`. Spent
+          together on the content, the whole inset scrolled away with the
+          listing and the folder's rows rode up under the clock.
+        */
+        <ScreenViewport padding={padding}>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={{
+              paddingTop: padding.content.top,
+              paddingBottom: padding.content.bottom,
+            }}
+            scrollIndicatorInsets={{
+              top: padding.content.top,
+              bottom: padding.content.bottom,
+            }}
+            testID="browse-scroll"
+          >
+            {notices}
+            <View style={styles.bodyCompact}>{openDocument}</View>
+          </ScrollView>
+        </ScreenViewport>
+      ) : (
+        <>
+          {notices}
+          <View style={styles.body}>{openDocument}</View>
+        </>
+      )}
     </View>
   );
 }
@@ -361,14 +555,63 @@ function Empty({ contextLabel }: { contextLabel: string }) {
 const makeStyles = (colors: Colors) => StyleSheet.create({
   /** The editor region: chrome on its top edge, the document filling the rest. */
   region: { flex: 1, minHeight: 0 },
-  /** The breadcrumb takes the room it needs; Share sits at the end of the line. */
-  noteHead: { flexDirection: "row", alignItems: "center", gap: space.x2 },
+  /**
+   * The breadcrumb takes the room it needs; Share sits at the end of the line.
+   *
+   * **The row reserves its own height, and that is the whole fix for an
+   * overlap that looked like a stacking bug.** Share was drawing on top of the
+   * note's name, and the cause was not z-index: this row had no vertical
+   * padding, `Breadcrumb.barCompact` zeroed its own `paddingTop`, and `Button`
+   * brings `paddingVertical: 6`. So the row's height was the crumb's line box —
+   * shorter than the button inside it — and the button overflowed in both
+   * directions onto whatever was drawn next. A row that is at least as tall as
+   * the tallest thing in it cannot overlap anything.
+   *
+   * `minHeight` rather than a fixed height: the crumb is one line today and a
+   * longer context name is one word from being two.
+   */
+  noteHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.x2,
+    minHeight: layout.minTouchTarget,
+  },
+  /**
+   * The breadcrumb yields first.
+   *
+   * `flexShrink: 1` with `minWidth: 0` is what lets the path ellipsise; the
+   * button carries `flexShrink: 0` so it is never the thing that gives. The
+   * other way round, a long path squeezed "Share…" to "Sha…", which is a
+   * control nobody presses on the theory that it might do something else.
+   */
+  /**
+   * The trailing margin the breadcrumb carries and Share does not.
+   *
+   * `Breadcrumb.barCompact` pads itself to `layout.readingMargin` so the path
+   * lines up with the first character of the note. Share sits outside that
+   * `View`, so without this it hangs on the edge of the glass.
+   */
+  noteHeadCompact: { paddingRight: layout.readingMargin },
   crumb: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
+  share: { flexGrow: 0, flexShrink: 0 },
   body: { flex: 1, minHeight: 0, padding: space.x4 },
+  /**
+   * The phone's page scroller: full-bleed, with the chrome paid for in content
+   * padding at the call site rather than in a shorter viewport here.
+   */
+  scroll: { flex: 1, minHeight: 0 },
+  /**
+   * No padding, and no `flex: 1`.
+   *
+   * The document runs to the edges of the glass and what padding there is
+   * belongs to it. `flex` is gone because this now sits inside a scroller's
+   * content, where a flex child of a `contentContainer` has nothing to fill and
+   * would collapse a folder listing to nothing.
+   */
   bodyCompact: { padding: 0 },
 
   notices: { paddingHorizontal: space.x4, paddingTop: space.x3, gap: space.x2 },
-  noticesCompact: { paddingHorizontal: space.x5, paddingTop: space.x2 },
+  noticesCompact: { paddingHorizontal: layout.readingMargin, paddingTop: space.x2 },
   notice: {
     paddingVertical: 12,
     paddingHorizontal: 15,

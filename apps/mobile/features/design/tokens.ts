@@ -97,6 +97,19 @@ export const darkColors = {
    * ------------------------------------------------------------------ */
   chrome: "#191920",
   chromePressed: "#24242C",
+
+  /**
+   * The wash over the editor while a panel is out.
+   *
+   * A token rather than the literal `rgba(0,0,0,.6)` that used to sit in
+   * `AppFrame`, because the right answer is not the same in the two worlds. On
+   * this ground a scrim has to be heavy: it is dark over dark, and anything
+   * lighter fails to separate the panel from the note behind it. In a light
+   * world the same value is a blackout — the note goes to near-black behind a
+   * white sheet, which is a modal dialog's weight for a file tree you flick in
+   * and out of a dozen times an hour. Obsidian barely tints it.
+   */
+  scrim: "rgba(0,0,0,0.60)",
 } as const;
 
 /**
@@ -127,14 +140,26 @@ export type Colors = Readonly<Record<keyof typeof darkColors, string>>;
  * The tokens are therefore placed by the job each one does, which is the
  * relationship worth preserving:
  *
- *   - `ground` is the page, a clear grey, so a panel can lift off it.
- *   - `surface` is that panel: white.
- *   - `surface2` sits *between* them, which is the one value that satisfies
- *     both of its jobs — raised when it is a card on `ground`, tinted when it
- *     is a hovered row on `surface`.
+ *   - `ground` is the page.
+ *   - `surface` is the panel on it.
+ *   - `surface2` is the faint fill: a pointer layout's toolbar, a raised card.
  *   - `surface3` is the stronger tint: a menu row under the pointer, a ghost
- *     button's fill, a neutral pill.
+ *     button's fill, a neutral pill, a selected row on a phone.
  *   - `well` stays the deepest inset, as it is in the dark palette.
+ *
+ * **`ground` and `surface` are both white, and that is the design rather than
+ * a value nobody filled in.** This palette used to ground at `#EDEDF2` with
+ * `#14141A` ink so that a white panel could lift off the page without a
+ * border. On a desktop that is a defensible picture and on a phone it is the
+ * single thing that made the app read as grey: the note, the file tree and the
+ * chrome are each the widest object on the glass, there is nothing for them to
+ * lift *off*, and the grey shows through as a tint over the whole document.
+ * Obsidian on iOS — which is the surface this app is measured against, and
+ * which most of its users already have open — paints paper white and separates
+ * regions with a shadow and a hairline instead. So do we. The hairlines
+ * (`line`) and the three shadows are what carry the separation now, which is
+ * why neither may be dropped as "invisible": on this ground they are the only
+ * edges there are.
  *
  * **`white` and `ink` keep their roles, not their names.** `white` is the
  * primary CTA's fill and `ink` is the label on it; in the dark world that is a
@@ -153,20 +178,29 @@ export type Colors = Readonly<Record<keyof typeof darkColors, string>>;
  * Contrast is asserted, not asserted-in-prose: see `__tests__/theme.test.ts`.
  */
 export const lightColors: Colors = {
-  ground: "#EDEDF2",
+  ground: "#FFFFFF",
   surface: "#FFFFFF",
-  surface2: "#F7F7FB",
-  surface3: "#EBEBF1",
+  surface2: "#FAFAFA",
+  surface3: "#F1F1F3",
 
   /** Hairline separators — black at low alpha, mirroring the dark palette's white. */
   line: "rgba(0,0,0,0.09)",
   lineStrong: "rgba(0,0,0,0.18)",
 
-  text: "#14141A",
-  text2: "#4A4A57",
-  muted: "#626270",
+  /**
+   * Ink, and its two quieter voices.
+   *
+   * `#222222` rather than a near-black with a blue cast. The cast was there to
+   * agree with a grey-blue ground that no longer exists; against paper it is a
+   * tint nobody asked for on every word in the app, and the type it is set in
+   * is a body face at 16/24 rather than a display face where a cool black
+   * reads as deliberate.
+   */
+  text: "#222222",
+  text2: "#444444",
+  muted: "#6B6B6B",
   /** The second hero line, deliberately dimmer than `muted`. */
-  heroDim: "#7E7E8D",
+  heroDim: "#858585",
 
   accent: "#2563EB",
   accentDim: "rgba(37,99,235,0.10)",
@@ -194,8 +228,12 @@ export const lightColors: Colors = {
   ink: "#FFFFFF",
   white: "#14141A",
 
-  /** The recessed grey used for insets: code blocks, the map field, field values. */
-  well: "#E4E4EC",
+  /**
+   * The recessed grey used for insets: code blocks, the map field, field
+   * values — and, in a note, the ground under an inline `code` span, which is
+   * where most people will actually see it.
+   */
+  well: "#F5F5F5",
 
   /** Warm accent for the first floating tile's mark. */
   warm: "#C2410C",
@@ -215,6 +253,9 @@ export const lightColors: Colors = {
    */
   chrome: "#FFFFFF",
   chromePressed: "#E9E9F0",
+
+  /** See the dark palette's note: a tint here, not a blackout. */
+  scrim: "rgba(0,0,0,0.22)",
 };
 
 /** Edge/node colours in the constellation map, keyed by relationship. */
@@ -390,21 +431,86 @@ export const layout = {
   /**
    * The compact toolbar.
    *
-   * 56 rather than the 44 a pointer would need: this is the one strip of the
-   * phone layout a thumb has to hit reliably, and every target on it clears the
-   * 44pt minimum with room to spare.
+   * 66, measured off Obsidian on iOS: its bar runs from about 865pt to 931pt on
+   * a 956pt screen. Well above the 44 a pointer would need, because this is the
+   * one strip of the phone layout a thumb has to hit reliably — and the extra
+   * height is also what makes `radii.pill` read as a *capsule* rather than as a
+   * rounded rectangle, since a full pill's corner radius is half its height.
+   *
+   * It was 56, which is a rounded rectangle wearing a pill's radius.
    */
-  bottomBarHeight: 56,
+  bottomBarHeight: 66,
   /**
-   * The gap between the floating toolbar and the edges of the glass.
+   * How much note shows either side of that toolbar.
+   *
+   * 52, measured off the reference: the bar runs from x=52.0 to x=387.7 on a
+   * 440pt screen, which is 336pt of pill with 52 of note showing on each side.
+   * That gap is most of what makes the bar read as an object lying on the note
+   * rather than as an edge with rounded corners.
+   *
+   * **It is the inset that is the measurement, not the width.** An earlier pass
+   * sized the bar to its contents and let the inset be whatever was left over,
+   * which is right only for the number of actions the reference happens to
+   * show: on `@seyi`, where the reader is a team member and there is no New
+   * note, five targets left the pill spanning 78→362 — 78pt in on one side of a
+   * 440pt screen, half again the reference's gap, on a bar that is supposed to
+   * be in the same place on every screen. So the frame insets the slot by this
+   * and the bar fills it.
+   */
+  bottomBarInset: 52,
+  /**
+   * One target on that toolbar.
+   *
+   * 52 is what six targets plus `bottomBarPad` either side need to fill the
+   * 336pt the reference measures. It is the *natural* width now rather than the
+   * fixed one — `bottomBarInset` decides the bar's width, and the targets share
+   * it — so it stands as the size a target wants when there is room, with
+   * `minTouchTarget` underneath it as the floor when there is not.
+   */
+  bottomBarTarget: 52,
+  /** The toolbar's own horizontal padding. See `bottomBarTarget`. */
+  bottomBarPad: 12,
+  /**
+   * The air a panel leaves between the status bar and its first row.
+   *
+   * Measured off the reference at 440×956: the sidebar's first row starts at
+   * about 92pt, and the status bar's inset on that device is 59 — so 33, of
+   * which the tree's own scroller already contributes 8.
+   *
+   * **A panel does not clear the floating toggle**, which is what it was doing
+   * instead: the toggle crosses to the sliver of note the moment a panel comes
+   * in (`AppFrame`'s `toggleOnSliver`), so reserving its 44pt here put the first
+   * row at 126 with nothing in the space above it.
+   */
+  panelGutter: 24,
+  /**
+   * How far the floating chrome sits from the bottom of the glass.
+   *
+   * 25, measured: Obsidian's bar ends about 25pt above the bottom edge — which
+   * is *inside* the 34pt home-indicator inset on a notched phone, and the
+   * reference is a notched phone. We do not follow it that far. `AppFrame`
+   * takes `max(insets.bottom, this)`, so a device with an inset keeps its
+   * inset and a browser window or an un-notched phone — where there is no
+   * indicator and nothing to clear — gets the reference's gap instead of the
+   * 10pt token that used to serve here and read as "nearly flush".
+   */
+  floatingGap: 25,
+  /**
+   * The air above the floating toolbar, between it and the last line of the
+   * document.
    *
    * The toolbar is a pill lying on the note rather than a bar ruled off from
-   * it, so the frame reserves `bottomBarHeight` **plus twice this** along the
-   * bottom edge. Reserved rather than overlaid: Obsidian lets the document
-   * run under its toolbar and pays for it with bottom padding inside the
-   * scroller, and this app has four different things in that slot — a note, a
-   * folder listing, a settings document, a map — so the padding would have to
-   * be right in four places instead of one.
+   * it, so the frame reserves `bottomBarHeight + floatingInset + floatingGapFor
+   * (insets.bottom)` along the bottom edge — this above the pill, and the
+   * larger of the home indicator and `floatingGap` below it. That whole sum is
+   * `FrameApi.contentInsets.bottom`, and it is spent as **content padding**
+   * inside whichever scroller is on screen, so the last line of a long note can
+   * be brought out from under the bar rather than being stranded behind it.
+   *
+   * (This used to say "plus twice this", which stopped being true when the
+   * bottom gap became `max(insets.bottom, floatingGap)` — 34 on a notched
+   * phone, not 10. The arithmetic is `AppFrame`'s `contentInsets`; this is the
+   * one term of it that belongs to the token.)
    */
   floatingInset: 10,
   /**
@@ -424,12 +530,56 @@ export const layout = {
    */
   chromeButton: MIN_TOUCH_TARGET,
   /**
-   * A row in a grouped list, or in the file tree, on a phone.
+   * A row in a grouped list on a phone.
    *
    * Above `minTouchTarget` for the same reason the toolbar is: the floor is
    * what a control must not go below, not what a comfortable list row is.
+   *
+   * **The file tree is no longer one of these** — see `explorerRow`. A list of
+   * settings is a handful of rows a thumb picks one from; a file tree is the
+   * only way to reach a note on a phone and is read as a *list*, where the
+   * number of rows on screen at once is the thing that decides whether it is
+   * usable.
    */
   touchRow: 48,
+
+  /* ---------------------------------------------------------------------- *
+   * The file tree on a phone, measured off Obsidian on iOS.
+   *
+   * These three numbers are one measurement, not three preferences, and they
+   * were taken from a 1320×2868 screenshot (440×956pt at @3x) rather than
+   * eyeballed: the row pitch, the step between two levels, and where a
+   * top-level name begins. Getting one of them right and the others near is
+   * what makes a tree read as "nearly Obsidian", which is worse than not
+   * trying — a half-matched rhythm reads as a bug rather than as a style.
+   * ---------------------------------------------------------------------- */
+
+  /**
+   * The row pitch. **Below `minTouchTarget` on purpose**, which is legal here
+   * and nowhere else: the row is drawn at 36 and the pressable carries
+   * `explorerRowSlop` of `hitSlop` on each edge, so what a thumb hits is 44.
+   * See `PressRow`'s `hitSlop` — pad the pressable, not the visual.
+   */
+  explorerRow: 36,
+  /** `(minTouchTarget - explorerRow) / 2`, derived so the two cannot drift. */
+  explorerRowSlop: (MIN_TOUCH_TARGET - 36) / 2,
+  /** One level of nesting. */
+  explorerIndent: 16,
+  /** Where a top-level row's *name* starts, chevron gutter included. */
+  explorerInset: 37,
+
+  /**
+   * The note's side margin on a phone, measured off the same reference.
+   *
+   * One number, used by every band that has to line up with the first
+   * character of the document: the editor's own padding, the breadcrumb above
+   * it, the notices, and the status line under it. They were 20, 24 and 28
+   * before — three guesses at the same measurement, so nothing on the screen
+   * shared a left edge with the text it was about, and a breadcrumb four points
+   * out from the title under it reads as a mistake even to somebody who could
+   * not say what was wrong.
+   */
+  readingMargin: 25,
 } as const;
 
 /**

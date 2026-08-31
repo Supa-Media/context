@@ -35,7 +35,7 @@ import { createRoot } from "react-dom/client";
  * a claim about the drawing rather than about one call.
  */
 
-const { Icon, ICON_NAMES, strokeFor } =
+const { Icon, ICON_NAMES, strokeFor, strokeKeys } =
   require("../features/design/components/Icon") as typeof import("../features/design/components/Icon");
 
 interface Mounted {
@@ -69,6 +69,26 @@ function px(node: HTMLElement, property: string): number {
 }
 
 describe("every icon in the set", () => {
+  /**
+   * Two strokes in one drawing may not share a key.
+   *
+   * `exchange` — the Connections mark — is two bars and two chevrons, and
+   * `chevron` used to hardcode `key="chevron"` while every other primitive took
+   * one. So opening the rail on a phone raised React's "Encountered two
+   * children with the same key" over the panel, which is what the owner
+   * photographed. Nothing was missing from the drawing, and that is why it
+   * survived: the only symptom was a red toast in a development build.
+   *
+   * Read off the drawing rather than off the DOM or off React's warning. A key
+   * never reaches the DOM, and React 19 does not warn for this shape on a first
+   * mount — verified before writing this, with the duplicate restored — so a
+   * test that listened for the complaint would pass on the broken code.
+   */
+  test.each(ICON_NAMES)("%s draws no two strokes under one key", (name) => {
+    const keys = strokeKeys(name);
+    expect(keys).toEqual(keys.filter((key, index) => keys.indexOf(key) === index));
+  });
+
   test.each(ICON_NAMES)("%s draws at least one stroke", (name) => {
     // The whole reason `ICON_NAMES` is a value. `draw` is a `switch` with no
     // `default`: a name added to the list and not to the switch renders an

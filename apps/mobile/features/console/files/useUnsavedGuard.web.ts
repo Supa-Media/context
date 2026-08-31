@@ -15,6 +15,14 @@ import { useEffect } from "react";
  * another note, and the console asks before closing a dirty tab. This is the
  * exit the app does not own.
  *
+ * **The draft survives being ignored now, and this prompt is still right.**
+ * `setDraft` writes every keystroke into `features/offline`, so a tab closed
+ * anyway comes back with the text in it. That removes the silent loss and not
+ * the reason to ask: what came back is on *this machine*, and the customer's
+ * bucket is the only place this product treats as real. Somebody closing the
+ * tab believing they had saved should find out while they are still at the
+ * keyboard, and this is the last moment anything can tell them.
+ *
  * ## Why the shape is this and not something nicer
  *
  * `beforeunload` is the only hook a browser gives for this, and it is

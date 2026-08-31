@@ -5,6 +5,7 @@
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { displayName } from "../features/console/files/paths";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -40,6 +41,7 @@ function row(overrides: Partial<TreeRow> & Pick<TreeRow, "path" | "name">): Tree
   return {
     kind: "file",
     key: overrides.path,
+    label: displayName(overrides.name),
     depth: 0,
     expanded: false,
     selected: false,
@@ -104,8 +106,12 @@ function mountTree(options: {
 
   /** The outer row element — the one the gestures are attached to. */
   const rowFor = (name: string): HTMLElement => {
+    // Named by the file's real name and matched against what the row *draws*.
+    // `displayName` strips a `.md` for display only; resolving through it here
+    // keeps this helper from becoming a second opinion about the label.
+    const drawn = displayName(name);
     const label = Array.from(container.querySelectorAll("*")).find(
-      (node) => node.textContent === name && node.children.length === 0,
+      (node) => node.textContent === drawn && node.children.length === 0,
     );
     if (label === undefined) throw new Error(`no row labelled ${name}`);
     let node = label.parentElement;

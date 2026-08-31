@@ -241,14 +241,86 @@ describe("a thumb has to be able to hit it", () => {
     expect(layout.bottomBarHeight).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
   });
 
-  test("the targets share the width evenly rather than sizing to their icons", () => {
+  /**
+   * Evenly sized, by sharing the bar rather than by each setting a width.
+   *
+   * The bar's width is the screen's now, less `layout.bottomBarInset` either
+   * side — see the file comment for why the *inset* is the measurement and the
+   * width is what follows from it — so the targets divide what is inside it.
+   * `flexBasis` is the size each wants; `minWidth` is the floor none may be
+   * squeezed below. What has to hold under every arrangement is that no target
+   * is the size of its icon, which is what this asserts.
+   */
+  test("every target shares the bar evenly, and none is the size of its icon", () => {
     const bar = mountBar(toolbar());
 
     for (const item of toolbar()) {
       const target = bar.need(`bottom-bar-${item.id}`);
+      expect(px(target, "flex-basis")).toBe(layout.bottomBarTarget);
       expect(px(target, "flex-grow")).toBe(1);
-      expect(px(target, "flex-basis")).toBe(0);
     }
+    // And the share each wants is still above the floor, which is the rule the
+    // width has to keep rather than replace.
+    expect(layout.bottomBarTarget).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
+  });
+
+  /**
+   * The reference's own numbers, on the reference's own screen.
+   *
+   * Obsidian's bar runs from 52.0pt to 387.7pt on a 440pt phone: 336pt wide,
+   * with 52pt of note showing on each side.
+   *
+   * **The 52 is what is asserted, because the 52 is what was wrong.** The pass
+   * before this reached the width through the targets — `alignSelf: "center"`
+   * over six fixed boxes — which is only the reference's geometry on a route
+   * that happens to offer six actions. A device found the pill at 78→362 on a
+   * context the reader is a team member of, where there is no New note: same
+   * bar, five targets, 78pt in from an edge the reference puts it 52 from.
+   *
+   * So the inset is the frame's (`AppFrame`'s `bottomBar` slot,
+   * `layout.bottomBarInset`) and the bar stretches into it. The arithmetic that
+   * ties it back to the reference is still here — six targets plus the bar's
+   * padding is 336 — but it is now a statement about how wide the targets want
+   * to be, not about where the bar's edges are.
+   */
+  test("the bar sits 52pt in from each edge, whatever is on it", () => {
+    const bar = mountBar(toolbar(), 440);
+    const style = window.getComputedStyle(bar.need("bottom-bar"));
+
+    // It fills the slot rather than sizing itself; the slot's inset is the
+    // frame's, and `appFrameRender.test.ts` is where that number is asserted
+    // against the frame.
+    expect(style.alignSelf).toBe("stretch");
+    expect(px(bar.need("bottom-bar"), "padding-left")).toBe(layout.bottomBarPad);
+
+    expect(layout.bottomBarInset).toBe(52);
+    // What the reference's inset leaves for the bar, and what six targets at
+    // their natural width come to. They are the same number, which is why 52
+    // and 52 are both in this file.
+    expect(440 - layout.bottomBarInset * 2).toBe(336);
+    expect(toolbar()).toHaveLength(6);
+    expect(toolbar().length * layout.bottomBarTarget + layout.bottomBarPad * 2).toBe(336);
+  });
+
+  /**
+   * A full pill, not a rounded rectangle.
+   *
+   * The reference's extent narrows symmetrically at both ends — 87.7→352pt at
+   * the top edge, 52→387.7 at the middle — which is a corner radius of half the
+   * height. `radii.pill` is that at any height; a fixed 20 on a 66pt bar is a
+   * rectangle with its corners taken off, which is a different object.
+   */
+  test("it is a pill, and it carries no border", () => {
+    const bar = mountBar(toolbar());
+    const style = window.getComputedStyle(bar.need("bottom-bar"));
+
+    expect(Number.parseFloat(style.borderTopLeftRadius)).toBeGreaterThanOrEqual(
+      layout.bottomBarHeight / 2,
+    );
+    // The pale edge in the reference is a shadow. A hairline here would be a
+    // second way of saying the same thing, and a worse one.
+    expect(Number.parseFloat(style.borderTopWidth) || 0).toBe(0);
+    expect(style.boxShadow).not.toBe("");
   });
 
   test("the bar adds no safe-area padding of its own", () => {

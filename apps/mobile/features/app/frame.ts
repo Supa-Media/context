@@ -121,12 +121,21 @@ export interface Regions {
   /** Compact only: the button that pulls the drawer in. */
   drawerToggle: boolean;
   /**
-   * Compact only: the control that pulls the rail in.
+   * Compact only, and only where the file tree is not there to carry it: the
+   * control in the top bar that pulls the rail in.
    *
-   * Unconditional at that density, unlike `drawerToggle`. There is always
-   * somewhere to go — the app-level panes, the other contexts, and the way to
-   * sign out all live in the rail and nowhere else — so a phone without this
-   * is a phone with no navigation at all.
+   * There is always somewhere to go — the app-level panes, the other contexts
+   * and the way to sign out all live in the rail and nowhere else — so a phone
+   * with no route to it is a phone with no navigation at all. What changed is
+   * *where the route is*. Obsidian's top bar is a sidebar toggle and one group
+   * of actions with nothing in the middle, and the vault switcher lives at the
+   * foot of the sidebar. Ours does too: on a route with a tree, `Explorer`'s
+   * `vault` slot carries the switcher and `drawerToggle` is the way to it.
+   *
+   * Map and Connections have no tree and therefore no footer, so the chip stays
+   * in the bar there. `appFrame.test.ts` holds the invariant in the form it now
+   * takes: every compact layout has *some* route to the rail, and this control
+   * exists exactly where the other one does not.
    */
   navToggle: boolean;
 }
@@ -180,7 +189,9 @@ export function regionsFor(
       bottomBar: true,
       statusBar: false,
       drawerToggle: hasExplorer,
-      navToggle: true,
+      // See the field's doc: where there is a tree, its footer is the vault
+      // switcher and the top bar keeps to a toggle and one group of actions.
+      navToggle: !hasExplorer,
     };
   }
 
@@ -304,6 +315,149 @@ export function panelsClearedFor(density: Density, state: FrameState): FrameStat
   if (density === "compact") return state;
   if (!state.drawerOpen && !state.navOpen) return state;
   return { ...state, drawerOpen: false, navOpen: false };
+}
+
+/**
+ * The gap the floating chrome keeps from the bottom of the glass.
+ *
+ * `max`, never a sum: on a notched phone the home indicator's inset is already
+ * a gap, and adding a float on top of it is a bar hovering 68pt above the
+ * indicator. `layout.floatingGap` is the floor, measured off Obsidian, so a
+ * browser window or an un-notched phone gets the reference's 25pt rather than
+ * reading as flush against the edge.
+ *
+ * One function because there are two callers and they must not drift: the
+ * frame reserves this much below its bottom slot, and the keyboard accessory
+ * bar spends the same amount so that it lands exactly where the toolbar it
+ * covers was.
+ */
+export function floatingGapFor(safeAreaBottom: number): number {
+  return Math.max(safeAreaBottom, layout.floatingGap);
+}
+
+/** How much room a surface has to leave at its top and bottom edges. */
+export interface EdgePadding {
+  top: number;
+  bottom: number;
+}
+
+/**
+ * The height of *our own* chrome lying over a surface, at each edge.
+ *
+ * Kept apart from the system's insets and added to them, because they are two
+ * different claims on the same band. A screen's own floating header adds to the
+ * notch; it does not replace it.
+ */
+export interface ChromeHeights {
+  top?: number;
+  bottom?: number;
+}
+
+/**
+ * What a surface owes at each edge, **split by how it has to be paid**.
+ *
+ * The split is the whole point, and it exists because a scroller has two
+ * different top edges. Padding put on the *content* scrolls away with the
+ * content: it decides where the first line rests, and nothing more. Padding put
+ * on the view *around* the scroller shortens the viewport, and that is the only
+ * kind that is still there once somebody has swiped.
+ *
+ * So a number that must hold while scrolling cannot be spent on the content, and
+ * a number that must let its line be brought out from under something cannot be
+ * spent on the viewport. There is one of each.
+ */
+export interface SurfacePadding {
+  /**
+   * Paid **outside** the scroller, where it shortens the viewport.
+   *
+   * The system's furniture at the top of the glass — the status bar and the
+   * Dynamic Island. Content may not be laid out under it at rest *and may not
+   * scroll under it either*: an opaque clock over body text is illegible
+   * whatever put it there, and the platform draws that clock over whatever we
+   * leave beneath it.
+   */
+  viewport: EdgePadding;
+  /**
+   * Paid as **content padding**, where it scrolls.
+   *
+   * Our own floating chrome — the round toggle, the trailing capsule, the
+   * bottom pill — plus the home indicator's own gap at the foot. Content is
+   * *meant* to run under these: that is how Obsidian draws them, and the
+   * giveaway in the reference is body text visible either side of the floating
+   * pill on the lines it covers. What the padding buys is that the first and
+   * last lines can still be brought out from under them, which a shortened
+   * viewport can never do.
+   */
+  content: EdgePadding;
+  /** The two together: what a surface that does not scroll pays as plain padding. */
+  top: number;
+  bottom: number;
+}
+
+/**
+ * **The one place this arithmetic happens.**
+ *
+ * A surface pays for two things at each edge, only one of them is ours, and —
+ * see `SurfacePadding` — they are not paid in the same place:
+ *
+ * - The **system's** top furniture shortens the surface. This is the half that
+ *   was wrong: it used to go on the content container with everything else, so
+ *   every screen was correct at rest and drew its text across the clock the
+ *   moment anybody scrolled. A guard that only checked the resting layout could
+ *   not see it, which is why `safeArea.test.ts` now scrolls.
+ * - **Our** floating chrome is content padding, and stays content padding.
+ *
+ * `framed` is what stops either half being paid twice. Inside `AppFrame`,
+ * `FrameApi.contentInsets` already *is* "the system's insets plus the frame's
+ * own chrome, at whichever density you are at", and `FrameApi.viewportInsets`
+ * names the part of that sum which has to be spent outside the scroller — the
+ * frame is the only thing that knows whether it padded itself down past the
+ * notch (a pointer layout, where the answer is nothing: the frame's own
+ * `paddingTop` already shortened every scroller inside it) or floated its bars
+ * over a full-bleed document (a phone). Outside the frame — `/login`,
+ * `/authorize`, `/welcome`, the invitation and share screens, the landing page
+ * — there is no such answer, and the system's top inset is the whole of what
+ * must be held back from the scroller.
+ *
+ * On the web every number here is zero and this is arithmetic on nothing, which
+ * is why no call site has to ask what platform it is on.
+ */
+export function surfacePadding({
+  systemInsets,
+  frameInsets,
+  frameViewport,
+  framed,
+  chrome = {},
+}: {
+  /** `useSafeAreaInsets()`. Zero on the web. */
+  systemInsets: EdgePadding;
+  /** `useFrame().contentInsets` — the whole sum. Only meaningful when `framed`. */
+  frameInsets: EdgePadding;
+  /** `useFrame().viewportInsets` — the part of it paid outside the scroller. */
+  frameViewport: EdgePadding;
+  /** Whether this surface is inside an `AppFrame` provider. */
+  framed: boolean;
+  chrome?: ChromeHeights;
+}): SurfacePadding {
+  const total = framed ? frameInsets : systemInsets;
+  /*
+    Outside a frame the bottom is left to the content on purpose: the home
+    indicator is a thin translucent bar the platform draws *over* whatever is
+    beneath it, and every one of these screens ends in a control that has to be
+    scrollable clear of it. The top is the opposite — an opaque clock and a
+    camera housing — and it is the edge the verification pass found text under.
+  */
+  const viewport = framed ? frameViewport : { top: systemInsets.top, bottom: 0 };
+  const content = {
+    top: total.top - viewport.top + (chrome.top ?? 0),
+    bottom: total.bottom - viewport.bottom + (chrome.bottom ?? 0),
+  };
+  return {
+    viewport,
+    content,
+    top: viewport.top + content.top,
+    bottom: viewport.bottom + content.bottom,
+  };
 }
 
 /**
