@@ -155,22 +155,84 @@ describe("Browse says so in words, because Browse is where the absence is invisi
     filtered one, which is the single strongest reason this notice exists at
     all and why the *sentence* stays here even though the chip moved up to the
     frame.
+
+    **Once per context, not once per file.** The line used to be drawn on the
+    context root, on every folder and on every note, so the same paragraph was
+    in front of somebody four screens running. It is a fact about the context,
+    so it belongs to the view that is about the context — the one with nothing
+    open. `noteOpen` below is what proves it stops there.
   */
+  const LINE = "Team access";
+
   test("a context you are only a member of gets the sentence", () => {
-    expect(browse(MEMBER_OF)).toContain("invisible here");
+    expect(browseRoot(MEMBER_OF)).toContain(LINE);
   });
 
   test("a context you can edit is told write access did not include it", () => {
     // The conflation `functions/files.ts` exists to prevent, said out loud:
     // being trusted to write is a separate thing from seeing what somebody
     // marked private.
-    expect(browse(EDITOR_OF)).toContain("you can edit this context");
+    expect(browseRoot(EDITOR_OF)).toContain("you can edit this context");
   });
 
   test("your own context carries no notice at all", () => {
-    expect(browse(OWNED)).not.toContain("invisible here");
+    expect(browseRoot(OWNED)).not.toContain(LINE);
+  });
+
+  test("a role that has not loaded is told nothing, rather than assumed filtered", () => {
+    /*
+      The failure this rules out is the one the owner reported as "I am the
+      owner??": a predicate that defaults to "filtered until proven otherwise"
+      would put "Team access" in front of an owner on every cold load, and
+      permanently if the role never arrived.
+
+      Driven through the pane rather than through `tierSentence` alone, because
+      the pure rule was already right and the question is whether the pane can
+      reach a state that renders it anyway.
+    */
+    const loading = { ...atRoot(demoData(MEMBER_OF)), loading: true, contexts: [] } as ConsoleData;
+    expect(mount(() => createElement(BrowsePane, { data: loading })).textContent).not.toContain(
+      LINE,
+    );
+  });
+
+  test("it is not repeated over a note", () => {
+    /*
+      The demo console opens on a note, which is what makes it the right fixture
+      for this: `demoData` is the "inside a file" state and `atRoot` is the
+      context's own view. The line belongs to the second and not the first.
+    */
+    const data = demoData(MEMBER_OF);
+    expect(mount(() => createElement(BrowsePane, { data })).textContent).not.toContain(LINE);
+    expect(
+      mount(() => createElement(BrowsePane, { data: atRoot(data) })).textContent,
+    ).toContain(LINE);
+  });
+
+  test("the line is one line, and the argument for it is not in it", () => {
+    const text = browseRoot(MEMBER_OF);
+    // The sentence that used to travel with it onto every screen.
+    expect(text).not.toContain("Being trusted to write is a separate thing");
+    // The reasoning is still reachable, on the one screen the line is drawn on.
+    expect(text).toContain("Only a context's owner sees their private notes.");
   });
 });
+
+/**
+ * The same console with nothing open — the context's own view.
+ *
+ * The demo hook selects a note on mount, because a picture of the product with
+ * an empty editor in it is a bad picture. This is the other state, which is the
+ * one the tier line is drawn on.
+ */
+function atRoot(data: ConsoleData): ConsoleData {
+  return { ...data, files: { ...data.files, selectedPath: null } };
+}
+
+function browseRoot(contextId: string): string {
+  const data = atRoot(demoData(contextId));
+  return mount(() => createElement(BrowsePane, { data })).textContent ?? "";
+}
 
 describe("the owner's side of the same fact lives with the people it is about", () => {
   test("an owner is told what having members did and did not hand over", () => {

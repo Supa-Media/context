@@ -15,7 +15,7 @@ import { noteHeading } from "../files/frontmatter";
 import { entryAt } from "../files/tree";
 import { atName } from "../format";
 import { selectedContext, type ConsoleData } from "../types";
-import { tierSentence } from "../visibility";
+import { tierExplanation, tierSentence } from "../visibility";
 
 /**
  * Browse — the note, and nothing between you and it.
@@ -116,16 +116,27 @@ export function BrowsePane({
   const noBucket = data.storage === null && !data.loading;
   const manifestBroken = files.listings[""]?.manifestUsable === false;
   /*
-    The one notice here that is not an event.
+    The one notice here that is not an event, and the one that is drawn **once
+    per context rather than once per file**.
 
     Browse is the pane where an absence is invisible: a folder the owner keeps
     private does not appear in the tree, so an editor reading a short list has
-    no way to tell a small context from a filtered one. That is the whole
-    reason this line exists, and it is why it stays up rather than being
-    dismissible — the condition it reports never stops being true. `null` for
-    an owner, and `null` while the role is still loading.
+    no way to tell a small context from a filtered one. That is why the line
+    exists, and why it is not dismissible — the condition it reports never stops
+    being true.
+
+    But it is a fact about the *context*, not about the note in front of you,
+    and it used to be restated on the context root, on every folder and on every
+    note — the same paragraph four screens running. So it belongs to the view
+    that is about the context as a whole, which is the one with nothing open.
+    Inside a note or a folder the chip at the foot of the file tree carries the
+    same claim in the register a standing condition deserves.
+
+    `null` for an owner, and `null` while the role is still loading — by
+    construction in `tierSentence` rather than by a check here; see its comment.
   */
-  const tierNote = tierSentence(current?.role);
+  const tierNote = selected === null ? tierSentence(current?.role) : null;
+  const tierWhy = tierNote === null ? null : tierExplanation(current?.role);
   const hasNotice =
     tierNote !== null ||
     noBucket ||
@@ -155,6 +166,16 @@ export function BrowsePane({
             otherwise cannot tell a small context from a filtered one.
           */}
           <Text variant="hint">{tierNote}</Text>
+          {/*
+            The reasoning, once, under the line that states the fact — and only
+            here, on the one screen this notice is drawn on. It is what the
+            sentence used to carry into every note and folder.
+          */}
+          {tierWhy === null ? null : (
+            <Text variant="treeMeta" style={styles.noticeWhy}>
+              {tierWhy}
+            </Text>
+          )}
         </View>
       ) : null}
 
@@ -562,6 +583,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.hintWash,
     gap: 10,
   },
+  noticeWhy: { color: colors.muted },
   noticeWarn: { borderColor: colors.warnBorder, backgroundColor: colors.warnWash },
   noticeWarnText: { color: colors.warnText },
   dismiss: { alignSelf: "flex-start" },
