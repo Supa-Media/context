@@ -172,6 +172,18 @@ export type EditorAction =
   | { type: "reloaded"; note: OpenNote }
   /** The person chose "keep mine" — rebase the draft onto the current etag. */
   | { type: "conflictOverridden" }
+  /**
+   * The person answered the conflict: this text, over the version they saw.
+   *
+   * Both fields move together and that is the point — the text is what they
+   * approved (the draft as it stood, or a merge they read and edited) and the
+   * etag is the version the review actually read the bucket at. Moving the
+   * text without the etag would write a merge of *their* version against an
+   * etag from before it, which is refused; moving the etag without the text
+   * would write the version being replaced. The save that follows is still an
+   * ordinary conditional write.
+   */
+  | { type: "resolving"; text: string; etag: string | null }
   | { type: "discarded" };
 
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
@@ -341,6 +353,16 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         etag: state.conflictEtag ?? state.etag,
         conflictEtag: undefined,
         draftBase: undefined,
+        message: undefined,
+      };
+
+    case "resolving":
+      if (state.status !== "conflict") return state;
+      return {
+        ...state,
+        draft: action.text,
+        etag: action.etag,
+        conflictEtag: undefined,
         message: undefined,
       };
 

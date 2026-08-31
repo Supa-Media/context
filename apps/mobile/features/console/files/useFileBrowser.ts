@@ -862,9 +862,28 @@ export function useFileBrowser(options: {
         return;
       }
 
-      // The draft becomes what they approved *before* the write, so a refusal
-      // leaves the reviewed text in the editor rather than the text it replaced.
-      dispatch({ type: "edited", text });
+      /*
+        The cache moves onto the version they were shown, and it moves *before*
+        the write rather than after it.
+
+        It is not optimism: at this moment the bucket really did hold that body
+        at that etag — the review read it — and the cache is a mirror of the
+        bucket, so this is the more accurate record either way. What it buys is
+        the next round. If a third writer gets in before this write lands, the
+        refusal comes back with the draft they just approved, whose common
+        ancestor is precisely the version now cached — so the merge is offered
+        again, correctly, instead of the console having to say the ancestor is
+        gone.
+      */
+      const theirs = conflictRef.current?.theirs;
+      if (theirs !== undefined && theirs !== null && etag !== null) {
+        offline.rememberBody({ path, text: theirs, etag });
+      }
+
+      // The draft becomes what they approved, and the etag becomes the version
+      // it is being written over, *before* the write — so a refusal leaves the
+      // reviewed text in the editor rather than the text it replaced.
+      dispatch({ type: "resolving", text, etag });
       performSave(path, text, etag);
     },
     [performSave],
