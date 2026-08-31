@@ -44,7 +44,7 @@
  * before it.
  */
 
-import { describe, expect, jest, test } from "@jest/globals";
+import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { act, createElement } from "react";
@@ -96,22 +96,32 @@ jest.mock("@convex-dev/auth/react", () => ({
 }));
 
 /**
- * The demo console is read-only by design, and one shot needs it not to be.
+ * The demo console is read-only by design, and these shots need it not to be.
  *
- * `useDemoConsoleData` sets `canEdit: false` so a landing-page visitor is never
- * offered a control that would lie. That is right for the landing page and
- * wrong for a picture of the *editing* surface: the keyboard accessory bar only
- * exists while a note is editable and focused. So one flag, read at render, and
- * nothing else about the demo data changes.
+ * `useDemoConsoleData` sets `canEdit: false` so a landing-page *visitor* is
+ * never offered a control that would lie. That is right for the landing page
+ * and wrong for a picture of the product: the surface being measured against
+ * the reference is somebody's own console, where they own the context and can
+ * write to it. Held read-only, half of what is being photographed does not
+ * exist — the keyboard accessory bar is gated on `editable`, the tree's create
+ * verbs on `canEdit`, and the note toolbar's Share on `canShare`.
+ *
+ * So the demo's three capability flags are lifted for the phone shots and
+ * nothing else about the data changes: the same contexts, the same tree, the
+ * same notes. The demo context `@seyi` carries `role: "owner"` already, so this
+ * is the shape the real product hands an owner rather than an invented one.
+ *
+ * The desktop shot is left as-is. It exists to prove a phone change did not
+ * break the pointer layout, and the fewer variables in it the better.
  */
 /*
-  Named `mockEditable` because Jest hoists `jest.mock` above every declaration
-  in the file and refuses a factory that closes over an ordinary local: the
+  Named `mockOwner` because Jest hoists `jest.mock` above every declaration in
+  the file and refuses a factory that closes over an ordinary local: the
   variable would be uninitialised at the moment the factory runs. A `mock`
   prefix is the documented opt-out, on the understanding that the factory is
   only ever *called* lazily — which it is, once React renders.
 */
-let mockEditable = false;
+let mockOwner = false;
 
 jest.mock("../features/console/useLiveConsoleData", () => {
   const { useDemoConsoleData } =
@@ -119,7 +129,11 @@ jest.mock("../features/console/useLiveConsoleData", () => {
   return {
     useLiveConsoleData: () => {
       const data = useDemoConsoleData();
-      return mockEditable ? { ...data, files: { ...data.files, canEdit: true } } : data;
+      if (!mockOwner) return data;
+      return {
+        ...data,
+        files: { ...data.files, canEdit: true, canShare: true, canSetVisibility: true },
+      };
     },
   };
 });
@@ -251,6 +265,18 @@ const find = (container: HTMLElement, testId: string) =>
 /* -------------------------------------------------------------------------- */
 
 describe("design shots", () => {
+  /*
+    Every phone shot is an owner's console — see `mockOwner`. Set once here
+    rather than per test so no shot is quietly taken of a different product
+    than the one beside it.
+  */
+  beforeEach(() => {
+    mockOwner = true;
+  });
+  afterEach(() => {
+    mockOwner = false;
+  });
+
   test("the reading view", () => {
     shoot("context-reading", (container) => {
       // Open a note, so the shot is a document rather than an empty state.
@@ -271,6 +297,9 @@ describe("design shots", () => {
    * phone change shows up as a broken desktop.
    */
   test("the desktop layout still works", () => {
+    // The pointer layout as the landing page ships it: read-only demo data,
+    // one variable fewer. See `mockOwner`.
+    mockOwner = false;
     shoot(
       "context-desktop",
       () => {},
@@ -310,7 +339,6 @@ describe("design shots", () => {
    * which is the part that is ours to get right.
    */
   test("the editing view", () => {
-    mockEditable = true;
     shoot("context-editing", (container) => {
       const row = [...container.querySelectorAll<HTMLElement>('[role="button"]')].find(
         (node) => (node.getAttribute("aria-label") ?? "").endsWith("context-lc"),
@@ -324,7 +352,6 @@ describe("design shots", () => {
         });
       }
     });
-    mockEditable = false;
     expect(true).toBe(true);
   });
 

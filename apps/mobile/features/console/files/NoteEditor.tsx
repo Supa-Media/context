@@ -653,7 +653,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    */
   inlineTitle: {
     paddingHorizontal: layout.readingMargin,
-    marginTop: space.x2,
+    // 20 above, measured: the reference leaves about 33pt between the bottom of
+    // the floating toggle and the top of the title's line box, and
+    // `contentInsets.top` already carries 12 of it.
+    marginTop: space.x5,
     marginBottom: space.x1,
     fontSize: 28,
     lineHeight: 34,

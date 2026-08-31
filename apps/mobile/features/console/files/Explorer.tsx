@@ -959,13 +959,21 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.surface2,
     borderColor: "transparent",
   },
+  /**
+   * A bare glyph at a thumb-sized target.
+   *
+   * No fill. These live in the sidebar's own footer now, where the reference
+   * draws five unfilled marks in a row; a tinted square behind each one turns
+   * that row into three buttons floating on a panel and is the same "one
+   * container too many" the top bar was carrying. The target is still 44 —
+   * what is dropped is the surface, not the reach.
+   */
   iconButtonTouch: {
     width: layout.minTouchTarget,
     height: layout.minTouchTarget,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radii.control,
-    backgroundColor: colors.surface2,
   },
   iconButton: {
     width: 28,

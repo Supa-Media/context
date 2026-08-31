@@ -20,10 +20,23 @@ repo, at the paths cited in the pull request.
 
 | | What it fixes |
 | --- | --- |
-| file explorer | the tree's rhythm, the vault footer, the drawer's height |
-| reading view | paper, type, the floating chrome, the toolbar |
+| file explorer | the tree's rhythm, the vault switcher at its foot, the drawer's height |
+| reading view | paper, type, the floating chrome, the toolbar, the inline title |
 | editing view | the keyboard accessory bar and its dismiss key |
 | long note, mid-scroll | the chrome floating *over* a continuous scroll surface, and the expanded Properties panel |
+
+## The acceptance question
+
+One question, asked of `shots/reading.png`: **can you count more than one row of
+chrome above the note?**
+
+No. There is one transparent row — the sidebar toggle at the leading edge, one
+grouped capsule at the trailing edge, nothing between them — and the note names
+itself with an inline title *inside* the document, which scrolls up behind that
+row. The breadcrumb that used to be the second row is gone from this density;
+the three things it carried are the inline title, a Properties row, and the
+capsule (see the table below, and `__tests__/noteChrome.test.ts`, which asserts
+all three rather than leaving them to the eye).
 
 ## Our side
 
@@ -37,6 +50,17 @@ Playwright at 440×956.
 | `shots/properties.png` | the same note with its Properties panel expanded |
 | `shots/editing.png` | the note focused, with the keyboard accessory bar up |
 | `shots/desktop.png` | the pointer layout at 1440×900 — a regression shot, not a parity one |
+
+The four phone shots are taken of an **owner's** console. `useDemoConsoleData`
+pins `canEdit`, `canShare` and `canSetVisibility` to `false` so a landing-page
+visitor is never offered a control that would lie; held that way, half of what
+is being measured does not exist — the accessory bar is gated on `editable`, the
+tree's create verbs on `canEdit`, the note toolbar's Share on `canShare`. The
+harness lifts those three flags and changes nothing else (`mockOwner` in
+`design-shots.ts`). The demo context `@seyi` already carries `role: "owner"`, so
+this is the shape the product hands an owner, not an invented one. The desktop
+shot keeps the read-only demo — it exists to prove nothing broke, and fewer
+variables is better.
 
 The editing shot has no soft keyboard in it, because a headless browser has
 none. What it shows is the accessory bar and where it lands, which is the half
@@ -87,20 +111,23 @@ not by eye.
 | Bottom bar height | 66pt | 66pt |
 | Bottom bar radius | half the height (~33pt) | `radii.pill` |
 | Bottom bar gap below | ~25pt | `max(safe-area, 25)` |
-| Chrome overlays content | yes | top bar and toolbar absolutely positioned; the scroller is full-bleed and pays for them in content padding |
+| Chrome overlays content | yes | top bar and toolbar absolutely positioned; the scroller is full-bleed and pays for them in content padding at **both** ends, with matching `scrollIndicatorInsets` |
+| Rows of chrome above the note | 1 | 1 — toggle left, one grouped capsule right, nothing between |
+| The note's name | inline title inside the document | inline title, 28/34 bold at `readingMargin`, inside the scroller |
 | Properties, expanded | tinted rounded card, mark + muted key + ink value, `+ Add property` | same, at 15/22 |
+| `visibility` | a Properties row | a Properties row, from the access map rather than the file's own line |
+| Sidebar footer | icon row · vault name + chevron / gear · muted counts line | same, in that order |
 
 ## What is deliberately not matched
 
 Recorded here rather than left to be rediscovered as bugs.
 
-- **The top band carries a breadcrumb; Obsidian's carries nothing.** Obsidian
-  names the note with an inline title inside the document, so its first screen
-  of text scrolls up behind the floating chrome. Ours pins a breadcrumb there
-  because it also carries folder navigation and the visibility chip, neither of
-  which has another home on a phone. The note runs behind the *bottom* chrome as
-  the reference does; the top band is occupied. Removing the breadcrumb in
-  favour of an inline title is a product decision, not a styling one.
+- **The drawer clears the top chrome; Obsidian's sidebar covers it.** The
+  reference slides the sidebar over the note and leaves the toggle on the sliver
+  of editor still showing. Ours keeps the toggle in the top-left corner over the
+  panel, so the panel pays for it with `contentInsets.top` of padding and the
+  tree starts about 40pt lower than the reference's. Same reason the bullet
+  below gives for the toolbar: the verbs stay reachable while the tree is open.
 - **The bottom toolbar stays visible over an open file tree.** Obsidian's
   sidebar covers it. Ours floats above the drawer, which keeps the verbs
   reachable while the tree is open; the drawer pays for it with bottom padding
@@ -111,6 +138,13 @@ Recorded here rather than left to be rediscovered as bugs.
   the same line rewrites somebody's note. Until there is a writer with a
   byte-for-byte round-trip test behind it, the row states where the capability
   will be, dimmed, and says so out loud to a screen reader.
+- **On native, typing past the bottom of a long note may put the caret under
+  the keyboard.** The editor grows inside one page scroller now rather than
+  scrolling itself, which is what lets the inline title and the Properties panel
+  pass behind the chrome — and React Native does not reliably scroll an *outer*
+  `ScrollView` to follow a `TextInput`'s caret. Web has no such gap: CodeMirror
+  grows in place and the browser keeps the caret visible. The fix is the WebView
+  `LiveEditor.tsx` already anticipates.
 - **Drag-to-dismiss is not wired, and cannot be here.** `keyboardDismissMode` is
   a `ScrollView` prop; the editable surface on a phone is a `TextInput` with no
   scroller around it. The accessory bar's dismiss key is therefore the only way
