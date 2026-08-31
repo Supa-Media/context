@@ -8,7 +8,7 @@ import { createRoot } from "react-dom/client";
 import { ConvexError } from "convex/values";
 import type { FileBrowser } from "../features/console/files/browser";
 import type { FolderListing, OpenNote } from "../features/console/files/types";
-import { offerMerge } from "../features/offline/resolution";
+import { checkedAgainst, offerMerge } from "../features/offline/resolution";
 import { MERGE_MARKERS } from "../features/offline/merge";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -379,6 +379,21 @@ describe("what may be offered, as a rule rather than as a screen", () => {
     expect(offer.refusal?.reason).toBe("offline");
   });
 
+  /**
+   * A bucket that cannot do conditional writes must not be described as if it
+   * could — and the claim is driven by the binding's connect-time probe, not by
+   * what the provider declares. `S3Store` says `true` for every S3-compatible
+   * endpoint, including the ones that ignore `If-Match`, so the declared value
+   * is exactly the one that would be a lie here.
+   */
+  test("a weak bucket is told about, and `undefined` claims neither way", () => {
+    expect(checkedAgainst(false)).toContain("cannot do conditional writes");
+    expect(checkedAgainst(false)).toContain("can still be missed");
+    expect(checkedAgainst(true)).not.toContain("cannot do conditional writes");
+    // Still loading. It must not borrow the good case.
+    expect(checkedAgainst(undefined)).toBe(checkedAgainst(true));
+  });
+
   test("every refusal carries a sentence, so none of them can be silent", () => {
     const refusals = [
       offerMerge({ cached: null, draftBase: null, mine: "", theirs: "" }),
@@ -528,6 +543,13 @@ describe("the resolver, drawn", () => {
 
     press(container, "conflict-save-merge");
     expect(saved).toEqual([MERGED]);
+  });
+
+  test("a weak bucket's caveat reaches the screen, on both surfaces", () => {
+    const weak = draw({ ...REVIEW, conditionalWrite: false });
+    expect(weak.textContent).toContain("cannot do conditional writes");
+    press(weak, "conflict-merge");
+    expect(weak.textContent).toContain("cannot do conditional writes");
   });
 
   test("a merge with marked hunks says so, and still lets it be saved once cleaned up", () => {
