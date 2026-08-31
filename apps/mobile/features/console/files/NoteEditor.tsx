@@ -2,7 +2,7 @@ import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native"
 import { densityFor } from "../../app/frame";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { fonts, radii, space } from "../../design/tokens";
+import { fonts, layout, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { saveButton, type EditorState } from "./editor";
 import { LiveEditor } from "./LiveEditor";
@@ -224,7 +224,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   previewCompact: { borderWidth: 0, borderRadius: 0, backgroundColor: "transparent" },
   previewContentCompact: {
     paddingTop: space.x2,
-    paddingHorizontal: space.x5,
+    paddingHorizontal: layout.readingMargin,
     paddingBottom: space.x8,
   },
   codeKey: { color: colors.codeKey },
@@ -241,7 +241,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * it is.
    */
   statusRowCompact: {
-    paddingHorizontal: space.x5,
+    paddingHorizontal: layout.readingMargin,
     paddingTop: space.x2,
     paddingBottom: space.x2,
     backgroundColor: colors.surface,

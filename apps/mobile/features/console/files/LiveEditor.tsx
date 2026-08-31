@@ -44,7 +44,7 @@
 
 import { StyleSheet, TextInput, useWindowDimensions } from "react-native";
 import { densityFor } from "../../app/frame";
-import { fonts, leading, radii, space } from "../../design/tokens";
+import { fonts, layout, leading, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import type { LiveEditorProps } from "./LiveEditor.web";
 
@@ -95,9 +95,11 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   /**
    * See the file comment: the phone reads, it does not inspect.
    *
-   * 16 on a 24 line box in 24 of side padding, measured off Obsidian mobile —
-   * and the same three numbers the web half sets in CSS, because a note that
-   * reflows differently on the two platforms is two documents.
+   * 16 on a 24 line box in `layout.readingMargin` of side padding, measured
+   * off Obsidian mobile — and the same three numbers the web half sets in CSS,
+   * because a note that reflows differently on the two platforms is two
+   * documents. The margin is a token because four other bands have to line up
+   * with the first character of this text; see `readingMargin`.
    */
   reading: {
     borderWidth: 0,
@@ -108,7 +110,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontSize: 16,
     lineHeight: leading(16, 1.5),
     paddingTop: space.x2,
-    paddingHorizontal: space.x6,
+    paddingHorizontal: layout.readingMargin,
     paddingBottom: space.x8,
   },
 });

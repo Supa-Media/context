@@ -241,14 +241,45 @@ describe("a thumb has to be able to hit it", () => {
     expect(layout.bottomBarHeight).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
   });
 
-  test("the targets share the width evenly rather than sizing to their icons", () => {
+  /**
+   * Evenly sized, and no longer evenly *spread*.
+   *
+   * The targets used to be `flex: 1` so they shared the whole width of a
+   * full-bleed bar. The bar is a content-width pill now — measured off
+   * Obsidian, about 315pt on a 440pt screen rather than 420 — so evenness comes
+   * from every target being the same fixed box instead of the same fraction of
+   * however wide the phone is. What has to hold either way is that no target is
+   * the size of its icon, which is what this asserts.
+   */
+  test("every target is the same fixed box, not the size of its icon", () => {
     const bar = mountBar(toolbar());
 
     for (const item of toolbar()) {
       const target = bar.need(`bottom-bar-${item.id}`);
-      expect(px(target, "flex-grow")).toBe(1);
-      expect(px(target, "flex-basis")).toBe(0);
+      expect(px(target, "width")).toBe(MIN_TOUCH_TARGET);
+      expect(px(target, "flex-grow")).toBe(0);
+      expect(px(target, "flex-shrink")).toBe(0);
     }
+  });
+
+  /**
+   * And the bar itself is narrower than the screen, which is the point of all
+   * of the above.
+   *
+   * A pill that reaches within ten points of both edges is an edge with rounded
+   * corners. The reference leaves the note showing either side of it, and that
+   * gap is most of what reads as "floating".
+   */
+  test("the bar is content width, so the note shows either side of it", () => {
+    const bar = mountBar(toolbar(), 440);
+    const style = window.getComputedStyle(bar.need("bottom-bar"));
+
+    expect(style.alignSelf).toBe("center");
+    // Six 44pt targets plus `space.x2` either side. Asserted as the sum rather
+    // than as a literal so adding a seventh action fails here loudly instead of
+    // silently widening the pill past the measurement it was drawn to.
+    expect(px(bar.need("bottom-bar"), "padding-left")).toBe(8);
+    expect(toolbar().length * MIN_TOUCH_TARGET + 16).toBeLessThan(440);
   });
 
   test("the bar adds no safe-area padding of its own", () => {

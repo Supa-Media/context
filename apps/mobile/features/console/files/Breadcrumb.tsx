@@ -3,7 +3,7 @@ import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { densityFor } from "../../app/frame";
 import { PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { fonts, radii, space } from "../../design/tokens";
+import { fonts, layout, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { baseName } from "./paths";
 import type { Visibility } from "./types";
@@ -203,8 +203,18 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   /** See the file comment. */
   barCompact: {
-    paddingHorizontal: space.x5,
-    paddingTop: 0,
+    paddingHorizontal: layout.readingMargin,
+    /*
+      Vertical padding, not zero.
+
+      It was zero so the line would sit tight under the top bar, and it is what
+      made Share collide with the breadcrumb: the row has no height of its own,
+      the crumb contributes about 17pt of type, and `Button` brings 6pt of
+      padding either side — so the button was the tallest thing in a row with
+      no room for it and overflowed both ways. The height is reserved here now
+      and `BrowsePane.noteHead` holds the floor; see its comment.
+    */
+    paddingTop: 2,
     paddingBottom: space.x2,
     borderBottomWidth: 0,
     backgroundColor: "transparent",

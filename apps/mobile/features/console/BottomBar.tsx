@@ -30,6 +30,20 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../design
  * what makes one look like a phone application and the other like a window
  * that got narrow.
  *
+ * The first pass at that inset it from the edges by ten points, which is a
+ * 420pt plank on a 440pt screen: near enough to the full width that it still
+ * reads as an edge, just one with rounded corners. Measured off the reference,
+ * Obsidian's is about 315pt on the same screen — the controls at their own
+ * size, centred, with the note showing either side. So the bar is sized by its
+ * contents (`alignSelf: "center"`) rather than by a margin, and the gap either
+ * side is whatever is left.
+ *
+ * That is deliberately **not** the flush, hairline-topped bar an earlier plan
+ * called for. The reference is unambiguous on this point — reading view and
+ * editing view both show a floating rounded pill with a shadow, well clear of
+ * the screen edges — and where a written instruction and the screenshot
+ * disagree, the screenshot is the specification.
+ *
  * The frame still *reserves* the room (`AppFrame`'s `bottomBar` slot, plus
  * `layout.floatingInset` twice) rather than letting the document run beneath
  * it. Obsidian overlays and pays for it with bottom padding inside its
@@ -267,24 +281,43 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     alignItems: "stretch",
     paddingHorizontal: space.x2,
     /*
-      The inset that makes this an object rather than an edge. It is a margin
-      rather than padding on the slot above so that the *bar* stays exactly
-      `bottomBarHeight` tall — the number `frame.ts` reserves and the test
-      asserts — while the room it floats in grows around it.
+      It is as wide as what is on it, and centred — not a slab across the glass.
 
-      Horizontal only. The bottom edge belongs to `AppFrame`, which is the one
-      that knows the safe-area inset; see the file comment.
+      This used to stretch to the full width minus `floatingInset`, which on a
+      440pt screen is a 420pt white plank with six icons spread across it: an
+      object so nearly the width of its container that it reads as an *edge*
+      with rounded corners rather than as something lying on the note. Measured
+      off the reference, Obsidian's is about 315pt on the same screen — six
+      controls at their own size, centred, with the note visible either side of
+      it. That gap is most of what makes one look like it is floating.
+
+      Nothing horizontal is set at all now: `alignSelf: "center"` sizes the bar
+      to its content, so the inset either side is whatever is left over, and
+      there is no number to keep in step with the number of actions on the bar.
+      The bottom edge still belongs to `AppFrame`, which is the one that knows
+      the safe-area inset; see the file comment.
     */
-    marginHorizontal: layout.floatingInset,
+    alignSelf: "center",
+    maxWidth: "100%",
     borderRadius: radii.floating,
     backgroundColor: colors.chrome,
     boxShadow: shadows.floating,
   },
 
+  /**
+   * One target, at its own size rather than at a share of the screen.
+   *
+   * `flex: 1` was what "evenly distributed" meant while the bar was full
+   * width. A content-width bar distributes them by giving each the same fixed
+   * box, which is the same evenness with none of the dependence on how wide the
+   * phone is — and it is what lets the bar itself be as wide as what is on it.
+   * The floor is still the floor: this *is* `MIN_TOUCH_TARGET` on both axes,
+   * and the bar is taller again so every target clears it with room to spare.
+   */
   target: {
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: 0,
+    flexGrow: 0,
+    flexShrink: 0,
+    width: MIN_TOUCH_TARGET,
     minWidth: MIN_TOUCH_TARGET,
     minHeight: MIN_TOUCH_TARGET,
     alignItems: "center",

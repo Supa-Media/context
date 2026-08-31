@@ -3,7 +3,7 @@ import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { densityFor } from "../../app/frame";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { radii, space } from "../../design/tokens";
+import { layout, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { Breadcrumb } from "../files/Breadcrumb";
 import { FolderView } from "../files/FolderView";
@@ -115,7 +115,7 @@ export function BrowsePane({
         thing on screen that names it.
       */}
       {selected !== null ? (
-        <View style={styles.noteHead}>
+        <View style={[styles.noteHead, compact && styles.noteHeadCompact]}>
           <View style={styles.crumb}>
             <Breadcrumb
               path={selected.path}
@@ -155,6 +155,7 @@ export function BrowsePane({
             <Button
               label="Share…"
               onPress={() => setSharing(selected.path)}
+              style={styles.share}
               testID="browse-share"
             />
           ) : null}
@@ -361,14 +362,50 @@ function Empty({ contextLabel }: { contextLabel: string }) {
 const makeStyles = (colors: Colors) => StyleSheet.create({
   /** The editor region: chrome on its top edge, the document filling the rest. */
   region: { flex: 1, minHeight: 0 },
-  /** The breadcrumb takes the room it needs; Share sits at the end of the line. */
-  noteHead: { flexDirection: "row", alignItems: "center", gap: space.x2 },
+  /**
+   * The breadcrumb takes the room it needs; Share sits at the end of the line.
+   *
+   * **The row reserves its own height, and that is the whole fix for an
+   * overlap that looked like a stacking bug.** Share was drawing on top of the
+   * note's name, and the cause was not z-index: this row had no vertical
+   * padding, `Breadcrumb.barCompact` zeroed its own `paddingTop`, and `Button`
+   * brings `paddingVertical: 6`. So the row's height was the crumb's line box —
+   * shorter than the button inside it — and the button overflowed in both
+   * directions onto whatever was drawn next. A row that is at least as tall as
+   * the tallest thing in it cannot overlap anything.
+   *
+   * `minHeight` rather than a fixed height: the crumb is one line today and a
+   * longer context name is one word from being two.
+   */
+  noteHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.x2,
+    minHeight: layout.minTouchTarget,
+  },
+  /**
+   * The breadcrumb yields first.
+   *
+   * `flexShrink: 1` with `minWidth: 0` is what lets the path ellipsise; the
+   * button carries `flexShrink: 0` so it is never the thing that gives. The
+   * other way round, a long path squeezed "Share…" to "Sha…", which is a
+   * control nobody presses on the theory that it might do something else.
+   */
+  /**
+   * The trailing margin the breadcrumb carries and Share does not.
+   *
+   * `Breadcrumb.barCompact` pads itself to `layout.readingMargin` so the path
+   * lines up with the first character of the note. Share sits outside that
+   * `View`, so without this it hangs on the edge of the glass.
+   */
+  noteHeadCompact: { paddingRight: layout.readingMargin },
   crumb: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
+  share: { flexGrow: 0, flexShrink: 0 },
   body: { flex: 1, minHeight: 0, padding: space.x4 },
   bodyCompact: { padding: 0 },
 
   notices: { paddingHorizontal: space.x4, paddingTop: space.x3, gap: space.x2 },
-  noticesCompact: { paddingHorizontal: space.x5, paddingTop: space.x2 },
+  noticesCompact: { paddingHorizontal: layout.readingMargin, paddingTop: space.x2 },
   notice: {
     paddingVertical: 12,
     paddingHorizontal: 15,
