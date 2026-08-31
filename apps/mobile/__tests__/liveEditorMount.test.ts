@@ -28,7 +28,7 @@ import { act } from "react";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { EditorView } from "@codemirror/view";
-import { deleteCharBackward } from "@codemirror/commands";
+import { deleteCharBackward, insertNewline } from "@codemirror/commands";
 import { LiveEditor } from "../features/console/files/LiveEditor.web";
 
 /**
@@ -212,10 +212,39 @@ describe("editability", () => {
      * editability by replacing the whole configuration — which an earlier draft
      * did — silently rebuilds the update listener and detaches typing from
      * `onChange`. A compartment swaps one facet and leaves the listener alone,
-     * so a programmatic change still reports.
+     * so a change still reports after the swap.
+     *
+     * It used to make that change while read-only, which read as the tidier
+     * test and stopped being possible when `editability` grew a `changeFilter`:
+     * a read-only note now refuses the change itself, so an `onChange` after it
+     * would mean the gate had failed rather than that the listener had
+     * survived. Toggling back exercises the compartment twice instead, which is
+     * the same claim proved harder.
      */
+    m.update({ editable: true });
     view.dispatch({ changes: { from: 0, insert: "more " } });
-    expect(m.changes.length).toBeGreaterThan(0);
+    expect(m.changes).toEqual(["more text"]);
+    m.unmount();
+  });
+
+  /**
+   * The other half of the `changeFilter`, on the surface it was written for.
+   *
+   * `EditorState.readOnly` is what `@codemirror/view`'s drop, paste and cut
+   * handlers consult, and it is what `deleteCharBackward` consults — but it is
+   * a convention rather than a gate, and `@codemirror/commands` breaks it
+   * itself: `insertNewline` replaces the selection and returns `true` without
+   * looking. The filter is what makes "read-only" mean the document.
+   */
+  test("and nothing at all can change a read-only document", () => {
+    const m = mount({ value: "text", editable: false });
+    const view = viewIn(m.container);
+
+    insertNewline(view);
+    view.dispatch({ changes: { from: 0, insert: "INJECTED" } });
+
+    expect(view.state.doc.toString()).toBe("text");
+    expect(m.changes).toEqual([]);
     m.unmount();
   });
 });

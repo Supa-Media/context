@@ -2,10 +2,12 @@
  * The Live Preview editor, on web.
  *
  * A thin, deliberately boring shell around CodeMirror. Everything interesting
- * about how the document is drawn lives in `livePreview.ts`, which is pure and
- * tested; this file exists to solve exactly one hard problem, which is keeping
- * a mutable editor instance and React's idea of the world in agreement without
- * either of them fighting the other.
+ * about how the document is drawn lives in `livePreview.ts` and everything
+ * about how the editor behaves lives in `editorSetup.ts` — both pure, both
+ * tested, and `editorSetup.ts` shared verbatim with the iOS half, which runs
+ * the same configuration inside a `WebView`. This file exists to solve exactly
+ * one hard problem, which is keeping a mutable editor instance and React's idea
+ * of the world in agreement without either of them fighting the other.
  *
  * ## The two directions, and why they are not symmetrical
  *
@@ -36,10 +38,10 @@
  */
 
 import { useEffect, useRef } from "react";
-import { Compartment, EditorState, type Extension } from "@codemirror/state";
-import { EditorView, keymap, placeholder } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { livePreview, livePreviewStyles, markdownLanguage } from "./livePreview";
+import { Compartment } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
+import { livePreviewStyles } from "./livePreview";
+import { editability, editorStateFor, externalDoc, type HandlerRef } from "./editorSetup";
 import { fonts, layout } from "../../design/tokens";
 import { useColors, type Colors } from "../../design/theme";
 
@@ -138,33 +140,6 @@ ${livePreviewStyles}
   if (fresh) document.head.appendChild(style);
 }
 
-/**
- * Both halves of "you may not write this", which are not the same facet.
- *
- * `EditorView.editable` drops `contenteditable`, and CodeMirror's own doc for
- * it says outright that it "doesn't affect API calls that change the editor
- * content, even when those are bound to keys or buttons. See the `readOnly`
- * facet for that." Setting only the first leaves every editing command, the
- * `Mod-s` binding and the drop handler live on a surface that looks inert.
- *
- * `readOnly` here is the VIEWER's clearance, which is a different question from
- * `OpenNote.readOnly` — that one is `key === PRIVACY_KEY`, a fact about the
- * file and never about the person. A member reading a note they cannot write
- * arrives as `editable: false`, and nothing further down stops them: the editor
- * goes dirty, the bottom bar's Save is gated on the draft being dirty rather
- * than on `canEdit`, and `save()` guards on the manifest rather than on
- * clearance. The server refuses the write, so what this costs is a note that
- * silently diverges on screen and a Save that lights up to fail — "a Save
- * button that always fails is worse than no Save button".
- *
- * It also restores `aria-readonly`, which CodeMirror emits only for the facet.
- * Without it the surface announces itself editable to a screen reader, which is
- * the one reader with no other way to tell.
- */
-function editability(editable: boolean): Extension {
-  return [EditorView.editable.of(editable), EditorState.readOnly.of(!editable)];
-}
-
 export function LiveEditor({
   value,
   editable,
@@ -221,53 +196,35 @@ export function LiveEditor({
   useEffect(() => {
     if (host.current === null) return;
 
-    const compartment = editableCompartment.current;
-    const state = EditorState.create({
-      doc: value,
-      extensions: [
-        markdownLanguage(),
-        livePreview(),
-        history(),
-        EditorView.lineWrapping,
-        placeholder("Write in markdown…"),
-        compartment.of(editability(editable)),
-        keymap.of([
-          {
-            key: "Mod-s",
-            // Returning `true` marks the key handled, so the browser's own
-            // "Save Page" dialog never opens over the app. **Both branches
-            // below return `true` for that reason**, and the first version of
-            // the read-only gate returned `false` — which handed ⌘S back to
-            // the browser on exactly the notes a viewer is most likely to be
-            // reading rather than writing, and made this comment untrue three
-            // lines under it. `privacy.md` came out strictly worse than before:
-            // `save()` already refused it, so the keystroke used to do nothing
-            // AND swallow the dialog, and briefly did nothing AND open it.
-            //
-            // CodeMirror calls `preventDefault()` only on a truthy return
-            // (`@codemirror/view` `runHandlers`), and a binding's own
-            // `preventDefault` defaults to false, so `false` here is a real
-            // browser dialog rather than a nicety.
-            run: (target) => {
-              // Not a save on a note this viewer may not write. `editable` is
-              // captured by the effect that built this keymap, so the facet is
-              // read off the live state instead — the compartment reconfigures,
-              // the closure does not.
-              if (target.state.readOnly) return true;
-              handlers.current.onSave();
-              return true;
-            },
-          },
-          ...historyKeymap,
-          ...defaultKeymap,
-        ]),
-        EditorView.updateListener.of((update) => {
-          if (!update.docChanged) return;
-          const text = update.state.doc.toString();
+    /**
+     * The configuration lives in `editorSetup.ts`, shared with the iOS half.
+     *
+     * It used to be written out here, which was right while web was the only
+     * surface with a Live Preview. It stopped being right the day
+     * `LiveEditor.tsx` became the same CodeMirror inside a `WebView`: two copies
+     * of the read-only facets, the `Mod-s` gate and the update listener are two
+     * copies to fix, and each half's tests would keep passing while they
+     * drifted.
+     */
+    // `onChange` is wrapped rather than passed straight through: this half also
+    // has to record what the editor now holds, which is what the effect below
+    // compares an incoming `value` against. (The iOS half keeps the same fact
+    // in `createHostBridge`, for the same reason and under the same name.)
+    const bridged: HandlerRef = {
+      current: {
+        onChange: (text: string) => {
           latestValue.current = text;
           handlers.current.onChange(text);
-        }),
-      ],
+        },
+        onSave: () => handlers.current.onSave(),
+      },
+    };
+
+    const state = editorStateFor({
+      doc: value,
+      editable,
+      editableCompartment: editableCompartment.current,
+      handlers: bridged,
     });
 
     const created = new EditorView({ state, parent: host.current });
@@ -296,6 +253,10 @@ export function LiveEditor({
     latestValue.current = value;
     current.dispatch({
       changes: { from: 0, to: current.state.doc.length, insert: value },
+      // Not an edit — a different note, a discarded draft, a resolved conflict.
+      // Without the annotation this reports itself back through `onChange`, and
+      // a read-only note refuses it and opens blank. See `externalDoc`.
+      annotations: externalDoc.of(true),
     });
   }, [value]);
 
