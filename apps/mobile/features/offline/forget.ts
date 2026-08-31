@@ -61,7 +61,7 @@ import { openStore } from "./store";
  * other way — and a store that lies about its own keys cannot be checked from
  * here at all, which is stated rather than defended against.
  *
- * Anything but `cleared` is warned about once, with a count and no path and no
+ * A `left-behind` verdict is warned about once; `unmeasured` is not, because there is nothing to report about a store that holds nothing durable, with a count and no path and no
  * note text — the same rule that keeps note content out of structured logs. A
  * log is the only channel that outlives the screen: by the time this answers,
  * the session is over and the console is being replaced, so there is nobody
@@ -140,18 +140,21 @@ function warnStoreSilent(what: string): void {
  * cleared, because a two-second handle left dangling on every sign-out is a
  * two-second handle holding the process open in every test that presses one.
  */
-async function withDeadline(
-  work: Promise<ForgetResult>,
+const NOTHING_WAITING: OutboxCounts = { pending: 0, conflicted: 0, rejected: 0 };
+
+async function withDeadline<T>(
+  work: Promise<T>,
   what: string,
-): Promise<ForgetResult> {
+  whenSilent: () => T,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       work,
-      new Promise<ForgetResult>((resolve) => {
+      new Promise<T>((resolve) => {
         timer = setTimeout(() => {
           warnStoreSilent(what);
-          resolve({ verdict: "unmeasured" });
+          resolve(whenSilent());
         }, CLEAR_DEADLINE_MS);
       }),
     ]);
@@ -173,7 +176,7 @@ async function withDeadline(
  */
 export async function forgetLocalCopies(): Promise<ForgetResult> {
   endSession();
-  return withDeadline(clearEverything(), "sign-out");
+  return withDeadline(clearEverything(), "sign-out", () => ({ verdict: "unmeasured" }));
 }
 
 async function clearEverything(): Promise<ForgetResult> {
@@ -224,7 +227,7 @@ async function clearEverything(): Promise<ForgetResult> {
  * function, and every such read is stamped with the copy's age on screen.
  */
 export async function forgetContextCopies(workspaceId: string): Promise<ForgetResult> {
-  return withDeadline(clearContext(workspaceId), "leave");
+  return withDeadline(clearContext(workspaceId), "leave", () => ({ verdict: "unmeasured" }));
 }
 
 async function clearContext(workspaceId: string): Promise<ForgetResult> {
@@ -257,12 +260,24 @@ async function clearContext(workspaceId: string): Promise<ForgetResult> {
 export async function unsentOnDevice(
   exceptQueueIn: string | null,
 ): Promise<OutboxCounts> {
+  /*
+    Bounded for the same reason the clear is, and the ordering is why it
+    matters: `onSignOut` awaits this *first*, so an unbounded count would hang
+    the button before the clear's own deadline could ever be reached. A store
+    that throws was already handled below; a store that simply never answers is
+    the other half, and on native these are bridge calls — `forget.ts` draws
+    exactly that distinction one paragraph up and then this call ignored it.
+  */
   try {
-    return await waitingOnDevice(openStore(), exceptQueueIn);
+    return await withDeadline(
+      waitingOnDevice(openStore(), exceptQueueIn),
+      "the count of unsent work",
+      () => NOTHING_WAITING,
+    );
   } catch {
     // A count that could not be read is reported as nothing waiting rather
     // than as a fabricated number. It makes the warning a floor, which is the
     // direction the note census fails in too.
-    return { pending: 0, conflicted: 0, rejected: 0 };
+    return NOTHING_WAITING;
   }
 }

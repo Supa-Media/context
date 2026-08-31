@@ -267,4 +267,33 @@ describe("counting what is waiting on a store that will not answer", () => {
 
     expect(await unsentOnDevice(null)).toEqual({ pending: 0, conflicted: 0, rejected: 0 });
   });
+
+  test("and one that never answers is bounded too, because it runs first", async () => {
+    /*
+      The other half, and the ordering is the whole point. `onSignOut` awaits
+      the count *before* the clear, so an unbounded count hangs the button
+      before the clear's own deadline can ever be reached — putting the failure
+      that deadline exists for one call earlier, on the same press. A store
+      that throws is the case above; a wedged bridge does not throw, it goes
+      quiet, and this file's own paragraph on the clear draws exactly that
+      distinction.
+    */
+    jest.useFakeTimers();
+    mockOpened = store({ keys: () => new Promise<string[]>(() => {}) });
+
+    const counting = unsentOnDevice(null);
+    let answered = false;
+    void counting.then(() => {
+      answered = true;
+    });
+
+    await jest.advanceTimersByTimeAsync(CLEAR_DEADLINE_MS - 1);
+    expect(answered).toBe(false);
+
+    await jest.advanceTimersByTimeAsync(1);
+    expect(await counting).toEqual({ pending: 0, conflicted: 0, rejected: 0 });
+    expect(warnings).toEqual([
+      "[offline] the count of unsent work: this device's store did not answer in time",
+    ]);
+  });
 });
