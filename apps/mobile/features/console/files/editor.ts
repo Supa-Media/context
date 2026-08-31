@@ -63,6 +63,22 @@ export interface EditorState {
   message?: string;
   /** On a conflict: the etag that is actually current, so a save can be forced. */
   conflictEtag?: string;
+  /**
+   * On a conflict: the etag this draft was **typed against**.
+   *
+   * Not the same as `etag`, and the difference is what makes a three-way merge
+   * possible. `etag` is what the next save will be checked against, and it
+   * moves — a note reopened after a queued write conflicted carries the etag it
+   * was just read at. This one does not move: it names the version that is the
+   * *common ancestor* of the draft and whatever is in the bucket now, which is
+   * the version the read cache may still be holding a body for.
+   *
+   * Carried on the state rather than looked up, because the two places a
+   * conflict arrives from know it and nothing downstream can recover it: a
+   * refused save knows it was the etag it sent, and a restored draft knows it
+   * from the queue entry it came out of.
+   */
+  draftBase?: string | null;
   /** How the last successful save checked for conflicts. */
   conflictCheck?: ConflictCheck;
   /**
@@ -94,6 +110,13 @@ export interface RestoredDraft {
   message?: string;
   /** On a conflict: the etag that is actually current. */
   conflictEtag?: string;
+  /**
+   * The etag this text was typed against — the ancestor a merge needs.
+   *
+   * Distinct from `conflictEtag`, which is the version that superseded it.
+   * `undefined` for a restore that is not a conflict.
+   */
+  baseEtag?: string | null;
 }
 
 export const emptyEditor: EditorState = {
@@ -177,6 +200,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         draft: action.restored.text,
         message: action.restored.message ?? action.notice,
         conflictEtag: action.restored.conflictEtag,
+        draftBase: action.restored.baseEtag,
       };
     }
 
@@ -215,7 +239,13 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
 
     case "saveQueued":
-      return { ...state, status: "queued", message: action.message, conflictEtag: undefined };
+      return {
+        ...state,
+        status: "queued",
+        message: action.message,
+        conflictEtag: undefined,
+        draftBase: undefined,
+      };
 
     case "queueSettled":
       /*
@@ -233,6 +263,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         etag: action.etag,
         fromCache: undefined,
         conflictEtag: undefined,
+        draftBase: undefined,
         message: "Saved. That was waiting for a connection.",
       };
 
@@ -248,6 +279,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         etag: action.etag,
         conflictCheck: action.conflictCheck,
         conflictEtag: undefined,
+        draftBase: undefined,
         message:
           action.conflictCheck === "read-compare"
             ? "Saved. This bucket does not enforce conditional writes, so conflict detection is best-effort."
@@ -263,6 +295,14 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
           // typed because somebody else saved first is the worst outcome
           // available here.
           conflictEtag: action.error.currentEtag,
+          /*
+            The etag this save was made against is the ancestor of both sides:
+            it is what the draft was typed on top of, and it is what the bucket
+            held until somebody else replaced it. Captured here because this is
+            the last moment anything knows it — `etag` moves on the next
+            reload, and the cache is keyed by it.
+          */
+          draftBase: state.etag,
           message: action.error.message,
         };
       }
@@ -300,6 +340,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         status: "dirty",
         etag: state.conflictEtag ?? state.etag,
         conflictEtag: undefined,
+        draftBase: undefined,
         message: undefined,
       };
 
@@ -309,6 +350,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         status: "clean",
         draft: state.baseline,
         conflictEtag: undefined,
+        draftBase: undefined,
         message: undefined,
       };
   }

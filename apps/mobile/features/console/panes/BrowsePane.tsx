@@ -6,6 +6,7 @@ import { Text } from "../../design/components/Text";
 import { radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { Breadcrumb } from "../files/Breadcrumb";
+import { ConflictResolver } from "../files/ConflictResolver";
 import { FolderView } from "../files/FolderView";
 import { NoteEditor } from "../files/NoteEditor";
 import { ShareDialog } from "../files/ShareDialog";
@@ -318,6 +319,30 @@ export function BrowsePane({
             }
             onSelect={files.select}
             onShare={() => setSharing(selected.path)}
+          />
+        ) : files.conflict !== null && files.conflict.path === selected.path ? (
+          /*
+            A conflict takes the region.
+
+            Not a strip under the note and not a modal over it: answering one
+            means reading two versions and, where a merge is possible, editing
+            a proposed third before anything is saved. That is a document-sized
+            surface, and putting it anywhere but here would mean two places to
+            make one decision.
+
+            Pinned to `selected.path` for the reason the share dialog above is:
+            this pane is reconciled with no `key` across a context switch, and a
+            resolver still showing the previous note's two versions would offer
+            to write one of them at the path now selected.
+
+            Everything else stays reachable — the tree, the tabs and the rail
+            are outside this region — so the conflict never strands anybody on
+            a train the way blocking the whole editor would.
+          */
+          <ConflictResolver
+            review={files.conflict}
+            onKeepTheirs={files.useTheirs}
+            onResolveWith={files.resolveWith}
           />
         ) : (
           <NoteEditor

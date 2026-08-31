@@ -113,6 +113,8 @@ function dataWith(over: Partial<FileBrowser> = {}, entry: Partial<FolderListing[
     save: () => {},
     useTheirs: () => {},
     keepMine: () => {},
+    conflict: null,
+    resolveWith: () => {},
     discard: () => {},
     notice: null,
     dismissNotice: () => {},

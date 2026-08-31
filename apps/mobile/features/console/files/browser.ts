@@ -30,6 +30,7 @@ import type { NoteShare } from "./shares";
 import type { ToastSpec } from "../../design/components/Toast";
 import type { FileError, FolderListing, Visibility } from "./types";
 import type { SyncFacts } from "../../offline/copy";
+import type { ConflictReview } from "./useConflictReview";
 
 /** What one search found, and whether there was an index to find it in. */
 export interface SearchAnswer {
@@ -94,10 +95,31 @@ export interface FileBrowser {
   editor: EditorState;
   setDraft: (text: string) => void;
   save: () => void;
-  /** Take the version that is on the server, discarding this draft. */
+  /** Take the version that is on the server, discarding this draft. Writes nothing. */
   useTheirs: () => void;
   /** Keep this draft and save it over theirs, on the etag that is now current. */
   keepMine: () => void;
+
+  /**
+   * Both sides of the open note's conflict, and a merge of them where one can
+   * honestly be made. `null` when the open note is not in conflict.
+   *
+   * Reading it writes nothing to the customer's bucket — it reads the other
+   * side so a person can see what they are choosing between. Every write is
+   * behind `resolveWith` or `useTheirs`.
+   */
+  conflict: ConflictReview | null;
+
+  /**
+   * Answer the conflict with this text: the draft as it stands, or a merge the
+   * person has read and approved.
+   *
+   * Conditional on the version the review actually showed them. A note somebody
+   * else has moved again since comes back as a fresh conflict rather than being
+   * forced through, and offline it goes back into the queue carrying the same
+   * etag, to be checked at drain time.
+   */
+  resolveWith: (text: string) => void;
   discard: () => void;
 
   /**

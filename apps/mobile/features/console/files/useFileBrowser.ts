@@ -20,6 +20,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { ConvexError } from "convex/values";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
@@ -52,6 +53,8 @@ import { restoreFor } from "../../offline/restore";
 import { classifyWriteFailure, type WriteOutcome } from "../../offline/sync";
 import type { PendingWrite } from "../../offline/outbox";
 import { NOT_CACHED, cachedNotice } from "../../offline/copy";
+import { KEEP_MINE_OFFLINE } from "../../offline/resolution";
+import { useConflictReview } from "./useConflictReview";
 import { findEntry, foldersToRefresh, namesIn } from "./tree";
 import type { FolderListing, OpenNote, Visibility } from "./types";
 import { canResetPrivacy, canSetVisibility, canShare } from "../capabilities";
@@ -275,6 +278,35 @@ export function useFileBrowser(options: {
   */
   const offlineRef = useRef(offline);
   offlineRef.current = offline;
+
+  /**
+   * Read a note **without** remembering it.
+   *
+   * The one caller is the conflict review, and the omission is the point: the
+   * cache is holding the *ancestor* of the two versions being decided between,
+   * and remembering the bucket's newer body over it would destroy the only
+   * thing that makes a three-way merge possible. Every other read in this file
+   * goes through `openNote`, which does remember.
+   */
+  const fetchNote = useCallback(
+    async (path: string): Promise<OpenNote> => {
+      if (workspaceId === null) throw new ConvexError({ code: "UNKNOWN", message: "No context." });
+      return readNote({ workspaceId, path });
+    },
+    [readNote, workspaceId],
+  );
+
+  const conflict = useConflictReview({
+    editor,
+    fetchNote,
+    cachedNote: offline.cachedNote,
+    // `unknown` is treated as online: the read is what finds out, and refusing
+    // to try would leave a cold load stuck on "cannot be read" forever.
+    online: offline.reachability !== "offline",
+    conditionalWrite: options.conditionalWrite,
+  });
+  const conflictRef = useRef(conflict);
+  conflictRef.current = conflict;
 
   /**
    * Reload folders, from the bucket where it can be reached and from the device
@@ -657,6 +689,121 @@ export function useFileBrowser(options: {
   );
 
   /**
+   * One conditional write, whatever asked for it.
+   *
+   * **The path, the text and the etag are arguments rather than reads off
+   * `editorRef`, and that is the whole reason this exists separately from
+   * `save`.** A conflict answer has to write text the editor has only just been
+   * told about, against an etag the editor has only just been told about, in
+   * the same tick — and `editorRef.current` is assigned during render, so it is
+   * still the pre-dispatch state at that moment. Reading the state here would
+   * make "keep mine" send the version it was replacing, and it would do it
+   * silently.
+   *
+   * Every caller gets the same write: `writeNote` with `expectedEtag`, so the
+   * server's `onlyIf: { etagMatches }` where the bucket has one and its
+   * read-compare where it does not. There is no unconditional branch in this
+   * file and no force flag anywhere in it.
+   */
+  const performSave = useCallback(
+    (path: string, text: string, expectedEtag: string | null) => {
+      if (workspaceId === null) return;
+      const offline = offlineRef.current;
+
+      /*
+        With no connection the text goes into the queue instead of into a socket
+        that will never answer.
+
+        Decided from the signal rather than from an error, because there is no
+        error to decide from: `writeNote` is a Convex action, `action()` has no
+        client-side timeout, and offline it neither resolves nor rejects. The
+        existing behaviour was thirty seconds of a disabled toolbar followed by
+        "we don't know whether that save landed" — for a save that certainly did
+        not.
+
+        `enqueue` carries the etag this text was written against, so the write
+        that eventually goes is the same conflict-checked write this function
+        would have made now.
+      */
+      if (offline.reachability === "offline") {
+        offline.queueSave({ path, text, baseEtag: expectedEtag });
+        offline.forgetDraft(path);
+        dispatch({
+          type: "saveQueued",
+          message: offline.durable
+            ? "No connection, so this is written down on this device and will be sent when you are back."
+            : "No connection, so this is held for this session and will be sent when you are back. Closing the app loses it.",
+        });
+        return;
+      }
+
+      saveRun.current += 1;
+      const mine = saveRun.current;
+      if (saveTimer.current !== null) clearTimeout(saveTimer.current);
+      dispatch({ type: "saveStarted" });
+
+      saveTimer.current = setTimeout(() => {
+        saveTimer.current = null;
+        if (saveRun.current !== mine) return;
+        // Bump past `mine` so the write, if it ever lands, cannot come back and
+        // settle an attempt the editor has already given up on.
+        saveRun.current += 1;
+        dispatch({ type: "saveTimedOut" });
+      }, SAVE_TIMEOUT_MS);
+
+      const settle = () => {
+        if (saveTimer.current !== null) {
+          clearTimeout(saveTimer.current);
+          saveTimer.current = null;
+        }
+      };
+
+      writeNote({
+        workspaceId,
+        path,
+        text,
+        expectedEtag: expectedEtag ?? undefined,
+      })
+        .then((result) => {
+          if (saveRun.current !== mine) return;
+          settle();
+          /*
+            The text is in the bucket now, so the copy of it on this device is
+            not a draft any more — leaving it would restore "unsaved changes"
+            identical to the file, on a note nobody had touched. The cache moves
+            onto the text and etag that were just written, so a later offline
+            read of this note shows what the person saved rather than what they
+            opened.
+          */
+          offlineRef.current.forgetDraft(path);
+          offlineRef.current.rememberBody({ path, text, etag: result.etag });
+          /*
+            And the queue entry goes with it, if there was one.
+
+            There is one whenever this save is answering something the queue was
+            already holding — a refusal being retried, or a conflict somebody
+            has just decided. Leaving it behind would send the drain back at the
+            bucket with the *stale* base etag it was parked on, which raises the
+            same conflict again about a decision that has already been made.
+          */
+          offlineRef.current.dropQueued(path);
+          dispatch({
+            type: "saveSucceeded",
+            etag: result.etag,
+            conflictCheck: result.conflictCheck,
+          });
+          void refresh([parentPath(path)]);
+        })
+        .catch((error: unknown) => {
+          if (saveRun.current !== mine) return;
+          settle();
+          dispatch({ type: "saveFailed", error: toFileError(error) });
+        });
+    },
+    [refresh, workspaceId, writeNote],
+  );
+
+  /**
    * Write the open note.
    *
    * `writeNote` is a Convex action and `ConvexReactClient.action()` has no
@@ -672,92 +819,56 @@ export function useFileBrowser(options: {
    */
   const save = useCallback(() => {
     const current = editorRef.current;
-    if (workspaceId === null || current.path === null || current.readOnly) return;
-    const offline = offlineRef.current;
+    if (current.path === null || current.readOnly) return;
+    performSave(current.path, current.draft, current.etag);
+  }, [performSave]);
 
-    /*
-      With no connection the draft goes into the queue instead of into a socket
-      that will never answer.
+  /**
+   * The person answered the conflict: this text, over the version they saw.
+   *
+   * One function for two of the three answers — "keep mine" is this with the
+   * draft, "merge" is this with whatever they approved in the review — because
+   * the only thing that differs is the text, and the thing that must **not**
+   * differ is what the write is checked against.
+   *
+   * `theirsEtag` is the etag the review actually read the bucket at, so the
+   * write is conditional on the version that was on screen when they decided.
+   * If somebody has moved it again since, the write comes back `CONFLICT`, the
+   * editor goes back into `conflict`, and this whole surface reappears with
+   * fresh content. **There is no force flag and no second write path**; the
+   * only way to overwrite somebody here is to be shown their version first.
+   */
+  const resolveWith = useCallback(
+    (text: string) => {
+      const current = editorRef.current;
+      if (current.path === null || current.status !== "conflict") return;
+      const path = current.path;
+      const offline = offlineRef.current;
+      const etag = conflictRef.current?.theirsEtag ?? current.conflictEtag ?? current.etag;
 
-      Decided from the signal rather than from an error, because there is no
-      error to decide from: `writeNote` is a Convex action, `action()` has no
-      client-side timeout, and offline it neither resolves nor rejects. The
-      existing behaviour was thirty seconds of a disabled toolbar followed by
-      "we don't know whether that save landed" — for a save that certainly did
-      not.
-
-      `enqueue` carries the etag this draft was typed against, so the write that
-      eventually goes is the same conflict-checked write this function would
-      have made now.
-    */
-    if (offline.reachability === "offline") {
-      offline.queueSave({
-        path: current.path,
-        text: current.draft,
-        baseEtag: current.etag,
-      });
-      offline.forgetDraft(current.path);
-      dispatch({
-        type: "saveQueued",
-        message: offline.durable
-          ? "No connection, so this is written down on this device and will be sent when you are back."
-          : "No connection, so this is held for this session and will be sent when you are back. Closing the app loses it.",
-      });
-      return;
-    }
-
-    saveRun.current += 1;
-    const mine = saveRun.current;
-    if (saveTimer.current !== null) clearTimeout(saveTimer.current);
-    dispatch({ type: "saveStarted" });
-
-    saveTimer.current = setTimeout(() => {
-      saveTimer.current = null;
-      if (saveRun.current !== mine) return;
-      // Bump past `mine` so the write, if it ever lands, cannot come back and
-      // settle an attempt the editor has already given up on.
-      saveRun.current += 1;
-      dispatch({ type: "saveTimedOut" });
-    }, SAVE_TIMEOUT_MS);
-
-    const settle = () => {
-      if (saveTimer.current !== null) {
-        clearTimeout(saveTimer.current);
-        saveTimer.current = null;
-      }
-    };
-
-    writeNote({
-      workspaceId,
-      path: current.path,
-      text: current.draft,
-      expectedEtag: current.etag ?? undefined,
-    })
-      .then((result) => {
-        if (saveRun.current !== mine) return;
-        settle();
+      if (offline.reachability === "offline") {
         /*
-          The draft is in the bucket now, so the copy of it on this device is
-          not a draft any more — leaving it would restore "unsaved changes"
-          identical to the file, on a note nobody had touched. The cache moves
-          onto the text and etag that were just written, so a later offline read
-          of this note shows what the person saved rather than what they opened.
+          Nothing can be read or written now, so this is a decision about what
+          the queue holds rather than a write. `queueSave` takes the newer text
+          (and cannot advance the base etag, by design), and `keepQueued`
+          re-bases onto the version the conflict reported and puts it back in
+          the queue — so what eventually drains is still a conditional write
+          against a version this person was shown.
         */
-        offline.forgetDraft(current.path!);
-        offline.rememberBody({ path: current.path!, text: current.draft, etag: result.etag });
-        dispatch({
-          type: "saveSucceeded",
-          etag: result.etag,
-          conflictCheck: result.conflictCheck,
-        });
-        void refresh([parentPath(current.path!)]);
-      })
-      .catch((error: unknown) => {
-        if (saveRun.current !== mine) return;
-        settle();
-        dispatch({ type: "saveFailed", error: toFileError(error) });
-      });
-  }, [refresh, workspaceId, writeNote]);
+        offline.queueSave({ path, text, baseEtag: etag });
+        offline.keepQueued(path);
+        dispatch({ type: "edited", text });
+        dispatch({ type: "saveQueued", message: KEEP_MINE_OFFLINE });
+        return;
+      }
+
+      // The draft becomes what they approved *before* the write, so a refusal
+      // leaves the reviewed text in the editor rather than the text it replaced.
+      dispatch({ type: "edited", text });
+      performSave(path, text, etag);
+    },
+    [performSave],
+  );
 
   /**
    * "Load theirs" — take the bucket's version and let this draft go.
@@ -1260,6 +1371,8 @@ export function useFileBrowser(options: {
       save,
       useTheirs,
       keepMine,
+      conflict,
+      resolveWith,
       discard,
       sync: {
         reachability: offline.reachability,
@@ -1324,6 +1437,7 @@ export function useFileBrowser(options: {
       duplicate,
       editor,
       expanded,
+      conflict,
       keepMine,
       listings,
       loading,
@@ -1340,6 +1454,7 @@ export function useFileBrowser(options: {
       paste,
       rename,
       resetPrivacy,
+      resolveWith,
       save,
       search,
       select,

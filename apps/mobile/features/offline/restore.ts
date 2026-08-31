@@ -47,6 +47,14 @@ export function restoreFor(input: {
         status: "conflict",
         message: pending.conflict?.message,
         conflictEtag: pending.conflict?.currentEtag,
+        /*
+          The queue entry's own base — the version this text was typed on top
+          of — and **not** `note.etag`, which is whatever the bucket holds now.
+          This is what a three-way merge needs an ancestor for, and it is the
+          only place that still knows it: the note was just re-read at a
+          different version, and the editor's `etag` is that one.
+        */
+        baseEtag: pending.baseEtag,
       };
     }
     if (pending.state === "rejected") {
@@ -69,6 +77,7 @@ export function restoreFor(input: {
     text: draft.text,
     status: "conflict",
     conflictEtag: note.etag,
+    baseEtag: draft.baseEtag,
     message:
       "This note changed somewhere else after you typed these unsaved changes. Nothing has been overwritten — load theirs, or keep yours.",
   };
