@@ -9,10 +9,10 @@
  *    pane asks it before every selection change.
  *  - **Conflicts.** The bucket is also open in Obsidian and being written by
  *    AI clients, so "somebody else saved while you were typing" is the normal
- *    case, not an edge case. On a conflict the draft is **kept**, the editor
- *    says what happened, and the person chooses: reload theirs and lose yours,
- *    or overwrite theirs. There is no automatic resolution and no silent
- *    clobber in either direction.
+ *    case, not an edge case. On a conflict the draft is **kept**, nothing is
+ *    written, and the person is given three answers — keep theirs, keep mine,
+ *    or a reviewed three-way merge of the two (`files/ConflictResolver.tsx`).
+ *    There is no automatic resolution and no silent clobber in any direction.
  *
  * A reducer rather than a pile of `useState`s, because the interesting
  * transitions — a conflict arriving while the person has already typed more, a

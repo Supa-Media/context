@@ -1436,18 +1436,57 @@ pressed.
 
 #### The conflict decision
 
-When the etag has moved by the time the queue drains, the entry is **parked**:
-its state becomes `conflicted`, the text is kept untouched, and **nothing is
-written**. It is never retried automatically — automatic retry of a conflict is
-last-write-wins on a timer. It waits for a person, who gets the two answers the
-online editor already gives: *Load theirs*, which is the only path in the
-console that destroys a draft and is reached from a control pressed with the
-conflict explained beside it, or *Keep mine*, which re-bases onto the etag the
-conflict reported so the retry is still a conditional write against a version
-they were shown. A third client writing in between is a new conflict and gets
-asked about again rather than flattened.
+When the etag has moved by the time a write is made — the queue draining, or an
+ordinary Save — the write is **parked**: nothing is written, the text is kept
+untouched, and it waits for a person. It is never retried automatically:
+automatic retry of a conflict is last-write-wins on a timer.
 
-Three alternatives were considered and rejected, and the reasoning matters
+**Three answers, all of them in the app, and nothing reaches the bucket until
+one is chosen** (decided by the owner, 2026-08-31):
+
+- **Keep theirs** — discard the local draft and load the bucket's version. The
+  only path in the console that destroys somebody's typing, and it writes
+  nothing at all. Refused, rather than offered and blind, while the bucket's
+  version has not been read: adopting a version nobody has seen is a coin toss.
+- **Keep mine** — write the draft over the version they were just shown,
+  conditionally on it.
+- **Merge** — a genuine three-way merge of the two, **shown for review and
+  editable before anything is saved**. The person is approving text, not
+  picking a strategy.
+
+Whichever is chosen, the save that follows is the *same* conditional write the
+Save button makes, against the etag the review actually read the bucket at. A
+third client writing in between comes back as a fresh conflict with fresh
+content, and this whole surface reappears — it is never forced through. There
+is no `force` flag anywhere in this feature.
+
+##### The merge is real, and it is refused rather than faked
+
+A three-way merge needs a common ancestor, and this feature already keeps one:
+the read cache holds the note's body at the etag the draft was typed against.
+That etag is carried explicitly (`EditorState.draftBase`,
+`RestoredDraft.baseEtag`) because nothing downstream can recover it — `etag` is what the next
+save is checked against and it moves, while the ancestor does not.
+
+`offerMerge` will only call a cached body an ancestor when **its etag matches
+the draft's base**. Where it does not — the note did not exist, the cache was
+swept, the copy moved on, the bucket has not been read, the three versions are
+too far apart to align — **the Merge control is not drawn at all**, and the
+reason is a sentence on the screen. A two-way diff presented as an informed
+proposal would be a guess wearing a merge's clothes; the console's whole
+disclosure discipline is that an absent capability is reported, never faked.
+
+`features/offline/merge.ts` is diff3, written here rather than installed:
+`runtimeVersion` is pinned and a new dependency in `apps/mobile` is not worth a
+small, well-understood algorithm. Three properties of it are load-bearing and
+tested (`__tests__/merge3.test.ts`): edits are **ranges of the base**, so a
+deletion here and an edit three lines down are not a whole-file conflict; a
+line is content plus the terminator it arrived with, compared on content
+alone, so a file Obsidian-on-Windows rewrote to CRLF is not a conflict on every
+line and a file with no trailing newline still has none afterwards; and
+"too far apart to align" answers `null` rather than a worse merge.
+
+Two alternatives were considered and rejected, and the reasoning matters
 because each looks simpler:
 
 - **Last-write-wins.** Unacceptable. The bucket is also open in Obsidian and
@@ -1455,19 +1494,38 @@ because each looks simpler:
   normal case here, not a corner. Silently discarding one side of it is the one
   thing this product cannot do.
 - **A conflict copy in the bucket** (`foo (conflict 2026-08-31).md` beside the
-  original, Dropbox's answer). It has one real advantage — the typing survives
-  the *device* being lost, which parking does not — and it was still refused.
-  Writing a file the customer did not ask for into storage we are a guest in
-  crosses non-negotiable #1; the on-bucket layout is a stable format rather than
-  an internal detail (#3), so adding a filename convention to it is a breaking
-  change; and the file would then appear in their Obsidian vault, in the search
-  index, and in every `list_notes` an AI client makes. **This is the one part of
-  the design that is genuinely the owner's call rather than a rule**, and if it
-  is wanted the shape is a per-context setting, not a default.
-- **Blocking the editor until the conflict is answered.** Refused for the same
-  reason `guardLeaving` lets you leave a queued note: somebody on a train with no
-  connection would be locked out of every other note over a decision they cannot
-  usefully make yet.
+  original, Dropbox's answer). **Rejected by the owner**, and this is now a rule
+  rather than an open question. It has one real advantage — the typing survives
+  the *device* being lost, which parking does not — and it costs more than it is
+  worth: writing a file the customer did not ask for into storage we are a guest
+  in crosses non-negotiable #1; the on-bucket layout is a stable format rather
+  than an internal detail (#3), so adding a filename convention to it is a
+  breaking change; and the file would then litter their Obsidian vault, their
+  search index, and every `list_notes` an AI client makes. Do not reintroduce it
+  as a default, a setting, or a fallback.
+
+**Blocking the editor is still refused, and the resolver does not do it.** While
+a note is in conflict the *editor region* is the resolution surface — two
+versions, three answers, and an editable proposal do not fit in a strip, and a
+strip that opened a modal would be two places to make one decision. The tree,
+the tabs and the rail are outside that region, so somebody on a train can still
+read and edit every other note; what they cannot do is pretend the decision was
+made. `NoteEditor`'s older two-button conflict panel is superseded by this and
+is now unreachable from `BrowsePane`.
+
+**The local draft survives until the moment a choice succeeds.** The queued
+write is not dropped when the conflict is answered — only when the write that
+answers it lands — so an app killed mid-decision comes back with both the
+conflict and the draft. The merge proposal itself is deliberately *not* written
+down: until somebody presses save it exists only in front of them, which is the
+literal form of "nothing is written until you choose", and the draft it was
+built from is safe in the queue the whole time.
+
+**Answering a conflict moves the read cache onto the version that was shown,
+before the write.** Not optimism — the bucket really did hold that body at that
+etag, and the cache mirrors the bucket — and it is what keeps a *second* round
+mergeable: the ancestor of the text somebody just approved is precisely the
+version they approved it against.
 
 **Nothing is lost by either answer, including the one that overwrites.**
 `writeFile` snapshots the outgoing body into `.history/` before every write, so
@@ -1542,7 +1600,9 @@ this kind of fact:
 
 The open note carries its own: `Queued` (`warn`, never `ok` — the bucket is the
 only thing this product treats as real), `Cached copy` with the copy's age, and
-the existing conflict panel with its two buttons.
+— for a conflict — the whole editor region, given over to the two versions and
+the three answers. Pictures of both palettes are in `docs/design/conflict/`,
+written by `__tests__/conflictShots.render.ts`.
 
 ## Engineering standards
 
