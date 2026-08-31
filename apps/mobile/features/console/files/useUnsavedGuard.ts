@@ -14,13 +14,10 @@
  * waiting for it. This half does nothing because there is nothing left for it
  * to do, rather than because nothing could be done.
  *
- * One limit remains, and it belongs to the store rather than to this hook.
- * `features/offline/store.ts` has nowhere durable to write on a phone until
- * `@react-native-async-storage/async-storage` — already `core` in
- * `native-deps.json` — is in `package.json`; that file carries the exact
- * change. Until then a draft survives opening another note and does not survive
- * the app closing, and the console says which of those two promises is in force
- * rather than implying the stronger one. Nothing here changes when it lands.
+ * And it is durable: `features/offline/store.ts` writes through
+ * `@react-native-async-storage/async-storage`, which is `core` in
+ * `native-deps.json`. So a draft on a phone survives the OS reclaiming the app,
+ * which is the event this hook could never have warned about anyway.
  *
  * See `useUnsavedGuard.web.ts` for the half that still has work to do: a
  * browser tab is closed by a person, which is an act worth interrupting.

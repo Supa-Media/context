@@ -1512,14 +1512,14 @@ storage primitive is split: `store.web.ts` is `localStorage`, probed with a real
 write because every failure mode (Private Browsing, blocked site data, a full
 bucket) is a throw rather than a missing property.
 
-**The native half has nowhere durable to write yet, and says so.**
-`@react-native-async-storage/async-storage` is `core` in `native-deps.json` and
-absent from `package.json`, so a phone gets an in-memory store: the read cache,
-offline editing, the queue, the drain and the conflict parking all work for the
-life of the session, and a force-quit loses the queue. `durable` is on the
-`KeyValueStore` interface for exactly this, and every sentence about the queue
-changes with it rather than the boolean being hidden. `store.ts` carries the
-twelve-line change that lights it up; nothing else moves when it does.
+`store.ts` is `@react-native-async-storage/async-storage`, which is `core` in
+`native-deps.json` — the baseline every build has — so it is a static import
+with no `NativeModules` gate and no `runtimeVersion` bump. **`durable` stays on
+the `KeyValueStore` interface even though both real implementations now answer
+`true`**, and that is not vestigial: a browser blocking site data falls back to
+memory at runtime, and every sentence about the queue is written to change with
+the boolean rather than to assume it. Removing it would mean the console
+promising a queue survives a restart on the one machine where it does not.
 
 **Sign-out wipes everything this feature holds**, queue included. Note text is
 the customer's private content and a signed-out browser has no business holding

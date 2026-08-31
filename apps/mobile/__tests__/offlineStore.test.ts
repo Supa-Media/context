@@ -12,10 +12,14 @@ import { beforeEach, describe, expect, test } from "@jest/globals";
  * resolves `.web.ts` ahead of the bare extension (see `jest.config.js`), so a
  * test that stubbed the browser's storage would be testing the stub.
  *
- * The same conformance block runs against `memoryStore()` too, which is what
- * makes the native half of `store.ts` — and the fallback a browser with site
- * data blocked lands on — something that has actually been checked rather than
- * something that merely compiles.
+ * The same conformance block runs against `memoryStore()`, which is the
+ * fallback a browser with site data blocked lands on. `store.ts` — the native
+ * half, `AsyncStorage` — is not here and cannot be: this suite runs in plain
+ * node with no native mocks and no `jest-expo` preset (`jest.config.js` says
+ * why), the same reason `clipboard.ts` and `fonts.ts` have untested native
+ * halves. What holds it is that it is a delegation and nothing more, and that
+ * everything above it is written against `KeyValueStore` rather than against
+ * either implementation.
  */
 
 const { memoryStore } =

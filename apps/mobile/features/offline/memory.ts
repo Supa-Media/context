@@ -2,18 +2,20 @@
  * A `KeyValueStore` that lives for as long as the app does, and says so.
  *
  * The port every other module in this folder is written against, plus the one
- * implementation that needs no platform at all. Two things use it: the native
- * half of `store.ts` (which has nowhere durable to write yet — see that file),
- * and the web half when the browser refuses `localStorage`.
+ * implementation that needs no platform at all. It is what `store.web.ts` falls
+ * back to when the browser refuses `localStorage` — Private Browsing, blocked
+ * site data, an embedded webview — and what every test here runs the same
+ * conformance suite against.
  *
  * `durable` is the whole reason this is an interface rather than a direct call
- * to a platform API. CLAUDE.md's rule for a capability the build does not have
- * is that it "is reported honestly; it is never faked", and durability is
- * exactly that kind of capability: a queue that survives the app closing and a
- * queue that does not are the same object with very different promises
- * attached, and the person who typed the thing in the queue is the one who
- * should be told which one they have. `copy.ts` turns this boolean into the
- * sentence they read.
+ * to a platform API, and it stays on it even though both real implementations
+ * answer `true`. CLAUDE.md's rule for a capability the build does not have is
+ * that it "is reported honestly; it is never faked", and durability is exactly
+ * that kind of capability: a queue that survives the app closing and a queue
+ * that does not are the same object with very different promises attached, and
+ * the person who typed the thing in the queue is the one who should be told
+ * which one they have. `copy.ts` turns this boolean into the sentence they
+ * read, so a browser that lands here is told rather than lied to.
  */
 
 /**

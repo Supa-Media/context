@@ -10,10 +10,10 @@ import type { OutboxCounts } from "./outbox";
  *
  * Two rules run through all of it.
  *
- * **Never claim a durability the store does not have.** A queue in
- * `localStorage` survives the tab closing; a queue in memory — which is what a
- * phone gets until `store.ts` has somewhere to write, see that file — does not.
- * Those are different promises and the sentence changes with the boolean.
+ * **Never claim a durability the store does not have.** `localStorage` and
+ * `AsyncStorage` survive the app closing; the in-memory fallback a browser with
+ * site data blocked lands on does not. Those are different promises and the
+ * sentence changes with the boolean rather than assuming the good case.
  * CLAUDE.md: an absent capability is reported honestly; it is never faked.
  *
  * **Never claim a conflict guarantee the bucket does not have.** The same

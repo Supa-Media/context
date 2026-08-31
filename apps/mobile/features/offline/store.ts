@@ -1,57 +1,69 @@
-import { memoryStore, type KeyValueStore } from "./memory";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import type { KeyValueStore } from "./memory";
 
 /**
  * The durable store — native.
  *
- * **There is no durable store on this platform yet, and this file reports that
- * rather than pretending otherwise.** Everything in `features/offline` works on
- * a phone — the read cache, offline editing, the queue, the drain, the conflict
- * parking — for as long as the app is running. What it does not do is survive
- * the app being closed, and `durable: false` is what says so: `copy.ts` turns
- * it into the sentence in the console, so a person queueing edits on a phone is
- * told what the queue is worth before they rely on it.
+ * `@react-native-async-storage/async-storage`, which is `core` in
+ * `native-deps.json` — the baseline every build has — so it is a static import
+ * and needs no `NativeModules` gate and no `runtimeVersion` bump. It was added
+ * to the native baseline for the first iOS build; this is the first thing to
+ * use it.
  *
- * ## Why, precisely
+ * ## Why `set` is the only method that is allowed to throw
  *
- * `@react-native-async-storage/async-storage` is the store this wants, and it
- * is already classified `core` in `native-deps.json` — the baseline every build
- * is expected to have. It is **not in `apps/mobile/package.json`**, so the
- * module does not resolve: a static import fails `tsc` and fails a Metro native
- * bundle, and a `require()` hidden from Metro would be worse than the gap
- * because it could never load even once the dependency arrived.
+ * The asymmetry is the same one `store.web.ts` documents and it is worth
+ * repeating on both sides, because the two files will be read separately by
+ * whoever next has to fix one:
  *
- * This is the same shape of honest absence the app already carries twice:
- * `writeClipboard` returns `false` on native rather than claiming "Copied" over
- * a no-op, and `useUnsavedGuard`'s native half is a documented no-op. CLAUDE.md
- * states the rule those two follow — "an absent capability is reported
- * honestly; it is never faked" — and this is a third instance of it.
+ *  - A **read** that fails is a read that found nothing we can trust, and every
+ *    caller here already has an honest "nothing cached" branch. Throwing out of
+ *    one would take down the render that asked.
+ *  - A **write** that fails silently is somebody's typing, gone, with the
+ *    console still saying it is safe. `outbox.ts` keeps the entry in memory
+ *    either way, so the queue still drains; what is lost is surviving a
+ *    restart, and that is the caller's to know about rather than this file's to
+ *    hide. Android's AsyncStorage has a default database ceiling (6MB, and 2MB
+ *    per value) which a `MAX_NOTE_BYTES`-sized note can genuinely reach.
  *
- * ## What lights it up
+ * ## What is and is not covered by a test
  *
- * One line in `apps/mobile/package.json`
- * (`"@react-native-async-storage/async-storage": "2.2.0"`, matching the version
- * the iOS launch build installs), and then this file becomes:
- *
- * ```ts
- * import AsyncStorage from "@react-native-async-storage/async-storage";
- *
- * export function openStore(): KeyValueStore {
- *   return {
- *     durable: true,
- *     get: (key) => AsyncStorage.getItem(key),
- *     set: (key, value) => AsyncStorage.setItem(key, value),
- *     remove: (key) => AsyncStorage.removeItem(key),
- *     keys: async () => [...(await AsyncStorage.getAllKeys())],
- *   };
- * }
- * ```
- *
- * No other file changes: everything above this one is written against
- * `KeyValueStore` and is already tested against a durable fake
- * (`__tests__/offlineStore.test.ts` runs the same conformance suite over both),
- * and `copy.ts` has both sentences. Nothing here needs a `runtimeVersion` bump
- * — the dependency is in the `core` baseline, not `gated`.
+ * The **port** is: `__tests__/offlineStore.test.ts` runs one conformance suite
+ * over `localStorage` and over `memoryStore()`, and everything above this file
+ * is written against `KeyValueStore` rather than against either. What is not
+ * covered is this delegation, because the suite runs in plain node with no
+ * native mocks and no `jest-expo` preset (see `jest.config.js`) — the same
+ * reason `clipboard.ts` and `fonts.ts` have untested native halves. Keep it a
+ * delegation for that reason: any logic added here is logic nothing checks.
  */
 export function openStore(): KeyValueStore {
-  return memoryStore();
+  return {
+    durable: true,
+    get: async (key) => {
+      try {
+        return await AsyncStorage.getItem(key);
+      } catch {
+        return null;
+      }
+    },
+    // Deliberately unguarded — see the file comment.
+    set: (key, value) => AsyncStorage.setItem(key, value),
+    remove: async (key) => {
+      try {
+        await AsyncStorage.removeItem(key);
+      } catch {
+        // A key that could not be removed is stale data, which every reader
+        // here already has to tolerate.
+      }
+    },
+    keys: async () => {
+      try {
+        // `getAllKeys` answers `readonly string[]`; the port's contract is a
+        // plain array the caller may sort in place.
+        return [...(await AsyncStorage.getAllKeys())];
+      } catch {
+        return [];
+      }
+    },
+  };
 }
