@@ -1,13 +1,25 @@
 import { Platform } from "react-native";
 
 /**
- * Design tokens for Context, lifted verbatim from `docs/design/console-mockup.html`.
+ * Design tokens for Context.
  *
- * The mockup is a single dark world by intent — every colour is painted
- * explicitly so nothing borrows a host background. There is no light theme and
- * we should not invent one; the values below are the whole palette.
+ * The dark palette is lifted verbatim from `docs/design/console-mockup.html`,
+ * which is the signed-off design and remains the app's own ground: every
+ * colour is painted explicitly so nothing borrows a host background.
+ *
+ * There is now a light palette beside it, because `app.config.js` declares
+ * `userInterfaceStyle: "automatic"` and that should be true rather than
+ * aspirational. It is a **design**, not an inversion — see `lightColors` for
+ * where the two deliberately diverge and why.
+ *
+ * Neither palette is a module-level global any more. Screens obtain one
+ * through `useColors()` / `useThemedStyles()` in `./theme`; non-React code
+ * takes a `Colors` as an argument. Importing a palette by name is for the
+ * tokens themselves, for tests, and for nothing else — a `StyleSheet.create`
+ * that closes over one is a screen that can never change appearance, and that
+ * is exactly the bug this file used to guarantee.
  */
-export const colors = {
+export const darkColors = {
   ground: "#050506",
   surface: "#0B0B0D",
   surface2: "#111114",
@@ -75,8 +87,123 @@ export const colors = {
   chromePressed: "#24242C",
 } as const;
 
+/**
+ * The shape both palettes share.
+ *
+ * Deliberately `Record<keyof typeof darkColors, string>` rather than
+ * `typeof darkColors`: the latter carries the dark literals, so a light
+ * palette could only satisfy it by being the dark one. This form still makes
+ * a missing key a compile error and an invented key an excess-property error,
+ * which is the property that matters — a token that exists in one palette and
+ * not the other resolves to `undefined`, and `undefined` in `backgroundColor`
+ * is a transparent view rather than a crash.
+ */
+export type Colors = Readonly<Record<keyof typeof darkColors, string>>;
+
+/**
+ * The light palette.
+ *
+ * Designed against the dark one rather than derived from it. Three notes on
+ * where a mechanical inversion would have been wrong:
+ *
+ * **The elevation stack is re-ranked, on purpose.** In the dark palette
+ * `ground < surface < surface2 < surface3` ascend in lightness, because there
+ * both *elevation* (a panel lifts off the page) and *interaction* (a row tints
+ * under the pointer) move the same way: towards light. In a light world they
+ * move in opposite directions — a raised panel goes towards white, a hovered
+ * row goes towards grey — so no single lightness ranking can carry both roles.
+ * The tokens are therefore placed by the job each one does, which is the
+ * relationship worth preserving:
+ *
+ *   - `ground` is the page, a clear grey, so a panel can lift off it.
+ *   - `surface` is that panel: white.
+ *   - `surface2` sits *between* them, which is the one value that satisfies
+ *     both of its jobs — raised when it is a card on `ground`, tinted when it
+ *     is a hovered row on `surface`.
+ *   - `surface3` is the stronger tint: a menu row under the pointer, a ghost
+ *     button's fill, a neutral pill.
+ *   - `well` stays the deepest inset, as it is in the dark palette.
+ *
+ * **`white` and `ink` keep their roles, not their names.** `white` is the
+ * primary CTA's fill and `ink` is the label on it; in the dark world that is a
+ * near-white button with near-black text. Inverting the world inverts the
+ * button, so here `white` is near-black and `ink` is white. The names read as
+ * lies in this half of the file and the values are still right — renaming them
+ * would touch every call site for no behavioural gain, so the roles are
+ * documented instead.
+ *
+ * **Pressed states darken rather than lighten.** `chromePressed` is lighter
+ * than `chrome` in the dark palette and darker than it here. Both mean the
+ * same thing — more ink under the thumb — and following the dark direction
+ * would have made a pressed control brighter than the white it sits on, which
+ * is not a press.
+ *
+ * Contrast is asserted, not asserted-in-prose: see `__tests__/theme.test.ts`.
+ */
+export const lightColors: Colors = {
+  ground: "#EDEDF2",
+  surface: "#FFFFFF",
+  surface2: "#F7F7FB",
+  surface3: "#EBEBF1",
+
+  /** Hairline separators — black at low alpha, mirroring the dark palette's white. */
+  line: "rgba(0,0,0,0.09)",
+  lineStrong: "rgba(0,0,0,0.18)",
+
+  text: "#14141A",
+  text2: "#4A4A57",
+  muted: "#626270",
+  /** The second hero line, deliberately dimmer than `muted`. */
+  heroDim: "#7E7E8D",
+
+  accent: "#2563EB",
+  accentDim: "rgba(37,99,235,0.10)",
+  accentText: "#1D4ED8",
+
+  ok: "#068A5F",
+  okText: "#065F46",
+  okWash: "rgba(6,138,95,0.10)",
+  okBorder: "rgba(6,138,95,0.28)",
+
+  warn: "#B45309",
+  warnText: "#92400E",
+  warnWash: "rgba(180,83,9,0.12)",
+  warnBorder: "rgba(180,83,9,0.30)",
+
+  crit: "#DC2626",
+  critText: "#B91C1C",
+  critBorder: "rgba(220,38,38,0.28)",
+  critWash: "rgba(220,38,38,0.08)",
+
+  /** See the note above: the CTA fill is dark here, and its ink is white. */
+  ink: "#FFFFFF",
+  white: "#14141A",
+
+  /** The recessed grey used for insets: code blocks, the map field, field values. */
+  well: "#E4E4EC",
+
+  /** Warm accent for the first floating tile's mark. */
+  warm: "#C2410C",
+
+  hintWash: "rgba(37,99,235,0.06)",
+  hintBorder: "rgba(37,99,235,0.22)",
+  hintText: "#2A57C4",
+  hintStrong: "#1B3F96",
+
+  /** Syntax tints in the note preview. */
+  codeKey: "#2A5DB0",
+
+  /**
+   * Floating chrome. A floating object in a light world is white and reads as
+   * above the page through its shadow rather than through being brighter than
+   * everything under it — there is nothing brighter than white.
+   */
+  chrome: "#FFFFFF",
+  chromePressed: "#E9E9F0",
+};
+
 /** Edge/node colours in the constellation map, keyed by relationship. */
-export const graphColors = {
+export const darkGraphColors = {
   own: "#3B82F6",
   team: "#75757F",
   shared: "#8B5CF6",
@@ -84,7 +211,23 @@ export const graphColors = {
   you: "#F2F2F4",
 } as const;
 
-export type GraphKind = keyof typeof graphColors;
+export type GraphKind = keyof typeof darkGraphColors;
+
+export type GraphColors = Readonly<Record<GraphKind, string>>;
+
+/**
+ * The same five relationships, at light-mode contrast.
+ *
+ * `you` follows `white`/`ink`: it is the emphasised node, so it is the one
+ * disc drawn in the ground's opposite — near-black here, near-white there.
+ */
+export const lightGraphColors: GraphColors = {
+  own: "#2563EB",
+  team: "#626270",
+  shared: "#7C3AED",
+  client: "#059669",
+  you: "#14141A",
+};
 
 /**
  * Font families.
@@ -288,7 +431,7 @@ export const layout = {
  * interface look flat — every edge glows the same amount and nothing reads as
  * nearer than anything else.
  */
-export const shadows = {
+export const darkShadows = {
   /** The bottom toolbar, and the circular buttons in the top corners. */
   floating: "0 6px 20px -6px rgba(0,0,0,0.85), 0 1px 3px rgba(0,0,0,0.5)",
   /** A drawer or nav sheet coming in from the leading edge. */
@@ -296,6 +439,24 @@ export const shadows = {
   /** A sheet rising from the bottom edge. */
   rising: "0 -10px 40px -12px rgba(0,0,0,0.9)",
 } as const;
+
+export type Shadows = Readonly<Record<keyof typeof darkShadows, string>>;
+
+/**
+ * The same three elevations, lit for a light world.
+ *
+ * The geometry is identical — same offsets, same blurs, same spread — because
+ * the argument for three shadows rather than one is about *where each thing is
+ * lit from*, and that does not change with the palette. Only the ink does:
+ * a 0.85-alpha black under a white toolbar is a bruise, not a shadow. The
+ * colour is a desaturated blue-black rather than pure black so the shade sits
+ * in the same hue family as the greys it falls on.
+ */
+export const lightShadows: Shadows = {
+  floating: "0 6px 20px -6px rgba(16,16,28,0.18), 0 1px 3px rgba(16,16,28,0.10)",
+  drawer: "24px 0 60px -20px rgba(16,16,28,0.22)",
+  rising: "0 -10px 40px -12px rgba(16,16,28,0.20)",
+};
 
 /**
  * CSS `clamp(min, preferred, max)` where the preferred term is a viewport
