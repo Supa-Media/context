@@ -14,12 +14,14 @@ import { EMPTY_QUERY_SPEC } from "./querySpec";
 import { useFileBrowser } from "./files/useFileBrowser";
 import { ingestionAvailabilityFor } from "./ingestion/settings";
 import { capabilitiesForRole } from "./capabilities";
+import { visibilityTierForRole } from "./visibility";
 import { useIngestionSettings } from "./ingestion/useIngestionSettings";
 import { useMembers } from "./members/useMembers";
 import { toBindStorageArgs, type Provider } from "./storage/connect";
 import { atName, contextTone, describeScopes, formatCount, grantTone, lastUsedLabel } from "./format";
 import { ownPersonalContext, viewerIdentity } from "./identity";
 import { formatNotesTotal, totalNotes } from "./noteTotals";
+import { forgetContextCopies, forgetLocalCopies } from "../offline/forget";
 import { defaultContext } from "./nav";
 import {
   buildConstellation,
@@ -392,6 +394,12 @@ export function useLiveConsoleData(): ConsoleData {
     slug: selected?.slug,
     workspaceId: selectedContextId,
     canEdit,
+    // The clearance every server read for this person is already filtered by,
+    // handed down so a copy on the device is filed under it too. Derived here
+    // and nowhere else: `visibilityTierForRole` is this app's single answer to
+    // the question, and a second derivation inside the offline layer would be
+    // a second answer that can disagree with the one on screen.
+    tier: visibilityTierForRole(selected?.role),
     // Not `canEdit`: an `editor` may write notes and may not rewrite the access
     // map that decides which notes they can see at all. Same rule as
     // `storageActions`, and the same reason — the control is absent rather than
@@ -437,14 +445,37 @@ export function useLiveConsoleData(): ConsoleData {
     // refuses it for owners (`OWNER_CANNOT_LEAVE`), so the rail only offers
     // it under "Shared with you". The subscription drops the context from
     // `contexts` on its own once the membership row is gone.
-    leaveContext: (id: string) =>
-      leaveWorkspace({ workspaceId: id as Id<"workspaces"> }),
+    // What is cached for a context you have left is a copy of somewhere you can
+    // no longer reach — notes somebody shared with you, held on your machine
+    // after the membership that justified holding them is gone. It is cleared
+    // **on the server's answer, never on the request**: `leaveWorkspace`
+    // returns `{ left: false }` for a membership row it did not find — already
+    // left in another tab, or removed by the owner while this console was open
+    // — and clearing on the press would throw away the offline copy of a
+    // context the person still has.
+    //
+    // An owner is a *third* case: `leaveWorkspace` throws `OWNER_CANNOT_LEAVE`
+    // rather than answering `{ left: false }`, so nothing below the `await`
+    // runs at all. Same outcome, different path — and the rejection reaches the
+    // rail's `void data.leaveContext?.(id)`, which has nowhere to put it. That
+    // is pre-existing and is not what this line is about.
+    leaveContext: async (id: string) => {
+      const result = await leaveWorkspace({ workspaceId: id as Id<"workspaces"> });
+      if (result.left) await forgetContextCopies(id);
+      return result;
+    },
     // Everything on the control plane goes; the person's own storage is not
     // ours to touch. The local sign-out afterwards clears the tokens for a
     // session whose server rows the mutation just deleted — its own signOut
     // call failing server-side is expected and swallowed by the auth client.
     deleteAccount: async () => {
       await deleteAccountMutation({});
+      // After the deletion, and before the sign-out. After, because a deletion
+      // that failed must not cost somebody the queue it never sent; before,
+      // because the browser must not still be holding readable note text once
+      // the session it belonged to is over. `forget.ts` owns the failure
+      // stance — it can report, and it can never block this.
+      await forgetLocalCopies();
       await authActions?.signOut();
     },
     // Three tiles, not the mockup's four. "in your own bucket" is still gone:

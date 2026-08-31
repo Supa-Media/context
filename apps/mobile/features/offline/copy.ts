@@ -46,6 +46,17 @@ export interface SyncFacts {
   /** From the store. `false` means the queue does not survive a restart. */
   durable: boolean;
   /**
+   * Whether `counts` is yet an answer about this device.
+   *
+   * `useOfflineNotes` reads the persisted queue back asynchronously and reports
+   * an empty one until it lands, so `counts` before that is not "nothing is
+   * waiting" — it is "nothing has been read". Absent or `false` means a caller
+   * that would otherwise trust these counts must go to the store itself; see
+   * `unsentOnDevice`, whose exclusion of the open context assumes the console
+   * is supplying it.
+   */
+  ready?: boolean;
+  /**
    * From the storage binding's connect-time probe
    * (`StorageSummary.conditionalWrite`). `undefined` while it is loading.
    */

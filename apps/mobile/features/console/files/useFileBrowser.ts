@@ -24,7 +24,7 @@ import { ConvexError } from "convex/values";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
-import { toFileError, type FileBrowser } from "./browser";
+import { isServerRefusal, toFileError, type FileBrowser } from "./browser";
 import type { NoteShare } from "./shares";
 import type { ToastSpec } from "../../design/components/Toast";
 import { consoleOrigin } from "./shareOrigin";
@@ -58,6 +58,7 @@ import { useConflictReview } from "./useConflictReview";
 import { findEntry, foldersToRefresh, namesIn } from "./tree";
 import type { FolderListing, OpenNote, Visibility } from "./types";
 import { canResetPrivacy, canSetVisibility, canShare } from "../capabilities";
+import type { VisibilityTier } from "../visibility";
 
 /** The literal the backend requires before it will delete anything. */
 const DELETE_CONFIRMATION = "permanently delete";
@@ -122,6 +123,17 @@ export function useFileBrowser(options: {
    * exists — see `canResetPrivacy` on `FileBrowser`.
    */
   isOwner?: boolean;
+  /**
+   * How much of this context the person at the keyboard can see.
+   *
+   * Not derivable from `isOwner`, and that is the point: `isOwner === false`
+   * covers both "an editor" and "the context list has not landed yet", and
+   * those two need opposite answers from a cache. `visibilityTierForRole` is
+   * the one place this app decides it, so it is passed rather than re-derived
+   * — see `features/offline/keys.ts` for what a copy taken at the wrong
+   * clearance costs.
+   */
+  tier: VisibilityTier;
   /**
    * The context's slug, for the readable team link (`/console/@slug?note=…`).
    *
@@ -263,7 +275,12 @@ export function useFileBrowser(options: {
     dispatch({ type: "queueSettled", etag: result.etag });
   }, []);
 
-  const offline = useOfflineNotes({ workspaceId, write: sendQueued, onWritten: onDrained });
+  const offline = useOfflineNotes({
+    workspaceId,
+    tier: options.tier,
+    write: sendQueued,
+    onWritten: onDrained,
+  });
 
   /*
     Read through a ref inside every callback below.
@@ -348,6 +365,14 @@ export function useFileBrowser(options: {
             // it was moved) is not an error worth shouting about — it is a
             // listing that should stop existing.
             if (failure.code === "FILE_NOT_FOUND") return [folder, null] as const;
+            // Every *other* refusal ends here rather than in the cache. The
+            // line above is one too, and keeps its own answer — a folder that
+            // is gone should stop existing rather than be redrawn from the
+            // device. The rest have to reach the caller: a listing is a list of
+            // somebody's note names, and repainting it after a refusal
+            // discloses exactly what the refusal withheld. Only a transport
+            // failure may fall back.
+            if (isServerRefusal(error)) throw error;
             const cached = await offline.cachedListing(folder);
             if (cached !== null) {
               servedFromCache = true;
@@ -369,6 +394,31 @@ export function useFileBrowser(options: {
     },
     [listFiles, workspaceId],
   );
+
+  /**
+   * Report a refresh nobody was waiting for.
+   *
+   * Four call sites fire `refresh` with `void` — expanding a folder, selecting
+   * one, reloading a parent after a save, and opening the tree down to a
+   * selection. None of them awaits it, so before this a refusal there was an
+   * unhandled rejection and a folder that simply stayed empty: no listing, no
+   * notice, nothing at all on screen to say the server had answered.
+   *
+   * That gap is not new, but it stopped being rare. `refresh` used to absorb a
+   * refusal whenever it had something cached, so the throw only escaped for a
+   * folder nobody had opened before; it now throws on **every** refusal,
+   * because a listing repainted from the device after a refusal discloses
+   * exactly what the refusal withheld. Making that guarantee stronger without
+   * catching here would have made the silence the common case.
+   *
+   * The server's own sentence is what goes on screen rather than `run`'s
+   * `STALE_LISTING_MESSAGE`: these are not operations whose result needs
+   * qualifying, they *are* the thing that failed, and "the file list did not
+   * reload" says less than the refusal it is standing in for.
+   */
+  const reportRefreshFailure = useCallback((error: unknown) => {
+    setNotice(toFileError(error).message);
+  }, []);
 
   /** Load the root whenever the context changes, and forget the old one. */
   useEffect(() => {
@@ -409,7 +459,11 @@ export function useFileBrowser(options: {
         setListings({ "": page });
       } catch (error: unknown) {
         if (cancelled) return;
-        const cached = await offline.cachedListing("");
+        // A refusal is an answer, and the tree is not repainted from the
+        // device over one — see `isServerRefusal`. The person gets the
+        // server's own sentence instead of a root listing it just declined
+        // to give them.
+        const cached = isServerRefusal(error) ? null : await offline.cachedListing("");
         if (cancelled) return;
         if (cached !== null) {
           setListings({ "": cached.value });
@@ -433,9 +487,9 @@ export function useFileBrowser(options: {
         else next.add(path);
         return next;
       });
-      if (listings[path] === undefined) void refresh([path]);
+      if (listings[path] === undefined) void refresh([path]).catch(reportRefreshFailure);
     },
-    [listings, refresh],
+    [listings, refresh, reportRefreshFailure],
   );
 
   const collapseAll = useCallback(() => setExpanded(new Set()), []);
@@ -473,9 +527,16 @@ export function useFileBrowser(options: {
    *  - **Offline reads go straight to the cache.** Not as a fallback after a
    *    failure: `readNote` is a Convex action with no client-side timeout, so
    *    with no connection it never rejects and the editor would sit blank.
-   *  - **A failed read falls back to the cache.** The signal can say online and
-   *    be wrong — a captive portal, a dead uplink — and a copy is better than a
-   *    refusal, as long as it says it is a copy.
+   *  - **A read lost to the *transport* falls back to the cache.** The signal
+   *    can say online and be wrong — a captive portal, a dead uplink — and a
+   *    copy is better than an empty screen, as long as it says it is a copy.
+   *    **A read the server *refused* does not**, and the distinction is the
+   *    whole of `isServerRefusal`: the first sentence of this list used to say
+   *    "a failed read", the `catch` could not tell the two apart, and a
+   *    removed membership or a revoked grant was therefore converted into a
+   *    cache hit — the console rendering a note body to somebody the control
+   *    plane had just refused, with an age stamp under it that made it read as
+   *    considered. A local copy never overrules an answer.
    *  - **Waiting work is restored.** A queued write, or a draft typed and never
    *    saved. `restoreFor` decides which, and turns a draft whose base etag has
    *    moved on into a conflict rather than into an armed overwrite.
@@ -501,7 +562,7 @@ export function useFileBrowser(options: {
           note = await readNote({ workspaceId, path });
           offline.rememberNote(note);
         } catch (error) {
-          const cached = await offline.cachedNote(path);
+          const cached = isServerRefusal(error) ? null : await offline.cachedNote(path);
           if (cached === null) {
             dispatch({ type: "closed" });
             setNotice(toFileError(error).message);
@@ -563,7 +624,7 @@ export function useFileBrowser(options: {
         dispatch({ type: "closed" });
         // Its own listing, so the folder view has contents to draw rather than
         // an empty screen. `refresh` is a no-op for a folder already loaded.
-        if (listings[path] === undefined) void refresh([path]);
+        if (listings[path] === undefined) void refresh([path]).catch(reportRefreshFailure);
         return true;
       }
       if (workspaceId === null) return true;
@@ -572,7 +633,7 @@ export function useFileBrowser(options: {
       // this answer is not about. A caller only needs to know the guard let go.
       return true;
     },
-    [listings, openNote, refresh, workspaceId],
+    [listings, openNote, refresh, reportRefreshFailure, workspaceId],
   );
 
   /**
@@ -794,7 +855,7 @@ export function useFileBrowser(options: {
             etag: result.etag,
             conflictCheck: result.conflictCheck,
           });
-          void refresh([parentPath(path)]);
+          void refresh([parentPath(path)]).catch(reportRefreshFailure);
         })
         .catch((error: unknown) => {
           if (saveRun.current !== mine) return;
@@ -802,7 +863,7 @@ export function useFileBrowser(options: {
           dispatch({ type: "saveFailed", error: toFileError(error) });
         });
     },
-    [refresh, workspaceId, writeNote],
+    [refresh, reportRefreshFailure, workspaceId, writeNote],
   );
 
   /**
@@ -1254,8 +1315,10 @@ export function useFileBrowser(options: {
     const missing = ancestorsOf(selectedPath).filter((folder) => !expanded.has(folder));
     if (missing.length === 0) return;
     setExpanded((current) => new Set([...current, ...missing]));
-    void refresh(missing.filter((folder) => listings[folder] === undefined));
-  }, [expanded, listings, refresh, selectedPath]);
+    void refresh(missing.filter((folder) => listings[folder] === undefined)).catch(
+      reportRefreshFailure,
+    );
+  }, [expanded, listings, refresh, reportRefreshFailure, selectedPath]);
 
   /* ------------------------------- sharing ------------------------------- */
 
@@ -1399,6 +1462,7 @@ export function useFileBrowser(options: {
       sync: {
         reachability: offline.reachability,
         counts: offline.counts,
+        ready: offline.ready,
         durable: offline.durable,
         conditionalWrite: options.conditionalWrite,
         stuckPaths: offline.outbox.writes
@@ -1469,6 +1533,7 @@ export function useFileBrowser(options: {
       offline.durable,
       offline.outbox,
       offline.reachability,
+      offline.ready,
       options.canEdit,
       options.conditionalWrite,
       options.isOwner,
