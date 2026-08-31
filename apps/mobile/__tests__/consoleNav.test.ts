@@ -1,6 +1,8 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   APP_SECTIONS,
+  LANDING_ROUTE,
+  landingHref,
   MAP_ROUTE,
   browseHref,
   closeSettings,
@@ -43,9 +45,46 @@ describe("the route table", () => {
     expect(new Set(hrefs).size).toBe(hrefs.length);
   });
 
-  test("the map is the root of the console", () => {
-    expect(hrefFor(MAP_ROUTE)).toBe("/console");
-    expect(routeForPath("/console")).toEqual({ kind: "app", section: "map" });
+  /**
+   * The root of the console is a landing, not a pane.
+   *
+   * `/console` used to be the Map's own URL, so signing in put somebody in
+   * front of a diagram of their contexts rather than in one of them. It is now
+   * its own route kind — the redirect to the first reachable context happens in
+   * `app/(app)/console/index.tsx`, and the *route* exists so that the rail can
+   * paint nothing at all while it is on screen. Leaving `/console` mapped to
+   * `MAP_ROUTE` and redirecting from the component would light Map up in the
+   * rail for the frame before the redirect landed, on the transition somebody
+   * sees most often.
+   */
+  test("the root of the console is the landing, and the map has its own URL", () => {
+    expect(hrefFor(LANDING_ROUTE)).toBe("/console");
+    expect(routeForPath("/console")).toEqual({ kind: "landing" });
+
+    expect(hrefFor(MAP_ROUTE)).toBe("/console/map");
+    expect(routeForPath("/console/map")).toEqual({ kind: "app", section: "map" });
+  });
+
+  /**
+   * Where the landing actually sends somebody.
+   *
+   * The first context in the rail's own order — a lookup, not a decision, so
+   * what you land in is what is at the top of the list you are looking at.
+   */
+  test("the landing resolves to the first reachable context's Browse", () => {
+    expect(landingHref(contexts)).toBe("/console/@seyi");
+    expect(landingHref([{ slug: "public-worship" }])).toBe("/console/@public-worship");
+  });
+
+  /**
+   * `null` covers two states on purpose: still loading, and none at all.
+   *
+   * Both mean *do not navigate*, and telling them apart belongs to the caller
+   * — which draws the Map either way, so an account with no contexts sees the
+   * one pane that is about not having any.
+   */
+  test("an account with nothing to land in gets no href rather than a bad one", () => {
+    expect(landingHref([])).toBeNull();
   });
 
   test("connections is app level, not inside a context", () => {
@@ -77,11 +116,12 @@ describe("the route table", () => {
   test("there is no top-level storage URL any more", () => {
     // It was never app level: a binding belongs to a workspace. The old URL
     // must not resolve to something that renders a different context's bucket.
-    expect(routeForPath("/console/storage")).toEqual(MAP_ROUTE);
+    expect(routeForPath("/console/storage")).toEqual(LANDING_ROUTE);
   });
 
   test("every href round-trips through routeForPath", () => {
     const routes: ConsoleRoute[] = [
+      { kind: "landing" },
       { kind: "app", section: "map" },
       { kind: "app", section: "connections" },
       { kind: "context", slug: "seyi", view: "browse" },
@@ -95,7 +135,7 @@ describe("the route table", () => {
 
 describe("parsing a console URL", () => {
   test("a trailing slash is not a different place", () => {
-    expect(routeForPath("/console/")).toEqual(MAP_ROUTE);
+    expect(routeForPath("/console/")).toEqual(LANDING_ROUTE);
     expect(routeForPath("/console/@lk/")).toEqual({
       kind: "context",
       slug: "lk",
@@ -139,15 +179,22 @@ describe("parsing a console URL", () => {
   test("a bare word where a context should be is not invented into one", () => {
     // Otherwise `/console/browse` — the URL this restructuring removed — would
     // silently become a context called "browse".
-    expect(routeForPath("/console/browse")).toEqual(MAP_ROUTE);
-    expect(routeForPath("/console/nope")).toEqual(MAP_ROUTE);
+    expect(routeForPath("/console/browse")).toEqual(LANDING_ROUTE);
+    expect(routeForPath("/console/nope")).toEqual(LANDING_ROUTE);
   });
 
-  test("nonsense falls back to the map rather than rendering nothing", () => {
-    expect(routeForPath("")).toEqual(MAP_ROUTE);
-    expect(routeForPath("/")).toEqual(MAP_ROUTE);
-    expect(routeForPath("/login")).toEqual(MAP_ROUTE);
-    expect(routeForPath("/console/@")).toEqual(MAP_ROUTE);
+  /**
+   * The fallback moved with the root, and it is a better one.
+   *
+   * It used to be the map, "the one view that is always meaningful". The
+   * landing is more meaningful than the map was: a dead link puts somebody in
+   * their notes rather than in a diagram of them.
+   */
+  test("nonsense falls back to the landing rather than rendering nothing", () => {
+    expect(routeForPath("")).toEqual(LANDING_ROUTE);
+    expect(routeForPath("/")).toEqual(LANDING_ROUTE);
+    expect(routeForPath("/login")).toEqual(LANDING_ROUTE);
+    expect(routeForPath("/console/@")).toEqual(LANDING_ROUTE);
   });
 
   test("a malformed escape is somebody's hand-edited URL, not a crash", () => {

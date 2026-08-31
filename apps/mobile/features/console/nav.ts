@@ -17,11 +17,37 @@ import { inviteHref } from "../auth/redirect";
  * Every one of these is a real URL. A console is somewhere people link each
  * other to and reload — "look at @public-worship's settings" has to survive
  * being pasted into a chat, and the back button has to mean something.
+ *
+ * ## `/console` is a landing, not a pane
+ *
+ * It used to be the Map's own URL, so signing in put you in front of a
+ * constellation diagram of the contexts you can reach. That is a good picture
+ * of what this product *is* and a bad answer to what somebody opened the app
+ * to do, which is read or write a note — the map is a thing you visit once,
+ * and it was the thing you had to get past every single time.
+ *
+ * So `/console` is now a `landing` route: it resolves to the first context you
+ * can reach and redirects to that context's Browse. The Map keeps a URL of its
+ * own (`/console/map`) and its place in the rail, so it is one press away
+ * rather than unavoidable.
+ *
+ * `landing` is a route in the union rather than a special case at the call
+ * site because **the rail has to be able to paint nothing while it is on
+ * screen**. The obvious implementation — leave `/console` mapping to
+ * `MAP_ROUTE` and redirect from the component — highlights Map in the rail for
+ * the frame before the redirect lands, which is a flicker on exactly the
+ * transition somebody sees most often. A route that names no section cannot
+ * highlight one.
+ *
+ * It is also where an unrecognised console URL falls back to, for the same
+ * reason the map used to be: it is the one destination that is always
+ * meaningful. It is now more meaningful than the map was — a dead link lands
+ * you in your notes rather than in a diagram of them.
  */
 
 /** The app-level destinations, in rail order. */
 export const APP_SECTIONS = [
-  { key: "map", label: "Map", href: "/console" },
+  { key: "map", label: "Map", href: "/console/map" },
   { key: "connections", label: "Connections", href: "/console/connections" },
 ] as const;
 
@@ -31,10 +57,15 @@ export type AppSectionKey = (typeof APP_SECTIONS)[number]["key"];
 export type ContextView = "browse" | "settings";
 
 export type ConsoleRoute =
+  /** `/console`. On its way to a context's Browse; see the module comment. */
+  | { kind: "landing" }
   | { kind: "app"; section: AppSectionKey }
   | { kind: "context"; slug: string; view: ContextView };
 
+export const LANDING_ROUTE: ConsoleRoute = { kind: "landing" };
 export const MAP_ROUTE: ConsoleRoute = { kind: "app", section: "map" };
+
+export const CONSOLE_ROOT = "/console";
 
 /** A context's addressable name in a URL: `@seyi`, never a raw workspace id. */
 export function contextSegment(slug: string): string {
@@ -119,18 +150,20 @@ export function appSectionHref(key: AppSectionKey): string {
 
 /** Where a route lives. */
 export function hrefFor(route: ConsoleRoute): string {
+  if (route.kind === "landing") return CONSOLE_ROOT;
   if (route.kind === "app") return appSectionHref(route.section);
   return route.view === "settings" ? settingsHref(route.slug) : browseHref(route.slug);
 }
 
 /**
- * Which route a console URL is showing. Anything unrecognised is the map,
- * which is the one view that is always meaningful.
+ * Which route a console URL is showing. Anything unrecognised is the landing,
+ * which is the one destination that is always meaningful — see the module
+ * comment for why that is no longer the map.
  */
 export function routeForPath(pathname: string): ConsoleRoute {
   const trimmed = pathname.split("?")[0]!.split("#")[0]!.replace(/\/+$/, "");
-  if (trimmed === "" || trimmed === "/console") return MAP_ROUTE;
-  if (!trimmed.startsWith("/console/")) return MAP_ROUTE;
+  if (trimmed === "" || trimmed === CONSOLE_ROOT) return LANDING_ROUTE;
+  if (!trimmed.startsWith("/console/")) return LANDING_ROUTE;
 
   const rest = trimmed.slice("/console/".length).split("/");
   const head = rest[0] ?? "";
@@ -140,12 +173,30 @@ export function routeForPath(pathname: string): ConsoleRoute {
 
   // A context segment is `@slug`. Anything else at this depth is a pane name we
   // do not have, and falls back rather than inventing a context called "foo".
-  if (!head.startsWith("@") && !head.startsWith("%40")) return MAP_ROUTE;
+  if (!head.startsWith("@") && !head.startsWith("%40")) return LANDING_ROUTE;
   const slug = slugFromSegment(head);
-  if (slug === "") return MAP_ROUTE;
+  if (slug === "") return LANDING_ROUTE;
 
   const view: ContextView = rest[1] === "settings" ? "settings" : "browse";
   return { kind: "context", slug, view };
+}
+
+/**
+ * Where `/console` actually puts somebody, or `null` for "nowhere yet".
+ *
+ * The first context in the rail's own order, which is the list the layout
+ * already has — so this is a lookup rather than a decision, and the thing it
+ * lands on is the thing at the top of the list somebody is looking at.
+ *
+ * `null` while the contexts are still loading and for an account that can
+ * reach none, and the caller draws the Map in that case rather than redirecting
+ * nowhere. Those two states are deliberately one answer here: "not yet" and
+ * "never" both mean *do not navigate*, and telling them apart is the caller's
+ * job, not the URL's.
+ */
+export function landingHref(contexts: ReadonlyArray<{ slug: string }>): string | null {
+  const first = contexts[0];
+  return first === undefined ? null : browseHref(first.slug);
 }
 
 /** The context a route is inside, or `null` at app level. */
@@ -246,7 +297,13 @@ export function resolveContextRoute({
       return { action: "redirect", href: inviteHref(invitation.token) };
     }
 
-    return { action: "redirect", href: hrefFor(MAP_ROUTE) };
+    /*
+      A dead link lands on the landing rather than on the map: `/console`
+      resolves to the first context this person can actually reach, which is a
+      more useful answer to "that context is not yours" than a diagram of the
+      ones that are.
+    */
+    return { action: "redirect", href: hrefFor(LANDING_ROUTE) };
   }
   if (match.id === selectedContextId) return { action: "stay" };
   return { action: "select", contextId: match.id };
@@ -255,6 +312,10 @@ export function resolveContextRoute({
 /** Two routes naming the same place. */
 export function sameRoute(a: ConsoleRoute, b: ConsoleRoute): boolean {
   if (a.kind !== b.kind) return false;
+  // Two landings are the same place. The `false` below is for a kind added to
+  // the union and not to this function, which is a comparison that should fail
+  // loudly rather than quietly answer "different".
+  if (a.kind === "landing" && b.kind === "landing") return true;
   if (a.kind === "app" && b.kind === "app") return a.section === b.section;
   if (a.kind === "context" && b.kind === "context") {
     return a.slug === b.slug && a.view === b.view;
