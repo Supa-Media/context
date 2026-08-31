@@ -30,5 +30,12 @@
       "channel": "production",
       "autoIncrement": true
     }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleTeamId": "647N4W6575"
+      }
+    }
   }
 }
