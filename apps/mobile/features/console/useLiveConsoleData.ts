@@ -26,12 +26,13 @@ import {
   type ClientInput,
   type ContextInput,
 } from "./map/graph";
-import type {
-  ConsoleClient,
-  ConsoleContext,
-  ConsoleData,
-  ConsoleStorage,
-  StorageActions,
+import {
+  defaultContextId,
+  type ConsoleClient,
+  type ConsoleContext,
+  type ConsoleData,
+  type ConsoleStorage,
+  type StorageActions,
 } from "./types";
 
 /**
@@ -220,14 +221,16 @@ export function useLiveConsoleData(): ConsoleData {
   // ordinary sign-out anyway — this reference exists only for deletion.
   const authActions = useAuthActions();
 
-  // An authenticated session resolves to a *set* of contexts. Default to the
-  // first rather than assuming there is exactly one — and drop an explicit
-  // selection that no longer exists rather than rendering an empty console.
+  // An authenticated session resolves to a *set* of contexts, never to one, and
+  // an explicit selection that no longer exists is dropped rather than
+  // rendering an empty console. With no explicit choice, `defaultContextId`
+  // prefers a context you own — "the first of the list" opened somebody else's,
+  // which greets a person with a filtered view of a place they visit.
   const selectedContextId: Id<"workspaces"> | null =
     explicitContextId !== null &&
     (workspaces ?? []).some((w) => w.workspaceId === explicitContextId)
       ? explicitContextId
-      : (workspaces?.[0]?.workspaceId ?? null);
+      : defaultContextId((workspaces ?? []).map((w) => ({ id: w.workspaceId, role: w.role })));
 
   const contexts: ConsoleContext[] = (workspaces ?? []).map((workspace) => ({
     id: workspace.workspaceId,
