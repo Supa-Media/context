@@ -145,6 +145,17 @@ export const ICON_NAMES = [
    * where it is, which is a relationship rather than a departure.
    */
   "share",
+  /**
+   * The file tree's sort order, as Obsidian draws it: an up arrow beside three
+   * rules of decreasing length.
+   *
+   * The arrow is what makes it a *sort* rather than a filter — `filter` above
+   * is the same stack of rules with no arrow, and the two would be one mark
+   * without it.
+   */
+  "sort",
+  /** The file tree's collapse-all: a pane with only its top band left open. */
+  "collapse",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -633,21 +644,62 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
 
     case "gear":
       /*
-        Eight teeth rather than six, on the diagonals as well as the axes: at
-        six the gaps are 60° apart and the mark reads as a flower. Each tooth
-        is a bar turned to lie along its own radius, starting just outside the
-        ring so the two touch without the tooth crossing into the hub.
+        **The teeth lie across their radius, not along it.**
+
+        They used to be radial spokes on a ring, which is a *sun* — and it was
+        drawn at the foot of the file tree where Obsidian puts a settings gear,
+        so that is what it was read as. A cog's teeth are stubs on the rim,
+        perpendicular to the radius; that is the whole difference between the
+        two marks, and it survives being drawn at 18pt.
+
+        Eight, on the diagonals as well as the axes: at six the gaps are 60°
+        apart and the mark reads as a flower. The rim sits inside them and a
+        second ring is the hub, because a solid middle at this size fills in.
       */
       return [
-        ring("hub", u, w, c, { cx: 0.5, cy: 0.5, r: 0.24 }),
-        bar("t0", u, w, c, { cx: 0.84, cy: 0.5, length: 0.16 }),
-        bar("t1", u, w, c, { cx: 0.74, cy: 0.74, length: 0.16, angle: 45 }),
-        bar("t2", u, w, c, { cx: 0.5, cy: 0.84, length: 0.16, angle: 90 }),
-        bar("t3", u, w, c, { cx: 0.26, cy: 0.74, length: 0.16, angle: -45 }),
-        bar("t4", u, w, c, { cx: 0.16, cy: 0.5, length: 0.16 }),
-        bar("t5", u, w, c, { cx: 0.26, cy: 0.26, length: 0.16, angle: 45 }),
-        bar("t6", u, w, c, { cx: 0.5, cy: 0.16, length: 0.16, angle: 90 }),
-        bar("t7", u, w, c, { cx: 0.74, cy: 0.26, length: 0.16, angle: -45 }),
+        ring("rim", u, w, c, { cx: 0.5, cy: 0.5, r: 0.3 }),
+        ring("hub", u, w, c, { cx: 0.5, cy: 0.5, r: 0.12 }),
+        bar("t0", u, w, c, { cx: 0.86, cy: 0.5, length: 0.16, angle: 90 }),
+        bar("t1", u, w, c, { cx: 0.755, cy: 0.755, length: 0.16, angle: 135 }),
+        bar("t2", u, w, c, { cx: 0.5, cy: 0.86, length: 0.16 }),
+        bar("t3", u, w, c, { cx: 0.245, cy: 0.755, length: 0.16, angle: 45 }),
+        bar("t4", u, w, c, { cx: 0.14, cy: 0.5, length: 0.16, angle: 90 }),
+        bar("t5", u, w, c, { cx: 0.245, cy: 0.245, length: 0.16, angle: 135 }),
+        bar("t6", u, w, c, { cx: 0.5, cy: 0.14, length: 0.16 }),
+        bar("t7", u, w, c, { cx: 0.755, cy: 0.245, length: 0.16, angle: 45 }),
+      ];
+
+    case "sort":
+      /*
+        The arrow is a stem with a head, on the leading third; the rules take
+        the rest. Drawn shorter than `filter`'s so the two marks are not the
+        same object with an arrow bolted on — this one is about *order*, and
+        the descending stack says it in the space beside the arrow.
+      */
+      return [
+        /*
+          0.48, not 0.6. A bar is laid out horizontally and turned afterwards,
+          so its *declared* box is the horizontal one and a vertical stroke at
+          `cx` is bounded by twice its distance from the nearer edge — the same
+          trap `brackets` documents, and the reason this stem is shorter than it
+          looks like it should be.
+        */
+        bar("stem", u, w, c, { cx: 0.26, cy: 0.52, length: 0.48, angle: 90 }),
+        chevron("head", u, w, c, { cx: 0.26, cy: 0.32, side: 0.24, angle: -45 }),
+        bar("l1", u, w, c, { cx: 0.66, cy: 0.28, length: 0.44 }),
+        bar("l2", u, w, c, { cx: 0.6, cy: 0.5, length: 0.32 }),
+        bar("l3", u, w, c, { cx: 0.54, cy: 0.72, length: 0.2 }),
+      ];
+
+    case "collapse":
+      /*
+        A pane with a band across its top: everything folded up into the row it
+        collapses to. The band is a filled bar rather than a second rectangle,
+        because two nested outlines at 20pt is a smudge.
+      */
+      return [
+        rect("frame", u, w, c, { x0: 0.12, y0: 0.18, x1: 0.88, y1: 0.82, radius: 0.14 }),
+        bar("band", u, w * 1.6, c, { cx: 0.5, cy: 0.33, length: 0.5 }),
       ];
 
     case "filter":

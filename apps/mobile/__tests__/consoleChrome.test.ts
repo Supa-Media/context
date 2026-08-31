@@ -368,26 +368,33 @@ describe("the phone's way off a pane", () => {
     // Raising one panel puts the other away, so the tree is gone with it.
     expect(app.find("frame-drawer")).toBeNull();
 
-    // Connections is an app-level pane, so this is a real change of route.
-    app.press(app.byLabel("Connections"));
+    /*
+      A context, because a context is all this sheet holds now. It used to
+      carry Map and Connections under an APP heading, which is what made it a
+      second left navigation rather than the vault switcher — see
+      `ConsoleRail`. Those two live in a context's settings; what the sheet
+      answers is "whose notes am I about to open", and choosing an answer must
+      put it away.
+    */
+    app.press(app.byLabel("Open @seyi"));
     expect(app.find("frame-nav-sheet")).toBeNull();
     expect(app.find("frame-scrim")).toBeNull();
 
     app.unmount();
   });
 
-  test("and so does choosing the pane you are already on", () => {
+  test("and so does choosing the context you are already in", () => {
     // The router has nothing to do here — `sameRoute` short-circuits it — and a
     // sheet that stays put because of that reads as a dead press.
-    mockPathname = "/console";
+    mockPathname = "/console/@seyi";
     const app = mountConsole(390);
 
-    app.press(app.find("frame-nav-toggle"));
-    app.press(app.byLabel("Map"));
+    app.press(app.find("frame-drawer-toggle"));
+    app.press(app.find("vault-switcher"));
+    app.press(app.byLabel("Open @seyi"));
     expect(app.find("frame-nav-sheet")).toBeNull();
 
     app.unmount();
-    mockPathname = "/console/@seyi";
   });
 
   test("sign-out is reachable, and is a target a thumb can hit", () => {

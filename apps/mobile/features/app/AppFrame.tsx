@@ -534,14 +534,32 @@ export function AppFrame({
           ]}
         >
           {regions.drawerToggle ? (
-            <FrameIconButton
-              label={state.drawerOpen ? "Close the file tree" : "Open the file tree"}
-              icon="panelLeft"
-              onPress={toggleExplorer}
-              selected={state.drawerOpen}
-              round={compact}
-              testID="frame-drawer-toggle"
-            />
+            /*
+              The toggle sits on the note, not on the panel it opened.
+
+              With a panel in, the leading corner of the glass belongs to that
+              panel — a floating button there lies on top of the tree's first
+              row and hides it. Either panel: the brain switcher comes in from
+              the same edge and covers the same corner. The reference puts it on the sliver of
+              note still showing at the trailing edge, which is also where a
+              thumb reaching past an open panel actually is. `marginLeft: auto`
+              rather than a second absolutely-positioned button, so there is
+              one control that moves rather than two that must agree.
+            */
+            <View
+              style={
+                compact && (state.drawerOpen || state.navOpen) ? styles.toggleOnSliver : null
+              }
+            >
+              <FrameIconButton
+                label={state.drawerOpen ? "Close the file tree" : "Open the file tree"}
+                icon="panelLeft"
+                onPress={toggleExplorer}
+                selected={state.drawerOpen}
+                round={compact}
+                testID="frame-drawer-toggle"
+              />
+            </View>
           ) : null}
 
           {/*
@@ -1046,6 +1064,8 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     backgroundColor: "transparent",
   },
   topLead: { flexDirection: "row", alignItems: "center", gap: space.x2, minWidth: 0 },
+  /** See the drawer toggle: the control crosses to the sliver of note. */
+  toggleOnSliver: { marginLeft: "auto" },
   topTrail: {
     marginLeft: "auto",
     flexDirection: "row",

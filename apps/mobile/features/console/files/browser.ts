@@ -66,6 +66,16 @@ export interface FileBrowser {
   listings: Readonly<Record<string, FolderListing | undefined>>;
   expanded: ReadonlySet<string>;
   toggleFolder: (path: string) => void;
+  /**
+   * Fold the whole tree back to its roots.
+   *
+   * A separate operation rather than "toggle everything that is open", because
+   * what it means is *the tree's resting state* — one press from forty rows to
+   * five. It leaves the selection alone: collapsing the tree is a statement
+   * about the panel, not about which note is open, and closing the folder a
+   * note is in must not close the note.
+   */
+  collapseAll: () => void;
 
   selectedPath: string | null;
   /** Refused, with a prompt, when the open note has unsaved changes. */

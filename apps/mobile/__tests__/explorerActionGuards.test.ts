@@ -302,6 +302,7 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     listings: { "": ROOT_LISTING, "1-projects": PROJECTS_LISTING },
     expanded: new Set<string>(),
     toggleFolder: noop,
+    collapseAll: noop,
     selectedPath: null,
     // `select` answers whether the unsaved-changes guard let go; these
     // fixtures have no draft, so it always does.

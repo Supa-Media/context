@@ -70,6 +70,8 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
     [tree],
   );
 
+  const collapseAll = useCallback(() => setExpanded(new Set<string>()), []);
+
   const toggleFolder = useCallback((path: string) => {
     setExpanded((current) => {
       const next = new Set(current);
@@ -100,6 +102,7 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       listings: tree.listings,
       expanded,
       toggleFolder,
+      collapseAll,
       selectedPath,
       select,
       /*
@@ -149,6 +152,6 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       teamShareLink: async () => null,
       setSharePreviewTitle: noop,
     }),
-    [editor, expanded, select, selectedPath, toggleFolder, tree],
+    [collapseAll, editor, expanded, select, selectedPath, toggleFolder, tree],
   );
 }

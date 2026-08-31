@@ -133,16 +133,14 @@ export function Explorer({
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const frame = useFrame();
+  /*
+    The sort control's whole state. Two orders and not a menu of five, because
+    two is what one press can carry and because the only field the console has
+    to sort on is the name — `FolderListing` has no sizes for a folder and the
+    dates it does carry are the bucket's, not the note's.
+  */
+  const [descending, setDescending] = useState(false);
   const [query, setQuery] = useState("");
-  /**
-   * Whether the filter field has been asked for on a phone.
-   *
-   * **Read only inside the `touch` branch of the render.** On a pointer layout
-   * the field is permanent and this flag decides nothing, and a component that
-   * branches on it outside that fork is one edit away from hiding the desktop's
-   * filter too.
-   */
-  const [filterOpen, setFilterOpen] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [menu, setMenu] = useState<MenuState>(null);
   const [drag, setDrag] = useState<DragSource | null>(null);
@@ -214,8 +212,9 @@ export function Explorer({
         listings: files.listings,
         expanded: files.expanded,
         selectedPath: files.selectedPath,
+        descending,
       }),
-    [files.expanded, files.listings, files.selectedPath],
+    [descending, files.expanded, files.listings, files.selectedPath],
   );
 
   const matches = useMemo(() => {
@@ -444,10 +443,7 @@ export function Explorer({
    * with a query in it. One handler for both the pointer's × and the phone's
    * close, so the two cannot come to disagree about whether closing clears.
    */
-  const closeFilter = useCallback(() => {
-    setQuery("");
-    setFilterOpen(false);
-  }, []);
+  const closeFilter = useCallback(() => setQuery(""), []);
 
   /**
    * The three controls, in one place, drawn twice.
@@ -459,20 +455,6 @@ export function Explorer({
    */
   const actions = (
     <>
-      {/*
-        The magnifier only where the field is not already on screen. A pointer
-        layout draws the field permanently, and a button that reveals what is
-        in front of you is a control with nothing to do.
-      */}
-      {touch ? (
-        <IconButton
-          label="Filter notes and folders"
-          icon="search"
-          touch
-          onPress={() => setFilterOpen(true)}
-          testID="explorer-filter-open"
-        />
-      ) : null}
       {files.canEdit ? (
         <>
           <IconButton
@@ -490,6 +472,46 @@ export function Explorer({
             testID="explorer-new-folder"
           />
         </>
+      ) : null}
+      {/*
+        Sort and collapse, which the reference has and this did not.
+
+        Both are about the *panel* rather than about the context, so neither is
+        gated on `canEdit`: a member reading somebody else's notes has as much
+        use for a folded tree as its owner does. They are drawn at both
+        densities for the same reason the create buttons are — one definition,
+        two placements, so a verb cannot exist on one surface and go missing on
+        the other.
+      */}
+      <IconButton
+        label={descending ? "Sort A to Z" : "Sort Z to A"}
+        icon="sort"
+        touch={touch}
+        onPress={() => setDescending((current) => !current)}
+        testID="explorer-sort"
+      />
+      <IconButton
+        label="Collapse every folder"
+        icon="collapse"
+        touch={touch}
+        onPress={files.collapseAll}
+        testID="explorer-collapse"
+      />
+      {/*
+        Close, and only where the panel is a panel. On a pointer layout the
+        explorer is a column that is always there, and a button that puts the
+        region away would be a fourth way to do what ⌘⇧E and the top bar's
+        toggle already do — on the one density where there is nothing covering
+        the note to dismiss.
+      */}
+      {touch ? (
+        <IconButton
+          label="Close the file tree"
+          icon="close"
+          touch
+          onPress={frame.closeDrawer}
+          testID="explorer-close"
+        />
       ) : null}
     </>
   );
@@ -518,24 +540,23 @@ export function Explorer({
   return (
     <View style={styles.explorer}>
       {/*
-        On a phone this row exists only while somebody has asked to filter, and
-        the tree starts at the top of the sheet the rest of the time. On a
-        pointer it is the column's permanent header.
+        The filter is a pointer control now, and its absence on a phone is a
+        decision rather than an omission.
+
+        The reference's icon row is five marks — new note, new folder, sort,
+        collapse all, close — and there is no magnifier among them, because on
+        a phone finding a note is the *toolbar's* job: the bottom bar's search
+        opens the palette, which searches the whole context rather than the
+        folders that happen to be loaded. That is strictly the larger
+        capability, and it is the one already within a thumb's reach.
+
+        What is lost is filtering the tree *in place*, which is a different and
+        smaller thing, and it stays where it has always worked: a pointer
+        layout draws the field permanently in the column's header. This is the
+        one place in this file where the two surfaces genuinely offer different
+        verbs, and it is written down here rather than discovered later.
       */}
-      {touch ? (
-        filterOpen ? (
-          <View style={styles.toolbarTouch}>
-            {filterField}
-            <IconButton
-              label="Close the filter"
-              icon="close"
-              touch
-              onPress={closeFilter}
-              testID="explorer-filter-clear"
-            />
-          </View>
-        ) : null
-      ) : (
+      {touch ? null : (
         <View style={styles.toolbar}>
           {filterField}
           {query !== "" ? (
@@ -625,6 +646,33 @@ export function Explorer({
       */}
       <View style={[styles.foot, touch && styles.footTouch]}>
         {touch ? <View style={styles.iconRow}>{actions}</View> : null}
+        {/*
+          Obsidian's pane switcher, in the slot the reference puts it in.
+
+          **It says what this sidebar is currently showing, and today there is
+          one answer.** That is deliberate rather than premature: the row above
+          it is the *file tree's* verbs and the two lines below it are the
+          brain's, so without something naming the middle the sidebar reads as
+          one undifferentiated panel of five unrelated things. Naming it is also
+          what makes the second pane — a search pane, bookmarks — an addition to
+          this control rather than a second panel opening from the same edge,
+          which is the mistake this branch is undoing.
+
+          Not pressable while it is the only pane. A control that opens a list
+          of one is a control that teaches people it does nothing.
+        */}
+        {touch ? (
+          <View style={styles.pane} testID="explorer-pane">
+            <Icon name="folder" size={16} color={colors.text2} />
+            <Text variant="wsSwitch" style={styles.paneLabel}>
+              Files
+            </Text>
+            <View style={styles.paneChevrons} aria-hidden>
+              <Icon name="chevronUp" size={11} color={colors.muted} />
+              <Icon name="chevronDown" size={11} color={colors.muted} />
+            </View>
+          </View>
+        ) : null}
         {vault === undefined ? null : <View style={styles.vault}>{vault}</View>}
         <Text variant="treeMeta" numberOfLines={1} testID="explorer-vault-detail">
           {[vaultDetail, counts].filter((part) => part !== undefined && part !== "").join(" · ")}
@@ -1069,6 +1117,26 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: space.x1,
     paddingBottom: 2,
   },
+  /**
+   * The pane switcher: full width, rounded, filled — the reference's `Files`.
+   *
+   * `touchRow` tall rather than `minTouchTarget`, because it is a band across
+   * the panel rather than a target floating on one, and the reference's is
+   * visibly taller than the icons above it.
+   */
+  pane: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.x2,
+    height: layout.touchRow,
+    paddingHorizontal: space.x3,
+    borderRadius: radii.floating,
+    backgroundColor: colors.surface3,
+  },
+  paneLabel: { flexGrow: 1, flexShrink: 1, minWidth: 0, color: colors.text },
+  /** The reference's ⌃⌄, as the two chevrons this set already has. */
+  paneChevrons: { alignItems: "center", justifyContent: "center", gap: -3 },
+
   /** The name line: whatever `_layout` passes, taking the width it needs. */
   vault: { flexDirection: "row", alignItems: "center", gap: 6 },
 });

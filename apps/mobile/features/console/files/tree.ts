@@ -106,6 +106,35 @@ export interface BuildTreeOptions {
   /** Folder paths the person has opened. */
   expanded: ReadonlySet<string>;
   selectedPath: string | null;
+  /**
+   * Reverse the name order, folders still before files.
+   *
+   * The tree's sort control, which the reference has and this did not. It is a
+   * *view* over the listing rather than a second ordering: the server's order —
+   * folders first, then files, each case-insensitively alphabetical — is the
+   * only one there is, and this walks it backwards within each of the two
+   * groups. Folders stay ahead of files in both directions, because "sort
+   * descending" is a statement about names and not about kinds, and a tree that
+   * put files above folders one press in would read as a different tree.
+   */
+  descending?: boolean;
+}
+
+/**
+ * The entries of one folder, in the order the tree draws them.
+ *
+ * Exported so the sort is one implementation: the folder page lists the same
+ * rows on the same data, and two orderings of one listing is the defect this
+ * function exists to make impossible.
+ */
+export function orderedEntries(
+  entries: readonly FileEntry[],
+  descending = false,
+): readonly FileEntry[] {
+  if (!descending) return entries;
+  const folders = entries.filter((entry) => entry.kind === "folder");
+  const files = entries.filter((entry) => entry.kind !== "folder");
+  return [...folders.reverse(), ...files.reverse()];
 }
 
 /**
@@ -113,7 +142,8 @@ export interface BuildTreeOptions {
  *
  * Listing order is the server's — folders first, then files, each
  * case-insensitively alphabetical — so re-sorting here would only introduce a
- * second opinion.
+ * second opinion. `descending` reverses the *presentation* of that one order;
+ * see `orderedEntries`.
  */
 export function buildTreeRows(options: BuildTreeOptions): TreeRow[] {
   const rows: TreeRow[] = [];
@@ -151,7 +181,7 @@ export function buildTreeRows(options: BuildTreeOptions): TreeRow[] {
       return;
     }
 
-    for (const entry of listing.entries) {
+    for (const entry of orderedEntries(listing.entries, options.descending)) {
       const expanded = entry.kind === "folder" && options.expanded.has(entry.path);
       rows.push({
         kind: entry.kind,

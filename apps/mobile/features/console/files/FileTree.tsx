@@ -213,7 +213,20 @@ function FileRow({
   });
 
   return (
-    <View style={[styles.row, isDropTarget && styles.rowDrop]} ref={interactions.ref as never}>
+    <View
+      style={[
+        styles.row,
+        // The selection is the full width of the panel, and it is drawn here
+        // rather than on the pressable because the trailing mark is a sibling
+        // of that pressable — washed there, the pill stopped short of it and
+        // read as a control rather than as the row being open. Obsidian's is
+        // edge to edge.
+        touch && row.selected && styles.rowSelectedTouch,
+        isDropTarget && styles.rowDrop,
+      ]}
+      ref={interactions.ref as never}
+    >
+      {touch ? <Guides depth={row.depth} /> : null}
       <PressRow
         accessibilityLabel={describeRow(row)}
         selected={row.selected}
@@ -233,7 +246,7 @@ function FileRow({
           { paddingLeft: indentFor(row.depth, touch) },
         ])}
         hoverStyle={styles.nodeHover}
-        selectedStyle={touch ? styles.nodeSelectedTouch : styles.nodeSelected}
+        selectedStyle={touch ? undefined : styles.nodeSelected}
         // Unconditional: `useRowInteractions` already returns nothing to
         // spread when there is no menu, and one copy of that rule is the point
         // — a second one here is the copy that would drift.
@@ -267,8 +280,43 @@ function FileRow({
         row={row}
         canSetVisibility={canSetVisibility}
         onPress={() => onCycleVisibility(row)}
+        touch={touch}
       />
     </View>
+  );
+}
+
+
+/**
+ * Obsidian's indent guides: a hairline under each ancestor's chevron, running
+ * the full height of every row beneath it.
+ *
+ * Drawn per row rather than as one line down the panel, because a tree is a
+ * flat list here — there is no element that spans a folder and its children to
+ * hang a line off. Each row draws the segment it covers, and consecutive rows
+ * make the line continuous; a row's own level is *not* drawn, so the guide
+ * stops at the last child rather than running past it into empty panel.
+ *
+ * `pointerEvents` is off: a 1pt line that eats a press aimed at the row it sits
+ * on is worse than no line.
+ *
+ * Positioned from `indentFor` rather than from a second copy of the arithmetic,
+ * plus half the chevron box, so the line lands under the chevron it belongs to
+ * and cannot drift from the indent it is describing.
+ */
+function Guides({ depth }: { depth: number }) {
+  const styles = useThemedStyles(makeStyles);
+  if (depth === 0) return null;
+  return (
+    <>
+      {Array.from({ length: depth }, (_, level) => (
+        <View
+          key={level}
+          pointerEvents="none"
+          style={[styles.guide, { left: indentFor(level, true) + CHEVRON_BOX / 2 }]}
+        />
+      ))}
+    </>
   );
 }
 
@@ -282,7 +330,8 @@ function FileRow({
  * claiming in a comment that it comes to 37 is the shape of arithmetic this
  * codebase keeps finding has quietly stopped being true.
  */
-const CHEVRON_GUTTER = 18 + 6;
+const CHEVRON_BOX = 18;
+const CHEVRON_GUTTER = CHEVRON_BOX + 6;
 
 const ROW_SLOP = layout.explorerRowSlop;
 
@@ -309,6 +358,7 @@ function VisibilityControl({
   row,
   canSetVisibility,
   onPress,
+  touch,
 }: {
   row: TreeRow;
   /**
@@ -319,6 +369,8 @@ function VisibilityControl({
    */
   canSetVisibility: boolean;
   onPress: () => void;
+  /** A phone draws the mark as a pip; see `pip`. */
+  touch: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   // `privacy.md` has no visibility of its own — it *is* the visibility — so it
@@ -346,13 +398,35 @@ function VisibilityControl({
   */
   if (row.marker === undefined) return null;
 
-  const body = (
+  /*
+    A word under a pointer, a pip under a thumb.
+
+    The column beside a document has the width for `team`, and the mockup asks
+    for it there. A 372pt panel over a note does not: on a bucket whose root is
+    private and whose PARA folders are not, *every* top-level row differs from
+    its parent, so the rule "mark only what differs" — which is right — printed
+    the same word down the whole tree. The reference marks nothing at all at
+    this size. A pip keeps the fact and spends 7pt on it, and the accessible
+    name still says the word.
+  */
+  const body = touch ? (
+    <View
+      style={[styles.pip, row.marker === "team" ? styles.pipTeam : styles.pipPrivate]}
+      testID="tree-marker-pip"
+    />
+  ) : (
     <Text variant="treeMeta" style={styles.markerLabel} numberOfLines={1}>
       {row.marker}
     </Text>
   );
 
-  if (!canSetVisibility) return <View style={styles.marker}>{body}</View>;
+  if (!canSetVisibility) {
+    return (
+      <View style={styles.marker} accessibilityLabel={describeVisibility(row)}>
+        {body}
+      </View>
+    );
+  }
 
   return (
     <PressRow
@@ -393,7 +467,27 @@ function describeRow(row: TreeRow): string {
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center", borderRadius: radii.sm },
+  row: { flexDirection: "row", alignItems: "center", borderRadius: radii.sm, position: "relative" },
+  /**
+   * The selected row on a phone: a grey wash across the whole panel, at
+   * Obsidian's radius.
+   *
+   * The accent wash and accent label are the pointer layout's, from the mockup,
+   * and they are right there — a tree beside a note needs to say which of forty
+   * rows the document on the right belongs to. On a phone the tree is a drawer
+   * that closes the moment you choose something, so the selection is a memory
+   * aid rather than a live correspondence, and a blue-on-blue row is the
+   * loudest thing on the panel for no work done. Obsidian tints it grey.
+   */
+  rowSelectedTouch: { backgroundColor: colors.surface3, borderRadius: radii.xl },
+  /** One ancestor's indent guide. See `Guides`. */
+  guide: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 1,
+    backgroundColor: colors.line,
+  },
   /**
    * The row a drop would land in.
    *
@@ -429,17 +523,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     gap: 6,
     borderRadius: radii.md,
   },
-  /**
-   * The selected row on a phone: a grey wash, and the name in ordinary ink.
-   *
-   * The accent wash and accent label are the pointer layout's, from the
-   * mockup, and they are right there — a tree beside a note needs to say which
-   * of forty rows the document on the right belongs to. On a phone the tree is
-   * a drawer that closes the moment you choose something, so the selection is
-   * a memory aid rather than a live correspondence, and a blue-on-blue row is
-   * the loudest thing on the panel for no work done. Obsidian tints it grey.
-   */
-  nodeSelectedTouch: { backgroundColor: colors.surface3 },
   chevron: { width: 12, alignItems: "center", justifyContent: "center" },
   chevronTouch: { width: 18 },
 
@@ -453,7 +536,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   marker: {
     flexGrow: 0,
     flexShrink: 0,
-    paddingHorizontal: 6,
+    paddingHorizontal: 10,
     paddingVertical: 2,
     borderRadius: radii.sm,
     alignItems: "flex-end",
@@ -461,4 +544,23 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   markerHover: { backgroundColor: colors.surface3 },
   markerLabel: { color: colors.muted },
+  /**
+   * The exception mark on a phone: a 7pt disc.
+   *
+   * The same rule the word carried — `tree.ts` decides *whether* there is a
+   * mark, and this decides only how loud it is. Its meaning rides on the
+   * control's accessible name, which was already a full sentence.
+   */
+  pip: { width: 6, height: 6, borderRadius: 3 },
+  /**
+   * Quiet, both of them.
+   *
+   * The reference draws *nothing* in this gutter, so an accent disc down the
+   * right of every row is louder than the thing it is marking. Filled for
+   * `team` and an outline for `private` says which without spending any colour
+   * on it — and the two are told apart by fill rather than by hue, which is
+   * also the only way this works for somebody who cannot separate them.
+   */
+  pipTeam: { backgroundColor: colors.muted },
+  pipPrivate: { borderWidth: 1.5, borderColor: colors.muted },
 });

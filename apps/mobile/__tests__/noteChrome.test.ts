@@ -426,15 +426,33 @@ describe("the file tree ends in a vault switcher", () => {
     const app = mountConsole(dataWith());
     app.press(app.find("frame-drawer-toggle"));
 
+    /*
+      The reference's five: new note, new folder, sort, collapse all, close.
+      **No magnifier** — on a phone, finding a note is the bottom toolbar's
+      search, which opens the palette over the whole context rather than
+      filtering the folders that happen to be loaded. See `Explorer`.
+    */
     const foot = app.find("vault-switcher")!.parentElement!.parentElement!;
-    for (const testId of ["explorer-filter-open", "explorer-new-note", "explorer-new-folder"]) {
+    for (const testId of [
+      "explorer-new-note",
+      "explorer-new-folder",
+      "explorer-sort",
+      "explorer-collapse",
+      "explorer-close",
+    ]) {
       const control = app.find(testId);
       expect(control).not.toBeNull();
       expect(foot.contains(control)).toBe(true);
     }
-    // The filter field is revealed, never resting: a tree that starts below a
-    // permanent search box has spent its first rows on chrome.
+    // Neither the field nor a button that reveals it: a tree that starts below
+    // a permanent search box has spent its first rows on chrome, and one that
+    // starts below a button to summon one has spent a target on it.
     expect(app.find("explorer-filter")).toBeNull();
+    expect(app.find("explorer-filter-open")).toBeNull();
+
+    // The pane switcher sits between the verbs and the brain, where the
+    // reference puts `Files`.
+    expect(app.find("explorer-pane")).not.toBeNull();
   });
 
   test("the switcher is the way to the rail, since the top bar no longer is", () => {
