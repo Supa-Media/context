@@ -5,7 +5,8 @@ import { Dot } from "../design/components/Dot";
 import { Pill } from "../design/components/Pill";
 import { Text } from "../design/components/Text";
 import { gradient } from "../design/css";
-import { colors, layout, radii } from "../design/tokens";
+import { layout, radii } from "../design/tokens";
+import { useThemedStyles, type Colors } from "../design/theme";
 import { atName } from "./format";
 import { APP_SECTIONS, selectContextRoute, type ConsoleRoute } from "./nav";
 import { railSections } from "./rail";
@@ -52,6 +53,7 @@ export function ConsoleShell({
    */
   chrome?: boolean;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const { width } = useWindowDimensions();
   const narrow = width < layout.narrowBreakpoint;
   const current = selectedContext(data);
@@ -162,6 +164,7 @@ function RailButton({
   role?: "button" | "tab";
   accessibilityLabel?: string;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <PressRow
       accessibilityLabel={accessibilityLabel ?? label}
@@ -204,6 +207,7 @@ export function PaneHead({
   description?: string;
   trailing?: ReactNode;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const { width } = useWindowDimensions();
   const narrow = width > 0 && width < layout.narrowBreakpoint;
 
@@ -252,7 +256,7 @@ export function TierChip({ role }: { role: string | null | undefined }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   /** `.console` */
   console: {
     borderWidth: 1,

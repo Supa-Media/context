@@ -1,5 +1,6 @@
 import { Text as RNText, StyleSheet, type TextProps, type TextStyle } from "react-native";
-import { colors, fonts, leading, tracking } from "../tokens";
+import { fonts, leading, tracking } from "../tokens";
+import { useThemedStyles, type Colors } from "../theme";
 
 /**
  * The type scale from `docs/design/console-mockup.html`.
@@ -8,7 +9,7 @@ import { colors, fonts, leading, tracking } from "../tokens";
  * wants points for both, so every entry runs its size through `tracking()` /
  * `leading()` rather than carrying a pre-baked magic number.
  */
-const variants = {
+const variantsFor = (colors: Colors) => ({
   /** `.mark` — the wordmark in the top bar. */
   mark: {
     fontFamily: fonts.display,
@@ -262,19 +263,28 @@ const variants = {
     lineHeight: leading(13, 1.55),
     color: colors.critText,
   },
-} satisfies Record<string, TextStyle>;
+}) satisfies Record<string, TextStyle>;
 
-export type TextVariant = keyof typeof variants;
+export type TextVariant = keyof ReturnType<typeof variantsFor>;
 
-const styles = StyleSheet.create(variants);
+const makeStyles = (colors: Colors) => StyleSheet.create(variantsFor(colors));
 
 export interface ContextTextProps extends TextProps {
   variant?: TextVariant;
 }
 
 export function Text({ variant = "body", style, ...rest }: ContextTextProps) {
+  const styles = useThemedStyles(makeStyles);
   return <RNText {...rest} style={[styles[variant], style]} />;
 }
 
-/** The raw variant styles, for callers that need to compose rather than nest. */
-export const textStyles = styles;
+/**
+ * The raw variant styles, for callers that need to compose rather than nest.
+ *
+ * A hook rather than the constant it used to be: the styles now depend on the
+ * palette in force, and a caller composing with them has to be re-rendered
+ * when that changes just as `Text` itself does.
+ */
+export function useTextStyles() {
+  return useThemedStyles(makeStyles);
+}

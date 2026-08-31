@@ -1,5 +1,6 @@
 import { StyleSheet, View, type ViewStyle } from "react-native";
-import { colors, radii } from "../tokens";
+import { radii } from "../tokens";
+import { useThemedStyles, type Colors } from "../theme";
 import { useCopy } from "../useCopy";
 import { Button } from "./Button";
 import { Text } from "./Text";
@@ -23,6 +24,7 @@ export function CopyField({
   style?: ViewStyle;
   testID?: string;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const { label: buttonLabel, copy } = useCopy(value);
 
   return (
@@ -43,7 +45,7 @@ export function CopyField({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   field: {
     flexDirection: "row",
     alignItems: "center",

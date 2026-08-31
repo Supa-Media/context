@@ -4,7 +4,8 @@ import { useRouter } from "expo-router";
 import { useConvexAuth } from "convex/react";
 import { Button, PressRow } from "../design/components/Button";
 import { Text } from "../design/components/Text";
-import { clamp, colors, fonts, layout, leading, radii, tracking } from "../design/tokens";
+import { clamp, fonts, layout, leading, radii, tracking } from "../design/tokens";
+import { useThemedStyles, type Colors } from "../design/theme";
 import { landingCtaHref, landingCtaLabel } from "../auth/redirect";
 import { ConsoleShell } from "../console/ConsoleShell";
 import { BrowsePane } from "../console/panes/BrowsePane";
@@ -41,6 +42,7 @@ const ARCHITECTURE_URL = "https://github.com/Supa-Media/context#how-it-works";
  * cannot drift into behaving differently from the thing it is advertising.
  */
 export function Landing() {
+  const styles = useThemedStyles(makeStyles);
   const { width } = useWindowDimensions();
   const router = useRouter();
   const auth = useConvexAuth();
@@ -252,7 +254,7 @@ export function Landing() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   ground: { flex: 1, backgroundColor: colors.ground },
   scroll: { minHeight: "100%" },
   stage: {

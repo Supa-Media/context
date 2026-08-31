@@ -54,6 +54,18 @@ export const darkColors = {
   critBorder: "rgba(248,113,113,0.24)",
   critWash: "rgba(248,113,113,0.09)",
 
+  /**
+   * The violet that means "somebody else's access" — `graphColors.shared`'s
+   * family, as a wash and a label.
+   *
+   * Tokens rather than the two literals that used to sit in
+   * `ContinuityDemo.tsx`: a hardcoded `#D8C9FF` is legible on this ground and
+   * invisible on the light one, and a colour with no token is a colour no
+   * palette can answer for.
+   */
+  sharedWash: "rgba(139,92,246,0.13)",
+  sharedText: "#D8C9FF",
+
   /** Inverse ink, used on the white CTA and on the "You" node in the map. */
   ink: "#08080A",
   white: "#F2F2F4",
@@ -174,6 +186,9 @@ export const lightColors: Colors = {
   critText: "#B91C1C",
   critBorder: "rgba(220,38,38,0.28)",
   critWash: "rgba(220,38,38,0.08)",
+
+  sharedWash: "rgba(124,58,237,0.10)",
+  sharedText: "#5B21B6",
 
   /** See the note above: the CTA fill is dark here, and its ink is white. */
   ink: "#FFFFFF",

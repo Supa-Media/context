@@ -3,7 +3,8 @@ import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { densityFor } from "../../app/frame";
 import { PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { colors, fonts, radii, space } from "../../design/tokens";
+import { fonts, radii, space } from "../../design/tokens";
+import { useThemedStyles, type Colors } from "../../design/theme";
 import { baseName } from "./paths";
 import type { Visibility } from "./types";
 
@@ -65,6 +66,7 @@ export function Breadcrumb({
   readOnly: boolean;
   onSelectFolder?: (folder: string) => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const segments = path.split("/").filter((segment) => segment !== "");
   const folders = segments.slice(0, -1);
   const compact = densityFor(useWindowDimensions().width) === "compact";
@@ -143,6 +145,7 @@ export function Breadcrumb({
 }
 
 function Separator() {
+  const styles = useThemedStyles(makeStyles);
   return (
     <Text variant="mono" style={styles.separator} aria-hidden>
       /
@@ -187,7 +190,7 @@ export function describe({
   return brief ? `${inherited} · inherited` : `${inherited} — follows its folder`;
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   bar: {
     flexDirection: "row",
     alignItems: "center",

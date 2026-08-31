@@ -6,7 +6,8 @@ import { Button } from "../design/components/Button";
 import { CenteredScroll } from "../design/components/CenteredScroll";
 import { TextField } from "../design/components/Input";
 import { Text } from "../design/components/Text";
-import { clamp, colors, fonts, layout, leading, radii, tracking } from "../design/tokens";
+import { clamp, fonts, layout, leading, radii, tracking } from "../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { StageBackdrop } from "../design/components/StageBackdrop";
 import { LANDING_ROUTE, safeNextRoute } from "./redirect";
 import { normalizeSignInEmail } from "./email";
@@ -24,6 +25,8 @@ import { normalizeSignInEmail } from "./email";
  * would strand the OAuth attempt with nothing to retry.
  */
 export function LoginScreen() {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const { signIn } = useAuthActions();
   const router = useRouter();
   const { width } = useWindowDimensions();
@@ -192,7 +195,7 @@ export function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   // `overflow: "hidden"` keeps `StageBackdrop`'s glow inside the page. It no
   // longer clips the content: that lives in the ScrollView.
   ground: {

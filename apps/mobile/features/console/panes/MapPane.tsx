@@ -3,12 +3,14 @@ import { AutoGrid } from "../../design/components/AutoGrid";
 import { Dot } from "../../design/components/Dot";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
-import { colors, radii } from "../../design/tokens";
+import { radii } from "../../design/tokens";
+import { useThemedStyles, type Colors } from "../../design/theme";
 import { PaneHead } from "../ConsoleShell";
 import { ConstellationMap } from "../map/ConstellationMap";
 import type { ConsoleData, ConsoleStat } from "../types";
 
 export function MapPane({ data }: { data: ConsoleData }) {
+  const styles = useThemedStyles(makeStyles);
   const connected = data.contexts.length;
 
   return (
@@ -37,6 +39,7 @@ export function MapPane({ data }: { data: ConsoleData }) {
 
 /** `.stat` */
 function Stat({ stat }: { stat: ConsoleStat }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.stat}>
       <Text variant="statValue">{stat.value}</Text>
@@ -45,7 +48,7 @@ function Stat({ stat }: { stat: ConsoleStat }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   /** `.mapmeta` — `repeat(auto-fit, minmax(148px, 1fr))`. */
   meta: {
     marginTop: 15,

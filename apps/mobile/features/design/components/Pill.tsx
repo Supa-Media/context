@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { StyleSheet, View, type ViewStyle } from "react-native";
-import { colors, radii } from "../tokens";
+import { radii } from "../tokens";
+import { useThemedStyles, type Colors } from "../theme";
 import { Text } from "./Text";
 
 export type PillTone = "ok" | "warn" | "neutral";
@@ -18,6 +19,7 @@ export function Pill({
   leading?: ReactNode;
   style?: ViewStyle;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={[styles.base, styles[tone], style]}>
       {leading}
@@ -28,7 +30,7 @@ export function Pill({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   base: {
     flexDirection: "row",
     alignItems: "center",

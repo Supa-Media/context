@@ -4,7 +4,8 @@ import { CopyField } from "../../design/components/CopyField";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { useCopy } from "../../design/useCopy";
-import { colors, leading, radii, space } from "../../design/tokens";
+import { leading, radii, space } from "../../design/tokens";
+import { useThemedStyles, type Colors } from "../../design/theme";
 import { MCP_ENDPOINT } from "../../console/placeholderData";
 import { ENDPOINT_NOTE, KNOWN_CLIENTS, TIER_NOTE } from "../agents";
 import type { OnboardingController } from "../useOnboarding";
@@ -45,6 +46,7 @@ export function AgentsStep({
   controller: OnboardingController;
   onContinue: () => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   // The same "Copy" → "Copied" → "Copy" machine `CopyField` uses. The prompt is
   // a block rather than a one-line value, so it cannot be a `CopyField`, but it
   // should behave identically under the thumb.
@@ -116,7 +118,7 @@ export function AgentsStep({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   lede: { marginBottom: 22, lineHeight: leading(12.5, 1.7) },
   head: { marginTop: 4, marginBottom: 8 },
   under: { marginTop: 8, marginBottom: 18, lineHeight: leading(12.5, 1.6) },

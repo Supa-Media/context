@@ -2,7 +2,8 @@ import { useState, type ReactNode } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { MenuActionId, MenuItem } from "../../console/files/menu";
-import { colors, radii, shadows, space } from "../tokens";
+import { radii, space } from "../tokens";
+import { useColors, useThemedStyles, type Colors, type Shadows } from "../theme";
 import { PressRow } from "./Button";
 import { Icon } from "./Icon";
 import { Text } from "./Text";
@@ -100,6 +101,7 @@ function SheetRow({
   align?: "left" | "center";
   onPress: () => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <PressRow
       accessibilityLabel={accessibilityLabel ?? label}
@@ -141,10 +143,13 @@ function SheetRow({
 
 /** `separatorBefore` — a hairline with air around it, never a heavy rule. */
 function Separator() {
+  const styles = useThemedStyles(makeStyles);
   return <View aria-hidden style={styles.separator} />;
 }
 
 export function Menu({ items, title, onSelect, onDismiss }: MenuProps) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   /**
    * Which submenu is open, by the id of its **parent** item.
    *
@@ -263,7 +268,7 @@ export function Menu({ items, title, onSelect, onDismiss }: MenuProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   scrim: {
     flex: 1,
     backgroundColor: "rgba(3,3,4,.72)",

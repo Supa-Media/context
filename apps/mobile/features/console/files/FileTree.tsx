@@ -2,7 +2,8 @@ import { StyleSheet, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { colors, layout, radii } from "../../design/tokens";
+import { layout, radii } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { DragModifier } from "./dnd";
 import { useRowInteractions } from "./rowInteractions";
 import type { TreeRow } from "./tree";
@@ -87,6 +88,7 @@ export function FileTree({
   /** Thumb sizing — see the file comment. */
   touch?: boolean;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <>
       {rows.map((row) => {
@@ -169,6 +171,8 @@ function FileRow({
   isDropTarget: boolean;
   touch: boolean;
 }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const interactions = useRowInteractions({
     path: row.path,
     // Passed through as absent rather than wrapped in a no-op, because
@@ -265,6 +269,7 @@ function VisibilityControl({
   canSetVisibility: boolean;
   onPress: () => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   // `privacy.md` has no visibility of its own — it *is* the visibility — so it
   // gets a lock rather than a control that would have nothing to do.
   if (row.readOnly) {
@@ -326,7 +331,7 @@ function describeRow(row: TreeRow): string {
   return row.name;
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", borderRadius: radii.sm },
   /**
    * The row a drop would land in.

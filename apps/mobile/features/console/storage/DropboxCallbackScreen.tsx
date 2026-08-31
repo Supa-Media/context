@@ -10,7 +10,8 @@ import { CenteredScroll } from "../../design/components/CenteredScroll";
 import { FormError, Notice } from "../../design/components/Input";
 import { StageBackdrop } from "../../design/components/StageBackdrop";
 import { Text } from "../../design/components/Text";
-import { clamp, colors, fonts, leading, tracking } from "../../design/tokens";
+import { clamp, fonts, leading, tracking } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { CONSOLE_ROUTE } from "../../auth/redirect";
 import { CONNECT_TIMEOUT_MS, type WatchedBinding } from "../../onboarding/verify";
 import { EMPTY_QUERY_SPEC } from "../querySpec";
@@ -49,6 +50,7 @@ import {
  * it and is wrong when somebody reloads.
  */
 export function DropboxCallbackScreen() {
+  const styles = useThemedStyles(makeStyles);
   const params = useLocalSearchParams<{
     code?: string | string[];
     state?: string | string[];
@@ -189,6 +191,8 @@ export function DropboxCallbackBody({
   view: DropboxCallbackView;
   onLeave: (href: string) => void;
 }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const { width } = useWindowDimensions();
   const titleSize = clamp(26, 2.9, 36, width);
 
@@ -314,6 +318,7 @@ function Outcome({
   onLeave: (href: string) => void;
   testID?: string;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View testID={testID}>
       <Title size={titleSize}>{headline}</Title>
@@ -346,6 +351,7 @@ function Actions({
   primary: { label: string; href: string };
   onLeave: (href: string) => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.actions}>
       <Button
@@ -380,6 +386,7 @@ function Actions({
  * is the moment, and this comment is the marker.
  */
 function ConnectPage({ children, testID }: { children: ReactNode; testID?: string }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.ground}>
       <StageBackdrop />
@@ -400,6 +407,7 @@ function ConnectPage({ children, testID }: { children: ReactNode; testID?: strin
 
 /** The heading's type, clamped against the window. Same shape as the invite screen's. */
 function Title({ size, children }: { size: number; children: ReactNode }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <Text
       role="heading"
@@ -414,7 +422,7 @@ function Title({ size, children }: { size: number; children: ReactNode }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   ground: { flex: 1, backgroundColor: colors.ground, overflow: "hidden" },
   wrap: {
     width: "100%",

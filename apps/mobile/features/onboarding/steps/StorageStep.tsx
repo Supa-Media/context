@@ -2,7 +2,8 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { FormError, Notice } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
-import { colors, leading } from "../../design/tokens";
+import { leading } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { StorageChoice } from "../../console/storage/StorageChoice";
 import { connectProgressLabel } from "../verify";
 import type { OnboardingController } from "../useOnboarding";
@@ -25,6 +26,8 @@ import type { OnboardingController } from "../useOnboarding";
  * first session — they may not have made the bucket yet.
  */
 export function StorageStep({ controller }: { controller: OnboardingController }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const { connectState } = controller;
   const progress = connectProgressLabel(connectState);
   const busy = connectState.kind === "binding" || connectState.kind === "verifying";
@@ -127,7 +130,7 @@ export function StorageStep({ controller }: { controller: OnboardingController }
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   lede: { marginBottom: 18, lineHeight: leading(12.5, 1.7) },
   progress: { marginTop: 14 },
   progressRow: { flexDirection: "row", alignItems: "center", gap: 11 },

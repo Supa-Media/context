@@ -10,7 +10,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { MenuActionId, MenuItem } from "../../console/files/menu";
-import { colors, layout, radii, shadows, space } from "../tokens";
+import { layout, radii, space } from "../tokens";
+import { useColors, useThemedStyles, type Colors, type Shadows } from "../theme";
 import { Icon } from "./Icon";
 import { Text } from "./Text";
 
@@ -293,6 +294,8 @@ function Row({
   onActivate: () => void;
   onHover?: () => void;
 }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const [hovered, setHovered] = useState(false);
   const lit = hovered || focused;
 
@@ -349,6 +352,7 @@ function Row({
 
 /** `separatorBefore` — a hairline with air around it, never a heavy rule. */
 function Separator({ touch }: { touch: boolean }) {
+  const styles = useThemedStyles(makeStyles);
   return <View aria-hidden style={[styles.separator, touch && styles.separatorTouch]} />;
 }
 
@@ -386,6 +390,8 @@ function ItemRow({
 /* -------------------------------------------------------------------------- */
 
 function Sheet({ items, title, onSelect, onDismiss }: MenuProps) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   /**
    * Which submenu is open, by the id of its **parent** item.
    *
@@ -513,6 +519,7 @@ function Panel({
   onHover: (item: MenuItem, index: number) => void;
   testID: string;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View ref={nodeRef} role="menu" testID={testID} style={[styles.panel, fixedAt(box)]}>
       {items.map((item, index) => (
@@ -730,7 +737,7 @@ export function Menu(props: MenuProps) {
   return width < layout.narrowBreakpoint ? <Sheet {...props} /> : <Popover {...props} />;
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   /* ------------------------------- popover ------------------------------- */
 
   panel: {

@@ -74,7 +74,8 @@ jest.mock("react-native-safe-area-context", () => ({
 // separately, by its own name, further down.
 const { Menu } = require("../features/design/components/Menu.tsx") as typeof import("../features/design/components/Menu");
 const { itemsFor } = require("../features/console/files/menu") as typeof import("../features/console/files/menu");
-const { colors } = require("../features/design/tokens") as typeof import("../features/design/tokens");
+const { darkColors } = require("../features/design/tokens") as typeof import("../features/design/tokens");
+const { ThemeProvider } = require("../features/design/theme") as typeof import("../features/design/theme");
 
 type MenuActionId = import("../features/console/files/menu").MenuActionId;
 type MenuItem = import("../features/console/files/menu").MenuItem;
@@ -164,13 +165,16 @@ function mountSheet(items: MenuItem[] = sheetItems()): Mounted {
 
   act(() => {
     root.render(
-      createElement(Menu, {
-        items,
-        title: "plan.md",
-        onSelect: (id: MenuActionId) => selected.push(id),
-        onDismiss: () => {
-          state.dismissals += 1;
-        },
+      createElement(ThemeProvider, {
+        scheme: "dark",
+        children: createElement(Menu, {
+          items,
+          title: "plan.md",
+          onSelect: (id: MenuActionId) => selected.push(id),
+          onDismiss: () => {
+            state.dismissals += 1;
+          },
+        }),
       }),
     );
   });
@@ -259,7 +263,7 @@ describe("the sheet draws the menu it was given", () => {
     expect(dangerColor).not.toBe(styleOf(ordinary!, "color"));
     // …and it is the palette's critical colour, not merely "some other colour".
     expect(dangerColor.replace(/\s/g, "")).toBe(
-      `rgb(${[1, 3, 5].map((at) => parseInt(colors.critText.slice(at, at + 2), 16)).join(",")})`,
+      `rgb(${[1, 3, 5].map((at) => parseInt(darkColors.critText.slice(at, at + 2), 16)).join(",")})`,
     );
   });
 
@@ -468,13 +472,16 @@ function mountPopover(
 
   act(() => {
     root.render(
-      createElement(web.Menu, {
-        items,
-        anchor,
-        onSelect: (id: MenuActionId) => selected.push(id),
-        onDismiss: () => {
-          state.dismissals += 1;
-        },
+      createElement(ThemeProvider, {
+        scheme: "dark",
+        children: createElement(web.Menu, {
+          items,
+          anchor,
+          onSelect: (id: MenuActionId) => selected.push(id),
+          onDismiss: () => {
+            state.dismissals += 1;
+          },
+        }),
       }),
     );
   });
@@ -759,12 +766,15 @@ function mountWebWith(
 
   act(() => {
     root.render(
-      createElement(web.Menu, {
-        items,
-        anchor: { x: 40, y: 60 },
-        title: "plan.md",
-        onSelect: () => {},
-        onDismiss: () => {},
+      createElement(ThemeProvider, {
+        scheme: "dark",
+        children: createElement(web.Menu, {
+          items,
+          anchor: { x: 40, y: 60 },
+          title: "plan.md",
+          onSelect: () => {},
+          onDismiss: () => {},
+        }),
       }),
     );
   });
@@ -869,7 +879,7 @@ describe("the web build picks its presentation on the window, not the bundle", (
 
     expect(styleOf(danger!, "color")).not.toBe(styleOf(ordinary!, "color"));
     expect(styleOf(danger!, "color").replace(/\s/g, "")).toBe(
-      `rgb(${[1, 3, 5].map((at) => parseInt(colors.critText.slice(at, at + 2), 16)).join(",")})`,
+      `rgb(${[1, 3, 5].map((at) => parseInt(darkColors.critText.slice(at, at + 2), 16)).join(",")})`,
     );
   });
 });

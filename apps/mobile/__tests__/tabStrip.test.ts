@@ -63,8 +63,10 @@ const { TabCountButton, TabSwitcher } =
   require("../features/console/files/TabSwitcher") as typeof import("../features/console/files/TabSwitcher");
 const { emptyTabs, tabsReducer } =
   require("../features/console/files/tabs") as typeof import("../features/console/files/tabs");
-const { colors } =
+const { darkColors } =
   require("../features/design/tokens") as typeof import("../features/design/tokens");
+const { ThemeProvider } =
+  require("../features/design/theme") as typeof import("../features/design/theme");
 import type { TabsState } from "../features/console/files/tabs";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -123,7 +125,7 @@ function mount(element: ReactElement, width = 900): Mounted {
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
   act(() => {
-    root.render(element);
+    root.render(createElement(ThemeProvider, { scheme: "dark", children: element }));
   });
 
   // Queried from the document rather than from the container, because
@@ -223,10 +225,10 @@ describe("the tab strip draws what tabs.ts says", () => {
     // sees, `aria-selected` is what everybody else gets.
     const active = strip.need(`tab-${PLAN}`);
     const idle = strip.need(`tab-${NOTES}`);
-    expect(colorOf(active, "border-top-color")).toBe(channels(colors.accent));
-    expect(colorOf(idle, "border-top-color")).not.toBe(channels(colors.accent));
-    expect(colorOf(active, "background-color")).toBe(channels(colors.surface));
-    expect(colorOf(idle, "background-color")).toBe(channels(colors.surface2));
+    expect(colorOf(active, "border-top-color")).toBe(channels(darkColors.accent));
+    expect(colorOf(idle, "border-top-color")).not.toBe(channels(darkColors.accent));
+    expect(colorOf(active, "background-color")).toBe(channels(darkColors.surface));
+    expect(colorOf(idle, "background-color")).toBe(channels(darkColors.surface2));
 
     expect(strip.need(`tab-open-${PLAN}`).getAttribute("aria-selected")).toBe("true");
     expect(strip.need(`tab-open-${NOTES}`).getAttribute("aria-selected")).toBe("false");

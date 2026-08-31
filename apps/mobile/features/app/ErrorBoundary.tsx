@@ -4,7 +4,8 @@ import { Button } from "../design/components/Button";
 import { CenteredScroll } from "../design/components/CenteredScroll";
 import { Text } from "../design/components/Text";
 import { StageBackdrop } from "../design/components/StageBackdrop";
-import { colors, leading, radii } from "../design/tokens";
+import { leading, radii } from "../design/tokens";
+import { useThemedStyles, type Colors } from "../design/theme";
 import { canReload, reloadApp } from "./reload";
 
 /**
@@ -86,6 +87,7 @@ export class ErrorBoundary extends Component<Props, State> {
  * for something to throw — the same reason `ConsentBody` is exported.
  */
 export function ErrorScreen({ error, onRetry }: { error: Error; onRetry: () => void }) {
+  const styles = useThemedStyles(makeStyles);
   const detail = error.message.trim();
 
   return (
@@ -135,7 +137,7 @@ export function ErrorScreen({ error, onRetry }: { error: Error; onRetry: () => v
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   ground: { flex: 1, backgroundColor: colors.ground, overflow: "hidden" },
   wrap: {
     width: "100%",

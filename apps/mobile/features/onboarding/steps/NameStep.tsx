@@ -3,7 +3,8 @@ import { Button } from "../../design/components/Button";
 import { Field } from "../../design/components/Field";
 import { FormError, TextField } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
-import { colors, leading } from "../../design/tokens";
+import { leading } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import {
   isPreviewable,
   nameConsequences,
@@ -41,6 +42,8 @@ import type { OnboardingController } from "../useOnboarding";
  * beside an error saying that is not a valid name.
  */
 export function NameStep({ controller }: { controller: OnboardingController }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const { name, setName, nameStatus: status, claiming, claimFailure } = controller;
   const rejection = claimFailure?.nameRejection;
   const feedback =
@@ -141,7 +144,7 @@ export function NameStep({ controller }: { controller: OnboardingController }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   lede: { marginBottom: 20, lineHeight: leading(12.5, 1.7) },
   field: { marginBottom: 0 },
   feedback: { marginTop: 8 },

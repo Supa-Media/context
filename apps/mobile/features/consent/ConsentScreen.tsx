@@ -17,7 +17,8 @@ import { ChoiceGroup, FormError, ToggleGroup } from "../design/components/Input"
 import { Pill } from "../design/components/Pill";
 import { StageBackdrop } from "../design/components/StageBackdrop";
 import { Text } from "../design/components/Text";
-import { clamp, colors, fonts, leading, radii, tracking } from "../design/tokens";
+import { clamp, fonts, leading, radii, tracking } from "../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { atName } from "../console/format";
 import { EMPTY_QUERY_SPEC } from "../console/querySpec";
 import { CONSOLE_ROUTE, LANDING_ROUTE } from "../auth/redirect";
@@ -57,6 +58,7 @@ import {
  * `resolveConsentView`, a pure function, and that is what the tests exercise.
  */
 export function ConsentScreen() {
+  const styles = useThemedStyles(makeStyles);
   const params = useLocalSearchParams<{ request_id?: string | string[] }>();
   const requestId = firstParam(params.request_id);
   const auth = useConvexAuth();
@@ -269,6 +271,8 @@ export function ConsentBody({
   onLeaveForConsole: () => void;
   onLeaveForHome: () => void;
 }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const { width } = useWindowDimensions();
   const titleSize = clamp(26, 2.9, 36, width);
 
@@ -378,6 +382,8 @@ function ReadyBody({
     grantedScopes: string[],
   ) => void;
 }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const selected = view.contexts.find((context) => context.id === view.selectedContextId) ?? null;
 
   return (
@@ -390,7 +396,7 @@ function ReadyBody({
           sits in — which is backwards, since the name is the fact the whole
           screen turns on.
         */}
-        <Text style={[...titleStyle(titleSize), styles.titleClient]}>{view.clientName}</Text>
+        <Text style={[...titleStyle(styles, titleSize), styles.titleClient]}>{view.clientName}</Text>
         {" wants access to your context"}
       </Title>
 
@@ -570,6 +576,7 @@ function tierStatement(view: Extract<ConsentView, { kind: "ready" }>): string {
 }
 
 function WithheldRow({ line }: { line: ScopeLine }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.scope} role="listitem">
       <View style={styles.scopeGlyph} aria-hidden />
@@ -588,7 +595,7 @@ function WithheldRow({ line }: { line: ScopeLine }) {
  * `tracking()` and `leading()` convert CSS `em` and unitless line-height into
  * the points React Native wants, so they cannot be pre-baked.
  */
-function titleStyle(size: number): TextStyle[] {
+function titleStyle(styles: ReturnType<typeof makeStyles>, size: number): TextStyle[] {
   return [
     styles.title,
     { fontSize: size, lineHeight: leading(size, 1.08), letterSpacing: tracking(size, -0.03) },
@@ -596,8 +603,9 @@ function titleStyle(size: number): TextStyle[] {
 }
 
 function Title({ size, children }: { size: number; children: ReactNode }) {
+  const styles = useThemedStyles(makeStyles);
   return (
-    <Text role="heading" aria-level={1} style={titleStyle(size)}>
+    <Text role="heading" aria-level={1} style={titleStyle(styles, size)}>
       {children}
     </Text>
   );
@@ -613,7 +621,7 @@ function firstParam(value: string | string[] | undefined): string | null {
 /** Re-exported for the tests and for anything typing a fixture request. */
 export type { AuthorizationRequest };
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   // `overflow: "hidden"` keeps `StageBackdrop`'s glow inside the page. It no
   // longer clips the content: that lives in the ScrollView, which owns its own
   // overflow.

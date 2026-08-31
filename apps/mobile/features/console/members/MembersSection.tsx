@@ -7,7 +7,7 @@ import { Hint } from "../../design/components/Field";
 import { ChoiceGroup, FormError, TextField } from "../../design/components/Input";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
-import { colors } from "../../design/tokens";
+import { useThemedStyles, type Colors } from "../../design/theme";
 import {
   ASSIGNABLE_ROLES,
   describeMembersFailure,
@@ -74,6 +74,7 @@ export function MembersSection({
    */
   shareBackWith?: readonly string[];
 }) {
+  const styles = useThemedStyles(makeStyles);
   const { actions } = view;
   const now = Date.now();
   /*
@@ -183,6 +184,7 @@ function MemberRow({
   member: ConsoleMember;
   actions?: MemberActions;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const [failure, setFailure] = useState<MembersFailure | null>(null);
   const [busy, setBusy] = useState(false);
   /**
@@ -279,6 +281,7 @@ function InvitationRow({
   now: number;
   actions?: MemberActions;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const [failure, setFailure] = useState<MembersFailure | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -335,6 +338,7 @@ function InviteForm({
   invite: (invitee: string, role: AssignableRole) => Promise<void>;
   shareBackWith: readonly string[];
 }) {
+  const styles = useThemedStyles(makeStyles);
   const [invitee, setInvitee] = useState("");
   const [role, setRole] = useState<AssignableRole>("member");
   const [busy, setBusy] = useState(false);
@@ -447,7 +451,7 @@ function InviteForm({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   head: { marginBottom: 13 },
   spaced: { marginTop: 11 },
   eyebrow: { marginBottom: 10 },

@@ -40,7 +40,7 @@ export { gradient, repeatingPattern, maskImage } from "./css";
 export { segment, distance, angleDegrees, midpoint, scalePoint } from "./geometry";
 export type { Point, SegmentBox } from "./geometry";
 
-export { Text, textStyles } from "./components/Text";
+export { Text, useTextStyles } from "./components/Text";
 export type { TextVariant } from "./components/Text";
 export { Button, PressRow, WindowDots } from "./components/Button";
 export type { ButtonVariant } from "./components/Button";

@@ -6,7 +6,7 @@ import { Dot } from "../../design/components/Dot";
 import { Hint } from "../../design/components/Field";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
-import { colors } from "../../design/tokens";
+import { useThemedStyles, type Colors } from "../../design/theme";
 import { ConnectClients } from "../clients/ConnectClients";
 import { MembersSection } from "../members/MembersSection";
 import { useArming } from "../useArming";
@@ -40,6 +40,7 @@ import { selectedContext, type ConsoleClient, type ConsoleData } from "../types"
  * rather than copying it.
  */
 export function ConnectionsPane({ data }: { data: ConsoleData }) {
+  const styles = useThemedStyles(makeStyles);
   /*
     The members card below is the one per-context thing on an otherwise
     app-level pane, so the role it needs is the *selected* context's — not a
@@ -150,6 +151,7 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
  * pressed it.
  */
 export function DeleteAccountCard({ deleteAccount }: { deleteAccount: () => Promise<void> }) {
+  const styles = useThemedStyles(makeStyles);
   const arming = useArming(deleteAccount);
   return (
     <View style={styles.account}>
@@ -189,6 +191,7 @@ export function DeleteAccountCard({ deleteAccount }: { deleteAccount: () => Prom
 }
 
 function ClientRow({ client }: { client: ConsoleClient }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <Row divided>
       <Dot tone={client.status} />
@@ -218,7 +221,7 @@ function ClientRow({ client }: { client: ConsoleClient }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   account: { marginTop: 18 },
   accountHead: { marginBottom: 8 },
   accountSub: { maxWidth: 520 },

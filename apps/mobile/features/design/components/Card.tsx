@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { StyleSheet, View, useWindowDimensions, type ViewStyle } from "react-native";
 import { densityFor } from "../../app/frame";
-import { colors, radii } from "../tokens";
+import { radii } from "../tokens";
+import { useThemedStyles, type Colors } from "../theme";
 
 /**
  * `.card` — surface-2, hairline border, 12px radius, 17/18 padding.
@@ -14,6 +15,7 @@ import { colors, radii } from "../tokens";
  * the detail that reads as a desktop window rather than as a grouped list.
  */
 export function Card({ children, style }: { children: ReactNode; style?: ViewStyle }) {
+  const styles = useThemedStyles(makeStyles);
   const compact = densityFor(useWindowDimensions().width) === "compact";
   return <View style={[styles.card, compact && styles.cardCompact, style]}>{children}</View>;
 }
@@ -29,15 +31,17 @@ export function Row({
   /** `border-top:1px solid var(--line)` plus the 10px vertical padding. */
   divided?: boolean;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return <View style={[styles.row, divided && styles.divided, style]}>{children}</View>;
 }
 
 /** `.row .grow` — the flexible middle of a row, allowed to truncate. */
 export function Grow({ children, style }: { children: ReactNode; style?: ViewStyle }) {
+  const styles = useThemedStyles(makeStyles);
   return <View style={[styles.grow, style]}>{children}</View>;
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   card: {
     borderWidth: 1,
     borderColor: colors.line,

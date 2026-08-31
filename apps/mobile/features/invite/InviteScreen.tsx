@@ -10,7 +10,8 @@ import { Fact } from "../design/components/Fact";
 import { FormError } from "../design/components/Input";
 import { StageBackdrop } from "../design/components/StageBackdrop";
 import { Text } from "../design/components/Text";
-import { clamp, colors, fonts, leading, tracking } from "../design/tokens";
+import { clamp, fonts, leading, tracking } from "../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { EMPTY_QUERY_SPEC } from "../console/querySpec";
 import { CONSOLE_ROUTE } from "../auth/redirect";
 import { WELCOME_ROUTE } from "../onboarding/route";
@@ -49,6 +50,7 @@ import {
  * `invite.ts` explains why the backend refuses to tell them apart.
  */
 export function InviteScreen() {
+  const styles = useThemedStyles(makeStyles);
   const params = useLocalSearchParams<{ token?: string | string[] }>();
   const token = firstParam(params.token);
   const auth = useConvexAuth();
@@ -133,6 +135,7 @@ export function InvitePage({
   children: ReactNode;
   testID?: string;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.ground}>
       <StageBackdrop />
@@ -171,6 +174,8 @@ export function InviteBody({
   onLeaveForConsole: () => void;
   onLeaveForWelcome: () => void;
 }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const { width } = useWindowDimensions();
   const titleSize = clamp(26, 2.9, 36, width);
 
@@ -252,6 +257,8 @@ function ReadyBody({
   titleSize: number;
   onDecide: (choice: "accept" | "decline") => void;
 }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const invitation = view.invitation;
 
   return (
@@ -346,6 +353,7 @@ export function DeadEnd({
   onLeaveForWelcome: () => void;
   testID?: string;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View testID={testID}>
       <Title size={titleSize}>{headline}</Title>
@@ -379,6 +387,7 @@ export function DeadEnd({
  * so neither can be pre-baked. Same shape as the consent screen's `Title`.
  */
 export function Title({ size, children }: { size: number; children: ReactNode }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <Text
       role="heading"
@@ -393,7 +402,7 @@ export function Title({ size, children }: { size: number; children: ReactNode })
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   ground: { flex: 1, backgroundColor: colors.ground, overflow: "hidden" },
   wrap: {
     width: "100%",

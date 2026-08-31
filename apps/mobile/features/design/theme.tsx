@@ -40,6 +40,13 @@ import {
  * component on its own, in exchange for nothing.
  */
 
+/**
+ * Re-exported so a screen needs one import, not two, to type its style
+ * factory: the palette shape and the hook that hands one over are the same
+ * idea, and splitting them across files only makes the import list longer.
+ */
+export type { Colors, GraphColors, Shadows } from "./tokens";
+
 export type Scheme = "light" | "dark";
 
 /** Everything that changes between the two worlds. */

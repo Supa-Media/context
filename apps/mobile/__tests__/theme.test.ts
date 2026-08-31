@@ -161,6 +161,7 @@ describe("light palette contrast", () => {
     ["hintText", lightColors.hintText],
     ["hintStrong", lightColors.hintStrong],
     ["codeKey", lightColors.codeKey],
+    ["sharedText", lightColors.sharedText],
   ])("%s clears AA on the surfaces it is drawn on", (_name, token) => {
     expect(contrast(token, lightColors.surface)).toBeGreaterThanOrEqual(AA);
     expect(contrast(token, lightColors.well)).toBeGreaterThanOrEqual(AA);

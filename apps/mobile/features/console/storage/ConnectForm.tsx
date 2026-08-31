@@ -5,7 +5,8 @@ import { Card } from "../../design/components/Card";
 import { Hint } from "../../design/components/Field";
 import { ChoiceGroup, FormError, TextField } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
-import { colors, leading } from "../../design/tokens";
+import { leading } from "../../design/tokens";
+import { useColors } from "../../design/theme";
 import {
   STORAGE_TIMEOUT_FAILURE,
   describeThrownStorageError,
@@ -56,6 +57,7 @@ export function ConnectForm({
   initial?: Partial<ConnectFormValues>;
   onCancel?: () => void;
 }) {
+  const colors = useColors();
   const [values, setValues] = useState<ConnectFormValues>({
     ...emptyConnectForm(),
     ...initial,

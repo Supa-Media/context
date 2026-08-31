@@ -34,7 +34,8 @@ import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { writeClipboard } from "../../design/clipboard";
-import { colors, fonts, radii } from "../../design/tokens";
+import { fonts, radii } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { baseName } from "./paths";
 import {
   describePersonalShare,
@@ -68,6 +69,8 @@ export function ShareDialog({
   onSetPreviewTitle: (recipient: string, titleInPreview: boolean) => void;
   onClose: () => void;
 }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const [recipient, setRecipient] = useState("");
   /** Which link was last copied: a share's id, or `TEAM_LINK`. */
   const [copied, setCopied] = useState<string | null>(null);
@@ -196,6 +199,7 @@ function SharedWith({
   onRevoke: (shareId: string) => void;
   onSetPreviewTitle: (recipient: string, titleInPreview: boolean) => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   if (shares === undefined) {
     return <Text variant="meta">Loading who has access…</Text>;
   }
@@ -260,7 +264,7 @@ function SharedWith({
 /** Sentinel for "the team link", which has no share id of its own. */
 const TEAM_LINK = "team-link";
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   scrim: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.55)",

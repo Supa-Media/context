@@ -17,7 +17,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { rank, type Match, type PaletteItem } from "../../console/files/palette";
 import { resolve } from "../keymap";
-import { colors, fonts, layout, radii, space } from "../tokens";
+import { fonts, layout, radii, space } from "../tokens";
+import { useColors, useThemedStyles, type Colors } from "../theme";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
 import { Text } from "./Text";
@@ -259,6 +260,7 @@ function PaletteRow({
   onPress: () => void;
   testID: string;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const [hovered, setHovered] = useState(false);
   const runs = highlightRuns(match.item.label, match.ranges);
 
@@ -333,6 +335,8 @@ export function Palette({
   onChoose,
   onDismiss,
 }: PaletteProps) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
@@ -671,7 +675,7 @@ export function Palette({
 
 /* -------------------------------------------------------------------------- */
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   /* ------------------------------- pointer ------------------------------- */
 
   scrim: {

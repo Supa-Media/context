@@ -1,6 +1,6 @@
 import { Redirect, Stack, useLocalSearchParams } from "expo-router";
 import { useConvexAuth } from "convex/react";
-import { colors } from "../../features/design/tokens";
+import { useColors } from "../../features/design/theme";
 import { resolveAuthRoute } from "../../features/auth/redirect";
 
 /**
@@ -15,6 +15,7 @@ import { resolveAuthRoute } from "../../features/auth/redirect";
  * and are tested there.
  */
 export default function AuthLayout() {
+  const colors = useColors();
   const params = useLocalSearchParams<{ next?: string | string[] }>();
   const next = Array.isArray(params.next) ? params.next[0] : params.next;
   const decision = resolveAuthRoute(useConvexAuth(), next);

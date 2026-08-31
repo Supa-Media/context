@@ -1,6 +1,7 @@
 import { StyleSheet, View } from "react-native";
 import { Line } from "../design/components/Line";
 import type { Point } from "../design/geometry";
+import { useColors, type Colors } from "../design/theme";
 
 /**
  * The abstract line-art marks on the four floating tiles.
@@ -18,13 +19,21 @@ export interface Glyph {
   strokes: Array<[Point, Point]>;
   circles?: Array<{ c: Point; r: number }>;
   rects?: Array<{ x: number; y: number; w: number; h: number; r: number }>;
-  color: string;
+  /**
+   * The palette token to draw in, not a colour.
+   *
+   * These four glyphs used to carry `#FB9256`, `#F2F2F4` and `#7DA6F5` —
+   * `warm`, `text` and `codeKey` typed out by hand. Copies of a palette are
+   * how a second appearance ships with three marks still painted for the
+   * first one, so the constant names the token and `TileMark` resolves it.
+   */
+  color: keyof Colors;
   width?: number;
 }
 
 /** A burst — `M22 5v34 M5 22h34 M10 10l24 24 M34 10L10 34` */
 export const BURST: Glyph = {
-  color: "#FB9256",
+  color: "warm",
   strokes: [
     [{ x: 22, y: 5 }, { x: 22, y: 39 }],
     [{ x: 5, y: 22 }, { x: 39, y: 22 }],
@@ -35,7 +44,7 @@ export const BURST: Glyph = {
 
 /** A cube — `M22 4l16 9v18l-16 9-16-9V13z` plus its three internal edges. */
 export const CUBE: Glyph = {
-  color: "#F2F2F4",
+  color: "text",
   strokes: [
     [{ x: 22, y: 4 }, { x: 38, y: 13 }],
     [{ x: 38, y: 13 }, { x: 38, y: 31 }],
@@ -51,7 +60,7 @@ export const CUBE: Glyph = {
 
 /** A document — a rounded rect with three rules. */
 export const DOCUMENT: Glyph = {
-  color: "#F2F2F4",
+  color: "text",
   rects: [{ x: 8, y: 6, w: 28, h: 32, r: 3 }],
   strokes: [
     [{ x: 15, y: 15 }, { x: 29, y: 15 }],
@@ -62,7 +71,7 @@ export const DOCUMENT: Glyph = {
 
 /** A hub — one node with four satellites, which is the product in one mark. */
 export const HUB: Glyph = {
-  color: "#7DA6F5",
+  color: "codeKey",
   circles: [
     { c: { x: 22, y: 22 }, r: 5.5 },
     { c: { x: 9, y: 11 }, r: 3.6 },
@@ -79,6 +88,7 @@ export const HUB: Glyph = {
 };
 
 export function TileMark({ glyph, size = GLYPH_SIZE }: { glyph: Glyph; size?: number }) {
+  const ink = useColors()[glyph.color];
   const k = size / GLYPH_SIZE;
   const stroke = (glyph.width ?? 2.1) * k;
   const scale = (p: Point): Point => ({ x: p.x * k, y: p.y * k });
@@ -96,7 +106,7 @@ export function TileMark({ glyph, size = GLYPH_SIZE }: { glyph: Glyph; size?: nu
             height: rect.h * k,
             borderRadius: rect.r * k,
             borderWidth: stroke,
-            borderColor: glyph.color,
+            borderColor: ink,
           }}
         />
       ))}
@@ -111,7 +121,7 @@ export function TileMark({ glyph, size = GLYPH_SIZE }: { glyph: Glyph; size?: nu
             height: circle.r * 2 * k,
             borderRadius: circle.r * k,
             borderWidth: stroke,
-            borderColor: glyph.color,
+            borderColor: ink,
           }}
         />
       ))}
@@ -120,7 +130,7 @@ export function TileMark({ glyph, size = GLYPH_SIZE }: { glyph: Glyph; size?: nu
           key={`s-${index}`}
           from={scale(from)}
           to={scale(to)}
-          color={glyph.color}
+          color={ink}
           thickness={stroke}
         />
       ))}

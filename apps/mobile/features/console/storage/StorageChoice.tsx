@@ -2,7 +2,8 @@ import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { FormError } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
-import { colors, leading, radii } from "../../design/tokens";
+import { leading, radii } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { ConnectForm } from "./ConnectForm";
 import { DROPBOX_REDIRECT_ORIGINS } from "./dropbox";
 import { useDropboxStart } from "./useDropboxStart";
@@ -84,6 +85,7 @@ export function StorageChoiceBody({
   onCancel?: () => void;
   dropboxNote?: string;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const [bucketOpen, setBucketOpen] = useState(false);
   const [dropboxBlocked, setDropboxBlocked] = useState(false);
 
@@ -170,6 +172,8 @@ function ChoiceCard({
   onPress: () => void;
   testID: string;
 }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   return (
     <Pressable
       testID={testID}
@@ -198,7 +202,7 @@ function ChoiceCard({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   stack: { gap: 14 },
   cards: {
     flexDirection: "row",

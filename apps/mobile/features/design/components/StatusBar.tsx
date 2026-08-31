@@ -1,5 +1,6 @@
 import { Platform, StyleSheet, View, type ViewStyle } from "react-native";
-import { colors, fonts, layout, space } from "../tokens";
+import { fonts, layout, space } from "../tokens";
+import { useColors, useThemedStyles, type Colors } from "../theme";
 import { Text } from "./Text";
 
 /**
@@ -45,12 +46,19 @@ export interface StatusBarSegment {
   detail?: string;
 }
 
-const toneColor: Record<StatusBarTone, string> = {
+/**
+ * Tone → token, as a function of the palette.
+ *
+ * A frozen `Record` here would hold whichever world was imported first and
+ * keep handing out its colours after the appearance changed — the same trap
+ * as a module-scope `StyleSheet.create`.
+ */
+const toneColorFor = (colors: Colors): Record<StatusBarTone, string> => ({
   quiet: colors.muted,
   ok: colors.okText,
   warn: colors.warnText,
   crit: colors.critText,
-};
+});
 
 /** Segments pushed against the trailing edge: where the note lives, and how safely. */
 const DEFAULT_TRAILING = ["conflictCheck", "storage"];
@@ -67,6 +75,7 @@ export function StatusBar({
   style?: ViewStyle;
   testID?: string;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const leading = segments.filter((segment) => !trailingIds.includes(segment.id));
   const trailing = segments.filter((segment) => trailingIds.includes(segment.id));
 
@@ -96,6 +105,8 @@ export function StatusBar({
 }
 
 function Segment({ segment }: { segment: StatusBarSegment }) {
+  const styles = useThemedStyles(makeStyles);
+  const toneColor = toneColorFor(useColors());
   // RN-Web forwards `title` to the DOM node, which is the cheapest honest
   // tooltip there is. Native has no hover, so the same sentence goes to the
   // accessibility label instead — it is never only in a hover state.
@@ -116,7 +127,7 @@ function Segment({ segment }: { segment: StatusBarSegment }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   bar: {
     height: layout.statusBarHeight,
     flexDirection: "row",

@@ -7,7 +7,8 @@ import { Check, FieldGrid, Hint } from "../../design/components/Field";
 import { FormError, Notice } from "../../design/components/Input";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
-import { colors, leading } from "../../design/tokens";
+import { leading } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { relativeTime } from "../format";
 import { PaneHead } from "../ConsoleShell";
 import { atName } from "../format";
@@ -53,6 +54,8 @@ import type { ReverifyState } from "../storage/reverify";
  * only possible outcome is a permission error.
  */
 export function SettingsPane({ data, onClose }: { data: ConsoleData; onClose: () => void }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const storage = data.storage;
   const actions = data.storageActions;
   const current = selectedContext(data);
@@ -229,6 +232,8 @@ function BindingCard({
   demo: boolean;
   onRebind: () => void;
 }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   // The third argument is which context is being verified. A probe's result
   // belongs to one workspace and must never be shown for another — see
   // `useReverify`.
@@ -474,6 +479,8 @@ function BindingCard({
 
 /** What Re-verify is doing, and what came back. */
 function ReverifyStatus({ state }: { state: ReverifyState }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   switch (state.kind) {
     case "idle":
       return null;
@@ -522,7 +529,7 @@ function joinSentences(...parts: Array<string | undefined>): string | undefined 
   return kept.length === 0 ? undefined : kept.join(" ");
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   headActions: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
   sectionHead: { marginBottom: 4 },
   sectionHeadLater: { marginTop: 30, marginBottom: 4 },
