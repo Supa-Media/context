@@ -33,6 +33,16 @@ export type EditorStatus =
   | "saving"
   /** Saved just now. Decays back to `clean` in the UI. */
   | "saved"
+  /**
+   * Written down, waiting for a connection.
+   *
+   * Not a kind of `saved` and not a kind of `dirty`. The draft is in the
+   * offline queue (`features/offline`), so it survives opening another note
+   * and — where the store is durable — the app closing. It is **not** in the
+   * customer's bucket, and no copy for this state may imply that it is: the
+   * whole product is that the bucket is the thing that is real.
+   */
+  | "queued"
   /** Somebody else wrote it while this draft was open. */
   | "conflict"
   /** The save failed for some other reason; the draft is intact. */
@@ -55,6 +65,35 @@ export interface EditorState {
   conflictEtag?: string;
   /** How the last successful save checked for conflicts. */
   conflictCheck?: ConflictCheck;
+  /**
+   * This note's body came off the device, not out of the bucket.
+   *
+   * Set when the console is offline, or when the read failed and there was a
+   * copy to fall back on. It is never allowed to be silent: `message` carries
+   * how old the copy is, and the status strip shows it, because a note that
+   * reads as current and is four days behind is the console telling somebody
+   * their context contains something it does not.
+   */
+  fromCache?: boolean;
+}
+
+/**
+ * What was found waiting for a note when it was opened.
+ *
+ * Declared here rather than imported from `features/offline`, so this module
+ * stays what it is: a pure state machine with no dependency on where the queue
+ * lives or how it is stored. The offline hook builds one of these.
+ */
+export interface RestoredDraft {
+  text: string;
+  /**
+   * Where this draft got to. `dirty` was typed and never saved; `queued` is
+   * waiting for a connection; `conflict` and `error` are waiting for a person.
+   */
+  status: "dirty" | "queued" | "conflict" | "error";
+  message?: string;
+  /** On a conflict: the etag that is actually current. */
+  conflictEtag?: string;
 }
 
 export const emptyEditor: EditorState = {
@@ -85,10 +124,23 @@ export const emptyEditor: EditorState = {
 export const SAVE_TIMEOUT_MS = 30_000;
 
 export type EditorAction =
-  | { type: "opened"; note: OpenNote }
+  | {
+      type: "opened";
+      note: OpenNote;
+      /** The body came off the device rather than out of the bucket. */
+      fromCache?: boolean;
+      /** How old that copy is, or anything else the open should say. */
+      notice?: string;
+      /** Work found waiting for this note in the offline queue. */
+      restored?: RestoredDraft;
+    }
   | { type: "closed" }
   | { type: "edited"; text: string }
   | { type: "saveStarted" }
+  /** No connection, so the draft went into the queue instead of the bucket. */
+  | { type: "saveQueued"; message: string }
+  /** The queue drained this note's write to the bucket. */
+  | { type: "queueSettled"; etag: string }
   | { type: "saveSucceeded"; etag: string; conflictCheck: ConflictCheck }
   | { type: "saveFailed"; error: FileError }
   /** `SAVE_TIMEOUT_MS` elapsed with the save still outstanding. */
@@ -101,7 +153,33 @@ export type EditorAction =
 
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
-    case "opened":
+    case "opened": {
+      const opened: EditorState = {
+        status: "clean",
+        path: action.note.path,
+        baseline: action.note.text,
+        draft: action.note.text,
+        etag: action.note.etag,
+        readOnly: action.note.readOnly,
+        fromCache: action.fromCache === true ? true : undefined,
+        message: action.notice,
+      };
+      if (action.restored === undefined) return opened;
+      /*
+        There was work waiting for this note. The queue's text wins over the
+        bucket's — it is what the person typed and has not got back yet — while
+        `baseline` stays the bucket's, so "unchanged" keeps meaning "the same as
+        what is stored" and the dirty marker keeps telling the truth.
+      */
+      return {
+        ...opened,
+        status: action.restored.status,
+        draft: action.restored.text,
+        message: action.restored.message ?? action.notice,
+        conflictEtag: action.restored.conflictEtag,
+      };
+    }
+
     case "reloaded":
       return {
         status: "clean",
@@ -120,14 +198,43 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       // A conflict is not cleared by typing. The draft is still based on an
       // etag somebody else has moved past, and pretending otherwise would let
       // the next save silently overwrite them.
+      //
+      // `queued` is not cleared by typing either, and for the opposite reason:
+      // the queue holds the newest text (`enqueue` supersedes), so the draft is
+      // still written down and calling it "unsaved" would send somebody looking
+      // for a Save button that has nothing left to do.
       const status =
         state.status === "conflict"
           ? "conflict"
-          : action.text === state.baseline
-            ? "clean"
-            : "dirty";
+          : state.status === "queued"
+            ? "queued"
+            : action.text === state.baseline
+              ? "clean"
+              : "dirty";
       return { ...state, draft: action.text, status, message: undefined };
     }
+
+    case "saveQueued":
+      return { ...state, status: "queued", message: action.message, conflictEtag: undefined };
+
+    case "queueSettled":
+      /*
+        A queued write reached the bucket while this note was open. The draft
+        is now what the server holds, so the baseline moves to it and the etag
+        moves to the one the write produced — without which the person's next
+        Save is a conditional write against a version their own drain has just
+        superseded, and conflicts them with themselves.
+      */
+      if (state.status !== "queued") return state;
+      return {
+        ...state,
+        status: "saved",
+        baseline: state.draft,
+        etag: action.etag,
+        fromCache: undefined,
+        conflictEtag: undefined,
+        message: "Saved. That was waiting for a connection.",
+      };
 
     case "saveStarted":
       return { ...state, status: "saving", message: undefined };
@@ -221,6 +328,18 @@ export function isDirty(state: EditorState): boolean {
  */
 export function guardLeaving(state: EditorState): { allowed: boolean; prompt?: string } {
   if (!isDirty(state)) return { allowed: true };
+  /*
+    A queued draft is not unsaved work being carried in a component that is
+    about to be replaced — it is written down in the offline queue, which
+    survives opening another note and, on a durable store, the app closing. The
+    guard exists to stop a draft being lost to navigation, and this one cannot
+    be. Refusing anyway would strand somebody on a train: no connection, no way
+    to save, and the console will not let them open anything else.
+
+    It is still `isDirty`, because it still differs from what is in the bucket
+    and the tab's dot should say so.
+  */
+  if (state.status === "queued") return { allowed: true };
   return {
     allowed: false,
     prompt: `${state.path} has unsaved changes. Save them, or discard them, before opening something else.`,
@@ -233,6 +352,12 @@ export function saveButton(state: EditorState): { label: string; disabled: boole
   switch (state.status) {
     case "saving":
       return { label: "Saving…", disabled: true };
+    case "queued":
+      // Nothing for a press to do: the queue holds the newest text and drains
+      // itself the moment the connection comes back. A pressable Save here
+      // would be a button whose only possible effect is to queue what is
+      // already queued.
+      return { label: "Queued", disabled: true };
     case "conflict":
       return { label: "Overwrite theirs", disabled: false };
     case "dirty":

@@ -395,6 +395,10 @@ export function useLiveConsoleData(): ConsoleData {
       selected === null
         ? undefined
         : "You have read-only access to this context. Ask an owner for editor access to change anything.",
+    // From the connect-time probe, through the binding query this hook already
+    // subscribes to. A second subscription would be a second answer that could
+    // disagree with the one the settings pane and the status bar draw from.
+    conditionalWrite: storage?.conditionalWrite,
   });
 
   // The viewer, not the viewed. The avatar and the account block used to take

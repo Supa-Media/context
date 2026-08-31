@@ -29,6 +29,7 @@ import { ConvexError } from "convex/values";
 import type { NoteShare } from "./shares";
 import type { ToastSpec } from "../../design/components/Toast";
 import type { FileError, FolderListing, Visibility } from "./types";
+import type { SyncFacts } from "../../offline/copy";
 
 /** What one search found, and whether there was an index to find it in. */
 export interface SearchAnswer {
@@ -98,6 +99,16 @@ export interface FileBrowser {
   /** Keep this draft and save it over theirs, on the etag that is now current. */
   keepMine: () => void;
   discard: () => void;
+
+  /**
+   * The connection, and the writes that have not reached the bucket.
+   *
+   * Optional because a browser can have no offline layer under it at all: the
+   * landing page's demo console is built from literals and has no bucket to be
+   * offline from. Absent means "make no claim", and `statusSegments` draws
+   * nothing for it — which is the right answer for a picture of the product.
+   */
+  sync?: SyncFacts;
 
   /** The last thing that went wrong, or a confirmation of what just happened. */
   notice: string | null;
