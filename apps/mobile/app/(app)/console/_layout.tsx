@@ -58,6 +58,8 @@ import {
   settingsHref,
   type ConsoleRoute,
 } from "../../../features/console/nav";
+import { forgetLocalCopies, unsentOnDevice } from "../../../features/offline/forget";
+import { signOutWarning } from "../../../features/offline/copy";
 import { storagePillLabel } from "../../../features/console/storage/pill";
 import { selectedContext, type ConsoleData } from "../../../features/console/types";
 import { useKeymap } from "../../../features/design/useKeymap";
@@ -1006,6 +1008,46 @@ function StorageChip({
   );
 }
 
+/** No context selected, or a browser with no offline layer under it. */
+const NO_QUEUE = { pending: 0, conflicted: 0, rejected: 0 };
+
+/**
+ * Who you are signed in as, and the way out — which is also the moment this
+ * device stops holding somebody's notes.
+ *
+ * Sign-out used to be `signOut().then(replace("/"))` and nothing else, while
+ * `features/offline/cache.ts` carried a `forgetEverything` whose own comment
+ * said it was "called on sign-out". Nothing called it. On a shared machine that
+ * left cached note bodies — including ones an owner read at **private** tier —
+ * keyed by workspace and by nothing about *who* read them, so the next person
+ * to sign in who is a `team` member of the same context read them; and it left
+ * the outbox, which `useOfflineNotes` drains the moment a queue and a
+ * connection exist, sending the previous person's typing to the bucket under
+ * the new person's session.
+ *
+ * Four properties, and each is a different failure if dropped:
+ *
+ *  - **The clear is awaited before `signOut`.** Not fire-and-forget: a clear
+ *    that merely started leaves a window the next sign-in can race.
+ *  - **The clear is also a barrier, not only a moment.** Awaiting it is not
+ *    enough on its own: a read still in flight lands after it and writes a
+ *    note body back. `forgetLocalCopies` ends the session epoch before it
+ *    removes anything, and every writer in `useOfflineNotes` drops a write
+ *    from a session that has ended.
+ *  - **It cannot block.** Being unable to end a session is worse than a cache
+ *    that outlives one, so the verdict is reported and never enforced — and
+ *    the await itself is bounded, because a wedged native bridge never settles
+ *    and a `catch` has nothing to catch. See `features/offline/forget.ts` for
+ *    the whole stance.
+ *  - **The person is asked first when the queue is not empty.** Discarding it
+ *    is deliberate, so this is the last moment anybody can be told — and the
+ *    count covers every context on the device, not just the one on screen,
+ *    because that is what is about to go.
+ *
+ * The confirm is the console's own `Confirm`, the same primitive a dirty tab
+ * close uses. A second dialog shape for the same question ("this throws away
+ * work — still?") is how two answers to it start drifting apart.
+ */
 function Account({
   data,
   compact,
@@ -1017,23 +1059,79 @@ function Account({
 }) {
   const router = useRouter();
   const { signOut } = useAuthActions();
+  const [discarding, setDiscarding] = useState<string | null>(null);
+
+  const signOutNow = useCallback(() => {
+    void (async () => {
+      // Awaited, and first — and bounded inside `forget.ts`, so a store that
+      // stops answering cannot hold somebody on this button. The result is
+      // deliberately not acted on here: `forget.ts` reports it, and there is
+      // no surface left to show it on.
+      await forgetLocalCopies();
+      await signOut();
+      router.replace("/");
+    })();
+  }, [router, signOut]);
 
   return (
-    <AccountBlock
-      // The viewer, resolved once in `identity.ts` — never the viewed context.
-      // This block used to take the first `kind === "personal"` context (which
-      // is somebody else's the moment one is shared with you) and the selected
-      // context's capture address, so opening a shared context renamed the
-      // signed-in person after it.
-      name={data.viewer.name}
-      detail={data.viewer.detail}
-      initial={data.viewer.initial}
-      compact={compact}
-      touch={touch}
-      onSignOut={() => {
-        void signOut().then(() => router.replace("/"));
-      }}
-    />
+    <>
+      <AccountBlock
+        // The viewer, resolved once in `identity.ts` — never the viewed context.
+        // This block used to take the first `kind === "personal"` context (which
+        // is somebody else's the moment one is shared with you) and the selected
+        // context's capture address, so opening a shared context renamed the
+        // signed-in person after it.
+        name={data.viewer.name}
+        detail={data.viewer.detail}
+        initial={data.viewer.initial}
+        compact={compact}
+        touch={touch}
+        onSignOut={() => {
+          void (async () => {
+            /*
+              The open context's queue is normally excluded from the device
+              count and supplied by the live hook instead, because the hook's
+              copy is newer than the persisted one — see `waitingOnDevice`.
+
+              That swap only holds once the hook has actually read the queue
+              back. Before `ready` its counts are an *empty* queue rather than
+              this device's, so excluding the persisted copy at the same time
+              warns about nothing and then discards it — and sign-out pressed
+              during a cold load is not a corner, it is somebody who opened the
+              console to leave. Unready, nothing is excluded; the live counts
+              are zero, so there is nothing to double.
+            */
+            const live = data.files.sync;
+            const elsewhere = await unsentOnDevice(
+              live?.ready === true ? data.selectedContextId : null,
+            );
+            const here = live?.counts ?? NO_QUEUE;
+            const warning = signOutWarning({
+              pending: here.pending + elsewhere.pending,
+              conflicted: here.conflicted + elsewhere.conflicted,
+              rejected: here.rejected + elsewhere.rejected,
+            });
+            if (warning === null) {
+              signOutNow();
+              return;
+            }
+            setDiscarding(warning);
+          })();
+        }}
+      />
+      {discarding === null ? null : (
+        <Confirm
+          title="Sign out with edits still waiting?"
+          body={`${discarding} Nothing else is lost — your bucket is untouched.`}
+          confirmLabel="Sign out and discard"
+          onCancel={() => setDiscarding(null)}
+          onConfirm={() => {
+            setDiscarding(null);
+            signOutNow();
+          }}
+        />
+      )}
+    </>
   );
 }
 
