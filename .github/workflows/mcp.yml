@@ -18,9 +18,28 @@ name: MCP Gateway
 # and the pull request can never merge. That is not hypothetical: it blocked
 # every PR that did not touch apps/mcp. The jobs take seconds, so running them
 # on every PR is far cheaper than the footgun.
+#
+# And no `branches:` filter on pull_request either — the same failure one level
+# up. `pull_request: branches: [main]` reads as "check pull requests" and means
+# "check pull requests INTO main", so a pull request based on any other branch
+# ran no checks at all. Measured: #169, based on `offline/notes-cache`, had zero
+# check runs across its whole life and was merged on local test runs alone.
+# Stacked pull requests are the normal shape here — basing a fix on the pull
+# request it fixes is what keeps its diff reviewable — so "merge only on green
+# CI" silently did not apply to exactly those, because there was no green to be
+# had.
+#
+# The key is absent rather than `branches: ['**']`. The two are equivalent to
+# GitHub, and only one of them has a footgun: a later tidy-up of `'**'` to `'*'`
+# stops matching any branch with a slash in it, which is every branch this repo
+# uses (`claude/…`, `offline/…`), and would restore this bug without touching
+# the word `main`. `scripts/check-workflow-triggers.mjs` enforces the rule on
+# every workflow.
+#
+# The `push:` filter below stays on `main` and must: a push run is the deploy
+# lane's neighbour, not a pull request's check.
 on:
   pull_request:
-    branches: [main]
   push:
     branches: [main]
     paths:
@@ -101,6 +120,32 @@ jobs:
               print("failing check, and a pull request that goes green without it.")
               sys.exit(1)
           PY
+
+      # Runs after the parse above, deliberately: a file GitHub cannot parse is
+      # ignored entirely, so what its `on:` block says is moot and reporting it
+      # first would name the wrong fault.
+      #
+      # A pull request based on a branch other than `main` used to run NO
+      # checks at all — see the header, and #169, which merged with zero check
+      # runs. The same block decides that no deploy workflow may be reached by
+      # a fork's pull request, which is the assertion that actually protects
+      # something: widening CI's triggers has an obvious-looking next step
+      # ("make the rest consistent") that would hand untrusted code the
+      # account's Cloudflare credentials.
+      #
+      # It runs here AND in email-worker.yml on purpose. A checker hosted in
+      # one workflow cannot see that workflow's own trigger being narrowed —
+      # narrowing it stops the job running on the pull request that did it.
+      # Two hosts is the cheapest way to keep one narrowing visible; dropping
+      # either copy restores that blind spot.
+      #
+      # `--self-test` first, for the same reason the gateway-contracts job runs
+      # one: a checker that reports nothing because it stopped working is the
+      # exact failure it was written to catch.
+      - name: Workflow triggers reach pull requests, and deploys reach none
+        run: |
+          node scripts/check-workflow-triggers.mjs --self-test
+          node scripts/check-workflow-triggers.mjs
 
   no-nul-bytes:
     name: Source stays diffable

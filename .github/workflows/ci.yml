@@ -1,8 +1,15 @@
 name: CI
 
+# No `branches:` filter on pull_request, and no `paths:` filter — see mcp.yml
+# for the whole argument. A base-branch filter means a pull request stacked on
+# another branch runs no checks at all, which is how #169 merged with zero check
+# runs, and this is the workflow that carries the mobile, convex and shared
+# suites. Widening costs nothing in exposure: a pull request from a fork gets no
+# secrets on any base branch, so `secrets: inherit` below inherits an empty set
+# there, exactly as it already did for forks targeting `main`.
+# The `push:` filter stays on `main`.
 on:
   pull_request:
-    branches: [main]
   push:
     branches: [main]
 
