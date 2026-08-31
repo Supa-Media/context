@@ -103,6 +103,39 @@ export const ICON_NAMES = [
   "constellation",
   /** The Connections pane: a two-way exchange, which is what a grant is. */
   "exchange",
+
+  /*
+    From here down: the Obsidian-parity editing surface. The keyboard accessory
+    bar that rides above the keyboard while a note is open, and the toolbar
+    across the top of the note. Both are dense rows of unlabelled targets with
+    no room for a caption, which is the case the header at the top of this file
+    argues these drawings exist for at all.
+  */
+
+  /**
+   * The accessory bar's undo. Its mirror `redo` follows it, and the two are
+   * told apart by the arrowhead alone — the arc between them is symmetric.
+   */
+  "undo",
+  "redo",
+  /** The accessory bar's link key, because a wikilink is `[[ ]]`. */
+  "brackets",
+  /** The accessory bar's tag key, which inserts a `#`. */
+  "tag",
+  /** The accessory bar's attach key, for embedding a file in the note. */
+  "attach",
+  /** The accessory bar's heading key, drawn as the letter it inserts. */
+  "heading",
+  "bold",
+  "italic",
+  /** The accessory bar's rightmost key, which dismisses the keyboard. */
+  "keyboardHide",
+  /** The toolbar's reading-view toggle, as Obsidian draws it: an open book. */
+  "book",
+  /** The toolbar's settings. */
+  "gear",
+  /** The toolbar's filter, over the note list. */
+  "filter",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -432,6 +465,158 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         chevron(u, w, c, { cx: 0.34, cy: 0.66, side: 0.28, angle: -135 }),
       ];
 
+    /*
+      Undo and redo share an arch — three chords of one circle, which is as
+      much of an arc as a set drawn from rectangles gets — and differ only in
+      which end carries the head. That is deliberate rather than lazy: a pair
+      of icons that differ in their *whole* shape read as two unrelated marks,
+      and a pair that differ in one end read as a direction, which is what
+      these two are. The head is a quarter of the box wide so the difference
+      survives the 20pt the accessory bar draws them at.
+    */
+    case "undo":
+      return [
+        bar("a1", u, w, c, { cx: 0.29, cy: 0.5, length: 0.28, angle: -60 }),
+        bar("a2", u, w, c, { cx: 0.5, cy: 0.38, length: 0.28 }),
+        bar("a3", u, w, c, { cx: 0.71, cy: 0.5, length: 0.28, angle: 60 }),
+        chevron(u, w, c, { cx: 0.24, cy: 0.6, side: 0.28, angle: 180 }),
+      ];
+    case "redo":
+      return [
+        bar("a1", u, w, c, { cx: 0.29, cy: 0.5, length: 0.28, angle: -60 }),
+        bar("a2", u, w, c, { cx: 0.5, cy: 0.38, length: 0.28 }),
+        bar("a3", u, w, c, { cx: 0.71, cy: 0.5, length: 0.28, angle: 60 }),
+        chevron(u, w, c, { cx: 0.76, cy: 0.6, side: 0.28, angle: 90 }),
+      ];
+
+    case "brackets":
+      /*
+        A stem plus two serifs each, rather than a `rect` with its middle
+        hidden. The stems are 0.58 tall and not 0.7 because a bar is laid out
+        horizontally and turned afterwards — its *declared* box is the
+        horizontal one, so a vertical stroke at x is bounded by twice its
+        distance from the nearer edge, and a taller pair would hang outside
+        the box on paper even though it draws inside it.
+      */
+      return [
+        bar("ls", u, w, c, { cx: 0.3, cy: 0.5, length: 0.58, angle: 90 }),
+        bar("lt", u, w, c, { cx: 0.37, cy: 0.22, length: 0.14 }),
+        bar("lb", u, w, c, { cx: 0.37, cy: 0.78, length: 0.14 }),
+        bar("rs", u, w, c, { cx: 0.7, cy: 0.5, length: 0.58, angle: 90 }),
+        bar("rt", u, w, c, { cx: 0.63, cy: 0.22, length: 0.14 }),
+        bar("rb", u, w, c, { cx: 0.63, cy: 0.78, length: 0.14 }),
+      ];
+
+    case "tag":
+      /*
+        A luggage tag rather than Obsidian's diamond: the same shape turned
+        45°, which `rect` cannot do, so it is drawn upright from its five
+        edges. The eyelet sits at the flat end, where a tag's hole is, and the
+        point is the end that would carry the string.
+      */
+      return [
+        bar("flat", u, w, c, { cx: 0.26, cy: 0.5, length: 0.48, angle: 90 }),
+        bar("top", u, w, c, { cx: 0.48, cy: 0.26, length: 0.44 }),
+        bar("bottom", u, w, c, { cx: 0.48, cy: 0.74, length: 0.44 }),
+        bar("p1", u, w, c, { cx: 0.8, cy: 0.38, length: 0.31, angle: 50 }),
+        bar("p2", u, w, c, { cx: 0.8, cy: 0.62, length: 0.31, angle: -50 }),
+        dot("eyelet", u, c, { cx: 0.42, cy: 0.5, r: 0.075 }),
+      ];
+
+    case "attach":
+      /*
+        Two nested capsules, not a clip's actual path, which doubles back on
+        itself three times and is unreadable below about 28pt anyway. The
+        outer one is wider than a paperclip really is because the gap between
+        the two outlines has to survive a 2pt stroke at 20pt: any narrower and
+        the inner capsule's hole closes up and the mark reads as a filled pill.
+      */
+      return [
+        rect("outer", u, w, c, { x0: 0.16, y0: 0.06, x1: 0.84, y1: 0.94, radius: 0.34 }),
+        rect("inner", u, w, c, { x0: 0.36, y0: 0.24, x1: 0.64, y1: 0.7, radius: 0.14 }),
+      ];
+
+    case "heading":
+      return [
+        bar("left", u, w, c, { cx: 0.3, cy: 0.5, length: 0.58, angle: 90 }),
+        bar("right", u, w, c, { cx: 0.7, cy: 0.5, length: 0.58, angle: 90 }),
+        bar("cross", u, w, c, { cx: 0.5, cy: 0.5, length: 0.4 }),
+      ];
+
+    case "bold":
+      /*
+        The two bowls overlap by exactly one stroke at the waist — the upper
+        one's bottom edge and the lower one's top edge are the same band —
+        because two rectangles merely stacked draw their shared line twice and
+        a "B" with a middle bar at double weight is a "B" that has been sat on.
+      */
+      return [
+        bar("stem", u, w, c, { cx: 0.31, cy: 0.5, length: 0.58, angle: 90 }),
+        rect("upper", u, w, c, { x0: 0.27, y0: 0.21, x1: 0.62, y1: 0.5 + w / u / 2, radius: 0.1 }),
+        rect("lower", u, w, c, { x0: 0.27, y0: 0.5 - w / u / 2, x1: 0.7, y1: 0.79, radius: 0.1 }),
+      ];
+
+    case "italic":
+      return [
+        bar("slant", u, w, c, { cx: 0.5, cy: 0.5, length: 0.62, angle: -70 }),
+        bar("top", u, w, c, { cx: 0.6, cy: 0.24, length: 0.26 }),
+        bar("bottom", u, w, c, { cx: 0.4, cy: 0.76, length: 0.26 }),
+      ];
+
+    case "keyboardHide":
+      /*
+        A keyboard with a chevron *under* it rather than a keyboard alone: the
+        key it stands for dismisses the keyboard, and a bare keyboard is the
+        mark for summoning one. The lower row is a bar rather than three more
+        dots, which is the space bar and is what stops the interior reading as
+        a die face.
+      */
+      return [
+        rect("body", u, w, c, { x0: 0.08, y0: 0.14, x1: 0.92, y1: 0.6, radius: 0.12 }),
+        dot("k1", u, c, { cx: 0.26, cy: 0.3, r: 0.05 }),
+        dot("k2", u, c, { cx: 0.5, cy: 0.3, r: 0.05 }),
+        dot("k3", u, c, { cx: 0.74, cy: 0.3, r: 0.05 }),
+        bar("space", u, w, c, { cx: 0.5, cy: 0.46, length: 0.34 }),
+        chevron(u, w, c, { cx: 0.5, cy: 0.78, side: 0.26, angle: 135 }),
+      ];
+
+    case "book":
+      return [
+        rect("left", u, w, c, { x0: 0.08, y0: 0.2, x1: 0.48, y1: 0.82, radius: 0.1 }),
+        rect("right", u, w, c, { x0: 0.52, y0: 0.2, x1: 0.92, y1: 0.82, radius: 0.1 }),
+        bar("spine", u, w, c, { cx: 0.5, cy: 0.51, length: 0.62, angle: 90 }),
+      ];
+
+    case "gear":
+      /*
+        Eight teeth rather than six, on the diagonals as well as the axes: at
+        six the gaps are 60° apart and the mark reads as a flower. Each tooth
+        is a bar turned to lie along its own radius, starting just outside the
+        ring so the two touch without the tooth crossing into the hub.
+      */
+      return [
+        ring("hub", u, w, c, { cx: 0.5, cy: 0.5, r: 0.24 }),
+        bar("t0", u, w, c, { cx: 0.84, cy: 0.5, length: 0.16 }),
+        bar("t1", u, w, c, { cx: 0.74, cy: 0.74, length: 0.16, angle: 45 }),
+        bar("t2", u, w, c, { cx: 0.5, cy: 0.84, length: 0.16, angle: 90 }),
+        bar("t3", u, w, c, { cx: 0.26, cy: 0.74, length: 0.16, angle: -45 }),
+        bar("t4", u, w, c, { cx: 0.16, cy: 0.5, length: 0.16 }),
+        bar("t5", u, w, c, { cx: 0.26, cy: 0.26, length: 0.16, angle: 45 }),
+        bar("t6", u, w, c, { cx: 0.5, cy: 0.16, length: 0.16, angle: 90 }),
+        bar("t7", u, w, c, { cx: 0.74, cy: 0.26, length: 0.16, angle: -45 }),
+      ];
+
+    case "filter":
+      /*
+        Three rules of decreasing length, not a funnel's outline. An outline
+        needs two near-vertical strokes meeting at a point, and at 20pt that
+        point is a blot; the stack says "narrowing" with nothing to blot.
+      */
+      return [
+        bar("l1", u, w, c, { cx: 0.5, cy: 0.26, length: 0.7 }),
+        bar("l2", u, w, c, { cx: 0.5, cy: 0.5, length: 0.44 }),
+        bar("l3", u, w, c, { cx: 0.5, cy: 0.74, length: 0.2 }),
+      ];
   }
 }
 
