@@ -39,7 +39,7 @@ import { useColors } from "../theme";
  *
  * A `View` with a background colour is a `<div>` on web and a layer on native.
  * Rotation is `transform`, which both platforms have. That is the whole
- * toolkit, and it costs no dependency and no build.
+ * toolkit, and it costs nothing to reach for.
  *
  * ## The rules
  *

@@ -179,8 +179,11 @@ module.exports = ({ config }) => ({
    * `native-deps.json` is for: `core` is the baseline every build has, and
    * anything added later goes in `gated` and must be imported dynamically
    * behind a runtime check with a real fallback. `supa-framework.test.js`
-   * enforces it (`tests.nativeImports`), and a static import of a gated
-   * dependency fails CI rather than crashing an old phone.
+   * enforces both halves of that (`tests.nativeImports`): a native dependency
+   * nobody classified fails CI, and so does a static import of a gated one,
+   * rather than crashing an old phone. `gated` is empty today, so only the
+   * first is actually running — the second is the guard waiting for the first
+   * dependency that needs it.
    *
    * **The one legitimate reason to change this string** is a native change no
    * gate can paper over — an Expo SDK upgrade that moves the ABI. Bumping it
