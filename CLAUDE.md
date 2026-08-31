@@ -1405,9 +1405,50 @@ Two consequences worth stating:
 - Several documented "deliberate native gaps" are no longer blocked by a
   missing dependency, only by nobody having written the code:
   `writeClipboard` returning `false` (expo-clipboard is installed now),
-  `fonts.ts` being a no-op (expo-font), `useUnsavedGuard` (async-storage), and
-  the iOS Live Preview that CodeMirror cannot provide (react-native-webview).
+  `fonts.ts` being a no-op (expo-font), and `useUnsavedGuard` (async-storage).
   Each is a project, not a config change — but the native half is paid for.
+  **The fourth one has been spent**: iOS Live Preview is built, on the
+  `react-native-webview` the baseline was carrying for exactly this. See below.
+
+### The iOS editor is the web editor, in a WebView, from a committed bundle
+
+CodeMirror is a DOM library, so `apps/mobile` ships two hosts for one editor:
+`LiveEditor.web.tsx` mounts it in a `<div>`, `LiveEditor.tsx` mounts it inside a
+`WebView` over a five-message JSON bridge. The configuration itself — keymap,
+read-only facets, update listener — is `editorSetup.ts`, imported by both,
+because a read-only rule fixed on one surface and not the other is the failure
+this arrangement exists to prevent. `LiveEditor.tsx`'s header argued at length
+that a WebView would be worse than the gap; which halves of that argument
+expired and which one still stands is recorded there rather than deleted.
+
+Three things about it are decisions rather than implementation:
+
+- **The bundle is committed, not fetched and not built at deploy time.**
+  `webview/bundle.generated.ts` is ~500kb of minified CodeMirror produced by
+  `scripts/build-editor-bundle.mjs`. Fetching it is out — the app works offline
+  and the note lives in a bucket the customer owns — and building it during
+  `expo export` is out because `runtimeVersion` is pinned, every change ships
+  over the air, and an OTA bundle that needed a build step nobody ran would be a
+  blank editor on a phone. The document's own CSP is `default-src 'none'`, so
+  "local, not remote" is structural rather than a promise. The cost is a
+  generated artifact in the tree; `__tests__/editorBundle.test.ts` hashes every
+  source that went into it and pins every package version it was built from, so
+  a stale bundle fails CI with the command to run.
+- **`@codemirror/*` must never be imported from the native path.** The editor
+  reaches the phone as a *string*. An import in `LiveEditor.tsx`,
+  `webview/host.ts` or `webview/protocol.ts` would carry it twice and put a DOM
+  library in the React Native module graph, which is what `livePreview.ts`'s own
+  header calls out as having broken native rendering twice in the sibling app.
+  Asserted rather than assumed, in the same test.
+- **`EditorState.readOnly` is not sufficient either**, which is the second
+  chapter of the trap PR #158 fixed. It is what the *commands* consult and most
+  of them do — but it is a convention, and `@codemirror/commands` breaks it
+  itself: `insertNewline` replaces the selection without looking. `editability()`
+  therefore also sets an `EditorState.changeFilter`, and the only document change
+  a read-only note accepts is one annotated `externalDoc` — the app putting a
+  different note in front of the reader, which is why `privacy.md` still opens.
+  That annotation is also what stops *opening* a note reporting itself as an
+  edit of it.
 
 ### A guard nobody has checked is not a guard
 

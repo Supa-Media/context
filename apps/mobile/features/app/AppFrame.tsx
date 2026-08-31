@@ -214,6 +214,10 @@ export interface FrameApi {
    * z-order and the correct behaviour. It is state on the frame rather than a
    * region rule in `frame.ts` because `regionsFor` decides regions from a width
    * and knows nothing about where the caret is.
+   *
+   * A panel over the editor puts it away for the same reason — see
+   * `toolbarHidden` in the frame body — but that one *is* a region rule, and is
+   * read off `regions.scrim` rather than kept here.
    */
   accessoryOpen: boolean;
   setAccessoryOpen: (open: boolean) => void;
@@ -462,6 +466,29 @@ export function AppFrame({
     (open: boolean) => setAccessoryOpenState((current) => (current === open ? current : open)),
     [],
   );
+
+  /**
+   * Whether the bottom toolbar is put away, and the two reasons it is.
+   *
+   * The first is the keyboard accessory bar — see `FrameApi.accessoryOpen`.
+   *
+   * The second is a panel over the editor, and it is the same argument one step
+   * out: the toolbar's five actions (back, forward, search, new, save) all act
+   * on the **note**, and while the tree drawer or the rail sheet is up the note
+   * is the thing behind the panel. The panel brings its own row of verbs and
+   * the reference draws no bar under it. Two floating bars over one surface,
+   * one of them addressed to a document you cannot see, is worse than either.
+   *
+   * `regions.scrim` rather than `state.drawerOpen || state.navOpen` because
+   * `frame.ts` is the single owner of "some panel is over the editor" — it
+   * already resolves the pair that can never be up together, and it is false at
+   * every density that has no bottom bar anyway.
+   *
+   * Nobody is stranded by it: the panel's own × closes it, so does the toggle
+   * that crossed to the sliver of note, and so does tapping the note itself
+   * through the scrim. Every one of those brings the bar straight back.
+   */
+  const toolbarHidden = accessoryOpen || regions.scrim;
 
   /*
     A pointer layout is not "no insets" — it is "the frame already paid the
@@ -746,7 +773,14 @@ export function AppFrame({
                 floats over it rather than sitting above it. So the panel runs
                 from the top of the glass to the bottom, the way Obsidian's
                 sidebar does, and pays for what is over it in padding — the top
-                clears the status bar, the bottom clears the floating toolbar.
+                clears the status bar, the bottom the home indicator.
+
+                **The toolbar is not at that edge while this is up** — see
+                `toolbarHidden` — so the bottom is `insets.bottom` rather than
+                `contentInsets.bottom` at both densities. Reserving the
+                toolbar's band anyway would put a hand's width of dead panel
+                under the count line, which is the second half of the same bug:
+                the bar was drawn there *and* paid for there.
 
                 **It does not clear the toggle**, and that was 34pt of dead
                 space above the first row of the tree — measured at 126pt
@@ -767,7 +801,7 @@ export function AppFrame({
                 compact
                   ? {
                       paddingTop: insets.top + layout.panelGutter,
-                      paddingBottom: contentInsets.bottom,
+                      paddingBottom: insets.bottom,
                     }
                   : { paddingBottom: insets.bottom },
               ]}
@@ -803,9 +837,10 @@ export function AppFrame({
                   ? {
                       // The tree drawer's arithmetic, and for its reasons — see
                       // the comment there. The two panels are one object in two
-                      // sizes and the toggle crosses off both of them.
+                      // sizes; the toggle crosses off both of them and the
+                      // toolbar is put away under both of them.
                       paddingTop: insets.top + layout.panelGutter,
-                      paddingBottom: contentInsets.bottom,
+                      paddingBottom: insets.bottom,
                     }
                   : { paddingBottom: insets.bottom },
               ]}
@@ -837,12 +872,12 @@ export function AppFrame({
           near enough to the edge to read as attached to it. See the token.
         */}
         {/*
-          Not while the keyboard accessory bar is up — see
-          `FrameApi.accessoryOpen`. The reference has no bottom bar in its
-          editing screenshot, and two floating bars in the same 66pt of glass
+          Not while the keyboard accessory bar is up, and not while a panel is
+          over the editor — see `toolbarHidden`. The reference has no bottom bar
+          in either screenshot, and two floating bars in the same 66pt of glass
           is worse than either.
         */}
-        {regions.bottomBar && bottomBar && !accessoryOpen ? (
+        {regions.bottomBar && bottomBar && !toolbarHidden ? (
           <View
             style={[
               styles.bottomBar,

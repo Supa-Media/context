@@ -317,6 +317,72 @@ describe("a phone", () => {
     app.unmount();
   });
 
+  /**
+   * TWO TOOLBARS FOR ONE SURFACE, WHICH IS THE COMPLAINT.
+   *
+   * "Why is the bottom bar showing up when the side menu opens???" — and the
+   * reference agrees: Obsidian draws no bar over its sidebar. The panel has its
+   * own row of verbs at the foot, and every action the toolbar offers — back,
+   * forward, search, new, save — acts on the **note**, which while a panel is
+   * up is the thing behind the panel.
+   *
+   * The same rule the keyboard accessory bar already had, one step out. See
+   * `toolbarHidden` in `AppFrame`.
+   */
+  test("no toolbar under an open panel, and it comes back when the panel goes", () => {
+    const app = mountFrame(390);
+    expect(app.find("bottom")).not.toBeNull();
+
+    app.press("frame-drawer-toggle");
+    expect(app.find("frame-drawer")).not.toBeNull();
+    expect(app.find("bottom")).toBeNull();
+
+    // Nobody is stranded: the scrim is one of three ways back, and the bar is
+    // there again the moment the panel is not.
+    app.press("frame-scrim");
+    expect(app.find("bottom")).not.toBeNull();
+
+    app.unmount();
+  });
+
+  test("nor under the rail sheet, which is the same object in another size", () => {
+    const app = mountFrame(390, "the note", { explorer: false });
+    expect(app.find("bottom")).not.toBeNull();
+
+    app.press("frame-nav-toggle");
+    expect(app.find("frame-nav-sheet")).not.toBeNull();
+    expect(app.find("bottom")).toBeNull();
+
+    app.press("frame-scrim");
+    expect(app.find("bottom")).not.toBeNull();
+
+    app.unmount();
+  });
+
+  /**
+   * And the band it left behind goes with it.
+   *
+   * The panel is full height and pays in padding for whatever floats over it.
+   * With the toolbar gone there is nothing at that edge but the home indicator,
+   * and reserving the toolbar's ~110pt anyway would leave a hand's width of
+   * dead panel under the vault line — the same bug's other half: the bar was
+   * drawn there *and* paid for there.
+   */
+  test("and the panel stops reserving room for a toolbar that is not drawn", () => {
+    mockInsets.bottom = 34;
+    const app = mountFrame(390);
+    app.press("frame-drawer-toggle");
+
+    const panel = app.find("frame-drawer")!;
+    const paid = Number.parseFloat(styleOf(panel, "padding-bottom"));
+    expect(paid).toBe(34);
+    // Which is the home indicator, not the toolbar's band.
+    expect(paid).toBeLessThan(layout.bottomBarHeight);
+
+    app.unmount();
+    mockInsets.bottom = 0;
+  });
+
   test("the switcher opens the rail as a sheet, over a scrim", () => {
     // The bug: signing in lands on Map, which has no explorer, so the drawer
     // button is absent — and the rail was never mounted at this width. The

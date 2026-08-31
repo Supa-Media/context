@@ -1,11 +1,11 @@
 import { useState, type JSX } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { useFrame } from "../../app/AppFrame";
 import { FocusRing } from "../../design/components/FocusRing";
 import { Icon, type IconName } from "../../design/components/Icon";
 import { KeyboardSticky, dismissKeyboard } from "../../design/keyboardSticky";
 import { layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../../design/theme";
+import { ACCESSORY_GAP } from "./accessory";
 import type { EditorControls } from "./LiveEditor";
 
 /**
@@ -21,6 +21,15 @@ import type { EditorControls } from "./LiveEditor";
  * all. Obsidian's answer is this bar, and the rightmost key on it is the way
  * out; everything else on it is there because a bar with one key on it looks
  * like an apology.
+ *
+ * **It is now the only route out of the keyboard, and that is load-bearing.**
+ * The note is a `WebView` whose outer scroll view is deliberately off, so
+ * CodeMirror's own scroller is the only one — and `keyboardDismissMode` is a
+ * `ScrollView` prop implemented by `RCTScrollView`, so drag-to-dismiss cannot
+ * exist on this surface. See the long comment on `scrollEnabled` in
+ * `LiveEditor.tsx`. That is why the dismiss key gets its own object that cannot
+ * be the one clipped on a narrow screen, and why `blur` is the one command
+ * `acceptsCommand` never refuses.
  *
  * ## Drawn from the reference, which is the specification
  *
@@ -49,8 +58,7 @@ import type { EditorControls } from "./LiveEditor";
  * there is no picker in this app that puts one there. A key that inserts a `#`
  * nothing will ever read, or a paperclip that opens nothing, is a control that
  * is present and does nothing, which is the defect this codebase keeps
- * recording against itself. The icons exist in `Icon.tsx` and are ready for the
- * day the capability does; the bar is what ships, and the bar tells the truth.
+ * recording against itself. The bar is what ships, and the bar tells the truth.
  *
  * The page/file mark goes for a related reason — it is Obsidian's wikilink key,
  * and the `[ ]` beside it already covers the one bracket pair that means
@@ -58,22 +66,18 @@ import type { EditorControls } from "./LiveEditor";
  * the one thing on this list a person writing notes in a hurry actually reaches
  * for.
  *
- * ## Where it sits, and why it may cover the toolbar
+ * ## Where it sits
  *
  * `KeyboardSticky` anchors this to the bottom of whatever contains it and, on
  * native, translates it upward by the keyboard's height in step with the
- * keyboard's own animation. Its container is `NoteEditor`'s root — and since
- * the frame's chrome became a floating overlay rather than a column of
- * reserved bands, that root reaches the bottom of the glass. So this rests
- * where the bottom toolbar rests, and it pays the same `floatingGapFor` the
- * frame pays so the two land in the same place rather than 25pt apart.
+ * keyboard's own animation. Its container is `NoteEditor`'s root, so it rests
+ * on the top edge of the keyboard with `ACCESSORY_GAP` of air under it.
  *
- * **It covers the toolbar rather than sitting above it, and that is the
- * reference's behaviour.** In the editing screenshot there is no bottom bar at
- * all: while the keyboard is up, this row is the toolbar. Covering rather than
- * hiding is what keeps the decision local — whether a bar is on screen is a
- * question about the *keyboard*, and `regionsFor` decides regions from a width
- * and knows nothing about focus. The `zIndex` is the whole of that mechanism.
+ * The frame's own bottom toolbar is behind the keyboard while this is up, so
+ * the two do not collide today. When the frame grows a way to be told a bar is
+ * on screen — `setAccessoryOpen` on the branch that owns `AppFrame` — this
+ * should tell it, and take that branch's `chromeGap` for its own padding so the
+ * two objects land in the same place rather than 25pt apart.
  */
 
 interface AccessoryKey {
@@ -122,17 +126,9 @@ export function NoteAccessory({
   controls: () => EditorControls | null;
 }): JSX.Element {
   const styles = useThemedStyles(makeStyles);
-  /*
-    The same gap the frame gives the toolbar, read from the frame rather than
-    recomputed, so this bar lands exactly where the bar it covers was rather
-    than 25pt above or below it — and so that mounting this component does not
-    require a `SafeAreaProvider` above it, which `useFrame`'s no-provider
-    fallback deliberately does not.
-  */
-  const gap = useFrame().chromeGap;
 
   return (
-    <KeyboardSticky style={[styles.sticky, { paddingBottom: gap }]}>
+    <KeyboardSticky style={styles.sticky}>
       <View style={styles.row} testID="note-accessory">
         <View style={styles.pill} role="toolbar" aria-label="Formatting">
           {KEYS.map((key) => (
@@ -156,11 +152,12 @@ export function NoteAccessory({
 
           Both halves, in this order. `blur()` releases the editing surface —
           which is what actually dismisses the keyboard on web, where there is
-          no API for the keyboard itself — and `dismissKeyboard()` is the native
-          call that animates it away. Blurring alone leaves an iOS keyboard up
-          when something else on screen still wants first responder; dismissing
-          alone leaves the caret in the note, so the next tap anywhere brings
-          the keyboard straight back.
+          no API for the keyboard itself, and which crosses the bridge as the
+          one command a read-only note still accepts — and `dismissKeyboard()`
+          is the native call that animates it away. Blurring alone leaves an iOS
+          keyboard up when something else on screen still wants first responder;
+          dismissing alone leaves the caret in the note, so the next tap
+          anywhere brings the keyboard straight back.
         */}
         <View style={styles.dismiss}>
           <AccessoryButton
@@ -212,17 +209,22 @@ function AccessoryButton({
 
 const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   /**
-   * Nothing but the side inset. The bottom anchoring belongs to
+   * The side inset and the air under the row. The bottom anchoring belongs to
    * `KeyboardSticky`, which owns it on both platforms so the two cannot end up
    * anchored differently — see that module.
+   *
+   * `paddingBottom` is `ACCESSORY_GAP`, and `accessory.ts` adds the same number
+   * to the row's height when it tells the editor how much of the note is
+   * covered. Read from there rather than typed here, because a gap that grew in
+   * one of those two places is a caret sitting behind this bar.
    */
   sticky: {
     paddingHorizontal: layout.floatingInset,
+    paddingBottom: ACCESSORY_GAP,
     /*
-      Above the bottom toolbar, which it lands on top of. See the file comment:
-      while the keyboard is up this row *is* the toolbar, which is what the
-      reference shows. `2` rather than `1` because the frame's own chrome sits
-      at `1`.
+      Above the bottom toolbar, which it lands on top of. While the keyboard is
+      up this row *is* the toolbar, which is what the reference shows. `2`
+      rather than `1` because the frame's own chrome sits at `1`.
     */
     zIndex: 2,
   },
@@ -236,9 +238,9 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    * difference is measured rather than a preference: the bottom bar in the
    * reference is 336pt on a 440pt screen — an object lying on the note with the
    * note showing either side — while the accessory bar runs almost the whole
-   * width, because it has nine keys on it and the keyboard beneath it is
-   * full-bleed anyway. A content-width accessory bar would read as a second
-   * bottom bar that had lost some buttons.
+   * width, because the keyboard beneath it is full-bleed anyway. A
+   * content-width accessory bar would read as a second bottom bar that had lost
+   * some buttons.
    *
    * A full pill, not `radii.floating`: the reference's ends narrow
    * symmetrically, which is a corner radius of half the height. White fill,
@@ -261,8 +263,9 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    * which is what `radii.control` is for on a phone.
    *
    * `flexShrink: 0` so a narrow screen squeezes the editing keys rather than
-   * this one — the whole point of the bar is that this key is always reachable,
-   * and it is the one control that must not be the one that gets clipped.
+   * this one. This is the only route out of the keyboard on this surface — see
+   * the file comment — so it is the one control that must not be the one that
+   * gets clipped.
    */
   dismiss: {
     flexGrow: 0,
