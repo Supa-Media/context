@@ -1312,6 +1312,53 @@ earlier. So the two halves are one policy:
   a no-op, and `useUnsavedGuard`'s native half is a documented no-op. An absent
   capability is reported honestly; it is never faked.
 
+**The second enforcer was inert for the life of the repo, and the fix is why
+`native-deps.json` keeps the shape it has.** `@supa-media/linter`'s preset turns
+`no-ungated-native-import` on at `"error"`; the rule builds its gated set by
+iterating the file as a package -> classification **map**, returns an empty
+visitor when that set is empty, and this repo writes the `core`/`gated` **array**
+dialect that `@supa-media/testing`'s scanner requires and that its own error
+message prescribes. Two packages of one framework disagreeing about one file's
+format, silently, in the direction where the check reports nothing. Measured
+with `react-native` moved into `gated`: `eslint .` found **0** while the scanner
+found **77**. Bridged, the same experiment reports 77 from both and lint fails.
+
+The arrays stay. Reformatting the file into the map dialect to satisfy the rule
+trades one guard for the other — measured, the scanner then reports all 51 deps
+unclassified and scans nothing — and keeping both dialects in one file is one
+list authored twice. So `eslint.native-deps.js` derives the map from the arrays
+on every lint run and passes it through the rule's own `nativeDepsPath` option,
+which is the only configuration `meta.schema` offers. Upstream's matching logic
+runs unmodified, so this is a bridge and not a second implementation of the
+rule — and the reach it restores is real rather than duplicated. **The two are
+complementary in both directions and neither is a superset**, which is the part
+to get right, because this is where somebody decides whether one can stand in
+for the other. Measured over one file holding all five shapes: the rule sees a
+plain import, a sub-path import (`dep/inner`) and an unguarded top-level
+`require()`, because it visits `ImportDeclaration` and `CallExpression`; the
+scanner sees a plain import and both re-export forms (`export { C } from`,
+`export * from`), because its regex matches `…from "spec"` — but its exact
+`Set.has` cannot see a sub-path and it never looks at `require()`. Barrel files
+are routine in an Expo app, so neither half is academic. Both also flag
+type-only imports, which TypeScript erases; that false positive is inherited
+rather than introduced, and arrives twice the day a dependency is gated.
+
+`__tests__/nativeImportGuard.test.js` proves the rule *fires* — resolving is
+what `lintRuns.test.ts` already asserted, and resolving was never the problem —
+and pins the upstream defect, so the day the rule learns the array dialect that
+test fails and says to delete the bridge. **The real fix belongs upstream**, in
+the rule, next to the parser defect this file's neighbour already records.
+
+**What this closed is a hole in the future, not one in the present**, and that
+distinction is worth keeping straight. `gated` is empty, so the rule reports
+nothing today whether it is bridged or not, and no ungated import has ever
+slipped past. What was actually wrong is that the guard standing between the
+first gated dependency and a bundle that crashes an old phone had never been
+run — it would have been reached for on the day it mattered and would silently
+have said nothing. The value delivered is that it is now checked, in the sense
+this file means by "a guard nobody has checked is not a guard", and the day a
+dependency needs gating is not the day to find out.
+
 `__tests__/runtimeVersion.test.js` asserts both halves together, because either
 one alone is a bug and both fail silently. The version half is asserted as a
 *property* — the runtime does not move when `version` does — rather than as two

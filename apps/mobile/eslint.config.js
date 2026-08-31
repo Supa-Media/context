@@ -28,6 +28,19 @@
  * correctly, so that workaround is gone. `lintRuns.test.ts` asserts the rules
  * actually resolve, which is what makes deleting it safe rather than hopeful.
  *
+ * **3. The gated-native-import rule — still inert at 1.0.0, bridged here.**
+ * The preset turns `@supa-media/no-ungated-native-import` on at `"error"`, and
+ * it has never reported anything: it reads `native-deps.json` as a package ->
+ * classification map, this repo writes the `core`/`gated` array dialect that
+ * `@supa-media/testing`'s scanner requires, and a shape it cannot read is an
+ * empty gated set and an empty visitor rather than an error. Measured with
+ * `react-native` temporarily gated: `eslint .` found 0 where the jest scanner
+ * found 77. `eslint.native-deps.js` derives the map from the arrays and passes
+ * it through the rule's own `nativeDepsPath` option, so upstream's matching
+ * logic runs unmodified; `__tests__/nativeImportGuard.test.js` proves the rule
+ * fires and pins the upstream defect so the bridge announces its own expiry.
+ * Belongs upstream, like the parser.
+ *
  * ## Why the preset is not the whole rule set
  *
  * The preset turns on five Supa conventions and nothing else: no core rules, no
@@ -53,11 +66,25 @@ const js = require("@eslint/js");
 const tsPlugin = require("@typescript-eslint/eslint-plugin");
 const reactHooks = require("eslint-plugin-react-hooks");
 const supaPreset = require("@supa-media/linter/preset");
+const { writeClassifiedNativeDeps } = require("./eslint.native-deps");
 
 const TS = ["**/*.ts", "**/*.tsx"];
 
 module.exports = [
   ...supaPreset,
+
+  {
+    // The preset's own entry for this rule carries no options, and without them
+    // the rule cannot see a single gated dependency (see 3. above). No `files`
+    // key, so it applies exactly where the preset's entry does, and being later
+    // in the array it is the one that wins.
+    rules: {
+      "@supa-media/no-ungated-native-import": [
+        "error",
+        { nativeDepsPath: writeClassifiedNativeDeps() },
+      ],
+    },
+  },
 
   {
     ...js.configs.recommended,
@@ -81,7 +108,9 @@ module.exports = [
         exports: "writable",
         process: "readonly",
         require: "readonly",
+        afterAll: "readonly",
         afterEach: "readonly",
+        beforeAll: "readonly",
         beforeEach: "readonly",
         describe: "readonly",
         expect: "readonly",
