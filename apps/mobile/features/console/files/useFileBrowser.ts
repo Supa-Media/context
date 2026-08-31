@@ -346,6 +346,31 @@ export function useFileBrowser(options: {
     [listFiles, workspaceId],
   );
 
+  /**
+   * Report a refresh nobody was waiting for.
+   *
+   * Four call sites fire `refresh` with `void` — expanding a folder, selecting
+   * one, reloading a parent after a save, and opening the tree down to a
+   * selection. None of them awaits it, so before this a refusal there was an
+   * unhandled rejection and a folder that simply stayed empty: no listing, no
+   * notice, nothing at all on screen to say the server had answered.
+   *
+   * That gap is not new, but it stopped being rare. `refresh` used to absorb a
+   * refusal whenever it had something cached, so the throw only escaped for a
+   * folder nobody had opened before; it now throws on **every** refusal,
+   * because a listing repainted from the device after a refusal discloses
+   * exactly what the refusal withheld. Making that guarantee stronger without
+   * catching here would have made the silence the common case.
+   *
+   * The server's own sentence is what goes on screen rather than `run`'s
+   * `STALE_LISTING_MESSAGE`: these are not operations whose result needs
+   * qualifying, they *are* the thing that failed, and "the file list did not
+   * reload" says less than the refusal it is standing in for.
+   */
+  const reportRefreshFailure = useCallback((error: unknown) => {
+    setNotice(toFileError(error).message);
+  }, []);
+
   /** Load the root whenever the context changes, and forget the old one. */
   useEffect(() => {
     setListings({});
@@ -413,9 +438,9 @@ export function useFileBrowser(options: {
         else next.add(path);
         return next;
       });
-      if (listings[path] === undefined) void refresh([path]);
+      if (listings[path] === undefined) void refresh([path]).catch(reportRefreshFailure);
     },
-    [listings, refresh],
+    [listings, refresh, reportRefreshFailure],
   );
 
   /**
@@ -548,7 +573,7 @@ export function useFileBrowser(options: {
         dispatch({ type: "closed" });
         // Its own listing, so the folder view has contents to draw rather than
         // an empty screen. `refresh` is a no-op for a folder already loaded.
-        if (listings[path] === undefined) void refresh([path]);
+        if (listings[path] === undefined) void refresh([path]).catch(reportRefreshFailure);
         return true;
       }
       if (workspaceId === null) return true;
@@ -557,7 +582,7 @@ export function useFileBrowser(options: {
       // this answer is not about. A caller only needs to know the guard let go.
       return true;
     },
-    [listings, openNote, refresh, workspaceId],
+    [listings, openNote, refresh, reportRefreshFailure, workspaceId],
   );
 
   /**
@@ -769,14 +794,14 @@ export function useFileBrowser(options: {
           etag: result.etag,
           conflictCheck: result.conflictCheck,
         });
-        void refresh([parentPath(current.path!)]);
+        void refresh([parentPath(current.path!)]).catch(reportRefreshFailure);
       })
       .catch((error: unknown) => {
         if (saveRun.current !== mine) return;
         settle();
         dispatch({ type: "saveFailed", error: toFileError(error) });
       });
-  }, [refresh, workspaceId, writeNote]);
+  }, [refresh, reportRefreshFailure, workspaceId, writeNote]);
 
   /**
    * "Load theirs" — take the bucket's version and let this draft go.
@@ -1141,8 +1166,10 @@ export function useFileBrowser(options: {
     const missing = ancestorsOf(selectedPath).filter((folder) => !expanded.has(folder));
     if (missing.length === 0) return;
     setExpanded((current) => new Set([...current, ...missing]));
-    void refresh(missing.filter((folder) => listings[folder] === undefined));
-  }, [expanded, listings, refresh, selectedPath]);
+    void refresh(missing.filter((folder) => listings[folder] === undefined)).catch(
+      reportRefreshFailure,
+    );
+  }, [expanded, listings, refresh, reportRefreshFailure, selectedPath]);
 
   /* ------------------------------- sharing ------------------------------- */
 
@@ -1283,6 +1310,7 @@ export function useFileBrowser(options: {
       sync: {
         reachability: offline.reachability,
         counts: offline.counts,
+        ready: offline.ready,
         durable: offline.durable,
         conditionalWrite: options.conditionalWrite,
         stuckPaths: offline.outbox.writes
@@ -1352,6 +1380,7 @@ export function useFileBrowser(options: {
       offline.durable,
       offline.outbox,
       offline.reachability,
+      offline.ready,
       options.canEdit,
       options.conditionalWrite,
       options.isOwner,

@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { ConvexProvider } from "convex/react";
+import { ConvexError } from "convex/values";
 import { getFunctionName } from "convex/server";
 import { api } from "@context/convex/_generated/api";
 import { useLiveConsoleData } from "../features/console/useLiveConsoleData";
@@ -35,10 +36,15 @@ import type { OpenNote } from "../features/console/files/types";
  *    are untouched. A leave that cleared everything would be a person losing
  *    their own offline copy because they walked out of a colleague's context.
  *  - **A leave the server refused clears nothing.** `leaveWorkspace` answers
- *    `{ left: false }` for a membership it did not delete — an owner cannot
- *    leave their own context (`OWNER_CANNOT_LEAVE`) — and wiping a cache on
- *    the strength of a request rather than an answer would throw away the
- *    offline copy of a context the person still has.
+ *    `{ left: false }` for a membership row it did not find, and wiping a cache
+ *    on the strength of a request rather than an answer would throw away the
+ *    offline copy of a context the person still has. The owner case is *not*
+ *    this one and is worth naming, because a comment here used to claim it was:
+ *    `leaveWorkspace` **throws** `OWNER_CANNOT_LEAVE` for an owner
+ *    (`functions/workspaces.ts`), so nothing after the `await` runs at all.
+ *    The behaviour is right either way — no clear happens — but the two
+ *    reasons are different code paths, and a test that believed the wrong one
+ *    would be proving the wrong thing.
  */
 
 const WORKSPACES = [
@@ -56,6 +62,8 @@ const QUERY_RESULTS: Record<string, unknown> = {
 
 /** What the control plane answered, and what it was asked. */
 let leaveAnswer: { left: boolean } = { left: true };
+/** Set instead of `leaveAnswer` when the server refuses by throwing. */
+let leaveThrows: unknown = null;
 let mutationsCalled: string[] = [];
 
 function fakeConvexClient() {
@@ -73,7 +81,10 @@ function fakeConvexClient() {
     mutation: async (ref: unknown) => {
       const name = getFunctionName(ref as never);
       mutationsCalled.push(name);
-      if (name === getFunctionName(api.functions.workspaces.leaveWorkspace)) return leaveAnswer;
+      if (name === getFunctionName(api.functions.workspaces.leaveWorkspace)) {
+        if (leaveThrows !== null) throw leaveThrows;
+        return leaveAnswer;
+      }
       return undefined;
     },
     // Never settles: `useFileBrowser` fires `listFiles` on mount and a
@@ -172,6 +183,7 @@ async function settle() {
 beforeEach(() => {
   window.localStorage.clear();
   leaveAnswer = { left: true };
+  leaveThrows = null;
   mutationsCalled = [];
 });
 
@@ -207,11 +219,14 @@ describe("leaving a context", () => {
 
   test("a leave the server refused clears nothing", async () => {
     /*
-      `{ left: false }` is what `leaveWorkspace` answers for a membership it did
-      not delete. Clearing on the request rather than on the answer would throw
-      away the offline copy of a context the person still has — and the case
-      that produces it is an owner pressing Leave on their own context, which
-      is the person with the most in there.
+      `{ left: false }` is what `leaveWorkspace` answers for a membership row it
+      did not find — a context already left in another tab, or a membership an
+      owner removed while this console was open. Clearing on the request rather
+      than on the answer would throw away the offline copy of a context the
+      person still has.
+
+      Not the owner case: that one throws `OWNER_CANNOT_LEAVE` and never
+      returns a value at all. It is covered separately below.
     */
     leaveAnswer = { left: false };
     await seedBothContexts();
@@ -224,6 +239,35 @@ describe("leaving a context", () => {
     await settle();
 
     expect(keysFor("w2").sort()).toEqual(before);
+    app.unmount();
+  });
+
+  test("an owner's leave throws, and still clears nothing", async () => {
+    /*
+      The case the comment above used to attribute to `{ left: false }`.
+      `leaveWorkspace` throws `OWNER_CANNOT_LEAVE` rather than answering, so
+      `forgetContextCopies` is never reached — which is the right outcome by a
+      different route, and is worth a test precisely because the route was
+      described wrongly and nothing would have noticed.
+
+      The rejection is deliberately not caught here: `leaveContext` re-throws,
+      and the rail's `void data.leaveContext?.(id)` is where it lands. That is
+      pre-existing and is a separate fix; what is pinned here is the cache.
+    */
+    leaveThrows = new ConvexError({
+      code: "OWNER_CANNOT_LEAVE",
+      message: "You own this context, so leaving would orphan it.",
+    });
+    await seedBothContexts();
+    const before = keysFor("w1").sort();
+
+    const app = mountConsole();
+    await act(async () => {
+      await expect(app.data().leaveContext?.("w1")).rejects.toThrow();
+    });
+    await settle();
+
+    expect(keysFor("w1").sort()).toEqual(before);
     app.unmount();
   });
 

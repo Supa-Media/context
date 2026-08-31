@@ -334,6 +334,32 @@ describe("the cache", () => {
     });
   });
 
+  test("a key this version cannot read is still counted, because it is still deleted", async () => {
+    /*
+      `forgetEverything` walks `ownedKeys`, which is every key under the
+      namespace whatever its version segment says — so a `v0` outbox or draft
+      is discarded by sign-out. `parseKey` answers `null` for the same key, so
+      before this it was discarded **without ever being mentioned**, which is
+      the exact failure this count exists to prevent.
+
+      It is deliberately over-counted rather than classified: the kind segment
+      belongs to a shape this version cannot read, so a stale note cache and a
+      stale queue are indistinguishable. Over-warning costs a dialog;
+      under-warning costs somebody's typing.
+    */
+    await store.set("context.lc.offline\u001fv0\u001foutbox\u001fws1\u001f", "{}");
+    await store.set("context.lc.offline\u001fv0\u001fdraft\u001fws1\u001ftyped.md", "{}");
+    // Another feature's key on the same origin is not ours to count, the same
+    // way it is not ours to delete.
+    await store.set("some.other.feature key", "not ours");
+
+    expect(await cache.waitingOnDevice(store, null)).toEqual({
+      pending: 2,
+      conflicted: 0,
+      rejected: 0,
+    });
+  });
+
   test("an emptied queue leaves no record behind", async () => {
     await cache.putOutbox(store, emptyOutbox("ws1"));
     expect(await store.keys()).toEqual([]);

@@ -217,9 +217,34 @@ export function emptyFor(workspaceId: string): Outbox {
  * Drafts are counted everywhere, including the open context, because the live
  * counts the caller adds are the outbox's alone.
  *
+ * **The exclusion is only valid once the caller's live queue exists.**
+ * `useOfflineNotes` reports an empty outbox until it has read the persisted one
+ * back (`ready`), so a caller that excludes the open context before that adds
+ * zero and subtracts everything — it warns about nothing and then discards the
+ * queue it never mentioned. The console passes `null` until `ready`; there is
+ * nothing to double, because the counts it would add are zero.
+ *
  * The answer is a floor in one direction only: a draft typed within the last
  * second may not be written down yet. Over-warning costs a dialog; under-warning
  * costs somebody's typing.
+ *
+ * **A key this version cannot read counts as one thing waiting**, and that is
+ * the same trade taken deliberately rather than a lapse in it. `parseKey`
+ * answers `null` for a key written by an older version of this feature, so a
+ * `v0` outbox or draft was invisible here — while `forgetEverything` deletes it
+ * anyway, because that walks `ownedKeys` and not `parseKey`. The one thing this
+ * function promises is "everything on this device that a person typed", and
+ * silently discarding typing it could not classify is the failure it exists to
+ * prevent.
+ *
+ * It cannot be classified: the kind segment belongs to a shape this version
+ * does not understand, so a stale note cache and a stale queue look identical.
+ * Counting them over-warns by however many cached notes are stale — a dialog
+ * somebody confirms — where not counting them under-warns by however many
+ * queued writes are, which is typing gone with no sentence. The window is
+ * small in practice, because `sweep()` removes stale keys on the first mount
+ * after an upgrade; it is the person who signs out before that who is being
+ * protected here.
  */
 export async function waitingOnDevice(
   store: KeyValueStore,
@@ -227,6 +252,10 @@ export async function waitingOnDevice(
 ): Promise<OutboxCounts> {
   const total: OutboxCounts = { pending: 0, conflicted: 0, rejected: 0 };
   for (const key of await store.keys()) {
+    if (isStaleVersion(key)) {
+      total.pending += 1;
+      continue;
+    }
     const parsed = parseKey(key);
     if (parsed === null) continue;
     if (parsed.kind === "draft") {
@@ -267,9 +296,10 @@ export async function forgetEverything(store: KeyValueStore): Promise<void> {
 /**
  * Forget one context.
  *
- * For a context that was left, revoked, or whose bucket was rebound — in each
- * case what is cached is a copy of somewhere the person can no longer reach, or
- * of somewhere else entirely.
+ * For a context that was **left**: what is cached is then a copy of somewhere
+ * the person can no longer reach. That is the only caller, and this comment
+ * used to name two more — revoked, and rebound — which nothing wired and which
+ * `forget.ts` now argues against rather than leaves as a to-do.
  */
 export async function forgetWorkspace(
   store: KeyValueStore,

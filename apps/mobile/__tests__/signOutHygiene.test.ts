@@ -97,6 +97,8 @@ type OpenNote = import("../features/console/files/types").OpenNote;
 const NO_WRITES: OutboxCounts = { pending: 0, conflicted: 0, rejected: 0 };
 
 let counts: OutboxCounts = NO_WRITES;
+/** Whether the live hook has read the persisted queue back yet. */
+let queueReady = true;
 
 function mockConsoleData(): never {
   const files = {
@@ -130,7 +132,7 @@ function mockConsoleData(): never {
     archive: () => {},
     destroy: () => {},
     setVisibility: () => {},
-    sync: { reachability: "online", counts, durable: true },
+    sync: { reachability: "online", counts, ready: queueReady, durable: true },
   };
 
   return {
@@ -314,6 +316,7 @@ beforeEach(() => {
   ownedAtSignOut = null;
   mockReplaced.length = 0;
   counts = NO_WRITES;
+  queueReady = true;
 });
 
 /* -------------------------------------------------------------------------- */
@@ -413,6 +416,67 @@ describe("signing out with work that never reached the bucket", () => {
 
     expect(signOutCalls).toBe(1);
     expect(ownedAtSignOut).toEqual([]);
+    app.unmount();
+  });
+
+  test("the open context's own queue counts too, until the hook has read it", async () => {
+    /*
+      The console excludes the open context's persisted queue and takes the
+      live one instead, because the live copy is newer. Before `useOfflineNotes`
+      has hydrated, though, the live counts are an empty queue rather than this
+      device's — so excluding at the same time is a warning about nothing,
+      followed by a discard of the queue it did not mention.
+
+      Sign-out during a cold load is not a corner: it is somebody who opened
+      the console in order to leave. The seed puts the only queue there is in
+      `w1`, the context on screen, and the live counts stay zero.
+    */
+    counts = NO_WRITES;
+    queueReady = false;
+    await seedDevice({ cached: false });
+    const store =
+      require("../features/offline/store.web") as typeof import("../features/offline/store.web");
+    await cache.putOutbox(
+      store.openStore(),
+      enqueue(emptyOutbox("w1"), {
+        path: "1-projects/pay.md",
+        text: "queued in the context that is on screen",
+        baseEtag: null,
+        now: 1,
+      }),
+    );
+
+    const app = mountConsole();
+    await app.signOut();
+
+    expect(signOutCalls).toBe(0);
+    expect(app.text()).toContain("1 note has edits that have not reached your bucket");
+    app.unmount();
+  });
+
+  test("and it is not double-counted once the hook has", async () => {
+    // The other half, and the reason the exclusion exists at all: with the
+    // hook ready its live counts are the answer for the open context, so
+    // adding the persisted copy on top would report two of the same write.
+    counts = { pending: 1, conflicted: 0, rejected: 0 };
+    queueReady = true;
+    await seedDevice({ cached: false });
+    const store =
+      require("../features/offline/store.web") as typeof import("../features/offline/store.web");
+    await cache.putOutbox(
+      store.openStore(),
+      enqueue(emptyOutbox("w1"), {
+        path: "1-projects/pay.md",
+        text: "the same write, written down",
+        baseEtag: null,
+        now: 1,
+      }),
+    );
+
+    const app = mountConsole();
+    await app.signOut();
+
+    expect(app.text()).toContain("1 note has edits that have not reached your bucket");
     app.unmount();
   });
 

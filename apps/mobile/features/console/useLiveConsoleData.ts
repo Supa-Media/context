@@ -436,9 +436,17 @@ export function useLiveConsoleData(): ConsoleData {
     // no longer reach — notes somebody shared with you, held on your machine
     // after the membership that justified holding them is gone. It is cleared
     // **on the server's answer, never on the request**: `leaveWorkspace`
-    // returns `{ left: false }` for a membership it did not delete (an owner
-    // cannot leave their own context), and clearing on the press would throw
-    // away the offline copy of a context the person still has.
+    // returns `{ left: false }` for a membership row it did not find — already
+    // left in another tab, or removed by the owner while this console was open
+    // — and clearing on the press would throw away the offline copy of a
+    // context the person still has.
+    //
+    // An owner is a *third* case and this comment used to fold it into the
+    // second, wrongly: `leaveWorkspace` throws `OWNER_CANNOT_LEAVE` rather
+    // than answering `{ left: false }`, so nothing below the `await` runs at
+    // all. Same outcome, different path — and the rejection reaches the rail's
+    // `void data.leaveContext?.(id)`, which has nowhere to put it. That is
+    // pre-existing and is not what this line is about.
     leaveContext: async (id: string) => {
       const result = await leaveWorkspace({ workspaceId: id as Id<"workspaces"> });
       if (result.left) await forgetContextCopies(id);

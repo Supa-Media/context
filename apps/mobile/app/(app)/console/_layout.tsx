@@ -1025,13 +1025,20 @@ const NO_QUEUE = { pending: 0, conflicted: 0, rejected: 0 };
  * connection exist, sending the previous person's typing to the bucket under
  * the new person's session.
  *
- * Three properties, and each is a different failure if dropped:
+ * Four properties, and each is a different failure if dropped:
  *
  *  - **The clear is awaited before `signOut`.** Not fire-and-forget: a clear
  *    that merely started leaves a window the next sign-in can race.
+ *  - **The clear is also a barrier, not only a moment.** Awaiting it is not
+ *    enough on its own: a read still in flight lands after it and writes a
+ *    note body back. `forgetLocalCopies` ends the session epoch before it
+ *    removes anything, and every writer in `useOfflineNotes` drops a write
+ *    from a session that has ended.
  *  - **It cannot block.** Being unable to end a session is worse than a cache
- *    that outlives one, so the verdict is reported and never enforced. See
- *    `features/offline/forget.ts` for the whole stance.
+ *    that outlives one, so the verdict is reported and never enforced — and
+ *    the await itself is bounded, because a wedged native bridge never settles
+ *    and a `catch` has nothing to catch. See `features/offline/forget.ts` for
+ *    the whole stance.
  *  - **The person is asked first when the queue is not empty.** Discarding it
  *    is deliberate, so this is the last moment anybody can be told — and the
  *    count covers every context on the device, not just the one on screen,
@@ -1056,8 +1063,10 @@ function Account({
 
   const signOutNow = useCallback(() => {
     void (async () => {
-      // Awaited, and first. The result is deliberately not acted on here —
-      // `forget.ts` reports it; there is no surface left to show it on.
+      // Awaited, and first — and bounded inside `forget.ts`, so a store that
+      // stops answering cannot hold somebody on this button. The result is
+      // deliberately not acted on here: `forget.ts` reports it, and there is
+      // no surface left to show it on.
       await forgetLocalCopies();
       await signOut();
       router.replace("/");
@@ -1079,8 +1088,24 @@ function Account({
         touch={touch}
         onSignOut={() => {
           void (async () => {
-            const elsewhere = await unsentOnDevice(data.selectedContextId);
-            const here = data.files.sync?.counts ?? NO_QUEUE;
+            /*
+              The open context's queue is normally excluded from the device
+              count and supplied by the live hook instead, because the hook's
+              copy is newer than the persisted one — see `waitingOnDevice`.
+
+              That swap only holds once the hook has actually read the queue
+              back. Before `ready` its counts are an *empty* queue rather than
+              this device's, so excluding the persisted copy at the same time
+              warns about nothing and then discards it — and sign-out pressed
+              during a cold load is not a corner, it is somebody who opened the
+              console to leave. Unready, nothing is excluded; the live counts
+              are zero, so there is nothing to double.
+            */
+            const live = data.files.sync;
+            const elsewhere = await unsentOnDevice(
+              live?.ready === true ? data.selectedContextId : null,
+            );
+            const here = live?.counts ?? NO_QUEUE;
             const warning = signOutWarning({
               pending: here.pending + elsewhere.pending,
               conflicted: here.conflicted + elsewhere.conflicted,
