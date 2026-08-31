@@ -10,6 +10,7 @@ import { FolderView } from "../files/FolderView";
 import { NoteEditor } from "../files/NoteEditor";
 import { ShareDialog } from "../files/ShareDialog";
 import { consoleOrigin } from "../files/shareOrigin";
+import { noteHeading } from "../files/frontmatter";
 import { findEntry } from "../files/tree";
 import { atName } from "../format";
 import { selectedContext, type ConsoleData } from "../types";
@@ -119,6 +120,21 @@ export function BrowsePane({
           <View style={styles.crumb}>
             <Breadcrumb
               path={selected.path}
+              /*
+                What the note calls itself, where it calls itself anything.
+
+                Only when the editor is holding *this* note: `files.editor` is
+                one buffer and the selection can move ahead of it, so titling
+                the breadcrumb from a draft belonging to a different path would
+                put one note's subject over another note's name. A folder has no
+                text and gets no title, which leaves `baseName` — its own name,
+                which is what a folder is called.
+              */
+              title={
+                selected.kind === "file" && files.editor.path === selected.path
+                  ? noteHeading(files.editor.draft, selected.path)
+                  : undefined
+              }
               contextLabel={contextLabel}
               visibility={selected.visibility}
               inherited={selected.inherited}

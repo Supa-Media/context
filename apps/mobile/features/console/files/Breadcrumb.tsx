@@ -50,6 +50,7 @@ import type { Visibility } from "./types";
  */
 export function Breadcrumb({
   path,
+  title,
   contextLabel,
   visibility,
   inherited,
@@ -58,6 +59,24 @@ export function Breadcrumb({
   onSelectFolder,
 }: {
   path: string;
+  /**
+   * What to call the note, where its filename is not what it is called.
+   *
+   * A captured note's filename is a content hash — `3efac11d4eead8832e5b1236`
+   * — so the one line on a phone that names what is on screen was naming
+   * nothing. `noteHeading` in `frontmatter.ts` resolves it: the frontmatter's
+   * `title` or `subject` first, then the body's own `# Heading`, then the
+   * filename.
+   *
+   * Passed in rather than derived, because deriving it needs the note's *text*
+   * and this component is given a path. `BrowsePane` has the open draft; a
+   * breadcrumb that fetched one would be a breadcrumb that could not be drawn
+   * for a folder.
+   *
+   * Omitted for a folder and for a file whose text is not the one open, and the
+   * basename is then what it always was.
+   */
+  title?: string;
   /** "@seyi" — the context is the first segment, and it is the product's root. */
   contextLabel: string;
   visibility: Visibility;
@@ -108,11 +127,18 @@ export function Breadcrumb({
 
       {compact && folders.length === 0 ? null : <Separator />}
       <Text
-        variant="mono"
+        /*
+          `mono` for a path segment and the body face for a title. The
+          monospace is right when this line is a *path* — it is what makes the
+          separators line up and the segments read as file names — and wrong
+          the moment the last segment is a sentence somebody wrote, which is
+          what `title` is.
+        */
+        variant={title === undefined ? "mono" : "body"}
         style={[styles.leaf, compact && styles.leafCompact]}
         numberOfLines={1}
       >
-        {baseName(path)}
+        {title ?? baseName(path)}
       </Text>
 
       <View style={styles.spacer} />
