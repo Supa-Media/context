@@ -13,7 +13,8 @@ import { Dot } from "../design/components/Dot";
 import { Icon, type IconName } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
 import { gradient } from "../design/css";
-import { colors, layout, radii, space } from "../design/tokens";
+import { layout, radii, space } from "../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { offerOwnContext } from "../onboarding/route";
 import { atName } from "./format";
 import { APP_SECTIONS, selectContextRoute, type ConsoleRoute } from "./nav";
@@ -88,6 +89,7 @@ export function ConsoleRail({
    */
   onLeaveContext?: (contextId: string) => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const icons = mode === "icons";
   const touch = mode === "sheet";
   // Which context's right-click menu is open, if any. One at a time: opening
@@ -234,6 +236,7 @@ function Group({
   icons: boolean;
   children: ReactNode;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.group}>
       {icons ? (
@@ -284,6 +287,8 @@ function RailEntry({
   labelStyle?: StyleProp<TextStyle>;
   testID?: string;
 }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   return (
     <PressRow
       // The label survives the collapse. A rail that reads as a row of
@@ -362,6 +367,7 @@ export function AccountBlock({
   /** Phone sizing: sign-out clears `layout.minTouchTarget` on both axes. */
   touch?: boolean;
 }) {
+  const styles = useThemedStyles(makeStyles);
   if (compact) {
     return (
       <PressRow
@@ -406,6 +412,7 @@ export function AccountBlock({
 }
 
 export function Avatar({ initial }: { initial: string }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View
       style={[styles.avatar, gradient("linear-gradient(140deg,#3B82F6,#8B5CF6)")]}
@@ -416,7 +423,7 @@ export function Avatar({ initial }: { initial: string }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   rail: { flex: 1, minHeight: 0 },
   scroll: { flex: 1 },
   content: { paddingVertical: space.x4, paddingHorizontal: space.x3 },

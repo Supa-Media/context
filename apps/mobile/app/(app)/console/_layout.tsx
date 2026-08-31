@@ -10,7 +10,8 @@ import { Palette } from "../../../features/design/components/Palette";
 import { StatusBar } from "../../../features/design/components/StatusBar";
 import { Text } from "../../../features/design/components/Text";
 import { ToastHost } from "../../../features/design/components/Toast";
-import { colors, layout, radii, space } from "../../../features/design/tokens";
+import { layout, radii, space } from "../../../features/design/tokens";
+import { useThemedStyles, type Colors } from "../../../features/design/theme";
 import { AppFrame, useFrame } from "../../../features/app/AppFrame";
 import { densityFor } from "../../../features/app/frame";
 import { BottomBar } from "../../../features/console/BottomBar";
@@ -97,6 +98,7 @@ import { WELCOME_ROUTE } from "../../../features/onboarding/route";
  * for which context you are in — both unchanged.
  */
 export default function ConsoleLayout() {
+  const styles = useThemedStyles(makeStyles);
   const data = useLiveConsoleData();
   const { width } = useWindowDimensions();
   const router = useRouter();
@@ -508,6 +510,7 @@ function EditorRegion({
   phone: boolean;
   children: ReactNode;
 }) {
+  const styles = useThemedStyles(makeStyles);
   /*
     The console's own subscription came back as an error rather than data. It
     reaches here as a value — `useLiveConsoleData` reads it with `useQueries` —
@@ -975,6 +978,7 @@ function StorageChip({
   /** Absent only while there is no selected context to have settings. */
   onOpenSettings?: () => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   if (data.loading) return null;
   const label = storagePillLabel(data.storage);
 
@@ -1058,7 +1062,7 @@ function Status({ data }: { data: ConsoleData }) {
 
 export { Avatar };
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   switcher: {
     flexDirection: "row",
     alignItems: "center",

@@ -1317,6 +1317,49 @@ works.
 Sabotage-test rather than trusting a green run: break the invariant deliberately
 and confirm the right tests fail.
 
+### There are two palettes, and a screen may not hold either one
+
+`app.config.js` says `userInterfaceStyle: "automatic"`, and that is now true:
+`features/design/tokens.ts` exports `darkColors` (the signed-off mockup) and
+`lightColors` (designed against it), and a subtree draws in whichever
+`useColorScheme()` reports. `resolveScheme` treats only an explicit `"light"` as
+light, so a platform that will not say lands on dark — the app's own ground.
+
+**The rule that keeps it working:** no module may hold a palette. There is no
+`colors` export to import, because `StyleSheet.create` at module scope closes
+over its values at module load, and a screen built that way can never change
+appearance — no re-render rebuilds it. So a stylesheet is a *function of* a
+palette:
+
+```ts
+const makeStyles = (colors: Colors) => StyleSheet.create({ … });
+
+export function Panel() {
+  const styles = useThemedStyles(makeStyles);
+}
+```
+
+The parameter is named `colors` and the result `styles` everywhere, so
+converting a stylesheet touches two lines and leaves every `colors.x` and
+`styles.x` alone. The same trap catches smaller things and they get the same
+treatment: a `Record<Tone, string>` map, a default parameter value
+(`color = colors.text2` is evaluated in the parameter list, before any hook has
+run), a `<style>` element injected once into the document. Non-React code takes
+a `Colors` as an argument.
+
+Both palettes declare the same keys — `lightColors: Colors` makes a missing one
+a compile error rather than a black-on-black surface — and the light one's
+contrast is asserted in `__tests__/theme.test.ts`, not claimed in a comment.
+Writing those assertions first caught four tokens that looked right and measured
+under AA. The elevation tokens are *re-ranked* between the two rather than
+inverted, because in a light world elevation and interaction move in opposite
+directions; `tokens.ts` says which token does which job.
+
+`app/+html.tsx` cannot ask React — it is rendered at build time and paints the
+page before any app code runs — so it carries the two grounds as literals under
+a `prefers-color-scheme` query, pinned against the palettes by
+`__tests__/htmlShell.test.ts`.
+
 ## Engineering standards
 
 - **Test-first.** Write the failing test, then the code. Tenant isolation,

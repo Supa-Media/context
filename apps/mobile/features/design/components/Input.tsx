@@ -7,7 +7,8 @@ import {
   type TextInputProps,
   type ViewStyle,
 } from "react-native";
-import { colors, fonts, radii } from "../tokens";
+import { fonts, radii } from "../tokens";
+import { useColors, useThemedStyles, type Colors } from "../theme";
 import { FocusRing } from "./FocusRing";
 import { Text } from "./Text";
 
@@ -43,6 +44,8 @@ export function TextField({
   containerStyle,
   ...props
 }: TextFieldProps) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const [focused, setFocused] = useState(false);
   const labelId = testID ? `${testID}-label` : undefined;
   const describedBy = testID && (hint || error) ? `${testID}-note` : undefined;
@@ -139,6 +142,7 @@ export function ChoiceGroup<T extends string>({
   testID?: string;
   style?: ViewStyle;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={style} role="radiogroup" aria-label={label}>
       <Text variant="eyebrow">{label}</Text>
@@ -176,6 +180,7 @@ function ChoiceRow<T extends string>({
   onPress: () => void;
   testID?: string;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
 
@@ -265,6 +270,7 @@ export function ToggleGroup({
   testID?: string;
   style?: ViewStyle;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={style} role="group" aria-label={label}>
       <Text variant="eyebrow">{label}</Text>
@@ -299,6 +305,7 @@ function ToggleRow({
   onPress: () => void;
   testID?: string;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const on = option.on;
@@ -351,6 +358,7 @@ export function FormError({
   next?: string;
   style?: ViewStyle;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={[styles.formError, style]} role="alert">
       <Text variant="error" style={styles.formErrorHead}>
@@ -375,6 +383,7 @@ export function Notice({
   children: ReactNode;
   style?: ViewStyle;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={[styles.notice, styles[`notice_${tone}` as const], style]} role="status">
       {children}
@@ -382,7 +391,7 @@ export function Notice({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   labelRow: {
     flexDirection: "row",
     alignItems: "center",

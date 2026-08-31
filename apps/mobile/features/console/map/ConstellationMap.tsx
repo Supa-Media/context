@@ -2,7 +2,8 @@ import { useState } from "react";
 import { StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import { Line } from "../../design/components/Line";
 import { Text } from "../../design/components/Text";
-import { colors, fonts, graphColors, layout, radii, tracking } from "../../design/tokens";
+import { fonts, layout, radii, tracking } from "../../design/tokens";
+import { useColors, useTheme, useThemedStyles, type Colors } from "../../design/theme";
 import { describeGraph } from "./describe";
 import { Glow } from "./Glow";
 import {
@@ -26,6 +27,9 @@ import {
  * decorative box.
  */
 export function ConstellationMap({ graph }: { graph: MapGraph }) {
+  const colors = useColors();
+  const { graphColors } = useTheme();
+  const styles = useThemedStyles(makeStyles);
   const [width, setWidth] = useState(0);
   const height = layout.mapHeight;
 
@@ -114,6 +118,7 @@ function LegendItem({
   label: string;
   dashed?: boolean;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.legendItem}>
       <View
@@ -127,7 +132,7 @@ function LegendItem({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   /** `.mapwrap` */
   wrap: {
     position: "relative",

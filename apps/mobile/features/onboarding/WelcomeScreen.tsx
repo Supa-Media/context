@@ -3,7 +3,8 @@ import { StyleSheet, View, ScrollView, useWindowDimensions } from "react-native"
 import { useLocalSearchParams, Redirect, useRouter } from "expo-router";
 import { Text } from "../design/components/Text";
 import { StageBackdrop } from "../design/components/StageBackdrop";
-import { clamp, colors, fonts, layout, leading, radii, tracking } from "../design/tokens";
+import { clamp, fonts, layout, leading, radii, tracking } from "../design/tokens";
+import { useThemedStyles, type Colors } from "../design/theme";
 import { browseHref } from "../console/nav";
 import { STEP_LABELS, stepTitle, stepsFor, type FlowShape, type StepKey } from "./flow";
 import { resolveWelcomeRoute } from "./route";
@@ -32,6 +33,7 @@ import { DoneStep } from "./steps/DoneStep";
  * console with no bucket. See `route.ts`.
  */
 export function WelcomeScreen() {
+  const styles = useThemedStyles(makeStyles);
   const router = useRouter();
   const params = useLocalSearchParams<{ resume?: string | string[] }>();
   const resumeParam = Array.isArray(params.resume) ? params.resume[0] : params.resume;
@@ -77,6 +79,7 @@ export function WelcomeChrome({
   shape: FlowShape;
   children: ReactNode;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const { width } = useWindowDimensions();
   const titleSize = clamp(27, 3.1, 38, width);
 
@@ -156,6 +159,7 @@ function StepBody({
  * says what is coming.
  */
 function StepRail({ step, shape }: { step: StepKey; shape: FlowShape }) {
+  const styles = useThemedStyles(makeStyles);
   const steps = stepsFor(shape);
   const current = steps.indexOf(step);
 
@@ -183,7 +187,7 @@ function StepRail({ step, shape }: { step: StepKey; shape: FlowShape }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   ground: { flex: 1, backgroundColor: colors.ground },
   scroll: { minHeight: "100%", paddingBottom: 60 },
   wrap: {

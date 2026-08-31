@@ -60,8 +60,10 @@ jest.mock("react-native-safe-area-context", () => ({
 // Required after the mock, which `jest.mock` hoists above it anyway.
 const { Palette } =
   require("../features/design/components/Palette") as typeof import("../features/design/components/Palette");
-const { layout, colors } =
+const { layout, darkColors } =
   require("../features/design/tokens") as typeof import("../features/design/tokens");
+const { ThemeProvider } =
+  require("../features/design/theme") as typeof import("../features/design/theme");
 type PaletteItem = import("../features/console/files/palette").PaletteItem;
 
 /* -------------------------------------------------------------------------- */
@@ -166,7 +168,9 @@ function mount(
 
   act(() => {
     root.render(
-      createElement(Palette, {
+      createElement(ThemeProvider, {
+        scheme: "dark",
+        children: createElement(Palette, {
         items: ITEMS,
         placeholder: "Search this context",
         emptyHeading: "Recent",
@@ -175,7 +179,8 @@ function mount(
         onDismiss: () => {
           dismissed += 1;
         },
-        ...props,
+          ...props,
+        }),
       }),
     );
   });
@@ -288,7 +293,7 @@ describe("the matched characters are emphasised", () => {
     // …and it has to *look* different, or the ranges are decoration.
     const emphasis = window.getComputedStyle(marks[0]);
     expect(emphasis.fontWeight).toBe("600");
-    expect(emphasis.color).toBe(rgb(colors.text));
+    expect(emphasis.color).toBe(rgb(darkColors.text));
 
     palette.unmount();
   });

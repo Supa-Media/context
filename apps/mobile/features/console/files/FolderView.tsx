@@ -24,7 +24,8 @@
 import { StyleSheet, View } from "react-native";
 import { Button, PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { colors, radii, space } from "../../design/tokens";
+import { radii, space } from "../../design/tokens";
+import { useThemedStyles, type Colors } from "../../design/theme";
 import { baseName } from "./paths";
 import type { FileEntry, FolderListing, Visibility } from "./types";
 
@@ -52,6 +53,7 @@ export function FolderView({
   onSelect: (path: string) => void;
   onShare: () => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const isTeam = entry.visibility === "team";
   const rows = listing?.entries ?? [];
 
@@ -145,7 +147,7 @@ export function FolderView({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   folder: { gap: space.x3 },
   head: { flexDirection: "row", alignItems: "flex-start", gap: space.x2 },
   title: { flexGrow: 1, flexShrink: 1, minWidth: 0, gap: 4 },

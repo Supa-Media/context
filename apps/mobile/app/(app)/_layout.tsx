@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Redirect, Stack, usePathname } from "expo-router";
 import { useConvexAuth, useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
-import { colors } from "../../features/design/tokens";
+import { useColors } from "../../features/design/theme";
 import { resolveProtectedRoute } from "../../features/auth/redirect";
 import { EMPTY_QUERY_SPEC } from "../../features/console/querySpec";
 import {
@@ -61,6 +61,7 @@ import {
  * returns a new object on every access.
  */
 export default function AppLayout() {
+  const colors = useColors();
   const pathname = usePathname();
   // The attempted path is carried into `/login?next=…` so an emailed
   // invitation link survives the sign-in it triggers. `safeNextRoute` narrows

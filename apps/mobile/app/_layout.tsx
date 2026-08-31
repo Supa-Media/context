@@ -7,7 +7,7 @@ import { SupaConvexProvider } from "@supa-media/core/providers";
 import { ErrorBoundary } from "../features/app/ErrorBoundary";
 import { shouldHandleCodeHere } from "../features/auth/handleCode";
 import { ensureFontsLoaded } from "../features/design/fonts";
-import { colors } from "../features/design/tokens";
+import { ThemeProvider, useColors, useScheme } from "../features/design/theme";
 
 /**
  * Root layout for Context.
@@ -36,27 +36,53 @@ ensureFontsLoaded();
 
 export default function RootLayout() {
   return (
-    <KeyboardProvider>
-      <SafeAreaProvider>
-        {/*
-          `shouldHandleCode` keeps ConvexAuthProvider's hands off the `?code=`
-          that Dropbox (and any future /connect/ provider) sends back — left
-          to its default, it redeems that foreign code as a login code, gets
-          `tokens: null`, and stores the sign-out. See features/auth/handleCode.
-        */}
-        <SupaConvexProvider
-          url={process.env.EXPO_PUBLIC_CONVEX_URL}
-          shouldHandleCode={shouldHandleCodeHere}
-        >
-          <StatusBar style="light" />
-          {/* One dark ground under every route, so nothing flashes white. */}
-          <View style={{ flex: 1, backgroundColor: colors.ground }}>
-            <ErrorBoundary>
-              <Slot />
-            </ErrorBoundary>
-          </View>
-        </SupaConvexProvider>
-      </SafeAreaProvider>
-    </KeyboardProvider>
+    <ThemeProvider>
+      <KeyboardProvider>
+        <SafeAreaProvider>
+          {/*
+            `shouldHandleCode` keeps ConvexAuthProvider's hands off the `?code=`
+            that Dropbox (and any future /connect/ provider) sends back — left
+            to its default, it redeems that foreign code as a login code, gets
+            `tokens: null`, and stores the sign-out. See features/auth/handleCode.
+          */}
+          <SupaConvexProvider
+            url={process.env.EXPO_PUBLIC_CONVEX_URL}
+            shouldHandleCode={shouldHandleCodeHere}
+          >
+            <AppGround />
+          </SupaConvexProvider>
+        </SafeAreaProvider>
+      </KeyboardProvider>
+    </ThemeProvider>
+  );
+}
+
+/**
+ * The ground under every route, and the status bar over it.
+ *
+ * A component of its own rather than the body of `RootLayout`, because both
+ * read the theme and `RootLayout` is what installs the provider — reading it
+ * there would work today only because the hooks fall back to the system, and
+ * would quietly ignore a user's pinned appearance the moment one exists.
+ */
+function AppGround() {
+  const colors = useColors();
+  const scheme = useScheme();
+  return (
+    <>
+      {/*
+        `style` names the colour of the status bar's *content*, so it is the
+        opposite of the ground behind it. Derived from the app's own scheme
+        rather than expo-status-bar's `"auto"`, which reads the system directly
+        and would disagree with the app the moment an appearance can be pinned.
+      */}
+      <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+      {/* One opaque ground under every route, so nothing flashes the host's. */}
+      <View style={{ flex: 1, backgroundColor: colors.ground }}>
+        <ErrorBoundary>
+          <Slot />
+        </ErrorBoundary>
+      </View>
+    </>
   );
 }

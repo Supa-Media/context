@@ -3,7 +3,8 @@ import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { densityFor } from "../../app/frame";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { colors, radii, space } from "../../design/tokens";
+import { radii, space } from "../../design/tokens";
+import { useThemedStyles, type Colors } from "../../design/theme";
 import { Breadcrumb } from "../files/Breadcrumb";
 import { FolderView } from "../files/FolderView";
 import { NoteEditor } from "../files/NoteEditor";
@@ -54,6 +55,7 @@ export function BrowsePane({
   data: ConsoleData;
   onOpenSettings?: () => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const files = data.files;
   const current = selectedContext(data);
   const contextLabel = atName(current?.slug ?? "your context");
@@ -341,6 +343,7 @@ export function BrowsePane({
  * that does not exist.
  */
 function Empty({ contextLabel }: { contextLabel: string }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.empty}>
       <Text variant="paneTitle" role="heading" aria-level={2}>
@@ -355,7 +358,7 @@ function Empty({ contextLabel }: { contextLabel: string }) {
 }
 
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   /** The editor region: chrome on its top edge, the document filling the rest. */
   region: { flex: 1, minHeight: 0 },
   /** The breadcrumb takes the room it needs; Share sits at the end of the line. */

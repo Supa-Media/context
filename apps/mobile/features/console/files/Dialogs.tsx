@@ -2,7 +2,8 @@ import { useState, type ReactNode } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Button, PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { colors, fonts, radii } from "../../design/tokens";
+import { fonts, radii } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { describeDeleteForever, describeNameProblem } from "./paths";
 
 /**
@@ -24,6 +25,7 @@ function Shell({
   children: ReactNode;
   onClose: () => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <Modal transparent animationType="fade" onRequestClose={onClose} visible>
       <Pressable
@@ -59,6 +61,8 @@ export function NamePrompt({
   onCancel: () => void;
   onConfirm: (name: string) => void;
 }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const [value, setValue] = useState(initialValue);
   const problem = value.trim() === "" ? null : describeNameProblem(value);
   const ready = value.trim() !== "" && problem === null;
@@ -117,6 +121,7 @@ export function MovePicker({
   onCancel: () => void;
   onConfirm: (folder: string) => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const [chosen, setChosen] = useState<string | null>(null);
 
   return (
@@ -176,6 +181,7 @@ export function Confirm({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <Shell title={title} onClose={onCancel}>
       <Text variant="paneSub">{body}</Text>
@@ -216,6 +222,8 @@ export function DeleteForever({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const [typed, setTyped] = useState("");
   const name = path.slice(path.lastIndexOf("/") + 1);
   const ready = typed.trim() === name;
@@ -255,7 +263,7 @@ export function DeleteForever({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   scrim: {
     flex: 1,
     backgroundColor: "rgba(3,3,4,.72)",

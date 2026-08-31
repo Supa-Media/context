@@ -3,7 +3,8 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { FocusRing } from "../design/components/FocusRing";
 import { Icon, type IconName } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
-import { colors, layout, radii, shadows, space } from "../design/tokens";
+import { layout, radii, space } from "../design/tokens";
+import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 
 /**
  * The compact toolbar: the verbs, within thumb reach.
@@ -158,6 +159,7 @@ export interface BottomBarAction {
 }
 
 export function BottomBar({ actions }: { actions: BottomBarAction[] }): JSX.Element {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.bar} role="toolbar" aria-label="Console actions" testID="bottom-bar">
       {actions.map((action) => (
@@ -177,6 +179,8 @@ export function BottomBar({ actions }: { actions: BottomBarAction[] }): JSX.Elem
  * targets is an invisible one.
  */
 function BottomBarButton({ action }: { action: BottomBarAction }): JSX.Element {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const { label, icon, title, onPress, badge, count, marker, disabled = false } = action;
   const [focused, setFocused] = useState(false);
   const showBadge = badge !== undefined && badge > 0;
@@ -254,7 +258,7 @@ function BottomBarButton({ action }: { action: BottomBarAction }): JSX.Element {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   bar: {
     // The height is the token, not a number typed in here: `frame.ts` reserves
     // this much room along the bottom edge and the two must agree.

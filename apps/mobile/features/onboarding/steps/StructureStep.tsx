@@ -4,7 +4,8 @@ import { Card } from "../../design/components/Card";
 import { Check } from "../../design/components/Field";
 import { ChoiceGroup, FormError, TextField } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
-import { colors, leading } from "../../design/tokens";
+import { leading } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import {
   DESCRIPTION_PURPOSE,
   PRIVACY_DEFAULT_NOTE,
@@ -48,6 +49,7 @@ export function StructureStep({ controller }: { controller: OnboardingController
 
 /** The bucket already had a context. Report, do not prompt. */
 function ExistingContext({ controller }: { controller: OnboardingController }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View>
       <Text variant="rowSub" style={styles.lede}>
@@ -82,6 +84,8 @@ function ExistingContext({ controller }: { controller: OnboardingController }) {
 
 /** The bucket is empty. Offer a shape. */
 function ChooseLayout({ controller }: { controller: OnboardingController }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const { template, folders, applying, structureFailure } = controller;
 
   return (
@@ -155,6 +159,7 @@ function ChooseLayout({ controller }: { controller: OnboardingController }) {
 
 /** What PARA actually creates, in the real folder names. */
 function ParaPreview() {
+  const styles = useThemedStyles(makeStyles);
   return (
     <Card style={styles.preview}>
       {paraFolderLines().map(({ folder, line }) => (
@@ -189,6 +194,7 @@ function ParaPreview() {
 
 /** Name your own. A plain repeatable row and nothing clever. */
 function CustomFolders({ controller }: { controller: OnboardingController }) {
+  const styles = useThemedStyles(makeStyles);
   const { folders, folderErrors, applying, setFolders } = controller;
 
   return (
@@ -252,7 +258,7 @@ function CustomFolders({ controller }: { controller: OnboardingController }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   lede: { marginBottom: 18, lineHeight: leading(12.5, 1.7) },
   checks: { gap: 9 },
   cardNote: { marginTop: 13, lineHeight: leading(12.5, 1.7) },

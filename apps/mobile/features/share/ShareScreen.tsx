@@ -36,7 +36,8 @@ import { Card } from "../design/components/Card";
 import { CenteredScroll } from "../design/components/CenteredScroll";
 import { StageBackdrop } from "../design/components/StageBackdrop";
 import { Text } from "../design/components/Text";
-import { colors, radii } from "../design/tokens";
+import { radii } from "../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { NoteBody } from "./NoteBody";
 import { noteTitle, parseNote } from "./markdown";
 import {
@@ -50,6 +51,7 @@ import {
 } from "./share";
 
 export function ShareScreen() {
+  const styles = useThemedStyles(makeStyles);
   const params = useLocalSearchParams<{ token?: string | string[]; path?: string | string[] }>();
   const token = firstParam(params.token);
   const requestedPath = firstParam(params.path);
@@ -118,6 +120,8 @@ export function ShareScreen() {
 }
 
 function Loading() {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   return (
     <Card>
       <View style={styles.centered}>
@@ -136,6 +140,7 @@ function Loading() {
  * deliberately does not know either by the time it answers.
  */
 function Unavailable() {
+  const styles = useThemedStyles(makeStyles);
   return (
     <Card>
       <View style={styles.unavailable}>
@@ -163,6 +168,7 @@ function Note({
   onOpen: (path: string) => void;
   onBack: () => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const parsed = useMemo(() => parseNote(note.text), [note.text]);
   // The note's own H1 if it has one, and the filename otherwise — a reader
   // wants the document's name, not a path.
@@ -222,7 +228,7 @@ function Note({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   ground: { flex: 1, backgroundColor: colors.ground },
   centered: { alignItems: "center", gap: 12, paddingVertical: 24 },
   unavailable: { gap: 10 },

@@ -11,9 +11,19 @@ import { FONT_STYLESHEET_HREF } from "../features/design/fonts";
  *    linking them from the document head means the first paint already has them
  *    instead of flashing system fallbacks. `features/design/fonts.web.ts` also
  *    injects this at runtime, for any host that serves its own shell.
- *  - **The ground colour.** The app is a single dark world by intent. Without
- *    painting `html`/`body`, the browser's white shows through during load and
- *    behind rubber-band scroll.
+ *  - **The ground colour.** Without painting `html`/`body`, the browser's white
+ *    shows through during load and behind rubber-band scroll.
+ *
+ * The ground is the one thing here that has to know about both appearances,
+ * and it cannot ask React: this document is rendered once, at build time, and
+ * the first paint happens before any of the app's JavaScript runs. So it is
+ * expressed as a media query, which is the same question
+ * `useColorScheme()` asks — react-native-web's `Appearance` is
+ * `matchMedia('(prefers-color-scheme: dark)')` — and therefore lands on the
+ * same answer as `resolveScheme()`: dark when the browser asks for dark, light
+ * otherwise. Light is the default rule rather than dark because that is how
+ * `prefers-color-scheme` reports "no preference", and a shell that guessed the
+ * other way would flash a black page at every light-mode visitor.
  */
 export default function Root({ children }: PropsWithChildren) {
   return (
@@ -40,8 +50,9 @@ export default function Root({ children }: PropsWithChildren) {
           a request came from.
         */}
         <meta name="referrer" content="no-referrer" />
-        <meta name="color-scheme" content="dark" />
-        <meta name="theme-color" content="#050506" />
+        <meta name="color-scheme" content="light dark" />
+        <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#050506" />
+        <meta name="theme-color" media="(prefers-color-scheme: light)" content="#EDEDF2" />
         <meta
           name="description"
           content="Tell one AI once. Context carries the right decisions to every AI and teammate you allow, backed by plain markdown in Dropbox or storage you own."
@@ -61,10 +72,20 @@ export default function Root({ children }: PropsWithChildren) {
   );
 }
 
+/**
+ * The literals here are `lightColors.ground` / `darkColors.ground` and their
+ * text, written out rather than imported.
+ *
+ * Not an oversight: this string is inlined into the document head, so pulling
+ * in `tokens.ts` would drag `react-native`'s `Platform` into the shell's
+ * module graph for two hex values. The pair is pinned by
+ * `__tests__/htmlShell.test.ts`, which reads both this file and the palette and
+ * fails if they drift.
+ */
 const groundStyle = `
 html, body, #root {
-  background-color: #050506;
-  color-scheme: dark;
+  background-color: #EDEDF2;
+  color-scheme: light;
 }
 body {
   margin: 0;
@@ -72,5 +93,13 @@ body {
   overflow-x: hidden;
 }
 /* Selection in the product's blue rather than the browser default. */
-::selection { background: rgba(59,130,246,.35); color: #F2F2F4; }
+::selection { background: rgba(37,99,235,.22); color: #14141A; }
+
+@media (prefers-color-scheme: dark) {
+  html, body, #root {
+    background-color: #050506;
+    color-scheme: dark;
+  }
+  ::selection { background: rgba(59,130,246,.35); color: #F2F2F4; }
+}
 `;

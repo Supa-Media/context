@@ -1,5 +1,5 @@
 import { Stack } from "expo-router";
-import { colors } from "../../features/design/tokens";
+import { useColors } from "../../features/design/theme";
 
 /**
  * The share viewer's navigator, and **deliberately not a gate**.
@@ -13,6 +13,7 @@ import { colors } from "../../features/design/tokens";
  * See `shareSignInHref` in `features/share/share.ts`.
  */
 export default function ShareLayout() {
+  const colors = useColors();
   return (
     <Stack
       screenOptions={{

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { StyleSheet, View, type ViewStyle } from "react-native";
-import { colors, radii } from "../tokens";
+import { radii } from "../tokens";
+import { useThemedStyles, type Colors } from "../theme";
 import { AutoGrid } from "./AutoGrid";
 import { Text } from "./Text";
 
@@ -11,6 +12,7 @@ export interface FieldSpec {
 }
 
 export function Field({ label, value }: FieldSpec) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.field}>
       <Text variant="eyebrow" style={styles.label}>
@@ -40,6 +42,7 @@ export function FieldGrid({ fields }: { fields: ReadonlyArray<FieldSpec> }) {
 
 /** `.check` — one line of the storage capability report. */
 export function Check({ tone, children }: { tone: "ok" | "warn"; children: ReactNode }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.check}>
       <Text
@@ -58,10 +61,11 @@ export function Check({ tone, children }: { tone: "ok" | "warn"; children: React
 
 /** `.hint` — the blue explanatory panel. */
 export function Hint({ children, style }: { children: ReactNode; style?: ViewStyle }) {
+  const styles = useThemedStyles(makeStyles);
   return <View style={[styles.hint, style]}>{children}</View>;
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   field: {
     minWidth: 0,
   },

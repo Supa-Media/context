@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { StyleSheet, View, type ViewStyle } from "react-native";
-import { colors } from "../tokens";
+import { useColors } from "../theme";
 
 /**
  * The icon set, drawn from `View`s.
@@ -128,17 +128,24 @@ function iconData(name: IconName): Record<string, unknown> {
 export function Icon({
   name,
   size = 20,
-  color = colors.text2,
+  color,
   strokeWidth,
   style,
 }: {
   name: IconName;
   size?: number;
+  /** Defaults to `text2` in the palette in force. */
   color?: string;
   /** Override the derived weight. Almost nothing should. */
   strokeWidth?: number;
   style?: ViewStyle;
 }) {
+  const colors = useColors();
+  // Resolved here rather than as a default parameter value: those are
+  // evaluated in the parameter list, before any hook has run, so an icon
+  // defaulted there would be drawn in whichever palette the module happened to
+  // import instead of the one this subtree is in.
+  const stroke = color ?? colors.text2;
   const w = strokeWidth ?? strokeFor(size);
   return (
     <View
@@ -152,7 +159,7 @@ export function Icon({
       importantForAccessibility="no-hide-descendants"
       accessibilityElementsHidden
     >
-      {draw(name, size, color, w)}
+      {draw(name, size, stroke, w)}
     </View>
   );
 }

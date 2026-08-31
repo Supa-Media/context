@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { StyleSheet, View, type ViewStyle } from "react-native";
-import { colors, leading } from "../tokens";
+import { leading } from "../tokens";
+import { useThemedStyles, type Colors } from "../theme";
 import { Text } from "./Text";
 
 /**
@@ -31,6 +32,7 @@ export function Fact({
   style?: ViewStyle;
   testID?: string;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={[styles.fact, style]} testID={testID}>
       <View style={styles.head}>
@@ -46,7 +48,7 @@ export function Fact({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   fact: { gap: 3 },
   // A row rather than the bare `Text` it used to be, so a trailing pill sits
   // beside the title instead of pushing the body down. `flexWrap` keeps a long

@@ -6,7 +6,8 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
-import { colors, radii } from "../tokens";
+import { radii } from "../tokens";
+import { useThemedStyles, type Colors } from "../theme";
 import { FocusRing } from "./FocusRing";
 import { Text, type TextVariant } from "./Text";
 
@@ -73,6 +74,8 @@ export function Button({
   accessibilityLabel,
   testID,
 }: ButtonProps) {
+  const styles = useThemedStyles(makeStyles);
+  const hoverStyles = useThemedStyles(makeHoverStyles);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
 
@@ -114,7 +117,7 @@ export function Button({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   base: {
     flexDirection: "row",
     alignItems: "center",
@@ -183,7 +186,7 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.45 },
 });
 
-const hoverStyles = StyleSheet.create({
+const makeHoverStyles = (colors: Colors) => StyleSheet.create({
   white: {
     // `.btn-white:hover{transform:translateY(-1px)}` plus the deeper glow.
     transform: [{ translateY: -1 }],

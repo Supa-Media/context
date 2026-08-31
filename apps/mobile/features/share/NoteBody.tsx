@@ -14,10 +14,12 @@
 
 import { Linking, StyleSheet, View } from "react-native";
 import { Text } from "../design/components/Text";
-import { colors, fonts, leading, radii } from "../design/tokens";
+import { fonts, leading, radii } from "../design/tokens";
+import { useThemedStyles, type Colors } from "../design/theme";
 import type { Block, Inline } from "./markdown";
 
 export function NoteBody({ blocks }: { blocks: readonly Block[] }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.body}>
       {blocks.map((block, index) => (
@@ -28,6 +30,7 @@ export function NoteBody({ blocks }: { blocks: readonly Block[] }) {
 }
 
 function BlockView({ block }: { block: Block }) {
+  const styles = useThemedStyles(makeStyles);
   switch (block.kind) {
     case "heading":
       return (
@@ -128,6 +131,7 @@ function BlockView({ block }: { block: Block }) {
 }
 
 function Runs({ runs }: { runs: readonly Inline[] }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <>
       {runs.map((run, index) => {
@@ -205,7 +209,7 @@ const HEADING_SIZE = StyleSheet.create({
  */
 const headingStyle = (level: 1 | 2 | 3 | 4 | 5 | 6) => HEADING_SIZE[`h${level}` as const];
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   body: { gap: 12 },
   heading: { color: colors.text },
   paragraph: { color: colors.text2, lineHeight: leading(14.5, 1.75) },

@@ -44,7 +44,8 @@
 
 import { StyleSheet, TextInput, useWindowDimensions } from "react-native";
 import { densityFor } from "../../app/frame";
-import { colors, fonts, leading, radii, space } from "../../design/tokens";
+import { fonts, leading, radii, space } from "../../design/tokens";
+import { useThemedStyles, type Colors } from "../../design/theme";
 import type { LiveEditorProps } from "./LiveEditor.web";
 
 export type { LiveEditorProps };
@@ -55,6 +56,7 @@ export function LiveEditor({
   onChange,
   accessibilityLabel,
 }: LiveEditorProps) {
+  const styles = useThemedStyles(makeStyles);
   const reading = densityFor(useWindowDimensions().width) === "compact";
   return (
     <TextInput
@@ -71,7 +73,7 @@ export function LiveEditor({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   /**
    * `.note pre`, made editable — the same surface the mockup specifies, and the
    * same one this editor had before Live Preview existed on web.

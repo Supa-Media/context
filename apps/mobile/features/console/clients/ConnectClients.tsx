@@ -4,7 +4,8 @@ import { Button } from "../../design/components/Button";
 import { Card, Grow, Row } from "../../design/components/Card";
 import { CopyField } from "../../design/components/CopyField";
 import { Text } from "../../design/components/Text";
-import { colors, leading } from "../../design/tokens";
+import { leading } from "../../design/tokens";
+import { useThemedStyles, type Colors } from "../../design/theme";
 import { openProviderLink } from "./open";
 import {
   CLIENT_PROVIDERS,
@@ -80,6 +81,7 @@ export function ConnectClients({
   endpoint: string;
   clients?: readonly { name: string }[];
 }) {
+  const styles = useThemedStyles(makeStyles);
   const [panel, setPanel] = useState<Panel>(null);
   const counts = connectedCountsByProvider(clients);
 
@@ -122,6 +124,7 @@ function ProviderRow({
   panel: "details" | "hook" | null;
   onToggle: (section: "details" | "hook") => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const link = provider.link(endpoint);
   const fields = provider.fields(endpoint);
   // The label carries the state, so the button reads as what pressing it does
@@ -247,7 +250,7 @@ function ProviderRow({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   eyebrow: { marginBottom: 2 },
   /*
    * The buttons drop under the name on a narrow screen rather than crushing

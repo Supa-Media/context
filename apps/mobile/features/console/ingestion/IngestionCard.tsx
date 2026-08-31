@@ -7,7 +7,7 @@ import { Field } from "../../design/components/Field";
 import { ChoiceGroup, FormError, Notice, TextField } from "../../design/components/Input";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
-import { colors } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useCopy } from "../../design/useCopy";
 import {
   ATTACHMENT_POLICIES,
@@ -102,6 +102,8 @@ export function IngestionCard({
   fallbackAddress: string;
   folders: readonly string[];
 }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const address = state.settings?.address ?? fallbackAddress;
   const copy = useCopy(address);
 
@@ -506,7 +508,7 @@ function SenderChip({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   rowSub: { marginTop: 2 },
   spaced: { marginTop: 11 },
   settings: { marginTop: 17, gap: 15 },

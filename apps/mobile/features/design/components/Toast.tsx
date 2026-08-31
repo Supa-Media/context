@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import { Animated, Platform, StyleSheet, View } from "react-native";
-import { colors, radii, space } from "../tokens";
+import { radii, space } from "../tokens";
+import { useThemedStyles, type Colors } from "../theme";
 import { useReducedMotion } from "../useReducedMotion";
 import { Button } from "./Button";
 import { Text } from "./Text";
@@ -70,6 +71,7 @@ export function ToastHost({
    */
   bottomInset?: number;
 }): JSX.Element {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View
       // `box-none`: the host spans the width, so it must not swallow clicks
@@ -92,6 +94,9 @@ function Toast({
   toast: ToastSpec;
   onDismiss: (id: string) => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
+  const toneStyles = useThemedStyles(makeToneStyles);
+  const messageTones = useThemedStyles(makeMessageTones);
   const reduced = useReducedMotion();
   const [paused, setPaused] = useState(false);
 
@@ -174,7 +179,7 @@ function Toast({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   host: {
     position: "absolute",
     left: 0,
@@ -200,13 +205,13 @@ const styles = StyleSheet.create({
   message: { flexShrink: 1 },
 });
 
-const toneStyles = StyleSheet.create({
+const makeToneStyles = (colors: Colors) => StyleSheet.create({
   neutral: { borderColor: colors.lineStrong },
   warn: { borderColor: colors.warnBorder, backgroundColor: colors.warnWash },
   crit: { borderColor: colors.critBorder, backgroundColor: colors.critWash },
 });
 
-const messageTones = StyleSheet.create({
+const makeMessageTones = (colors: Colors) => StyleSheet.create({
   neutral: { color: colors.text },
   warn: { color: colors.warnText },
   crit: { color: colors.critText },

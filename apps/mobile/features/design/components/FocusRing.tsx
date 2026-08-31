@@ -1,5 +1,5 @@
 import { StyleSheet, View } from "react-native";
-import { colors } from "../tokens";
+import { useThemedStyles, type Colors } from "../theme";
 
 /**
  * The mockup's `:focus-visible{outline:2px solid var(--accent);outline-offset:3px}`.
@@ -11,6 +11,7 @@ import { colors } from "../tokens";
  * appear on click where the browser would have suppressed it.
  */
 export function FocusRing({ visible, radius }: { visible: boolean; radius: number }) {
+  const styles = useThemedStyles(makeStyles);
   if (!visible) return null;
   return (
     <View
@@ -20,7 +21,7 @@ export function FocusRing({ visible, radius }: { visible: boolean; radius: numbe
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   ring: {
     position: "absolute",
     // `outline-offset: 3px`

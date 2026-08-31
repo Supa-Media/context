@@ -4,7 +4,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FocusRing } from "../../design/components/FocusRing";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { colors, radii, shadows } from "../../design/tokens";
+import { radii } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors, type Shadows } from "../../design/theme";
 import { baseName, parentPath } from "./paths";
 import { dirtyCount, type Tab, type TabsState } from "./tabs";
 
@@ -82,6 +83,7 @@ export function TabCountButton({
   state: TabsState;
   onPress: () => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const open = state.tabs.length;
   const dirty = dirtyCount(state);
 
@@ -117,6 +119,7 @@ export function TabSwitcher({
   onClose: (path: string) => void;
   onDismiss: () => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const insets = useSafeAreaInsets();
 
   /**
@@ -189,6 +192,8 @@ function SwitcherRow({
   onActivate: () => void;
   onClose: () => void;
 }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const [focused, setFocused] = useState(false);
   const name = noteName(tab.path);
 
@@ -229,7 +234,7 @@ function SwitcherRow({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   countHit: {
     width: 44,
     height: 44,

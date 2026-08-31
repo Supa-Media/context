@@ -2,7 +2,8 @@ import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native"
 import { densityFor } from "../../app/frame";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { colors, fonts, radii, space } from "../../design/tokens";
+import { fonts, radii, space } from "../../design/tokens";
+import { useThemedStyles, type Colors } from "../../design/theme";
 import { saveButton, type EditorState } from "./editor";
 import { LiveEditor } from "./LiveEditor";
 import { highlightMarkdown } from "./highlight";
@@ -56,6 +57,7 @@ export function NoteEditor({
   onUseTheirs: () => void;
   onKeepMine: () => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const editable = canEdit && !state.readOnly;
   const button = saveButton(state);
   const compact = densityFor(useWindowDimensions().width) === "compact";
@@ -169,6 +171,7 @@ export function NoteEditor({
  * where the switch actually is answers that; greying the file out does not.
  */
 function ManifestNotice() {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.notice}>
       <Text variant="hint">
@@ -201,7 +204,7 @@ function statusLine(state: EditorState): string {
   }
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   wrap: { gap: 12, flex: 1, minHeight: 0 },
   /** The document runs to the edges; what padding there is belongs to it. */
   wrapCompact: { gap: 0 },

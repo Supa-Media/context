@@ -40,7 +40,8 @@ import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { livePreview, livePreviewStyles, markdownLanguage } from "./livePreview";
-import { colors, fonts, layout } from "../../design/tokens";
+import { fonts, layout } from "../../design/tokens";
+import { useColors, type Colors } from "../../design/theme";
 
 export interface LiveEditorProps {
   /** The authoritative text. Written into the editor only when it differs. */
@@ -61,17 +62,36 @@ export interface LiveEditorProps {
  */
 const STYLE_ELEMENT_ID = "context-live-preview-styles";
 
-function ensureStyles(): void {
+/**
+ * Write the stylesheet, creating the element the first time and rewriting it
+ * whenever the palette changes.
+ *
+ * It used to return early once the element existed, which was right while the
+ * app had one palette and is a stale-colour bug now: the first editor to mount
+ * would decide the note's colours for the rest of the session, and a change of
+ * appearance would leave the surrounding app light and the note dark.
+ *
+ * One element for the document rather than one per editor, because these are
+ * CSS custom properties on a shared class and CodeMirror's own
+ * `EditorView.theme` would mean expressing the decoration classes twice. That
+ * is only correct while the whole document is in one scheme, which is the case
+ * here: the appearance comes from `useColors()`, and every editor on screen
+ * reads the same one.
+ */
+function ensureStyles(colors: Colors): void {
   if (typeof document === "undefined") return;
-  if (document.getElementById(STYLE_ELEMENT_ID) !== null) return;
-  const style = document.createElement("style");
-  style.id = STYLE_ELEMENT_ID;
+  let style = document.getElementById(STYLE_ELEMENT_ID) as HTMLStyleElement | null;
+  const fresh = style === null;
+  if (style === null) {
+    style = document.createElement("style");
+    style.id = STYLE_ELEMENT_ID;
+  }
   style.textContent = `
 .cm-lp-root {
   --lp-heading: ${colors.text};
   --lp-muted: ${colors.text2};
   --lp-link: ${colors.codeKey};
-  --lp-code-bg: rgba(255, 255, 255, 0.06);
+  --lp-code-bg: ${colors.well};
   --lp-mono: ${fonts.mono};
   height: 100%;
 }
@@ -115,7 +135,7 @@ function ensureStyles(): void {
 }
 ${livePreviewStyles}
 `;
-  document.head.appendChild(style);
+  if (fresh) document.head.appendChild(style);
 }
 
 /**
@@ -154,6 +174,20 @@ export function LiveEditor({
 }: LiveEditorProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const view = useRef<EditorView | null>(null);
+  const colors = useColors();
+
+  /**
+   * The note's colours, kept in step with the app's.
+   *
+   * Its own effect rather than a line in the one below: that effect *builds*
+   * the editor, so making it depend on the palette would tear down and rebuild
+   * the view on every change of appearance — losing the caret, the selection
+   * and the undo history to a colour change. Declared first so the stylesheet
+   * is in the document before the first view is created.
+   */
+  useEffect(() => {
+    ensureStyles(colors);
+  }, [colors]);
 
   /**
    * Editability is the one part of the configuration that changes after the
@@ -186,7 +220,6 @@ export function LiveEditor({
 
   useEffect(() => {
     if (host.current === null) return;
-    ensureStyles();
 
     const compartment = editableCompartment.current;
     const state = EditorState.create({

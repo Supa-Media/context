@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import { PressRow } from "../design/components/Button";
 import { Text } from "../design/components/Text";
-import { colors, radii, space } from "../design/tokens";
+import { radii, space } from "../design/tokens";
+import { useThemedStyles, type Colors } from "../design/theme";
 import { contextMenuItems } from "./contextMenu";
 import type { ConsoleRoute } from "./nav";
 
@@ -31,6 +32,7 @@ export function RightClickTarget({
   onOpenMenu: () => void;
   children: ReactNode;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const ref = useRef<View>(null);
   useEffect(() => {
     const node = ref.current as unknown as HTMLElement | null;
@@ -69,6 +71,7 @@ export function ContextRowMenu({
   onLeave?: () => void;
   onDismiss: () => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const ref = useRef<View>(null);
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -137,7 +140,7 @@ export function ContextRowMenu({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   /** The anchor. `position: relative` is what `top: 100%` below measures from. */
   target: { position: "relative", alignSelf: "stretch" },
   menu: {

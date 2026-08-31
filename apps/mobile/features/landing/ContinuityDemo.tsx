@@ -1,6 +1,7 @@
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { Text } from "../design/components/Text";
-import { colors, fonts, layout, radii } from "../design/tokens";
+import { fonts, layout, radii } from "../design/tokens";
+import { useThemedStyles, type Colors } from "../design/theme";
 
 /** The one team-safe decision every card in the demo hands forward. */
 export const TEAM_THOUGHT = "Show continuity, not storage.";
@@ -52,6 +53,7 @@ export const CONTINUITY_STEPS = [
  * read as a transcript, not as three feature cards wearing chat bubbles.
  */
 export function ContinuityDemo() {
+  const styles = useThemedStyles(makeStyles);
   const { width } = useWindowDimensions();
   const wide = width >= layout.narrowBreakpoint;
 
@@ -133,7 +135,7 @@ export function ContinuityDemo() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   section: {
     marginTop: 116,
     paddingVertical: 42,
@@ -222,7 +224,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     backgroundColor: colors.accentDim,
   },
-  teamAccess: { backgroundColor: "rgba(139,92,246,.13)" },
+  teamAccess: { backgroundColor: colors.sharedWash },
   accessText: {
     fontFamily: fonts.body,
     fontSize: 10.5,
@@ -230,7 +232,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: colors.accentText,
   },
-  teamAccessText: { color: "#D8C9FF" },
+  teamAccessText: { color: colors.sharedText },
   userBubble: {
     alignSelf: "flex-end",
     maxWidth: "92%",

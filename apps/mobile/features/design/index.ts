@@ -1,18 +1,46 @@
 /**
  * The Context design system.
  *
- * Every token here is lifted from `docs/design/console-mockup.html`, which is
- * the signed-off design. Screens compose these primitives; they should not
- * re-declare colours, type sizes, or radii of their own.
+ * The measures and the dark palette are lifted from
+ * `docs/design/console-mockup.html`, which is the signed-off design; the light
+ * palette is designed against it. Screens compose these primitives; they
+ * should not re-declare colours, type sizes, or radii of their own.
+ *
+ * Colours come through `useColors()` / `useThemedStyles()`, not by importing a
+ * palette — see `./theme`.
  */
-export { colors, graphColors, fonts, radii, space, layout, clamp, tracking, leading } from "./tokens";
-export type { GraphKind } from "./tokens";
+export {
+  darkColors,
+  lightColors,
+  darkGraphColors,
+  lightGraphColors,
+  darkShadows,
+  lightShadows,
+  fonts,
+  radii,
+  space,
+  layout,
+  clamp,
+  tracking,
+  leading,
+} from "./tokens";
+export type { Colors, GraphColors, GraphKind, Shadows } from "./tokens";
+
+export {
+  ThemeProvider,
+  resolveScheme,
+  useColors,
+  useScheme,
+  useTheme,
+  useThemedStyles,
+} from "./theme";
+export type { Scheme, StyleFactory, Theme } from "./theme";
 
 export { gradient, repeatingPattern, maskImage } from "./css";
 export { segment, distance, angleDegrees, midpoint, scalePoint } from "./geometry";
 export type { Point, SegmentBox } from "./geometry";
 
-export { Text, textStyles } from "./components/Text";
+export { Text, useTextStyles } from "./components/Text";
 export type { TextVariant } from "./components/Text";
 export { Button, PressRow, WindowDots } from "./components/Button";
 export type { ButtonVariant } from "./components/Button";

@@ -15,7 +15,8 @@ import { PressRow } from "../../design/components/Button";
 import { FocusRing } from "../../design/components/FocusRing";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { colors, radii } from "../../design/tokens";
+import { radii } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { tabLabel, type Tab, type TabsState } from "./tabs";
 
 /**
@@ -141,6 +142,7 @@ export function TabStrip({
   onCloseOthers,
   onReopen,
 }: TabStripProps) {
+  const styles = useThemedStyles(makeStyles);
   const [menu, setMenu] = useState<MenuAt | null>(null);
 
   const scroller = useRef<ScrollView | null>(null);
@@ -289,6 +291,8 @@ function TabItem({
   onMenu: (at: { x: number; y: number }) => void;
   onMeasure: (box: { x: number; width: number }) => void;
 }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
 
@@ -390,6 +394,7 @@ function TabMenu({
   onReopen: () => void;
   onDismiss: () => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <Modal transparent animationType="none" visible onRequestClose={onDismiss}>
       <Pressable style={styles.scrim} accessibilityLabel="Dismiss menu" onPress={onDismiss}>
@@ -432,6 +437,7 @@ function MenuRow({
   disabled?: boolean;
   testID: string;
 }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <PressRow
       accessibilityLabel={label}
@@ -448,7 +454,7 @@ function MenuRow({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   strip: {
     flexDirection: "row",
     alignItems: "stretch",

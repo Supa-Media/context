@@ -6,7 +6,8 @@ import { Menu } from "../../design/components/Menu";
 import { Text } from "../../design/components/Text";
 import { writeClipboard } from "../../design/clipboard";
 import { isApplePlatform } from "../../design/applePlatform";
-import { colors, layout, radii, space } from "../../design/tokens";
+import { layout, radii, space } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useFrame } from "../../app/AppFrame";
 import { loadedFolders, type FileBrowser } from "./browser";
 import { Confirm, DeleteForever, MovePicker, NamePrompt } from "./Dialogs";
@@ -72,6 +73,8 @@ export function Explorer({
    */
   onOverlayChange?: (open: boolean) => void;
 }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const frame = useFrame();
   const [query, setQuery] = useState("");
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -678,6 +681,8 @@ function IconButton({
   onPress: () => void;
   testID?: string;
 }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   return (
     <PressRow
       accessibilityLabel={label}
@@ -732,7 +737,7 @@ function inheritedOf(files: FileBrowser, path: string): Visibility {
   return "private";
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   explorer: { flex: 1, minHeight: 0 },
 
   toolbar: {

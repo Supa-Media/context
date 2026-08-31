@@ -4,7 +4,8 @@ import { Card } from "../../design/components/Card";
 import { CopyField } from "../../design/components/CopyField";
 import { Notice } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
-import { colors, leading } from "../../design/tokens";
+import { leading } from "../../design/tokens";
+import { useThemedStyles, type Colors } from "../../design/theme";
 import { MCP_ENDPOINT, placeholderIngestionAddress } from "../../console/placeholderData";
 import { storageWarning, stepsFor } from "../flow";
 import type { OnboardingController } from "../useOnboarding";
@@ -42,6 +43,7 @@ export function DoneStep({
   controller: OnboardingController;
   onOpenConsole: () => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const slug = controller.claimed?.slug ?? "you";
   const warning = storageWarning(controller.shape);
   const sawAgentsStep = stepsFor(controller.shape).includes("agents");
@@ -148,6 +150,7 @@ export function DoneStep({
 }
 
 function Fact({ title, body }: { title: string; body: string }) {
+  const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.fact}>
       <Text variant="mono" style={styles.factTitle}>
@@ -160,7 +163,7 @@ function Fact({ title, body }: { title: string; body: string }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   lede: { marginBottom: 22, lineHeight: leading(12.5, 1.7) },
   head: { marginTop: 4, marginBottom: 8 },
   under: { marginTop: 8, marginBottom: 18, lineHeight: leading(12.5, 1.6) },

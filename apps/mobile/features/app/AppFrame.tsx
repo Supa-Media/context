@@ -21,7 +21,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon, type IconName } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
 import { viewportHeight } from "../design/css";
-import { colors, layout, radii, shadows, space } from "../design/tokens";
+import { layout, radii, space } from "../design/tokens";
+import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import {
   clampExplorerWidth,
   closesOnSelect,
@@ -252,6 +253,8 @@ export function AppFrame({
   bottomBar,
   children,
 }: AppFrameProps) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [state, setState] = useState<FrameState>(initialFrame);
@@ -590,6 +593,8 @@ export function AppFrame({
  * tools.
  */
 function SearchTrigger({ onPress }: { onPress: () => void }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const [hovered, setHovered] = useState(false);
   return (
     <Pressable
@@ -641,6 +646,8 @@ export function FrameIconButton({
   round?: boolean;
   testID?: string;
 }) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
   const [hovered, setHovered] = useState(false);
   return (
     <Pressable
@@ -688,6 +695,7 @@ function ExplorerResizer({
   width: number;
   onResize: (next: number) => void;
 }) {
+  const styles = useThemedStyles(makeStyles);
   const [active, setActive] = useState(false);
 
   /**
@@ -745,7 +753,7 @@ function ExplorerResizer({
 
 /* -------------------------------------------------------------------------- */
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   frame: {
     backgroundColor: colors.ground,
     overflow: "hidden",
