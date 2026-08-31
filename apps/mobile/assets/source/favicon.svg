@@ -1,0 +1,16 @@
+<!-- Generated outputs come from this file. Edit the vector, never the PNG.
+     See ./README.md for the one command that regenerates every asset. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs><linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#15151A"/><stop offset="1" stop-color="#050506"/>
+  </linearGradient></defs>
+  <rect width="256" height="256" rx="56" fill="url(#ground)"/>
+  <g transform="translate(44,44) scale(1.68)">
+  <g fill="none" stroke="#52A9FE" stroke-width="12" stroke-linecap="round">
+    <path d="M40 7 L30 93"/>
+    <path d="M70 7 L60 93"/>
+    <path d="M13 36 L93 36"/>
+    <path d="M7 66 L87 66"/>
+  </g>
+  </g>
+</svg>
