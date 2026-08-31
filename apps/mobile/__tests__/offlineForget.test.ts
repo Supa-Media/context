@@ -231,6 +231,25 @@ describe("a store that never answers at all", () => {
     expect(warnings).toEqual(["[offline] sign-out: this device's store did not answer in time"]);
   });
 
+  test("and a clear that answers in time leaves no timer behind", async () => {
+    /*
+      `withDeadline` clears its timer in a `finally`, and nothing checked that
+      — deleting the `clearTimeout` left this whole suite green, including
+      under `--detectOpenHandles`, because the run outlives a two-second timer
+      and the fake-timer cases discard theirs at teardown. So the comment
+      justifying it ("a two-second handle holding the process open in every
+      test that presses one") was arguing for a line no test could miss.
+
+      Counting the timers is what actually sees it: the race leaves one
+      pending, and the winning path has to take it back.
+    */
+    jest.useFakeTimers();
+    mockOpened = store({ keys: async () => [] });
+
+    expect(await forgetLocalCopies()).toEqual({ verdict: "cleared" });
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   test("and the barrier is up before the wait even starts", async () => {
     jest.useFakeTimers();
     mockOpened = store({ keys: () => new Promise<string[]>(() => {}) });

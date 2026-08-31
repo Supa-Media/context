@@ -61,8 +61,19 @@ import { openStore } from "./store";
  * other way — and a store that lies about its own keys cannot be checked from
  * here at all, which is stated rather than defended against.
  *
- * A `left-behind` verdict is warned about once; `unmeasured` is not, because there is nothing to report about a store that holds nothing durable, with a count and no path and no
- * note text — the same rule that keeps note content out of structured logs. A
+ * Every verdict but `cleared` is warned about once, with a count and no path
+ * and no note text — the same rule that keeps note content out of structured
+ * logs. The one exception is the in-memory fallback, which answers
+ * `unmeasured` silently: there is nothing durable to report on, so a warning
+ * would be an alarm about records nothing holds.
+ *
+ * This sentence has now been wrong twice, in opposite directions, which is
+ * worth leaving on the record in a file whose comments are the record. It
+ * first claimed the non-durable branch warned like the others; the correction
+ * then over-swung and said `unmeasured` never warns. It comes from three
+ * places and two of them do — `clearEverything`'s catch via
+ * `warnStoreUnusable`, and the deadline via `warnStoreSilent`. Only the
+ * `!store.durable` early return is quiet. A
  * log is the only channel that outlives the screen: by the time this answers,
  * the session is over and the console is being replaced, so there is nobody
  * left to show a notice to. The verdict is returned as well as warned about, so
@@ -140,7 +151,15 @@ function warnStoreSilent(what: string): void {
  * cleared, because a two-second handle left dangling on every sign-out is a
  * two-second handle holding the process open in every test that presses one.
  */
-const NOTHING_WAITING: OutboxCounts = { pending: 0, conflicted: 0, rejected: 0 };
+/*
+  Frozen because it is returned by identity from both failure paths, so a
+  caller that mutated what it received would poison the constant for every
+  later call — turning "reported as nothing waiting rather than as a
+  fabricated number", which is this function's whole stated promise, into a
+  fabricated number that persists. No caller does that today; freezing costs
+  nothing and removes the question.
+*/
+const NOTHING_WAITING: OutboxCounts = Object.freeze({ pending: 0, conflicted: 0, rejected: 0 });
 
 async function withDeadline<T>(
   work: Promise<T>,
