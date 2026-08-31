@@ -4,6 +4,7 @@
 
 import { describe, expect, jest, test } from "@jest/globals";
 import { act, createElement, type ComponentType, type ReactElement } from "react";
+import type { ViewProps } from "react-native";
 import { createRoot } from "react-dom/client";
 import { readdirSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -758,7 +759,12 @@ describe("the checker itself", () => {
   const SABOTAGE_SCROLLED = () =>
     createElement(
       View,
-      { ...SAFE_AREA_MARK },
+      /*
+        `dataSet` is react-native-web's, not React Native's, so it typechecks
+        through JSX in `Screen.tsx` and not through `createElement` here. The
+        cast is the same escape hatch that file's own `SAFE_AREA_MARK` is.
+      */
+      SAFE_AREA_MARK as unknown as ViewProps,
       createElement(ScrollView, {
         contentContainerStyle: { paddingTop: INSETS.top, paddingBottom: INSETS.bottom },
         children: createElement(Text, null, "the body"),

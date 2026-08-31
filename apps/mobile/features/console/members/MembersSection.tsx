@@ -25,7 +25,7 @@ import {
   type MembersView,
 } from "./members";
 import { useArming } from "../useArming";
-import { memberReachSentence } from "../visibility";
+import { memberReachSentence, tierExplanation } from "../visibility";
 
 /**
  * Who can reach this context, and the controls to change it.
@@ -82,9 +82,26 @@ export function MembersSection({
     hand over. `null` for everybody else, because it describes a decision only
     the owner made — a member reading "anything you marked private is yours
     alone" on somebody else's context would be reading a claim about the wrong
-    person's notes. Their half is the chip in Browse and Settings.
+    person's notes.
   */
   const reach = memberReachSentence(viewerRole);
+  /*
+    And the reader's half, which had nowhere to be drawn.
+
+    A member or an editor sees one line about this on every screen of the
+    context — "Team access — notes marked private are not shown here." That line
+    is deliberately only the *state*: the argument behind it is a paragraph, and
+    a paragraph reprinted over every note is one nobody finishes reading.
+    `tierExplanation` says exactly that in its own docstring, and named a
+    surface to keep it on; until now nothing rendered it, so the reasoning was
+    written down and unreachable.
+
+    This card, because this is the card that answers "who can read this" — the
+    owner's half of the same fact is one row down, and the two halves living on
+    different screens is how the console came to state one of them and not the
+    other. Never both at once: one is `owner` only, the other is everybody else.
+  */
+  const filtered = tierExplanation(viewerRole);
 
   // A query that came back as an error is neither an empty context nor a
   // permanent "Loading…", which is how both halves of this card would otherwise
@@ -131,6 +148,14 @@ export function MembersSection({
           <Hint>
             <Text variant="hint" testID="members-tier-rule">
               {reach}
+            </Text>
+          </Hint>
+        ) : null}
+
+        {filtered !== null ? (
+          <Hint>
+            <Text variant="hint" testID="members-tier-filtered">
+              {filtered}
             </Text>
           </Hint>
         ) : null}

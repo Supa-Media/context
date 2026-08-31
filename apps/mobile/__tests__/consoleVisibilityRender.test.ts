@@ -156,11 +156,21 @@ describe("Browse says so in words, because Browse is where the absence is invisi
     all and why the *sentence* stays here even though the chip moved up to the
     frame.
 
-    **Once per context, not once per file.** The line used to be drawn on the
-    context root, on every folder and on every note, so the same paragraph was
-    in front of somebody four screens running. It is a fact about the context,
-    so it belongs to the view that is about the context — the one with nothing
-    open. `noteOpen` below is what proves it stops there.
+    **Once per screen, and on every screen of the context.** It was drawn only
+    with nothing open, on the argument that it is a fact about the context and
+    not about the file in front of you. The argument is right and the conclusion
+    was wrong: a team link opens straight into a note or a folder, so the one
+    person who has never seen this context — and is looking at a listing with
+    things missing from it — is precisely the person who was told nothing.
+
+    What made that look reasonable was a comment claiming a fallback: "inside a
+    note or a folder the chip at the foot of the file tree carries the same
+    claim". There is no such chip on a phone. A safeguard asserted in a comment
+    and absent from the screen is worse than no safeguard, because it stops
+    anybody looking.
+
+    So: one line, wherever you are, scrolling with the document. The *paragraph*
+    is what does not travel — see the last test here and the members card.
   */
   const LINE = "Team access";
 
@@ -196,25 +206,61 @@ describe("Browse says so in words, because Browse is where the absence is invisi
     );
   });
 
-  test("it is not repeated over a note", () => {
+  test("a team link into a note is told the view is filtered", () => {
     /*
       The demo console opens on a note, which is what makes it the right fixture
-      for this: `demoData` is the "inside a file" state and `atRoot` is the
-      context's own view. The line belongs to the second and not the first.
+      for this: `demoData` is the "inside a file" state, and it is the state a
+      team link lands somebody in.
     */
     const data = demoData(MEMBER_OF);
-    expect(mount(() => createElement(BrowsePane, { data })).textContent).not.toContain(LINE);
-    expect(
-      mount(() => createElement(BrowsePane, { data: atRoot(data) })).textContent,
-    ).toContain(LINE);
+    expect(mount(() => createElement(BrowsePane, { data })).textContent).toContain(LINE);
   });
 
-  test("the line is one line, and the argument for it is not in it", () => {
-    const text = browseRoot(MEMBER_OF);
-    // The sentence that used to travel with it onto every screen.
-    expect(text).not.toContain("Being trusted to write is a separate thing");
-    // The reasoning is still reachable, on the one screen the line is drawn on.
-    expect(text).toContain("Only a context's owner sees their private notes.");
+  test("a team link into a folder is told the same", () => {
+    const data = demoData(MEMBER_OF);
+    const folder = Object.keys(data.files.listings).find((path) => path !== "");
+    // A fixture that silently had no folder in it would make this vacuous.
+    expect(folder).toBeDefined();
+    const inFolder = {
+      ...data,
+      files: { ...data.files, selectedPath: folder! },
+    } as ConsoleData;
+    expect(mount(() => createElement(BrowsePane, { data: inFolder })).textContent).toContain(LINE);
+  });
+
+  test("it is drawn once, not once per thing that could carry it", () => {
+    for (const data of [demoData(MEMBER_OF), atRoot(demoData(MEMBER_OF))]) {
+      const container = mount(() => createElement(BrowsePane, { data }));
+      expect(container.querySelectorAll('[data-testid="browse-tier-notice"]')).toHaveLength(1);
+    }
+  });
+
+  test("the line is one line, and the argument for it is nowhere near it", () => {
+    /*
+      Both halves matter and they used to be printed together, four lines deep,
+      on the one screen the notice appeared on. `tierExplanation`'s own docstring
+      says the paragraph belongs where somebody has gone looking for it and "not
+      on every screen" — and now that the line *is* on every screen, printing
+      the paragraph with it would be that mistake multiplied.
+    */
+    for (const text of [browseRoot(MEMBER_OF), browse(MEMBER_OF), browseRoot(EDITOR_OF)]) {
+      expect(text).not.toContain("Only a context's owner sees their private notes.");
+      expect(text).not.toContain("Being trusted to write is a separate thing");
+    }
+  });
+
+  test("and the argument is reachable, on the card that is about who can read this", () => {
+    // Where `tierExplanation` says it belongs, and where the owner's half of
+    // the same fact (`memberReachSentence`) has always been drawn.
+    expect(members(MEMBER_OF, "member").textContent).toContain(
+      "Only a context's owner sees their private notes.",
+    );
+    expect(members(EDITOR_OF, "editor").textContent).toContain(
+      "Being trusted to write is a separate thing",
+    );
+    // And it is the reader's own half only: an owner is told what having
+    // members handed over, never that their own view is filtered.
+    expect(members(OWNED, "owner").textContent).not.toContain("is invisible here");
   });
 });
 

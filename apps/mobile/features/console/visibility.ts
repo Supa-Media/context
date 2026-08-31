@@ -105,9 +105,16 @@ export function tierChipLabel(role: string | null | undefined): string | null {
  * of the reader right now, and an argument printed on every screen is one
  * nobody finishes reading.
  *
- * So the line says the state, `tierExplanation` keeps the reasoning for the
- * surface that is *about* visibility, and `BrowsePane` draws the line once per
- * context rather than once per file.
+ * So the line says the state and `tierExplanation` keeps the reasoning for the
+ * surface that is *about* visibility.
+ *
+ * `BrowsePane` draws this line **once per screen, on every screen of the
+ * context**. It drew it only where nothing was open, which is where the
+ * paragraph's argument was mistakenly applied to the sentence too: the
+ * repetition that was worth removing is 60 words about the security model, not
+ * ten words saying the list you are looking at has things missing from it. A
+ * team link opens straight into a note or a folder, so the reader with the
+ * least context was the one nobody told.
  *
  * The two roles still get different words, because the surprising part is
  * different: a `member` needs to know the view is filtered at all, and an
@@ -131,8 +138,16 @@ export function tierSentence(role: string | null | undefined): string | null {
  *
  * This is the paragraph `tierSentence` used to be. It is kept rather than
  * deleted because the argument is worth making *once*, where somebody has gone
- * looking for it — the note's Properties panel, and the context's settings —
- * and not on every screen of the console.
+ * looking for it, and not on every screen of the console — which matters more
+ * now that the sentence itself is on every screen.
+ *
+ * **Where that is: `MembersSection`.** This used to name "the note's Properties
+ * panel, and the context's settings", and nothing rendered it on either — so
+ * the reasoning was written down and unreachable while `BrowsePane`, the one
+ * place it was explicitly not supposed to be, printed it anyway. It is on the
+ * card that answers "who can read this context", one row from
+ * `memberReachSentence`, which is the owner's half of the same fact. Exactly
+ * one of the two is ever non-null for a given reader.
  */
 export function tierExplanation(role: string | null | undefined): string | null {
   if (role === "member") {

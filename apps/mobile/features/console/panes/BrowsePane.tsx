@@ -16,7 +16,7 @@ import { noteHeading } from "../files/frontmatter";
 import { entryAt } from "../files/tree";
 import { atName } from "../format";
 import { selectedContext, type ConsoleData } from "../types";
-import { tierExplanation, tierSentence } from "../visibility";
+import { tierSentence } from "../visibility";
 
 /**
  * Browse — the note, and nothing between you and it.
@@ -126,18 +126,31 @@ export function BrowsePane({
     exists, and why it is not dismissible — the condition it reports never stops
     being true.
 
-    But it is a fact about the *context*, not about the note in front of you,
-    and it used to be restated on the context root, on every folder and on every
-    note — the same paragraph four screens running. So it belongs to the view
-    that is about the context as a whole, which is the one with nothing open.
-    Inside a note or a folder the chip at the foot of the file tree carries the
-    same claim in the register a standing condition deserves.
+    It is a fact about the *context* rather than about the note in front of
+    you, and for a while that was read as "so draw it only where nothing is
+    open". The reading was wrong in the case that matters most: a team link
+    opens straight into a note or a folder, so the person who has never seen
+    this context — looking at a listing with things absent from it — was the one
+    person the notice never reached. What made that look safe was a comment
+    claiming the chip at the foot of the file tree carried the same claim
+    inside a note. **There is no such chip on a phone**, and a safeguard
+    asserted in a comment and missing from the screen is worse than none,
+    because it stops anybody looking for the real one.
+
+    So it is drawn wherever you are, and it is *one line*. The paragraph behind
+    it — `tierExplanation` — is not printed here: its own docstring says it
+    belongs where somebody has gone looking for it and not on every screen, and
+    the line now is on every screen. It lives on the members card, beside the
+    owner's half of the same fact.
+
+    Once per screen, still: this is the only place it is built, and it reaches a
+    note through `notices` and a folder through the page scroller — the two
+    branches at the foot of this file, never both.
 
     `null` for an owner, and `null` while the role is still loading — by
     construction in `tierSentence` rather than by a check here; see its comment.
   */
-  const tierNote = selected === null ? tierSentence(current?.role) : null;
-  const tierWhy = tierNote === null ? null : tierExplanation(current?.role);
+  const tierNote = tierSentence(current?.role);
   const hasNotice =
     tierNote !== null ||
     noBucket ||
@@ -167,16 +180,6 @@ export function BrowsePane({
             otherwise cannot tell a small context from a filtered one.
           */}
           <Text variant="hint">{tierNote}</Text>
-          {/*
-            The reasoning, once, under the line that states the fact — and only
-            here, on the one screen this notice is drawn on. It is what the
-            sentence used to carry into every note and folder.
-          */}
-          {tierWhy === null ? null : (
-            <Text variant="treeMeta" style={styles.noticeWhy}>
-              {tierWhy}
-            </Text>
-          )}
         </View>
       ) : null}
 
@@ -618,7 +621,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.hintWash,
     gap: 10,
   },
-  noticeWhy: { color: colors.muted },
   noticeWarn: { borderColor: colors.warnBorder, backgroundColor: colors.warnWash },
   noticeWarnText: { color: colors.warnText },
   dismiss: { alignSelf: "flex-start" },
