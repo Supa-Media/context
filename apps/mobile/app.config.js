@@ -10,12 +10,18 @@ module.exports = ({ config }) => ({
   scheme: "context",
   orientation: "portrait",
   icon: "./assets/icon.png",
+  /**
+   * The app follows the system appearance.
+   *
+   * This value was already `"automatic"` while the app was dark-only, which is
+   * the one combination that is actively wrong: iOS draws keyboards, action
+   * sheets and the share sheet in the *system's* scheme, so a light-mode phone
+   * got light system chrome sitting on a permanently dark app. It is honest
+   * only because `features/design/tokens.ts` now carries a real light palette.
+   * If that palette is ever removed, this must become `"dark"` in the same
+   * change.
+   */
   userInterfaceStyle: "automatic",
-  splash: {
-    image: "./assets/splash.png",
-    resizeMode: "contain",
-    backgroundColor: "#ffffff",
-  },
   assetBundlePatterns: ["**/*"],
   ios: {
     supportsTablet: true,
@@ -23,11 +29,22 @@ module.exports = ({ config }) => ({
       ? "lc.context.staging"
       : "lc.context.mobile",
     associatedDomains: [],
+    /** `expo-apple-authentication` is inert in the binary without this. */
+    usesAppleSignIn: true,
+    infoPlist: {
+      /**
+       * Context ships no encryption of its own beyond HTTPS, which is exempt.
+       * Without this every single App Store Connect upload stops to ask the
+       * export-compliance question by hand.
+       */
+      ITSAppUsesNonExemptEncryption: false,
+    },
   },
   android: {
     adaptiveIcon: {
       foregroundImage: "./assets/adaptive-icon.png",
-      backgroundColor: "#ffffff",
+      // The mark is drawn for the dark ground it sits on, not for white.
+      backgroundColor: "#050506",
     },
     package: process.env.APP_ENV === "staging"
       ? "lc.context.staging"
@@ -44,8 +61,80 @@ module.exports = ({ config }) => ({
   web: {
     favicon: "./assets/favicon.png",
   },
+  /**
+   * Every config plugin the native baseline needs.
+   *
+   * Permission strings live *here* rather than in `ios.infoPlist`, so each
+   * permission has exactly one source of truth. A module listed with no config
+   * object is one that only needs to be linked; a module with one is a module
+   * that writes a permission string or a build setting, and leaving it bare
+   * would let Expo inject its own generic English into our binary.
+   */
   plugins: [
     "expo-router",
+    [
+      "expo-splash-screen",
+      {
+        image: "./assets/splash.png",
+        imageWidth: 180,
+        resizeMode: "contain",
+        // Matches `colors.ground` / the light palette's ground in tokens.ts.
+        // These two must be kept in step with that file by hand: the splash is
+        // native, so it is painted before any JS — including the theme — runs.
+        backgroundColor: "#FFFFFF",
+        dark: { backgroundColor: "#050506" },
+      },
+    ],
+    ["expo-notifications", { color: "#3B82F6" }],
+    [
+      "expo-camera",
+      {
+        cameraPermission:
+          "Context uses the camera so you can capture a photo straight into a note.",
+        microphonePermission:
+          "Context uses the microphone to record an audio note.",
+        recordAudioAndroid: true,
+      },
+    ],
+    [
+      "expo-image-picker",
+      {
+        photosPermission:
+          "Context needs your photo library so you can attach an image to a note.",
+        cameraPermission:
+          "Context uses the camera so you can capture a photo straight into a note.",
+      },
+    ],
+    [
+      "expo-media-library",
+      {
+        photosPermission:
+          "Context needs your photo library so you can attach an image to a note.",
+        savePhotosPermission:
+          "Context saves images you export from a note back to your photo library.",
+        isAccessMediaLocationEnabled: false,
+      },
+    ],
+    [
+      "expo-local-authentication",
+      {
+        faceIDPermission:
+          "Context can use Face ID to unlock a private context on this device.",
+      },
+    ],
+    [
+      "expo-audio",
+      {
+        microphonePermission:
+          "Context uses the microphone to record an audio note.",
+      },
+    ],
+    "expo-video",
+    "expo-font",
+    "expo-localization",
+    "expo-web-browser",
+    "expo-background-task",
+    "expo-mail-composer",
   ],
   extra: {
     eas: {
