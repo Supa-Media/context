@@ -97,6 +97,19 @@ export const darkColors = {
    * ------------------------------------------------------------------ */
   chrome: "#191920",
   chromePressed: "#24242C",
+
+  /**
+   * The wash over the editor while a panel is out.
+   *
+   * A token rather than the literal `rgba(0,0,0,.6)` that used to sit in
+   * `AppFrame`, because the right answer is not the same in the two worlds. On
+   * this ground a scrim has to be heavy: it is dark over dark, and anything
+   * lighter fails to separate the panel from the note behind it. In a light
+   * world the same value is a blackout — the note goes to near-black behind a
+   * white sheet, which is a modal dialog's weight for a file tree you flick in
+   * and out of a dozen times an hour. Obsidian barely tints it.
+   */
+  scrim: "rgba(0,0,0,0.60)",
 } as const;
 
 /**
@@ -240,6 +253,9 @@ export const lightColors: Colors = {
    */
   chrome: "#FFFFFF",
   chromePressed: "#E9E9F0",
+
+  /** See the dark palette's note: a tint here, not a blackout. */
+  scrim: "rgba(0,0,0,0.22)",
 };
 
 /** Edge/node colours in the constellation map, keyed by relationship. */

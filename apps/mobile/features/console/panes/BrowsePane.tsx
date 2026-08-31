@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { useFrame } from "../../app/AppFrame";
 import { densityFor } from "../../app/frame";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
@@ -82,6 +83,16 @@ export function BrowsePane({
     words in the before shot.
   */
   const compact = densityFor(useWindowDimensions().width) === "compact";
+  /*
+    The band the floating chrome occupies at the top of the glass.
+
+    The region runs full-bleed now — the top bar lies over it rather than
+    sitting above it — so the breadcrumb has to be pushed clear of the chrome
+    itself. The document below it pays for the *bottom* chrome the other way,
+    as content padding inside the scroller, which is what lets a note run behind
+    the toolbar (see `FrameApi.contentInsets`).
+  */
+  const frame = useFrame();
 
   const noBucket = data.storage === null && !data.loading;
   const manifestBroken = files.listings[""]?.manifestUsable === false;
@@ -104,7 +115,7 @@ export function BrowsePane({
     (files.readOnlyReason !== undefined && !files.canEdit);
 
   return (
-    <View style={styles.region}>
+    <View style={[styles.region, compact && { paddingTop: frame.contentInsets.top }]}>
       {/*
         The breadcrumb is drawn for a selected *folder* too, not only a note.
 

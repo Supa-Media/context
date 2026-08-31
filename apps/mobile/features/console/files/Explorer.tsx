@@ -916,7 +916,19 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
 
   scroll: { flex: 1, minHeight: 0 },
   scrollContent: { paddingVertical: space.x2, paddingHorizontal: 6 },
-  scrollContentTouch: { paddingVertical: space.x2, paddingHorizontal: space.x2 },
+  /**
+   * No horizontal padding, on purpose.
+   *
+   * `layout.explorerInset` is measured to where a top-level *name* begins, and
+   * `indentFor` spends the whole of it on the chevron gutter and the row's own
+   * leading padding. Eight points here as well put every name at 45 instead of
+   * 37 — the measurement was right and the row was starting in the wrong place.
+   *
+   * It also lets a row's wash run to the edges of the panel, which is what a
+   * file list does; an inset selection reads as a card in a list rather than as
+   * the selected row of one.
+   */
+  scrollContentTouch: { paddingVertical: space.x2, paddingHorizontal: 0 },
   status: { paddingHorizontal: space.x2, paddingVertical: space.x2 },
 
   match: {

@@ -131,6 +131,28 @@ export interface FrameApi {
    * region because somebody clicked inside it is how people stop using a tree.
    */
   closesOnSelect: boolean;
+  /**
+   * How much room the floating chrome takes at each edge, for a scroller to
+   * spend as **content padding**.
+   *
+   * On a phone the chrome does not sit in a band the document is kept out of —
+   * it lies over the document, and the document runs underneath it. That is
+   * how Obsidian draws it, and the giveaway in the reference is at the bottom
+   * edge: body text is visible to the left and to the right of the floating
+   * pill, on the same lines it covers, because the text column is wider than
+   * the bar and simply runs behind it.
+   *
+   * Which means the *viewport* must not be shrunk to make room. A scroller that
+   * stops where the toolbar begins has a hard edge across the glass and cannot
+   * scroll its last line clear of anything. A scroller that fills the screen and
+   * pads its **content** by these numbers has neither problem: the first and
+   * last lines can be brought out from under the chrome, and everything in
+   * between passes behind it.
+   *
+   * Zero at every other density, where the bars are real regions with their own
+   * surfaces and the document is genuinely beside them rather than beneath them.
+   */
+  contentInsets: { top: number; bottom: number };
 }
 
 const FrameContext = createContext<FrameApi | null>(null);
@@ -158,11 +180,22 @@ export function useFrame(): FrameApi {
       closeOverlays: () => false,
       setExplorerWidth: noop,
       closesOnSelect: closesOnSelect(fallbackDensity),
+      contentInsets: NO_CONTENT_INSETS,
     }
   );
 }
 
 function noop(): void {}
+
+/**
+ * The fallback frame's insets, and every pointer layout's.
+ *
+ * A frozen object rather than a fresh literal: `useFrame` hands this back to
+ * every component mounted outside a provider — the landing page's fake console
+ * window, and a hundred-odd tests — and a new object each call is a new `style`
+ * array each render for anything that spreads it.
+ */
+const NO_CONTENT_INSETS = { top: 0, bottom: 0 } as const;
 
 /**
  * `inert`, spread rather than written as a prop.
@@ -333,6 +366,31 @@ export function AppFrame({
     [],
   );
 
+  const compact = density === "compact";
+
+  /**
+   * The two bands the floating chrome occupies, as content padding.
+   *
+   * Read from the same tokens the chrome is drawn from, and from the same
+   * `max(insets.bottom, floatingGap)` the bottom slot pads with, so the number
+   * a scroller pads by and the number the toolbar actually takes cannot drift.
+   * The top is the safe area plus the compact bar's own height; the bottom is
+   * the toolbar, the gap above it and the gap below it.
+   */
+  const contentInsets = useMemo(
+    () =>
+      compact
+        ? {
+            top: insets.top + layout.chromeButton + space.x3,
+            bottom:
+              layout.bottomBarHeight +
+              layout.floatingInset +
+              Math.max(insets.bottom, layout.floatingGap),
+          }
+        : NO_CONTENT_INSETS,
+    [compact, insets.top, insets.bottom],
+  );
+
   const api = useMemo<FrameApi>(
     () => ({
       density,
@@ -345,6 +403,7 @@ export function AppFrame({
       closeOverlays,
       setExplorerWidth,
       closesOnSelect: closesOnSelect(density),
+      contentInsets,
     }),
     [
       density,
@@ -356,10 +415,9 @@ export function AppFrame({
       closeNav,
       closeOverlays,
       setExplorerWidth,
+      contentInsets,
     ],
   );
-
-  const compact = density === "compact";
 
   return (
     <FrameContext.Provider value={api}>
@@ -367,14 +425,29 @@ export function AppFrame({
         style={[
           styles.frame,
           viewportHeight(),
-          // The notch and the home indicator. Only the top and bottom matter:
-          // the frame is edge to edge horizontally by design, and the regions
-          // inside it carry their own padding.
-          { paddingTop: insets.top },
+          /*
+            The notch, and only where the layout keeps the document out of it.
+
+            On a pointer layout the top bar is a real region with a surface and
+            a hairline, so the frame pads itself down past the notch and the bar
+            sits below it. On a phone the chrome floats *over* the document and
+            the document runs to the top of the glass, so padding here would put
+            a 59pt white band above a note that is meant to scroll behind the
+            status bar. The bar carries the inset itself instead
+            (`topBarCompact`'s `paddingTop`), and a scroller keeps its first
+            line reachable with `contentInsets.top`.
+          */
+          compact ? null : { paddingTop: insets.top },
         ]}
         testID="app-frame"
       >
-        <View style={[styles.topBar, compact && styles.topBarCompact]}>
+        <View
+          style={[
+            styles.topBar,
+            compact && styles.topBarCompact,
+            compact && { paddingTop: insets.top, height: contentInsets.top },
+          ]}
+        >
           {regions.drawerToggle ? (
             <FrameIconButton
               label={state.drawerOpen ? "Close the file tree" : "Open the file tree"}
@@ -516,7 +589,23 @@ export function AppFrame({
 
           {regions.explorer === "drawer" ? (
             <View
-              style={[styles.drawer, compact && styles.panelRounded, { paddingBottom: insets.bottom }]}
+              /*
+                A panel is full height now, because the body is: the chrome
+                floats over it rather than sitting above it. So the panel runs
+                from the top of the glass to the bottom, the way Obsidian's
+                sidebar does, and pays for the chrome in padding — the top
+                clears the status bar and the floating toggle, the bottom clears
+                the floating toolbar. Without the top, the filter row would sit
+                under the notch; without the bottom, the vault footer would sit
+                under the toolbar.
+              */
+              style={[
+                styles.drawer,
+                compact && styles.panelRounded,
+                compact
+                  ? { paddingTop: contentInsets.top, paddingBottom: contentInsets.bottom }
+                  : { paddingBottom: insets.bottom },
+              ]}
               accessibilityViewIsModal
               testID="frame-drawer"
             >
@@ -542,7 +631,13 @@ export function AppFrame({
                 sheet, so without this, sign-out sits under the indicator on the
                 one surface it is reachable from.
               */
-              style={[styles.navSheet, compact && styles.panelRounded, { paddingBottom: insets.bottom }]}
+              style={[
+                styles.navSheet,
+                compact && styles.panelRounded,
+                compact
+                  ? { paddingTop: contentInsets.top, paddingBottom: contentInsets.bottom }
+                  : { paddingBottom: insets.bottom },
+              ]}
               accessibilityViewIsModal
               role="navigation"
               aria-label="Console"
@@ -579,6 +674,13 @@ export function AppFrame({
                 paddingBottom: Math.max(insets.bottom, layout.floatingGap),
               },
             ]}
+            /*
+              The toolbar floats over the document; only the document's own
+              last line needs to clear it, and `contentInsets.bottom` is how it
+              does. This band therefore must not eat presses aimed at the text
+              running behind it — only the pill inside it may.
+            */
+            pointerEvents="box-none"
           >
             {bottomBar}
           </View>
@@ -803,7 +905,26 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    * unruled line (`Breadcrumb.barCompact`).
    */
   topBarCompact: {
-    height: layout.chromeButton + space.x3,
+    /*
+      Out of the column and over the document.
+
+      The height and the safe-area padding are applied at the call site, from
+      `contentInsets.top`, so the band a scroller pads its content by and the
+      band the chrome actually occupies are one number rather than two that
+      agree today.
+
+      `zIndex` is set because this is painted *before* the body and has to sit
+      above it. React Native's later-sibling rule is what the panels rely on;
+      this is the one place that needs the opposite, and paying for it with an
+      explicit `zIndex` is cheaper than moving the top bar below the body in the
+      tree, where it would also come after the editor in the reading order and
+      in the tab order.
+    */
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1,
     paddingHorizontal: space.x3,
     gap: space.x2,
     borderBottomWidth: 0,
@@ -888,7 +1009,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: "rgba(0,0,0,.6)",
+    backgroundColor: colors.scrim,
   },
   /**
    * The rail as a panel: the tree drawer's geometry, 40pt narrower (300 against
@@ -955,8 +1076,13 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     left: 0,
     // Never the whole screen: the sliver of editor still showing is what says
     // "this is a panel over your note", and it is a second way to dismiss it.
+    //
+    // 372 rather than 340, measured: Obsidian's covers to about 368pt of a
+    // 440pt screen. The cap is what binds on a large phone — 86% of 440 is 378
+    // — and the percentage is what binds on a small one, where a fixed 372
+    // would leave no sliver at all.
     width: "86%",
-    maxWidth: 340,
+    maxWidth: 372,
     borderRightWidth: 1,
     borderRightColor: colors.lineStrong,
     backgroundColor: colors.surface,
@@ -998,7 +1124,23 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    * document run under it. See `layout.floatingInset` for why reserved and not
    * overlaid.
    */
-  bottomBar: {},
+  bottomBar: {
+    /*
+      Over the document rather than beside it.
+
+      This slot used to be the last child of a column, so the body ended where
+      the toolbar began: a hard edge across the glass with the note stopping
+      short of it. The reference has the note running *behind* the pill — body
+      text is visible to the left and the right of it on the lines it covers —
+      which is only possible if the scroller is full height and pays for the bar
+      in content padding instead. `contentInsets.bottom` is that payment.
+    */
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1,
+  },
 
   iconButton: {
     width: 30,
