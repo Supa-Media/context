@@ -335,6 +335,75 @@ export function floatingGapFor(safeAreaBottom: number): number {
   return Math.max(safeAreaBottom, layout.floatingGap);
 }
 
+/** How much room a surface has to leave at its top and bottom edges. */
+export interface EdgePadding {
+  top: number;
+  bottom: number;
+}
+
+/**
+ * The height of *our own* chrome lying over a surface, at each edge.
+ *
+ * Kept apart from the system's insets and added to them, because they are two
+ * different claims on the same band. A screen's own floating header adds to the
+ * notch; it does not replace it.
+ */
+export interface ChromeHeights {
+  top?: number;
+  bottom?: number;
+}
+
+/**
+ * **The one place this arithmetic happens.**
+ *
+ * A surface pays for two things at each edge, and only one of them is ours:
+ *
+ * - The **system's** furniture — the status bar, the Dynamic Island, the home
+ *   indicator. Content may never be laid out under those. They are not ours to
+ *   draw on and nothing we can do makes text under them legible.
+ * - **Our** floating chrome — the toggle button, the trailing action group, the
+ *   bottom pill. Content is *meant* to run under those, and does; what the
+ *   padding buys is that the first and last lines can still be brought out from
+ *   under them.
+ *
+ * So the answer is a sum, and it is spent as **content padding** rather than as
+ * a shrunk viewport: a scroller that stops where the toolbar begins has a hard
+ * edge across the glass and can never scroll its last line clear of anything.
+ *
+ * `framed` is what stops the two halves being paid twice. Inside `AppFrame`,
+ * `FrameApi.contentInsets` already *is* "the system's insets plus the frame's
+ * own chrome, at whichever density you are at" — the frame is the only thing
+ * that knows whether it padded itself down past the notch (a pointer layout) or
+ * floated its bars over a full-bleed document (a phone), and a surface inside it
+ * that added `insets.top` again would open a band of ground above the content on
+ * every tablet. Outside the frame — `/login`, `/authorize`, `/welcome`, the
+ * invitation and share screens, the landing page — there is no such answer and
+ * the raw insets are the whole of it.
+ *
+ * On the web both are zero and this is arithmetic on nothing, which is why no
+ * call site has to ask what platform it is on.
+ */
+export function surfacePadding({
+  systemInsets,
+  frameInsets,
+  framed,
+  chrome = {},
+}: {
+  /** `useSafeAreaInsets()`. Zero on the web. */
+  systemInsets: EdgePadding;
+  /** `useFrame().contentInsets`. Only meaningful when `framed`. */
+  frameInsets: EdgePadding;
+  /** Whether this surface is inside an `AppFrame` provider. */
+  framed: boolean;
+  chrome?: ChromeHeights;
+}): EdgePadding {
+  const base = framed ? frameInsets : systemInsets;
+  return {
+    top: base.top + (chrome.top ?? 0),
+    bottom: base.bottom + (chrome.bottom ?? 0),
+  };
+}
+
 /**
  * Whether a selection in the tree should dismiss the explorer.
  *

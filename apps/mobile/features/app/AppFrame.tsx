@@ -155,6 +155,16 @@ export interface FrameApi {
    */
   contentInsets: { top: number; bottom: number };
   /**
+   * Whether there is a real frame above this, or `useFrame`'s fallback.
+   *
+   * `contentInsets` is a complete answer — system insets *and* our chrome —
+   * only when a frame computed it. The fallback's zeros are not "nothing to
+   * clear", they are "nobody asked", and a surface that read them as the first
+   * would lay itself out under the notch on every screen outside the console.
+   * `surfacePadding` in `frame.ts` is what reads this; see `Screen.tsx`.
+   */
+  framed: boolean;
+  /**
    * The gap the floating chrome keeps from the bottom of the glass.
    *
    * Exposed rather than recomputed because a second caller has appeared: the
@@ -212,6 +222,7 @@ export function useFrame(): FrameApi {
       setExplorerWidth: noop,
       closesOnSelect: closesOnSelect(fallbackDensity),
       contentInsets: NO_CONTENT_INSETS,
+      framed: false,
       chromeGap: floatingGapFor(0),
       accessoryOpen: false,
       setAccessoryOpen: noop,
@@ -222,12 +233,17 @@ export function useFrame(): FrameApi {
 function noop(): void {}
 
 /**
- * The fallback frame's insets, and every pointer layout's.
+ * The fallback frame's insets.
  *
  * A frozen object rather than a fresh literal: `useFrame` hands this back to
  * every component mounted outside a provider — the landing page's fake console
  * window, and a hundred-odd tests — and a new object each call is a new `style`
  * array each render for anything that spreads it.
+ *
+ * It travels with `framed: false`, and that pairing is the whole point. These
+ * zeros mean "no frame answered", never "there is nothing at this edge to
+ * clear" — outside the console the system's insets are the answer and
+ * `surfacePadding` reads them instead.
  */
 const NO_CONTENT_INSETS = { top: 0, bottom: 0 } as const;
 
@@ -423,15 +439,34 @@ export function AppFrame({
     [],
   );
 
+  /*
+    A pointer layout is not "no insets" — it is "the frame already paid the
+    top". `styles.frame` carries `paddingTop: insets.top` there, so a surface
+    inside owes nothing at that edge; the bottom is a different matter, because
+    the bottom bar is a phone region and on a tablet in portrait nothing else
+    reaches the home indicator. Reporting the two edges separately is what lets
+    `surfacePadding` be one formula rather than a density check at every call
+    site.
+  */
+  const hasBottomBar = regions.bottomBar && bottomBar != null;
   const contentInsets = useMemo(
     () =>
       compact
         ? {
             top: insets.top + layout.chromeButton + space.x3,
-            bottom: layout.bottomBarHeight + layout.floatingInset + chromeGap,
+            bottom: hasBottomBar
+              ? layout.bottomBarHeight + layout.floatingInset + chromeGap
+              : /*
+                  Map, Connections and Settings have no toolbar, so there is
+                  nothing floating at this edge and the home indicator is the
+                  whole of what a surface owes. Reserving the toolbar's 110pt
+                  anyway would leave a hand's width of empty ground under the
+                  last card on the three panes signing in lands you on.
+                */
+                insets.bottom,
           }
-        : NO_CONTENT_INSETS,
-    [compact, insets.top, chromeGap],
+        : { top: 0, bottom: insets.bottom },
+    [compact, insets.top, insets.bottom, chromeGap, hasBottomBar],
   );
 
   const api = useMemo<FrameApi>(
@@ -447,6 +482,7 @@ export function AppFrame({
       setExplorerWidth,
       closesOnSelect: closesOnSelect(density),
       contentInsets,
+      framed: true,
       chromeGap,
       accessoryOpen,
       setAccessoryOpen,

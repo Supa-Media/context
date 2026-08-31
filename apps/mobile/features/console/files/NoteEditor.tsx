@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useFrame } from "../../app/AppFrame";
+import { useSurfacePadding } from "../../app/Screen";
 import { densityFor } from "../../app/frame";
 import { Button, PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
@@ -131,6 +132,7 @@ export function NoteEditor({
   const [focused, setFocused] = useState(false);
   const controls = useRef<EditorControls | null>(null);
   const frame = useFrame();
+  const padding = useSurfacePadding();
   const accessoryUp = compact && editable && focused;
   /*
     Tell the frame while the accessory bar is up, so it puts its own toolbar
@@ -399,14 +401,8 @@ export function NoteEditor({
       {compact ? (
         <ScrollView
           style={styles.scroll}
-          contentContainerStyle={{
-            paddingTop: frame.contentInsets.top,
-            paddingBottom: frame.contentInsets.bottom,
-          }}
-          scrollIndicatorInsets={{
-            top: frame.contentInsets.top,
-            bottom: frame.contentInsets.bottom,
-          }}
+          contentContainerStyle={{ paddingTop: padding.top, paddingBottom: padding.bottom }}
+          scrollIndicatorInsets={{ top: padding.top, bottom: padding.bottom }}
           testID="note-scroll"
         >
           {flow}

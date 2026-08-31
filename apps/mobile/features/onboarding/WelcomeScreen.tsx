@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { StyleSheet, View, ScrollView, useWindowDimensions } from "react-native";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, Redirect, useRouter } from "expo-router";
+import { ScreenScroll } from "../app/Screen";
 import { Text } from "../design/components/Text";
 import { StageBackdrop } from "../design/components/StageBackdrop";
 import { clamp, fonts, layout, leading, radii, tracking } from "../design/tokens";
@@ -84,7 +85,16 @@ export function WelcomeChrome({
   const titleSize = clamp(27, 3.1, 38, width);
 
   return (
-    <ScrollView style={styles.ground} contentContainerStyle={styles.scroll}>
+    <ScreenScroll
+      style={styles.ground}
+      contentContainerStyle={styles.scroll}
+      /*
+        The tail this page has always had, moved off `styles.scroll` and onto
+        the inset arithmetic. Left on the content container it would *replace*
+        the home indicator's inset rather than add to it — see `Screen.tsx`.
+      */
+      chrome={WELCOME_TAIL}
+    >
       <StageBackdrop />
       <View style={styles.wrap}>
         <View style={styles.mark}>
@@ -126,7 +136,7 @@ export function WelcomeChrome({
           Your notes stay in a bucket you own. Nothing here moves a file you already have.
         </Text>
       </View>
-    </ScrollView>
+    </ScreenScroll>
   );
 }
 
@@ -187,9 +197,12 @@ function StepRail({ step, shape }: { step: StepKey; shape: FlowShape }) {
   );
 }
 
+/** The page's own tail, added to the home indicator rather than replacing it. */
+const WELCOME_TAIL = { bottom: 60 } as const;
+
 const makeStyles = (colors: Colors) => StyleSheet.create({
   ground: { flex: 1, backgroundColor: colors.ground },
-  scroll: { minHeight: "100%", paddingBottom: 60 },
+  scroll: { minHeight: "100%" },
   wrap: {
     width: "100%",
     maxWidth: 640,

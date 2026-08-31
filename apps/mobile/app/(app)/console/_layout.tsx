@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Slot, useRouter, usePathname } from "expo-router";
-import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { Button, PressRow } from "../../../features/design/components/Button";
+import { PressRow } from "../../../features/design/components/Button";
 import { Dot } from "../../../features/design/components/Dot";
 import { Icon } from "../../../features/design/components/Icon";
-import { FormError } from "../../../features/design/components/Input";
 import { Pill } from "../../../features/design/components/Pill";
 import { Palette } from "../../../features/design/components/Palette";
 import { StatusBar } from "../../../features/design/components/StatusBar";
@@ -18,6 +17,7 @@ import { densityFor } from "../../../features/app/frame";
 import { BottomBar } from "../../../features/console/BottomBar";
 import { AccountBlock, Avatar, ConsoleRail } from "../../../features/console/ConsoleRail";
 import { ConsoleDataProvider } from "../../../features/console/ConsoleDataContext";
+import { EditorRegion } from "../../../features/console/EditorRegion";
 import { TierChip } from "../../../features/console/ConsoleShell";
 import {
   Explorer,
@@ -44,7 +44,6 @@ import {
   applyRowIntent,
   intentForRowCommand,
 } from "../../../features/console/files/rowCommand";
-import { TabStrip } from "../../../features/console/files/TabStrip";
 import { TabSwitcher, tabCountLabel } from "../../../features/console/files/TabSwitcher";
 import { statusSegments } from "../../../features/console/files/status";
 import { dirtyCount, isTabDirty } from "../../../features/console/files/tabs";
@@ -64,7 +63,6 @@ import { selectedContext, type ConsoleData } from "../../../features/console/typ
 import { useKeymap } from "../../../features/design/useKeymap";
 import type { FileBrowser } from "../../../features/console/files/browser";
 import { useLiveConsoleData } from "../../../features/console/useLiveConsoleData";
-import { canReload, reloadApp } from "../../../features/app/reload";
 import { WELCOME_ROUTE } from "../../../features/onboarding/route";
 
 /**
@@ -585,94 +583,6 @@ export default function ConsoleLayout() {
 }
 
 /* -------------------------------------------------------------------------- */
-
-/**
- * The editor region's scrolling, which is not one answer.
- *
- * **Browse owns its own.** It is a tab strip and a breadcrumb pinned to the top
- * edge with a document filling the rest, and the document is a textarea that
- * scrolls itself. Wrapping that in a page scroller puts a second scrollbar
- * around the first and lets the strip slide out of view — which is the shape
- * this whole rebuild exists to remove.
- *
- * **Everything else scrolls as a page.** Map, Connections and Settings are
- * documents of stacked cards with no internal scroller of their own, and they
- * are routinely taller than the viewport.
- */
-function EditorRegion({
-  browse,
-  failure,
-  tabs,
-  onCloseTab,
-  phone,
-  children,
-}: {
-  browse: boolean;
-  failure: ConsoleData["failure"];
-  /** Absent on a route with no notes open, and on every non-Browse pane. */
-  tabs: ReturnType<typeof useTabs> | null;
-  /** Closes a tab, asking first when it holds an unsaved draft. */
-  onCloseTab: (path: string) => void;
-  /** Compact. Decides the document panes' measure, not which regions exist. */
-  phone: boolean;
-  children: ReactNode;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  /*
-    The console's own subscription came back as an error rather than data. It
-    reaches here as a value — `useLiveConsoleData` reads it with `useQueries` —
-    where a `useQuery` would have re-thrown during render and blanked the page.
-    So: say what happened, offer the one thing that helps, and keep the chrome
-    around it so there is still a way out.
-  */
-  const banner =
-    failure === null ? null : (
-      <View style={styles.failure} testID="console-failure">
-        <FormError
-          headline={failure.headline}
-          next={[failure.next, failure.detail].filter(Boolean).join(" ")}
-        />
-        {canReload ? (
-          <View style={styles.failureActions}>
-            <Button label="Reload" variant="white" onPress={reloadApp} />
-          </View>
-        ) : null}
-      </View>
-    );
-
-  if (browse) {
-    return (
-      <View style={styles.browseRegion}>
-        {/*
-          At the very top edge of the region, not inside the document's
-          padding: an inset tab strip reads as a control belonging to the note
-          rather than to the frame.
-        */}
-        {tabs !== null && tabs.state.tabs.length > 0 ? (
-          <TabStrip
-            state={tabs.state}
-            onActivate={tabs.activate}
-            onClose={onCloseTab}
-            onCloseOthers={tabs.closeOthers}
-            onReopen={tabs.reopen}
-          />
-        ) : null}
-        {banner === null ? null : <View style={styles.bannerInset}>{banner}</View>}
-        {children}
-      </View>
-    );
-  }
-
-  return (
-    <ScrollView
-      style={styles.pane}
-      contentContainerStyle={[styles.paneContent, phone && styles.paneContentPhone]}
-    >
-      {banner}
-      {children}
-    </ScrollView>
-  );
-}
 
 /**
  * The keyboard.
@@ -1323,30 +1233,4 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.control,
   },
 
-  /** Browse fills its region and scrolls inside itself. */
-  browseRegion: { flex: 1, minHeight: 0 },
-  bannerInset: { paddingHorizontal: space.x7, paddingTop: space.x5 },
-  /** Every other pane scrolls as a page inside the region. */
-  pane: { flex: 1, minHeight: 0 },
-  paneContent: {
-    paddingTop: space.x6,
-    paddingHorizontal: space.x7,
-    paddingBottom: space.x8,
-  },
-  /**
-   * A phone's gutter, and a phone's tail.
-   *
-   * 28pt either side of a 390pt screen leaves a 334pt measure for a document
-   * of cards; 20 leaves 350, which is a whole word per line on the settings
-   * copy. The top loses most of its padding because the chrome above it is
-   * transparent now — the 24 was clearing a ruled bar that is no longer there.
-   */
-  paneContentPhone: {
-    paddingTop: space.x3,
-    paddingHorizontal: space.x5,
-    paddingBottom: space.x6,
-  },
-
-  failure: { marginBottom: 18 },
-  failureActions: { marginTop: 14, flexDirection: "row", gap: 14 },
 });

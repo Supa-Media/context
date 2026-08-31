@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
-import { useFrame } from "../../app/AppFrame";
+import { useSurfacePadding } from "../../app/Screen";
 import { densityFor } from "../../app/frame";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
@@ -103,7 +103,7 @@ export function BrowsePane({
     of it was being used: the top band carried a breadcrumb, so the region was
     padded down past the chrome and the note began underneath it.
   */
-  const frame = useFrame();
+  const padding = useSurfacePadding();
 
   const noBucket = data.storage === null && !data.loading;
   const manifestBroken = files.listings[""]?.manifestUsable === false;
@@ -443,13 +443,10 @@ export function BrowsePane({
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={{
-            paddingTop: frame.contentInsets.top,
-            paddingBottom: frame.contentInsets.bottom,
+            paddingTop: padding.top,
+            paddingBottom: padding.bottom,
           }}
-          scrollIndicatorInsets={{
-            top: frame.contentInsets.top,
-            bottom: frame.contentInsets.bottom,
-          }}
+          scrollIndicatorInsets={{ top: padding.top, bottom: padding.bottom }}
           testID="browse-scroll"
         >
           {notices}

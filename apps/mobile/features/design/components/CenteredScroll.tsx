@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { ScrollView, StyleSheet, type ViewStyle } from "react-native";
+import { StyleSheet, type ViewStyle } from "react-native";
+import { ScreenScroll } from "../../app/Screen";
 
 /**
  * A page that centres its content on a tall screen and scrolls on a short one.
@@ -33,6 +34,19 @@ import { ScrollView, StyleSheet, type ViewStyle } from "react-native";
  * `keyboardShouldPersistTaps="handled"` is not decoration either: without it the
  * first tap on a button while a field has focus is swallowed dismissing the
  * keyboard, which on the login screen means Verify appears not to work.
+ *
+ * ## Why it is a `ScreenScroll` and not its own `ScrollView`
+ *
+ * This is the scroll surface for six of the eight screens outside the console —
+ * login, consent, both invitation screens, the share viewer and the Dropbox
+ * callback — and until this it applied no safe-area padding at all. The share
+ * viewer had no inner wrap either, so its card ran flush to the top of the
+ * glass and its first line sat under the Dynamic Island.
+ *
+ * The centring is unchanged: `ScreenScroll` puts the insets on the content
+ * container *before* this component's own style, so `flexGrow: 1` and
+ * `justifyContent: "center"` still decide the layout inside the padded box. On
+ * the web the padding is zero and this is exactly the component it was.
  */
 export function CenteredScroll({
   children,
@@ -46,19 +60,18 @@ export function CenteredScroll({
   testID?: string;
 }) {
   return (
-    <ScrollView
-      style={[styles.scroll, style]}
+    <ScreenScroll
+      style={style}
       contentContainerStyle={[styles.content, contentStyle]}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
       testID={testID}
     >
       {children}
-    </ScrollView>
+    </ScreenScroll>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: { flex: 1 },
   content: { flexGrow: 1, justifyContent: "center" },
 });

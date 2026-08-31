@@ -2,7 +2,20 @@
  * @jest-environment jsdom
  */
 
-import { afterEach, describe, expect, test } from "@jest/globals";
+import { afterEach, describe, expect, jest, test } from "@jest/globals";
+
+/*
+  The notch and the home indicator, as a number.
+
+  Every screen now clears them through `features/app/Screen.tsx`, which reads
+  `useSafeAreaInsets` — and that hook throws outside a `SafeAreaProvider`
+  rather than answering zero. Mocking the hook is the same trade
+  `appFrameRender.test.ts` makes: the insets are the platform's business, and a
+  provider here would be a second thing under test.
+*/
+jest.mock("react-native-safe-area-context", () => ({
+  useSafeAreaInsets: () => ({ top: 47, bottom: 34, left: 0, right: 0 }),
+}));
 
 // React refuses to run `act` without this, and warns on every call otherwise.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
