@@ -253,6 +253,20 @@ function mountEditor(
     },
     focus: () => act(() => mockProps?.onFocus?.()),
     blur: () => act(() => mockProps?.onBlur?.()),
+    /**
+     * A finger dragging the note.
+     *
+     * Dispatched on the element the real `ScrollView` rendered, so what is
+     * exercised is the handler the component actually attached rather than a
+     * callback this file invented for itself.
+     */
+    scroll: () => {
+      const scroller = find("note-scroll");
+      if (scroller === null) throw new Error("the note has no scroller");
+      act(() => {
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+    },
     press: (node: HTMLElement | null) => {
       if (node === null) throw new Error("nothing to press");
       act(() => {
@@ -276,6 +290,54 @@ describe("when the bar is on screen", () => {
 
     app.blur();
     expect(app.bar()).toBeNull();
+  });
+
+  /**
+   * **A scroll gesture is not an edit intent**, and on a phone it was one.
+   *
+   * The editable surface at this density *is* the text view — `LiveEditor` on
+   * native is a `TextInput` with `scrollEnabled={false}` growing inside the
+   * note's scroller — so a swipe hands the pan to the scroller and then hands
+   * the caret to the input on touch-up. Verified on an iPhone 16 Pro Max:
+   * swiping to read a long note raised the formatting bar, put the frame's own
+   * toolbar away, and left no way to read to the end of a note without being
+   * dropped into an editor nobody asked for.
+   *
+   * The rule is `SCROLL_GRACE_MS` in `NoteEditor`: a focus that arrives while
+   * the note is still moving is part of the swipe, and the caret goes straight
+   * back. `blur` is counted as well as the bar, because a bar that is merely
+   * hidden over a focused input is a keyboard covering the note with no way to
+   * dismiss it.
+   */
+  test("never because somebody scrolled the note", () => {
+    const app = mountEditor(390);
+    app.scroll();
+    app.focus();
+
+    expect(app.bar()).toBeNull();
+    expect(mockCalls.blur).toBe(1);
+  });
+
+  /**
+   * And the other half, which is what stops the fix being "the phone cannot be
+   * typed into": once the note has come to rest, a press still opens the
+   * keyboard. Driven by moving the clock past the grace rather than by waiting,
+   * so the test does not spend a quarter of a second proving it.
+   */
+  test("but a press after the note has come to rest still opens it", () => {
+    const app = mountEditor(390);
+    app.scroll();
+
+    const settled = Date.now() + 1_000;
+    const clock = jest.spyOn(Date, "now").mockReturnValue(settled);
+    try {
+      app.focus();
+    } finally {
+      clock.mockRestore();
+    }
+
+    expect(app.bar()).not.toBeNull();
+    expect(mockCalls.blur).toBe(0);
   });
 
   /**

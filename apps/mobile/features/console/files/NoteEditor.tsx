@@ -66,6 +66,20 @@ import type { Visibility } from "./types";
  *    `onFocus`/`onBlur` rather than from the keyboard's visibility, because the
  *    keyboard can be up over a completely different screen.
  */
+/**
+ * How long after the note comes to rest a focus still counts as part of the
+ * swipe rather than as a press, in milliseconds.
+ *
+ * The trailing half of the rule in `NoteEditor`'s `moving`/`settledAt`, for the
+ * two cases the flag itself cannot see: a slow drag that ends with no fling,
+ * and the web, where only `onScroll` is forwarded. A quarter of a second —
+ * long enough to cover a touch-up landing a frame or two after the last scroll
+ * event, short enough that somebody who scrolls, stops, and then taps to type
+ * gets their keyboard. Named here rather than typed at the call site because it
+ * is the whole of the judgement.
+ */
+const SCROLL_GRACE_MS = 250;
+
 export function NoteEditor({
   state,
   canEdit,
@@ -134,6 +148,44 @@ export function NoteEditor({
   const frame = useFrame();
   const padding = useSurfacePadding();
   const accessoryUp = compact && editable && focused;
+
+  /**
+   * Whether the note is moving, and when it last came to rest — the whole of
+   * "a scroll gesture is not an edit intent".
+   *
+   * **Swiping to read put the note into editing.** The editable surface at this
+   * density *is* the text view — `LiveEditor` on native is a `TextInput` with
+   * `scrollEnabled={false}` growing inside this scroller — so a swipe hands the
+   * pan to the scroller and then hands the caret to the input. The formatting
+   * bar came up, the frame put its own toolbar away, and there was no way to
+   * read a long note to the end without being dropped into an editor nobody had
+   * asked for. `onFocus` below refuses a caret that arrives this way.
+   *
+   * **Two signals, because one of them is not enough anywhere.** Measured on an
+   * iPhone 16 Pro Max, with `Date.now()` alongside each event of one swipe:
+   *
+   *     touchStart 738867 · beginDrag 738894 · touchEnd 739523 ·
+   *     endDrag 739525 · focus 740215 · momentumEnd 740216
+   *
+   * The focus lands **690ms after the finger lifts** and one millisecond before
+   * the fling stops — so a window measured from the last scroll event misses it
+   * by a wide margin, which is exactly how the first attempt at this fix passed
+   * its test and changed nothing on the device. What the focus *is* inside is
+   * the gesture: `moving` runs from `onScrollBeginDrag`/`onMomentumScrollBegin`
+   * to `onScrollEndDrag`/`onMomentumScrollEnd`, and it was true throughout.
+   *
+   * `settledAt` is the second signal and covers the two cases `moving` cannot:
+   * a slow drag that ends with no fling at all, where the focus arrives just
+   * after `onScrollEndDrag`; and the web, where react-native-web's `ScrollView`
+   * forwards `onScroll` and none of the drag events, so a scroll event is the
+   * only mark there is. `SCROLL_GRACE_MS` is that window.
+   *
+   * Refs rather than state: nothing on screen depends on either, and a render
+   * per scroll event on the app's most expensive mount is not a price worth
+   * paying for values only a callback reads.
+   */
+  const moving = useRef(false);
+  const settledAt = useRef(0);
   /*
     Tell the frame while the accessory bar is up, so it puts its own toolbar
     away. Two floating bars in the same 66pt of glass is worse than either, and
@@ -302,7 +354,22 @@ export function NoteEditor({
             controls={(api) => {
               controls.current = api;
             }}
-            onFocus={() => setFocused(true)}
+            /*
+              A press takes the caret; a swipe hands it straight back.
+
+              See `moving`/`settledAt` above: on native the editable surface
+              *is* this input, so scrolling the note focuses it and the app
+              answered a reader's swipe by opening an editor. `blur()` is
+              `EditorControls`' own, so the input is put back the way every
+              other command reaches it.
+            */
+            onFocus={() => {
+              if (moving.current || Date.now() - settledAt.current < SCROLL_GRACE_MS) {
+                controls.current?.blur();
+                return;
+              }
+              setFocused(true);
+            }}
             onBlur={() => setFocused(false)}
             accessibilityLabel={`${state.path} markdown`}
           />
@@ -455,6 +522,34 @@ export function NoteEditor({
               top: padding.content.top,
               bottom: padding.content.bottom,
             }}
+            /*
+              The gesture, start to finish — see `moving`/`settledAt` above.
+              `onScrollEndDrag` and `onMomentumScrollBegin` overlap by design:
+              a fling re-raises the flag the finger lifting lowered, which is
+              what keeps it true through the deceleration the focus lands in.
+
+              `onScroll` marks the rest only. It is the *only* one of these
+              react-native-web forwards to the DOM, so on the web — and in
+              `noteAccessory.test.ts` — it is the whole of the signal.
+            */
+            onScrollBeginDrag={() => {
+              moving.current = true;
+            }}
+            onMomentumScrollBegin={() => {
+              moving.current = true;
+            }}
+            onScrollEndDrag={() => {
+              moving.current = false;
+              settledAt.current = Date.now();
+            }}
+            onMomentumScrollEnd={() => {
+              moving.current = false;
+              settledAt.current = Date.now();
+            }}
+            onScroll={() => {
+              settledAt.current = Date.now();
+            }}
+            scrollEventThrottle={16}
             testID="note-scroll"
           >
             {flow}
