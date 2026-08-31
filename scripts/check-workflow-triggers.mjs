@@ -42,10 +42,28 @@
  * `grep -l pull_request .github/workflows/*.yml` matches all six deploy
  * workflows, because each explains in prose why it has no such trigger. A
  * grep-shaped guard would read those comments as configuration and report the
- * opposite of the truth. So the `on:` block is parsed, and the parser is
- * deliberately strict: a shape it does not understand is a failure, never a
- * pass. `problems.length === 0` must mean "the rules were evaluated and held",
- * never "nothing matched".
+ * opposite of the truth. So the `on:` block is parsed, and `problems.length ===
+ * 0` must mean "the rules were evaluated and held", never "nothing matched".
+ *
+ * The first version of this paragraph claimed a shape the checker does not
+ * understand is "a failure, never a pass", full stop. That was false in the one
+ * place it most needed to be true, and it was false in the commit that
+ * introduced the guard: rule A read `pull_request`'s `branches:` and nothing
+ * else, so `branches-ignore`, `paths` and `paths-ignore` — three keys that
+ * restrict a pull request exactly as effectively — were not shapes it refused
+ * but shapes it did not look at.
+ * `branches-ignore: ['**']` passed while running the workflow on no pull request
+ * at all, which is strictly worse than the bug this file was written for. So the
+ * claim is now bounded to what is enforced:
+ *
+ *   - Under `pull_request` and `push`, every key is understood or refused, and
+ *     nesting is refused rather than flattened.
+ *   - Under every other trigger, depth 3 and beyond is FLATTENED into the
+ *     depth-2 object, not rejected — `workflow_dispatch.inputs.force_redeploy.
+ *     description` in health-check.yml arrives as `config.description`. No rule
+ *     reads those triggers' configuration, so nothing turns on it.
+ *   - The deploy-command detector is a denylist and is not a shape check at
+ *     all. See DEPLOY_COMMANDS.
  *
  * ── HOW THE TWO SETS ARE DERIVED ──────────────────────────────────────────
  *
@@ -56,6 +74,13 @@
  * file carrying the name must run one (or the name is an exemption in
  * disguise — rename a test workflow to `deploy-tests.yml` and it would
  * otherwise be excused from ever running on a pull request).
+ *
+ * "Both directions" is only as strong as the denylist under it, and that is
+ * stated here rather than discovered later: the name→deploys direction is
+ * exact, and the deploys→name direction is worth precisely what DEPLOY_COMMANDS
+ * matches. What holds the convention up today is not the regex list, it is that
+ * all six deploys are correctly named right now — a fact this checker re-proves
+ * on every run — and that a seventh has to be written by somebody.
  *
  * `health-check.yml` is in neither set and that is not an oversight: it can
  * redeploy production and it inherits secrets, and what keeps it safe is that
@@ -89,6 +114,26 @@ const DIR = ".github/workflows";
  * Matched against non-comment lines only — every deploy workflow's header
  * discusses deploying, and a detector that read prose is the grep this file
  * exists to avoid.
+ *
+ * THIS IS A DENYLIST, and no amount of adding to it becomes an allowlist. Every
+ * one of these deploys and is matched by nothing here:
+ *
+ *   uses: cloudflare/wrangler-action@v3   (with `command: deploy` on a later line)
+ *   npm publish
+ *   npx vercel --prod
+ *   aws s3 sync ...
+ *   eas build --auto-submit
+ *   wrangler \                            (a line continuation, then `deploy`)
+ *   CMD=deploy; wrangler $CMD
+ *
+ * Do not try to close that list; the next shape is always one substitution away,
+ * and a checker that pretends otherwise is the "guard nobody has checked" this
+ * repository keeps meeting. The real bound is stated instead, and it is a fact
+ * about today rather than a property of the code: all six deploy workflows are
+ * correctly named `deploy-*.yml`, so every one of them is classified by NAME
+ * before any command is read, and rules B and C apply to them whatever they run.
+ * What this list actually buys is the other direction — a NEW workflow that
+ * deploys in one of these six obvious ways cannot quietly avoid the name.
  */
 const DEPLOY_COMMANDS = [
   /\bwrangler\s+(?:pages\s+)?deploy\b/,
@@ -101,6 +146,25 @@ const DEPLOY_COMMANDS = [
 
 /** A base-branch filter this checker accepts as "every branch". */
 const EVERY_BRANCH = "**";
+
+/**
+ * The four keys that narrow which pull requests a workflow runs on. Rule A read
+ * only the first when this guard was written, and the other three restrict just
+ * as effectively — see rule A.
+ */
+const PR_FILTER_KEYS = ["branches", "branches-ignore", "paths", "paths-ignore"];
+
+/**
+ * The default activity set. A `types:` filter missing any of these leaves a pull
+ * request unchecked at the moments that matter: opened, pushed to, reopened.
+ */
+const REQUIRED_PR_TYPES = ["opened", "synchronize", "reopened"];
+
+/**
+ * The two triggers whose configuration a rule below actually reads (A and C).
+ * Nesting under these is refused rather than flattened — see `parseOnBlock`.
+ */
+const FILTERED_TRIGGERS = new Set(["pull_request", "push"]);
 
 class WorkflowShapeError extends Error {}
 
@@ -137,9 +201,15 @@ function flowSequence(value) {
  *
  * Returns a Map of trigger name → null (no configuration) or an object of
  * `key → string[] | string | null`. Two levels is all GitHub's trigger syntax
- * needs for the keys these rules read, and anything deeper or stranger throws:
- * a checker that shrugs at a shape it has not seen is a checker that passes a
- * file it never understood.
+ * needs for the keys these rules read.
+ *
+ * Anything STRANGER throws. Anything DEEPER is a split, and the earlier comment
+ * here claimed the throw covered both: under `pull_request` and `push` — the two
+ * triggers whose filters a rule reads — a nested key throws, because flattened
+ * it can overwrite the very filter rule A inspects. Under every other trigger it
+ * is flattened into the depth-2 object, which is how health-check.yml's
+ * `workflow_dispatch.inputs.force_redeploy.description` arrives as
+ * `config.description` rather than as an error.
  */
 export function parseOnBlock(text, file = "<input>") {
   const lines = text.split("\n");
@@ -177,6 +247,7 @@ export function parseOnBlock(text, file = "<input>") {
   const triggers = new Map();
   let current = null;
   let currentKey = null;
+  let configIndent = null;
 
   for (const { line, text: raw } of body) {
     const indent = raw.search(/\S/);
@@ -190,6 +261,7 @@ export function parseOnBlock(text, file = "<input>") {
       const [, name, value] = m;
       current = null;
       currentKey = null;
+      configIndent = null;
       if (value === "" || value.startsWith("#")) {
         triggers.set(name, null);
         current = name;
@@ -219,6 +291,19 @@ export function parseOnBlock(text, file = "<input>") {
       throw new WorkflowShapeError(`${file}:${line}: \`${content}\` is a shape this checker does not understand.`);
     }
     const [, key, value] = keyed;
+    if (configIndent === null) configIndent = indent;
+    // Depth 3 and beyond is flattened into the depth-2 object, which is
+    // harmless for `workflow_dispatch.inputs` and is a rule A bypass under the
+    // two triggers a rule reads: `pull_request: {branches: [main], x: {branches:
+    // ['**']}}` flattens to `branches: ['**']` and passes. GitHub's own schema
+    // rejects an unknown key there, so this was never exploitable in a workflow
+    // that runs — but "the workflow had to be invalid" is somebody else's
+    // validator holding this guard up, which is not a bound this file gets to
+    // rely on. Refused here, and only here, so the depth-3 shape the repository
+    // legitimately uses keeps parsing.
+    if (indent > configIndent && FILTERED_TRIGGERS.has(current)) {
+      throw new WorkflowShapeError(`${file}:${line}: \`${key}:\` is nested inside \`${current}:\`, and this checker reads that trigger's filters. Flattening it would let a nested key overwrite the filter a rule reads.`);
+    }
     if (triggers.get(current) === null) triggers.set(current, {});
     const config = triggers.get(current);
     currentKey = key;
@@ -260,11 +345,21 @@ export function analyse(files) {
       continue;
     }
 
-    // E — a workflow with no triggers is dead configuration, and is also what a
-    // broken parser reports for every file. Every other rule below is written as
-    // "if this trigger is present…", so without E a parser that returned nothing
-    // would make this whole checker pass silently. That is the failure this
-    // repository keeps meeting, so it is asserted rather than assumed.
+    // E — a workflow with no triggers is dead configuration, and is refused.
+    //
+    // E used to be described as "what makes this whole checker fail loudly
+    // instead of passing everything" when the parser breaks. It is not, and the
+    // claim was unfalsifiable in the most literal way: `parseOnBlock` THROWS for
+    // every degenerate shape except an empty flow sequence, so `on: []` is the
+    // only input that reaches E, no self-test case used it, and neutering E was
+    // invisible to the suite. There is a case for it now.
+    //
+    // What actually backstops a broken parser is a pair of assertions elsewhere:
+    // the self-test's good-corpus `counts` check (a parser returning nothing
+    // classifies zero CI and zero deploy workflows) and the positive rule cases
+    // (each expects a named rule to fire, which a parser returning nothing
+    // cannot produce). The live run repeats the first: `counts.ci === 0 ||
+    // counts.deploy === 0` exits non-zero before any problem list is printed.
     if (triggers.size === 0) {
       fail("E", name, "declares no triggers — either the file is dead configuration or this checker's parser stopped understanding it.");
       continue;
@@ -293,6 +388,19 @@ export function analyse(files) {
       fail("B", name, "is a deploy workflow with a `pull_request` trigger. A deploy triggered by a fork's pull request runs untrusted code with the account's credentials; deploy workflows are `push`-only.");
     }
 
+    // B — `workflow_run` fires after another workflow finishes, with the base
+    // branch's secrets and a writable token, and the run it chains off may have
+    // been a fork's pull request. It is the classic escalation: CI is allowed to
+    // run untrusted code precisely because it holds nothing, and this hands the
+    // result of that run the credentials CI was denied. It is forbidden on
+    // deploy workflows rather than everywhere, because a non-deploy workflow
+    // that acquires one is caught by the pair above it — anything that reaches a
+    // deploy command is a deploy workflow by `deploysSomething`, whatever it is
+    // named. Nothing in this repository uses `workflow_run`.
+    if (isDeploy && triggers.has("workflow_run")) {
+      fail("B", name, "is a deploy workflow triggered by `workflow_run`. That chains production credentials onto the completion of another workflow, which may itself have been triggered by a fork's pull request; deploy workflows are `push`-only.");
+    }
+
     // B2 — `pull_request_target` runs with the base branch's secrets and a
     // writable token while checking out a contributor's changes on request.
     // Nothing here uses it and nothing here should; it is the shape that turns
@@ -301,16 +409,51 @@ export function analyse(files) {
       fail("B", name, "uses `pull_request_target`, which hands a fork's pull request the base branch's secrets. Use `pull_request`.");
     }
 
-    // A — the bug this file was written for.
+    // A — the bug this file was written for, and the three sibling keys that
+    // reproduce it exactly. Reading `branches:` alone was the original guard,
+    // and it passed all three silently: `branches-ignore: ['**']` runs the
+    // workflow on NO pull request at all, which is strictly worse than the bug
+    // being fixed; `paths:` is the filter every workflow header here spends a
+    // paragraph forbidding; `types:` without the default set stops the workflow
+    // re-running as the pull request evolves. Absence is the only free pass,
+    // plus the one documented allowance below.
     if (pr) {
       const config = triggers.get("pull_request");
-      const branches = config === null ? undefined : config.branches;
-      const unrestricted =
-        branches === undefined ||
-        branches === null ||
-        (Array.isArray(branches) && branches.length === 1 && branches[0] === EVERY_BRANCH);
-      if (!unrestricted) {
-        fail("A", name, `restricts \`pull_request\` to branches ${describe(branches)}. A pull request based on any other branch then runs no checks at all — not a failing check, none. Remove the \`branches:\` key.`);
+
+      for (const key of PR_FILTER_KEYS) {
+        const value = config === null ? undefined : config[key];
+        if (value === undefined) continue;
+        // `branches: ['**']` is spelling the default out, and is accepted. No
+        // such allowance exists for the other three: there is no way to write
+        // `paths:` that means "every path", you write no `paths:` key.
+        if (
+          key === "branches" &&
+          Array.isArray(value) &&
+          value.length === 1 &&
+          value[0] === EVERY_BRANCH
+        ) {
+          continue;
+        }
+        fail(
+          "A",
+          name,
+          `restricts \`pull_request\` with \`${key}: ${value === null ? "(empty)" : describe(value)}\`. A pull request outside that filter then runs no checks at all — not a failing check, none. Remove the \`${key}:\` key.`
+        );
+      }
+
+      // `types:` is not a yes/no filter: the question is whether the three
+      // events that make a pull request get checked as it evolves survive it.
+      const types = config === null ? undefined : config.types;
+      if (types !== undefined) {
+        const declared = Array.isArray(types) ? types : types === null ? [] : [String(types)];
+        const missing = REQUIRED_PR_TYPES.filter((t) => !declared.includes(t));
+        if (missing.length > 0) {
+          fail(
+            "A",
+            name,
+            `restricts \`pull_request\` to types ${types === null ? "(empty)" : describe(types)}, which drops ${missing.join(", ")}. Those three are the default set, and without them a pull request is not checked when it is opened, when it is pushed to, or when it is reopened. Remove the \`types:\` key.`
+          );
+        }
       }
     }
 
@@ -432,6 +575,92 @@ function selfTest() {
       "a workflow whose on: block declares nothing",
       [{ name: "mcp.yml", text: "on:\n\njobs: {}\n" }],
       ["PARSE mcp.yml"],
+    ],
+    [
+      // Rule A's three blind spots. Each restricts a `pull_request` exactly as
+      // effectively as `branches:` does, and each passed silently while the
+      // header claimed a shape it did not understand was a failure.
+      "a base filter inverted into branches-ignore",
+      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    branches-ignore: ['**']\n  push:\n    branches: [main]\njobs: {}\n" }],
+      ["A mcp.yml"],
+    ],
+    [
+      "the path filter every workflow header spends a paragraph forbidding",
+      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    paths:\n      - \"apps/mcp/**\"\n  push:\n    branches: [main]\njobs: {}\n" }],
+      ["A mcp.yml"],
+    ],
+    [
+      "that filter inverted",
+      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    paths-ignore: ['docs/**']\n  push:\n    branches: [main]\njobs: {}\n" }],
+      ["A mcp.yml"],
+    ],
+    [
+      "an activity filter that never fires while a pull request is open",
+      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    types: [closed]\n  push:\n    branches: [main]\njobs: {}\n" }],
+      ["A mcp.yml"],
+    ],
+    [
+      "an activity filter that stops re-checking a pull request as it evolves",
+      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    types: [opened, reopened]\n  push:\n    branches: [main]\njobs: {}\n" }],
+      ["A mcp.yml"],
+    ],
+    [
+      // The two forms rule A must keep accepting. Without these the fix above
+      // could be "restrict nothing is the only pass", which would fail the
+      // repository's own six CI workflows the moment one spelled its default out.
+      "the explicit every-branch filter, which is the documented allowance",
+      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    branches: ['**']\n  push:\n    branches: [main]\njobs: {}\n" }],
+      [],
+    ],
+    [
+      "the default activity set, written out",
+      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    types: [opened, synchronize, reopened]\n  push:\n    branches: [main]\njobs: {}\n" }],
+      [],
+    ],
+    [
+      // Rule E, which no case reached until now: `parseOnBlock` throws for every
+      // degenerate shape except this one, so E was reachable only through an
+      // empty flow sequence and neutering it was invisible.
+      "an on: block that is an empty flow sequence",
+      [{ name: "mcp.yml", text: "on: []\njobs: {}\n" }],
+      ["E mcp.yml"],
+    ],
+    [
+      // `wrangler versions upload`, matched by no case and no real workflow
+      // until now. It ships a Worker version with the account's credentials.
+      "a deploy command this checker knows but had never matched",
+      [{ name: "ship.yml", text: "on:\n  push:\n    branches: [main]\njobs:\n  d:\n    steps:\n      - run: pnpm exec wrangler versions upload\n" }],
+      ["NAME ship.yml"],
+    ],
+    [
+      // The escalation guard, also never executed: a pull-request-triggered CI
+      // workflow that calls a deploy workflow reaches production credentials
+      // without ever naming a deploy command itself.
+      "a CI workflow that calls a deploy workflow",
+      [{ name: "mcp.yml", text: "on:\n  pull_request:\n  push:\n    branches: [main]\njobs:\n  d:\n    uses: ./.github/workflows/deploy-mcp.yml\n" }],
+      ["NAME mcp.yml", "B mcp.yml"],
+    ],
+    [
+      // `workflow_run` on a deploy workflow: the classic chain off a fork's
+      // pull request CI run, which rule B did not name.
+      "a deploy workflow chained off another workflow's run",
+      [{ name: "deploy-mcp.yml", text: "on:\n  workflow_run:\n    workflows: [mcp]\n    types: [completed]\njobs:\n  d:\n    steps:\n      - run: pnpm exec wrangler deploy\n" }],
+      ["B deploy-mcp.yml"],
+    ],
+    [
+      // Nesting under a trigger whose filters a rule reads. Flattened, the
+      // depth-3 `branches` overwrote the depth-2 one and rule A passed a
+      // workflow filtered to `main`.
+      "a filter hidden from rule A by one level of nesting",
+      [{ name: "mcp.yml", text: "on:\n  pull_request:\n    branches: [main]\n    extra:\n      branches: ['**']\n  push:\n    branches: [main]\njobs: {}\n" }],
+      ["PARSE mcp.yml"],
+    ],
+    [
+      // …and the depth-3 shape this repository legitimately uses, which must
+      // keep flattening. Refusing depth everywhere would fail health-check.yml.
+      "nesting under a trigger no rule reads the filters of",
+      [{ name: "health-check.yml", text: "on:\n  workflow_dispatch:\n    inputs:\n      force_redeploy:\n        description: \"Force redeploy\"\n        type: boolean\njobs: {}\n" }],
+      [],
     ],
   ];
 
