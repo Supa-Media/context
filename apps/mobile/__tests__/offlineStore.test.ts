@@ -283,6 +283,57 @@ describe("the cache", () => {
     expect(await cache.getNote(store, "ws2", "a.md")).not.toBeNull();
   });
 
+  test("what is waiting on this device counts every context but the open one's queue", async () => {
+    /*
+      What the sign-out warning is built from. The open context's queue is
+      excluded because the console holds a live copy of it that is newer than
+      the persisted one — the caller adds that — and a draft is counted
+      everywhere, because the live counts are the outbox's alone.
+
+      Two ways this can be wrong and both discard somebody's typing without a
+      sentence: counting only the open context (a queue nobody has looked at
+      this session goes silently), or counting the open context's persisted
+      queue as well (its live counts are added on top, so the number doubles
+      and the warning stops being believable).
+    */
+    await cache.putOutbox(
+      store,
+      enqueue(emptyOutbox("ws1"), { path: "open.md", text: "here", baseEtag: null, now: 0 }),
+    );
+    await cache.putOutbox(
+      store,
+      enqueue(emptyOutbox("ws2"), { path: "away.md", text: "elsewhere", baseEtag: null, now: 0 }),
+    );
+    await cache.putDraft(store, "ws1", {
+      path: "typed.md",
+      text: "never saved",
+      baseEtag: null,
+      savedAt: 0,
+    });
+
+    expect(await cache.waitingOnDevice(store, "ws1")).toEqual({
+      pending: 2, // ws2's queued write, and the draft in the open context
+      conflicted: 0,
+      rejected: 0,
+    });
+    // With no context open, nothing is excluded.
+    expect((await cache.waitingOnDevice(store, null)).pending).toBe(3);
+  });
+
+  test("a note or a listing is never something waiting to be sent", async () => {
+    // Anti-vacuity for the count above: a cache entry is a disposable
+    // derivative, and warning about one before sign-out would be the console
+    // asking about a round trip.
+    await cache.putNote(store, "ws1", note("a.md"), 1);
+    await cache.putListing(store, "ws1", listing(""), 1);
+
+    expect(await cache.waitingOnDevice(store, null)).toEqual({
+      pending: 0,
+      conflicted: 0,
+      rejected: 0,
+    });
+  });
+
   test("an emptied queue leaves no record behind", async () => {
     await cache.putOutbox(store, emptyOutbox("ws1"));
     expect(await store.keys()).toEqual([]);

@@ -20,6 +20,7 @@ import { toBindStorageArgs, type Provider } from "./storage/connect";
 import { atName, contextTone, describeScopes, formatCount, grantTone, lastUsedLabel } from "./format";
 import { ownPersonalContext, viewerIdentity } from "./identity";
 import { formatNotesTotal, totalNotes } from "./noteTotals";
+import { forgetContextCopies, forgetLocalCopies } from "../offline/forget";
 import {
   buildConstellation,
   contextKindFor,
@@ -431,14 +432,30 @@ export function useLiveConsoleData(): ConsoleData {
     // refuses it for owners (`OWNER_CANNOT_LEAVE`), so the rail only offers
     // it under "Shared with you". The subscription drops the context from
     // `contexts` on its own once the membership row is gone.
-    leaveContext: (id: string) =>
-      leaveWorkspace({ workspaceId: id as Id<"workspaces"> }),
+    // What is cached for a context you have left is a copy of somewhere you can
+    // no longer reach — notes somebody shared with you, held on your machine
+    // after the membership that justified holding them is gone. It is cleared
+    // **on the server's answer, never on the request**: `leaveWorkspace`
+    // returns `{ left: false }` for a membership it did not delete (an owner
+    // cannot leave their own context), and clearing on the press would throw
+    // away the offline copy of a context the person still has.
+    leaveContext: async (id: string) => {
+      const result = await leaveWorkspace({ workspaceId: id as Id<"workspaces"> });
+      if (result.left) await forgetContextCopies(id);
+      return result;
+    },
     // Everything on the control plane goes; the person's own storage is not
     // ours to touch. The local sign-out afterwards clears the tokens for a
     // session whose server rows the mutation just deleted — its own signOut
     // call failing server-side is expected and swallowed by the auth client.
     deleteAccount: async () => {
       await deleteAccountMutation({});
+      // After the deletion, and before the sign-out. After, because a deletion
+      // that failed must not cost somebody the queue it never sent; before,
+      // because the browser must not still be holding readable note text once
+      // the session it belonged to is over. `forget.ts` owns the failure
+      // stance — it can report, and it can never block this.
+      await forgetLocalCopies();
       await authActions?.signOut();
     },
     // Three tiles, not the mockup's four. "in your own bucket" is still gone:

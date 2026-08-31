@@ -23,7 +23,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
-import { toFileError, type FileBrowser } from "./browser";
+import { isServerRefusal, toFileError, type FileBrowser } from "./browser";
 import type { NoteShare } from "./shares";
 import type { ToastSpec } from "../../design/components/Toast";
 import { consoleOrigin } from "./shareOrigin";
@@ -316,6 +316,14 @@ export function useFileBrowser(options: {
             // it was moved) is not an error worth shouting about — it is a
             // listing that should stop existing.
             if (failure.code === "FILE_NOT_FOUND") return [folder, null] as const;
+            // Every *other* refusal ends here rather than in the cache. The
+            // line above is one too, and keeps its own answer — a folder that
+            // is gone should stop existing rather than be redrawn from the
+            // device. The rest have to reach the caller: a listing is a list of
+            // somebody's note names, and repainting it after a refusal
+            // discloses exactly what the refusal withheld. Only a transport
+            // failure may fall back.
+            if (isServerRefusal(error)) throw error;
             const cached = await offline.cachedListing(folder);
             if (cached !== null) {
               servedFromCache = true;
@@ -377,7 +385,11 @@ export function useFileBrowser(options: {
         setListings({ "": page });
       } catch (error: unknown) {
         if (cancelled) return;
-        const cached = await offline.cachedListing("");
+        // A refusal is an answer, and the tree is not repainted from the
+        // device over one — see `isServerRefusal`. The person gets the
+        // server's own sentence instead of a root listing it just declined
+        // to give them.
+        const cached = isServerRefusal(error) ? null : await offline.cachedListing("");
         if (cancelled) return;
         if (cached !== null) {
           setListings({ "": cached.value });
@@ -439,9 +451,16 @@ export function useFileBrowser(options: {
    *  - **Offline reads go straight to the cache.** Not as a fallback after a
    *    failure: `readNote` is a Convex action with no client-side timeout, so
    *    with no connection it never rejects and the editor would sit blank.
-   *  - **A failed read falls back to the cache.** The signal can say online and
-   *    be wrong — a captive portal, a dead uplink — and a copy is better than a
-   *    refusal, as long as it says it is a copy.
+   *  - **A read lost to the *transport* falls back to the cache.** The signal
+   *    can say online and be wrong — a captive portal, a dead uplink — and a
+   *    copy is better than an empty screen, as long as it says it is a copy.
+   *    **A read the server *refused* does not**, and the distinction is the
+   *    whole of `isServerRefusal`: the first sentence of this list used to say
+   *    "a failed read", the `catch` could not tell the two apart, and a
+   *    removed membership or a revoked grant was therefore converted into a
+   *    cache hit — the console rendering a note body to somebody the control
+   *    plane had just refused, with an age stamp under it that made it read as
+   *    considered. A local copy never overrules an answer.
    *  - **Waiting work is restored.** A queued write, or a draft typed and never
    *    saved. `restoreFor` decides which, and turns a draft whose base etag has
    *    moved on into a conflict rather than into an armed overwrite.
@@ -467,7 +486,7 @@ export function useFileBrowser(options: {
           note = await readNote({ workspaceId, path });
           offline.rememberNote(note);
         } catch (error) {
-          const cached = await offline.cachedNote(path);
+          const cached = isServerRefusal(error) ? null : await offline.cachedNote(path);
           if (cached === null) {
             dispatch({ type: "closed" });
             setNotice(toFileError(error).message);
