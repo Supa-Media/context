@@ -30,9 +30,9 @@ import {
  */
 
 const contexts = [
-  { id: "w1", slug: "seyi" },
-  { id: "w2", slug: "lk" },
-  { id: "w3", slug: "public-worship" },
+  { id: "w1", slug: "seyi", role: "owner" },
+  { id: "w2", slug: "lk", role: "member" },
+  { id: "w3", slug: "public-worship", role: "editor" },
 ];
 
 describe("the route table", () => {
@@ -68,12 +68,26 @@ describe("the route table", () => {
   /**
    * Where the landing actually sends somebody.
    *
-   * The first context in the rail's own order — a lookup, not a decision, so
-   * what you land in is what is at the top of the list you are looking at.
+   * **A context you own**, and the first of the list only when you own none.
+   * See `defaultContext`: this used to be the first of the list outright, and
+   * that list is ordered by nothing a person would recognise — so an account
+   * that owns `@agent` and was invited into `@seyi` was redirected into
+   * `@seyi`, and `resolveContextRoute` then selected it over the top of a
+   * correct default, because the URL wins.
    */
-  test("the landing resolves to the first reachable context's Browse", () => {
+  test("the landing resolves to a context you own", () => {
     expect(landingHref(contexts)).toBe("/console/@seyi");
-    expect(landingHref([{ slug: "public-worship" }])).toBe("/console/@public-worship");
+    // The same list with ownership somewhere other than the front, which is
+    // the arrangement that shipped broken.
+    expect(
+      landingHref([
+        { slug: "lk", role: "member" },
+        { slug: "agent", role: "owner" },
+      ]),
+    ).toBe("/console/@agent");
+    expect(landingHref([{ slug: "public-worship", role: "editor" }])).toBe(
+      "/console/@public-worship",
+    );
   });
 
   /**

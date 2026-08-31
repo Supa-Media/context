@@ -20,6 +20,7 @@ import { toBindStorageArgs, type Provider } from "./storage/connect";
 import { atName, contextTone, describeScopes, formatCount, grantTone, lastUsedLabel } from "./format";
 import { ownPersonalContext, viewerIdentity } from "./identity";
 import { formatNotesTotal, totalNotes } from "./noteTotals";
+import { defaultContext } from "./nav";
 import {
   buildConstellation,
   contextKindFor,
@@ -27,7 +28,6 @@ import {
   type ContextInput,
 } from "./map/graph";
 import {
-  defaultContextId,
   type ConsoleClient,
   type ConsoleContext,
   type ConsoleData,
@@ -223,14 +223,17 @@ export function useLiveConsoleData(): ConsoleData {
 
   // An authenticated session resolves to a *set* of contexts, never to one, and
   // an explicit selection that no longer exists is dropped rather than
-  // rendering an empty console. With no explicit choice, `defaultContextId`
+  // rendering an empty console. With no explicit choice, `defaultContext`
   // prefers a context you own — "the first of the list" opened somebody else's,
-  // which greets a person with a filtered view of a place they visit.
+  // which greets a person with a filtered view of a place they visit. It is
+  // `nav.ts`'s because the *URL* answers the same question through
+  // `landingHref`, and a rule with two implementations here would be a rule the
+  // redirect quietly overrides.
   const selectedContextId: Id<"workspaces"> | null =
     explicitContextId !== null &&
     (workspaces ?? []).some((w) => w.workspaceId === explicitContextId)
       ? explicitContextId
-      : defaultContextId((workspaces ?? []).map((w) => ({ id: w.workspaceId, role: w.role })));
+      : (defaultContext(workspaces ?? [])?.workspaceId ?? null);
 
   const contexts: ConsoleContext[] = (workspaces ?? []).map((workspace) => ({
     id: workspace.workspaceId,

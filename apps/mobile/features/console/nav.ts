@@ -182,11 +182,47 @@ export function routeForPath(pathname: string): ConsoleRoute {
 }
 
 /**
+ * Which context somebody is put in when they have not chosen one — **the one
+ * rule**, and both places that answer that question call it.
+ *
+ * ## The bug
+ *
+ * It was "the first of the list", in two places: here, deciding the URL
+ * `/console` redirects to, and in `useLiveConsoleData`, deciding the selection.
+ * That list is ordered by nothing a person would recognise, so an account that
+ * owns `@agent` and was invited into `@seyi` signed in and got **`@seyi`** — a
+ * context they are a guest in, filtered to team level, with a "Team access"
+ * line across the top and their own brain nowhere on the screen. Every part of
+ * that is working as designed and the whole of it is the wrong first screen.
+ *
+ * Fixing only the selection fixes nothing, which is why this is one function
+ * rather than two agreeing ones: **the URL wins.** `/console` redirects to a
+ * context's Browse, and `resolveContextRoute` then selects whatever the URL
+ * names, straight over the top of a correct default.
+ *
+ * ## The rule
+ *
+ * A context you **own**, and the first of the list only when you own none — a
+ * real state rather than a defensive one, for somebody invited into a
+ * colleague's context before finishing their own onboarding. A brain is what
+ * this product is: where capture lands, where the privacy manifest lives, and
+ * the only context whose private notes the signed-in person can see at all. A
+ * context somebody shared is a place you visit.
+ *
+ * Generic over the row, because the live hook answers this from the raw
+ * workspace list before it has built any `ConsoleContext`s out of it.
+ */
+export function defaultContext<T extends { role: string }>(
+  contexts: ReadonlyArray<T>,
+): T | null {
+  return contexts.find((context) => context.role === "owner") ?? contexts[0] ?? null;
+}
+
+/**
  * Where `/console` actually puts somebody, or `null` for "nowhere yet".
  *
- * The first context in the rail's own order, which is the list the layout
- * already has — so this is a lookup rather than a decision, and the thing it
- * lands on is the thing at the top of the list somebody is looking at.
+ * `defaultContext` over the list the layout already has — see above for why it
+ * is not simply the first of it.
  *
  * `null` while the contexts are still loading and for an account that can
  * reach none, and the caller draws the Map in that case rather than redirecting
@@ -194,9 +230,11 @@ export function routeForPath(pathname: string): ConsoleRoute {
  * "never" both mean *do not navigate*, and telling them apart is the caller's
  * job, not the URL's.
  */
-export function landingHref(contexts: ReadonlyArray<{ slug: string }>): string | null {
-  const first = contexts[0];
-  return first === undefined ? null : browseHref(first.slug);
+export function landingHref(
+  contexts: ReadonlyArray<{ slug: string; role: string }>,
+): string | null {
+  const first = defaultContext(contexts);
+  return first === null ? null : browseHref(first.slug);
 }
 
 /** The context a route is inside, or `null` at app level. */

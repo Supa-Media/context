@@ -249,32 +249,3 @@ export function selectedContext(data: ConsoleData): ConsoleContext | null {
   return data.contexts.find((c) => c.id === data.selectedContextId) ?? null;
 }
 
-/**
- * Which context the console opens on when nobody has chosen one.
- *
- * **One you own, and the first of the list only if you own none.** It was the
- * first of the list outright, and that list is ordered by nothing a person
- * would recognise — so signing in could drop somebody into a context they were
- * merely invited to: filtered to team level, carrying a "Team access" line, and
- * with their own brain nowhere on the screen. Nothing was broken and everything
- * looked wrong, which is the worst shape a first screen can have.
- *
- * A brain is what this product is — where capture lands, where the privacy
- * manifest is, and the only context whose private notes the signed-in person
- * can see at all. A context somebody shared is a place you visit.
- *
- * `null` for an empty list, which is a real state: a session resolves to a
- * *set* of contexts, and that set is empty for a moment on a cold load and
- * indefinitely for somebody part-way through onboarding.
- *
- * Generic over the row rather than typed to `ConsoleContext`, because the live
- * hook answers this from the raw workspace list before it has built any
- * `ConsoleContext`s out of it — and deciding it twice is how a console comes to
- * open on one context and describe another.
- */
-export function defaultContextId<Id extends string>(
-  contexts: ReadonlyArray<{ id: Id; role: string }>,
-): Id | null {
-  const owned = contexts.find((context) => context.role === "owner");
-  return (owned ?? contexts[0])?.id ?? null;
-}
