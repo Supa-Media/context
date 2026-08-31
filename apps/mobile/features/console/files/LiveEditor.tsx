@@ -38,6 +38,25 @@
  * with a line saying so. "An absent capability is reported, never faked": the
  * one outcome that is not acceptable is a person who cannot edit their note and
  * is not told why.
+ *
+ * ## The keyboard, which is the half of this file that is not the editor
+ *
+ * `NoteAccessory` is a native row of keys riding above the soft keyboard, and
+ * it is the only route on a phone to bold, to a heading, to undo — and to
+ * putting the keyboard away at all. It talks to this file through
+ * `EditorControls`, and there are three consequences for a `WebView` that a
+ * `TextInput` did not have:
+ *
+ *  - **Every command is a bridge message**, not string surgery on the host.
+ *    The host does not hold the selection and must not — see `protocol.ts` for
+ *    why the caret depends on that — so `wrap` crosses as a *name* and the
+ *    guest runs the real CodeMirror command against the real state.
+ *  - **Focus crosses too.** A `WebView` has no `onFocus`; the CodeMirror
+ *    surface inside it does, and the guest reports it. `LiveEditorProps` is
+ *    unchanged, so `NoteEditor` cannot tell which half it has.
+ *  - **The caret has to be kept above the keyboard by hand**, because nothing
+ *    about a WKWebView shrinks when the keyboard opens. See the inset effect
+ *    below and `coveredBottom` in `editorSetup.ts`.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -48,9 +67,10 @@ import { Text } from "../../design/components/Text";
 import { fonts, leading, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { EDITOR_HTML, coveredHeight, createHostBridge, themeVars } from "./webview/host";
-import type { LiveEditorProps } from "./LiveEditor.web";
+import { ACCESSORY_HEIGHT, accessoryUp } from "./accessory";
+import type { EditorControls, LiveEditorProps } from "./LiveEditor.web";
 
-export type { LiveEditorProps };
+export type { EditorControls, LiveEditorProps };
 
 /**
  * Module constants, and the reason is not micro-optimisation.
@@ -79,6 +99,9 @@ export function LiveEditor({
   editable,
   onChange,
   onSave,
+  controls,
+  onFocus,
+  onBlur,
   accessibilityLabel,
 }: LiveEditorProps) {
   const styles = useThemedStyles(makeStyles);
@@ -89,6 +112,15 @@ export function LiveEditor({
   const web = useRef<WebView | null>(null);
   const host = useRef<View | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  /**
+   * Whether the note has the caret, kept here as well as reported upward.
+   *
+   * `NoteEditor` needs it to decide whether to render the accessory bar; this
+   * file needs it to decide whether the bar is covering the bottom of the note.
+   * The same three conditions in both places, from `accessoryUp`, rather than
+   * two predicates that agree until somebody edits one.
+   */
+  const [focused, setFocused] = useState(false);
 
   /**
    * The callbacks, held in a ref and read at call time.
@@ -98,8 +130,8 @@ export function LiveEditor({
    * `onChange` directly would deliver every keystroke after the first state
    * change to a stale reducer. Exactly the trap `LiveEditor.web.tsx` documents.
    */
-  const handlers = useRef({ onChange, onSave });
-  handlers.current = { onChange, onSave };
+  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur });
+  handlers.current = { onChange, onSave, controls, onFocus, onBlur };
 
   const bridge = useMemo(
     () =>
@@ -108,11 +140,60 @@ export function LiveEditor({
         {
           onChange: (text) => handlers.current.onChange(text),
           onSave: () => handlers.current.onSave(),
+          /**
+           * The focus contract, crossing back out of the web view.
+           *
+           * A `WebView` has neither `onFocus` nor `onBlur` — WKWebView is one
+           * native view whose first responder is an implementation detail —
+           * so the guest listens on CodeMirror's own `contentDOM`, exactly as
+           * the web half does, and posts the result. Everything above this
+           * file sees the same two props it saw when this was a `TextInput`.
+           */
+          onFocus: (next) => {
+            setFocused(next);
+            if (next) handlers.current.onFocus?.();
+            else handlers.current.onBlur?.();
+          },
           onFailed: (message) => setFailure(message),
         },
       ),
     [],
   );
+
+  /**
+   * The imperative handle, built once and aimed at the bridge rather than at an
+   * editor — because on this platform there is no editor here to aim at.
+   *
+   * Each method is one message. What runs is `runCommand` in `editorSetup.ts`,
+   * inside the guest, against the real `EditorView` — the same function the web
+   * half calls directly. That is the whole reason `EditorControls` is five
+   * verbs rather than "insert this text": a verb can be run against a state
+   * that has a selection and an undo history, and a string cannot.
+   */
+  const api = useRef<EditorControls | null>(null);
+  if (api.current === null) {
+    api.current = {
+      wrap: (before, after) => bridge.run({ name: "wrap", before, after }),
+      toggleLinePrefix: (prefix) => bridge.run({ name: "toggleLinePrefix", prefix }),
+      undo: () => bridge.run({ name: "undo" }),
+      redo: () => bridge.run({ name: "redo" }),
+      blur: () => bridge.run({ name: "blur" }),
+    };
+  }
+
+  /**
+   * Hand the handle over, and take it back on unmount.
+   *
+   * `controls` is read off the ref above and the effect runs once, so a parent
+   * that passes a fresh arrow on every render — the normal way to write it —
+   * does not re-hand the same object over and over, and the teardown still
+   * calls the latest callback rather than the first render's.
+   */
+  useEffect(() => {
+    handlers.current.controls?.(api.current);
+    return () => handlers.current.controls?.(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onMessage = useCallback(
     (event: WebViewMessageEvent) => bridge.receive(event.nativeEvent.data),
@@ -135,34 +216,93 @@ export function LiveEditor({
   }, [bridge, colors, compact]);
 
   /**
-   * How much of the note the keyboard is sitting on.
+   * KEEPING THE CARET OFF THE KEYBOARD.
    *
-   * Measured as an **overlap** rather than taken as the keyboard's height, so
-   * it is right whether or not something above this has already resized the
-   * editor to make room — a `KeyboardAvoidingView`, an accessory bar,
-   * `react-native-keyboard-controller`. If the editor shrinks, the overlap goes
-   * to zero on its own and the note is not padded twice. See `coveredHeight`.
+   * The sharpest thing in this file, and the one a screenshot cannot show.
+   * Nothing about a WKWebView shrinks when the keyboard opens: the web view
+   * keeps its full height, the keyboard is drawn on top of it, and CodeMirror —
+   * which measures its scroller's client rectangle — believes the whole note is
+   * visible. Typing down a long note therefore puts the caret behind the keys
+   * and CodeMirror is satisfied.
+   *
+   * Three parts, and all three are needed:
+   *
+   *  1. **This effect** measures how much of the editor is covered and sends it
+   *     as `inset`.
+   *  2. The guest turns it into bottom padding on the scroller, so the last
+   *     line *can* be scrolled clear — `styles.ts`.
+   *  3. The guest also hands it to CodeMirror as a `scrollMargins` facet, which
+   *     is what makes "scroll the caret into view" mean *above the keyboard*.
+   *     That facet is consulted on every scroll, including the one CodeMirror
+   *     performs for itself on every keystroke, which is why typing keeps
+   *     working and not just the moment the keyboard opens. See `coveredBottom`.
+   *
+   * The overlap is **measured** rather than taken as the keyboard's height, so
+   * it is right whether or not something above has already resized the editor to
+   * make room — a `KeyboardAvoidingView`, `react-native-keyboard-controller`.
+   * The accessory bar is the exception and is added rather than measured,
+   * because it is positioned absolutely and resizes nothing; see
+   * `coveredHeight`.
    *
    * `keyboardWillShow` on iOS so the room is there before the keyboard is;
    * Android only emits the `Did` events.
+   *
+   * It re-runs when the bar appears or goes away, because the bar's height is
+   * part of the answer and the keyboard does not move when it does.
    */
+  const keyboardHeight = useRef(0);
+  const barUp = accessoryUp({ compact, editable, focused });
   useEffect(() => {
+    const publish = () => {
+      if (keyboardHeight.current <= 0) {
+        bridge.setInset(0);
+        return;
+      }
+      host.current?.measureInWindow((_x, top, _width, height) => {
+        bridge.setInset(
+          coveredHeight({
+            top,
+            height,
+            windowHeight,
+            keyboardHeight: keyboardHeight.current,
+            accessoryHeight: barUp ? ACCESSORY_HEIGHT : 0,
+          }),
+        );
+      });
+    };
+
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
     const show = Keyboard.addListener(showEvent, (event) => {
-      const keyboardHeight = event.endCoordinates.height;
-      host.current?.measureInWindow((_x, top, _width, height) => {
-        bridge.setInset(coveredHeight({ top, height, windowHeight, keyboardHeight }));
-      });
+      keyboardHeight.current = event.endCoordinates.height;
+      publish();
     });
-    const hide = Keyboard.addListener(hideEvent, () => bridge.setInset(0));
+    const hide = Keyboard.addListener(hideEvent, () => {
+      keyboardHeight.current = 0;
+      bridge.setInset(0);
+    });
+    // The bar can appear while the keyboard is already up — focus arrives over
+    // the bridge a frame or two after the keys do — so the inset is republished
+    // here rather than only from the keyboard's own events.
+    publish();
     return () => {
       show.remove();
       hide.remove();
     };
-  }, [bridge, windowHeight]);
+  }, [bridge, windowHeight, barUp]);
 
   if (failure !== null) {
+    /*
+      The degraded editor reports no focus, so the accessory bar never appears
+      over it — and that is deliberate rather than an oversight.
+
+      Five of the bar's six editing keys are CodeMirror commands that only exist
+      inside the guest. Over a plain `TextInput` they would be present and do
+      nothing, which is the defect this codebase keeps recording against itself.
+      A `TextInput` also keeps iOS's own behaviour: tapping outside it resigns
+      first responder, so the keyboard has a way out that the web view does not
+      have. This state stays what it says it is — the markdown itself.
+    */
     return (
       <View style={styles.wrap} accessibilityLabel={accessibilityLabel}>
         <Text variant="hint" style={styles.failure}>
@@ -194,9 +334,28 @@ export function LiveEditor({
         onShouldStartLoadWithRequest={allowInitialLoadOnly}
         onError={() => setFailure("the web view failed to load")}
         onContentProcessDidTerminate={() => setFailure("the web view was terminated")}
-        // The editor's own scroller scrolls; WKWebView's must not, or the note
-        // has two and reads as sticking and then lurching. `styles.ts` sets
-        // `overflow: hidden` on the document for the same reason.
+        /*
+          The editor's own scroller scrolls; WKWebView's must not, or the note
+          has two and reads as sticking and then lurching. `styles.ts` sets
+          `overflow: hidden` on the document for the same reason.
+
+          **Do not reach for `keyboardDismissMode` here, and this is where you
+          would.** Dragging the note down to put the keyboard away is the
+          gesture people try first, and it cannot work: `keyboardDismissMode`
+          is implemented by `RCTScrollView`, so it acts on the scroll view this
+          prop has just switched off. CodeMirror's scroller is a `<div>` inside
+          a web view and React Native cannot see it, let alone drive a keyboard
+          from it. Turning the outer scroller back on to get the gesture would
+          give the note two scrollers, which is the defect this line exists to
+          prevent.
+
+          So `NoteAccessory`'s dismiss key is the **only** way out of the
+          keyboard on this surface. That raises its importance rather than
+          lowering it: it is why the bar renders whenever the note has the
+          caret, why the dismiss key is in its own object that cannot be the one
+          that gets clipped on a narrow screen, and why `blur` is the one
+          command `acceptsCommand` never refuses.
+        */
         scrollEnabled={false}
         automaticallyAdjustContentInsets={false}
         contentInsetAdjustmentBehavior="never"
@@ -214,12 +373,22 @@ export function LiveEditor({
         // WebKit otherwise refuses to raise the keyboard for it.
         keyboardDisplayRequiresUserAction={false}
         /*
-          WebKit's own accessory bar (the one with Done) stays, for now, because
-          it is the only way to dismiss the keyboard from inside the note today.
-          The moment the app grows its own accessory bar this must become
-          `true`, or a phone gets two stacked bars — see the report.
+          WebKit draws its own accessory bar over the keyboard — the grey strip
+          with *Done* on it — and this is the prop that takes it away.
+
+          It was `false` because that bar's *Done* was the only way to dismiss
+          the keyboard from inside the note. That is no longer the case:
+          `NoteAccessory` is ours, it rides in the same place, and its rightmost
+          key does the same job. Two stacked bars saying different things is
+          worse than either, so WebKit's goes.
+
+          Ours is now the only one, which is the sentence the `scrollEnabled`
+          comment above turns on: there is no drag-to-dismiss on this surface, so
+          if the accessory bar ever stops rendering while the keyboard is up, a
+          person is trapped in the keyboard with no way out. That is what
+          `noteAccessory.test.ts` pins when it asserts the bar appears on focus.
         */
-        hideKeyboardAccessoryView={false}
+        hideKeyboardAccessoryView
         style={styles.web}
         containerStyle={styles.webContainer}
       />

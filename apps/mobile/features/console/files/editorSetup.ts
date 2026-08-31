@@ -18,10 +18,18 @@
  * bundler cannot follow would break one of the two.
  */
 
-import { Annotation, Compartment, EditorState, type Extension } from "@codemirror/state";
+import {
+  Annotation,
+  Compartment,
+  EditorSelection,
+  EditorState,
+  Transaction,
+  type Extension,
+} from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, redo, undo } from "@codemirror/commands";
 import { livePreview, markdownLanguage } from "./livePreview";
+import type { EditorCommand } from "./webview/protocol";
 
 /**
  * "This text did not come from the person; it came from the app."
@@ -42,6 +50,35 @@ import { livePreview, markdownLanguage } from "./livePreview";
  *    one would mean `privacy.md` opening blank.
  */
 export const externalDoc = Annotation.define<boolean>();
+
+/**
+ * Put an authoritative document in front of the reader.
+ *
+ * The one way either host replaces the whole buffer, here rather than written
+ * out twice, because it carries **two** annotations and the second one is easy
+ * to leave off — which is exactly what happened, and what an accessory bar with
+ * an undo key on it made visible.
+ *
+ * `Transaction.addToHistory.of(false)` keeps this out of the undo history.
+ * Without it, opening a note is the first entry in that note's history, so the
+ * first press of undo on a freshly-opened file *undoes the open* and hands
+ * somebody an empty editor over their own note — and then `onChange` reports
+ * the empty string as an edit, and Save writes it. It was invisible while the
+ * only route to undo was ⌘Z on a desktop, where the first document is passed to
+ * `EditorState.create` and never dispatched at all. On iOS the editor is built
+ * empty and told the note over the bridge, so every note had it, and the bar
+ * put an undo key under everybody's thumb.
+ *
+ * `addMapping` is what CodeMirror does with the change instead, so an undo
+ * across a note switch is not merely skipped — the positions it holds are
+ * remapped, which is what stops it pasting one note's text into another.
+ */
+export function replaceDocument(view: EditorView, text: string): void {
+  view.dispatch({
+    changes: { from: 0, to: view.state.doc.length, insert: text },
+    annotations: [externalDoc.of(true), Transaction.addToHistory.of(false)],
+  });
+}
 
 export interface EditorHandlers {
   onChange: (text: string) => void;
@@ -119,6 +156,152 @@ export function editability(editable: boolean): Extension {
   ];
 }
 
+/* -------------------------------------------------------------------------- */
+/*                        what a button runs, as opposed to a key             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Bold, italic — the pair of markers around whatever is selected.
+ *
+ * `changeByRange` rather than one dispatch per marker, because a document with
+ * more than one cursor in it is an ordinary CodeMirror document and two
+ * separate dispatches would apply the second against positions the first has
+ * already moved. The returned range spans the original selection shifted by the
+ * opening marker, so wrapping a word leaves the word selected and wrapping
+ * nothing leaves the caret between the two markers — which is the behaviour
+ * that makes `**` on an empty line worth pressing at all.
+ */
+function wrapSelection(view: EditorView, before: string, after: string): void {
+  view.dispatch(
+    view.state.update(
+      view.state.changeByRange((range) => ({
+        changes: [
+          { from: range.from, insert: before },
+          { from: range.to, insert: after },
+        ],
+        range: EditorSelection.range(range.from + before.length, range.to + before.length),
+      })),
+      { scrollIntoView: true, userEvent: "input" },
+    ),
+  );
+}
+
+/**
+ * `# `, `- [ ] ` — a prefix on the caret's line, and off it again.
+ *
+ * A toggle rather than an insert, because the bar has one key per prefix and
+ * pressing "heading" twice on the same line otherwise produces `## `, which is
+ * a different heading rather than the undo the second press means.
+ *
+ * Only the line the caret's *head* is on. Applying it across a multi-line
+ * selection is what a desktop editor does; here the whole selection is whatever
+ * a thumb dragged, and turning six lines into six headings by accident is a
+ * worse failure than only doing one.
+ *
+ * No `selection` in the transaction: CodeMirror maps the existing selection
+ * through the change, which is what keeps the caret in the same place in the
+ * *text* as the line grows or shrinks under it.
+ */
+function toggleLinePrefix(view: EditorView, prefix: string): void {
+  const line = view.state.doc.lineAt(view.state.selection.main.head);
+  view.dispatch({
+    changes: line.text.startsWith(prefix)
+      ? { from: line.from, to: line.from + prefix.length, insert: "" }
+      : { from: line.from, insert: prefix },
+    scrollIntoView: true,
+    userEvent: "input",
+  });
+}
+
+/**
+ * Run one of the accessory bar's commands against a real editor.
+ *
+ * **Here rather than in either `LiveEditor`**, and that is the same argument
+ * this whole file is: on iOS the command arrives over a bridge and on web it
+ * arrives as a method call, but what it *does* must not be written twice. A
+ * `wrap` that inserted its markers differently on the two surfaces would be two
+ * editors with one name, and each half's tests would keep passing while they
+ * drifted.
+ *
+ * ## Read-only, for the third time
+ *
+ * `state.readOnly` is checked here even though `editability`'s `changeFilter`
+ * would drop the changes anyway, because a refused transaction is still a
+ * transaction: it moves the selection, it lands in the undo history, and
+ * `view.focus()` below would raise a keyboard over a note nobody may type in.
+ * Refusing before dispatching is what makes the key *inert* rather than merely
+ * harmless. The filter remains the thing that guarantees it — see `editability`.
+ *
+ * `undo` is the case that makes this worth stating plainly. It is not an
+ * "editing command" in any sense `@codemirror/commands` recognises; it applies
+ * an inverted change, and it consults nothing. On a read-only note it would
+ * cheerfully undo the app's own `externalDoc` write and hand the reader the
+ * previous note.
+ *
+ * ## Why it takes focus back
+ *
+ * Pressing a native button over a web view can cost the document its selection
+ * on iOS, and a bar whose second press lands somewhere else is worse than no
+ * bar. `blur` is the one command that must not — it is the dismiss key, and
+ * refocusing would raise the keyboard it just put away.
+ */
+export function runCommand(view: EditorView, command: EditorCommand): void {
+  if (command.name === "blur") {
+    view.contentDOM.blur();
+    return;
+  }
+  if (view.state.readOnly) return;
+  switch (command.name) {
+    case "wrap":
+      wrapSelection(view, command.before, command.after);
+      break;
+    case "toggleLinePrefix":
+      toggleLinePrefix(view, command.prefix);
+      break;
+    case "undo":
+      undo(view);
+      break;
+    case "redo":
+      redo(view);
+      break;
+  }
+  view.focus();
+}
+
+/**
+ * How much of the editor something else is covering, as a scroll margin.
+ *
+ * **This is what actually keeps the caret above the keyboard**, and the
+ * padding in `styles.ts` on its own is not. Padding makes it *possible* to
+ * scroll the last line clear of the keyboard; it does nothing to make
+ * CodeMirror do so, because CodeMirror's idea of "visible" is the scroller's
+ * client rectangle, and on iOS the web view keeps its full height while the
+ * keyboard is drawn over it. So `scrollIntoView` was satisfied by a caret
+ * sitting underneath the keyboard.
+ *
+ * `scrollMargins` is the facet CodeMirror provides for exactly this — "space
+ * around the sides of the scrolling element that should be considered
+ * invisible" — and it applies to *every* scroll into view, including the one
+ * CodeMirror does for itself on every keystroke. One facet rather than a margin
+ * passed to each of our own calls, which would have covered the bar's commands
+ * and not typing.
+ *
+ * It reads through a function rather than closing over a number so the guest can
+ * change the inset without reconfiguring the editor: the facet is consulted at
+ * measure time, so the next scroll uses the current value.
+ *
+ * Only the native half supplies one. A mobile browser shrinks the layout
+ * viewport when the keyboard opens, so on web the scroller is already the size
+ * of what can be seen and a margin here would push the caret up by a keyboard
+ * that is not covering anything.
+ */
+export function coveredBottom(read: () => number): Extension {
+  return EditorView.scrollMargins.of(() => {
+    const bottom = read();
+    return bottom > 0 ? { bottom } : null;
+  });
+}
+
 /**
  * Everything the editor is, minus where it is drawn.
  *
@@ -127,13 +310,19 @@ export function editability(editable: boolean): Extension {
  * `reconfigure` is not style: replacing the whole configuration rebuilds the
  * update listener, and an earlier draft of the web half did exactly that and
  * silently detached typing from `onChange`.
+ *
+ * `insetBottom` is the one option only one host passes, and the asymmetry is
+ * real rather than an oversight: the keyboard covers a WKWebView and shrinks a
+ * mobile browser's viewport. See `coveredBottom`.
  */
 export function editorExtensions(options: {
   editable: boolean;
   editableCompartment: Compartment;
   handlers: HandlerRef;
+  /** How many pixels of the editor the keyboard and its accessory bar cover. */
+  insetBottom?: () => number;
 }): Extension[] {
-  const { editable, editableCompartment, handlers } = options;
+  const { editable, editableCompartment, handlers, insetBottom } = options;
   return [
     markdownLanguage(),
     livePreview(),
@@ -141,6 +330,7 @@ export function editorExtensions(options: {
     EditorView.lineWrapping,
     placeholder(EDITOR_PLACEHOLDER),
     editableCompartment.of(editability(editable)),
+    ...(insetBottom === undefined ? [] : [coveredBottom(insetBottom)]),
     keymap.of([
       {
         key: "Mod-s",
@@ -187,7 +377,8 @@ export function editorExtensions(options: {
  * CRLF file that somebody *edits* is written back with LF endings. A file
  * nobody edits is never written back at all — the editor does not fire
  * `onChange` on load, so the draft stays the bytes that were read — which is
- * the property `noteRoundTrip.test.ts` pins.
+ * the property `webviewBridge.test.ts` pins, opening a note and asserting that
+ * no `change` crosses at all.
  *
  * Pinning the separator to whatever the file happened to use was considered and
  * dropped: it answers only the unmixed case, and a file with both endings would
@@ -198,6 +389,7 @@ export function editorStateFor(options: {
   editable: boolean;
   editableCompartment: Compartment;
   handlers: HandlerRef;
+  insetBottom?: () => number;
 }): EditorState {
   return EditorState.create({
     doc: options.doc,

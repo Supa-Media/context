@@ -11,11 +11,28 @@
  * ## Why the message set is this small
  *
  * The editor's contract with the rest of the app is `LiveEditorProps`: text in,
- * text out, an `editable` flag and a save. Nothing above `LiveEditor` reads a
+ * text out, an `editable` flag, a save, the caret taken and let go, and the
+ * handful of commands a *button* can run. Nothing above `LiveEditor` reads a
  * selection, an undo depth or a scroll position, so none of those cross. A
  * selection *is* preserved — that is what `echoes` below exists for — but it is
  * preserved by never being written over, not by being marshalled back and
  * forth. A protocol carrying state nobody consumes is state that can go wrong.
+ *
+ * ## Why a command crosses as a name and not as text
+ *
+ * `NoteAccessory` presses Bold. The obvious implementation is string surgery on
+ * the host — slice the note, insert two asterisks, send the result back as a
+ * `doc` — and it is wrong twice over. The host does not have the selection (see
+ * above, and it must not, or the caret starts jumping), and a `doc` message is
+ * *authoritative text*, which is the one write a read-only note still accepts.
+ * A bar built that way would edit `privacy.md`.
+ *
+ * So a command crosses as `{ name: "wrap", before, after }` and is run **by the
+ * guest, against the real editor state**, through the same CodeMirror commands
+ * the desktop's keymap runs. The selection stays where it is, the undo history
+ * is one history rather than two, and every one of these is an ordinary
+ * transaction that `editability`'s `changeFilter` refuses on a note the viewer
+ * may not write.
  *
  * ## Why everything is JSON over `postMessage`, and nothing is injected
  *
@@ -36,6 +53,85 @@
 
 export const PROTOCOL_VERSION = 1;
 
+/**
+ * What a button can ask the editor to do.
+ *
+ * The same five verbs `EditorControls` declares, as data rather than as
+ * methods, because on iOS they have to survive a JSON round trip. The web half
+ * never encodes one — it holds the `EditorView` — but it runs the *same*
+ * `runCommand` against it, so a command is defined once and behaves once.
+ *
+ * **Deliberately five verbs and not a command registry.** Everything here is
+ * something the accessory bar actually does; a sixth added speculatively is a
+ * verb one of the two surfaces will get wrong quietly, because only one of them
+ * is exercised by any given run.
+ */
+export type EditorCommand =
+  /** Wrap the selection, or insert the pair at the caret with it between them. */
+  | { name: "wrap"; before: string; after: string }
+  /** Put `prefix` at the start of the caret's line, or take it off again. */
+  | { name: "toggleLinePrefix"; prefix: string }
+  | { name: "undo" }
+  | { name: "redo" }
+  /**
+   * Let go of the editing surface.
+   *
+   * The only one of the five that does not touch the document, which is why
+   * `writesDocument` exists rather than a flat "commands need `editable`": the
+   * dismiss key has to work on a note somebody is only reading, and it is the
+   * one control on the bar that must never be the one that is refused.
+   */
+  | { name: "blur" };
+
+/**
+ * Read a command off the wire.
+ *
+ * `decode` proves a message is one of ours and says nothing about its payload,
+ * and this payload is the one that becomes an *edit*. A `wrap` whose `before`
+ * arrived as an object would be inserted into somebody's note as
+ * `[object Object]`, so the shape is checked here rather than assumed — same
+ * rule as `decode` itself, one level in.
+ */
+export function decodeCommand(value: unknown): EditorCommand | null {
+  if (typeof value !== "object" || value === null) return null;
+  const command = value as { name?: unknown; before?: unknown; after?: unknown; prefix?: unknown };
+  switch (command.name) {
+    case "wrap":
+      if (typeof command.before !== "string" || typeof command.after !== "string") return null;
+      return { name: "wrap", before: command.before, after: command.after };
+    case "toggleLinePrefix":
+      if (typeof command.prefix !== "string") return null;
+      return { name: "toggleLinePrefix", prefix: command.prefix };
+    case "undo":
+      return { name: "undo" };
+    case "redo":
+      return { name: "redo" };
+    case "blur":
+      return { name: "blur" };
+    default:
+      return null;
+  }
+}
+
+/** Would running this change the document? */
+export function writesDocument(command: EditorCommand): boolean {
+  return command.name !== "blur";
+}
+
+/**
+ * May this command run for a viewer with this clearance?
+ *
+ * **Every key on the accessory bar except the last is a programmatic edit**,
+ * and `EditorView.editable.of(false)` does not stop one — the whole point of
+ * `editability`'s third facet. So a command is refused for the same reason and
+ * in the same three places a `change` is: here on the host before it is sent,
+ * here in the guest before it is run, and finally by the `changeFilter` inside
+ * the transaction itself. The repetition is the design; see `acceptsChange`.
+ */
+export function acceptsCommand(editable: boolean, command: EditorCommand): boolean {
+  return editable || !writesDocument(command);
+}
+
 /** Host → guest. */
 export type ToGuest =
   /**
@@ -55,9 +151,20 @@ export type ToGuest =
   /**
    * How much of the editor is covered by something else — the iOS keyboard, an
    * accessory bar. The guest pads its scroller by this so the caret can always
-   * be scrolled clear of it.
+   * be scrolled clear of it, and hands the same number to CodeMirror as a
+   * scroll margin so "scroll the caret into view" means *above* the keyboard
+   * rather than anywhere inside the web view's rectangle.
    */
-  | { v: number; type: "inset"; bottom: number };
+  | { v: number; type: "inset"; bottom: number }
+  /**
+   * A key on the accessory bar was pressed. Run it against the real editor.
+   *
+   * `command` is typed rather than `unknown` because this is the host's own
+   * message and the host builds it — but the guest still runs it through
+   * `decodeCommand`, because the guest is a separate bundle that can be paired
+   * with a host it does not know.
+   */
+  | { v: number; type: "command"; command: EditorCommand };
 
 /** Guest → host. */
 export type ToHost =
@@ -110,6 +217,7 @@ export const TO_GUEST_TYPES: ReadonlySet<ToGuest["type"]> = new Set([
   "editable",
   "theme",
   "inset",
+  "command",
 ] as const);
 
 export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([

@@ -41,9 +41,46 @@ import { useEffect, useRef } from "react";
 import { Compartment } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { livePreviewStyles } from "./livePreview";
-import { editability, editorStateFor, externalDoc, type HandlerRef } from "./editorSetup";
+import {
+  editability,
+  editorStateFor,
+  replaceDocument,
+  runCommand,
+  type HandlerRef,
+} from "./editorSetup";
 import { fonts, layout } from "../../design/tokens";
 import { useColors, type Colors } from "../../design/theme";
+
+/**
+ * The handful of things a *button* can ask the editor to do.
+ *
+ * On a phone there is no keymap and no menu: `NoteAccessory` is the only route
+ * to bold, to a heading, to undo. That bar cannot reach into either editor —
+ * one is a CodeMirror view in this process, the other is a CodeMirror view
+ * inside a `WebView` — so this is the seam between them, declared once here and
+ * satisfied twice.
+ *
+ * **What it is not is a second implementation of markdown editing.** Both
+ * halves turn each of these into the *same* `runCommand` from `editorSetup.ts`,
+ * against a real `EditorView`, in exactly the way `editability` and the keymap
+ * are shared. The iOS half's methods are five lines of `bridge.run({ name })`;
+ * the commands themselves are written once.
+ *
+ * Every method's effect on the file goes out through the ordinary `onChange`,
+ * which is what keeps the accessory bar honest: `NoteEditor` re-attaches a
+ * note's frontmatter in front of every edit on a phone, so a command that
+ * wrote to the buffer by some other route would silently drop the YAML block
+ * of every captured note. `noteAccessory.test.ts` pins exactly that.
+ */
+export interface EditorControls {
+  /** Wrap the selection, or insert the pair at the caret with it between them. */
+  wrap(before: string, after: string): void;
+  /** Put `prefix` at the start of the caret's line, or remove it if already there. */
+  toggleLinePrefix(prefix: string): void;
+  undo(): void;
+  redo(): void;
+  blur(): void;
+}
 
 export interface LiveEditorProps {
   /** The authoritative text. Written into the editor only when it differs. */
@@ -53,6 +90,32 @@ export interface LiveEditorProps {
   /** Save. Wired to Cmd/Ctrl-S, because that is what people press. */
   onSave: () => void;
   accessibilityLabel: string;
+  /**
+   * Receives the imperative handle when the editor is ready, and **`null` when
+   * it goes away**.
+   *
+   * The null is not politeness. The accessory bar outlives a note change on a
+   * phone — the same bar, a different document — and a handle held past unmount
+   * points at a destroyed `EditorView`, where CodeMirror's own `dispatch`
+   * throws rather than no-ops. Handing `null` back makes the stale case a
+   * control that does nothing rather than a crash on a keystroke.
+   */
+  controls?: (api: EditorControls | null) => void;
+  /**
+   * The editing surface took or lost the caret.
+   *
+   * `NoteEditor` shows the accessory bar from this, because the bar exists to
+   * ride above the keyboard and the keyboard is up exactly while this surface
+   * is focused. Not derived from the keyboard's own visibility: the keyboard
+   * can be up over a different screen entirely.
+   *
+   * Both surfaces answer it, and neither of them does so with a `TextInput`'s
+   * `onFocus` any more — this half listens to CodeMirror's own DOM events, and
+   * the iOS half receives the guest's over the bridge. The prop is the same
+   * shape on purpose, so `NoteEditor` never learns which one it has.
+   */
+  onFocus?: () => void;
+  onBlur?: () => void;
 }
 
 /**
@@ -145,6 +208,9 @@ export function LiveEditor({
   editable,
   onChange,
   onSave,
+  controls,
+  onFocus,
+  onBlur,
   accessibilityLabel,
 }: LiveEditorProps) {
   const host = useRef<HTMLDivElement | null>(null);
@@ -185,8 +251,8 @@ export function LiveEditor({
    * `onChange` forever, and every keystroke after the first state change would
    * be sent to a stale reducer.
    */
-  const handlers = useRef({ onChange, onSave });
-  handlers.current = { onChange, onSave };
+  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur });
+  handlers.current = { onChange, onSave, controls, onFocus, onBlur };
 
   // What the editor is known to hold. Compared against the incoming `value` to
   // decide whether a write is a genuine external change or the echo of our own
@@ -225,13 +291,64 @@ export function LiveEditor({
       editable,
       editableCompartment: editableCompartment.current,
       handlers: bridged,
+      /*
+        No `insetBottom`. A mobile browser shrinks the layout viewport when the
+        keyboard opens rather than drawing over the page, so the scroller is
+        already the size of what can be seen and a margin here would push the
+        caret up by a keyboard that is covering nothing. The iOS half needs one
+        because a WKWebView keeps its full height; see `coveredBottom`.
+      */
     });
 
     const created = new EditorView({ state, parent: host.current });
+
+    /*
+      Focus, out to React.
+
+      Two DOM listeners here rather than an extension in `editorSetup.ts`,
+      because the guest reports its focus over the bridge instead — the two
+      surfaces answer the same prop by different routes, and that route is the
+      only part of this the two halves do not share. `guest.ts` attaches the
+      identical pair to the identical `contentDOM`.
+
+      Read off the ref rather than closed over, exactly like `onChange` above
+      and for the same reason: this view is built once and would otherwise
+      report to the first render's callbacks forever.
+    */
+    const reportFocus = () => handlers.current.onFocus?.();
+    const reportBlur = () => handlers.current.onBlur?.();
+    created.contentDOM.addEventListener("focus", reportFocus);
+    created.contentDOM.addEventListener("blur", reportBlur);
+
     view.current = created;
     latestValue.current = value;
 
+    /*
+      The imperative handle, built against `created` rather than `view.current`
+      so it cannot be aimed at a later editor by a race — and handed back as
+      `null` in the teardown below, before `destroy()`, so nothing can dispatch
+      into a destroyed view. See `LiveEditorProps.controls`.
+
+      Every method is `runCommand` from `editorSetup.ts`, which is the same
+      function the guest bundle runs inside its `WebView`. `undo`/`redo` are
+      therefore CodeMirror's own commands over the `history()` extension already
+      configured there — the same history `historyKeymap` gives ⌘Z. A
+      hand-rolled value stack here would be a *second* history disagreeing with
+      the keyboard's on the one platform that has a keyboard.
+    */
+    const api: EditorControls = {
+      wrap: (before, after) => runCommand(created, { name: "wrap", before, after }),
+      toggleLinePrefix: (prefix) => runCommand(created, { name: "toggleLinePrefix", prefix }),
+      undo: () => runCommand(created, { name: "undo" }),
+      redo: () => runCommand(created, { name: "redo" }),
+      blur: () => runCommand(created, { name: "blur" }),
+    };
+    handlers.current.controls?.(api);
+
     return () => {
+      handlers.current.controls?.(null);
+      created.contentDOM.removeEventListener("focus", reportFocus);
+      created.contentDOM.removeEventListener("blur", reportBlur);
       created.destroy();
       view.current = null;
     };
@@ -251,13 +368,10 @@ export function LiveEditor({
     if (value === latestValue.current) return;
 
     latestValue.current = value;
-    current.dispatch({
-      changes: { from: 0, to: current.state.doc.length, insert: value },
-      // Not an edit — a different note, a discarded draft, a resolved conflict.
-      // Without the annotation this reports itself back through `onChange`, and
-      // a read-only note refuses it and opens blank. See `externalDoc`.
-      annotations: externalDoc.of(true),
-    });
+    // Not an edit — a different note, a discarded draft, a resolved conflict —
+    // and not an entry in the undo history either, or the bar's undo key steps
+    // back into the note before this one. See `replaceDocument`.
+    replaceDocument(current, value);
   }, [value]);
 
   useEffect(() => {

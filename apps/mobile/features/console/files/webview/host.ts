@@ -24,10 +24,12 @@ import { EDITOR_BUNDLE } from "./bundle.generated";
 import {
   PROTOCOL_VERSION,
   acceptsChange,
+  acceptsCommand,
   decode,
   echoes,
   encode,
   TO_HOST_TYPES,
+  type EditorCommand,
   type ToGuest,
   type ToHost,
 } from "./protocol";
@@ -153,6 +155,16 @@ export interface HostBridge {
   setTheme: (vars: Readonly<Record<string, string>>) => void;
   /** How many points of the editor something else is covering. */
   setInset: (bottom: number) => void;
+  /**
+   * Run one of the accessory bar's commands against the editor.
+   *
+   * Nothing comes back. A command is a transaction inside the guest, and what
+   * it produces — a document change — comes back the same way typing does, as
+   * an ordinary `change`. A command that reported its own result would be a
+   * second path into the draft, and the one that skips `NoteEditor`'s
+   * frontmatter.
+   */
+  run: (command: EditorCommand) => void;
   /** A raw `onMessage` payload. */
   receive: (raw: string) => void;
   /** Testing seam: what the guest is believed to hold. */
@@ -215,6 +227,23 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
       inset = bottom;
       post({ v: PROTOCOL_VERSION, type: "inset", bottom });
     },
+    /**
+     * The first of the three refusals a bar key meets.
+     *
+     * `EditorView.editable.of(false)` does not stop a programmatic edit, and
+     * **every key on the accessory bar is one** — so a bar over a note the
+     * viewer may not write is not merely useless, it is the exact shape of the
+     * bug `editability` documents. The bar is not rendered on such a note in
+     * the first place; this is the refusal that does not depend on that
+     * staying true.
+     *
+     * The dismiss key is exempt, because it writes nothing and is the one
+     * control that must never be the one that is refused. See `writesDocument`.
+     */
+    run: (command) => {
+      if (!acceptsCommand(editable, command)) return;
+      post({ v: PROTOCOL_VERSION, type: "command", command });
+    },
     known: () => known,
     receive: (raw) => {
       const message = decode<ToHost>(raw, TO_HOST_TYPES);
@@ -266,10 +295,25 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
  *
  * Computed from where the editor actually is rather than from the keyboard's
  * height, because those are different numbers whenever anything above resizes
- * the editor for the keyboard already — a `KeyboardAvoidingView`, an accessory
- * bar, `react-native-keyboard-controller`. Measuring the overlap means this is
- * right whether that happens or not, and goes to zero on its own if it does,
- * rather than padding the note twice.
+ * the editor for the keyboard already — a `KeyboardAvoidingView`,
+ * `react-native-keyboard-controller`. Measuring the overlap means this is right
+ * whether that happens or not, and goes to zero on its own if it does, rather
+ * than padding the note twice.
+ *
+ * ## The accessory bar is added rather than measured, and that is the honest
+ * shape of it
+ *
+ * `KeyboardSticky` positions the bar absolutely and translates it up by the
+ * keyboard's height, so it is drawn *over* the editor and resizes nothing. The
+ * overlap above cannot see it — there is nothing in the layout to measure — so
+ * its height is added on top, from `ACCESSORY_HEIGHT`, whenever it is up.
+ *
+ * It is a constant rather than an `onLayout`, and the trade is worth stating:
+ * a measured height would be right if the row ever grew a second line, and it
+ * would also arrive a frame *after* the keyboard, which is the one frame in
+ * which the caret is behind the bar and the person is watching. The row is a
+ * fixed-height pill by construction — see `NoteAccessory`'s stylesheet, which
+ * reads the same constant — so the number cannot drift without a test failing.
  */
 export function coveredHeight(box: {
   /** The editor's top edge, in window coordinates. */
@@ -278,9 +322,12 @@ export function coveredHeight(box: {
   windowHeight: number;
   /** What the keyboard occupies at the bottom of the window. 0 when hidden. */
   keyboardHeight: number;
+  /** What the accessory bar occupies above the keyboard. 0 when it is not up. */
+  accessoryHeight?: number;
 }): number {
   if (box.keyboardHeight <= 0) return 0;
   const editorBottom = box.top + box.height;
   const keyboardTop = box.windowHeight - box.keyboardHeight;
-  return Math.max(0, Math.round(editorBottom - keyboardTop));
+  const overlap = Math.max(0, Math.round(editorBottom - keyboardTop));
+  return overlap + Math.max(0, Math.round(box.accessoryHeight ?? 0));
 }

@@ -29,14 +29,17 @@ import { Compartment } from "@codemirror/state";
 import {
   editability,
   editorStateFor,
-  externalDoc,
+  replaceDocument,
+  runCommand,
   type EditorHandlers,
   type HandlerRef,
 } from "../editorSetup";
 import {
   PROTOCOL_VERSION,
   acceptsChange,
+  acceptsCommand,
   decode,
+  decodeCommand,
   echoes,
   TO_GUEST_TYPES,
   type ToGuest,
@@ -152,6 +155,17 @@ export function mountGuest(
    * never saved.
    */
   let editable = false;
+  /**
+   * How much of the editor the keyboard, and the accessory bar riding on it,
+   * are covering.
+   *
+   * Held here and read through a closure rather than compartmented into the
+   * configuration, because it is consulted at *measure* time: the extension
+   * below asks for the current number every time CodeMirror scrolls something
+   * into view, so an `inset` message changes where the caret is allowed to sit
+   * without reconfiguring the editor. See `coveredBottom`.
+   */
+  let inset = 0;
 
   const handlers: HandlerRef = {
     current: {
@@ -161,7 +175,13 @@ export function mountGuest(
   };
 
   const view = new EditorView({
-    state: editorStateFor({ doc: "", editable: false, editableCompartment, handlers }),
+    state: editorStateFor({
+      doc: "",
+      editable: false,
+      editableCompartment,
+      handlers,
+      insetBottom: () => inset,
+    }),
     parent: root,
   });
 
@@ -191,13 +211,9 @@ export function mountGuest(
       case "doc": {
         if (echoes(message.text, latest)) return;
         latest = message.text;
-        view.dispatch({
-          changes: { from: 0, to: view.state.doc.length, insert: message.text },
-          // Not an edit, and the one write a read-only note still accepts —
-          // without this, opening a note announces a change of it, and
-          // `privacy.md` opens blank. See `externalDoc`.
-          annotations: externalDoc.of(true),
-        });
+        // Not an edit, the one write a read-only note still accepts, and not an
+        // entry in the undo history. All three live in `replaceDocument`.
+        replaceDocument(view, message.text);
         return;
       }
       case "editable": {
@@ -212,12 +228,50 @@ export function mountGuest(
         return;
       }
       case "inset": {
-        applyTheme(documentElement ?? root, {
-          "--lp-inset-bottom": `${Math.max(0, message.bottom)}px`,
-        });
-        // The keyboard has just covered part of the note, and the caret may be
-        // under it. The padding above makes room; this is what moves.
+        inset = Math.max(0, message.bottom);
+        applyTheme(documentElement ?? root, { "--lp-inset-bottom": `${inset}px` });
+        /*
+          The keyboard has just covered part of the note, and the caret may be
+          under it. Three things have to be true for it to come back out, and
+          only the third of them is this line:
+
+           - the scroller has to be able to scroll that far, which is the
+             padding written above;
+           - "in view" has to mean *above the keyboard*, which is the scroll
+             margin `inset` now feeds — without it CodeMirror is satisfied by a
+             caret anywhere inside the web view's rectangle, and the web view
+             keeps its full height while the keyboard is drawn over it;
+           - and something has to ask, which is this.
+
+          The first two also apply to every subsequent keystroke, because
+          CodeMirror scrolls the caret into view for itself on typed input and
+          consults the same facet when it does.
+        */
         view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head) });
+        return;
+      }
+      case "command": {
+        /**
+         * A key on the accessory bar, run against the real editor state.
+         *
+         * Two refusals before the command runs, and a third inside it.
+         * `decodeCommand` is the guest declining to act on a shape it does not
+         * recognise — the host builds these, but the guest is a separate bundle
+         * that can be paired with a host it does not know, which is the same
+         * reason `decode` exists one level up.
+         *
+         * `acceptsCommand` is the read-only gate, and it is here as well as on
+         * the host for exactly the reason `acceptsChange` is: **every key on
+         * this bar except the dismiss key is a programmatic edit**, and "the
+         * other side checked" is the assumption that made
+         * `EditorView.editable.of(false)` look sufficient for a year.
+         * `runCommand` checks the live facet a third time, which is the one
+         * that cannot be got round by a stale `editable` in this closure.
+         */
+        const command = decodeCommand(message.command);
+        if (command === null) return;
+        if (!acceptsCommand(editable, command)) return;
+        runCommand(view, command);
         return;
       }
     }

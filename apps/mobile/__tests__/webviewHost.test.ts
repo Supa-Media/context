@@ -23,6 +23,7 @@ import {
   escapeForScript,
 } from "../features/console/files/webview/host";
 import { PROTOCOL_VERSION } from "../features/console/files/webview/protocol";
+import { ACCESSORY_HEIGHT, accessoryUp } from "../features/console/files/accessory";
 
 describe("the document the web view loads", () => {
   /**
@@ -158,5 +159,58 @@ describe("how much of the note the keyboard is covering", () => {
     expect(
       coveredHeight({ top: 0, height: 844, windowHeight: 844, keyboardHeight: 0 }),
     ).toBe(0);
+  });
+
+  /**
+   * The accessory bar is added rather than measured, and that is not the same
+   * kind of number as the overlap above.
+   *
+   * `KeyboardSticky` positions the bar absolutely and translates it up by the
+   * keyboard's height, so it is drawn *over* the editor and resizes nothing —
+   * there is nothing in the layout for `measureInWindow` to find. Its height
+   * comes from `ACCESSORY_HEIGHT`, which is also what its stylesheet is drawn
+   * to, so the two cannot drift.
+   */
+  test("the accessory bar is added on top of what the keyboard covers", () => {
+    const box = { top: 0, height: 844, windowHeight: 844, keyboardHeight: 336 };
+    expect(coveredHeight(box)).toBe(336);
+    expect(coveredHeight({ ...box, accessoryHeight: ACCESSORY_HEIGHT })).toBe(
+      336 + ACCESSORY_HEIGHT,
+    );
+  });
+
+  test("but not when there is no keyboard for it to be riding on", () => {
+    expect(
+      coveredHeight({
+        top: 0,
+        height: 844,
+        windowHeight: 844,
+        keyboardHeight: 0,
+        accessoryHeight: ACCESSORY_HEIGHT,
+      }),
+    ).toBe(0);
+  });
+});
+
+/**
+ * The three conditions the accessory bar appears under, in one place.
+ *
+ * `NoteEditor` renders the bar from this and `LiveEditor` pads the note for it
+ * from the same call, so a fourth condition added in one and not the other
+ * would be a bar hanging over a note that had not made room for it.
+ */
+describe("when the accessory bar is up", () => {
+  const up = { compact: true, editable: true, focused: true };
+
+  test("a phone, a note this viewer may write, and the caret in it", () => {
+    expect(accessoryUp(up)).toBe(true);
+  });
+
+  test.each([
+    ["a pointer has a keyboard and the chords that go with it", { compact: false }],
+    ["a note the viewer may not write has nothing for the keys to do", { editable: false }],
+    ["and there is no keyboard to ride above until the note has the caret", { focused: false }],
+  ])("%s", (_why, off) => {
+    expect(accessoryUp({ ...up, ...off })).toBe(false);
   });
 });
