@@ -1,12 +1,13 @@
-import { Landing } from "../features/landing/Landing";
+import { RootScreen } from "../features/landing/RootScreen";
 
 /**
- * `/` — the public landing page.
+ * `/` — the landing page on the web, and the console on a phone.
  *
- * It stays public when you are signed in; the CTA changes to "Open your
- * console" rather than the page redirecting out from under someone who
- * deliberately navigated here.
+ * It used to be the landing page everywhere, which meant a native app opened
+ * on a page selling the app and offering to install it. See `resolveRootRoute`
+ * in `features/auth/redirect.ts` for the rule and why the phone's half of it
+ * defers to `/console` rather than naming a context.
  */
-export default function LandingRoute() {
-  return <Landing />;
+export default function RootRoute() {
+  return <RootScreen />;
 }

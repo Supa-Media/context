@@ -100,7 +100,6 @@ jest.mock("@convex-dev/auth/react", () => ({
 }));
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { Landing } = require("../features/landing/Landing") as typeof import("../features/landing/Landing");
 const { LoginScreen } = require("../features/auth/LoginScreen") as typeof import("../features/auth/LoginScreen");
 const { ConsentScreen } =
   require("../features/consent/ConsentScreen") as typeof import("../features/consent/ConsentScreen");
@@ -152,7 +151,13 @@ const ROUTES: Record<string, Coverage> = {
   "_layout.tsx": { kind: "shell" },
   "+html.tsx": { kind: "shell" },
 
-  "index.tsx": { kind: "screen", mount: () => createElement(Landing) },
+  /*
+    The route module, not `Landing` — jest renders through react-native-web, so
+    `resolveRootRoute` answers "render" here exactly as a browser would, and the
+    landing page is what this mounts. On a phone the same route redirects and
+    paints nothing; that half is `authRedirect.test.ts`'s.
+  */
+  "index.tsx": { kind: "screen", mount: () => createElement(requireRoute("index.tsx")) },
   "authorize.tsx": { kind: "screen", mount: () => createElement(ConsentScreen) },
   "(auth)/login.tsx": { kind: "screen", mount: () => createElement(LoginScreen) },
   /*

@@ -334,6 +334,7 @@ function rect(
  * are two bars with a notch between them at exactly the sizes a phone uses.
  */
 function chevron(
+  key: string,
   u: number,
   w: number,
   color: string,
@@ -342,7 +343,7 @@ function chevron(
   const d = side * u;
   return (
     <View
-      key="chevron"
+      key={key}
       style={{
         position: "absolute",
         left: cx * u - d / 2,
@@ -356,6 +357,25 @@ function chevron(
       }}
     />
   );
+}
+
+/**
+ * The keys of one icon's strokes, for the test that they are distinct.
+ *
+ * Exported for the same reason `ICON_NAMES` is a value: the thing that goes
+ * wrong here is invisible from outside. `chevron` hardcoded `key="chevron"`
+ * while every other primitive took one, so `exchange` — two bars and two
+ * chevrons — drew two children under one key and React complained over the
+ * rail on a phone. Nothing was missing from the screen; the only symptom was a
+ * red toast in a development build, which is why it survived.
+ *
+ * A key never reaches the DOM, and React 19 does not warn for this shape on a
+ * first mount, so there is nothing to inspect after rendering and nothing to
+ * catch by listening. The keys have to be read from the drawing itself.
+ */
+export function strokeKeys(name: IconName): (string | null)[] {
+  const drawn = draw(name, 24, "rgb(1, 2, 3)", 2);
+  return (Array.isArray(drawn) ? drawn : [drawn]).map((stroke) => stroke.key);
 }
 
 /**
@@ -408,23 +428,23 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
       ];
 
     case "chevronRight":
-      return chevron(u, w, c, { cx: 0.44, cy: 0.5, side: 0.4, angle: 45 });
+      return chevron("chevron", u, w, c, { cx: 0.44, cy: 0.5, side: 0.4, angle: 45 });
     case "chevronLeft":
-      return chevron(u, w, c, { cx: 0.56, cy: 0.5, side: 0.4, angle: -135 });
+      return chevron("chevron", u, w, c, { cx: 0.56, cy: 0.5, side: 0.4, angle: -135 });
     case "chevronDown":
-      return chevron(u, w, c, { cx: 0.5, cy: 0.44, side: 0.4, angle: 135 });
+      return chevron("chevron", u, w, c, { cx: 0.5, cy: 0.44, side: 0.4, angle: 135 });
     case "chevronUp":
-      return chevron(u, w, c, { cx: 0.5, cy: 0.56, side: 0.4, angle: -45 });
+      return chevron("chevron", u, w, c, { cx: 0.5, cy: 0.56, side: 0.4, angle: -45 });
 
     case "arrowLeft":
       return [
         bar("shaft", u, w, c, { cx: 0.52, cy: 0.5, length: 0.62 }),
-        chevron(u, w, c, { cx: 0.34, cy: 0.5, side: 0.34, angle: -135 }),
+        chevron("head", u, w, c, { cx: 0.34, cy: 0.5, side: 0.34, angle: -135 }),
       ];
     case "arrowRight":
       return [
         bar("shaft", u, w, c, { cx: 0.48, cy: 0.5, length: 0.62 }),
-        chevron(u, w, c, { cx: 0.66, cy: 0.5, side: 0.34, angle: 45 }),
+        chevron("head", u, w, c, { cx: 0.66, cy: 0.5, side: 0.34, angle: 45 }),
       ];
 
     case "more":
@@ -469,9 +489,9 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
     case "exchange":
       return [
         bar("top", u, w, c, { cx: 0.46, cy: 0.34, length: 0.6 }),
-        chevron(u, w, c, { cx: 0.66, cy: 0.34, side: 0.28, angle: 45 }),
+        chevron("topHead", u, w, c, { cx: 0.66, cy: 0.34, side: 0.28, angle: 45 }),
         bar("bottom", u, w, c, { cx: 0.54, cy: 0.66, length: 0.6 }),
-        chevron(u, w, c, { cx: 0.34, cy: 0.66, side: 0.28, angle: -135 }),
+        chevron("bottomHead", u, w, c, { cx: 0.34, cy: 0.66, side: 0.28, angle: -135 }),
       ];
 
     /*
@@ -488,14 +508,14 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         bar("a1", u, w, c, { cx: 0.29, cy: 0.5, length: 0.28, angle: -60 }),
         bar("a2", u, w, c, { cx: 0.5, cy: 0.38, length: 0.28 }),
         bar("a3", u, w, c, { cx: 0.71, cy: 0.5, length: 0.28, angle: 60 }),
-        chevron(u, w, c, { cx: 0.24, cy: 0.6, side: 0.28, angle: 180 }),
+        chevron("head", u, w, c, { cx: 0.24, cy: 0.6, side: 0.28, angle: 180 }),
       ];
     case "redo":
       return [
         bar("a1", u, w, c, { cx: 0.29, cy: 0.5, length: 0.28, angle: -60 }),
         bar("a2", u, w, c, { cx: 0.5, cy: 0.38, length: 0.28 }),
         bar("a3", u, w, c, { cx: 0.71, cy: 0.5, length: 0.28, angle: 60 }),
-        chevron(u, w, c, { cx: 0.76, cy: 0.6, side: 0.28, angle: 90 }),
+        chevron("head", u, w, c, { cx: 0.76, cy: 0.6, side: 0.28, angle: 90 }),
       ];
 
     case "brackets":
@@ -586,7 +606,7 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         dot("k2", u, c, { cx: 0.5, cy: 0.3, r: 0.05 }),
         dot("k3", u, c, { cx: 0.74, cy: 0.3, r: 0.05 }),
         bar("space", u, w, c, { cx: 0.5, cy: 0.46, length: 0.34 }),
-        chevron(u, w, c, { cx: 0.5, cy: 0.78, side: 0.26, angle: 135 }),
+        chevron("head", u, w, c, { cx: 0.5, cy: 0.78, side: 0.26, angle: 135 }),
       ];
 
     case "share":
