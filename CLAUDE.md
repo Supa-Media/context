@@ -1396,6 +1396,154 @@ page before any app code runs — so it carries the two grounds as literals unde
 a `prefers-color-scheme` query, pinned against the palettes by
 `__tests__/htmlShell.test.ts`.
 
+### Offline is a queue and a cache, and a conflict is parked rather than resolved
+
+The console holds a customer's notes and is used on laptops and phones, so
+losing the connection is an ordinary Tuesday rather than an edge case. What made
+that expensive is a property of the stack rather than a missing feature:
+`listFiles`, `readNote` and `writeNote` are Convex **actions**, and
+`ConvexReactClient.action()` has no client-side timeout — offline they neither
+resolve nor reject. So the tree sat empty forever, and Save sat in `saving` for
+thirty seconds before saying "we don't know whether that save landed" about a
+save that certainly had not.
+
+`features/offline` is the answer, and the decisions in it are the ones a tidy-up
+would reverse.
+
+**The cache is a disposable derivative and the queue is not.** Notes and
+listings are copies of the customer's files (non-negotiable #3), so they are
+bounded — thirty days and 200 entries, oldest first — and deleting all of them
+loses nothing but round trips. A **draft** and a **queued write** are text a
+person typed that has never reached the bucket; they are never swept, never
+bounded, and leave only by being written to the bucket or by that person letting
+them go. `sweep()` is the eviction path and it cannot see either kind. An
+eviction that could is data loss wearing the word "cache".
+
+**A queued write is the same conditional write the Save button makes, made
+later.** It carries the etag the draft was typed against and goes through
+`writeNote` with `expectedEtag`, so it inherits the server's
+`onlyIf: { etagMatches }` where the bucket has one and its read-compare where it
+does not, and the same `CONFLICT` with the same `currentEtag` when somebody got
+there first. There is no second write path and no "force" flag anywhere in the
+drain. A drain that dropped `expectedEtag` to get things through would be
+last-write-wins with extra steps, and would look like a bug fix.
+
+**`enqueue` never advances `baseEtag`.** Superseding a queued write takes the
+newer *text* only. Taking a fresher etag — from a background reload, from a
+listing refresh — would silently turn "replace the version I read" into "replace
+whatever is there now", which is a clobber performed by a code path nobody
+pressed.
+
+#### The conflict decision
+
+When the etag has moved by the time the queue drains, the entry is **parked**:
+its state becomes `conflicted`, the text is kept untouched, and **nothing is
+written**. It is never retried automatically — automatic retry of a conflict is
+last-write-wins on a timer. It waits for a person, who gets the two answers the
+online editor already gives: *Load theirs*, which is the only path in the
+console that destroys a draft and is reached from a control pressed with the
+conflict explained beside it, or *Keep mine*, which re-bases onto the etag the
+conflict reported so the retry is still a conditional write against a version
+they were shown. A third client writing in between is a new conflict and gets
+asked about again rather than flattened.
+
+Three alternatives were considered and rejected, and the reasoning matters
+because each looks simpler:
+
+- **Last-write-wins.** Unacceptable. The bucket is also open in Obsidian and
+  written by AI clients, so "somebody else saved while you were typing" is the
+  normal case here, not a corner. Silently discarding one side of it is the one
+  thing this product cannot do.
+- **A conflict copy in the bucket** (`foo (conflict 2026-08-31).md` beside the
+  original, Dropbox's answer). It has one real advantage — the typing survives
+  the *device* being lost, which parking does not — and it was still refused.
+  Writing a file the customer did not ask for into storage we are a guest in
+  crosses non-negotiable #1; the on-bucket layout is a stable format rather than
+  an internal detail (#3), so adding a filename convention to it is a breaking
+  change; and the file would then appear in their Obsidian vault, in the search
+  index, and in every `list_notes` an AI client makes. **This is the one part of
+  the design that is genuinely the owner's call rather than a rule**, and if it
+  is wanted the shape is a per-context setting, not a default.
+- **Blocking the editor until the conflict is answered.** Refused for the same
+  reason `guardLeaving` lets you leave a queued note: somebody on a train with no
+  connection would be locked out of every other note over a decision they cannot
+  usefully make yet.
+
+**Nothing is lost by either answer, including the one that overwrites.**
+`writeFile` snapshots the outgoing body into `.history/` before every write, so
+"Keep mine" leaves the replaced version recoverable from the customer's own
+bucket.
+
+**A draft is conflict-checked before it is ever sent.** A draft typed and never
+saved carries its base etag. If the note has moved on by the time it is
+reopened, it is restored **as a conflict** rather than as ordinary unsaved
+changes — otherwise the console silently arms a Save over a version nobody has
+seen. That is the same choice a refused save offers, given before the write
+instead of after it.
+
+**Retries are bounded and the classifier is an allowlist.** Only enumerated
+transient codes (`STORAGE_FAILED`, `UNKNOWN`, `PRIVACY_MANIFEST_BUSY`) are
+retried; every other code — including one added next year — parks the entry and
+says so. The other direction is the expensive one: an unrecognised refusal
+retried on every reconnection forever, against somebody's paid-for request
+quota, for a write that was never going to succeed. Six failures across six
+separate reconnections parks it too.
+
+#### Where conflict detection is genuinely unavailable
+
+A queued write on a bucket that cannot do conditional writes (B2, Wasabi, and
+anything the connect-time probe catches lying) is checked by read-compare, the
+same as an online save there — the delay does not widen the read-to-write race,
+because the compare happens at drain time. What the delay *does* change is how
+likely a conflict is at all: an edit typed on a train and sent an hour later has
+had an hour in which somebody's Obsidian could sync. So the queue's own line
+says it, in `copy.ts`, driven by the binding's real `capabilities.conditionalWrite`
+— not by the provider's claim, which S3Store declares `true` for every
+S3-compatible endpoint including the ones that ignore `If-Match`. Reported,
+never faked, and never silently dropped.
+
+#### Where it runs, and what it promises
+
+**Shared, not native-only** — a deliberate divergence from the Togather ADR
+this borrowed its shape from, where every offline module is native-only with a
+`.web.ts` no-op. Web is this product's primary surface and ships daily, and a
+closed tab loses a draft exactly as an OS reclaiming an app does. Only the
+storage primitive is split: `store.web.ts` is `localStorage`, probed with a real
+write because every failure mode (Private Browsing, blocked site data, a full
+bucket) is a throw rather than a missing property.
+
+**The native half has nowhere durable to write yet, and says so.**
+`@react-native-async-storage/async-storage` is `core` in `native-deps.json` and
+absent from `package.json`, so a phone gets an in-memory store: the read cache,
+offline editing, the queue, the drain and the conflict parking all work for the
+life of the session, and a force-quit loses the queue. `durable` is on the
+`KeyValueStore` interface for exactly this, and every sentence about the queue
+changes with it rather than the boolean being hidden. `store.ts` carries the
+twelve-line change that lights it up; nothing else moves when it does.
+
+**Sign-out wipes everything this feature holds**, queue included. Note text is
+the customer's private content and a signed-out browser has no business holding
+a readable copy; a queue that survived would drain into whoever signs in next on
+that machine. `signOutWarning` is the last moment anybody can be told.
+
+#### What a person sees
+
+Three states, all in the status strip, which already exists to carry exactly
+this kind of fact:
+
+- **Offline** — `warn`, and absent while online *and* while the platform has
+  not said. A chip that flashes on every cold load, or sits there permanently on
+  a browser with no `navigator.onLine`, is a chip people stop seeing.
+- **"3 notes waiting to sync"** — `warn`, with what the store can actually
+  promise and, on a weak bucket, what the check is worth.
+- **"2 notes need you"** — `crit`, outranking the pending count because a
+  pending write sorts itself out and a conflicted one never will, and **naming
+  the notes**: a count with no way to find out which two cannot be acted on.
+
+The open note carries its own: `Queued` (`warn`, never `ok` — the bucket is the
+only thing this product treats as real), `Cached copy` with the copy's age, and
+the existing conflict panel with its two buttons.
+
 ## Engineering standards
 
 - **Test-first.** Write the failing test, then the code. Tenant isolation,
