@@ -18,6 +18,7 @@ import { describe as group, expect, test } from "@jest/globals";
 import {
   frontmatterTitle,
   noteHeading,
+  noteHeadingSource,
   properties,
   splitNote,
 } from "../features/console/files/frontmatter";
@@ -221,5 +222,56 @@ group("noteHeading", () => {
     // The one input it cannot rescue is the one that supplied no name at all;
     // pinned so the floor is a stated fact rather than an assumption.
     expect(noteHeading("", "")).toBe("");
+  });
+});
+
+group("noteHeadingSource — which rung named the note", () => {
+  // The inline title is drawn from `noteHeading`; when that came from the
+  // body's own `# H1`, drawing it would show the same string twice on the
+  // first screen. These pin which case is which.
+  test("frontmatter title wins, and the body keeps its heading", () => {
+    const note = '---\ntitle: "Run of show"\n---\n\n# Run of show\n\nBody.\n';
+    expect(noteHeadingSource(note)).toBe("frontmatter");
+    // The body is untouched — the H1 is still there to render.
+    expect(splitNote(note).body).toContain("# Run of show");
+  });
+
+  test("a body heading names the note, so the title steps aside", () => {
+    const note = "# Build decisions\n\nTenancy is bucket-level.\n";
+    expect(noteHeadingSource(note)).toBe("heading");
+    expect(noteHeading(note, "notes/context-lc.md")).toBe("Build decisions");
+  });
+
+  test("no title and no heading falls through to the filename", () => {
+    const note = "Just a paragraph, no heading at all.\n";
+    expect(noteHeadingSource(note)).toBe("filename");
+    expect(noteHeading(note, "0-inbox/email/3efac11d.md")).toBe("3efac11d");
+  });
+
+  test("a heading inside a fence does not name the note", () => {
+    const note = "```sh\n# not a heading\n```\n\ntext\n";
+    expect(noteHeadingSource(note)).toBe("filename");
+  });
+
+  test("the heading need not be the first line", () => {
+    const note = "\n\nintro paragraph\n\n# The real heading\n";
+    expect(noteHeadingSource(note)).toBe("heading");
+    expect(noteHeading(note, "notes/x.md")).toBe("The real heading");
+  });
+
+  test("nothing here ever alters the file", () => {
+    // The whole reason the title steps aside instead of the heading being
+    // stripped: on a phone the body IS the editor's buffer.
+    for (const note of [
+      '---\ntitle: "T"\n---\n# T\nbody\n',
+      "# H\nbody\n",
+      "plain\n",
+      "\r\n# CRLF\r\nbody\r\n",
+      "# no trailing newline",
+    ]) {
+      const { frontmatter, body } = splitNote(note);
+      noteHeadingSource(note);
+      expect(frontmatter + body).toBe(note);
+    }
   });
 });

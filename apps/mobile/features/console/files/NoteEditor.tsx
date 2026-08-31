@@ -9,7 +9,7 @@ import { fonts, layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { describe as describeVisibility } from "./Breadcrumb";
 import { saveButton, type EditorState } from "./editor";
-import { noteHeading, properties, splitNote, type Property } from "./frontmatter";
+import { noteHeading, noteHeadingSource, properties, splitNote, type Property } from "./frontmatter";
 import { LiveEditor, type EditorControls } from "./LiveEditor";
 import { NoteAccessory } from "./NoteAccessory";
 import { highlightMarkdown } from "./highlight";
@@ -157,6 +157,16 @@ export function NoteEditor({
     was opened — see the `LiveEditor` call below.
   */
   const { frontmatter, body } = splitNote(state.draft);
+  /*
+    Whether to draw the inline title at all.
+
+    When the note is named by its own opening `# H1`, that heading is already on
+    screen inside the document, and drawing the title too shows the same string
+    twice on the first screen. Suppressing the title rather than stripping the
+    heading is deliberate: on a phone `body` below is the editor's *buffer*, so
+    removing a line from it would delete that heading from the file on save.
+  */
+  const titled = noteHeadingSource(state.draft) !== "heading";
 
   /**
    * Everything that scrolls, as one node.
@@ -190,6 +200,12 @@ export function NoteEditor({
         Compact only. A pointer layout still has the breadcrumb, which carries
         folder navigation this cannot, and two names above one note is worse
         than either.
+
+        And `titled` only: when the name came from the body's own `# H1`, that
+        heading is already on screen and drawing it here too shows one string
+        twice on the first screen. The heading stays and the title steps aside,
+        rather than the other way round — `body` below is the editor's buffer on
+        a phone, so removing a line from it would delete it from the file.
       */}
       {/*
         `state.path` is `null` only for the empty editor, which this pane never
@@ -197,7 +213,7 @@ export function NoteEditor({
         asserted, because a heading row with nothing in it reads as a broken
         screen and `noteHeading` refuses to invent one.
       */}
-      {compact && state.path !== null ? (
+      {compact && state.path !== null && titled ? (
         <Text
           role="heading"
           aria-level={1}

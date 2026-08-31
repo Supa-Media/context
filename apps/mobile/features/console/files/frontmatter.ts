@@ -152,6 +152,33 @@ export function noteHeading(source: string, path: string): string {
 }
 
 /**
+ * Which rung `noteHeading` landed on.
+ *
+ * The inline title is drawn from it, and when the answer is `"heading"` it must
+ * *not* be drawn — the note's own `# H1` is already on screen a few lines down,
+ * and rendering both shows the same string twice on the first screen.
+ *
+ * The obvious fix — strip the heading out of the displayed body — is wrong here
+ * and dangerous: on a phone the body is not a preview, it is the editor's
+ * buffer (`NoteEditor` passes it straight to `LiveEditor`, which reattaches the
+ * frontmatter on change). Removing a line from it would delete that heading from
+ * the customer's file on the next save. So nothing is removed from anything;
+ * the title simply steps aside for the heading that is already there.
+ *
+ * This is also why Obsidian never looks doubled: its inline title is the
+ * *filename*, so `index` sits happily above a body headed `Brain — manifest`.
+ * Ours collides only because a heading is one of the rungs.
+ */
+export type HeadingSource = "frontmatter" | "heading" | "filename";
+
+export function noteHeadingSource(source: string): HeadingSource {
+  const { frontmatter, body } = splitNote(source);
+  if (frontmatterTitle(frontmatter) !== null) return "frontmatter";
+  if (firstHeading(body) !== null) return "heading";
+  return "filename";
+}
+
+/**
  * The text of the body's first level-1 ATX heading, or `null`.
  *
  * Fenced code is skipped, because a note holding a shell script would otherwise
@@ -163,8 +190,18 @@ export function noteHeading(source: string, path: string): string {
  * carries on past it.
  */
 function firstHeading(body: string): string | null {
+  return scanFirstHeading(body)?.text ?? null;
+}
+
+/**
+ * One scan, two callers — so the title and the line it came from can never
+ * disagree about which heading won.
+ */
+function scanFirstHeading(body: string): { text: string; index: number } | null {
   let inFence = false;
-  for (const line of body.split(/\r?\n/)) {
+  const lines = body.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
     if (/^\s*(?:`{3,}|~{3,})/.test(line)) {
       inFence = !inFence;
       continue;
@@ -173,7 +210,7 @@ function firstHeading(body: string): string | null {
     const match = /^\s*#(?:\s+(.*))?$/.exec(line);
     if (match === null) continue;
     const text = (match[1] ?? "").replace(/\s+#+\s*$/, "").trim();
-    if (text !== "") return text;
+    if (text !== "") return { text, index };
   }
   return null;
 }
