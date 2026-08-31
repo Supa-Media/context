@@ -52,7 +52,7 @@ export default function Root({ children }: PropsWithChildren) {
         <meta name="referrer" content="no-referrer" />
         <meta name="color-scheme" content="light dark" />
         <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#050506" />
-        <meta name="theme-color" media="(prefers-color-scheme: light)" content="#EDEDF2" />
+        <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FFFFFF" />
         <meta
           name="description"
           content="Tell one AI once. Context carries the right decisions to every AI and teammate you allow, backed by plain markdown in Dropbox or storage you own."
@@ -84,7 +84,7 @@ export default function Root({ children }: PropsWithChildren) {
  */
 const groundStyle = `
 html, body, #root {
-  background-color: #EDEDF2;
+  background-color: #FFFFFF;
   color-scheme: light;
 }
 body {
@@ -93,7 +93,7 @@ body {
   overflow-x: hidden;
 }
 /* Selection in the product's blue rather than the browser default. */
-::selection { background: rgba(37,99,235,.22); color: #14141A; }
+::selection { background: rgba(37,99,235,.22); color: #222222; }
 
 @media (prefers-color-scheme: dark) {
   html, body, #root {

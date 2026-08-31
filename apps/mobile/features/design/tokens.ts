@@ -127,14 +127,26 @@ export type Colors = Readonly<Record<keyof typeof darkColors, string>>;
  * The tokens are therefore placed by the job each one does, which is the
  * relationship worth preserving:
  *
- *   - `ground` is the page, a clear grey, so a panel can lift off it.
- *   - `surface` is that panel: white.
- *   - `surface2` sits *between* them, which is the one value that satisfies
- *     both of its jobs — raised when it is a card on `ground`, tinted when it
- *     is a hovered row on `surface`.
+ *   - `ground` is the page.
+ *   - `surface` is the panel on it.
+ *   - `surface2` is the faint fill: a pointer layout's toolbar, a raised card.
  *   - `surface3` is the stronger tint: a menu row under the pointer, a ghost
- *     button's fill, a neutral pill.
+ *     button's fill, a neutral pill, a selected row on a phone.
  *   - `well` stays the deepest inset, as it is in the dark palette.
+ *
+ * **`ground` and `surface` are both white, and that is the design rather than
+ * a value nobody filled in.** This palette used to ground at `#EDEDF2` with
+ * `#14141A` ink so that a white panel could lift off the page without a
+ * border. On a desktop that is a defensible picture and on a phone it is the
+ * single thing that made the app read as grey: the note, the file tree and the
+ * chrome are each the widest object on the glass, there is nothing for them to
+ * lift *off*, and the grey shows through as a tint over the whole document.
+ * Obsidian on iOS — which is the surface this app is measured against, and
+ * which most of its users already have open — paints paper white and separates
+ * regions with a shadow and a hairline instead. So do we. The hairlines
+ * (`line`) and the three shadows are what carry the separation now, which is
+ * why neither may be dropped as "invisible": on this ground they are the only
+ * edges there are.
  *
  * **`white` and `ink` keep their roles, not their names.** `white` is the
  * primary CTA's fill and `ink` is the label on it; in the dark world that is a
@@ -153,20 +165,29 @@ export type Colors = Readonly<Record<keyof typeof darkColors, string>>;
  * Contrast is asserted, not asserted-in-prose: see `__tests__/theme.test.ts`.
  */
 export const lightColors: Colors = {
-  ground: "#EDEDF2",
+  ground: "#FFFFFF",
   surface: "#FFFFFF",
-  surface2: "#F7F7FB",
-  surface3: "#EBEBF1",
+  surface2: "#FAFAFA",
+  surface3: "#F1F1F3",
 
   /** Hairline separators — black at low alpha, mirroring the dark palette's white. */
   line: "rgba(0,0,0,0.09)",
   lineStrong: "rgba(0,0,0,0.18)",
 
-  text: "#14141A",
-  text2: "#4A4A57",
-  muted: "#626270",
+  /**
+   * Ink, and its two quieter voices.
+   *
+   * `#222222` rather than a near-black with a blue cast. The cast was there to
+   * agree with a grey-blue ground that no longer exists; against paper it is a
+   * tint nobody asked for on every word in the app, and the type it is set in
+   * is a body face at 16/24 rather than a display face where a cool black
+   * reads as deliberate.
+   */
+  text: "#222222",
+  text2: "#444444",
+  muted: "#6B6B6B",
   /** The second hero line, deliberately dimmer than `muted`. */
-  heroDim: "#7E7E8D",
+  heroDim: "#858585",
 
   accent: "#2563EB",
   accentDim: "rgba(37,99,235,0.10)",
@@ -194,8 +215,12 @@ export const lightColors: Colors = {
   ink: "#FFFFFF",
   white: "#14141A",
 
-  /** The recessed grey used for insets: code blocks, the map field, field values. */
-  well: "#E4E4EC",
+  /**
+   * The recessed grey used for insets: code blocks, the map field, field
+   * values — and, in a note, the ground under an inline `code` span, which is
+   * where most people will actually see it.
+   */
+  well: "#F5F5F5",
 
   /** Warm accent for the first floating tile's mark. */
   warm: "#C2410C",
@@ -424,12 +449,43 @@ export const layout = {
    */
   chromeButton: MIN_TOUCH_TARGET,
   /**
-   * A row in a grouped list, or in the file tree, on a phone.
+   * A row in a grouped list on a phone.
    *
    * Above `minTouchTarget` for the same reason the toolbar is: the floor is
    * what a control must not go below, not what a comfortable list row is.
+   *
+   * **The file tree is no longer one of these** — see `explorerRow`. A list of
+   * settings is a handful of rows a thumb picks one from; a file tree is the
+   * only way to reach a note on a phone and is read as a *list*, where the
+   * number of rows on screen at once is the thing that decides whether it is
+   * usable.
    */
   touchRow: 48,
+
+  /* ---------------------------------------------------------------------- *
+   * The file tree on a phone, measured off Obsidian on iOS.
+   *
+   * These three numbers are one measurement, not three preferences, and they
+   * were taken from a 1320×2868 screenshot (440×956pt at @3x) rather than
+   * eyeballed: the row pitch, the step between two levels, and where a
+   * top-level name begins. Getting one of them right and the others near is
+   * what makes a tree read as "nearly Obsidian", which is worse than not
+   * trying — a half-matched rhythm reads as a bug rather than as a style.
+   * ---------------------------------------------------------------------- */
+
+  /**
+   * The row pitch. **Below `minTouchTarget` on purpose**, which is legal here
+   * and nowhere else: the row is drawn at 36 and the pressable carries
+   * `explorerRowSlop` of `hitSlop` on each edge, so what a thumb hits is 44.
+   * See `PressRow`'s `hitSlop` — pad the pressable, not the visual.
+   */
+  explorerRow: 36,
+  /** `(minTouchTarget - explorerRow) / 2`, derived so the two cannot drift. */
+  explorerRowSlop: (MIN_TOUCH_TARGET - 36) / 2,
+  /** One level of nesting. */
+  explorerIndent: 16,
+  /** Where a top-level row's *name* starts, chevron gutter included. */
+  explorerInset: 37,
 } as const;
 
 /**
