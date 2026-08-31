@@ -66,7 +66,14 @@ import { densityFor } from "../../app/frame";
 import { Text } from "../../design/components/Text";
 import { fonts, leading, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
-import { EDITOR_HTML, coveredHeight, createHostBridge, themeVars } from "./webview/host";
+import {
+  EDITOR_HTML,
+  caretOvershoot,
+  coveredHeight,
+  createHostBridge,
+  editorBox,
+  themeVars,
+} from "./webview/host";
 import { ACCESSORY_HEIGHT, accessoryUp } from "./accessory";
 import type { EditorControls, LiveEditorProps } from "./LiveEditor.web";
 
@@ -102,6 +109,7 @@ export function LiveEditor({
   controls,
   onFocus,
   onBlur,
+  onScrollBy,
   accessibilityLabel,
 }: LiveEditorProps) {
   const styles = useThemedStyles(makeStyles);
@@ -121,6 +129,27 @@ export function LiveEditor({
    * two predicates that agree until somebody edits one.
    */
   const [focused, setFocused] = useState(false);
+  /**
+   * WHAT THE GUEST LAST MEASURED THE DOCUMENT AT, and why that is a state.
+   *
+   * `editorBox` in `host.ts` carries the whole argument for why a phone's
+   * editor is given a height rather than a `flex`; the short version is that
+   * the note is one page scroller and a `flex: 1` child of a scroll view's
+   * content container measures to zero. This is the number that box is built
+   * from, and the only thing that knows it is the guest — see the `height`
+   * message in `protocol.ts`.
+   *
+   * `flexGrow: 1` on the content container is the fix that looks right and is
+   * not: it makes the container a viewport-sized flex parent, so the editor
+   * fills the screen, the title stops scrolling out from under the floating
+   * chrome, the durability line becomes a strip pinned at the bottom, and
+   * CodeMirror's scroller starts fighting the page scroller for the same drag.
+   * Two nested scrollers is a different bug, not a fixed one.
+   *
+   * `null` until the guest has measured; `editorBox` draws an estimate until
+   * then.
+   */
+  const [height, setHeight] = useState<number | null>(null);
 
   /**
    * The callbacks, held in a ref and read at call time.
@@ -130,8 +159,48 @@ export function LiveEditor({
    * `onChange` directly would deliver every keystroke after the first state
    * change to a stale reducer. Exactly the trap `LiveEditor.web.tsx` documents.
    */
-  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur });
-  handlers.current = { onChange, onSave, controls, onFocus, onBlur };
+  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onScrollBy });
+  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onScrollBy };
+
+  /**
+   * What the keyboard is covering, and how much of that is our own bar.
+   *
+   * Refs rather than state because only callbacks read them, and the one that
+   * reads them most — a `caret` message — arrives on every arrow key. The
+   * accessory bar's height is written here as well as read by the effect below
+   * so a `caret` that lands between the focus and the keyboard's own event
+   * still subtracts the bar that is about to be over it.
+   */
+  const keyboardHeight = useRef(0);
+  const covering = useRef({ windowHeight: 0, accessoryHeight: 0 });
+
+  /**
+   * Bring the caret out from under the keyboard by scrolling the surface this
+   * editor is laid out inside.
+   *
+   * At compact the web view is as tall as its document, so CodeMirror's own
+   * scroller has nothing to scroll and `coveredBottom`'s scroll margin has
+   * nothing to act on — see the `caret` message in `protocol.ts`. The page
+   * scroller in `NoteEditor` is what moves, through `onScrollBy`.
+   *
+   * A no-op on any surface that did not pass one, which is every surface where
+   * the editor scrolls itself.
+   */
+  const keepCaretClear = useCallback((caret: { top: number; bottom: number }) => {
+    const scrollBy = handlers.current.onScrollBy;
+    if (scrollBy === undefined) return;
+    if (keyboardHeight.current <= 0) return;
+    host.current?.measureInWindow((_x, top) => {
+      const overshoot = caretOvershoot({
+        editorTop: top,
+        caretBottom: caret.bottom,
+        windowHeight: covering.current.windowHeight,
+        keyboardHeight: keyboardHeight.current,
+        accessoryHeight: covering.current.accessoryHeight,
+      });
+      if (overshoot > 0) scrollBy(overshoot);
+    });
+  }, []);
 
   const bridge = useMemo(
     () =>
@@ -154,10 +223,18 @@ export function LiveEditor({
             if (next) handlers.current.onFocus?.();
             else handlers.current.onBlur?.();
           },
+          /*
+            The measurement that keeps the note on the screen at all. See the
+            `height` state above for why a phone's editor is sized and not
+            flexed, and `protocol.ts` for why the guest is the only thing that
+            can answer.
+          */
+          onHeight: (next) => setHeight(next),
+          onCaret: (caret) => keepCaretClear(caret),
           onFailed: (message) => setFailure(message),
         },
       ),
-    [],
+    [keepCaretClear],
   );
 
   /**
@@ -216,7 +293,8 @@ export function LiveEditor({
   }, [bridge, colors, compact]);
 
   /**
-   * KEEPING THE CARET OFF THE KEYBOARD.
+   * KEEPING THE CARET OFF THE KEYBOARD, and it is answered differently at the
+   * two densities.
    *
    * The sharpest thing in this file, and the one a screenshot cannot show.
    * Nothing about a WKWebView shrinks when the keyboard opens: the web view
@@ -225,7 +303,8 @@ export function LiveEditor({
    * visible. Typing down a long note therefore puts the caret behind the keys
    * and CodeMirror is satisfied.
    *
-   * Three parts, and all three are needed:
+   * **Where the editor scrolls itself** — a pointer layout, where it fills a
+   * region with a real toolbar above it — three parts, and all three are needed:
    *
    *  1. **This effect** measures how much of the editor is covered and sends it
    *     as `inset`.
@@ -244,16 +323,29 @@ export function LiveEditor({
    * because it is positioned absolutely and resizes nothing; see
    * `coveredHeight`.
    *
+   * **Where the note is the page** — compact, where the web view is exactly as
+   * tall as its document — none of those three can work, and sending an `inset`
+   * anyway would be actively wrong: the guest's padding would make the document
+   * taller, which is a number this component then lays the web view out at, and
+   * a scroller with slack in it is the second scroller the whole shape exists to
+   * avoid. So the inset stays at zero and `keepCaretClear` does the job against
+   * the page scroller instead, off the guest's `caret` messages. All this effect
+   * owes that path is the keyboard's height, which is why it still runs.
+   *
    * `keyboardWillShow` on iOS so the room is there before the keyboard is;
    * Android only emits the `Did` events.
    *
    * It re-runs when the bar appears or goes away, because the bar's height is
    * part of the answer and the keyboard does not move when it does.
    */
-  const keyboardHeight = useRef(0);
   const barUp = accessoryUp({ compact, editable, focused });
+  covering.current = {
+    windowHeight,
+    accessoryHeight: barUp ? ACCESSORY_HEIGHT : 0,
+  };
   useEffect(() => {
     const publish = () => {
+      if (compact) return;
       if (keyboardHeight.current <= 0) {
         bridge.setInset(0);
         return;
@@ -279,7 +371,7 @@ export function LiveEditor({
     });
     const hide = Keyboard.addListener(hideEvent, () => {
       keyboardHeight.current = 0;
-      bridge.setInset(0);
+      if (!compact) bridge.setInset(0);
     });
     // The bar can appear while the keyboard is already up — focus arrives over
     // the bridge a frame or two after the keys do — so the inset is republished
@@ -289,7 +381,7 @@ export function LiveEditor({
       show.remove();
       hide.remove();
     };
-  }, [bridge, windowHeight, barUp]);
+  }, [bridge, windowHeight, barUp, compact]);
 
   if (failure !== null) {
     /*
@@ -325,7 +417,21 @@ export function LiveEditor({
   }
 
   return (
-    <View ref={host} style={styles.wrap} accessibilityLabel={accessibilityLabel}>
+    <View
+      ref={host}
+      /*
+        Sized at compact, flexed everywhere else — `editorBox` is the whole
+        argument, and `protocol.ts` says where the number comes from.
+
+        The sized style is written on its own rather than layered over
+        `styles.wrap`: `flex: 1` sets `flexBasis: 0`, which wins over a `height`
+        on the main axis, so a style array carrying both would still collapse to
+        nothing. That is why this reads as a choice between two styles and not
+        as an override of one.
+      */
+      style={editorBox({ compact, height, windowHeight }) ?? styles.wrap}
+      accessibilityLabel={accessibilityLabel}
+    >
       <WebView
         ref={web}
         source={SOURCE}

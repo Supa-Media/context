@@ -2,23 +2,34 @@
  * The native side of the Live Preview bridge, as functions over values.
  *
  * `webviewBridge.test.ts` wires the host to a real editor and proves the
- * conversation. This file proves the three things that are not a conversation:
- * what document the web view is handed, that the editor it contains is
- * genuinely local, and how much of it the keyboard is covering.
+ * conversation. This file proves the things that are not a conversation: what
+ * document the web view is handed, that the editor it contains is genuinely
+ * local, how much of it the keyboard is covering, how tall a box it is drawn
+ * in, and how far the page must scroll to keep the caret off the keys.
  *
- * Plain node, no DOM. `LiveEditor.tsx` itself is not mounted here and cannot
- * usefully be: react-native-webview has no web build — its platform-less
- * `WebView.js` renders "React Native WebView does not support this platform" —
- * so a suite that resolves `react-native` to `react-native-web` would render a
- * paragraph of apology and learn nothing. That is why the deciding is in
- * `host.ts` rather than in the component.
+ * Plain node, no DOM. `LiveEditor.tsx` is not mounted here: react-native-webview
+ * has no web build — its platform-less `WebView.js` renders "React Native
+ * WebView does not support this platform" — so a suite that resolves
+ * `react-native` to `react-native-web` would render a paragraph of apology and
+ * learn nothing. That is why the deciding is in `host.ts` rather than in the
+ * component.
+ *
+ * Which is a good rule and not a sufficient one: the blank note editor was a
+ * component that had stopped asking the right question, and no amount of
+ * correct arithmetic in this file would have caught it. `nativeEditorBox.test.ts`
+ * is the other half — it stubs that one child and mounts the real component to
+ * prove these answers reach the view.
  */
 
 import { describe, expect, test } from "@jest/globals";
 import {
+  CARET_MARGIN,
   EDITOR_HTML,
+  ESTIMATED_HEIGHT,
+  caretOvershoot,
   coveredHeight,
   createHostBridge,
+  editorBox,
   editorDocument,
   escapeForScript,
 } from "../features/console/files/webview/host";
@@ -212,5 +223,99 @@ describe("when the accessory bar is up", () => {
     ["and there is no keyboard to ride above until the note has the caret", { focused: false }],
   ])("%s", (_why, off) => {
     expect(accessoryUp({ ...up, ...off })).toBe(false);
+  });
+});
+
+/**
+ * THE BOX THE NOTE IS DRAWN IN, which is the blank-editor bug as arithmetic.
+ *
+ * `nativeEditorBox.test.ts` mounts the component and proves this reaches the
+ * view. Here it is only the decision. The two are a pair on purpose: a rule in
+ * a module nothing reads is how the blank editor shipped in the first place.
+ */
+describe("the box the web view is laid out in", () => {
+  const window = { windowHeight: 956 };
+
+  test("a phone gets a height, never a flex, because a flex there is nothing", () => {
+    // The whole bug: at compact the editor is a child of the note's page
+    // scroller, whose content container is *defined* by its children's heights.
+    // A `flex: 1` child of it has no free space to grow into.
+    expect(editorBox({ compact: true, height: 1240, ...window })).toEqual({ height: 1240 });
+  });
+
+  test("and an under-estimate until the guest has measured, rather than nothing", () => {
+    // Something has to be on the glass in the frame or two before the first
+    // `height` message. Deliberately short: a box that starts too short grows
+    // into place; one that starts too tall strands the durability line below
+    // the fold and then jumps up to meet it.
+    const box = editorBox({ compact: true, height: null, ...window })!;
+    expect(box.height).toBe(Math.round(956 * ESTIMATED_HEIGHT));
+    expect(box.height).toBeLessThan(956);
+  });
+
+  test.each([
+    ["a document that has not laid out", 0],
+    ["a measurement that arrived negative", -40],
+    ["a measurement that arrived as an infinity", Number.POSITIVE_INFINITY],
+    ["a measurement that arrived as a NaN", Number.NaN],
+  ])("%s falls back rather than collapsing the note", (_why, height) => {
+    // React Native drops a whole subtree rather than lay out a nonsense box, so
+    // a bad number here is the blank editor again by another route.
+    const box = editorBox({ compact: true, height, ...window })!;
+    expect(box.height).toBe(Math.round(956 * ESTIMATED_HEIGHT));
+  });
+
+  test("a pointer layout is not sized here at all", () => {
+    // There a region bounds the editor, the free space exists, and `flex: 1`
+    // from the stylesheet is right — a stated height would stop the note
+    // growing with the window. `null` says "not mine to decide".
+    expect(editorBox({ compact: false, height: 1240, ...window })).toBeNull();
+    expect(editorBox({ compact: false, height: null, ...window })).toBeNull();
+  });
+});
+
+/**
+ * Scrolling the caret out from under the keyboard, where CodeMirror cannot.
+ *
+ * The other half of "the editor is as tall as its document": its own scroller
+ * has nothing to scroll, so `coveredBottom`'s scroll margin has nothing to act
+ * on and its idea of "visible" covers the whole note. The page scroller moves
+ * instead, by this much.
+ */
+describe("how far the page must scroll to clear the caret", () => {
+  const box = {
+    editorTop: 0,
+    windowHeight: 956,
+    keyboardHeight: 336,
+    accessoryHeight: ACCESSORY_HEIGHT,
+  };
+
+  test("nothing at all while there is no keyboard", () => {
+    expect(caretOvershoot({ ...box, caretBottom: 900, keyboardHeight: 0 })).toBe(0);
+  });
+
+  test("nothing while the caret is already above the keys", () => {
+    expect(caretOvershoot({ ...box, caretBottom: 100 })).toBe(0);
+  });
+
+  test("the overshoot, plus a line of air, once it is behind them", () => {
+    const clear = 956 - 336 - ACCESSORY_HEIGHT - CARET_MARGIN;
+    expect(caretOvershoot({ ...box, caretBottom: clear + 60 })).toBe(60);
+  });
+
+  test("measured from where the editor is, not from where the note starts", () => {
+    // Half the note has already scrolled past the top of the glass: the same
+    // caret is that much higher on the screen and needs that much less.
+    const clear = 956 - 336 - ACCESSORY_HEIGHT - CARET_MARGIN;
+    expect(caretOvershoot({ ...box, editorTop: -200, caretBottom: clear + 60 })).toBe(0);
+    expect(caretOvershoot({ ...box, editorTop: -40, caretBottom: clear + 60 })).toBe(20);
+  });
+
+  test("the accessory bar is part of what is covering the note", () => {
+    const clear = 956 - 336 - CARET_MARGIN;
+    // Exactly clear of the keyboard, and exactly the bar's height short of
+    // clear of the bar.
+    expect(caretOvershoot({ ...box, accessoryHeight: 0, caretBottom: clear })).toBe(0);
+    expect(caretOvershoot({ ...box, caretBottom: clear })).toBe(ACCESSORY_HEIGHT);
   });
 });

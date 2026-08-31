@@ -643,36 +643,17 @@ export function Explorer({
         `vault` is the name line, `vaultDetail` the binding, and the counts are
         ours. One `Text` for the last two so the footer is three lines rather
         than four.
+
+        **No pane switcher between the verbs and the brain.** The reference has
+        a `Files` pill there because Obsidian's sidebar holds several panes and
+        that pill is how you change which one. Ours holds one: Connections and
+        Map are settings, not panes of this panel. A control that names the only
+        thing there is teaches people it does nothing, and it cost a whole band
+        of the footer to say so. If a second pane ever exists it comes back with
+        it.
       */}
       <View style={[styles.foot, touch && styles.footTouch]}>
         {touch ? <View style={styles.iconRow}>{actions}</View> : null}
-        {/*
-          Obsidian's pane switcher, in the slot the reference puts it in.
-
-          **It says what this sidebar is currently showing, and today there is
-          one answer.** That is deliberate rather than premature: the row above
-          it is the *file tree's* verbs and the two lines below it are the
-          brain's, so without something naming the middle the sidebar reads as
-          one undifferentiated panel of five unrelated things. Naming it is also
-          what makes the second pane — a search pane, bookmarks — an addition to
-          this control rather than a second panel opening from the same edge,
-          which is the mistake this branch is undoing.
-
-          Not pressable while it is the only pane. A control that opens a list
-          of one is a control that teaches people it does nothing.
-        */}
-        {touch ? (
-          <View style={styles.pane} testID="explorer-pane">
-            <Icon name="folder" size={16} color={colors.text2} />
-            <Text variant="wsSwitch" style={styles.paneLabel}>
-              Files
-            </Text>
-            <View style={styles.paneChevrons} aria-hidden>
-              <Icon name="chevronUp" size={11} color={colors.muted} />
-              <Icon name="chevronDown" size={11} color={colors.muted} />
-            </View>
-          </View>
-        ) : null}
         {vault === undefined ? null : <View style={styles.vault}>{vault}</View>}
         <Text variant="treeMeta" numberOfLines={1} testID="explorer-vault-detail">
           {[vaultDetail, counts].filter((part) => part !== undefined && part !== "").join(" · ")}
@@ -1117,26 +1098,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: space.x1,
     paddingBottom: 2,
   },
-  /**
-   * The pane switcher: full width, rounded, filled — the reference's `Files`.
-   *
-   * `touchRow` tall rather than `minTouchTarget`, because it is a band across
-   * the panel rather than a target floating on one, and the reference's is
-   * visibly taller than the icons above it.
-   */
-  pane: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.x2,
-    height: layout.touchRow,
-    paddingHorizontal: space.x3,
-    borderRadius: radii.floating,
-    backgroundColor: colors.surface3,
-  },
-  paneLabel: { flexGrow: 1, flexShrink: 1, minWidth: 0, color: colors.text },
-  /** The reference's ⌃⌄, as the two chevrons this set already has. */
-  paneChevrons: { alignItems: "center", justifyContent: "center", gap: -3 },
-
   /** The name line: whatever `_layout` passes, taking the width it needs. */
   vault: { flexDirection: "row", alignItems: "center", gap: 6 },
 });

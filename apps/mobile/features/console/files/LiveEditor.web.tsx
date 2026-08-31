@@ -116,6 +116,20 @@ export interface LiveEditorProps {
    */
   onFocus?: () => void;
   onBlur?: () => void;
+  /**
+   * Scroll the surface this editor is laid out inside, by `delta` points.
+   *
+   * **Only the iOS half calls this, and only where the editor does not scroll
+   * itself.** At compact the web view is given its document's full height so the
+   * note has exactly one scroller — see `LiveEditor.tsx`'s `height` — and the
+   * price of that is that CodeMirror can no longer scroll the caret out from
+   * under the keyboard, because its own scroller has nothing to scroll. The page
+   * scroller does it instead, and this is how it is asked.
+   *
+   * This half never calls it: its editor is a real scroller in a bounded box,
+   * and a mobile browser shrinks the layout viewport for the keyboard anyway.
+   */
+  onScrollBy?: (delta: number) => void;
 }
 
 /**

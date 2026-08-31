@@ -450,9 +450,12 @@ describe("the file tree ends in a vault switcher", () => {
     expect(app.find("explorer-filter")).toBeNull();
     expect(app.find("explorer-filter-open")).toBeNull();
 
-    // The pane switcher sits between the verbs and the brain, where the
-    // reference puts `Files`.
-    expect(app.find("explorer-pane")).not.toBeNull();
+    // And nothing between the verbs and the brain. The reference has a `Files`
+    // pill in that slot because Obsidian's sidebar holds several panes and the
+    // pill is how you change which one; ours holds one — Connections and Map
+    // are settings, not panes — so the control switched nothing and spent a
+    // band of the footer saying so.
+    expect(app.find("explorer-pane")).toBeNull();
   });
 
   test("the switcher is the way to the rail, since the top bar no longer is", () => {

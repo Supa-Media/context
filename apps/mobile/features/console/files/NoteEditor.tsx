@@ -197,6 +197,21 @@ export function NoteEditor({
    */
   const moving = useRef(false);
   const settledAt = useRef(0);
+  /**
+   * The page scroller and where it is, so the editor can ask it to move.
+   *
+   * At compact the web view is laid out at its document's full height — see
+   * `LiveEditor`'s `height` — which is what makes this one scroller rather than
+   * two, and which also means CodeMirror can no longer scroll the caret clear of
+   * the keyboard for itself. `onScrollBy` below is how it asks this one to.
+   *
+   * The offset is a ref read from the scroll events already being listened to
+   * for the swipe guard: `scrollTo` takes an absolute position, so the delta has
+   * to be added to something, and a render per scroll event to keep it in state
+   * is the price this component already refuses to pay.
+   */
+  const scroller = useRef<ScrollView | null>(null);
+  const offset = useRef(0);
   /*
     Tell the frame while the accessory bar is up, so it puts its own toolbar
     away. Two floating bars in the same 66pt of glass is worse than either, and
@@ -383,6 +398,18 @@ export function NoteEditor({
               setFocused(true);
             }}
             onBlur={() => setFocused(false)}
+            /*
+              The caret went under the keyboard and the editor cannot reach it.
+              Compact only, because the editor scrolls itself everywhere else —
+              passing it there would be a page scroller moving underneath an
+              editor that had already handled the same problem.
+            */
+            onScrollBy={
+              compact
+                ? (delta) =>
+                    scroller.current?.scrollTo({ y: offset.current + delta, animated: true })
+                : undefined
+            }
             accessibilityLabel={`${state.path} markdown`}
           />
         </View>
@@ -525,11 +552,39 @@ export function NoteEditor({
         */
         <ScreenViewport padding={padding}>
           <ScrollView
+            ref={scroller}
             style={styles.scroll}
             contentContainerStyle={{
               paddingTop: padding.content.top,
               paddingBottom: padding.content.bottom,
             }}
+            /*
+              Room to scroll the caret clear of the keyboard, from the platform
+              rather than from arithmetic here. Without it the last screenful of
+              a note has nowhere to go: the content padding below only clears the
+              floating toolbar, and the keyboard is five times its height.
+
+              iOS-only and a no-op elsewhere, which is the right shape — this is
+              a UIScrollView content inset, and the web's own scroller already
+              shrinks with the layout viewport when a keyboard opens.
+            */
+            automaticallyAdjustKeyboardInsets
+            /*
+              A tap on the note while the keyboard is up is a tap into the
+              editor, not a dismissal. The default would let this scroller eat
+              the first touch to put the keyboard away — and on this surface the
+              keyboard's way out is the accessory bar's own key, because the web
+              view has no drag-to-dismiss. See `LiveEditor`'s `scrollEnabled`.
+
+              This is the whole of what the web view needed to receive touches
+              inside this scroller. `delaysContentTouches={false}` was the other
+              suspect and is neither: it is not in React Native's
+              `ScrollViewProps` at all, and Fabric's `RCTScrollViewComponentView`
+              hardcodes `delaysContentTouches = NO` on every scroll view it
+              mounts, so it was an untyped prop asking for the value the
+              platform had already set.
+            */
+            keyboardShouldPersistTaps="handled"
             scrollIndicatorInsets={{
               top: padding.content.top,
               bottom: padding.content.bottom,
@@ -558,8 +613,14 @@ export function NoteEditor({
               moving.current = false;
               settledAt.current = Date.now();
             }}
-            onScroll={() => {
+            onScroll={(event) => {
               settledAt.current = Date.now();
+              // Where `onScrollBy` adds its delta. Read defensively because the
+              // web's forwarded scroll event carries a synthesised
+              // `contentOffset` and this is the one number a stray `NaN` would
+              // turn into a jump to the top of somebody's note.
+              const y = event.nativeEvent.contentOffset?.y;
+              if (typeof y === "number" && Number.isFinite(y)) offset.current = y;
             }}
             scrollEventThrottle={16}
             testID="note-scroll"

@@ -176,6 +176,41 @@ export type ToHost =
   | { v: number; type: "save" }
   /** Focus, so the host can tell the keyboard layer the note is being typed into. */
   | { v: number; type: "focus"; focused: boolean }
+  /**
+   * How tall the document laid out, in CSS pixels, including the scroller's own
+   * padding.
+   *
+   * **This is what stops the editor measuring to nothing on a phone.** At
+   * compact the note is one page scroller — the inline title, the Properties
+   * panel and the durability line scroll with the text — and a `flex: 1` child
+   * of a scroll view's content container has no free space to grow into, so it
+   * measures to zero height. That is not a styling slip that a `flexGrow` on
+   * the content container would fix: a scroller's content is *defined* by its
+   * children's own heights, so the editor has to state one.
+   *
+   * A web view cannot be measured from the outside — react-native-webview has
+   * no content-size callback, and the host cannot know how markdown wrapped —
+   * so the only thing that knows this number is the guest, and it says so.
+   * `LiveEditor` gives its host view exactly this height, which leaves
+   * CodeMirror's own scroller with nothing to scroll and the note with exactly
+   * one scroller, which is the whole point.
+   */
+  | { v: number; type: "height"; height: number }
+  /**
+   * Where the caret is, in CSS pixels from the top of the editor.
+   *
+   * The other half of "the editor is as tall as its document". CodeMirror keeps
+   * the caret off the keyboard by scrolling its own scroller — see
+   * `coveredBottom` — and a scroller with nothing to scroll cannot. Worse, its
+   * idea of "visible" is that scroller's client rectangle, which at this
+   * density is the whole note, so it is satisfied by a caret anywhere in a
+   * document that runs several screens past the bottom of the glass.
+   *
+   * So the guest reports where the caret is and the surface the editor is laid
+   * out *inside* does the scrolling. Sent on focus, on a selection change and
+   * on an edit — coalesced to one message a frame, like every other.
+   */
+  | { v: number; type: "caret"; top: number; bottom: number }
   /** The guest failed to start. Surfaced rather than left as a blank rectangle. */
   | { v: number; type: "failed"; message: string };
 
@@ -225,6 +260,8 @@ export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
   "change",
   "save",
   "focus",
+  "height",
+  "caret",
   "failed",
 ] as const);
 

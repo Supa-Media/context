@@ -112,6 +112,57 @@ const defaultSchedule = (flush: () => void): void => {
 };
 
 /**
+ * How tall the document laid out, including the scroller's own padding.
+ *
+ * **Measured off the content rather than read off the scroller.**
+ * `scrollHeight` would be the obvious answer and it latches: it never reports
+ * less than the element's own client height, so once the host had sized the web
+ * view to a long note the number could never come back down for a short one.
+ * `.cm-content` carries the document's full height whether or not the scroller
+ * is showing all of it — CodeMirror's height oracle keeps a `min-height` on it
+ * for exactly this reason — so it is the honest measurement in both directions.
+ *
+ * The padding is added because it is real space the note occupies: `--lp-pad-top`
+ * and `--lp-pad-bottom` are the note's own top and bottom margin, and a web view
+ * cut to the content alone would clip the last line's descenders against the
+ * durability row below it.
+ */
+export function documentHeight(view: EditorView): number {
+  const scroller = view.scrollDOM;
+  const style = scroller.ownerDocument.defaultView?.getComputedStyle(scroller);
+  const padding =
+    style === undefined
+      ? 0
+      : (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0);
+  return Math.ceil(view.contentDOM.getBoundingClientRect().height + padding);
+}
+
+/**
+ * Where the caret sits, in pixels from the top of the editor.
+ *
+ * `null` when CodeMirror cannot answer — a position outside the rendered
+ * viewport, a document that has not laid out yet — because a caret message
+ * carrying a guessed number would move somebody's note under their thumb for no
+ * reason. Nothing is sent in that case; the next selection change asks again.
+ *
+ * `coordsAtPos` **measures**, and measuring is the one thing in CodeMirror that
+ * can throw rather than return nothing: it forces a layout read through the
+ * DOM's range APIs, which are absent under jsdom and can fail on a real page
+ * mid-reflow. A caret position is a nicety — it decides whether the page
+ * scrolls a little — so it is never worth taking the editor down with it.
+ */
+export function caretBox(view: EditorView): { top: number; bottom: number } | null {
+  try {
+    const coords = view.coordsAtPos(view.state.selection.main.head);
+    if (coords === null) return null;
+    const box = view.scrollDOM.getBoundingClientRect();
+    return { top: coords.top - box.top, bottom: coords.bottom - box.top };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Write the palette onto the document.
  *
  * The host sends values, never a scheme name: there are two palettes in
@@ -190,6 +241,25 @@ export function mountGuest(
     schedule,
   );
 
+  /**
+   * The document's height, reported whenever it can have changed.
+   *
+   * Coalesced through the same one-a-frame rule as `changes`, and for a sharper
+   * reason: this number is a *layout* on the host, so a message per keystroke
+   * would be a React Native layout pass per keystroke on the most expensive
+   * mount in the app. One a frame is a resize the eye cannot outrun.
+   */
+  const heights = coalesce(
+    () => bridge.post({ v: PROTOCOL_VERSION, type: "height", height: documentHeight(view) }),
+    schedule,
+  );
+  /** See the `caret` message. Nothing is sent when CodeMirror cannot answer. */
+  const carets = coalesce(() => {
+    const box = caretBox(view);
+    if (box === null) return;
+    bridge.post({ v: PROTOCOL_VERSION, type: "caret", top: box.top, bottom: box.bottom });
+  }, schedule);
+
   handlers.current = {
     onChange: (text) => {
       // Recorded synchronously even though the post is deferred: this is what
@@ -202,6 +272,12 @@ export function mountGuest(
       // failed edit into a dirty draft and a Save that will be refused.
       if (!acceptsChange(editable)) return;
       changes.request();
+      // An edit is the commonest way both of these move: a line added makes the
+      // document taller, and the caret is wherever the typing left it. The
+      // ResizeObserver below would catch the height a frame later; asking here
+      // means the host resizes in the same frame it receives the text.
+      heights.request();
+      carets.request();
     },
     onSave: () => bridge.post({ v: PROTOCOL_VERSION, type: "save" }),
   };
@@ -214,6 +290,9 @@ export function mountGuest(
         // Not an edit, the one write a read-only note still accepts, and not an
         // entry in the undo history. All three live in `replaceDocument`.
         replaceDocument(view, message.text);
+        // A different note is a different height, and this is the one document
+        // change that does not go through `onChange`.
+        heights.request();
         return;
       }
       case "editable": {
@@ -225,6 +304,9 @@ export function mountGuest(
       }
       case "theme": {
         applyTheme(documentElement ?? root, message.vars);
+        // The palette carries the *measure* too — type size, leading, the note's
+        // own padding — so a theme message reflows the document.
+        heights.request();
         return;
       }
       case "inset": {
@@ -285,18 +367,52 @@ export function mountGuest(
 
   bridge.listen(receive);
 
-  const onFocus = () => bridge.post({ v: PROTOCOL_VERSION, type: "focus", focused: true });
+  const onFocus = () => {
+    bridge.post({ v: PROTOCOL_VERSION, type: "focus", focused: true });
+    // The keyboard is about to come up over the note. Where the caret is is
+    // the question the host is about to have to answer.
+    carets.request();
+  };
   const onBlur = () => bridge.post({ v: PROTOCOL_VERSION, type: "focus", focused: false });
   view.contentDOM.addEventListener("focus", onFocus);
   view.contentDOM.addEventListener("blur", onBlur);
 
+  /*
+    Moving the caret without changing the document — an arrow key, a tap into
+    another paragraph, an autocorrect replacement's selection — reaches nothing
+    else in this file. `selectionchange` is a document-level event, which is why
+    it is added to the owner document rather than to the editor.
+  */
+  const owner = view.contentDOM.ownerDocument;
+  const onSelectionChange = () => carets.request();
+  owner.addEventListener("selectionchange", onSelectionChange);
+
+  /*
+    Everything else that changes the document's height: a rotation, a width
+    change, a decoration that lays out a frame after the text it belongs to.
+    Guarded because jsdom has no ResizeObserver and the whole of this file runs
+    under it in `webviewBridge.test.ts` — the messages that matter are requested
+    explicitly above, so the observer is a safety net rather than the mechanism.
+  */
+  const Observer = (owner.defaultView as { ResizeObserver?: typeof ResizeObserver } | null)
+    ?.ResizeObserver;
+  const resize = Observer === undefined ? null : new Observer(() => heights.request());
+  resize?.observe(view.contentDOM);
+
   bridge.post({ v: PROTOCOL_VERSION, type: "ready" });
+  // The host is showing an estimate until this arrives, so it is asked for
+  // immediately rather than waiting for the first edit.
+  heights.request();
 
   return {
     view,
     receive,
     destroy: () => {
       changes.cancel();
+      heights.cancel();
+      carets.cancel();
+      resize?.disconnect();
+      owner.removeEventListener("selectionchange", onSelectionChange);
       view.contentDOM.removeEventListener("focus", onFocus);
       view.contentDOM.removeEventListener("blur", onBlur);
       view.destroy();
