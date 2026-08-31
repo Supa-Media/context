@@ -498,30 +498,26 @@ describe("a folder gets a link too", () => {
   });
 
   /**
-   * **A folder link works; its card stays frozen.**
+   * **THE test, and the one that reversed a decision.**
    *
-   * `previewForNote` is unauthenticated, and the argument that licenses it
-   * answering at all turns on one word in CLAUDE.md: *guessable*. A share link
-   * is `/s/<64 hex>`, so the premise the frozen card protects does not hold
-   * there. A team link is `/@name/path`, which is guessable — and the original
-   * decision survived that only because the probe space was note FILENAMES.
-   *
-   * Widening the preview to folders collapsed that space to five values.
+   * The rule here was "a folder never carries a title", and its reasoning was
+   * sound about the wrong thing. `previewForNote` is unauthenticated, so what
+   * licenses it answering at all is that the address is not guessable — and
    * `scaffold.ts` writes `0-inbox`, `1-projects`, `2-areas`, `3-resources` and
-   * `4-archive` into every brain this product creates, and CLAUDE.md documents
-   * them. Five guesses per handle were then enough to learn which of those
-   * folders their owner had team-linked, and to be handed its title and a live
-   * 64-hex token — from an unauthenticated caller who set a crawler's
-   * User-Agent. A live share row was still required, so this was not a bare
-   * handle-existence oracle; what made it one at all is that the name space is
-   * small enough to exhaust.
+   * `4-archive` into every brain this product creates. Five guesses per handle
+   * were enough to learn which of those their owner had team-linked, so folders
+   * were refused wholesale.
    *
-   * So the link keeps working and the card does not: a folder unfurls as the
-   * generic product card, which is what every guessable address gets. This is
-   * the existing decision applied, not a new one — "a share link's preview may
-   * carry a title; nothing else's may."
+   * Wholesale was too much. Guessability is a property of a *name*, not of
+   * file-versus-folder, and `1-projects/transition` is no more guessable than
+   * `1-projects/transition/overview.md` — one is five known values, the other
+   * is a name its owner typed, and they are not the same argument. The refusal
+   * belonged on the five, and `isProductMandatedPath` is where they now live
+   * beside the six scaffolded filenames that were always in it.
+   *
+   * So: a folder the owner named unfurls with its name.
    */
-  test("a folder link's card stays frozen, because its address is guessable", async () => {
+  test("a folder the owner named unfurls with its name", async () => {
     const t = setupTest();
     const { ownerId, workspaceId } = await scenario(t);
     await teamLink(t, ownerId, workspaceId, FOLDER);
@@ -531,19 +527,71 @@ describe("a folder gets a link too", () => {
         slug: "owner-brain",
         path: FOLDER,
       }),
-    ).toEqual({ title: null, cardToken: null });
+    ).toMatchObject({ title: "Transition" });
+  });
+
+  /** ...and it gets a card to render that name onto, like any other link. */
+  test("and it gets a card", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    const { token } = await teamLink(t, ownerId, workspaceId, FOLDER);
+
+    expect(
+      await t.query(api.functions.shares.previewForNote, {
+        slug: "owner-brain",
+        path: FOLDER,
+      }),
+    ).toMatchObject({ cardToken: token });
   });
 
   /**
-   * The guard's SHAPE, which the folder case alone does not pin: `endsWith`
-   * relaxed to `includes`, or the `toLowerCase` dropped, both leave the folder
-   * test green because the five scaffold names contain no `.md` at all. The
-   * attack stays closed under either, but the rule this whole change rests on
-   * would be held by nothing.
+   * The half of the reversal that is still a refusal: the five names the
+   * product wrote itself. This drives `PARA_FOLDERS` rather than restating it,
+   * for the reason the scaffolded-files case below gives — a sixth folder would
+   * otherwise become a sixth guess in silence.
+   */
+  test.each([...PARA_FOLDERS])(
+    "%s is a folder anybody can guess, so its card stays frozen",
+    async (path) => {
+      const t = setupTest();
+      const { ownerId, workspaceId } = await scenario(t);
+      await teamLink(t, ownerId, workspaceId, path);
+
+      expect(
+        await t.query(api.functions.shares.previewForNote, { slug: "owner-brain", path }),
+      ).toEqual({ title: null, cardToken: null });
+    },
+  );
+
+  /**
+   * The guard's SHAPE, which the two cases above do not pin between them:
+   * `isProductMandatedPath` matches a scaffolded name **exactly**, and relaxing
+   * that to `startsWith` — the obvious way to write "and everything under it" —
+   * would silently freeze every note in the brain, since every one of them is
+   * under a PARA folder. Both fixtures below are owner-chosen names that a
+   * prefix match would swallow.
    */
   test.each([
-    ["1-projects/a.md.png", null],
-    ["1-projects/x.mdx", null],
+    ["1-projects-archive", "a folder whose name begins with a scaffolded one"],
+    ["1-projects/overview.md", "a note inside a scaffolded folder"],
+  ])("%s still previews (%s)", async (path) => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    await teamLink(t, ownerId, workspaceId, path);
+
+    const answer = await t.query(api.functions.shares.previewForNote, {
+      slug: "owner-brain",
+      path,
+    });
+    expect(answer.title).not.toBeNull();
+  });
+
+  test.each([
+    // A path that is not a note and not a folder either. The rule is neither
+    // "ends in .md" nor "has no extension" — it is "the owner named it" — and
+    // an attachment the owner linked is a name the owner chose.
+    ["1-projects/a.md.png", "A.md.png"],
+    ["1-projects/x.mdx", "X.mdx"],
     // "UPPER", not "Upper": `titleFromPath` uppercases the first character and
     // leaves the rest, which is what a note called README deserves. Measured —
     // the first version of this line predicted title-casing and was wrong.
@@ -622,6 +670,7 @@ describe("a folder gets a link too", () => {
       INDEX_KEY,
       PRIVACY_KEY,
       ...GENERIC_ROOT_KEYS,
+      ...PARA_FOLDERS,
       ...PARA_FOLDERS.map((folder) => `${folder}/README.md`),
     ];
 
@@ -653,21 +702,23 @@ describe("a folder gets a link too", () => {
   });
 
   /**
-   * And the refusal is byte-identical to every other one, so a probe cannot
-   * tell "this is a folder, they exist" from "no such handle".
+   * And a scaffolded folder's refusal is byte-identical to every other one, so
+   * a probe cannot tell "they team-linked `1-projects`" from "no such handle".
+   * This is the property the whole rule exists to produce; without it, naming
+   * the five names would only move the oracle rather than close it.
    */
   test("and that refusal is the same one an unknown handle gets", async () => {
     const t = setupTest();
     const { ownerId, workspaceId } = await scenario(t);
-    await teamLink(t, ownerId, workspaceId, FOLDER);
+    await teamLink(t, ownerId, workspaceId, PARA_FOLDERS[1]);
 
     const folder = await t.query(api.functions.shares.previewForNote, {
       slug: "owner-brain",
-      path: FOLDER,
+      path: PARA_FOLDERS[1],
     });
     const stranger = await t.query(api.functions.shares.previewForNote, {
       slug: "nobody-at-all",
-      path: FOLDER,
+      path: PARA_FOLDERS[1],
     });
     expect(folder).toEqual(stranger);
   });
