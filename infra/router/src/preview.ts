@@ -384,9 +384,10 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
 /**
  * Every note path this product writes into a brain before its owner does.
  *
- * `apps/convex/functions/lib/scaffold.ts` is the source of truth — `INDEX_KEY`,
- * `PRIVACY_KEY`, the `PARA_FOLDERS` themselves, a `README.md` per folder, and
- * `GENERIC_ROOT_KEYS`.
+ * `apps/convex/functions/lib/scaffold.ts` is the source of truth, and exports
+ * the list itself as `PRODUCT_MANDATED_PATHS` — `INDEX_KEY`, `PRIVACY_KEY`,
+ * `GENERIC_ROOT_KEYS`, the `PARA_FOLDERS` themselves, `SESSION_FOLDERS`, and a
+ * `README.md` per PARA folder.
  * This package is a separate deployment and cannot import that module, so the
  * list is restated here.
  *
@@ -400,6 +401,12 @@ const PRODUCT_MANDATED_PATHS = new Set([
   "index.md",
   "privacy.md",
   "todo.md",
+  // Where `save_context` files a session. `defaultSessionFolder` in the gateway
+  // picks `4-archive/chat-history` when the manifest declares a `4-archive`
+  // rule and `0-inbox/sessions` otherwise, so a brain whose owner has run the
+  // hook once has one of them — two guesses per handle on names nobody chose.
+  "4-archive/chat-history",
+  "0-inbox/sessions",
   "0-inbox",
   "1-projects",
   "2-areas",

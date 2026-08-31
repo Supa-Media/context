@@ -29,6 +29,7 @@ import {
   INDEX_KEY,
   PARA_FOLDERS,
   PRIVACY_KEY,
+  PRODUCT_MANDATED_PATHS,
   isProductMandatedPath,
   scaffoldFiles,
 } from "../functions/lib/scaffold";
@@ -642,6 +643,40 @@ describe("a folder gets a link too", () => {
   });
 
   /**
+   * The folder names the PRODUCT picks, which are not the five PARA ones.
+   *
+   * `#163` was right that guessability is a property of a name rather than of
+   * file-versus-folder — `1-projects/transition` is exactly as unguessable as
+   * the note inside it — and replaced a blanket `.md` refusal with a list.
+   * Blanket rules hide their own edges, though, and the `.md` test had been
+   * covering one: the session folder the gateway writes into is chosen by US,
+   * not by the owner.
+   *
+   * `defaultSessionFolder` in `apps/mcp/src/index.js` returns
+   * `4-archive/chat-history` when the manifest has a `4-archive` rule and
+   * `0-inbox/sessions` otherwise, so every brain whose owner has ever run
+   * `save_context` has one of them. Two guesses per handle, on names nobody
+   * chose, which is the same shape as the five PARA folders and gets the same
+   * answer.
+   *
+   * The nested platform folder beneath (`<folder>/<platform>/`) is a third
+   * name we pick, but it only exists under one of these two, so refusing the
+   * parent is where the bound belongs.
+   */
+  test.each([
+    "4-archive/chat-history",
+    "0-inbox/sessions",
+  ])("%s is a folder this product named, not its owner", async (path) => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    await teamLink(t, ownerId, workspaceId, path);
+
+    expect(
+      await t.query(api.functions.shares.previewForNote, { slug: "owner-brain", path }),
+    ).toEqual({ title: null, cardToken: null });
+  });
+
+  /**
    * The router's restated copy really does restate this one.
    *
    * `infra/router/src/preview.ts` refuses the same names to save a round trip,
@@ -666,15 +701,11 @@ describe("a folder gets a link too", () => {
     expect(literal, "PRODUCT_MANDATED_PATHS is not a literal Set in preview.ts").not.toBeNull();
     const routed = [...literal![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 
-    const authoritative = [
-      INDEX_KEY,
-      PRIVACY_KEY,
-      ...GENERIC_ROOT_KEYS,
-      ...PARA_FOLDERS,
-      ...PARA_FOLDERS.map((folder) => `${folder}/README.md`),
-    ];
-
-    expect([...routed].sort()).toEqual([...authoritative].sort());
+    // The predicate's own list, not a third restatement of it. This array used
+    // to be written out here, so the test held the router's copy against a copy
+    // of its own and never asked the predicate — and adding a path to the
+    // predicate left it green with the router short.
+    expect([...routed].sort()).toEqual([...PRODUCT_MANDATED_PATHS].sort());
     // ...and the literal is not merely equal to the list, it is equal to what
     // the predicate actually does, which is the thing the router is mirroring.
     for (const path of routed) expect(isProductMandatedPath(path)).toBe(true);

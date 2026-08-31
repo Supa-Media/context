@@ -585,15 +585,57 @@ export const GENERIC_ROOT_KEYS = ["todo.md"] as const;
  * driving `scaffoldFiles` catches a new file is a claim about the `para`
  * branch.
  */
-export function isProductMandatedPath(path: string): boolean {
-  if (path === INDEX_KEY || path === PRIVACY_KEY) return true;
-  if ((GENERIC_ROOT_KEYS as readonly string[]).includes(path)) return true;
+/**
+ * Where `save_context` files a session — a folder name WE pick, not the owner.
+ *
+ * `defaultSessionFolder` in the gateway returns `4-archive/chat-history` when
+ * the manifest declares a `4-archive` rule and `0-inbox/sessions` otherwise, so
+ * every brain whose owner has run the hook once has one of these. That makes
+ * them two guesses per handle on names nobody chose — the same shape as the
+ * five PARA folders, and they get the same answer.
+ *
+ * A blanket `.md` refusal used to cover this without naming it. Replacing that
+ * with a list was right (guessability is a property of a name, not of
+ * file-versus-folder) and it made the edge the blanket rule had been hiding
+ * into a gap: measured, `4-archive/chat-history` unfurled as "Chat history"
+ * with a live card token.
+ *
+ * The platform folder beneath (`<folder>/<platform>/`) is a third name we pick,
+ * and refusing the parent is where the bound belongs — it cannot exist except
+ * under one of these two.
+ */
+export const SESSION_FOLDERS = ["4-archive/chat-history", "0-inbox/sessions"] as const;
+
+export const PRODUCT_MANDATED_PATHS: readonly string[] = [
+  INDEX_KEY,
+  PRIVACY_KEY,
+  ...GENERIC_ROOT_KEYS,
   // The five PARA folders themselves. `applyStructure` writes exactly these
   // into every `para` brain, so they are five guesses per handle — the
   // narrowest name space in the product and the reason the preview refused
   // folders wholesale before this list learned to name them.
-  if ((PARA_FOLDERS as readonly string[]).includes(path)) return true;
-  return PARA_FOLDERS.some((folder) => path === `${folder}/README.md`);
+  ...PARA_FOLDERS,
+  ...SESSION_FOLDERS,
+  ...PARA_FOLDERS.map((folder) => `${folder}/README.md`),
+];
+
+/**
+ * **The list, not a second statement of it.**
+ *
+ * This was a chain of `if`s, and `infra/router/src/preview.ts` mirrors it with
+ * a literal that a test compares against a THIRD hand-written array — so the
+ * comparison held two restatements against each other and never asked the
+ * predicate. Adding `SESSION_FOLDERS` to the `if`s left that test green with
+ * the router's copy short: routed ⊆ predicate was checked, predicate ⊆ routed
+ * was not. The same one-directional hole as the `native-deps.json` `core`
+ * list, in the guard written to stop hand-maintained enumerations.
+ *
+ * Exporting the array is what makes the mirror checkable: the predicate reads
+ * it, and the test compares the router's literal against it rather than
+ * against a copy somebody kept in step by remembering to.
+ */
+export function isProductMandatedPath(path: string): boolean {
+  return PRODUCT_MANDATED_PATHS.includes(path);
 }
 
 /**
