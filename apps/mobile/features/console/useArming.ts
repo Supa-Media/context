@@ -103,13 +103,30 @@ export function useArming(run: () => void | Promise<void>): Arming {
       try {
         result = work();
       } catch {
-        // Thrown before any promise existed. The caller has its own error
-        // surface; this only owes it a control that still works.
+        // Thrown before any promise existed. This only owes the caller a
+        // control that still works.
+        //
+        // Worth stating what it does NOT owe them, because a first draft said
+        // "the caller has its own error surface" and that is true of one call
+        // site in three: `MembersSection` renders the failure, while
+        // `DeleteAccountCard` and `SettingsPane`'s Disconnect say nothing at
+        // all. So both destructive controls now fail silently and recoverably
+        // where they used to fail loudly and permanently. That is the better
+        // half of the trade and it is not the whole of it — the invisible
+        // failure is a separate defect, not one this settle closes.
         done();
         return;
       }
-      if (result instanceof Promise) void result.then(done, done);
-      else done();
+      // Duck-typed rather than `instanceof Promise`: a thenable from another
+      // realm, or a zone-patched one, is not an instance and would take the
+      // `else` branch — settling to `idle` while the work is still running,
+      // which is precisely the wrong fix this settle exists to avoid.
+      // Unreachable through the three call sites today; free to close.
+      if (typeof (result as { then?: unknown } | undefined)?.then === "function") {
+        void (result as Promise<void>).then(done, done);
+      } else {
+        done();
+      }
     },
     [move],
   );
@@ -151,9 +168,15 @@ export function useArming(run: () => void | Promise<void>): Arming {
     // nobody discovers under pressure.
     //
     // `run` stays on the synchronous path above; only the settling is
-    // deferred. And the stage is re-checked at settle time rather than
-    // assumed: an unmount, or a `disarm` that arrives first, must win over a
-    // late promise.
+    // deferred.
+    //
+    // A first draft of this comment claimed the settle re-checks the stage so
+    // that "an unmount, or a `disarm` that arrives first, must win over a late
+    // promise". Neither is true: `disarm` only acts on `"armed"`, so mid-flight
+    // it is a no-op, and an unmount does not touch `stageRef`. Nothing can
+    // move the stage out of `"working"` between the fire and the settle, so
+    // the check in `done()` is belt-and-braces against a future edit rather
+    // than a live guard — recorded that way instead of overstated.
     settle(run);
   }, [clear, move, run, settle]);
 

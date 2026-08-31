@@ -221,6 +221,43 @@ describe("after the work finishes", () => {
     return promise;
   }
 
+  /**
+   * The stage is HELD while the work is in flight, which is the half the other
+   * checks cannot see.
+   *
+   * Replacing the promise branch with a bare `done()` — settle immediately,
+   * ignore the promise — passes every other check in this file, including all
+   * three regression checks below. The only thing that catches it is a label
+   * assertion in `deleteAccount.test.ts`, in another file, which is itself
+   * microtask-order-dependent. So the wrong fix for this defect is one line
+   * away and was, until this check, invisible here.
+   */
+  test("the stage is held for as long as the work runs, not just afterwards", async () => {
+    let resolve: (() => void) | null = null;
+    const armed = mount(
+      () =>
+        new Promise<void>((yes) => {
+          resolve = yes;
+        }),
+    );
+
+    armed.press();
+    armed.press();
+    expect(armed.api().stage).toBe("working");
+
+    // Still working after a turn of the microtask queue — a settle that fired
+    // on its own rather than on the promise would already have moved.
+    await armed.settle();
+    expect(armed.api().stage).toBe("working");
+
+    await act(async () => {
+      resolve!();
+      await Promise.resolve();
+    });
+    expect(armed.api().stage).toBe("idle");
+    armed.unmount();
+  });
+
   test("a failed run leaves the control usable rather than stranded", async () => {
     let calls = 0;
     const armed = mount(() => {
