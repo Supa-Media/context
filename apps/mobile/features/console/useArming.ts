@@ -29,6 +29,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
  *
  * Unmounting disarms too, through the effect's cleanup, so navigating away
  * cannot leave an armed control behind to be found later.
+ *
+ * ## What a synchronous `run` costs
+ *
+ * The stage returns to `idle` as soon as the work settles, and a synchronous
+ * `run` has settled by the time it returns — so there is no dead time after it,
+ * and four presses in one tick fire it twice. The hook does not prevent that
+ * and cannot: it has no way to know the caller is still busy.
+ *
+ * A caller that needs the control held during its own work holds it from its
+ * own state. `SettingsPane`'s Disconnect does exactly this — it sets
+ * `disconnecting` synchronously inside `run` and the button's `disabled` reads
+ * it — which is why the one synchronous call site today is safe. Written down
+ * because that safety lives in the caller rather than here, and a fourth call
+ * site passing synchronous work would not inherit it.
  */
 
 /**
@@ -133,6 +147,18 @@ export function useArming(run: () => void | Promise<void>): Arming {
 
   const disarm = useCallback(() => {
     clear();
+    // **`"armed"` only, and widening this to `"working"` is worse than the jam
+    // it looks like it would fix.**
+    //
+    // The obvious reading is that a dismissed sheet should cancel in-flight
+    // work. It cannot — the work is already away — and letting `disarm` reset
+    // the stage would leave the control armable again while the first call is
+    // still running, so dismissing the sheet and pressing twice fires a second
+    // `remove`, `disconnect` or `deleteAccount` on top of the first. Measured:
+    // two firings against this version's one.
+    //
+    // A double destructive action is a worse failure than a control that has
+    // to wait, so the settle below is the only way out of `"working"`.
     if (stageRef.current === "armed") move("idle");
   }, [clear, move]);
 
