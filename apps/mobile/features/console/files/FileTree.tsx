@@ -19,17 +19,30 @@ import type { Visibility } from "./types";
  * ## Why the markers look the way they do
  *
  * `privacy.md` is folder defaults plus exact-note exceptions, and the tree is
- * drawn to be a picture of that:
+ * drawn to be a picture of that: **a row says something only when it differs
+ * from the folder it is in**, and then it says it in the quietest register the
+ * screen has — muted, right-aligned, at the size of metadata. `tree.ts` owns
+ * the rule; this file owns the drawing.
  *
- *  - a **folder** carries its default as the mockup's quiet 10px `.lock`
- *    label. It is information, not an alarm;
- *  - a **file that differs from its folder** gets a pill — visually louder,
- *    because it is the exceptional thing on the screen;
- *  - a **file that inherits** gets a single muted dot. Not a label: labelling
- *    every note in a private folder "private" draws the default five times and
- *    leaves the one shared note with no more weight than its neighbours, which
- *    is the opposite of what the file says. The dot is a target to press, not a
- *    statement, and its accessibility label spells out what it would change.
+ * Two things this used to draw and no longer does, both deliberately:
+ *
+ *  - **A pill on an exceptional file.** A bordered, tinted, capsule-shaped
+ *    label is the loudest object this app can put on a 36pt row, and it was
+ *    landing on the one row somebody had already decided about. Loud is not the
+ *    same as important. The word alone, right-aligned in `muted`, is Obsidian's
+ *    idiom for exactly this class of trailing metadata, and it is legible
+ *    without shouting over the name beside it.
+ *  - **A dot on every inheriting file.** It existed as a press target rather
+ *    than as a statement, and the cost was a mark on every row in the tree —
+ *    which is precisely the noise the marker rule exists to prevent, reproduced
+ *    one glyph smaller. The capability it carried is not lost: the row's own
+ *    menu (`menu.ts`) offers `private`, `team` and "follow the folder" on every
+ *    row whether or not it is marked, and it is reachable by right-click on a
+ *    pointer and a long press under a thumb.
+ *
+ * A marker that *is* drawn is still pressable for an owner, because a label
+ * that states a fact you may change is a control, and one press is a cheaper
+ * route than a long press to a menu.
  *
  * ## Where the operations live now
  *
@@ -47,10 +60,20 @@ import type { Visibility } from "./types";
  *
  * The mockup's row is 13px type in 5pt of padding — about 23pt tall. That is
  * right under a pointer and unusable under a thumb, and the drawer this renders
- * into on a phone is the *only* way to open a note there. So `touch` raises the
- * row to `layout.touchRow`, widens the indent step so two levels are still
- * distinguishable at that height, and grows the type to the size the rest of
- * the phone reads at.
+ * into on a phone is the *only* way to open a note there. So `touch` uses the
+ * three measures in `layout` that were taken off Obsidian on iOS —
+ * `explorerRow` (36), `explorerIndent` (16) and `explorerInset` (37) — and
+ * grows the type to the size the rest of the phone reads at.
+ *
+ * **36 is below the 44pt touch floor and that is not a slip.** It is the pitch
+ * the reference sets, and it is the difference between a drawer that shows
+ * eight rows and one that shows five — on the only surface from which a note
+ * can be opened at all. The floor is met by `hitSlop` on the pressable
+ * (`layout.explorerRowSlop` on each edge, derived from the two numbers so they
+ * cannot drift apart), which is the one legitimate way to draw under it: the
+ * *visual* is 36 and the *target* is 44. An earlier pass met the floor by
+ * making the row 48 tall, which is how a phone file tree ends up looking like a
+ * settings screen.
  *
  * It is passed in rather than read from `useFrame` here for the reason the rest
  * of this file is prop-driven: the same tree is mounted inside the landing
@@ -102,7 +125,7 @@ export function FileTree({
                 { paddingLeft: indentFor(row.depth + 1, touch) },
               ]}
             >
-              <Text variant="treeMeta">{row.name}</Text>
+              <Text variant="treeMeta">{row.label}</Text>
             </View>
           );
         }
@@ -196,6 +219,13 @@ function FileRow({
         selected={row.selected}
         onPress={() => (row.kind === "folder" ? onToggle(row.path) : onSelect(row.path))}
         radius={radii.sm}
+        /*
+          The 8pt the 36pt row is short of the touch floor, split between its
+          two edges. See the file comment: on a phone the drawn row is
+          `layout.explorerRow` and the target is `layout.minTouchTarget`, and
+          this is the whole of the difference between them.
+        */
+        hitSlop={touch ? { top: ROW_SLOP, bottom: ROW_SLOP } : undefined}
         style={StyleSheet.flatten([
           styles.node,
           styles.nodeGrow,
@@ -203,7 +233,7 @@ function FileRow({
           { paddingLeft: indentFor(row.depth, touch) },
         ])}
         hoverStyle={styles.nodeHover}
-        selectedStyle={styles.nodeSelected}
+        selectedStyle={touch ? styles.nodeSelectedTouch : styles.nodeSelected}
         // Unconditional: `useRowInteractions` already returns nothing to
         // spread when there is no menu, and one copy of that rule is the point
         // — a second one here is the copy that would drift.
@@ -227,27 +257,48 @@ function FileRow({
         <Text
           variant={touch ? "treeTouch" : "tree"}
           numberOfLines={1}
-          style={row.selected ? styles.nodeSelectedLabel : undefined}
+          style={row.selected && !touch ? styles.nodeSelectedLabel : undefined}
         >
-          {row.name}
+          {row.label}
         </Text>
       </PressRow>
 
-      <VisibilityControl row={row} canSetVisibility={canSetVisibility} onPress={() => onCycleVisibility(row)} />
+      <VisibilityControl
+        row={row}
+        canSetVisibility={canSetVisibility}
+        onPress={() => onCycleVisibility(row)}
+      />
     </View>
   );
 }
 
 /**
+ * The chevron gutter on a phone: the box, plus the gap after it.
+ *
+ * Named because `indentFor` has to subtract it. `explorerInset` is measured to
+ * where a top-level *name* begins, which is the thing the eye actually lines
+ * up on, but `paddingLeft` is applied before the chevron — so the padding is
+ * the inset minus whatever the chevron occupies. Writing 13 here instead and
+ * claiming in a comment that it comes to 37 is the shape of arithmetic this
+ * codebase keeps finding has quietly stopped being true.
+ */
+const CHEVRON_GUTTER = 18 + 6;
+
+const ROW_SLOP = layout.explorerRowSlop;
+
+/**
  * The indent for a depth, which is not one number times a level.
  *
- * A thumb row is twice as tall as a pointer row, and 13pt of indent that reads
- * clearly against a 23pt row disappears against a 48pt one — the eye judges the
- * step against the height of the thing being stepped. Both start from the same
- * leading padding so the two trees have the same left margin.
+ * A thumb row is half again as tall as a pointer row, and 13pt of indent that
+ * reads clearly against a 23pt row is thin against a 36pt one — the eye judges
+ * the step against the height of the thing being stepped. The phone's two
+ * numbers are measured off Obsidian on iOS (`layout.explorerIndent`,
+ * `layout.explorerInset`) rather than chosen; the pointer layout keeps the
+ * mockup's.
  */
 function indentFor(depth: number, touch: boolean): number {
-  return (touch ? 12 : 8) + (touch ? 17 : 13) * depth;
+  if (!touch) return 8 + 13 * depth;
+  return layout.explorerInset - CHEVRON_GUTTER + layout.explorerIndent * depth;
 }
 
 function noopPath(_path: string): void {}
@@ -271,33 +322,35 @@ function VisibilityControl({
 }) {
   const styles = useThemedStyles(makeStyles);
   // `privacy.md` has no visibility of its own — it *is* the visibility — so it
-  // gets a lock rather than a control that would have nothing to do.
+  // says what it is rather than offering a control that would have nothing to
+  // do.
   if (row.readOnly) {
     return (
       <View style={styles.marker}>
-        <Text variant="treeMeta" accessibilityLabel="privacy.md is generated and read-only">
+        <Text
+          variant="treeMeta"
+          style={styles.markerLabel}
+          accessibilityLabel="privacy.md is generated and read-only"
+        >
           generated
         </Text>
       </View>
     );
   }
 
-  const body =
-    row.marker === undefined ? (
-      <Text variant="treeMeta" style={styles.inherit} aria-hidden>
-        ·
-      </Text>
-    ) : row.markerIsDefault ? (
-      <Text variant="treeMeta" style={styles.defaultMarker}>
-        {row.marker}
-      </Text>
-    ) : (
-      <View style={[styles.pill, row.marker === "team" ? styles.pillTeam : styles.pillPrivate]}>
-        <Text variant="pill" style={row.marker === "team" ? styles.pillTeamText : styles.pillPrivateText}>
-          {row.marker}
-        </Text>
-      </View>
-    );
+  /*
+    Nothing at all for a row that is its folder's default, which is nearly
+    every row. Not an empty box either: a reserved 22pt gutter down the right
+    of the tree is the same visual weight as the dot it replaced, spent on
+    saying nothing. `tree.ts` decides what counts as worth saying.
+  */
+  if (row.marker === undefined) return null;
+
+  const body = (
+    <Text variant="treeMeta" style={styles.markerLabel} numberOfLines={1}>
+      {row.marker}
+    </Text>
+  );
 
   if (!canSetVisibility) return <View style={styles.marker}>{body}</View>;
 
@@ -305,7 +358,7 @@ function VisibilityControl({
     <PressRow
       accessibilityLabel={describeVisibility(row)}
       onPress={onPress}
-      radius={radii.pill}
+      radius={radii.sm}
       style={styles.marker}
       hoverStyle={styles.markerHover}
     >
@@ -318,17 +371,25 @@ function VisibilityControl({
 export function describeVisibility(row: TreeRow): string {
   const next: Visibility = row.marker === "team" ? "private" : "team";
   if (row.kind === "folder") {
-    return `${row.name} folder default is ${row.marker}. Change it to ${next}.`;
+    return `${row.label} folder default is ${row.marker}. Change it to ${next}.`;
   }
   if (row.marker === undefined) {
-    return `${row.name} follows its folder. Give it its own visibility.`;
+    return `${row.label} follows its folder. Give it its own visibility.`;
   }
-  return `${row.name} is ${row.marker}, unlike its folder. Change it to ${next}.`;
+  return `${row.label} is ${row.marker}, unlike its folder. Change it to ${next}.`;
 }
 
+/*
+  What a screen reader hears for the row itself.
+
+  `label`, not `name`: it is what is on screen, and announcing "README dot m d"
+  for a row that reads "README" describes a screen the listener is not on. The
+  extension is never the distinguishing fact here — every note in a context is
+  markdown — and where it *is* (an attachment) `displayName` keeps it.
+*/
 function describeRow(row: TreeRow): string {
-  if (row.kind === "folder") return `${row.name}, folder, ${row.expanded ? "open" : "closed"}`;
-  return row.name;
+  if (row.kind === "folder") return `${row.label}, folder, ${row.expanded ? "open" : "closed"}`;
+  return row.label;
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
@@ -355,34 +416,49 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   nodeHover: { backgroundColor: colors.surface3 },
   nodeSelected: { backgroundColor: colors.accentDim },
   nodeSelectedLabel: { color: colors.accentText },
-  /** The same row, thumb-sized — see the file comment. */
-  nodeTouch: { minHeight: layout.touchRow, paddingVertical: 0, paddingRight: 12, gap: 6 },
+  /**
+   * The same row, thumb-sized — see the file comment.
+   *
+   * `height` rather than `minHeight`: the pitch is the measurement, and a row
+   * free to grow past it is a tree whose rhythm depends on how long a name is.
+   */
+  nodeTouch: {
+    height: layout.explorerRow,
+    paddingVertical: 0,
+    paddingRight: 12,
+    gap: 6,
+    borderRadius: radii.md,
+  },
+  /**
+   * The selected row on a phone: a grey wash, and the name in ordinary ink.
+   *
+   * The accent wash and accent label are the pointer layout's, from the
+   * mockup, and they are right there — a tree beside a note needs to say which
+   * of forty rows the document on the right belongs to. On a phone the tree is
+   * a drawer that closes the moment you choose something, so the selection is
+   * a memory aid rather than a live correspondence, and a blue-on-blue row is
+   * the loudest thing on the panel for no work done. Obsidian tints it grey.
+   */
+  nodeSelectedTouch: { backgroundColor: colors.surface3 },
   chevron: { width: 12, alignItems: "center", justifyContent: "center" },
   chevronTouch: { width: 18 },
 
+  /**
+   * The trailing metadata's box.
+   *
+   * No fill, no border, no minimum width: it is a word, and the only reason it
+   * is a `PressRow` at all is that the fact it states is one an owner may
+   * change. See the file comment for what used to be here.
+   */
   marker: {
     flexGrow: 0,
     flexShrink: 0,
     paddingHorizontal: 6,
-    paddingVertical: 4,
-    borderRadius: radii.pill,
-    minWidth: 22,
-    alignItems: "center",
+    paddingVertical: 2,
+    borderRadius: radii.sm,
+    alignItems: "flex-end",
+    justifyContent: "center",
   },
   markerHover: { backgroundColor: colors.surface3 },
-  /** The "follows its folder" affordance: reachable, not shouted. */
-  inherit: { color: colors.line, fontSize: 13 },
-  defaultMarker: { color: colors.muted },
-
-  /** `.pill`, shrunk to sit on a 13px row. */
-  pill: {
-    paddingHorizontal: 7,
-    paddingVertical: 1,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-  },
-  pillTeam: { backgroundColor: colors.okWash, borderColor: colors.okBorder },
-  pillTeamText: { color: colors.okText, fontSize: 10 },
-  pillPrivate: { backgroundColor: colors.surface3, borderColor: colors.lineStrong },
-  pillPrivateText: { color: colors.text2, fontSize: 10 },
+  markerLabel: { color: colors.muted },
 });

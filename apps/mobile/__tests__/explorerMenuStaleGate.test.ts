@@ -181,7 +181,7 @@ function mountExplorer(): {
  */
 function openRowMenu(container: HTMLElement): void {
   const nodes = [...container.querySelectorAll("*")].filter((node) =>
-    node.textContent?.includes("note.md"),
+    node.textContent?.includes("note"),
   );
   expect(nodes.length).toBeGreaterThan(0);
   act(() => {

@@ -10,20 +10,33 @@
  *
  * ## The visibility marker rule
  *
- * `markerFor` is the whole of it, and it is deliberately small:
- *
- *  - a **file** is marked only when it *differs from its folder's default*;
- *  - a **folder** always shows its own default.
+ * `markerFor` is the whole of it, and it is deliberately small: **a row is
+ * marked only when it differs from the folder it sits in.** A file whose
+ * visibility is its folder's default is unmarked, and so now is a folder whose
+ * default is its *parent's* default.
  *
  * That is not a style preference. `privacy.md` is folder defaults plus
- * exact-note exceptions, and a marker on every file in a private folder draws
- * the default five times while giving the one shared note no visual weight at
- * all — the opposite of what the file says. Marking only exceptions makes the
- * screen a picture of the data model, so someone who has never read
+ * exact-note exceptions, and a marker on every row in a private context draws
+ * the default a dozen times while giving the one shared note no visual weight
+ * at all — the opposite of what the file says. Marking only what differs makes
+ * the screen a picture of the data model, so someone who has never read
  * `privacy.md` still learns how it works by using the tree.
+ *
+ * The folder half of that rule is new, and it is the same argument finally
+ * applied consistently. A folder used to print its own default unconditionally,
+ * which on a bucket laid out the standard way meant `private` beside `0-inbox`
+ * and `team` beside all four PARA roots — five labels stating the two facts the
+ * root already states, on the one screen with least room for them. What is left
+ * is the folder somebody deliberately made different, which is exactly the row
+ * worth looking at.
+ *
+ * Nothing about the *model* changes here, and nothing becomes unreachable: the
+ * row's own menu still carries `private` / `team` / "follow the folder" for
+ * every row, marked or not, and the breadcrumb over the open note still spells
+ * the whole sentence out. What is dropped is a label, not a control.
  */
 
-import { isMarkdown } from "./paths";
+import { displayName, isMarkdown } from "./paths";
 import type { FileEntry, FolderListing, Visibility } from "./types";
 
 export interface TreeRow {
@@ -31,12 +44,27 @@ export interface TreeRow {
   /** Unique per row, including the synthetic ones. */
   key: string;
   path: string;
+  /**
+   * The name on disk. `README.md`, `1-projects`.
+   *
+   * This is the identity — every operation addresses the row by `path`, and
+   * this is that path's last segment. **It is not what the row draws**; see
+   * `label`.
+   */
   name: string;
+  /**
+   * What the row draws: `name` with a `.md` extension stripped.
+   *
+   * Separate from `name` rather than replacing it so the difference between
+   * "what it is called" and "what it is named" is a fact the type carries,
+   * rather than a convention a call site has to remember. See `displayName`.
+   */
+  label: string;
   depth: number;
   expanded: boolean;
   selected: boolean;
   /**
-   * The visibility chip, or `undefined` for "nothing worth saying here".
+   * The visibility label, or `undefined` for "this row is the default".
    * See the module comment.
    */
   marker?: Visibility;
@@ -48,14 +76,27 @@ export interface TreeRow {
 }
 
 /**
- * What chip, if any, this entry deserves.
+ * What label, if any, this entry deserves.
  *
  * Exported and tested on its own because it is the one rule in the file
  * editor that somebody will eventually be tempted to "improve" into labelling
  * everything.
+ *
+ * `parentDefault` is the default of the folder the entry sits *in* — the
+ * listing's own `folderDefault`. A file already carries the comparison in
+ * `entry.exception`, which the server computes; a folder does not, because the
+ * server has no reason to, so the comparison is made here against the listing
+ * the entry arrived in. It is optional so a caller with only an entry in hand
+ * still gets the old, safe answer (a folder always labelled) rather than a
+ * crash or a silent `undefined`.
  */
-export function markerFor(entry: FileEntry): Visibility | undefined {
-  if (entry.kind === "folder") return entry.visibility;
+export function markerFor(
+  entry: FileEntry,
+  parentDefault?: Visibility,
+): Visibility | undefined {
+  if (entry.kind === "folder") {
+    return entry.visibility === parentDefault ? undefined : entry.visibility;
+  }
   return entry.exception ? entry.visibility : undefined;
 }
 
@@ -85,6 +126,7 @@ export function buildTreeRows(options: BuildTreeOptions): TreeRow[] {
         key: `${folder}::loading`,
         path: folder,
         name: "Loading…",
+        label: "Loading…",
         depth,
         expanded: false,
         selected: false,
@@ -99,6 +141,7 @@ export function buildTreeRows(options: BuildTreeOptions): TreeRow[] {
         key: `${folder}::empty`,
         path: folder,
         name: "Empty",
+        label: "Empty",
         depth,
         expanded: false,
         selected: false,
@@ -115,10 +158,14 @@ export function buildTreeRows(options: BuildTreeOptions): TreeRow[] {
         key: entry.path,
         path: entry.path,
         name: entry.name,
+        label: displayName(entry.name),
         depth,
         expanded,
         selected: entry.path === options.selectedPath,
-        marker: markerFor(entry),
+        // The folder this entry sits in is the one being walked, so its
+        // default is the listing's — read here rather than looked up again,
+        // because a second lookup is a second chance to read the wrong folder.
+        marker: markerFor(entry, listing.folderDefault),
         markerIsDefault: entry.kind === "folder",
         readOnly: entry.readOnly,
         size: entry.size,
