@@ -35,8 +35,15 @@ import { tierSentence } from "../visibility";
  * All of it is gone, and every operation still exists. The tree became a region
  * of the frame (`files/Explorer.tsx`); the buttons became the row's own
  * right-click menu and long-press sheet; the card header became a one-line
- * breadcrumb at the top of the region. What is left is a tab strip, a
- * breadcrumb, and the document — which is what the editor was always for.
+ * breadcrumb at the top of the region.
+ *
+ * On a phone even that line has gone, because Obsidian spends nothing on it:
+ * the note names itself with an inline title inside the document, its
+ * visibility is a Properties row, and Share is in the top bar's trailing
+ * group. What is left at that density is one full-bleed scroll surface with
+ * the document on it and the chrome floating over both ends. A pointer layout
+ * keeps the tab strip and the breadcrumb — there the line is a region header
+ * that also carries folder navigation, which an inline title cannot.
  *
  * ## Why the note is no longer in a card
  *
@@ -225,7 +232,7 @@ export function BrowsePane({
    * here rather than in each branch is what stops the two placements drifting
    * into two sets of props.
    */
-  const document =
+  const openDocument =
     selected === null ? (
       <Empty contextLabel={contextLabel} />
     ) : selected.kind === "folder" ? (
@@ -431,7 +438,7 @@ export function BrowsePane({
         document rather than pinning a band above it.
       */}
       {compact && selected !== null && selected.kind === "file" ? (
-        document
+        openDocument
       ) : compact ? (
         <ScrollView
           style={styles.scroll}
@@ -446,12 +453,12 @@ export function BrowsePane({
           testID="browse-scroll"
         >
           {notices}
-          <View style={styles.bodyCompact}>{document}</View>
+          <View style={styles.bodyCompact}>{openDocument}</View>
         </ScrollView>
       ) : (
         <>
           {notices}
-          <View style={styles.body}>{document}</View>
+          <View style={styles.body}>{openDocument}</View>
         </>
       )}
     </View>
