@@ -36,7 +36,7 @@
  * the whole sentence out. What is dropped is a label, not a control.
  */
 
-import { displayName, isMarkdown } from "./paths";
+import { baseName, displayName, isMarkdown } from "./paths";
 import type { FileEntry, FolderListing, Visibility } from "./types";
 
 export interface TreeRow {
@@ -197,6 +197,76 @@ export function findEntry(
 ): FileEntry | null {
   const listing = listings[path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ""];
   return listing?.entries.find((entry) => entry.path === path) ?? null;
+}
+
+
+/**
+ * The entry for a path, from wherever the console actually knows it.
+ *
+ * `findEntry` above answers from the path's **parent** listing, which is the
+ * right answer and not always an available one. The console fetches one folder
+ * at a time, so on a cold load — a link straight to
+ * `/console/@seyi?note=3-resources/books`, a restored tab, a reload with the
+ * sidebar closed — the parent has never been fetched and `findEntry` answers
+ * `null`. `BrowsePane` read that as "nothing is selected" and drew its empty
+ * state over a folder that had, by then, loaded its own contents: the same
+ * route showed different things depending on what somebody had happened to
+ * expand in the tree earlier.
+ *
+ * So there are two fallbacks, each from something the console *does* hold:
+ *
+ * - **A folder's own listing.** It carries the folder's path and its default,
+ *   which is everything a folder row needs.
+ * - **The open note.** `EditorState` carries the visibility the `OpenNote`
+ *   arrived with, for exactly this.
+ *
+ * One thing is honestly lost and is worth saying rather than faking: a
+ * synthesised folder cannot know its *parent's* default, so it reports
+ * `inherited` as its own and `exception: false`. That understates — a folder
+ * somebody deliberately made different is drawn unmarked until its parent
+ * loads — and the other direction would be inventing a claim about a
+ * `privacy.md` rule nobody has read.
+ */
+export function entryAt(
+  listings: Readonly<Record<string, FolderListing | undefined>>,
+  path: string,
+  editor?: {
+    path: string | null;
+    visibility: Visibility;
+    inherited: Visibility;
+    exception: boolean;
+    readOnly: boolean;
+  },
+): FileEntry | null {
+  const known = findEntry(listings, path);
+  if (known !== null) return known;
+
+  const own = listings[path];
+  if (own !== undefined) {
+    return {
+      kind: "folder",
+      path,
+      name: baseName(path),
+      visibility: own.folderDefault,
+      inherited: own.folderDefault,
+      exception: false,
+      readOnly: false,
+    };
+  }
+
+  if (editor !== undefined && editor.path === path) {
+    return {
+      kind: "file",
+      path,
+      name: baseName(path),
+      visibility: editor.visibility,
+      inherited: editor.inherited,
+      exception: editor.exception,
+      readOnly: editor.readOnly,
+    };
+  }
+
+  return null;
 }
 
 /**

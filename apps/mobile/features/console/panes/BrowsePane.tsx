@@ -12,7 +12,7 @@ import { NoteEditor } from "../files/NoteEditor";
 import { ShareDialog } from "../files/ShareDialog";
 import { consoleOrigin } from "../files/shareOrigin";
 import { noteHeading } from "../files/frontmatter";
-import { findEntry } from "../files/tree";
+import { entryAt } from "../files/tree";
 import { atName } from "../format";
 import { selectedContext, type ConsoleData } from "../types";
 import { tierSentence } from "../visibility";
@@ -69,8 +69,16 @@ export function BrowsePane({
   const current = selectedContext(data);
   const contextLabel = atName(current?.slug ?? "your context");
 
+  /*
+    `entryAt`, not `findEntry`: a folder reached by a link, a restored tab or a
+    reload with the tree collapsed has no parent listing to be found in, and
+    this pane used to answer that with its "choose a note" empty state — over a
+    folder whose contents had already arrived. See `entryAt`.
+  */
   const selected =
-    files.selectedPath === null ? null : findEntry(files.listings, files.selectedPath);
+    files.selectedPath === null
+      ? null
+      : entryAt(files.listings, files.selectedPath, files.editor);
 
   /**
    * The note the share dialog is open for, or `null`.

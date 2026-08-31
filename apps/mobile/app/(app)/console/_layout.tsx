@@ -39,7 +39,7 @@ import {
   visited,
   type HistoryState,
 } from "../../../features/console/files/history";
-import { findEntry, targetFolder } from "../../../features/console/files/tree";
+import { entryAt, targetFolder } from "../../../features/console/files/tree";
 import {
   applyRowIntent,
   intentForRowCommand,
@@ -293,7 +293,7 @@ export default function ConsoleLayout() {
   const selectedEntry =
     data.files.selectedPath === null
       ? null
-      : findEntry(data.files.listings, data.files.selectedPath);
+      : entryAt(data.files.listings, data.files.selectedPath, data.files.editor);
   const shareTarget =
     browsing &&
     data.files.canShare &&
