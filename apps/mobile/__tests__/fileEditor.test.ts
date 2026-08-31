@@ -18,6 +18,7 @@ import {
   describeDeleteForever,
   describeMoveProblem,
   describeNameProblem,
+  displayName,
   duplicateName,
   ensureMarkdown,
   formatBytes,
@@ -153,6 +154,60 @@ describe("duplicate naming matches the server's", () => {
 
   test("a folder keeps its whole name", () => {
     expect(duplicateName("plans", new Set())).toBe("plans copy");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                          what a row is called                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `.md` is stripped for display and for nothing else.
+ *
+ * The danger this pins is not that a row reads `README` — it is that the same
+ * function is reached for the next time something needs "the name", and a note
+ * gets renamed `foo` in somebody's bucket. `privacy.md`'s exact-note rules only
+ * address `.md` paths, so such a note would silently lose its own visibility on
+ * the way past. Hence: `TreeRow.name` is what is on disk, `TreeRow.label` is
+ * what is drawn, and they are separate fields rather than one field and a
+ * convention.
+ */
+describe("the display name", () => {
+  test("a note is drawn without its extension", () => {
+    expect(displayName("README.md")).toBe("README");
+    expect(displayName("3efac11d4eead8832e5b1236.md")).toBe("3efac11d4eead8832e5b1236");
+    // Case, because a bucket will happily hold `NOTES.MD`.
+    expect(displayName("NOTES.MD")).toBe("NOTES");
+  });
+
+  test("a folder and an attachment keep their names", () => {
+    expect(displayName("1-projects")).toBe("1-projects");
+    // The extension is the one thing distinguishing this from the note beside
+    // it, so it is information rather than noise.
+    expect(displayName("diagram.png")).toBe("diagram.png");
+    expect(displayName("notes.md.bak")).toBe("notes.md.bak");
+  });
+
+  test("a file called nothing but an extension keeps it, rather than becoming blank", () => {
+    expect(displayName(".md")).toBe(".md");
+  });
+
+  test("the row carries both, and the one on disk is untouched", () => {
+    const rows = buildTreeRows({
+      listings: { "": listing("", [file("README.md"), folder("1-projects")]) },
+      expanded: new Set(),
+      selectedPath: null,
+    });
+
+    const note = rows.find((row) => row.kind === "file")!;
+    expect(note.label).toBe("README");
+    // The two that address the bucket are unchanged, which is the whole point.
+    expect(note.name).toBe("README.md");
+    expect(note.path).toBe("README.md");
+
+    const dir = rows.find((row) => row.kind === "folder")!;
+    expect(dir.label).toBe("1-projects");
+    expect(dir.name).toBe("1-projects");
   });
 });
 
