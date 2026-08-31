@@ -53,6 +53,7 @@ import {
   createS3Backend,
   sha256Hex,
 } from "./controlPlaneStub.mjs";
+import { createWorkerCtx } from "./workerCtx.mjs";
 
 const S3_ENDPOINT = "https://s3.example-object-storage.test";
 
@@ -83,6 +84,7 @@ const DROPBOX_TOKEN_C = "sl.FAKE-tenant-c-access-token";
 const DROPBOX_TOKEN_D = "sl.FAKE-tenant-d-access-token";
 
 async function rpc(env, tokenValue, method, params, { path = "/mcp" } = {}) {
+  const { ctx, settle } = createWorkerCtx();
   const response = await worker.fetch(
     new Request(`https://mcp.context.test${path}`, {
       method: "POST",
@@ -93,9 +95,10 @@ async function rpc(env, tokenValue, method, params, { path = "/mcp" } = {}) {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
     }),
     env,
-    { waitUntil() {} }
+    ctx
   );
   const text = await response.text();
+  await settle();
   let body = null;
   try {
     body = JSON.parse(text);

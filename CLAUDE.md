@@ -83,7 +83,7 @@ Zero npm dependencies — keep it that way. It runs on the Workers runtime, so
 use Web Crypto and `fetch`, not Node APIs.
 
 `pnpm test` in `apps/mcp` runs the suite against an in-memory store stub. It is
-fast, offline, and currently 947 checks. **Do not let it regress.** If you
+fast, offline, and currently 979 checks. **Do not let it regress.** If you
 change behavior, change the test in the same commit and say why.
 
 The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,
@@ -1139,6 +1139,72 @@ what belongs here is what a tidy-up would break:
   copy of one line of `TextEncoder` — it exists so enforcing a memory ceiling
   does not allocate a second copy of the body to do it — and it is held the way
   two copies of a rule are always held here, by running both against a corpus.
+
+### A search is paced, and what it may not spend is the answer
+
+Two failures, one cause, and the cause is that a **subrequest budget bounds
+spending and cannot see a round trip**.
+
+Measured live on 2026-08-31 against a 7,961-note context: searches took **40 to
+60 seconds**, and one returned nothing for a note that was certainly there. The
+second half of that is the worse half and it was not a coincidence — every
+search ran `syncShardedIndex` first, and the sync spent every op down to
+`reserve`, which was the snippet reads. The query walk opens one shard per
+occupied shard *before* it can read a snippet, and those ops were nobody's. So
+the sync took them and the answer was assembled from no shards at all.
+Reproduced on fixtures: 1,500 notes at a budget of 120 answered `0 matching
+notes` from the fourth pass onward, **permanently**, for a term every note
+carried; 7,961 notes at 600 gave thirteen consecutive false misses.
+
+A miss is the one answer this system must not get wrong. `toolSearchNotes`'s
+miss copy exists to argue an agent out of concluding "it is not written down",
+and an index that starves its own reader hands that conclusion to every client
+on a large context.
+
+Four things hold the fix, and each fails a test if removed
+(`test/searchPacing.test.mjs`, whose header carries the numbers and the
+sabotage record):
+
+- **The caller's work is reserved before maintenance may spend.** `walkReserve`
+  keeps back one op per occupied shard on top of `reserve`. On a budget too
+  small to do both, the answer is served and the index does not grow that pass
+  — which is the honest direction, and it is why the shard audit's coverage
+  ceiling moved down (measured, and restated in CONTRACT.md rather than left to
+  be discovered).
+- **The walk takes what the sync already loaded, first and free.** It used to
+  read shards in id order and stop on a budget refusal, so a pass holding the
+  answer in memory could answer from none of it. This is the *other*
+  independent cause of the same false miss, and both are kept: removing either
+  one alone leaves a real shape broken.
+- **The interactive share of the backfill is capped**, and the rest of the same
+  sync continues after the response through `ctx.waitUntil`. A budget of 600
+  authorizes ~580 note reads in front of an answer; the person waits for 60 of
+  them. **The cap is on note reads and never on the listing** — a pass that
+  cannot finish listing reports `listingTruncated`, which renders as "the index
+  is still catching up" over a converged bucket, and a banner that is
+  permanently on is a banner nobody reads. Deferral is an accelerator and never
+  where the work happens: a host that offers no `ctx` still answers correctly,
+  and a converged bucket defers nothing rather than paying a manifest read and
+  a full listing per search to discover there was nothing to do.
+- **Independent reads run in bounded waves** — folder listings, shard objects,
+  snippet reads. Six at a time, because Cloudflare allows a Worker six
+  simultaneous open connections. A shard wave holds **bytes** and decodes one at
+  a time, so the one-parsed-shard memory bound v2 exists for is untouched.
+  Measured on the 7,961-note fixture at a simulated 20ms per operation: a warm
+  search spends the same 57 ops and went from **1,439ms to 670ms**. Op counts
+  are byte-identical either way, which is exactly why 952 checks could not see
+  any of this: **the suite counted spending, and nobody had measured waiting.**
+
+The console passes no cap and gets no deferral, deliberately: it runs in a
+Convex action with no subrequest ceiling, and a cold bucket there should be
+finished rather than nibbled at.
+
+**This is a bridge, not the destination.** The project note
+(`1-projects/context-lc-search-performance`) is explicit that a search should
+read a *ready* index and not list the bucket at all, and the listing is still
+interactive here. Removing it needs the manifest to record its own freshness so
+"the index is catching up" can still be said honestly — a format change, and
+the next phase's work rather than a line to sneak into this one.
 
 ### The console searches through the gateway's search, not a copy of it
 

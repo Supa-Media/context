@@ -64,6 +64,14 @@ ALLOWED_ORIGINS = "https://context.lc"
 # The owner upgraded this deployment to Workers Paid on 2026-08-30, which is
 # what re-enabled it. Clamped in code to [15, 900]; unset or unparseable falls
 # back to 40. Self-hosting on the free tier: leave this unset.
+#
+# Raising it no longer lengthens a search. It used to: this is a *subrequest*
+# budget, and 600 of them authorized ~580 sequential note reads in front of an
+# answer — measured live at 40-60 seconds. An interactive search now spends
+# `INTERACTIVE_BACKFILL_OPS` note reads and continues the same index sync after
+# its response has been sent, so what this number buys is how much of the index
+# one invocation finishes, not how long the caller waits. The whole invocation,
+# deferred half included, still stays inside it.
 SEARCH_SUBREQUEST_BUDGET = "600"
 
 # Self-host only. Comma-separated allowlist of Worker binding names that a

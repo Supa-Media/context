@@ -106,6 +106,7 @@ import {
   syncShardedIndex,
 } from "../src/search/shards.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
+import { createWorkerCtx } from "./workerCtx.mjs";
 
 /** Mirrors `SEARCH_SUBREQUEST_BUDGET` / `SEARCH_RESULT_LIMIT` in src/index.js. */
 const SEARCH_SUBREQUEST_BUDGET = 40;
@@ -230,6 +231,7 @@ function createBucket() {
 }
 
 async function callTool(env, token, name, args = {}) {
+  const { ctx, settle } = createWorkerCtx();
   const response = await worker.fetch(
     new Request("https://mcp.context.test/mcp", {
       method: "POST",
@@ -242,9 +244,15 @@ async function callTool(env, token, name, args = {}) {
       }),
     }),
     env,
-    { waitUntil() {} }
+    ctx
   );
-  return (await response.json())?.result;
+  const result = (await response.json())?.result;
+  // The worker finishes the search index after its response, on the same
+  // subrequest counter the answer spent from. Settling here is what makes an
+  // op count a count of one whole invocation rather than of whatever part of
+  // the deferred pass happened to have run.
+  await settle();
+  return result;
 }
 
 async function searchText(env, token, args) {
@@ -615,9 +623,15 @@ export async function runSearchV2IntegrationChecks(check) {
     await searchText({ ...env, SEARCH_SUBREQUEST_BUDGET: "200" }, SPREAD_TOKEN, {
       query: "porpoise",
     });
-    const shardGets = spread.counts.getKeys.filter((key) =>
-      key.startsWith(".index/v2/shard-")
-    ).length;
+    // Counted by *distinct* shard object, because more than one thing in an
+    // invocation may open a shard: the walk opens every occupied one, and the
+    // sync's rotating audit opens one it already knows about. Both are bounded
+    // by the occupied set, so a fetch of an empty shard is still exactly what
+    // makes this number exceed `occupied` — which is the claim — while a repeat
+    // read of an occupied one is not a 404 and not what this is about.
+    const shardGets = new Set(
+      spread.counts.getKeys.filter((key) => key.startsWith(".index/v2/shard-"))
+    ).size;
     check(
       "an empty shard is never fetched: the walk reads exactly the occupied shards",
       occupied > 0 && occupied < 20 && shardGets === occupied

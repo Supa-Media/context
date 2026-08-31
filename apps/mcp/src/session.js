@@ -466,5 +466,14 @@ export async function storeForSession(session, env, controlPlane) {
     throw new StorageUnavailable("workspace mismatch");
   }
 
-  return storeForBinding(binding, env);
+  const store = storeForBinding(binding, env);
+  // The backend's name, for the search trace and nothing else. Latency is a
+  // property of which backend this is — a native R2 binding and an S3 endpoint
+  // reached over HTTP are not the same round trip — so a timing that does not
+  // say which one it measured explains nothing. It is a provider name, never a
+  // credential and never an endpoint, and no code branches on it: the whole
+  // point of `storeForBinding` is that one `provider` check builds the store
+  // and nothing above it asks again.
+  store.provider = typeof binding.provider === "string" ? binding.provider : null;
+  return store;
 }

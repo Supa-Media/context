@@ -74,6 +74,8 @@ import {
   searchIndexedNotes,
   snippetLinesFor,
 } from "./search/visible.js";
+import { syncShardedIndex } from "./search/shards.js";
+import { createSearchTrace, logSearchTrace } from "./search/trace.js";
 import {
   ERROR_HEADER_MISMATCH,
   ERROR_METHOD_NOT_FOUND,
@@ -144,6 +146,39 @@ function searchBudgetFor(env) {
   if (!Number.isFinite(parsed)) return SEARCH_SUBREQUEST_BUDGET;
   return Math.min(SEARCH_BUDGET_MAX, Math.max(SEARCH_BUDGET_MIN, Math.floor(parsed)));
 }
+/**
+ * Note reads one **interactive** search may spend finishing the index.
+ *
+ * The subrequest budget bounds what a search may spend; it does not bound what
+ * the person in front of the client waits for, and on this deployment's budget
+ * of 600 those are different numbers by two orders of magnitude. Measured: a
+ * cold pass over a 7,961-note bucket spends 577 note reads, which is the 40-60
+ * second search that opened this work — and the same shape, once the index was
+ * warm enough that maintenance and answering could not both fit, spent the
+ * whole budget on maintenance and answered thirteen searches running with
+ * `0 matching notes` over a term every note carried.
+ *
+ * 60 is five waves at `BACKFILL_CONCURRENCY`, so it is five round trips of
+ * waiting rather than forty-eight. What it costs is convergence per
+ * *interactive* pass, and that cost is given back immediately below: the same
+ * sync continues with the rest of the budget once the response has been sent,
+ * so a search still finishes as much of the index as its invocation can afford
+ * — the person just is not held while it does.
+ *
+ * The listing is deliberately not capped with it. The listing is what tells
+ * the diff which notes are stale, and a pass that cannot finish listing reports
+ * `listingTruncated`, which renders as "the index is still catching up" over a
+ * bucket that has converged. A banner that is permanently on is a banner
+ * nobody reads.
+ */
+const INTERACTIVE_BACKFILL_OPS = 60;
+/**
+ * Ops that must remain before the deferred pass is worth starting: the
+ * manifest, a listing that will not finish in fewer, a shard, and a write.
+ * Below it the pass would spend a request on a round trip that lands nothing.
+ */
+const DEFERRED_SYNC_FLOOR = 8;
+
 /**
  * The fallback scan's ceiling, for the calls where the index is unusable. Well
  * under the budget on purpose: this path exists because something already went
@@ -549,6 +584,17 @@ async function route(request, env, ctx) {
       // `store.actor` does: the tool layer never sees `env`, and the store dies
       // with the request, so a reused isolate carries nothing across tenants.
       store.searchSubrequestBudget = searchBudgetFor(env);
+      // The one way anything in this worker gets to keep working after the
+      // response has gone out. Request-scoped like the budget above, and the
+      // credential inside `store` never outlives the request either: an
+      // extended request is still one request, which is the line "never cache
+      // a decrypted credential across requests" draws.
+      //
+      // Absent on any host that gives no `ctx` — the suite's direct
+      // `worker.fetch(request, env)` calls, a self-host shim — and every caller
+      // therefore treats deferral as an optimisation it may not get, never as
+      // where the work happens.
+      store.defer = ctx && typeof ctx.waitUntil === "function" ? (work) => ctx.waitUntil(work) : null;
 
       return path === "/inbox"
         ? handleInbox(request, env, store, session)
@@ -3258,6 +3304,16 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
   // the tool layer never sees `env`, and a fresh store is built per request, so
   // nothing here survives into another tenant's call.
   const budget = createSearchBudget(store.searchSubrequestBudget ?? SEARCH_SUBREQUEST_BUDGET);
+  const isIndexable = (key) => key.endsWith(".md") && !isPlumbing(key);
+  const trace = createSearchTrace();
+  trace.set("workspace", store.actor?.workspaceId);
+  trace.set("grant", store.actor?.grantId);
+  trace.set("client", store.actor?.clientId);
+  trace.set("provider", store.provider);
+  trace.set("budget", budget.remaining);
+  trace.set("prefixed", Boolean(prefix));
+
+  const answered = trace.span("answer");
   const found = await searchIndexedNotes(store, {
     // The gateway's own privacy engine, bound to this caller's scope. Passed in
     // rather than imported by that module, because the control plane holds a
@@ -3265,12 +3321,38 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
     // composes two proven-identical implementations rather than inventing a
     // third.
     isVisible: (path) => canSee(path, scope, rules, overrides),
-    isIndexable: (key) => key.endsWith(".md") && !isPlumbing(key),
+    isIndexable,
     query,
     prefix,
     budget,
+    // A person is waiting on this one. The console, which is not a Worker and
+    // has no such deadline, passes nothing and keeps finishing cold buckets in
+    // one call.
+    backfillOps: INTERACTIVE_BACKFILL_OPS,
   });
+  answered();
+
   if (found.indexed) {
+    trace.set("indexed", true);
+    trace.set("hits", found.hits.length);
+    trace.set("matches", found.matchCount);
+    trace.set("matchesIsFloor", Boolean(found.matchCountIsFloor));
+    trace.set("index", found.index);
+    // Only where this answer said the index is behind. A converged bucket must
+    // pay nothing for this: a manifest GET and a full listing on every search,
+    // against a request quota the customer is billed for, to discover there was
+    // no work — which is the kind of standing cost that gets a feature reverted
+    // rather than tuned.
+    // Read before the deferred pass is started, because starting it spends its
+    // first op synchronously — this number is what the caller waited for, and
+    // folding the background half into it would make the trace unable to say
+    // which is which.
+    trace.set("spent", budget.spent);
+    trace.set(
+      "deferred",
+      found.indexIncomplete ? deferIndexSync(store, budget, isIndexable) : false
+    );
+    logSearchTrace(trace);
     return {
       hits: found.hits,
       matchCount: found.matchCount,
@@ -3283,6 +3365,7 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
   // Recovery: whatever is left of the invocation, spent on the literal scan. A
   // bucket nothing has indexed yet must never be answered "(no matches)" out of
   // an empty index.
+  const scanned = trace.span("scan");
   const scan = await scanVisibleNotes(
     store,
     scope,
@@ -3292,6 +3375,17 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
     prefix,
     budget
   );
+  scanned();
+  trace.set("indexed", false);
+  trace.set("hits", scan.hits.length);
+  trace.set("scannedCount", scan.scannedCount);
+  trace.set("totalCount", scan.totalCount);
+  // The scan runs because there was no index to answer from, so building one is
+  // exactly the work worth deferring — and it is the only way a bucket whose
+  // first pass could not finish ever stops paying for this path.
+  trace.set("spent", budget.spent);
+  trace.set("deferred", deferIndexSync(store, budget, isIndexable));
+  logSearchTrace(trace);
   return {
     hits: scan.hits,
     matchCount: scan.hits.length,
@@ -3302,6 +3396,54 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
     totalCount: scan.totalCount,
     totalIsFloor: scan.totalIsFloor,
   };
+}
+
+/**
+ * Finish as much of the index as this invocation can still afford — **after**
+ * the response has been sent.
+ *
+ * This is the other half of `INTERACTIVE_BACKFILL_OPS` and the reason capping
+ * the interactive share costs nothing. `ctx.waitUntil` keeps the invocation
+ * alive past the response, so the ops the answer did not need are spent on the
+ * backfill with nobody waiting: one search still does as much indexing work as
+ * it ever did, and the client is no longer held while it happens.
+ *
+ * Three properties are deliberate:
+ *
+ * - **It is the same sync, not a second maintenance path.** A background
+ *   indexer with its own diff would be a second place for the index to be
+ *   wrong, in exactly the way a second search path would be a second place for
+ *   a visibility bug.
+ * - **It never throws into the request.** A rejected `waitUntil` promise is a
+ *   logged exception on an invocation whose response has already gone; a throw
+ *   on the way *in* would be a failed search over a successful one.
+ * - **It is best-effort by construction.** No `store.defer` (a host with no
+ *   `ctx`, a self-host shim) means no deferred pass and no behaviour change:
+ *   the next search does the same work interactively, as it does today.
+ *
+ * It costs the pass one manifest read and one listing it has already done this
+ * request, which is real and is the price of not threading a half-finished
+ * sync out of the answer. `walkReserve` is 0 here on purpose: nothing follows
+ * this pass, so there is no walk to keep ops back for.
+ *
+ * @returns {boolean} whether a pass was scheduled — for the trace, so an
+ *   operator can tell "no work left" from "this host cannot defer".
+ */
+function deferIndexSync(store, budget, isIndexable) {
+  if (typeof store.defer !== "function") return false;
+  if (budget.remaining < DEFERRED_SYNC_FLOOR) return false;
+  try {
+    store.defer(
+      syncShardedIndex(store, { budget, isIndexable }).catch(() => {
+        // A storage failure after the answer is already out changes nothing
+        // about the answer. The next search re-diffs from the manifest.
+      })
+    );
+  } catch {
+    // A host whose `waitUntil` refuses the work is a host that does not defer.
+    return false;
+  }
+  return true;
 }
 
 async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg) {

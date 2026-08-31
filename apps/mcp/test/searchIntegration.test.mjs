@@ -193,6 +193,7 @@ import {
 } from "../src/search/shards.js";
 import { searchIndex } from "../src/search/query.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
+import { createWorkerCtx } from "./workerCtx.mjs";
 
 /** Mirrors `SEARCH_SUBREQUEST_BUDGET` / `SEARCH_RESULT_LIMIT` in src/index.js. */
 const SEARCH_SUBREQUEST_BUDGET = 40;
@@ -323,6 +324,7 @@ function createBucket() {
 }
 
 async function callTool(env, token, name, args = {}) {
+  const { ctx, settle } = createWorkerCtx();
   const response = await worker.fetch(
     new Request("https://mcp.context.test/mcp", {
       method: "POST",
@@ -335,9 +337,15 @@ async function callTool(env, token, name, args = {}) {
       }),
     }),
     env,
-    { waitUntil() {} }
+    ctx
   );
-  return (await response.json())?.result;
+  const result = (await response.json())?.result;
+  // The worker finishes the search index after its response, on the same
+  // subrequest counter the answer spent from. Settling here is what makes an
+  // op count a count of one whole invocation rather than of whatever part of
+  // the deferred pass happened to have run.
+  await settle();
+  return result;
 }
 
 async function searchText(env, token, args) {
@@ -1278,11 +1286,27 @@ export async function runSearchIntegrationChecks(check) {
       BIG_TOKEN,
       { query: "widget" }
     );
+    // One *request*, not one interactive pass, and the difference is the point.
+    // An interactive search spends `INTERACTIVE_BACKFILL_OPS` note reads and no
+    // more, because the raised budget authorizes ~580 of them and that is 40-60
+    // seconds of somebody waiting; the rest of the budget is spent on the same
+    // sync after the response has gone out. So the answer this call returns is
+    // honest about being drawn from a partial index, and the index is whole by
+    // the time the invocation ends — which the next search reads.
     check(
-      "a raised deployment budget indexes a 65-note context in one pass",
+      "a raised deployment budget indexes a 65-note context in one request",
       typeof bigBudget === "string" &&
-        !bigBudget.includes("still catching up") &&
+        bigBudget.includes("still catching up") &&
         big.ops > SEARCH_SUBREQUEST_BUDGET
+    );
+    const bigSettled = await searchText(
+      { ...env, SEARCH_SUBREQUEST_BUDGET: "200" },
+      BIG_TOKEN,
+      { query: "widget" }
+    );
+    check(
+      "and the next search over it says nothing about catching up",
+      typeof bigSettled === "string" && !bigSettled.includes("still catching up")
     );
     removeV2Index(big);
     big.resetCounts();

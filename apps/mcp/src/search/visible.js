@@ -47,10 +47,15 @@
  * still being indexed rather than that the thing is not written down.
  */
 
-import { createSearchBudget } from "./maintain.js";
+import { createSearchBudget, inWaves } from "./maintain.js";
 import { MAX_RESULTS, parseQuery, rankedVisibleTo } from "./query.js";
 import { collectShardCandidates, scoreCollected } from "./shardQuery.js";
-import { loadShard, syncShardedIndex } from "./shards.js";
+import {
+  SHARD_READ_CONCURRENCY,
+  decodeShard,
+  fetchShardBytes,
+  syncShardedIndex,
+} from "./shards.js";
 import { termsOf } from "./text.js";
 
 /**
@@ -67,6 +72,18 @@ export const SEARCH_RESULT_LIMIT = 10;
  * under that; a deployment raises it with `env.SEARCH_SUBREQUEST_BUDGET`.
  */
 export const SEARCH_SUBREQUEST_BUDGET = 40;
+
+/**
+ * Snippet reads in flight at once.
+ *
+ * The same six as `SHARD_READ_CONCURRENCY` and for the first of its two
+ * reasons only — Cloudflare allows a Worker six simultaneous open connections,
+ * past which the requests queue. The memory half of that constant's argument
+ * does not apply here: what a wave holds is a handful of note bodies, not shard
+ * objects under a two-megabyte cap. It is its own name so that narrowing one
+ * for its own reasons does not silently narrow the other.
+ */
+const SNIPPET_READ_CONCURRENCY = 6;
 
 /** A note's own `#` heading, or its filename when it has none. */
 export function noteTitle(path, text) {
@@ -117,10 +134,19 @@ export function snippetLinesFor(text, matchedTerms) {
  * @param {object} [options.budget] a `createSearchBudget` counter to share
  *   with the caller's other storage work; one is made if absent
  * @param {number} [options.limit]
+ * @param {number} [options.backfillOps] note reads this call may spend on
+ *   index maintenance before answering — see `backfillOps` in `shards.js`.
+ *   Unbounded by default; a caller a person is waiting on passes a small
+ *   number and continues the sync after its response has gone out.
  * @returns {Promise<{indexed: boolean,
  *   hits?: {key: string, title: string, snippets: string[]}[],
  *   matchCount?: number, matchCountIsFloor?: boolean,
- *   indexIncomplete?: boolean}>}
+ *   indexIncomplete?: boolean,
+ *   index?: {shardCount: number, occupiedShards: number, docs: number,
+ *     pending: number, shardsUnread: boolean, listingTruncated: boolean,
+ *     manifestOverflow: boolean}}>} `index` is operator-facing bookkeeping for
+ *   the trace: counts over the *whole* index, private notes included, so it is
+ *   the one thing in this return that must never reach a caller's answer.
  */
 export async function searchIndexedNotes(store, options) {
   const {
@@ -130,11 +156,23 @@ export async function searchIndexedNotes(store, options) {
     prefix = "",
     budget = createSearchBudget(store.searchSubrequestBudget ?? SEARCH_SUBREQUEST_BUDGET),
     limit = SEARCH_RESULT_LIMIT,
+    backfillOps = Infinity,
   } = options;
 
   let synced = null;
   try {
-    synced = await syncShardedIndex(store, { budget, reserve: limit, isIndexable });
+    synced = await syncShardedIndex(store, {
+      budget,
+      reserve: limit,
+      isIndexable,
+      // The walk below opens one shard per occupied shard before it can read a
+      // snippet, so those ops are the caller's too and the sync may not spend
+      // them. Without this the maintenance in front of the answer starved the
+      // answer — measured as `0 matching notes` over a bucket where every note
+      // matched; see `walkReserve` in `shards.js`.
+      walkReserve: 1,
+      backfillOps,
+    });
   } catch {
     synced = null;
   }
@@ -167,69 +205,108 @@ export async function searchIndexedNotes(store, options) {
   // docs exist that these results cannot include, which is the floor language
   // `pending` already carries for the notes a sync did not reach.
   let shardsUnread = false;
+
+  const collect = (shard) => {
+    // Collected and then dropped: nothing outside this call holds a reference
+    // to `shard`, so the parsed shard is collectable before the next one is
+    // decoded. Accumulating parsed shards into an array instead would be the
+    // whole-corpus heap v2 exists to remove, wearing a loop — `collections`
+    // holds one small summary each.
+    collections.push(collectShardCandidates(shard, queryTerms, isVisible));
+  };
+
+  // Two lists, because they cost different things. What the sync already
+  // loaded or built costs nothing to re-read and is fresher than the object in
+  // the bucket when a write was refused; everything else is a GET.
+  //
+  // A shard the manifest says holds nothing is in neither: the sync skips those
+  // on the same authority ("a GET to prove it is a subrequest spent on a 404"),
+  // and an over-sharded small bucket would otherwise pay one 404 per empty
+  // shard on every query.
+  const toRead = [];
   for (let id = 0; id < synced.manifest.shardCount; id += 1) {
-    // What the sync already loaded or built costs nothing to re-read, and is
-    // fresher than the object in the bucket when a write was refused.
-    let shard = synced.shards.get(id);
-    if (!shard) {
-      // A shard the manifest says holds nothing is not fetched: the sync skips
-      // those on the same authority ("a GET to prove it is a subrequest spent
-      // on a 404"), and an over-sharded small bucket otherwise pays one 404
-      // per empty shard on every query.
-      if ((synced.manifest.stats[id]?.docCount || 0) === 0) continue;
-      // Checked before the call, never inferred from it: `loadShard` answers
-      // `null` for a budget refusal and for an absent object alike, and the
-      // two mean opposite things here. The threshold is the same one the read
-      // below is given, so a `null` past this point is the bucket's answer
-      // rather than the budget's.
+    const held = synced.shards.get(id);
+    if (held) collect(held);
+    else if ((synced.manifest.stats[id]?.docCount || 0) > 0) toRead.push(id);
+  }
+
+  // Read in waves, decoded one at a time. The walk was `shardCount` awaited
+  // GETs in a row, which is the sequential cost CONTRACT.md § Query names —
+  // measured at 27 shards it is 27 round trips inside one search, and a warm
+  // search over a 7,961-note fixture spent 1,439ms at a simulated 20ms per op
+  // with 55 of its 57 ops serialized. What a wave holds is **bytes**, and the
+  // decode stays one at a time, so the peak parsed shard is still one: the
+  // memory bound v2 exists for is a property of the parse, not of the fetch.
+  for (let start = 0; start < toRead.length && !shardsUnread; start += SHARD_READ_CONCURRENCY) {
+    const wave = [];
+    for (const id of toRead.slice(start, start + SHARD_READ_CONCURRENCY)) {
+      // Checked before the call, never inferred from it: `fetchShardBytes`
+      // answers `null` for a budget refusal and for an absent object alike, and
+      // the two mean opposite things here. **Counted for the whole wave**, not
+      // for one read — the wave's takes all happen after this loop, so a
+      // per-read threshold would let members two through six be refused by the
+      // budget and arrive as the same `null` an absent shard does.
       //
-      // And the reserve is the snippet reads, not zero. The sync was handed
-      // the same reserve so the answer could be *rendered*; a shard walk that
-      // spends it hands the caller a full match list and no note to quote,
+      // And the reserve is the snippet reads, not zero. A shard walk that
+      // spends them hands the caller a full match list and no note to quote,
       // which renders "(no matches)" — measured, on a starved twenty-shard
-      // bucket holding twenty-four matches. Coverage this call could not
-      // afford is a floor; an answer that says the thing is not written down
-      // is a lie.
-      if (budget.remaining <= limit) {
+      // bucket holding twenty-four matches. Coverage this call could not afford
+      // is a floor; an answer that says the thing is not written down is a lie.
+      if (budget.remaining <= limit + wave.length) {
         shardsUnread = true;
         break;
       }
-      shard = await loadShard(store, budget, limit, id);
+      wave.push(id);
+    }
+    if (wave.length === 0) break;
+    // `Promise.all` rather than `inWaves`: the wave is already bounded by the
+    // loop above, and it has to be — each wave's budget check depends on what
+    // the last one spent, so the chunking cannot be delegated.
+    const bodies = await Promise.all(wave.map((id) => fetchShardBytes(store, budget, limit, id)));
+    for (const bytes of bodies) {
+      const shard = bytes && decodeShard(bytes);
       if (!shard) {
-        // Absent or corrupt — and never empty, since empty shards were skipped
-        // above. This answer is missing docs it cannot even name, which is a
-        // floor.
+        // Absent, oversized or corrupt — and never empty, since empty shards
+        // were never queued. This answer is missing docs it cannot even name,
+        // which is a floor.
         shardsUnread = true;
         continue;
       }
+      collect(shard);
     }
-    // Collected and then dropped: `shard` is scoped to this iteration and
-    // nothing outside it holds a reference, so the parsed shard is collectable
-    // before the next one is read. Accumulating parsed shards into an array
-    // instead would be the whole-corpus heap v2 exists to remove, wearing a
-    // loop — `collections` holds one small summary each.
-    collections.push(collectShardCandidates(shard, queryTerms, isVisible));
   }
 
   const ranked = scoreCollected(collections, query);
   const visible = rankedVisibleTo(ranked, isVisible, prefix);
-  const hits = [];
-  for (const { path, matchedTerms } of visible.slice(0, limit)) {
+  // Every op is taken before any read starts, so a wave can never overspend the
+  // counter, and the reads themselves overlap: ten sequential GETs is ten round
+  // trips at the very end of a search, after all the waiting the walk already
+  // did. Order is the ranked order — `inWaves` answers in input order — because
+  // these are the results, and the best match must still come first.
+  const wanted = [];
+  for (const hit of visible.slice(0, limit)) {
     if (!budget.take()) break;
+    wanted.push(hit);
+  }
+  const read = await inWaves(wanted, SNIPPET_READ_CONCURRENCY, async ({ path, matchedTerms }) => {
     let object;
     try {
       object = await store.get(path);
     } catch {
-      break;
+      // One unreadable note costs its own snippet and nothing else. The
+      // sequential loop broke here, which dropped every lower-ranked hit for a
+      // key the adapter happened to refuse.
+      return null;
     }
-    if (!object) continue;
+    if (!object) return null;
     const text = await object.text();
-    hits.push({
+    return {
       key: path,
       title: noteTitle(path, text),
       snippets: snippetLinesFor(text, matchedTerms),
-    });
-  }
+    };
+  });
+  const hits = read.filter(Boolean);
 
   return {
     indexed: true,
@@ -267,5 +344,18 @@ export async function searchIndexedNotes(store, options) {
     matchCountIsFloor: visible.length >= MAX_RESULTS || shardsUnread,
     indexIncomplete:
       synced.pending > 0 || synced.listingTruncated || synced.manifestOverflow || shardsUnread,
+    // For the trace, and for a caller deciding whether finishing this index is
+    // worth a deferred pass. Never rendered: these count every doc in the
+    // bucket, so printing one beside a team connection's visible hits is the
+    // subtraction the console's census is owner-only to prevent.
+    index: {
+      shardCount: synced.manifest.shardCount,
+      occupiedShards: synced.manifest.stats.filter((entry) => entry.docCount > 0).length,
+      docs: synced.manifest.stats.reduce((total, entry) => total + entry.docCount, 0),
+      pending: synced.pending,
+      shardsUnread,
+      listingTruncated: synced.listingTruncated,
+      manifestOverflow: synced.manifestOverflow,
+    },
   };
 }

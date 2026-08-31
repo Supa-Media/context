@@ -228,6 +228,39 @@ export function createSearchBudget(total) {
 }
 
 /**
+ * Run `task` over `items` in waves of at most `size`, results in input order.
+ *
+ * Every remote read this module and `shards.js` make is independent of the
+ * others in its wave — separate folders, separate shards, separate notes — so
+ * awaiting them one at a time buys nothing and costs a round trip each. That
+ * is a wall-clock cost the subrequest budget cannot see, and it is the one the
+ * measurements in this file's neighbours are about: a warm search over a
+ * 7,961-note bucket spent 57 store operations and **1,439ms** at a simulated
+ * 20ms per operation, because 55 of the 57 were serialized.
+ *
+ * The wave is bounded rather than unbounded for two reasons that are not the
+ * same reason. Cloudflare allows a Worker **6 simultaneous open connections**,
+ * so a wider wave does not go faster — the extra requests queue — and it hides
+ * how much is in flight from anybody reading the code. And a wave holds every
+ * response it has received until the slowest of them lands, so an unbounded
+ * wave over shard objects is the whole-corpus heap `shards.js` exists to
+ * remove, wearing a `Promise.all`.
+ *
+ * Nothing here spends budget: the caller takes its ops before it builds the
+ * wave, exactly as the sequential loops did, so a wave cannot overspend a
+ * counter it never touches.
+ */
+export async function inWaves(items, size, task) {
+  const width = Number.isFinite(size) && size > 0 ? Math.floor(size) : 1;
+  const results = [];
+  for (let start = 0; start < items.length; start += width) {
+    const wave = items.slice(start, start + width);
+    results.push(...(await Promise.all(wave.map(task))));
+  }
+  return results;
+}
+
+/**
  * The default note filter: `.md`, no dot-prefixed segment, and not one of the
  * two root plumbing keys the gateway keeps outside the note surface.
  *
