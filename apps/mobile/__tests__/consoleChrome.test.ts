@@ -286,7 +286,6 @@ describe("on a phone", () => {
     // not things you do *to* an existing note, so the row's long-press menu
     // cannot reach them — this bar is it.
     const app = mountConsole(390);
-    const text = app.container.textContent ?? "";
 
     // Labels, not glyphs: the glyphs are aria-hidden, so what a screen reader
     // gets is the whole affordance.
@@ -295,7 +294,30 @@ describe("on a phone", () => {
     );
     expect(labels).toContain("Search notes");
     expect(labels).toContain("New note");
-    expect(text).not.toBe("");
+    // The bar is really on the screen, and not merely a set of labels somewhere
+    // in the tree. It used to be enough to assert the console had rendered *any*
+    // text; it renders none at this width now, because the top bar is a toggle
+    // and one group of icons with nothing in the middle — which is the point.
+    expect(app.find("bottom-bar")).not.toBeNull();
+
+    app.unmount();
+  });
+
+  test("the top bar carries no words at all — a toggle, and nothing beside it", () => {
+    /*
+      The two-rows-of-chrome complaint, at the console level.
+
+      `appFrameRender.test.ts` pins the frame's own rule; this pins that the
+      console does not hand it something to put in the middle. The context chip
+      that used to sit here is the vault switcher at the foot of the file tree,
+      and the note's name is an inline title inside the document — so on Browse
+      the whole top band is one transparent row with a 44pt circle in it.
+    */
+    const app = mountConsole(390);
+
+    expect(app.find("frame-drawer-toggle")).not.toBeNull();
+    expect(app.find("frame-nav-toggle")).toBeNull();
+    expect(app.find("storage-pill")).toBeNull();
 
     app.unmount();
   });
@@ -334,8 +356,17 @@ describe("the phone's way off a pane", () => {
     const app = mountConsole(390);
 
     expect(app.find("frame-nav-sheet")).toBeNull();
-    app.press(app.find("frame-nav-toggle"));
+    /*
+      The route to the rail on a phone with a tree: open the tree, then press
+      the vault switcher at the foot of it. There is no chip in the top bar any
+      more — that band is a toggle and one group of actions, which is the whole
+      of what `Regions.navToggle` now says.
+    */
+    app.press(app.find("frame-drawer-toggle"));
+    app.press(app.find("vault-switcher"));
     expect(app.find("frame-nav-sheet")).not.toBeNull();
+    // Raising one panel puts the other away, so the tree is gone with it.
+    expect(app.find("frame-drawer")).toBeNull();
 
     // Connections is an app-level pane, so this is a real change of route.
     app.press(app.byLabel("Connections"));

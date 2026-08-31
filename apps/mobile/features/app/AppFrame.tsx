@@ -521,7 +521,18 @@ export function AppFrame({
             `switcherLabel` because content-derived naming does not survive the
             crossing to native.
           */}
-          {regions.navToggle ? (
+          {/*
+            Nothing in the middle of a phone's top bar.
+
+            The switcher chip used to sit here at every density and it is the
+            band this branch exists to empty: `frame.ts` now answers
+            `navToggle: false` wherever there is a file tree, because the
+            switcher has moved to that tree's footer — Obsidian's vault
+            switcher — and the bar is left with a toggle and one group. On Map
+            and Connections there is no tree to carry it, so the chip is still
+            the way in and is still drawn here.
+          */}
+          {!regions.navToggle && compact ? null : regions.navToggle ? (
             <Pressable
               onPress={toggleRail}
               role="button"
@@ -555,29 +566,29 @@ export function AppFrame({
           {onSearch && !compact ? <SearchTrigger onPress={onSearch} /> : null}
 
           {/*
-            One container per control, and on a phone this one is empty.
+            The trailing slot, which on a phone is **the** grouped container.
 
-            It used to wrap its chips in a bordered, filled pill — so the tier
-            chip drew a border inside a border, and the storage chip drew one
-            inside a press target inside that. Three nested rounded boxes for
-            two words. The argument for the outer pill was that at this density
-            the bar has no fill of its own, so two chips floating separately
-            read as debris rather than as chrome; the argument was sound and the
-            conclusion was one box too many.
+            Obsidian's top bar is exactly two objects: a rounded-square sidebar
+            toggle at the leading edge, and one rounded container at the
+            trailing edge holding the actions for what is on screen — the book
+            and the ⋯ in the reference. Nothing in the middle. So at compact
+            this is a floating capsule with the same surface and shadow the
+            toggle has, and whatever `_layout` puts in it sits inside that one
+            container rather than bringing a box of its own.
 
-            What actually fixes it is having nothing here to group. On a phone
-            both chips have moved to the foot of the file tree — the slot
-            Obsidian puts a vault switcher and its settings in — which is where
-            a fact *about the context you are in* belongs, beside its name, and
-            not floating over the note you are reading. `_layout` passes no
-            `topTrailing` at compact, so this renders nothing and the top edge
-            is one toggle and one chip.
+            It used to wrap its chips in a bordered, filled pill *and* let each
+            chip draw its own border — three nested rounded boxes for two
+            words. The chips themselves are gone from here: identity and the
+            storage binding are facts about the context, and they live at the
+            foot of the file tree where Obsidian puts the vault switcher.
 
             At every other density the bar has its own surface and its own
             hairline, the chips have room, and a container around them would be
-            a box in a box.
+            a box in a box — so `topTrail` alone, unfilled.
           */}
-          {topTrailing == null ? null : <View style={styles.topTrail}>{topTrailing}</View>}
+          {topTrailing == null ? null : (
+            <View style={[styles.topTrail, compact && styles.topTrailCompact]}>{topTrailing}</View>
+          )}
         </View>
 
         <View style={styles.body}>
@@ -805,6 +816,7 @@ export function FrameIconButton({
   onPress,
   selected = false,
   round = false,
+  grouped = false,
   testID,
 }: {
   label: string;
@@ -813,6 +825,17 @@ export function FrameIconButton({
   selected?: boolean;
   /** The phone's shape: a filled circle lying over the document. */
   round?: boolean;
+  /**
+   * Inside the top bar's trailing capsule: a phone-sized target with no
+   * surface of its own.
+   *
+   * The container is the object — one fill, one radius, one shadow, however
+   * many actions are in it — so a button that brought its own would be the
+   * nested-rounded-box defect this branch removed from the other corner. It
+   * still clears `minTouchTarget`, because the target is what a thumb hits and
+   * the capsule around it is only what a reader sees.
+   */
+  grouped?: boolean;
   testID?: string;
 }) {
   const colors = useColors();
@@ -828,6 +851,7 @@ export function FrameIconButton({
       testID={testID}
       style={({ pressed }) => [
         styles.iconButton,
+        grouped && styles.iconButtonGrouped,
         round && styles.iconButtonRound,
         // `iconButtonHover` tints an untinted square; on a filled circle it
         // would paint `surface3` *over* `chrome`, which is darker than the
@@ -836,12 +860,12 @@ export function FrameIconButton({
         // a narrowed desktop browser, which is a real surface here.
         hovered && (round ? styles.iconButtonPressed : styles.iconButtonHover),
         selected && styles.iconButtonOn,
-        round && pressed && styles.iconButtonPressed,
+        (round || grouped) && pressed && styles.iconButtonPressed,
       ]}
     >
       <Icon
         name={icon}
-        size={round ? 20 : 17}
+        size={round || grouped ? 20 : 17}
         color={selected ? colors.accentText : colors.text2}
       />
     </Pressable>
@@ -991,6 +1015,28 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: space.x2,
+  },
+  /**
+   * Obsidian's trailing group: one floating capsule, however many actions.
+   *
+   * The same surface, radius and shadow as the toggle opposite it, because
+   * they are the same kind of object — chrome lying on the note rather than a
+   * bar drawn across it. `chromeButton` is the height so the two corners of the
+   * screen match; `space.x1` of padding either side because the targets inside
+   * are already `chromeButton` wide and the capsule only has to close around
+   * them.
+   *
+   * `gap: 0` on purpose: the actions inside are full touch targets that meet,
+   * which is how the reference's book and ⋯ sit — one container, no gutters
+   * inside it.
+   */
+  topTrailCompact: {
+    gap: 0,
+    minHeight: layout.chromeButton,
+    paddingHorizontal: space.x1,
+    borderRadius: radii.pill,
+    backgroundColor: colors.chrome,
+    boxShadow: shadows.floating,
   },
 
   search: {
@@ -1210,6 +1256,12 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     borderRadius: radii.pill,
     backgroundColor: colors.chrome,
     boxShadow: shadows.floating,
+  },
+  /** See `grouped`: the target, without the surface its container already has. */
+  iconButtonGrouped: {
+    width: layout.chromeButton,
+    height: layout.chromeButton,
+    borderRadius: radii.pill,
   },
   iconButtonHover: { backgroundColor: colors.surface3 },
   iconButtonPressed: { backgroundColor: colors.chromePressed },

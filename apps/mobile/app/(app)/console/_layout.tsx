@@ -13,7 +13,7 @@ import { Text } from "../../../features/design/components/Text";
 import { ToastHost } from "../../../features/design/components/Toast";
 import { layout, radii, space } from "../../../features/design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../features/design/theme";
-import { AppFrame, useFrame } from "../../../features/app/AppFrame";
+import { AppFrame, FrameIconButton, useFrame } from "../../../features/app/AppFrame";
 import { densityFor } from "../../../features/app/frame";
 import { BottomBar } from "../../../features/console/BottomBar";
 import { AccountBlock, Avatar, ConsoleRail } from "../../../features/console/ConsoleRail";
@@ -39,7 +39,7 @@ import {
   visited,
   type HistoryState,
 } from "../../../features/console/files/history";
-import { targetFolder } from "../../../features/console/files/tree";
+import { findEntry, targetFolder } from "../../../features/console/files/tree";
 import {
   applyRowIntent,
   intentForRowCommand,
@@ -280,6 +280,31 @@ export default function ConsoleLayout() {
 
   const contextLabel = atName(current?.slug ?? "your context");
 
+  /**
+   * The note the top bar's Share acts on, or `null`.
+   *
+   * The one control that had to find a new home when the breadcrumb row went.
+   * `BrowsePane` puts Share beside the note's name on a pointer layout, and the
+   * name is inside the document now — so on a phone it moves into the top bar's
+   * trailing group, which is what Obsidian's ⋯ container is for.
+   *
+   * The same three conditions the pane applied, because they are the server's:
+   * `canShare` is `canEdit && isOwner`, `privacy.md` is read-only, and a folder
+   * has its own team-link offer in `FolderView` rather than this one.
+   */
+  const selectedEntry =
+    data.files.selectedPath === null
+      ? null
+      : findEntry(data.files.listings, data.files.selectedPath);
+  const shareTarget =
+    browsing &&
+    data.files.canShare &&
+    selectedEntry !== null &&
+    selectedEntry.kind === "file" &&
+    !selectedEntry.readOnly
+      ? selectedEntry.path
+      : null;
+
   return (
     <ConsoleDataProvider value={data}>
       <AppFrame
@@ -343,7 +368,31 @@ export default function ConsoleLayout() {
           own footer.
         */
         topTrailing={
-          phone ? undefined : (
+          phone ? (
+            /*
+              Obsidian's trailing group, holding the one action the note has
+              that is not on the bottom toolbar.
+
+              `AppFrame` draws the capsule; this passes what goes in it. Absent
+              rather than dimmed when there is nothing to share — `menu.ts`
+              states the rule for exactly this case, and an empty capsule
+              floating over a note is chrome about nothing.
+
+              It raises the dialog through `barDialog`, which `ExplorerDialogs`
+              already renders below with its own `canShare` re-check. A second
+              `ShareDialog` mounted here would be a second contract for one
+              offer.
+            */
+            shareTarget === null ? undefined : (
+              <FrameIconButton
+                label="Share this note"
+                icon="share"
+                grouped
+                onPress={() => setBarDialog({ kind: "share", path: shareTarget })}
+                testID="note-share"
+              />
+            )
+          ) : (
             <>
               {/*
                 Gated on `insideContext`, and `StorageChip` beside it is not.

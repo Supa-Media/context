@@ -233,6 +233,19 @@ function ensureStyles(colors: Colors): void {
   template literal, and one would end the string.)
 */
 @media (max-width: ${layout.narrowBreakpoint - 0.02}px) {
+  /*
+    On a phone this editor does not scroll: it grows.
+
+    The note, its inline title and its Properties panel are one document on one
+    full-bleed scroll surface owned by NoteEditor, so the title can pass under
+    the floating toolbar the way the reference's does. An editor that kept its
+    own scroller inside that surface would be a scrollbar inside a scrollbar,
+    with the title pinned above a box that scrolled separately. So the height
+    cap comes off and the scroller stops scrolling; the ScrollView above is the
+    only one on the screen.
+  */
+  .cm-lp-root, .cm-lp-root .cm-editor { height: auto; }
+  .cm-lp-root .cm-scroller { overflow: visible; }
   .cm-lp-root .cm-scroller {
     /*
       Measured off Obsidian mobile: 16px on a 24px line box, 24px of side
@@ -244,20 +257,17 @@ function ensureStyles(colors: Colors): void {
     line-height: 1.5;
     /*
       The side margin is the token every other band on a phone lines up with,
-      so the breadcrumb, the Properties row, the notices and the first character
-      of the note share one left edge. It was 24 here and 20, 24 and 28
-      elsewhere: four guesses at one measurement.
+      so the inline title, the Properties panel, the notices and the first
+      character of the note share one left edge. It was 24 here and 20, 24 and
+      28 elsewhere: four guesses at one measurement.
 
-      The tail is a custom property because it is not a constant. The toolbar
-      floats over this scroller — the reference shows body text to the left and
-      right of the pill on the lines it covers — so the last line of a note has
-      to be able to scroll out from under it, and how much room that takes
-      depends on the phone's home indicator. FrameApi.contentInsets.bottom is
-      the number, set on the root element below; the fallback is what a pointer
-      layout wants, where nothing floats over anything. (No backticks in here:
-      see the note above.)
+      No vertical padding at all. The room the floating chrome takes at each end
+      is content padding on the ScrollView this now sits inside — one payment,
+      by the surface that actually scrolls — and a tail here as well would be a
+      second gap under the last line. (No backticks in here: see the note
+      above.)
     */
-    padding: 8px ${layout.readingMargin}px var(--cm-lp-tail, 32px);
+    padding: 0 ${layout.readingMargin}px;
   }
   .cm-lp-root .cm-content { color: ${colors.text}; }
 }
@@ -307,14 +317,16 @@ export function LiveEditor({
   const view = useRef<EditorView | null>(null);
   const colors = useColors();
   /*
-    How much of this scroller's own content the floating toolbar covers.
+    Whether this editor is a box that scrolls or a block that grows.
 
-    Zero at every density but `compact`, where the bars lie over the document
-    rather than beside it — see `FrameApi.contentInsets`. It is spent as content
-    padding rather than as a shorter viewport, which is what lets a note's last
-    line be scrolled out from under the pill instead of stopping short of it.
+    On a phone it grows: the note, its inline title and its Properties panel are
+    one document on one scroll surface owned by `NoteEditor`, and the room the
+    floating chrome takes is that surface's content padding. See the compact
+    rule in the stylesheet above — this is the same decision, in the half of the
+    styling CSS cannot reach, because these three properties are set inline and
+    an inline style wins over a media query.
   */
-  const tail = useFrame().contentInsets.bottom;
+  const grows = useFrame().density === "compact";
 
   /**
    * The note's colours, kept in step with the app's.
@@ -498,18 +510,16 @@ export function LiveEditor({
       className="cm-lp-root"
       aria-label={accessibilityLabel}
       /*
-        `--cm-lp-tail` is read by the compact rule in the injected stylesheet;
-        see the comment there. It is a custom property rather than a padding set
-        here because the padding belongs to `.cm-scroller`, which CodeMirror
-        owns and React never renders.
+        A pointer layout gives this the height it is allotted and lets
+        CodeMirror scroll inside it; a phone lets it be as tall as the note and
+        scrolls the page. `overflow: hidden` goes with the first — clipping a
+        block that is meant to grow inside somebody else's scroller is how the
+        bottom half of a long note disappears.
       */
       style={
-        {
-          flex: 1,
-          minHeight: 0,
-          overflow: "hidden",
-          "--cm-lp-tail": `${Math.max(tail, 32)}px`,
-        } as CSSProperties
+        grows
+          ? ({ flex: "none", minHeight: 0 } as CSSProperties)
+          : ({ flex: 1, minHeight: 0, overflow: "hidden" } as CSSProperties)
       }
     />
   );

@@ -19,6 +19,19 @@
  *
  * So this mounts the real pane and asserts on what is on the screen. A menu
  * test cannot fail for the reason this one exists.
+ *
+ * ## This file is the pointer layout's half
+ *
+ * On a phone the control is no longer in the pane at all. The row it sat in was
+ * a breadcrumb, and a breadcrumb is the second band of chrome Obsidian spends
+ * nothing on — so the name became an inline title inside the document and Share
+ * moved into the top bar's trailing group, where the reference puts its ⋯.
+ * `noteChrome.test.ts` is the same claim on that surface, and the two together
+ * are what stop the capability going missing on one of them.
+ *
+ * Everything here therefore mounts at a **pointer width**. Left at jsdom's
+ * default the window measures 0, which reads as `compact`, and every assertion
+ * below would be about a layout that no longer draws this button.
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
@@ -40,7 +53,27 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
+/**
+ * A pointer window.
+ *
+ * react-native-web measures `document.documentElement.clientWidth`, which jsdom
+ * reports as 0 — see `appFrameRender.test.ts` for the full trap. Zero reads as
+ * `compact`, which is the one density this file is *not* about.
+ */
+function pointerWidth(): void {
+  Object.defineProperty(document.documentElement, "clientWidth", {
+    value: 1440,
+    configurable: true,
+  });
+  Object.defineProperty(document.documentElement, "clientHeight", {
+    value: 900,
+    configurable: true,
+  });
+  window.dispatchEvent(new Event("resize"));
+}
+
 function mount(element: ReturnType<typeof createElement>): HTMLElement {
+  pointerWidth();
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -170,6 +203,7 @@ function paneRoot(): {
   container: HTMLElement;
   render: (data: ConsoleData) => void;
 } {
+  pointerWidth();
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });

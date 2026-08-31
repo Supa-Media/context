@@ -136,6 +136,15 @@ export const ICON_NAMES = [
   "gear",
   /** The toolbar's filter, over the note list. */
   "filter",
+  /**
+   * The note toolbar's Share, in the group at the top-right of a phone.
+   *
+   * The share *graph* — three nodes and the two edges between them — rather
+   * than iOS's arrow out of a tray. That mark means "send this somewhere
+   * else"; a share here grants somebody a way in to a note that stays exactly
+   * where it is, which is a relationship rather than a departure.
+   */
+  "share",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -578,6 +587,21 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         dot("k3", u, c, { cx: 0.74, cy: 0.3, r: 0.05 }),
         bar("space", u, w, c, { cx: 0.5, cy: 0.46, length: 0.34 }),
         chevron(u, w, c, { cx: 0.5, cy: 0.78, side: 0.26, angle: 135 }),
+      ];
+
+    case "share":
+      /*
+        Three nodes and two edges. The edges stop short of the discs rather
+        than running under them — at 20pt a bar that reaches a node's centre
+        turns the whole mark into a filled wedge — so each one is drawn a
+        little shorter than the distance it spans and the gap does the rest.
+      */
+      return [
+        bar("up", u, w, c, { cx: 0.5, cy: 0.34, length: 0.34, angle: -34 }),
+        bar("down", u, w, c, { cx: 0.5, cy: 0.66, length: 0.34, angle: 34 }),
+        dot("hub", u, c, { cx: 0.24, cy: 0.5, r: 0.13 }),
+        dot("top", u, c, { cx: 0.76, cy: 0.2, r: 0.13 }),
+        dot("bottom", u, c, { cx: 0.76, cy: 0.8, r: 0.13 }),
       ];
 
     case "book":

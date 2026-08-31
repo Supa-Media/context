@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useFrame } from "../../app/AppFrame";
 import { densityFor } from "../../app/frame";
@@ -7,11 +7,13 @@ import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { fonts, layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { describe as describeVisibility } from "./Breadcrumb";
 import { saveButton, type EditorState } from "./editor";
-import { properties, splitNote } from "./frontmatter";
+import { noteHeading, properties, splitNote, type Property } from "./frontmatter";
 import { LiveEditor, type EditorControls } from "./LiveEditor";
 import { NoteAccessory } from "./NoteAccessory";
 import { highlightMarkdown } from "./highlight";
+import type { Visibility } from "./types";
 
 /**
  * The note itself: markdown, drawn as the document it is.
@@ -66,6 +68,8 @@ import { highlightMarkdown } from "./highlight";
 export function NoteEditor({
   state,
   canEdit,
+  visibility,
+  notices,
   onChange,
   onSave,
   onDiscard,
@@ -74,6 +78,40 @@ export function NoteEditor({
 }: {
   state: EditorState;
   canEdit: boolean;
+  /**
+   * Who can read this note, as the access map answers it — a Properties row.
+   *
+   * `visibility:` is filing metadata about a note, which is exactly what the
+   * Properties panel is for, and it is where the breadcrumb's chip went when
+   * the breadcrumb went. The value comes from the *manifest* rather than from
+   * the file's own frontmatter, because a `visibility:` line inside a note
+   * decides nothing — `privacy.md` does, which is what `ManifestNotice` says in
+   * so many words. So a note carrying its own `visibility:` has that row
+   * replaced by this one rather than showing two answers to one question.
+   *
+   * Optional, and absent everywhere but the console's Browse pane: a
+   * `NoteEditor` mounted without an entry beside it has no honest answer, and
+   * inventing "private" would be a claim about access made by a component that
+   * was not told.
+   */
+  visibility?: {
+    visibility: Visibility;
+    inherited: Visibility;
+    exception: boolean;
+    readOnly: boolean;
+  };
+  /**
+   * What the pane has to say about this note, inside the note's own scroller.
+   *
+   * A prop rather than a sibling above this component, because on a phone that
+   * scroller is the screen: a notice rendered outside it would be a band pinned
+   * across the top of the glass under chrome that is already floating there,
+   * and the note would start below it instead of running behind it. Passed as a
+   * node because what the notices *say* is the pane's business — a bucket that
+   * is not connected, a privacy manifest that will not parse — and none of it
+   * is the editor's.
+   */
+  notices?: ReactNode;
   onChange: (text: string) => void;
   onSave: () => void;
   onDiscard: () => void;
@@ -120,9 +158,55 @@ export function NoteEditor({
   */
   const { frontmatter, body } = splitNote(state.draft);
 
-  return (
-    <View style={[styles.wrap, compact && styles.wrapCompact]}>
+  /**
+   * Everything that scrolls, as one node.
+   *
+   * Built here rather than written twice because the *container* is what
+   * differs between the two densities and nothing inside it does: a phone puts
+   * this in a scroller that runs the full height of the glass, a pointer layout
+   * lets the region hold it and the editor scroll itself. Two copies of this
+   * tree is how a control ends up on one surface and missing from the other.
+   */
+  const flow = (
+    <>
+      {compact ? notices : null}
       {state.readOnly ? <ManifestNotice /> : null}
+
+      {/*
+        The note's name, inside the note — Obsidian's inline title.
+
+        It is the first thing in the document rather than a line of chrome above
+        it, which is the whole point: it scrolls with the text and passes under
+        the floating toolbar exactly as the first paragraph does. A path pinned
+        above the document was the second of the two bands this branch exists to
+        collapse, and it named the note *worse* — at three segments and a chip
+        the line ellipsised at both ends on a 390pt screen.
+
+        `noteHeading` decides what a note is called: its frontmatter's `title`
+        or `subject`, then the body's own `# Heading`, then the filename. A
+        captured note's filename is a content hash, which is the case that
+        argument exists for.
+
+        Compact only. A pointer layout still has the breadcrumb, which carries
+        folder navigation this cannot, and two names above one note is worse
+        than either.
+      */}
+      {/*
+        `state.path` is `null` only for the empty editor, which this pane never
+        renders — `BrowsePane` draws `Empty` instead. Guarded rather than
+        asserted, because a heading row with nothing in it reads as a broken
+        screen and `noteHeading` refuses to invent one.
+      */}
+      {compact && state.path !== null ? (
+        <Text
+          role="heading"
+          aria-level={1}
+          style={styles.inlineTitle}
+          testID="note-inline-title"
+        >
+          {noteHeading(state.draft, state.path)}
+        </Text>
+      ) : null}
 
       {/*
         **A note you cannot edit is still a note.**
@@ -145,13 +229,16 @@ export function NoteEditor({
         and where `previewContentCompact` was never the layout anyway.
       */}
       {editable || compact ? (
-        <View style={styles.document}>
+        <View style={compact ? undefined : styles.document}>
           {/*
             The filing metadata, folded away — see `Properties` below and
-            `frontmatter.ts`. Only where there is a block to fold: a note
-            without one gets no row at all rather than an empty disclosure.
+            `frontmatter.ts`. Drawn where there is a block to fold **or** an
+            access-map answer to state; a note with neither gets no row at all
+            rather than an empty disclosure.
           */}
-          {compact && frontmatter !== "" ? <Properties frontmatter={frontmatter} /> : null}
+          {compact && (frontmatter !== "" || visibility !== undefined) ? (
+            <Properties frontmatter={frontmatter} visibility={visibility} />
+          ) : null}
           <LiveEditor
             /*
               The body alone on a phone, and the whole file everywhere else.
@@ -271,13 +358,55 @@ export function NoteEditor({
           )}
         </View>
       ) : null}
+    </>
+  );
+
+  return (
+    <View style={[styles.wrap, compact && styles.wrapCompact]}>
+      {/*
+        One full-bleed scroll surface on a phone, and the chrome paid for in
+        content padding at both ends.
+
+        The top bar and the toolbar both lie *over* this, so the document runs
+        from the top of the glass to the bottom and spends
+        `FrameApi.contentInsets` inside its own content instead of shortening
+        the viewport. That is what lets the inline title be scrolled out from
+        under the toggle, the last line out from under the pill, and everything
+        between pass behind them — which is what the reference does and what a
+        viewport-sized scroller can never do. `scrollIndicatorInsets` matches,
+        so the bar does not run under the chrome either.
+
+        A pointer layout hands the flow straight to the region: the editor there
+        scrolls itself inside a window that has a real toolbar above it, and a
+        page scroller around it would be a second scrollbar around the first.
+      */}
+      {compact ? (
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={{
+            paddingTop: frame.contentInsets.top,
+            paddingBottom: frame.contentInsets.bottom,
+          }}
+          scrollIndicatorInsets={{
+            top: frame.contentInsets.top,
+            bottom: frame.contentInsets.bottom,
+          }}
+          testID="note-scroll"
+        >
+          {flow}
+        </ScrollView>
+      ) : (
+        flow
+      )}
 
       {/*
-        Last in the tree and absolutely positioned by `KeyboardSticky`, so it
-        lies over the foot of the note rather than taking a band of it — the
-        note is already the whole screen on a phone and the bar is up only
-        while somebody is typing into it. See the file comment for the three
-        conditions.
+        Outside the scroller, and that is load-bearing rather than tidy.
+
+        `KeyboardSticky` positions this absolutely against its parent, so inside
+        a `ScrollView`'s content it would anchor to the bottom of the *document*
+        and scroll away with it. As a sibling of the scroller it anchors to the
+        region and rides above the keyboard, which is the whole job. See the
+        file comment for the three conditions it appears under.
       */}
       {accessoryUp ? <NoteAccessory controls={() => controls.current} /> : null}
     </View>
@@ -309,11 +438,23 @@ export function NoteEditor({
  * is that metadata was taking the reader's first screen, and a row that starts
  * open takes it back.
  */
-function Properties({ frontmatter }: { frontmatter: string }) {
+function Properties({
+  frontmatter,
+  visibility,
+}: {
+  frontmatter: string;
+  /** See `NoteEditor`'s prop of the same name. */
+  visibility?: {
+    visibility: Visibility;
+    inherited: Visibility;
+    exception: boolean;
+    readOnly: boolean;
+  };
+}) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const [open, setOpen] = useState(false);
-  const rows = properties(frontmatter);
+  const rows = withVisibility(properties(frontmatter), visibility);
 
   return (
     <View style={styles.properties}>
@@ -409,6 +550,45 @@ function Properties({ frontmatter }: { frontmatter: string }) {
 }
 
 /**
+ * The frontmatter's rows, with the one the frontmatter cannot answer.
+ *
+ * `visibility` is a property of a note in every sense that matters to a
+ * reader — it is what the breadcrumb's chip used to say, and it belongs in the
+ * panel that lists what is filed about this note. What it must **not** come
+ * from is the file: `ManifestNotice` says it plainly, and so does
+ * `fileOps.ts` — a `visibility:` line inside a note changes nothing, because
+ * `privacy.md` decides access. So a note that carries one has that row
+ * *replaced* rather than shown alongside, and the panel never states two
+ * different answers to "who can read this".
+ *
+ * Exported for its test: this is a claim about who can read somebody's note,
+ * and "the row quietly stopped being added" is the kind of regression that is
+ * invisible on screen until it matters.
+ */
+export function withVisibility(
+  rows: Property[],
+  visibility?: {
+    visibility: Visibility;
+    inherited: Visibility;
+    exception: boolean;
+    readOnly: boolean;
+  },
+): Property[] {
+  if (visibility === undefined) return rows;
+  // The phone's wording, from `Breadcrumb`, so the two surfaces cannot come to
+  // describe the same three cases differently — a note that merely follows a
+  // `team` folder and a note deliberately shared as an exception have to stay
+  // distinguishable wherever either is printed.
+  const stated: Property = {
+    key: "visibility",
+    value: describeVisibility({ ...visibility, brief: true }),
+  };
+  const written = rows.findIndex((row) => row.key === "visibility");
+  if (written === -1) return [stated, ...rows];
+  return rows.map((row, index) => (index === written ? stated : row));
+}
+
+/**
  * `privacy.md` gets an explanation rather than a disabled cursor.
  *
  * Somebody who opens it is trying to find out how sharing works. Telling them
@@ -452,6 +632,35 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   wrap: { gap: 12, flex: 1, minHeight: 0 },
   /** The document runs to the edges; what padding there is belongs to it. */
   wrapCompact: { gap: 0 },
+
+  /** The phone's scroll surface: full height, padded in its content. */
+  scroll: { flex: 1, minHeight: 0 },
+
+  /**
+   * Obsidian's inline title.
+   *
+   * 28 on a 34 line box, measured off the reference at 440pt: the name sits a
+   * clear step above the note's own `# Heading` without becoming a masthead,
+   * and it is the first ink on the page rather than a caption over it. The
+   * negative tracking is what a bold face at this size needs to stop reading as
+   * spaced-out; the side margin is `readingMargin`, the one number every band
+   * that lines up with the first character of the note shares.
+   *
+   * `marginBottom` rather than a gap on the parent: the next thing down is
+   * either the Properties card or the editor, and both bring their own top
+   * space — one number here is easier to reason about than a gap that applies
+   * between every pair.
+   */
+  inlineTitle: {
+    paddingHorizontal: layout.readingMargin,
+    marginTop: space.x2,
+    marginBottom: space.x1,
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: "700",
+    letterSpacing: -0.5,
+    color: colors.text,
+  },
 
   /**
    * The Properties row and the editor under it, as one column.

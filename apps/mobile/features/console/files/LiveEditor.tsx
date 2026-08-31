@@ -112,9 +112,8 @@ import {
   type NativeSyntheticEvent,
   type TextInputSelectionChangeEventData,
 } from "react-native";
-import { useFrame } from "../../app/AppFrame";
 import { densityFor } from "../../app/frame";
-import { fonts, layout, leading, radii, space } from "../../design/tokens";
+import { fonts, layout, leading, radii } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import type { EditorControls, LiveEditorProps } from "./LiveEditor.web";
 
@@ -157,8 +156,6 @@ export function LiveEditor({
 }: LiveEditorProps) {
   const styles = useThemedStyles(makeStyles);
   const reading = densityFor(useWindowDimensions().width) === "compact";
-  /** See the `style` prop below. Zero wherever the chrome is not floating. */
-  const tail = useFrame().contentInsets.bottom;
 
   const input = useRef<TextInput | null>(null);
   const selection = useRef<Range>({ start: 0, end: 0 });
@@ -299,19 +296,25 @@ export function LiveEditor({
       onFocus={onFocus}
       onBlur={onBlur}
       /*
-        The tail the floating toolbar takes out of this scroller.
+        On a phone this input does not scroll: it grows to the note's height
+        inside the one `ScrollView` `NoteEditor` owns, so the inline title and
+        the Properties panel above it scroll with the text rather than being
+        pinned over a box that scrolls separately. `scrollEnabled={false}` is
+        the half of that RN needs told explicitly — a multiline `TextInput`
+        scrolls itself otherwise, and two nested scrollers under one thumb is a
+        gesture nobody can aim.
 
-        Content padding, never a shorter input: the bars lie over the document
-        on a phone, so the note runs behind the pill and its last line has to be
-        able to scroll clear of it. `Math.max` against the stylesheet's own
-        floor so a pointer layout — where `contentInsets` is zero because
-        nothing floats — keeps the 32pt of air it already had.
+        **The cost, stated rather than discovered on a device:** RN does not
+        reliably scroll an *outer* `ScrollView` to follow the caret, so typing
+        past the bottom of the glass in a long note can put the caret under the
+        keyboard. The web half has no such gap (CodeMirror grows in place and
+        the browser keeps the caret visible), and the fix here is the WebView
+        this file's header already anticipates. It is a real gap and it is
+        smaller than the one it replaces, which was the note's own name being
+        chrome.
       */
-      style={[
-        styles.editor,
-        reading && styles.reading,
-        reading && { paddingBottom: Math.max(tail, space.x8) },
-      ]}
+      scrollEnabled={!reading}
+      style={[styles.editor, reading && styles.reading]}
       accessibilityLabel={accessibilityLabel}
       spellCheck={false}
       autoCapitalize="none"
@@ -349,6 +352,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * with the first character of this text; see `readingMargin`.
    */
   reading: {
+    /*
+      `flex: 0` with no `minHeight`: this is a block inside somebody else's
+      scroller now and has to be exactly as tall as the note. A `flex: 1` here
+      would fill the scroller's content box — which is the note's own height —
+      and a `minHeight` would leave a short note with a tail of dead space
+      between its last line and the toolbar.
+    */
+    flex: 0,
+    minHeight: undefined,
     borderWidth: 0,
     borderRadius: 0,
     backgroundColor: "transparent",
@@ -356,13 +368,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontFamily: fonts.body,
     fontSize: 16,
     lineHeight: leading(16, 1.5),
-    paddingTop: space.x2,
-    paddingHorizontal: layout.readingMargin,
     /*
-      A floor. The real tail is `FrameApi.contentInsets.bottom`, applied at the
-      call site because it depends on the phone's home indicator and a
-      stylesheet cannot know it. See the `reading` branch in the component.
+      No vertical padding. The room the floating chrome takes at each end is
+      content padding on the `ScrollView` above — one payment, by the surface
+      that scrolls — and the same three numbers the web half sets in CSS, so a
+      note does not reflow differently on the two platforms.
     */
-    paddingBottom: space.x8,
+    paddingVertical: 0,
+    paddingHorizontal: layout.readingMargin,
   },
 });

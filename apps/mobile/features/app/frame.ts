@@ -121,12 +121,21 @@ export interface Regions {
   /** Compact only: the button that pulls the drawer in. */
   drawerToggle: boolean;
   /**
-   * Compact only: the control that pulls the rail in.
+   * Compact only, and only where the file tree is not there to carry it: the
+   * control in the top bar that pulls the rail in.
    *
-   * Unconditional at that density, unlike `drawerToggle`. There is always
-   * somewhere to go — the app-level panes, the other contexts, and the way to
-   * sign out all live in the rail and nowhere else — so a phone without this
-   * is a phone with no navigation at all.
+   * There is always somewhere to go — the app-level panes, the other contexts
+   * and the way to sign out all live in the rail and nowhere else — so a phone
+   * with no route to it is a phone with no navigation at all. What changed is
+   * *where the route is*. Obsidian's top bar is a sidebar toggle and one group
+   * of actions with nothing in the middle, and the vault switcher lives at the
+   * foot of the sidebar. Ours does too: on a route with a tree, `Explorer`'s
+   * `vault` slot carries the switcher and `drawerToggle` is the way to it.
+   *
+   * Map and Connections have no tree and therefore no footer, so the chip stays
+   * in the bar there. `appFrame.test.ts` holds the invariant in the form it now
+   * takes: every compact layout has *some* route to the rail, and this control
+   * exists exactly where the other one does not.
    */
   navToggle: boolean;
 }
@@ -180,7 +189,9 @@ export function regionsFor(
       bottomBar: true,
       statusBar: false,
       drawerToggle: hasExplorer,
-      navToggle: true,
+      // See the field's doc: where there is a tree, its footer is the vault
+      // switcher and the top bar keeps to a toggle and one group of actions.
+      navToggle: !hasExplorer,
     };
   }
 
