@@ -1257,6 +1257,54 @@ file failing to load. Our entries are identified by the command string instead �
 still recognised on read, so an upgrade replaces an old marked entry rather than
 stacking a second one beside it.
 
+### One runtime version, pinned, and native deps gated behind it
+
+A Supa Media convention rather than this app's decision, and it governs how
+everything ships: **every app in the estate pins a single runtime version and
+delivers almost all changes over the air.** An older app carries whatever number
+it was pinned at years ago (togather is in the 1.0.2x range); a new one starts
+at `1.0.0` and stays there. Nobody wants to maintain a runtime per client
+version, so nobody creates one.
+
+`app.config.js` said `runtimeVersion: { policy: "appVersion" }`, which reads as
+harmless and is the trap. That policy makes the runtime track the `version`
+field, so **the first App Store release that bumps `1.0.0` to `1.0.1` forks the
+runtime.** Every install still on 1.0.0 lands on an orphaned one: `eas update`
+keeps publishing, those clients keep polling, and nothing reaches them again.
+No error, no log, no crash — they simply stop updating. It is now the literal
+`"1.0.0"`, so the marketing version can move as often as the store wants it to
+and the runtime does not follow.
+
+**What that buys is one update channel reaching every install ever shipped.
+What it costs is the assumption that an update's JS can rely on the native
+modules it was built against** — that bundle will land on clients built months
+earlier. So the two halves are one policy:
+
+- `native-deps.json` `core` is the baseline every build has and may be imported
+  statically. Anything added afterwards goes in `gated`, is imported
+  **dynamically behind a runtime check**, and must degrade to a real fallback
+  rather than throwing. `supa-framework.test.js` runs the framework's scanner
+  (`tests.nativeImports`) so a static import of a gated dependency fails CI
+  instead of crashing somebody's phone.
+- The repo already has the shape of the fallback in its platform splits:
+  `writeClipboard` returns `false` on native rather than claiming "Copied" over
+  a no-op, and `useUnsavedGuard`'s native half is a documented no-op. An absent
+  capability is reported honestly; it is never faked.
+
+`__tests__/runtimeVersion.test.js` asserts both halves together, because either
+one alone is a bug and both fail silently. The version half is asserted as a
+*property* — the runtime does not move when `version` does — rather than as two
+strings that happen to read `1.0.0` today, which the policy this replaced would
+also satisfy.
+
+**The one legitimate reason to change the string** is a native change no gate
+can paper over, such as an Expo SDK upgrade that moves the ABI. Bumping it then
+strands every existing install on its current JS until people update through
+the store; that is the real cost of the upgrade and belongs in the PR that does
+it, stated. Bumping it for any other reason — or restoring the `appVersion`
+policy because it looks tidier — is how the estate ends up with a runtime per
+release.
+
 ### A guard nobody has checked is not a guard
 
 Three times now a protection has been weaker than it looked: a credential check
