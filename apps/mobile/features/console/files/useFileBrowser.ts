@@ -1266,6 +1266,9 @@ export function useFileBrowser(options: {
         counts: offline.counts,
         durable: offline.durable,
         conditionalWrite: options.conditionalWrite,
+        stuckPaths: offline.outbox.writes
+          .filter((write) => write.state !== "pending")
+          .map((write) => write.path),
       },
       notice,
       dismissNotice,
@@ -1328,6 +1331,7 @@ export function useFileBrowser(options: {
       notice,
       offline.counts,
       offline.durable,
+      offline.outbox,
       offline.reachability,
       options.canEdit,
       options.conditionalWrite,

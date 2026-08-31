@@ -34,6 +34,15 @@ export type Reachability = "online" | "offline" | "unknown";
 export interface SyncFacts {
   reachability: Reachability;
   counts: OutboxCounts;
+  /**
+   * The notes waiting for a person, so the strip can name them.
+   *
+   * "2 notes need you" with no way to find out which two is a count that
+   * cannot be acted on. Paths, never bodies — the same rule that keeps note
+   * content out of structured logs, and a path is already drawn all over this
+   * console.
+   */
+  stuckPaths?: readonly string[];
   /** From the store. `false` means the queue does not survive a restart. */
   durable: boolean;
   /**
@@ -80,13 +89,14 @@ export function queueLine(
   const stuck = conflicted + rejected;
 
   if (stuck > 0) {
+    const why =
+      conflicted > 0
+        ? "Somebody else wrote to these while your edit was waiting. Nothing has been overwritten — open each one and choose."
+        : "These could not be written to your bucket. Nothing has been lost — open each one to see why.";
     return {
       text: plural(stuck, "note needs you", "notes need you"),
       tone: "crit",
-      detail:
-        conflicted > 0
-          ? "Somebody else wrote to these while your edit was waiting. Nothing has been overwritten — open each one and choose."
-          : "These could not be written to your bucket. Nothing has been lost — open each one to see why.",
+      detail: `${why}${namesOf(facts.stuckPaths)}`,
     };
   }
 
@@ -97,6 +107,21 @@ export function queueLine(
     tone: "warn",
     detail: queuedDetail(facts),
   };
+}
+
+/**
+ * " — a.md, b.md and 3 more." for a list, and nothing at all for none.
+ *
+ * Bounded at three, and a longer list says how many are left rather than
+ * printing them: this is a single line in a fixed-height strip, and a sentence
+ * that runs off the end is a sentence nobody reads. The same rule the note
+ * census follows — a short list is never printed as a complete one.
+ */
+function namesOf(paths: readonly string[] | undefined): string {
+  if (paths === undefined || paths.length === 0) return "";
+  const shown = paths.slice(0, 3).join(", ");
+  const rest = paths.length - 3;
+  return rest > 0 ? ` — ${shown} and ${rest} more.` : ` — ${shown}.`;
 }
 
 function queuedDetail(facts: SyncFacts): string {
