@@ -1305,6 +1305,42 @@ it, stated. Bumping it for any other reason — or restoring the `appVersion`
 policy because it looks tidier — is how the estate ends up with a runtime per
 release.
 
+### The native baseline was chosen once, before the first build
+
+The corollary of the pin, and it has already been spent. Because
+`runtimeVersion` never moves and every change ships over the air, **the set of
+native modules in the first binary is the set the app has**, and the only
+moment that set was free to choose was before that binary existed. An OTA
+bundle cannot add a native module; it can only find one already there.
+
+So the first build deliberately installed far more than the app used: 51
+packages in `native-deps.json` `core`, covering files and attachments, image
+and media capture, gestures/reanimated/svg/webview, OAuth browser flows,
+local and Apple authentication, and the small system modules. Most of them are
+imported nowhere. That is the point — the cost of carrying an unused module is
+binary size, and the cost of missing one is a new build plus a reinstall by
+every user.
+
+**Info.plist permission strings are part of the baseline for the same reason.**
+A usage string is as native as the module it belongs to, and a feature built
+later against a missing one does not degrade — iOS terminates the app the
+moment it asks. They are declared in the config-plugin blocks in
+`app.config.js`, never duplicated into `ios.infoPlist`, so each permission has
+one source of truth. Nothing requests any of them yet.
+
+Two consequences worth stating:
+
+- **`core` is now genuinely an inventory, not just a permission list**, because
+  everything in it is installed. `gated` is empty and is where anything added
+  *after* the first build must go — dynamically imported, behind a runtime
+  check, with an honest fallback.
+- Several documented "deliberate native gaps" are no longer blocked by a
+  missing dependency, only by nobody having written the code:
+  `writeClipboard` returning `false` (expo-clipboard is installed now),
+  `fonts.ts` being a no-op (expo-font), `useUnsavedGuard` (async-storage), and
+  the iOS Live Preview that CodeMirror cannot provide (react-native-webview).
+  Each is a project, not a config change — but the native half is paid for.
+
 ### A guard nobody has checked is not a guard
 
 Three times now a protection has been weaker than it looked: a credential check
