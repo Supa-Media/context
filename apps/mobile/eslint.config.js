@@ -157,7 +157,11 @@ module.exports = [
     // module that must be loaded *after* its mocks is loaded with `require`.
     // That is the documented pattern and several tests here rely on it and say
     // so; `no-require-imports` has nothing useful to add about it.
-    files: ["__tests__/**"],
+    // `scripts/design-shots.ts` is a Jest file too — it mounts the console under
+    // the same `jest.mock` calls, and is excluded from `pnpm test` only by
+    // `jest.config.js`'s `testMatch`. It has the same reason and gets the same
+    // exemption rather than a second copy of the rule turned off inline.
+    files: ["__tests__/**", "scripts/design-shots.ts"],
     rules: { "@typescript-eslint/no-require-imports": "off" },
   },
 
