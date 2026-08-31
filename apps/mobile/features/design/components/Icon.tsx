@@ -22,13 +22,20 @@ import { useColors } from "../theme";
  *
  * ## Why not an icon font or an SVG library
  *
- * `react-native-svg` is the obvious answer and it is a **native** dependency:
- * it lands in `native-deps.json`, needs a new development build on both
- * platforms before anybody can see a single icon, and buys nothing this app
- * needs — there is no icon here with a curve a rectangle cannot fake, and the
- * two that have one (the search lens, a dot) are circles, which `borderRadius`
- * draws exactly. An icon font is worse again: a binary in the repo, a load
- * that can fail, and a glyph box we would be back to fighting.
+ * `react-native-svg` is the obvious answer, and one of the two reasons given
+ * here for not taking it has expired. It said the dependency was native, so it
+ * would land in `native-deps.json` and need a new development build on both
+ * platforms before anybody could see a single icon. It is in `package.json` at
+ * 15.12.1 and in `native-deps.json` `core` — every build already carries it,
+ * because the baseline was deliberately over-provisioned before the first
+ * binary — so that cost is paid and there is no build to wait for.
+ *
+ * The reason that survives is the one that was doing the work anyway: it buys
+ * nothing this app needs. There is no icon here with a curve a rectangle
+ * cannot fake, and the two that have one (the search lens, a dot) are circles,
+ * which `borderRadius` draws exactly. An icon font is worse again: a binary in
+ * the repo, a load that can fail, and a glyph box we would be back to
+ * fighting.
  *
  * A `View` with a background colour is a `<div>` on web and a layer on native.
  * Rotation is `transform`, which both platforms have. That is the whole

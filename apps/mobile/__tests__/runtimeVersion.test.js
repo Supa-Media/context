@@ -44,32 +44,29 @@ describe("one runtime, and the obligation that comes with it", () => {
     expect(shipped.runtimeVersion).toBe("1.0.0");
   });
 
-  test("every native dependency is classified as core or gated", () => {
-    /*
-      The other half of the policy. One runtime means an update lands on
-      clients built long before it, so a native module that is not in the
-      baseline has to be reached dynamically behind a runtime check with a real
-      fallback — never a static import.
-
-      `supa-framework.test.js` runs the framework's own scanner over the source
-      for the import-shape half of this. This is the classification half, kept
-      here beside the pin it exists because of: a dependency nobody classified
-      is a dependency nobody decided about.
-    */
-    const NATIVE = [/^react-native$/, /^react-native-/, /^@react-native(-community)?\//, /^expo-/, /^@expo\//];
-    const classified = new Set([...nativeDeps.core, ...nativeDeps.gated]);
-    const deps = Object.keys(require("../package.json").dependencies);
-
-    const unclassified = deps.filter(
-      (name) => NATIVE.some((re) => re.test(name)) && !classified.has(name) && name !== "expo",
-    );
-    expect(unclassified).toEqual([]);
-  });
-
   test("nothing is in both lists", () => {
-    // `core` is "every build has it"; `gated` is "assume it is absent". A name
-    // in both is a name with no answer, and the scanner would let its static
-    // imports through on the strength of the `core` entry.
+    /*
+      The other half of the policy is the framework's, and this is the one part
+      of it the framework cannot see.
+
+      `tests.nativeImports` in `supa-framework.test.js` does **both** halves —
+      it scans the source for static imports of gated deps *and* it refuses a
+      native dependency that nobody classified. A comment here used to claim it
+      only did the first, and a local classification check sat beside it doing
+      the second over five regexes where the framework has fourteen. Measured:
+      an unclassified `@shopify/flash-list` fails the framework check and
+      passes the local one, and `@sentry/react-native`, `@gorhom/bottom-sheet`,
+      `@rnmapbox/*`, `@mapbox/*` and `@react-native-picker/*` are the same
+      shape. It was not a second opinion; it was a narrower one wearing the
+      same words, which is worse than no check because a reader counts two.
+
+      What survives is the assertion the framework genuinely does not make. It
+      unions `core` and `gated` into one `allClassified` set, so a name in both
+      is silently accepted — and it is a name with no answer: `core` says
+      "every build has it", `gated` says "assume it is absent", and the scanner
+      would wave its static imports through on the strength of the `core`
+      entry. Sabotage-checked in both directions.
+    */
     const both = nativeDeps.core.filter((name) => nativeDeps.gated.includes(name));
     expect(both).toEqual([]);
   });
