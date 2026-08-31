@@ -67,6 +67,15 @@ none. What it shows is the accessory bar and where it lands, which is the half
 that is ours to get right — and that the bottom toolbar has put itself away,
 which is what the reference does while the keyboard is up.
 
+None of the demo notes is longer than a screen, so no shot here shows the
+mid-scroll state the fourth reference screenshot does. It was checked in the
+browser instead, on `context-properties.html` at 440×956 with the note's text
+lengthened in the console: the scroller's `scrollHeight` grows past the
+viewport, and at `scrollTop: 200` the inline title's box is at `y: -65` while
+the sidebar toggle sits at `y: 65…109` — the title has passed *behind* the
+chrome rather than stopping short of it, which is the property the whole
+content-padding arrangement exists for.
+
 The `.html` files beside them are what Playwright opened. They are
 self-contained: the markup, react-native-web's atomic stylesheet, CodeMirror's
 base theme and the live-preview rules, all inlined. Open one in a browser at
