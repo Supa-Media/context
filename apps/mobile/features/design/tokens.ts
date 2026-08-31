@@ -441,17 +441,48 @@ export const layout = {
    */
   bottomBarHeight: 66,
   /**
+   * How much note shows either side of that toolbar.
+   *
+   * 52, measured off the reference: the bar runs from x=52.0 to x=387.7 on a
+   * 440pt screen, which is 336pt of pill with 52 of note showing on each side.
+   * That gap is most of what makes the bar read as an object lying on the note
+   * rather than as an edge with rounded corners.
+   *
+   * **It is the inset that is the measurement, not the width.** An earlier pass
+   * sized the bar to its contents and let the inset be whatever was left over,
+   * which is right only for the number of actions the reference happens to
+   * show: on `@seyi`, where the reader is a team member and there is no New
+   * note, five targets left the pill spanning 78→362 — 78pt in on one side of a
+   * 440pt screen, half again the reference's gap, on a bar that is supposed to
+   * be in the same place on every screen. So the frame insets the slot by this
+   * and the bar fills it.
+   */
+  bottomBarInset: 52,
+  /**
    * One target on that toolbar.
    *
-   * Six of these plus `bottomBarPad` either side comes to 336pt, which on a
-   * 440pt screen leaves the ~52pt of note showing on each side that the
-   * reference has. Written as the target rather than as the bar's width because
-   * the bar has four to six actions depending on what is open, and a fixed
-   * width would centre four controls in a pill sized for six.
+   * 52 is what six targets plus `bottomBarPad` either side need to fill the
+   * 336pt the reference measures. It is the *natural* width now rather than the
+   * fixed one — `bottomBarInset` decides the bar's width, and the targets share
+   * it — so it stands as the size a target wants when there is room, with
+   * `minTouchTarget` underneath it as the floor when there is not.
    */
   bottomBarTarget: 52,
   /** The toolbar's own horizontal padding. See `bottomBarTarget`. */
   bottomBarPad: 12,
+  /**
+   * The air a panel leaves between the status bar and its first row.
+   *
+   * Measured off the reference at 440×956: the sidebar's first row starts at
+   * about 92pt, and the status bar's inset on that device is 59 — so 33, of
+   * which the tree's own scroller already contributes 8.
+   *
+   * **A panel does not clear the floating toggle**, which is what it was doing
+   * instead: the toggle crosses to the sliver of note the moment a panel comes
+   * in (`AppFrame`'s `toggleOnSliver`), so reserving its 44pt here put the first
+   * row at 126 with nothing in the space above it.
+   */
+  panelGutter: 24,
   /**
    * How far the floating chrome sits from the bottom of the glass.
    *
@@ -465,15 +496,21 @@ export const layout = {
    */
   floatingGap: 25,
   /**
-   * The gap between the floating toolbar and the edges of the glass.
+   * The air above the floating toolbar, between it and the last line of the
+   * document.
    *
    * The toolbar is a pill lying on the note rather than a bar ruled off from
-   * it, so the frame reserves `bottomBarHeight` **plus twice this** along the
-   * bottom edge. Reserved rather than overlaid: Obsidian lets the document
-   * run under its toolbar and pays for it with bottom padding inside the
-   * scroller, and this app has four different things in that slot — a note, a
-   * folder listing, a settings document, a map — so the padding would have to
-   * be right in four places instead of one.
+   * it, so the frame reserves `bottomBarHeight + floatingInset + floatingGapFor
+   * (insets.bottom)` along the bottom edge — this above the pill, and the
+   * larger of the home indicator and `floatingGap` below it. That whole sum is
+   * `FrameApi.contentInsets.bottom`, and it is spent as **content padding**
+   * inside whichever scroller is on screen, so the last line of a long note can
+   * be brought out from under the bar rather than being stranded behind it.
+   *
+   * (This used to say "plus twice this", which stopped being true when the
+   * bottom gap became `max(insets.bottom, floatingGap)` — 34 on a notched
+   * phone, not 10. The arithmetic is `AppFrame`'s `contentInsets`; this is the
+   * one term of it that belongs to the token.)
    */
   floatingInset: 10,
   /**

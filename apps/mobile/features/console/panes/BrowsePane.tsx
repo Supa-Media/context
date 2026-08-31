@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
-import { useSurfacePadding } from "../../app/Screen";
+import { ScreenViewport, useSurfacePadding } from "../../app/Screen";
 import { densityFor } from "../../app/frame";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
@@ -493,18 +493,29 @@ export function BrowsePane({
       {compact && selected !== null && selected.kind === "file" ? (
         openDocument
       ) : compact ? (
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={{
-            paddingTop: padding.top,
-            paddingBottom: padding.bottom,
-          }}
-          scrollIndicatorInsets={{ top: padding.top, bottom: padding.bottom }}
-          testID="browse-scroll"
-        >
-          {notices}
-          <View style={styles.bodyCompact}>{openDocument}</View>
-        </ScrollView>
+        /*
+          The status bar's band goes on the box *around* the scroller and our
+          own chrome inside it — see `SurfacePadding` in `app/frame.ts`. Spent
+          together on the content, the whole inset scrolled away with the
+          listing and the folder's rows rode up under the clock.
+        */
+        <ScreenViewport padding={padding}>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={{
+              paddingTop: padding.content.top,
+              paddingBottom: padding.content.bottom,
+            }}
+            scrollIndicatorInsets={{
+              top: padding.content.top,
+              bottom: padding.content.bottom,
+            }}
+            testID="browse-scroll"
+          >
+            {notices}
+            <View style={styles.bodyCompact}>{openDocument}</View>
+          </ScrollView>
+        </ScreenViewport>
       ) : (
         <>
           {notices}

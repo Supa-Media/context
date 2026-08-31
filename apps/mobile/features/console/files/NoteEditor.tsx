@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useFrame } from "../../app/AppFrame";
-import { useSurfacePadding } from "../../app/Screen";
+import { ScreenViewport, useSurfacePadding } from "../../app/Screen";
 import { densityFor } from "../../app/frame";
 import { Button, PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
@@ -435,14 +435,31 @@ export function NoteEditor({
         page scroller around it would be a second scrollbar around the first.
       */}
       {compact ? (
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={{ paddingTop: padding.top, paddingBottom: padding.bottom }}
-          scrollIndicatorInsets={{ top: padding.top, bottom: padding.bottom }}
-          testID="note-scroll"
-        >
-          {flow}
-        </ScrollView>
+        /*
+          The status bar's band is held back *outside* the scroller and our own
+          chrome is paid inside it, which is the whole of `SurfacePadding` and
+          the reason this is a wrapping view rather than one more number in
+          `contentContainerStyle`. Content padding scrolls away with the
+          content: with the notch spent there, the first line of a note cleared
+          the Dynamic Island and the twentieth ran straight across it — the
+          verification pass measured body type at 7pt.
+        */
+        <ScreenViewport padding={padding}>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={{
+              paddingTop: padding.content.top,
+              paddingBottom: padding.content.bottom,
+            }}
+            scrollIndicatorInsets={{
+              top: padding.content.top,
+              bottom: padding.content.bottom,
+            }}
+            testID="note-scroll"
+          >
+            {flow}
+          </ScrollView>
+        </ScreenViewport>
       ) : (
         flow
       )}

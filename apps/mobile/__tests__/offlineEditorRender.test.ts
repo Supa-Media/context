@@ -2,7 +2,10 @@
  * @jest-environment jsdom
  */
 
-import { describe, expect, test } from "@jest/globals";
+// `jest` among them: `jest.mock` below is a *value*, and the ambient namespace
+// this file was reaching for is types only — `tsc --noEmit` has been red on
+// this line since the file landed.
+import { describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 

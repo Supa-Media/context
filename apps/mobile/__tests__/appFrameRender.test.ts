@@ -253,6 +253,31 @@ describe("a phone", () => {
     mockInsets.bottom = 0;
   });
 
+  /**
+   * And its gap from the *side* edges, which is the frame's too.
+   *
+   * The pill used to be sized by its own contents and centred, so the inset
+   * either side was whatever was left over — a number that changes with how
+   * many actions the current route offers. A device measured it at 78pt on a
+   * context the reader is only a member of, where there is no New note, against
+   * the reference's 52.
+   *
+   * So the slot carries the inset and the bar fills it, and that is why this is
+   * asserted here rather than in `bottomBar.test.ts`: the toolbar cannot know
+   * how wide the glass is, and the number was never its to hold.
+   */
+  test("the toolbar is inset from the side edges by the frame, not by its contents", () => {
+    const app = mountFrame(440);
+    const band = app.find("bottom")!.parentElement!;
+
+    expect(Number.parseFloat(styleOf(band, "padding-left"))).toBe(layout.bottomBarInset);
+    expect(Number.parseFloat(styleOf(band, "padding-right"))).toBe(layout.bottomBarInset);
+    // The reference, on the reference's screen: 52 either side of 440 leaves
+    // the 336pt pill Obsidian draws.
+    expect(440 - layout.bottomBarInset * 2).toBe(336);
+    app.unmount();
+  });
+
   test("is the editor and a bottom toolbar, with no rail", () => {
     const app = mountFrame(390);
 

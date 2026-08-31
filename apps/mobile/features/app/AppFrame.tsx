@@ -133,8 +133,8 @@ export interface FrameApi {
    */
   closesOnSelect: boolean;
   /**
-   * How much room the floating chrome takes at each edge, for a scroller to
-   * spend as **content padding**.
+   * How much room a surface inside this frame owes at each edge, in total —
+   * the system's furniture *and* the chrome floating over it.
    *
    * On a phone the chrome does not sit in a band the document is kept out of —
    * it lies over the document, and the document runs underneath it. That is
@@ -143,17 +143,40 @@ export interface FrameApi {
    * pill, on the same lines it covers, because the text column is wider than
    * the bar and simply runs behind it.
    *
-   * Which means the *viewport* must not be shrunk to make room. A scroller that
-   * stops where the toolbar begins has a hard edge across the glass and cannot
-   * scroll its last line clear of anything. A scroller that fills the screen and
-   * pads its **content** by these numbers has neither problem: the first and
-   * last lines can be brought out from under the chrome, and everything in
-   * between passes behind it.
+   * Which means the *viewport* must not be shrunk to make room for the chrome.
+   * A scroller that stops where the toolbar begins has a hard edge across the
+   * glass and cannot scroll its last line clear of anything. A scroller that
+   * fills the screen and pads its **content** has neither problem.
    *
-   * Zero at every other density, where the bars are real regions with their own
-   * surfaces and the document is genuinely beside them rather than beneath them.
+   * `viewportInsets` below names the part of this sum where the opposite is
+   * true. Read them together, through `surfacePadding`; nothing should spend
+   * this number on its own.
+   *
+   * Zero at the top at every other density, where the frame has already padded
+   * itself down past the notch and the bars are real regions with their own
+   * surfaces.
    */
   contentInsets: { top: number; bottom: number };
+  /**
+   * The part of `contentInsets` that has to be spent **outside** the scroller.
+   *
+   * The system's top furniture, and only on a phone. Content padding scrolls
+   * away with the content, so an inset spent there keeps the first line clear
+   * of the Dynamic Island and lets the twentieth run straight across it — which
+   * is exactly what shipped, and exactly what a guard that checked only the
+   * resting layout could not see.
+   *
+   * Zero at every other density, and that is not "nothing to clear": at medium
+   * and wide the frame carries `paddingTop: insets.top` itself, so every
+   * scroller inside it is already an inset's worth down the glass and paying it
+   * again would open a band of ground above the content on every tablet.
+   *
+   * The bottom is always zero. The home indicator is a thin translucent bar the
+   * platform draws over whatever is beneath it, and the phone's own toolbar
+   * floats in that same band by design — a shortened viewport there would draw
+   * the hard edge across the glass this frame exists not to have.
+   */
+  viewportInsets: { top: number; bottom: number };
   /**
    * Whether there is a real frame above this, or `useFrame`'s fallback.
    *
@@ -222,6 +245,7 @@ export function useFrame(): FrameApi {
       setExplorerWidth: noop,
       closesOnSelect: closesOnSelect(fallbackDensity),
       contentInsets: NO_CONTENT_INSETS,
+      viewportInsets: NO_CONTENT_INSETS,
       framed: false,
       chromeGap: floatingGapFor(0),
       accessoryOpen: false,
@@ -449,6 +473,18 @@ export function AppFrame({
     site.
   */
   const hasBottomBar = regions.bottomBar && bottomBar != null;
+  /**
+   * The band a surface must hold back from its scroller, rather than pad its
+   * content by. See `FrameApi.viewportInsets`.
+   *
+   * Only the top, and only on a phone: at every other density `styles.frame`
+   * already carries `paddingTop: insets.top`, which is an ancestor of every
+   * scroller in the frame and has therefore already shortened all of them.
+   */
+  const viewportInsets = useMemo(
+    () => (compact ? { top: insets.top, bottom: 0 } : NO_CONTENT_INSETS),
+    [compact, insets.top],
+  );
   const contentInsets = useMemo(
     () =>
       compact
@@ -482,6 +518,7 @@ export function AppFrame({
       setExplorerWidth,
       closesOnSelect: closesOnSelect(density),
       contentInsets,
+      viewportInsets,
       framed: true,
       chromeGap,
       accessoryOpen,
@@ -498,6 +535,7 @@ export function AppFrame({
       closeOverlays,
       setExplorerWidth,
       contentInsets,
+      viewportInsets,
       chromeGap,
       accessoryOpen,
       setAccessoryOpen,
@@ -707,17 +745,30 @@ export function AppFrame({
                 A panel is full height now, because the body is: the chrome
                 floats over it rather than sitting above it. So the panel runs
                 from the top of the glass to the bottom, the way Obsidian's
-                sidebar does, and pays for the chrome in padding — the top
-                clears the status bar and the floating toggle, the bottom clears
-                the floating toolbar. Without the top, the filter row would sit
-                under the notch; without the bottom, the vault footer would sit
-                under the toolbar.
+                sidebar does, and pays for what is over it in padding — the top
+                clears the status bar, the bottom clears the floating toolbar.
+
+                **It does not clear the toggle**, and that was 34pt of dead
+                space above the first row of the tree — measured at 126pt
+                against the reference's 92. The toggle crosses to the sliver of
+                note the moment a panel is up (`toggleOnSliver`), so it is not
+                over this surface at all; paying `contentInsets.top` here was
+                reserving room for a control that had moved out of the way.
+                `panelGutter` is what is left: the air Obsidian leaves between
+                the status bar and its first row.
+
+                All of it is on the panel rather than inside the tree's own
+                scroller, which is what keeps rows from riding up under the
+                clock once the tree is longer than the glass.
               */
               style={[
                 styles.drawer,
                 compact && styles.panelRounded,
                 compact
-                  ? { paddingTop: contentInsets.top, paddingBottom: contentInsets.bottom }
+                  ? {
+                      paddingTop: insets.top + layout.panelGutter,
+                      paddingBottom: contentInsets.bottom,
+                    }
                   : { paddingBottom: insets.bottom },
               ]}
               accessibilityViewIsModal
@@ -749,7 +800,13 @@ export function AppFrame({
                 styles.navSheet,
                 compact && styles.panelRounded,
                 compact
-                  ? { paddingTop: contentInsets.top, paddingBottom: contentInsets.bottom }
+                  ? {
+                      // The tree drawer's arithmetic, and for its reasons — see
+                      // the comment there. The two panels are one object in two
+                      // sizes and the toggle crosses off both of them.
+                      paddingTop: insets.top + layout.panelGutter,
+                      paddingBottom: contentInsets.bottom,
+                    }
                   : { paddingBottom: insets.bottom },
               ]}
               accessibilityViewIsModal
@@ -792,6 +849,15 @@ export function AppFrame({
               {
                 paddingTop: layout.floatingInset,
                 paddingBottom: chromeGap,
+                /*
+                  The 52pt of note showing either side, from here rather than
+                  from whatever the bar happens to contain. See
+                  `layout.bottomBarInset`: sizing the pill to its own controls
+                  made the gap a function of how many actions the current route
+                  has, so a context somebody is only a member of — no New note —
+                  drew the bar 78pt in on a screen where the reference is 52.
+                */
+                paddingHorizontal: layout.bottomBarInset,
               },
             ]}
             /*

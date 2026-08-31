@@ -44,10 +44,14 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../design
  *     height, about 33pt, not a rounded rectangle;
  *   - white fill, no border. The pale falloff at the edges is a soft shadow.
  *
- * The width is reached through the targets rather than set directly
- * (`alignSelf: "center"`, six `bottomBarTarget`s plus `bottomBarPad` either
- * side = 336), because this bar carries four to six actions depending on what
- * is open and a fixed width would centre four controls in a pill sized for six.
+ * **The 52 is the measurement; the 336 is what follows from it.** The pass
+ * before this had it the other way round — the bar was sized to its own targets
+ * and the inset was whatever was left over — which made the gap depend on how
+ * many actions the current route offers. On a context somebody was invited into
+ * there is no New note, so five targets put the pill at 78→362: the same bar in
+ * a different place on the screen, on a device where it is supposed to be in
+ * one. `AppFrame` insets the slot by `layout.bottomBarInset` now and the bar
+ * fills it; the targets divide what is inside.
  *
  * That is deliberately **not** the flush, hairline-topped bar an earlier plan
  * called for. The reference is unambiguous on this point — reading view and
@@ -97,15 +101,15 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../design
  *
  * ## Two things this deliberately does not do
  *
- * **It sets nothing on its bottom edge.** `AppFrame` owns that edge: it applies
- * `max(insets.bottom, floatingGap)` to the slot this renders into, so the pill
- * clears the home indicator on a notched phone and still has the reference's
- * 25pt gap on one without. Setting anything here as well would stack, which is a bar floating
- * 68px above the home indicator, and — because the frame is `100dvh` and clips
- * — pushes the icons off the bottom of the editor's space rather than growing
- * the frame. The inset either side is not set at all any more — the bar is
- * sized by its contents and centred, so what is left over *is* the inset. If
- * this component ever gains a bottom margin or padding, it is a bug.
+ * **It sets nothing on its own edges.** `AppFrame` owns all four: it applies
+ * `max(insets.bottom, floatingGap)` below and `layout.bottomBarInset` either
+ * side of the slot this renders into, so the pill clears the home indicator on
+ * a notched phone, still has the reference's 25pt gap on one without, and sits
+ * 52pt in from each edge whatever is on it. Setting anything here as well would
+ * stack, which is a bar floating 68px above the home indicator, and — because
+ * the frame is `100dvh` and clips — pushes the icons off the bottom of the
+ * editor's space rather than growing the frame. If this component ever gains a
+ * margin or an outer padding of its own, it is a bug.
  *
  * **It does not reimplement the tab count.** `TabCountButton` in
  * `files/TabSwitcher.tsx` already owns the count square, its unsaved dot and
@@ -293,24 +297,33 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     alignItems: "stretch",
     paddingHorizontal: layout.bottomBarPad,
     /*
-      It is as wide as what is on it, and centred — not a slab across the glass.
+      An object lying on the note, not a slab across the glass.
 
       This used to stretch to the full width minus `floatingInset`, which on a
       440pt screen is a 420pt white plank with six icons spread across it: an
       object so nearly the width of its container that it reads as an *edge*
       with rounded corners rather than as something lying on the note. Measured
-      off the reference, Obsidian's is about 315pt on the same screen — six
-      controls at their own size, centred, with the note visible either side of
-      it. That gap is most of what makes one look like it is floating.
+      off the reference, Obsidian's runs 52.0→387.7 on that screen — 336pt, with
+      52pt of note showing on each side. That gap is most of what makes one look
+      like it is floating, and it is now `layout.bottomBarInset`, spent by the
+      frame on the slot this renders into.
 
-      Nothing horizontal is set at all now: `alignSelf: "center"` sizes the bar
-      to its content, so the inset either side is whatever is left over, and
-      there is no number to keep in step with the number of actions on the bar.
-      The bottom edge still belongs to `AppFrame`, which is the one that knows
-      the safe-area inset; see the file comment.
+      Both edges belong to `AppFrame` for the same reason: it is the one that
+      knows the safe-area inset. See the file comment.
     */
-    alignSelf: "center",
-    maxWidth: "100%",
+    /*
+      It fills the slot the frame insets for it, rather than sizing itself.
+
+      `alignSelf: "center"` with a content width was the first answer, and it
+      was right about the *look* and wrong about where the number comes from:
+      the inset either side became a function of how many actions the route has
+      — six on your own context, five on one you were invited into, because
+      there is no New note — so the bar sat 52pt in on one screen and 78 on the
+      next. The reference's 52 is a property of the screen, not of the toolbar's
+      contents. `AppFrame` insets the slot by `layout.bottomBarInset` and this
+      stretches into it; the targets below share what is left.
+    */
+    alignSelf: "stretch",
     /*
       A full pill, not a rounded rectangle. Measured off the reference, the
       bar's horizontal extent narrows symmetrically at both ends — 87.7→352pt
@@ -328,22 +341,27 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   },
 
   /**
-   * One target, at its own size rather than at a share of the screen.
+   * One target, sharing the bar evenly.
    *
-   * `flex: 1` was what "evenly distributed" meant while the bar was full
-   * width. A content-width bar distributes them by giving each the same fixed
-   * box, which is the same evenness with none of the dependence on how wide the
-   * phone is — and it is what lets the bar itself be as wide as what is on it.
-   * `bottomBarTarget` (52) rather than the 44pt floor, because six of them plus
-   * the bar's own padding is the 336pt the reference measures — the width that
-   * leaves ~52pt of note showing either side. `minWidth` still names the floor,
-   * so a future edit that shrinks the target has to argue with the constant
-   * rather than with a comment.
+   * The bar's width is the screen's now — `layout.bottomBarInset` either side —
+   * so the targets divide what is inside it rather than deciding it.
+   * `flexBasis: bottomBarTarget` is what they each want: six of them plus the
+   * bar's own padding is exactly the 336pt the reference measures on a 440pt
+   * screen, so a full toolbar there lands on the reference. A route with one
+   * action fewer spreads that same width between five rather than moving the
+   * bar's edges, which is what a toolbar does — the pill is in the same place
+   * on every screen and the icons stay evenly spaced inside it.
+   *
+   * `minWidth` is the floor and is why `flexShrink` is allowed at all: a narrow
+   * phone with every action present would otherwise squeeze the targets below
+   * what a thumb can hit, and this stops them at `MIN_TOUCH_TARGET` and lets
+   * the row overflow visibly instead — an overflowing toolbar is a problem
+   * somebody sees, and a row of 40pt targets is one nobody does.
    */
   target: {
-    flexGrow: 0,
-    flexShrink: 0,
-    width: layout.bottomBarTarget,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: layout.bottomBarTarget,
     minWidth: MIN_TOUCH_TARGET,
     minHeight: MIN_TOUCH_TARGET,
     alignItems: "center",

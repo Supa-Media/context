@@ -12,9 +12,33 @@ import { join, relative } from "node:path";
 
 /**
  * No screen renders under the status bar, the Dynamic Island or the home
- * indicator. **Every route, not the one somebody photographed.**
+ * indicator. **Every route, not the one somebody photographed — and while it is
+ * being scrolled, not only where it comes to rest.**
  *
- * ## What went wrong, and why a per-screen fix was not the answer
+ * ## The second bug, which the first version of this file could not see
+ *
+ * Every screen passed this guard and every screen was still broken. A
+ * verification pass on a device found `r2` and `BUCKET` drawn at 10pt and 50pt
+ * on `/console/@:slug/settings`, and body type at 7pt on a note — under the
+ * clock and behind the Dynamic Island — the moment anything was scrolled.
+ *
+ * The cause is a distinction the first version did not make: **padding on a
+ * scroller's content scrolls away with the content.** The whole inset was spent
+ * there, so the first line cleared the notch, the twentieth did not, and a
+ * checker reading the resting DOM saw a perfectly padded surface. That is "a
+ * guard nobody has checked" in its purest form — it *was* checked, against the
+ * only state it could see.
+ *
+ * So `surfacePadding` splits what a surface owes in two (`SurfacePadding` in
+ * `features/app/frame.ts`): the system's band is held back **outside** the
+ * scroller, where it shortens the viewport and survives a swipe, and our own
+ * floating chrome stays on the content, where the first and last lines can
+ * still be brought out from under it. `safeAreaComplaint` below is the resting
+ * rule and `scrolledComplaint` is the new one, and the self-tests at the bottom
+ * sabotage each separately — a screen written to fail only the second is the
+ * one that proves this file learned anything.
+ *
+ * ## What went wrong first, and why a per-screen fix was not the answer
  *
  * The context settings screen drew "@seyi settings" on the same line as the
  * clock, with the Connected pill and Done behind the notch. It was not a
@@ -41,10 +65,12 @@ import { join, relative } from "node:path";
  *    a padded surface with every word of its content inside it, which no
  *    comment, import or prose can fake. That is the failure mode of an import
  *    guard that read English as code.
- * 3. **It tests itself.** `SABOTAGE` below is a screen written to be wrong in
- *    the exact way the settings screen was, and the last test asserts the
- *    checker rejects it. A checker nobody has watched fail is a checker that may
- *    only ever return true.
+ * 3. **It tests itself.** `SABOTAGE` and `SABOTAGE_SCROLLED` below are screens
+ *    written to be wrong in the exact two ways the app has been wrong — the
+ *    first paying nothing at all, the second paying everything on the content
+ *    where it scrolls away — and the last tests assert the checker rejects each.
+ *    A checker nobody has watched fail is a checker that may only ever return
+ *    true.
  *
  * ## What it cannot assert
  *
@@ -53,6 +79,18 @@ import { join, relative } from "node:path";
  * carries 47pt of top padding" a real assertion — but it cannot tell you the
  * result looks right. That was checked on an iPhone 16 Pro Max simulator; the
  * shots are under `docs/design/safe-area/`.
+ *
+ * **The scrolled rule is asserted structurally, and that is stated rather than
+ * implied.** jsdom performs no layout, so `scrollTop` clamps to zero and no
+ * amount of driving a scroll here moves a pixel. What each screen *is* scrolled
+ * for is the half a render test can see: any state that reacts to scrolling —
+ * a header that hides, chrome that changes height — runs before the checker
+ * does. The geometric half is arithmetic on the DOM instead: content in a
+ * scroll container can rise to the top of that container's padding box and is
+ * clipped there, so the highest point content can reach is the scroller's own
+ * offset down the glass, which is the sum of the padding on everything above it
+ * that does not scroll. That number is what `scrolledComplaint` compares
+ * against the notch, and it is a fact about the tree rather than a guess.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -115,9 +153,15 @@ const { DropboxCallbackScreen } =
 const { EditorRegion } =
   require("../features/console/EditorRegion") as typeof import("../features/console/EditorRegion");
 const { AppFrame } = require("../features/app/AppFrame") as typeof import("../features/app/AppFrame");
-const { Screen, ScreenScroll } = require("../features/app/Screen") as typeof import("../features/app/Screen");
+const { SAFE_AREA_MARK, Screen, ScreenScroll } =
+  require("../features/app/Screen") as typeof import("../features/app/Screen");
+const { NoteEditor } =
+  require("../features/console/files/NoteEditor") as typeof import("../features/console/files/NoteEditor");
+const { editorReducer, emptyEditor } =
+  require("../features/console/files/editor") as typeof import("../features/console/files/editor");
+const { layout } = require("../features/design/tokens") as typeof import("../features/design/tokens");
 const { Text } = require("../features/design/components/Text") as typeof import("../features/design/components/Text");
-const { View } = require("react-native") as typeof import("react-native");
+const { ScrollView, View } = require("react-native") as typeof import("react-native");
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 /* -------------------------------------------------------------------------- */
@@ -272,27 +316,68 @@ function px(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+/** Whether this element can scroll its own overflow. */
+function scrolls(node: Element): boolean {
+  const overflowY = window.getComputedStyle(node).overflowY;
+  return overflowY === "auto" || overflowY === "scroll";
+}
+
+function ownPadding(node: Element): { top: number; bottom: number } {
+  const style = window.getComputedStyle(node);
+  return { top: px(style.paddingTop), bottom: px(style.paddingBottom) };
+}
+
+/** Every element between this one and the container, nearest first. */
+function ancestorsOf(node: Element, container: Element): Element[] {
+  const chain: Element[] = [];
+  let current = node.parentElement;
+  while (current !== null && current !== container) {
+    chain.push(current);
+    current = current.parentElement;
+  }
+  return chain;
+}
+
 /**
- * The padding a surface actually carries, at each edge.
+ * The distance from the top of a surface to its first line, at rest.
  *
- * A `ScreenScroll` is a react-native-web `ScrollView`: the mark lands on the
- * outer element and the padding on the **content container**, which is the
- * child inside it. So both are read and the larger taken, rather than the
- * checker quietly reporting zero for every scrolling screen — which is the
- * shape of vacuous pass this file's third test exists to rule out.
+ * A `ScreenScroll` is now two boxes rather than one: the marked `View` carries
+ * the system's band, and the `ScrollView` inside it carries our chrome on its
+ * content container. Both count towards where the first line lands, so the
+ * spine is walked — but only *through a scroller*, which is what stops this
+ * quietly crediting a surface with the padding of whatever happens to be its
+ * first child.
  */
 function paddingOf(element: Element): { top: number; bottom: number } {
-  const candidates = [element, element.firstElementChild].filter(
-    (node): node is Element => node instanceof Element,
-  );
-  const read = candidates.map((node) => {
+  const total = ownPadding(element);
+  const scroller = element.firstElementChild;
+  if (scroller === null || !scrolls(scroller)) return total;
+  for (const node of [scroller, scroller.firstElementChild]) {
+    if (!(node instanceof Element)) continue;
+    const padding = ownPadding(node);
+    total.top += padding.top;
+    total.bottom += padding.bottom;
+  }
+  return total;
+}
+
+/**
+ * How far down the glass a scroller's viewport begins.
+ *
+ * **Only what is outside it counts.** Content inside a scroll container is
+ * clipped at that container's padding box, so it can ride up to exactly this
+ * point and no further — which makes this the highest position any word on the
+ * screen can reach, and the only number the notch can be compared against once
+ * somebody has swiped. Padding on the scroller's own `style` does not count
+ * either, and that is not an oversight: a scroll container's content scrolls
+ * *into* its padding-top band and is clipped at the border box, so a
+ * `paddingTop` there buys a resting offset and nothing else.
+ */
+function viewportTopOf(scroller: Element, container: Element): number {
+  return ancestorsOf(scroller, container).reduce((total, node) => {
     const style = window.getComputedStyle(node);
-    return { top: px(style.paddingTop), bottom: px(style.paddingBottom) };
-  });
-  return {
-    top: Math.max(...read.map((r) => r.top)),
-    bottom: Math.max(...read.map((r) => r.bottom)),
-  };
+    return total + px(style.paddingTop) + px(style.marginTop) + px(style.borderTopWidth);
+  }, 0);
 }
 
 /** Every element that carries text of its own, rather than through a child. */
@@ -342,6 +427,55 @@ function safeAreaComplaint(container: HTMLElement): string | null {
   return null;
 }
 
+/**
+ * Why a mounted tree fails **once it has been scrolled**, or `null`.
+ *
+ * The rule is one sentence: every scroller on the screen must begin at least
+ * the system's top inset below the top of the glass, counting only the padding
+ * on things above it that do not themselves scroll. Anything paid inside the
+ * scroller buys the resting position and nothing else.
+ *
+ * A scroller nested inside another is skipped rather than checked, and that is
+ * correct rather than lenient: it is clipped to the outer one's viewport, so
+ * the outer one already owns this edge and checking the inner would demand the
+ * inset twice.
+ */
+function scrolledComplaint(container: HTMLElement): string | null {
+  const scrollers = Array.from(container.querySelectorAll("*")).filter(scrolls);
+  for (const scroller of scrollers) {
+    if (ancestorsOf(scroller, container).some(scrolls)) continue;
+    const held = viewportTopOf(scroller, container);
+    if (held < INSETS.top) {
+      return (
+        `a scroller begins ${held}pt down the glass, so its content rides up under the ` +
+        `${INSETS.top}pt notch as soon as anybody scrolls — the inset has to be held back ` +
+        `outside the scroller, not paid on its content`
+      );
+    }
+  }
+  return null;
+}
+
+/**
+ * Scroll everything on the screen, as far as it will go.
+ *
+ * jsdom lays nothing out, so `scrollTop` clamps to zero and this moves nothing
+ * — the geometry is `scrolledComplaint`'s job and it is arithmetic, not
+ * measurement. What this *does* exercise is any state that reacts to scrolling:
+ * a header that collapses, chrome that changes height, a surface that repays
+ * its insets on scroll. A screen that only clears the notch while it is at rest
+ * has to be given the chance to prove it.
+ */
+function scrollEverything(container: HTMLElement): void {
+  const scrollers = Array.from(container.querySelectorAll("*")).filter(scrolls);
+  act(() => {
+    for (const scroller of scrollers) {
+      scroller.scrollTop = 10_000;
+      scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+    }
+  });
+}
+
 /* -------------------------------------------------------------------------- */
 
 describe("the route census", () => {
@@ -365,6 +499,12 @@ describe("no screen lays itself out under the system's furniture", () => {
       // keeps producing. So: it has to have drawn something first.
       expect(textCarriers(mounted.container).length).toBeGreaterThan(0);
       expect(safeAreaComplaint(mounted.container)).toBeNull();
+      // The half a device found and this file could not: at rest every one of
+      // these was already green.
+      expect(scrolledComplaint(mounted.container)).toBeNull();
+      scrollEverything(mounted.container);
+      expect(safeAreaComplaint(mounted.container)).toBeNull();
+      expect(scrolledComplaint(mounted.container)).toBeNull();
     } finally {
       mounted.unmount();
     }
@@ -431,6 +571,20 @@ describe("the console's panes, through the frame that carries them", () => {
       // the first line is what has to clear it.
       expect(padding.top).toBeGreaterThanOrEqual(INSETS.top + 44 + 12);
       expect(padding.bottom).toBeGreaterThanOrEqual(INSETS.bottom);
+      /*
+        And the split: of that sum, the notch's share is the part outside the
+        scroller. This is the assertion the settings screen would have failed on
+        a device while passing the line above — `BUCKET` at 50pt, on the clock's
+        line, once anybody scrolled.
+      */
+      const scroller = mounted.container.querySelector('[data-safe-area="content"]');
+      expect(scroller).not.toBeNull();
+      expect(viewportTopOf(scroller as Element, mounted.container)).toBeGreaterThanOrEqual(
+        INSETS.top,
+      );
+      expect(scrolledComplaint(mounted.container)).toBeNull();
+      scrollEverything(mounted.container);
+      expect(scrolledComplaint(mounted.container)).toBeNull();
     } finally {
       mounted.unmount();
     }
@@ -458,6 +612,69 @@ describe("the console's panes, through the frame that carries them", () => {
     try {
       const surface = mounted.container.querySelector('[data-safe-area="surface"]');
       expect(paddingOf(surface as Element).top).toBeGreaterThanOrEqual(INSETS.top);
+      expect(scrolledComplaint(mounted.container)).toBeNull();
+    } finally {
+      mounted.unmount();
+    }
+  });
+
+  /**
+   * The note, which builds its own `ScrollView` and therefore carries no mark.
+   *
+   * `NoteAccessory` rides above the keyboard by being absolutely positioned at
+   * the bottom of the region, so it has to be a *sibling* of the scroller
+   * rather than inside it — which is why `NoteEditor` cannot be a
+   * `ScreenScroll`. A surface exempt from the marker is not a surface exempt
+   * from the rule, so it is mounted here and held to both halves of it.
+   *
+   * The bottom assertion is the second thing the verification pass found: a
+   * long note's last lines rendered behind the floating toolbar, so the
+   * scroller's content has to reserve the pill's height plus the gaps either
+   * side of it — `contentInsets.bottom`, spent where it can be scrolled clear.
+   */
+  test("a note reserves the notch outside its scroller and the toolbar inside it", () => {
+    const opened = editorReducer(emptyEditor, {
+      type: "opened",
+      note: {
+        path: "1-projects/pilot.md",
+        text: "# Pilot\n",
+        etag: "e1",
+        visibility: "private",
+        inherited: "private",
+        exception: false,
+        readOnly: false,
+      },
+    });
+    const mounted = mount(
+      createElement(AppFrame, {
+        switcher: null,
+        rail: () => null,
+        // A toolbar has to exist for the frame to reserve room for one.
+        bottomBar: createElement(Text, null, "toolbar"),
+        children: createElement(NoteEditor, {
+          state: opened,
+          canEdit: true,
+          onChange: () => {},
+          onSave: () => {},
+          onDiscard: () => {},
+          onUseTheirs: () => {},
+          onKeepMine: () => {},
+        }),
+      }),
+    );
+    try {
+      const scroller = mounted.container.querySelector('[data-testid="note-scroll"]');
+      expect(scroller).not.toBeNull();
+      expect(viewportTopOf(scroller as Element, mounted.container)).toBeGreaterThanOrEqual(
+        INSETS.top,
+      );
+      const content = (scroller as Element).firstElementChild as Element;
+      expect(px(window.getComputedStyle(content).paddingBottom)).toBeGreaterThanOrEqual(
+        layout.bottomBarHeight + layout.floatingInset,
+      );
+      expect(scrolledComplaint(mounted.container)).toBeNull();
+      scrollEverything(mounted.container);
+      expect(scrolledComplaint(mounted.container)).toBeNull();
     } finally {
       mounted.unmount();
     }
@@ -507,7 +724,7 @@ describe("the checker itself", () => {
     }
   });
 
-  test("rejects a surface whose padding was overwritten", () => {
+  test("rejects a surface whose content padding was overwritten", () => {
     const Overwritten = () =>
       createElement(
         ScreenScroll,
@@ -518,7 +735,43 @@ describe("the checker itself", () => {
       );
     const mounted = mount(createElement(Overwritten));
     try {
-      expect(safeAreaComplaint(mounted.container)).toMatch(/under the 47pt notch/);
+      // The notch survives — it is held back outside the scroller and a
+      // `contentContainerStyle` cannot reach it, which is the point of the
+      // split. The home indicator does not: it is content padding, and this is
+      // what overwriting it costs.
+      expect(safeAreaComplaint(mounted.container)).toMatch(/under the 34pt home indicator/);
+    } finally {
+      mounted.unmount();
+    }
+  });
+
+  /**
+   * **The bug this file was extended for**, written out as a screen.
+   *
+   * A marked surface that pays the whole inset on its scroller's content
+   * container — which is exactly what `ScreenScroll` used to be, and what every
+   * route in the app was doing when a device found text under the Dynamic
+   * Island. It is *correct at rest*: `safeAreaComplaint` passes it, and that
+   * assertion is here rather than left implied, because "the resting checker
+   * still says yes" is the whole reason the second checker had to exist.
+   */
+  const SABOTAGE_SCROLLED = () =>
+    createElement(
+      View,
+      { ...SAFE_AREA_MARK },
+      createElement(ScrollView, {
+        contentContainerStyle: { paddingTop: INSETS.top, paddingBottom: INSETS.bottom },
+        children: createElement(Text, null, "the body"),
+      }),
+    );
+
+  test("rejects a screen that pays the notch where it scrolls away", () => {
+    const mounted = mount(createElement(SABOTAGE_SCROLLED));
+    try {
+      expect(safeAreaComplaint(mounted.container)).toBeNull();
+      expect(scrolledComplaint(mounted.container)).toMatch(/rides up under the 47pt notch/);
+      scrollEverything(mounted.container);
+      expect(scrolledComplaint(mounted.container)).toMatch(/rides up under the 47pt notch/);
     } finally {
       mounted.unmount();
     }
@@ -530,6 +783,21 @@ describe("the checker itself", () => {
     );
     try {
       expect(safeAreaComplaint(mounted.container)).toBeNull();
+      expect(scrolledComplaint(mounted.container)).toBeNull();
+    } finally {
+      mounted.unmount();
+    }
+  });
+
+  test("accepts the scrolling primitive used as intended", () => {
+    const mounted = mount(
+      createElement(ScreenScroll, { children: createElement(Text, null, "the body") }),
+    );
+    try {
+      expect(safeAreaComplaint(mounted.container)).toBeNull();
+      expect(scrolledComplaint(mounted.container)).toBeNull();
+      scrollEverything(mounted.container);
+      expect(scrolledComplaint(mounted.container)).toBeNull();
     } finally {
       mounted.unmount();
     }

@@ -354,53 +354,109 @@ export interface ChromeHeights {
 }
 
 /**
+ * What a surface owes at each edge, **split by how it has to be paid**.
+ *
+ * The split is the whole point, and it exists because a scroller has two
+ * different top edges. Padding put on the *content* scrolls away with the
+ * content: it decides where the first line rests, and nothing more. Padding put
+ * on the view *around* the scroller shortens the viewport, and that is the only
+ * kind that is still there once somebody has swiped.
+ *
+ * So a number that must hold while scrolling cannot be spent on the content, and
+ * a number that must let its line be brought out from under something cannot be
+ * spent on the viewport. There is one of each.
+ */
+export interface SurfacePadding {
+  /**
+   * Paid **outside** the scroller, where it shortens the viewport.
+   *
+   * The system's furniture at the top of the glass — the status bar and the
+   * Dynamic Island. Content may not be laid out under it at rest *and may not
+   * scroll under it either*: an opaque clock over body text is illegible
+   * whatever put it there, and the platform draws that clock over whatever we
+   * leave beneath it.
+   */
+  viewport: EdgePadding;
+  /**
+   * Paid as **content padding**, where it scrolls.
+   *
+   * Our own floating chrome — the round toggle, the trailing capsule, the
+   * bottom pill — plus the home indicator's own gap at the foot. Content is
+   * *meant* to run under these: that is how Obsidian draws them, and the
+   * giveaway in the reference is body text visible either side of the floating
+   * pill on the lines it covers. What the padding buys is that the first and
+   * last lines can still be brought out from under them, which a shortened
+   * viewport can never do.
+   */
+  content: EdgePadding;
+  /** The two together: what a surface that does not scroll pays as plain padding. */
+  top: number;
+  bottom: number;
+}
+
+/**
  * **The one place this arithmetic happens.**
  *
- * A surface pays for two things at each edge, and only one of them is ours:
+ * A surface pays for two things at each edge, only one of them is ours, and —
+ * see `SurfacePadding` — they are not paid in the same place:
  *
- * - The **system's** furniture — the status bar, the Dynamic Island, the home
- *   indicator. Content may never be laid out under those. They are not ours to
- *   draw on and nothing we can do makes text under them legible.
- * - **Our** floating chrome — the toggle button, the trailing action group, the
- *   bottom pill. Content is *meant* to run under those, and does; what the
- *   padding buys is that the first and last lines can still be brought out from
- *   under them.
+ * - The **system's** top furniture shortens the surface. This is the half that
+ *   was wrong: it used to go on the content container with everything else, so
+ *   every screen was correct at rest and drew its text across the clock the
+ *   moment anybody scrolled. A guard that only checked the resting layout could
+ *   not see it, which is why `safeArea.test.ts` now scrolls.
+ * - **Our** floating chrome is content padding, and stays content padding.
  *
- * So the answer is a sum, and it is spent as **content padding** rather than as
- * a shrunk viewport: a scroller that stops where the toolbar begins has a hard
- * edge across the glass and can never scroll its last line clear of anything.
- *
- * `framed` is what stops the two halves being paid twice. Inside `AppFrame`,
+ * `framed` is what stops either half being paid twice. Inside `AppFrame`,
  * `FrameApi.contentInsets` already *is* "the system's insets plus the frame's
- * own chrome, at whichever density you are at" — the frame is the only thing
- * that knows whether it padded itself down past the notch (a pointer layout) or
- * floated its bars over a full-bleed document (a phone), and a surface inside it
- * that added `insets.top` again would open a band of ground above the content on
- * every tablet. Outside the frame — `/login`, `/authorize`, `/welcome`, the
- * invitation and share screens, the landing page — there is no such answer and
- * the raw insets are the whole of it.
+ * own chrome, at whichever density you are at", and `FrameApi.viewportInsets`
+ * names the part of that sum which has to be spent outside the scroller — the
+ * frame is the only thing that knows whether it padded itself down past the
+ * notch (a pointer layout, where the answer is nothing: the frame's own
+ * `paddingTop` already shortened every scroller inside it) or floated its bars
+ * over a full-bleed document (a phone). Outside the frame — `/login`,
+ * `/authorize`, `/welcome`, the invitation and share screens, the landing page
+ * — there is no such answer, and the system's top inset is the whole of what
+ * must be held back from the scroller.
  *
- * On the web both are zero and this is arithmetic on nothing, which is why no
- * call site has to ask what platform it is on.
+ * On the web every number here is zero and this is arithmetic on nothing, which
+ * is why no call site has to ask what platform it is on.
  */
 export function surfacePadding({
   systemInsets,
   frameInsets,
+  frameViewport,
   framed,
   chrome = {},
 }: {
   /** `useSafeAreaInsets()`. Zero on the web. */
   systemInsets: EdgePadding;
-  /** `useFrame().contentInsets`. Only meaningful when `framed`. */
+  /** `useFrame().contentInsets` — the whole sum. Only meaningful when `framed`. */
   frameInsets: EdgePadding;
+  /** `useFrame().viewportInsets` — the part of it paid outside the scroller. */
+  frameViewport: EdgePadding;
   /** Whether this surface is inside an `AppFrame` provider. */
   framed: boolean;
   chrome?: ChromeHeights;
-}): EdgePadding {
-  const base = framed ? frameInsets : systemInsets;
+}): SurfacePadding {
+  const total = framed ? frameInsets : systemInsets;
+  /*
+    Outside a frame the bottom is left to the content on purpose: the home
+    indicator is a thin translucent bar the platform draws *over* whatever is
+    beneath it, and every one of these screens ends in a control that has to be
+    scrollable clear of it. The top is the opposite — an opaque clock and a
+    camera housing — and it is the edge the verification pass found text under.
+  */
+  const viewport = framed ? frameViewport : { top: systemInsets.top, bottom: 0 };
+  const content = {
+    top: total.top - viewport.top + (chrome.top ?? 0),
+    bottom: total.bottom - viewport.bottom + (chrome.bottom ?? 0),
+  };
   return {
-    top: base.top + (chrome.top ?? 0),
-    bottom: base.bottom + (chrome.bottom ?? 0),
+    viewport,
+    content,
+    top: viewport.top + content.top,
+    bottom: viewport.bottom + content.bottom,
   };
 }
 

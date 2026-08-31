@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFrame } from "./AppFrame";
-import { surfacePadding, type ChromeHeights, type EdgePadding } from "./frame";
+import { surfacePadding, type ChromeHeights, type SurfacePadding } from "./frame";
 
 /**
  * The one way a screen clears the system's furniture.
@@ -40,10 +40,18 @@ import { surfacePadding, type ChromeHeights, type EdgePadding } from "./frame";
  * - Content must **never** be laid out under the status bar, the Dynamic Island
  *   or the home indicator. Those are the system's.
  *
- * Both are paid the same way and for the same reason: as padding on the
- * *content*, never as a shorter viewport. A scroller that stops where the
- * toolbar begins draws a hard edge across the glass and cannot scroll its last
- * line clear of anything.
+ * They are **not paid in the same place**, and an earlier version of this file
+ * said they were. Both numbers went on the content container, which is correct
+ * for the first rule and useless for the second: content padding scrolls away
+ * with the content, so every screen cleared the notch at rest and drew its text
+ * across the clock the moment anybody swiped. The verification pass found
+ * `BUCKET` at 50pt and body type at 7pt, behind the Dynamic Island.
+ *
+ * So the system's top band is spent on the view *around* the scroller, where it
+ * shortens the viewport and survives scrolling, and our own chrome stays on the
+ * content, where it can still be scrolled clear. `SurfacePadding` in `frame.ts`
+ * is that split; `__tests__/safeArea.test.ts` scrolls each screen and asserts
+ * the second half rather than trusting the first.
  *
  * ## Why there is no platform branch at a call site
  *
@@ -72,22 +80,33 @@ import { surfacePadding, type ChromeHeights, type EdgePadding } from "./frame";
 export const SAFE_AREA_MARK = { dataSet: { safeArea: "surface" } } as const;
 
 /**
- * The padding this surface owes at each edge, system insets and our own chrome
- * together.
+ * The mark on the *content container* of a scrolling surface.
+ *
+ * `SAFE_AREA_MARK` lands on the box around the scroller, which is where the
+ * system's band is paid; this names the box inside it, which is where our own
+ * chrome is. The guard reads them as one surface at rest and as two the moment
+ * it scrolls — which is the whole distinction, made visible in the DOM so a
+ * test can assert on it rather than on the source.
+ */
+export const SAFE_AREA_CONTENT_MARK = { dataSet: { safeArea: "content" } } as const;
+
+/**
+ * The padding this surface owes at each edge, split by where it has to be spent.
  *
  * Exported for the two surfaces that cannot be a `Screen` because something
  * else already owns their scroller — `BrowsePane`'s folder page and
  * `NoteEditor`'s document, which needs the keyboard accessory bar as a sibling
- * of its scroller rather than inside it. They spend the same number from the
- * same function; what they do not get is the marker, so the guard covers them
- * through the route that mounts them.
+ * of its scroller rather than inside it. They spend the same numbers from the
+ * same function, in the same two places; what they do not get is the marker, so
+ * the guard covers them through the route that mounts them.
  */
-export function useSurfacePadding(chrome?: ChromeHeights): EdgePadding {
+export function useSurfacePadding(chrome?: ChromeHeights): SurfacePadding {
   const frame = useFrame();
   const systemInsets = useSafeAreaInsets();
   return surfacePadding({
     systemInsets,
     frameInsets: frame.contentInsets,
+    frameViewport: frame.viewportInsets,
     framed: frame.framed,
     chrome,
   });
@@ -131,19 +150,26 @@ export interface ScreenScrollProps extends Omit<ScrollViewProps, "contentContain
 }
 
 /**
- * A screen that scrolls, full-bleed, with both edges paid for in content
- * padding.
+ * A screen that scrolls, with each edge paid where it actually works.
  *
- * The viewport is the whole region; the padding is on the content container, so
- * the first and last lines can each be scrolled out from under whatever floats
- * over them and everything between passes behind. `scrollIndicatorInsets`
- * carries the same two numbers, because a scrollbar that runs under the notch
- * is the same defect in miniature.
+ * **The box around the scroller holds the system's band back.** That is the
+ * only kind of padding that survives a swipe: everything on the content
+ * container scrolls with the content, so a status-bar inset spent there keeps
+ * the first line clear and lets the twentieth run straight across the clock.
+ * `paddingTop` on the `ScrollView`'s own `style` is no better — a scroll
+ * container clips at its padding box, so its content rides up into that band
+ * too — which is why this is a wrapping `View` and not a prop.
+ *
+ * **Our own chrome stays on the content container**, where it belongs: the
+ * first and last lines can each be scrolled out from under whatever floats over
+ * them and everything between passes behind. `scrollIndicatorInsets` carries
+ * the same two numbers, because a scrollbar that runs under the notch is the
+ * same defect in miniature.
  *
  * The caller's `contentContainerStyle` is applied *after* the padding, so a
  * screen that genuinely needs its own top padding can still say so — and one
- * that sets `paddingTop` by accident loses the inset, which is what the guard
- * is watching for.
+ * that sets `paddingTop` by accident loses our chrome's share of it, which is
+ * what the guard is watching for.
  */
 export function ScreenScroll({
   children,
@@ -154,18 +180,58 @@ export function ScreenScroll({
 }: ScreenScrollProps) {
   const padding = useSurfacePadding(chrome);
   return (
-    <ScrollView
+    <View
       {...SAFE_AREA_MARK}
-      style={[styles.fill, style]}
-      contentContainerStyle={[
-        { paddingTop: padding.top, paddingBottom: padding.bottom },
-        contentContainerStyle,
+      style={[
+        styles.fill,
+        { paddingTop: padding.viewport.top, paddingBottom: padding.viewport.bottom },
       ]}
-      scrollIndicatorInsets={{ top: padding.top, bottom: padding.bottom }}
-      {...rest}
+    >
+      <ScrollView
+        style={[styles.fill, style]}
+        contentContainerStyle={[
+          { paddingTop: padding.content.top, paddingBottom: padding.content.bottom },
+          contentContainerStyle,
+        ]}
+        {...SAFE_AREA_CONTENT_MARK}
+        scrollIndicatorInsets={{ top: padding.content.top, bottom: padding.content.bottom }}
+        {...rest}
+      >
+        {children}
+      </ScrollView>
+    </View>
+  );
+}
+
+/**
+ * The box that holds the system's band back from a scroller somebody else owns.
+ *
+ * `NoteEditor` and `BrowsePane` cannot be a `ScreenScroll` — one needs the
+ * keyboard accessory bar as a *sibling* of its scroller, the other switches
+ * between a page scroller and a note that brings its own — so they build the
+ * `ScrollView` themselves and wrap it in this. Same two numbers, same two
+ * places, one component rather than the same `paddingTop` written out twice and
+ * then only fixed once.
+ */
+export function ScreenViewport({
+  padding,
+  style,
+  children,
+}: {
+  padding: SurfacePadding;
+  style?: StyleProp<ViewStyle>;
+  children: ReactNode;
+}) {
+  return (
+    <View
+      style={[
+        styles.fill,
+        { paddingTop: padding.viewport.top, paddingBottom: padding.viewport.bottom },
+        style,
+      ]}
     >
       {children}
-    </ScrollView>
+    </View>
   );
 }
 

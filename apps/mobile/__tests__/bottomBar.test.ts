@@ -242,58 +242,64 @@ describe("a thumb has to be able to hit it", () => {
   });
 
   /**
-   * Evenly sized, and no longer evenly *spread*.
+   * Evenly sized, by sharing the bar rather than by each setting a width.
    *
-   * The targets used to be `flex: 1` so they shared the whole width of a
-   * full-bleed bar. The bar is a content-width pill now — measured off
-   * Obsidian, about 315pt on a 440pt screen rather than 420 — so evenness comes
-   * from every target being the same fixed box instead of the same fraction of
-   * however wide the phone is. What has to hold either way is that no target is
-   * the size of its icon, which is what this asserts.
+   * The bar's width is the screen's now, less `layout.bottomBarInset` either
+   * side — see the file comment for why the *inset* is the measurement and the
+   * width is what follows from it — so the targets divide what is inside it.
+   * `flexBasis` is the size each wants; `minWidth` is the floor none may be
+   * squeezed below. What has to hold under every arrangement is that no target
+   * is the size of its icon, which is what this asserts.
    */
-  test("every target is the same fixed box, not the size of its icon", () => {
+  test("every target shares the bar evenly, and none is the size of its icon", () => {
     const bar = mountBar(toolbar());
 
     for (const item of toolbar()) {
       const target = bar.need(`bottom-bar-${item.id}`);
-      expect(px(target, "width")).toBe(layout.bottomBarTarget);
-      expect(px(target, "flex-grow")).toBe(0);
-      expect(px(target, "flex-shrink")).toBe(0);
+      expect(px(target, "flex-basis")).toBe(layout.bottomBarTarget);
+      expect(px(target, "flex-grow")).toBe(1);
     }
-    // And the fixed box is still above the floor, which is the rule the width
-    // has to keep rather than replace.
+    // And the share each wants is still above the floor, which is the rule the
+    // width has to keep rather than replace.
     expect(layout.bottomBarTarget).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
   });
 
   /**
-   * And the bar itself is narrower than the screen, which is the point of all
-   * of the above.
-   *
-   * A pill that reaches within ten points of both edges is an edge with rounded
-   * corners. The reference leaves the note showing either side of it, and that
-   * gap is most of what reads as "floating".
-   */
-  /**
    * The reference's own numbers, on the reference's own screen.
    *
    * Obsidian's bar runs from 52.0pt to 387.7pt on a 440pt phone: 336pt wide,
-   * with 52pt of note showing on each side. Ours reaches that through six
-   * targets plus the bar's padding rather than by setting a width, because the
-   * bar carries four to six actions depending on what is open. Asserted as the
-   * arithmetic so that adding a seventh action fails here loudly rather than
-   * silently widening the pill past the measurement it was drawn to.
+   * with 52pt of note showing on each side.
+   *
+   * **The 52 is what is asserted, because the 52 is what was wrong.** The pass
+   * before this reached the width through the targets — `alignSelf: "center"`
+   * over six fixed boxes — which is only the reference's geometry on a route
+   * that happens to offer six actions. A device found the pill at 78→362 on a
+   * context the reader is a team member of, where there is no New note: same
+   * bar, five targets, 78pt in from an edge the reference puts it 52 from.
+   *
+   * So the inset is the frame's (`AppFrame`'s `bottomBar` slot,
+   * `layout.bottomBarInset`) and the bar stretches into it. The arithmetic that
+   * ties it back to the reference is still here — six targets plus the bar's
+   * padding is 336 — but it is now a statement about how wide the targets want
+   * to be, not about where the bar's edges are.
    */
-  test("six actions come to the width the reference measures", () => {
+  test("the bar sits 52pt in from each edge, whatever is on it", () => {
     const bar = mountBar(toolbar(), 440);
     const style = window.getComputedStyle(bar.need("bottom-bar"));
 
-    expect(style.alignSelf).toBe("center");
+    // It fills the slot rather than sizing itself; the slot's inset is the
+    // frame's, and `appFrameRender.test.ts` is where that number is asserted
+    // against the frame.
+    expect(style.alignSelf).toBe("stretch");
     expect(px(bar.need("bottom-bar"), "padding-left")).toBe(layout.bottomBarPad);
 
-    const width = toolbar().length * layout.bottomBarTarget + layout.bottomBarPad * 2;
+    expect(layout.bottomBarInset).toBe(52);
+    // What the reference's inset leaves for the bar, and what six targets at
+    // their natural width come to. They are the same number, which is why 52
+    // and 52 are both in this file.
+    expect(440 - layout.bottomBarInset * 2).toBe(336);
     expect(toolbar()).toHaveLength(6);
-    expect(width).toBe(336);
-    expect((440 - width) / 2).toBe(52);
+    expect(toolbar().length * layout.bottomBarTarget + layout.bottomBarPad * 2).toBe(336);
   });
 
   /**
