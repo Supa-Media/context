@@ -4,6 +4,7 @@ import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native"
 import { useAuthActions } from "@convex-dev/auth/react";
 import { Button, PressRow } from "../../../features/design/components/Button";
 import { Dot } from "../../../features/design/components/Dot";
+import { Icon } from "../../../features/design/components/Icon";
 import { FormError } from "../../../features/design/components/Input";
 import { Pill } from "../../../features/design/components/Pill";
 import { Palette } from "../../../features/design/components/Palette";
@@ -11,7 +12,7 @@ import { StatusBar } from "../../../features/design/components/StatusBar";
 import { Text } from "../../../features/design/components/Text";
 import { ToastHost } from "../../../features/design/components/Toast";
 import { layout, radii, space } from "../../../features/design/tokens";
-import { useThemedStyles, type Colors } from "../../../features/design/theme";
+import { useColors, useThemedStyles, type Colors } from "../../../features/design/theme";
 import { AppFrame, useFrame } from "../../../features/app/AppFrame";
 import { densityFor } from "../../../features/app/frame";
 import { BottomBar } from "../../../features/console/BottomBar";
@@ -390,18 +391,28 @@ export default function ConsoleLayout() {
               */
               vault={
                 phone ? (
-                  <>
-                    <TierChip role={current?.role} />
-                    <StorageChip
-                      data={data}
-                      onOpenSettings={
-                        current === null
-                          ? undefined
-                          : () => router.push(settingsHref(current.slug))
-                      }
-                    />
-                  </>
+                  <VaultSwitcher
+                    label={contextLabel}
+                    kind={current?.kind ?? ""}
+                    tone={current?.status ?? "warn"}
+                    onOpenSettings={
+                      current === null
+                        ? undefined
+                        : () => router.push(settingsHref(current.slug))
+                    }
+                  />
                 ) : undefined
+              }
+              /*
+                The binding, in front of the counts. `storagePillLabel` is the
+                same function the pointer layout's chip and the status bar
+                read, so the three cannot come to describe one bucket three
+                ways — which is how "dropbox · undefined" got printed once.
+              */
+              vaultDetail={
+                phone
+                  ? (storagePillLabel(data.storage) ?? "no bucket connected")
+                  : undefined
               }
               onOpenPinned={(path) => {
                 data.files.select(path);
@@ -1053,6 +1064,81 @@ function StorageChip({
   );
 }
 
+/**
+ * Obsidian's vault switcher, at the foot of the file tree.
+ *
+ * One line: which context you are in, a chevron that changes it, and a gear
+ * that configures it. It is the block the reference ends its sidebar with, and
+ * it is where the `@seyi personal` chip from the top bar has gone.
+ *
+ * **The chevron is the only way to the rail on a phone with a tree open, and
+ * that is deliberate rather than incidental.** The rail carries the other
+ * contexts, the app-level panes and sign-out; the top bar used to carry a
+ * switcher chip that opened it, and the whole point of this change is that the
+ * top bar carries a toggle and one group of actions and nothing else. So the
+ * control moved rather than went — it is here, beside the name it changes,
+ * which is what a workspace switcher is. `frame.ts` keeps the top bar's chip
+ * for the routes that have no tree (Map, Connections), where this footer does
+ * not exist.
+ *
+ * The gear is `StorageChip`'s old press target: a fact you can act on. It opens
+ * this context's settings, which is where the bucket is bound.
+ */
+function VaultSwitcher({
+  label,
+  kind,
+  tone,
+  onOpenSettings,
+}: {
+  label: string;
+  kind: string;
+  tone: "ok" | "warn" | "crit";
+  /** Absent only while there is no selected context to have settings. */
+  onOpenSettings?: () => void;
+}) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
+  const frame = useFrame();
+
+  return (
+    <>
+      <PressRow
+        accessibilityLabel={`${label}, ${kind}. Switch context`}
+        onPress={frame.toggleRail}
+        radius={radii.md}
+        style={styles.vaultName}
+        hoverStyle={styles.storagePressHover}
+        testID="vault-switcher"
+      >
+        <Dot tone={tone} />
+        <Text variant="wsSwitch" numberOfLines={1} style={styles.vaultLabel}>
+          {label}
+        </Text>
+        <Text variant="wsSwitch" style={styles.switcherKind} numberOfLines={1}>
+          {kind}
+        </Text>
+        <Icon
+          name={frame.state.navOpen ? "chevronUp" : "chevronDown"}
+          size={14}
+          color={colors.muted}
+        />
+      </PressRow>
+      {onOpenSettings === undefined ? null : (
+        <PressRow
+          accessibilityLabel="Open storage settings"
+          onPress={onOpenSettings}
+          radius={radii.control}
+          style={styles.vaultGear}
+          hoverStyle={styles.storagePressHover}
+          testID="vault-settings"
+        >
+          <Icon name="gear" size={18} color={colors.text2} />
+        </PressRow>
+      )}
+    </>
+  );
+}
+
 function Account({
   data,
   compact,
@@ -1155,6 +1241,38 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.pill,
   },
   storagePressHover: { backgroundColor: colors.surface3 },
+
+  /**
+   * The vault switcher's name line: it takes the room, the gear takes the end.
+   *
+   * `flexShrink: 1` with `minWidth: 0` is what lets a long context name
+   * ellipsise rather than pushing the gear off the panel — the same rule the
+   * breadcrumb used to need beside Share, and the same failure if it is
+   * dropped.
+   */
+  vaultName: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    minHeight: layout.minTouchTarget,
+    paddingHorizontal: space.x1,
+    borderRadius: radii.md,
+  },
+  vaultLabel: { flexShrink: 1, minWidth: 0 },
+  /** The gear, at the trailing edge, at a size a thumb can hit. */
+  vaultGear: {
+    flexGrow: 0,
+    flexShrink: 0,
+    marginLeft: "auto",
+    width: layout.minTouchTarget,
+    height: layout.minTouchTarget,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radii.control,
+  },
 
   /** Browse fills its region and scrolls inside itself. */
   browseRegion: { flex: 1, minHeight: 0 },
