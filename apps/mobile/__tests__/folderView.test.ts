@@ -115,22 +115,32 @@ function mount(props: {
 }
 
 describe("the folder's contents are the screen", () => {
-  test("every entry is listed", () => {
+  test("every entry is listed, named as the tree names it", () => {
     const view = mount({
       listing: listing([file("build-decisions.md"), file("findings.md")]),
     });
-    expect(view.container.textContent).toContain("build-decisions.md");
-    expect(view.container.textContent).toContain("findings.md");
+    expect(view.container.textContent).toContain("build-decisions");
+    expect(view.container.textContent).toContain("findings");
+    /*
+      **Without the extension**, which is the same rule `displayName` applies in
+      the tree. The listing used to print `README.md` on a screen whose sidebar
+      printed `README` two inches away — one file, two names.
+    */
+    expect(view.container.textContent).not.toContain(".md");
   });
 
-  test("a subfolder is marked as one", () => {
+  test("a subfolder is marked as one, by a chevron rather than by punctuation", () => {
     const view = mount({
       listing: listing([
         { ...file("notes"), kind: "folder", path: `${FOLDER}/notes`, name: "notes" },
       ]),
     });
-    // The trailing slash is what tells a reader this opens rather than reads.
-    expect(view.container.textContent).toContain("notes/");
+    expect(view.container.textContent).toContain("notes");
+    // A trailing `/` is not how the tree says "folder" and is not how this
+    // says it either — a folder is shown by the chevron in its gutter.
+    expect(view.container.textContent).not.toContain("notes/");
+    // The accessible name still says it, for anybody who cannot see the mark.
+    expect(view.container.querySelector('[aria-label="notes, folder"]')).not.toBeNull();
   });
 
   /**
@@ -140,7 +150,7 @@ describe("the folder's contents are the screen", () => {
    */
   test("a row opens what it names", () => {
     const view = mount({ listing: listing([file("build-decisions.md")]) });
-    const row = view.container.querySelector('[aria-label="build-decisions.md"]');
+    const row = view.container.querySelector('[aria-label="build-decisions"]');
     expect(row).not.toBeNull();
     act(() => {
       (row as HTMLElement).click();
@@ -160,27 +170,27 @@ describe("the folder's contents are the screen", () => {
         file("held-back.md", { visibility: "private", exception: true }),
       ]),
     });
-    // Scoped to the rows: the word "private" is also in the visibility button,
-    // so counting it across the whole screen counts the control too — which is
-    // how the first version of this assertion read 2 and proved nothing about
-    // the markers.
-    // Selected by `folder-row`, not by any element carrying a label — the
-    // visibility button has one too, and its text contains the word "private".
-    // That is what made the first two versions of this assertion count the
-    // control rather than the markers.
+    /*
+      The mark is a pip now rather than the word `team` or `private`, for the
+      reason the tree gives: on a bucket laid out the standard way the word was
+      the same eight times, which is the folder's default drawn once per file.
+      So this counts marks, not words — scoped to the rows, because the
+      visibility button's own label contains "private" and counting text across
+      the screen counted the control.
+    */
     const marked = [...view.container.querySelectorAll('[data-testid="folder-row"]')]
-      .filter((row) => (row.textContent ?? "").includes("private"))
+      .filter((row) => row.querySelector('[data-testid="folder-row-exception"]') !== null)
       .map((row) => row.getAttribute("aria-label"));
-    expect(marked).toEqual(["held-back.md"]);
+    expect(marked).toEqual(["held-back"]);
 
     // …and the ordinary row carries no marker at all. Without this the
     // assertion above passes when *every* row is marked, because the one it
     // names is still among them — which is what a sabotage of the `exception`
     // check proved.
     const ordinary = [...view.container.querySelectorAll('[data-testid="folder-row"]')].find(
-      (row) => row.getAttribute("aria-label") === "ordinary.md",
+      (row) => row.getAttribute("aria-label") === "ordinary",
     );
-    expect(ordinary?.textContent).toBe("ordinary.md");
+    expect(ordinary?.textContent).toBe("ordinary");
   });
 
   test("a short listing says so rather than reading as complete", () => {
@@ -255,14 +265,22 @@ describe("the controls", () => {
   test("somebody who cannot set visibility is offered no switch", () => {
     const view = mount({ listing: listing([]), canSetVisibility: false });
     expect(view.container.textContent).not.toContain("Make this folder private");
-    // …and is still told what the folder's visibility means.
-    expect(view.container.textContent).toContain("team access");
+    // …and is still told what the folder's visibility is.
+    expect(view.container.textContent).toContain("team —");
   });
 
-  /** The rule that has no public tier in it, kept in front of the owner. */
-  test("the tier sentence stays", () => {
-    expect(mount({ listing: listing([]) }).container.textContent).toContain(
-      "There is no public tier",
-    );
+  /**
+   * The footnote is gone, and that is deliberate rather than an omission.
+   *
+   * "team means named people you granted access to. There is no public tier"
+   * is an explanation of the model, and it was printed under every folder
+   * listing in the console. It belongs where somebody has gone looking for it —
+   * once — not forty times. What stays here is the line that says what is true
+   * of *this* folder.
+   */
+  test("the folder states its own visibility and does not restate the model", () => {
+    const text = mount({ listing: listing([]) }).container.textContent ?? "";
+    expect(text).toContain("team —");
+    expect(text).not.toContain("There is no public tier");
   });
 });

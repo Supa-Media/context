@@ -273,6 +273,8 @@ export function useFileBrowser(options: {
     [listings, refresh],
   );
 
+  const collapseAll = useCallback(() => setExpanded(new Set()), []);
+
   /**
    * Ask the bucket, through the control plane's `searchContext`.
    *
@@ -943,6 +945,7 @@ export function useFileBrowser(options: {
       listings,
       expanded,
       toggleFolder,
+      collapseAll,
       selectedPath,
       select,
       search,
@@ -1031,6 +1034,7 @@ export function useFileBrowser(options: {
       shares,
       mayShare,
       toggleFolder,
+      collapseAll,
       useTheirs,
     ],
   );

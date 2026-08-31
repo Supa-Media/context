@@ -5,6 +5,7 @@
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { displayName } from "../features/console/files/paths";
 
 /**
  * The action menu, mounted for real — both presentations.
@@ -93,6 +94,7 @@ function note(path: string): TreeRow {
     key: path,
     path,
     name: path.slice(path.lastIndexOf("/") + 1),
+    label: displayName(path.slice(path.lastIndexOf("/") + 1)),
     depth: 0,
     expanded: false,
     selected: false,

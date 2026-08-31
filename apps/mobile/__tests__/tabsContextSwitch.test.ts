@@ -71,6 +71,7 @@ function browser(
     listings,
     expanded: new Set<string>(),
     toggleFolder: noop,
+    collapseAll: noop,
     selectedPath: null,
     // `select` answers whether the unsaved-changes guard let go; these
     // fixtures have no draft, so it always does.

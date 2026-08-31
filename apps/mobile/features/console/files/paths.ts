@@ -44,6 +44,35 @@ export function isMarkdown(name: string): boolean {
 }
 
 /**
+ * What a file is *called*, as against what it is *named*.
+ *
+ * `README.md` is drawn as `README`, the way Obsidian draws it and the way the
+ * person who wrote the note thinks of it. Every note in this product is
+ * markdown by construction — `ensureMarkdown` appends the extension and
+ * `writeNote` refuses anything else — so `.md` on every row is four characters
+ * of noise repeated down the whole tree, and on a phone they are four
+ * characters taken from the name when the row ellipsises.
+ *
+ * **This is display only, and the distinction is load-bearing.** The name on
+ * disk never changes: `TreeRow.name` and `TreeRow.path` still carry the real
+ * one, every operation addresses the file by `path`, and Rename prefills from
+ * `baseName` rather than from this. A stripper that leaked into a write would
+ * rename `foo.md` to `foo` in somebody's bucket, and `privacy.md`'s exact-note
+ * rules only address `.md` paths — so the note would silently lose its own
+ * visibility on the way past.
+ *
+ * Only `.md` is stripped, and only when something is left. An attachment keeps
+ * its extension — `.png` on a row is information, because it is the one thing
+ * distinguishing it from the note beside it — and a file literally called
+ * `.md` keeps its name rather than becoming a blank row.
+ */
+export function displayName(name: string): string {
+  if (!isMarkdown(name)) return name;
+  const stem = name.slice(0, -3);
+  return stem === "" ? name : stem;
+}
+
+/**
  * A new note is a `.md` file whether or not the person typed the extension.
  *
  * Not cosmetic: `privacy.md`'s exact-note rules only address `.md` paths, so a

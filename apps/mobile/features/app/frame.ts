@@ -121,12 +121,21 @@ export interface Regions {
   /** Compact only: the button that pulls the drawer in. */
   drawerToggle: boolean;
   /**
-   * Compact only: the control that pulls the rail in.
+   * Compact only, and only where the file tree is not there to carry it: the
+   * control in the top bar that pulls the rail in.
    *
-   * Unconditional at that density, unlike `drawerToggle`. There is always
-   * somewhere to go — the app-level panes, the other contexts, and the way to
-   * sign out all live in the rail and nowhere else — so a phone without this
-   * is a phone with no navigation at all.
+   * There is always somewhere to go — the app-level panes, the other contexts
+   * and the way to sign out all live in the rail and nowhere else — so a phone
+   * with no route to it is a phone with no navigation at all. What changed is
+   * *where the route is*. Obsidian's top bar is a sidebar toggle and one group
+   * of actions with nothing in the middle, and the vault switcher lives at the
+   * foot of the sidebar. Ours does too: on a route with a tree, `Explorer`'s
+   * `vault` slot carries the switcher and `drawerToggle` is the way to it.
+   *
+   * Map and Connections have no tree and therefore no footer, so the chip stays
+   * in the bar there. `appFrame.test.ts` holds the invariant in the form it now
+   * takes: every compact layout has *some* route to the rail, and this control
+   * exists exactly where the other one does not.
    */
   navToggle: boolean;
 }
@@ -180,7 +189,9 @@ export function regionsFor(
       bottomBar: true,
       statusBar: false,
       drawerToggle: hasExplorer,
-      navToggle: true,
+      // See the field's doc: where there is a tree, its footer is the vault
+      // switcher and the top bar keeps to a toggle and one group of actions.
+      navToggle: !hasExplorer,
     };
   }
 
@@ -304,6 +315,93 @@ export function panelsClearedFor(density: Density, state: FrameState): FrameStat
   if (density === "compact") return state;
   if (!state.drawerOpen && !state.navOpen) return state;
   return { ...state, drawerOpen: false, navOpen: false };
+}
+
+/**
+ * The gap the floating chrome keeps from the bottom of the glass.
+ *
+ * `max`, never a sum: on a notched phone the home indicator's inset is already
+ * a gap, and adding a float on top of it is a bar hovering 68pt above the
+ * indicator. `layout.floatingGap` is the floor, measured off Obsidian, so a
+ * browser window or an un-notched phone gets the reference's 25pt rather than
+ * reading as flush against the edge.
+ *
+ * One function because there are two callers and they must not drift: the
+ * frame reserves this much below its bottom slot, and the keyboard accessory
+ * bar spends the same amount so that it lands exactly where the toolbar it
+ * covers was.
+ */
+export function floatingGapFor(safeAreaBottom: number): number {
+  return Math.max(safeAreaBottom, layout.floatingGap);
+}
+
+/** How much room a surface has to leave at its top and bottom edges. */
+export interface EdgePadding {
+  top: number;
+  bottom: number;
+}
+
+/**
+ * The height of *our own* chrome lying over a surface, at each edge.
+ *
+ * Kept apart from the system's insets and added to them, because they are two
+ * different claims on the same band. A screen's own floating header adds to the
+ * notch; it does not replace it.
+ */
+export interface ChromeHeights {
+  top?: number;
+  bottom?: number;
+}
+
+/**
+ * **The one place this arithmetic happens.**
+ *
+ * A surface pays for two things at each edge, and only one of them is ours:
+ *
+ * - The **system's** furniture — the status bar, the Dynamic Island, the home
+ *   indicator. Content may never be laid out under those. They are not ours to
+ *   draw on and nothing we can do makes text under them legible.
+ * - **Our** floating chrome — the toggle button, the trailing action group, the
+ *   bottom pill. Content is *meant* to run under those, and does; what the
+ *   padding buys is that the first and last lines can still be brought out from
+ *   under them.
+ *
+ * So the answer is a sum, and it is spent as **content padding** rather than as
+ * a shrunk viewport: a scroller that stops where the toolbar begins has a hard
+ * edge across the glass and can never scroll its last line clear of anything.
+ *
+ * `framed` is what stops the two halves being paid twice. Inside `AppFrame`,
+ * `FrameApi.contentInsets` already *is* "the system's insets plus the frame's
+ * own chrome, at whichever density you are at" — the frame is the only thing
+ * that knows whether it padded itself down past the notch (a pointer layout) or
+ * floated its bars over a full-bleed document (a phone), and a surface inside it
+ * that added `insets.top` again would open a band of ground above the content on
+ * every tablet. Outside the frame — `/login`, `/authorize`, `/welcome`, the
+ * invitation and share screens, the landing page — there is no such answer and
+ * the raw insets are the whole of it.
+ *
+ * On the web both are zero and this is arithmetic on nothing, which is why no
+ * call site has to ask what platform it is on.
+ */
+export function surfacePadding({
+  systemInsets,
+  frameInsets,
+  framed,
+  chrome = {},
+}: {
+  /** `useSafeAreaInsets()`. Zero on the web. */
+  systemInsets: EdgePadding;
+  /** `useFrame().contentInsets`. Only meaningful when `framed`. */
+  frameInsets: EdgePadding;
+  /** Whether this surface is inside an `AppFrame` provider. */
+  framed: boolean;
+  chrome?: ChromeHeights;
+}): EdgePadding {
+  const base = framed ? frameInsets : systemInsets;
+  return {
+    top: base.top + (chrome.top ?? 0),
+    bottom: base.bottom + (chrome.bottom ?? 0),
+  };
 }
 
 /**

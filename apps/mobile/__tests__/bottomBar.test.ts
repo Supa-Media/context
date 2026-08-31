@@ -241,14 +241,80 @@ describe("a thumb has to be able to hit it", () => {
     expect(layout.bottomBarHeight).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
   });
 
-  test("the targets share the width evenly rather than sizing to their icons", () => {
+  /**
+   * Evenly sized, and no longer evenly *spread*.
+   *
+   * The targets used to be `flex: 1` so they shared the whole width of a
+   * full-bleed bar. The bar is a content-width pill now — measured off
+   * Obsidian, about 315pt on a 440pt screen rather than 420 — so evenness comes
+   * from every target being the same fixed box instead of the same fraction of
+   * however wide the phone is. What has to hold either way is that no target is
+   * the size of its icon, which is what this asserts.
+   */
+  test("every target is the same fixed box, not the size of its icon", () => {
     const bar = mountBar(toolbar());
 
     for (const item of toolbar()) {
       const target = bar.need(`bottom-bar-${item.id}`);
-      expect(px(target, "flex-grow")).toBe(1);
-      expect(px(target, "flex-basis")).toBe(0);
+      expect(px(target, "width")).toBe(layout.bottomBarTarget);
+      expect(px(target, "flex-grow")).toBe(0);
+      expect(px(target, "flex-shrink")).toBe(0);
     }
+    // And the fixed box is still above the floor, which is the rule the width
+    // has to keep rather than replace.
+    expect(layout.bottomBarTarget).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
+  });
+
+  /**
+   * And the bar itself is narrower than the screen, which is the point of all
+   * of the above.
+   *
+   * A pill that reaches within ten points of both edges is an edge with rounded
+   * corners. The reference leaves the note showing either side of it, and that
+   * gap is most of what reads as "floating".
+   */
+  /**
+   * The reference's own numbers, on the reference's own screen.
+   *
+   * Obsidian's bar runs from 52.0pt to 387.7pt on a 440pt phone: 336pt wide,
+   * with 52pt of note showing on each side. Ours reaches that through six
+   * targets plus the bar's padding rather than by setting a width, because the
+   * bar carries four to six actions depending on what is open. Asserted as the
+   * arithmetic so that adding a seventh action fails here loudly rather than
+   * silently widening the pill past the measurement it was drawn to.
+   */
+  test("six actions come to the width the reference measures", () => {
+    const bar = mountBar(toolbar(), 440);
+    const style = window.getComputedStyle(bar.need("bottom-bar"));
+
+    expect(style.alignSelf).toBe("center");
+    expect(px(bar.need("bottom-bar"), "padding-left")).toBe(layout.bottomBarPad);
+
+    const width = toolbar().length * layout.bottomBarTarget + layout.bottomBarPad * 2;
+    expect(toolbar()).toHaveLength(6);
+    expect(width).toBe(336);
+    expect((440 - width) / 2).toBe(52);
+  });
+
+  /**
+   * A full pill, not a rounded rectangle.
+   *
+   * The reference's extent narrows symmetrically at both ends — 87.7→352pt at
+   * the top edge, 52→387.7 at the middle — which is a corner radius of half the
+   * height. `radii.pill` is that at any height; a fixed 20 on a 66pt bar is a
+   * rectangle with its corners taken off, which is a different object.
+   */
+  test("it is a pill, and it carries no border", () => {
+    const bar = mountBar(toolbar());
+    const style = window.getComputedStyle(bar.need("bottom-bar"));
+
+    expect(Number.parseFloat(style.borderTopLeftRadius)).toBeGreaterThanOrEqual(
+      layout.bottomBarHeight / 2,
+    );
+    // The pale edge in the reference is a shadow. A hairline here would be a
+    // second way of saying the same thing, and a worse one.
+    expect(Number.parseFloat(style.borderTopWidth) || 0).toBe(0);
+    expect(style.boxShadow).not.toBe("");
   });
 
   test("the bar adds no safe-area padding of its own", () => {

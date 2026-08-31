@@ -425,8 +425,22 @@ function splitRow(line: string): Inline[][] {
  * at the top of a shared document reads as a statement about *their* access,
  * which it is not: frontmatter describes a note and `privacy.md` decides who
  * sees it. Showing it would be actively misleading.
+ *
+ * Exported because the console's editor has the same problem in a different
+ * shape — it shows the note's frontmatter as a collapsed Properties row rather
+ * than as body text — and there must be exactly one answer in this codebase to
+ * "where does the body start". `console/files/frontmatter.ts` derives the
+ * frontmatter block as *the prefix this function removed*, so the two can never
+ * disagree about the boundary. The one property that buys is that the file on
+ * disk survives a round trip byte for byte, which matters more there than here:
+ * the editor writes its buffer back to the customer's bucket.
+ *
+ * It returns a **suffix of `source`** for every input, including the empty
+ * string, and that is what the derivation above relies on. Anything that made
+ * it rewrite the body — normalising line endings, trimming a leading blank line
+ * — would silently break the round trip somewhere else.
  */
-function stripFrontmatter(source: string): string {
+export function stripFrontmatter(source: string): string {
   if (!source.startsWith("---")) return source;
   const end = source.indexOf("\n---", 3);
   if (end === -1) return source;

@@ -17,7 +17,7 @@ import { layout, radii, space } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { offerOwnContext } from "../onboarding/route";
 import { atName } from "./format";
-import { APP_SECTIONS, selectContextRoute, type ConsoleRoute } from "./nav";
+import { selectContextRoute, type ConsoleRoute } from "./nav";
 import { railSections } from "./rail";
 import type { ConsoleData } from "./types";
 
@@ -107,21 +107,23 @@ export function ConsoleRail({
         contentContainerStyle={[styles.content, icons && styles.contentIcons]}
         showsVerticalScrollIndicator={false}
       >
-        <Group heading="App" icons={icons}>
-          {APP_SECTIONS.map((section) => (
-            <RailEntry
-              key={section.key}
-              label={section.label}
-              icon={SECTION_ICONS[section.key]}
-              icons={icons}
-              touch={touch}
-              selected={route.kind === "app" && route.section === section.key}
-              onPress={() => onNavigate({ kind: "app", section: section.key })}
-              role="tab"
-            />
-          ))}
-        </Group>
+        {/*
+          **There is no "App" group here any more, and that is the point.**
 
+          It held Map and Connections, and having them in the rail is what made
+          this panel a second, unrelated left navigation: on a phone the same
+          edge and the same gesture produced either the file tree or a list
+          headed APP / YOURS / SHARED WITH YOU, and which one you got depended
+          on which control you had pressed. Obsidian has one sidebar whose
+          *contents* switch; it never becomes a different panel.
+
+          So this is the vault switcher and nothing else — the brains and
+          workspaces you can open, and who you are signed in as. Map and
+          Connections are facts about a context rather than places inside one,
+          and they live in that context's settings, behind the gear at the foot
+          of the tree. Their routes are unchanged and still addressable; what
+          moved is where you reach them from. See `SettingsPane`.
+        */}
         {/*
           Two groups, not one flat list: what you own under "Yours", and
           everything you were let into under "Shared with you". A section with
@@ -221,11 +223,6 @@ export function ConsoleRail({
     </View>
   );
 }
-
-const SECTION_ICONS: Record<string, IconName> = {
-  map: "constellation",
-  connections: "exchange",
-};
 
 function Group({
   heading,

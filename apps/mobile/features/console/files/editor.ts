@@ -21,7 +21,7 @@
  * Jest suite runs in plain node with no renderer.
  */
 
-import type { ConflictCheck, FileError, OpenNote } from "./types";
+import type { ConflictCheck, FileError, OpenNote, Visibility } from "./types";
 
 export type EditorStatus =
   /** Nothing open. */
@@ -49,6 +49,25 @@ export interface EditorState {
   etag: string | null;
   /** `privacy.md` — shown, explained, never typed into. */
   readOnly: boolean;
+  /**
+   * What the open note's visibility is, carried from the `OpenNote` that
+   * opened it.
+   *
+   * Held here because the console cannot always find it anywhere else. Every
+   * other consumer reads a note's visibility off the entry in its **parent
+   * folder's** listing, and on a cold load — a team link straight to
+   * `/console/@seyi?note=3-resources/books/plan.md` — that listing has never
+   * been fetched. `entryAt` in `tree.ts` falls back to these, which is what
+   * stops a deep-linked note rendering as "choose a note to read".
+   *
+   * `private` for an empty editor rather than `team`, so a state with nothing
+   * open never reads as something shared.
+   */
+  visibility: Visibility;
+  /** The folder default this note inherits, ignoring its own exception. */
+  inherited: Visibility;
+  /** `visibility !== inherited`. See `FileEntry.exception`. */
+  exception: boolean;
   /** Copy for the status line. */
   message?: string;
   /** On a conflict: the etag that is actually current, so a save can be forced. */
@@ -64,6 +83,9 @@ export const emptyEditor: EditorState = {
   draft: "",
   etag: null,
   readOnly: false,
+  visibility: "private",
+  inherited: "private",
+  exception: false,
 };
 
 /**
@@ -110,6 +132,9 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         draft: action.note.text,
         etag: action.note.etag,
         readOnly: action.note.readOnly,
+        visibility: action.note.visibility,
+        inherited: action.note.inherited,
+        exception: action.note.exception,
       };
 
     case "closed":

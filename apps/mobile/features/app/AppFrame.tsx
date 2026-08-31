@@ -28,6 +28,7 @@ import {
   closesOnSelect,
   densityFor,
   explorerToggleFor,
+  floatingGapFor,
   initialFrame,
   panelsClearedFor,
   railToggleFor,
@@ -131,6 +132,68 @@ export interface FrameApi {
    * region because somebody clicked inside it is how people stop using a tree.
    */
   closesOnSelect: boolean;
+  /**
+   * How much room the floating chrome takes at each edge, for a scroller to
+   * spend as **content padding**.
+   *
+   * On a phone the chrome does not sit in a band the document is kept out of —
+   * it lies over the document, and the document runs underneath it. That is
+   * how Obsidian draws it, and the giveaway in the reference is at the bottom
+   * edge: body text is visible to the left and to the right of the floating
+   * pill, on the same lines it covers, because the text column is wider than
+   * the bar and simply runs behind it.
+   *
+   * Which means the *viewport* must not be shrunk to make room. A scroller that
+   * stops where the toolbar begins has a hard edge across the glass and cannot
+   * scroll its last line clear of anything. A scroller that fills the screen and
+   * pads its **content** by these numbers has neither problem: the first and
+   * last lines can be brought out from under the chrome, and everything in
+   * between passes behind it.
+   *
+   * Zero at every other density, where the bars are real regions with their own
+   * surfaces and the document is genuinely beside them rather than beneath them.
+   */
+  contentInsets: { top: number; bottom: number };
+  /**
+   * Whether there is a real frame above this, or `useFrame`'s fallback.
+   *
+   * `contentInsets` is a complete answer — system insets *and* our chrome —
+   * only when a frame computed it. The fallback's zeros are not "nothing to
+   * clear", they are "nobody asked", and a surface that read them as the first
+   * would lay itself out under the notch on every screen outside the console.
+   * `surfacePadding` in `frame.ts` is what reads this; see `Screen.tsx`.
+   */
+  framed: boolean;
+  /**
+   * The gap the floating chrome keeps from the bottom of the glass.
+   *
+   * Exposed rather than recomputed because a second caller has appeared: the
+   * keyboard accessory bar covers the toolbar while the keyboard is up, and it
+   * has to land exactly where that toolbar was. Two components each calling
+   * `floatingGapFor(useSafeAreaInsets().bottom)` would be the same number
+   * derived twice — and, more practically, would make every component that
+   * mounts the accessory bar need a `SafeAreaProvider` above it, which is the
+   * dependency `useFrame`'s no-provider fallback exists to avoid.
+   */
+  chromeGap: number;
+  /**
+   * Whether the keyboard accessory bar is up, and the way to say so.
+   *
+   * While a note has the caret, the row riding above the keyboard *is* the
+   * toolbar — that is what the reference shows: in the editing screenshot there
+   * is no bottom bar at all. Drawing both is two bars stacked on a 440pt screen
+   * saying different things, and the accessory bar cannot simply paint over the
+   * other one: it lives inside the editor region and the toolbar is a sibling of
+   * that region, so their `zIndex`es are compared in different stacking contexts
+   * and the toolbar wins whatever either of them asks for.
+   *
+   * So the frame puts its own toolbar away instead, which is both the correct
+   * z-order and the correct behaviour. It is state on the frame rather than a
+   * region rule in `frame.ts` because `regionsFor` decides regions from a width
+   * and knows nothing about where the caret is.
+   */
+  accessoryOpen: boolean;
+  setAccessoryOpen: (open: boolean) => void;
 }
 
 const FrameContext = createContext<FrameApi | null>(null);
@@ -158,11 +221,31 @@ export function useFrame(): FrameApi {
       closeOverlays: () => false,
       setExplorerWidth: noop,
       closesOnSelect: closesOnSelect(fallbackDensity),
+      contentInsets: NO_CONTENT_INSETS,
+      framed: false,
+      chromeGap: floatingGapFor(0),
+      accessoryOpen: false,
+      setAccessoryOpen: noop,
     }
   );
 }
 
 function noop(): void {}
+
+/**
+ * The fallback frame's insets.
+ *
+ * A frozen object rather than a fresh literal: `useFrame` hands this back to
+ * every component mounted outside a provider — the landing page's fake console
+ * window, and a hundred-odd tests — and a new object each call is a new `style`
+ * array each render for anything that spreads it.
+ *
+ * It travels with `framed: false`, and that pairing is the whole point. These
+ * zeros mean "no frame answered", never "there is nothing at this edge to
+ * clear" — outside the console the system's insets are the answer and
+ * `surfacePadding` reads them instead.
+ */
+const NO_CONTENT_INSETS = { top: 0, bottom: 0 } as const;
 
 /**
  * `inert`, spread rather than written as a prop.
@@ -333,6 +416,59 @@ export function AppFrame({
     [],
   );
 
+  const compact = density === "compact";
+
+  /**
+   * The two bands the floating chrome occupies, as content padding.
+   *
+   * Read from the same tokens the chrome is drawn from, and from the same
+   * `max(insets.bottom, floatingGap)` the bottom slot pads with, so the number
+   * a scroller pads by and the number the toolbar actually takes cannot drift.
+   * The top is the safe area plus the compact bar's own height; the bottom is
+   * the toolbar, the gap above it and the gap below it.
+   */
+  const chromeGap = floatingGapFor(insets.bottom);
+  /*
+    See `FrameApi.accessoryOpen`. Held here because the thing it hides — the
+    bottom toolbar — is rendered here, and because the editor that raises it is
+    several components down inside the slot this frame is given.
+  */
+  const [accessoryOpen, setAccessoryOpenState] = useState(false);
+  const setAccessoryOpen = useCallback(
+    (open: boolean) => setAccessoryOpenState((current) => (current === open ? current : open)),
+    [],
+  );
+
+  /*
+    A pointer layout is not "no insets" — it is "the frame already paid the
+    top". `styles.frame` carries `paddingTop: insets.top` there, so a surface
+    inside owes nothing at that edge; the bottom is a different matter, because
+    the bottom bar is a phone region and on a tablet in portrait nothing else
+    reaches the home indicator. Reporting the two edges separately is what lets
+    `surfacePadding` be one formula rather than a density check at every call
+    site.
+  */
+  const hasBottomBar = regions.bottomBar && bottomBar != null;
+  const contentInsets = useMemo(
+    () =>
+      compact
+        ? {
+            top: insets.top + layout.chromeButton + space.x3,
+            bottom: hasBottomBar
+              ? layout.bottomBarHeight + layout.floatingInset + chromeGap
+              : /*
+                  Map, Connections and Settings have no toolbar, so there is
+                  nothing floating at this edge and the home indicator is the
+                  whole of what a surface owes. Reserving the toolbar's 110pt
+                  anyway would leave a hand's width of empty ground under the
+                  last card on the three panes signing in lands you on.
+                */
+                insets.bottom,
+          }
+        : { top: 0, bottom: insets.bottom },
+    [compact, insets.top, insets.bottom, chromeGap, hasBottomBar],
+  );
+
   const api = useMemo<FrameApi>(
     () => ({
       density,
@@ -345,6 +481,11 @@ export function AppFrame({
       closeOverlays,
       setExplorerWidth,
       closesOnSelect: closesOnSelect(density),
+      contentInsets,
+      framed: true,
+      chromeGap,
+      accessoryOpen,
+      setAccessoryOpen,
     }),
     [
       density,
@@ -356,10 +497,12 @@ export function AppFrame({
       closeNav,
       closeOverlays,
       setExplorerWidth,
+      contentInsets,
+      chromeGap,
+      accessoryOpen,
+      setAccessoryOpen,
     ],
   );
-
-  const compact = density === "compact";
 
   return (
     <FrameContext.Provider value={api}>
@@ -367,23 +510,56 @@ export function AppFrame({
         style={[
           styles.frame,
           viewportHeight(),
-          // The notch and the home indicator. Only the top and bottom matter:
-          // the frame is edge to edge horizontally by design, and the regions
-          // inside it carry their own padding.
-          { paddingTop: insets.top },
+          /*
+            The notch, and only where the layout keeps the document out of it.
+
+            On a pointer layout the top bar is a real region with a surface and
+            a hairline, so the frame pads itself down past the notch and the bar
+            sits below it. On a phone the chrome floats *over* the document and
+            the document runs to the top of the glass, so padding here would put
+            a 59pt white band above a note that is meant to scroll behind the
+            status bar. The bar carries the inset itself instead
+            (`topBarCompact`'s `paddingTop`), and a scroller keeps its first
+            line reachable with `contentInsets.top`.
+          */
+          compact ? null : { paddingTop: insets.top },
         ]}
         testID="app-frame"
       >
-        <View style={[styles.topBar, compact && styles.topBarCompact]}>
+        <View
+          style={[
+            styles.topBar,
+            compact && styles.topBarCompact,
+            compact && { paddingTop: insets.top, height: contentInsets.top },
+          ]}
+        >
           {regions.drawerToggle ? (
-            <FrameIconButton
-              label={state.drawerOpen ? "Close the file tree" : "Open the file tree"}
-              icon="panelLeft"
-              onPress={toggleExplorer}
-              selected={state.drawerOpen}
-              round={compact}
-              testID="frame-drawer-toggle"
-            />
+            /*
+              The toggle sits on the note, not on the panel it opened.
+
+              With a panel in, the leading corner of the glass belongs to that
+              panel — a floating button there lies on top of the tree's first
+              row and hides it. Either panel: the brain switcher comes in from
+              the same edge and covers the same corner. The reference puts it on the sliver of
+              note still showing at the trailing edge, which is also where a
+              thumb reaching past an open panel actually is. `marginLeft: auto`
+              rather than a second absolutely-positioned button, so there is
+              one control that moves rather than two that must agree.
+            */
+            <View
+              style={
+                compact && (state.drawerOpen || state.navOpen) ? styles.toggleOnSliver : null
+              }
+            >
+              <FrameIconButton
+                label={state.drawerOpen ? "Close the file tree" : "Open the file tree"}
+                icon="panelLeft"
+                onPress={toggleExplorer}
+                selected={state.drawerOpen}
+                round={compact}
+                testID="frame-drawer-toggle"
+              />
+            </View>
           ) : null}
 
           {/*
@@ -399,7 +575,18 @@ export function AppFrame({
             `switcherLabel` because content-derived naming does not survive the
             crossing to native.
           */}
-          {regions.navToggle ? (
+          {/*
+            Nothing in the middle of a phone's top bar.
+
+            The switcher chip used to sit here at every density and it is the
+            band this branch exists to empty: `frame.ts` now answers
+            `navToggle: false` wherever there is a file tree, because the
+            switcher has moved to that tree's footer — Obsidian's vault
+            switcher — and the bar is left with a toggle and one group. On Map
+            and Connections there is no tree to carry it, so the chip is still
+            the way in and is still drawn here.
+          */}
+          {!regions.navToggle && compact ? null : regions.navToggle ? (
             <Pressable
               onPress={toggleRail}
               role="button"
@@ -433,20 +620,28 @@ export function AppFrame({
           {onSearch && !compact ? <SearchTrigger onPress={onSearch} /> : null}
 
           {/*
-            On a phone these become one object rather than two loose chips.
+            The trailing slot, which on a phone is **the** grouped container.
 
-            Obsidian's top-right is a single rounded pill holding its
-            note-scoped actions, and the reason is the ground underneath: at
-            this density the top bar has no fill and no rule (see
-            `topBarCompact`), so anything in it is floating over the note. Two
-            chips floating separately read as debris; one pill reads as chrome.
+            Obsidian's top bar is exactly two objects: a rounded-square sidebar
+            toggle at the leading edge, and one rounded container at the
+            trailing edge holding the actions for what is on screen — the book
+            and the ⋯ in the reference. Nothing in the middle. So at compact
+            this is a floating capsule with the same surface and shadow the
+            toggle has, and whatever `_layout` puts in it sits inside that one
+            container rather than bringing a box of its own.
+
+            It used to wrap its chips in a bordered, filled pill *and* let each
+            chip draw its own border — three nested rounded boxes for two
+            words. The chips themselves are gone from here: identity and the
+            storage binding are facts about the context, and they live at the
+            foot of the file tree where Obsidian puts the vault switcher.
+
             At every other density the bar has its own surface and its own
-            hairline, and a second container inside it would be a box in a box.
+            hairline, the chips have room, and a container around them would be
+            a box in a box — so `topTrail` alone, unfilled.
           */}
           {topTrailing == null ? null : (
-            <View style={[styles.topTrail, compact && styles.topTrailCompact]}>
-              {topTrailing}
-            </View>
+            <View style={[styles.topTrail, compact && styles.topTrailCompact]}>{topTrailing}</View>
           )}
         </View>
 
@@ -508,7 +703,23 @@ export function AppFrame({
 
           {regions.explorer === "drawer" ? (
             <View
-              style={[styles.drawer, compact && styles.panelRounded, { paddingBottom: insets.bottom }]}
+              /*
+                A panel is full height now, because the body is: the chrome
+                floats over it rather than sitting above it. So the panel runs
+                from the top of the glass to the bottom, the way Obsidian's
+                sidebar does, and pays for the chrome in padding — the top
+                clears the status bar and the floating toggle, the bottom clears
+                the floating toolbar. Without the top, the filter row would sit
+                under the notch; without the bottom, the vault footer would sit
+                under the toolbar.
+              */
+              style={[
+                styles.drawer,
+                compact && styles.panelRounded,
+                compact
+                  ? { paddingTop: contentInsets.top, paddingBottom: contentInsets.bottom }
+                  : { paddingBottom: insets.bottom },
+              ]}
               accessibilityViewIsModal
               testID="frame-drawer"
             >
@@ -534,7 +745,13 @@ export function AppFrame({
                 sheet, so without this, sign-out sits under the indicator on the
                 one surface it is reachable from.
               */
-              style={[styles.navSheet, compact && styles.panelRounded, { paddingBottom: insets.bottom }]}
+              style={[
+                styles.navSheet,
+                compact && styles.panelRounded,
+                compact
+                  ? { paddingTop: contentInsets.top, paddingBottom: contentInsets.bottom }
+                  : { paddingBottom: insets.bottom },
+              ]}
               accessibilityViewIsModal
               role="navigation"
               aria-label="Console"
@@ -557,16 +774,33 @@ export function AppFrame({
           against the bottom of the glass is not a floating object. So the pill
           gets whichever gap is larger, from here, and `BottomBar` sets nothing
           on that edge at all.
+
+          The floor is `floatingGap` (25), measured off the reference, not the
+          10pt `floatingInset` that used to serve here — at 10 the pill sat
+          near enough to the edge to read as attached to it. See the token.
         */}
-        {regions.bottomBar && bottomBar ? (
+        {/*
+          Not while the keyboard accessory bar is up — see
+          `FrameApi.accessoryOpen`. The reference has no bottom bar in its
+          editing screenshot, and two floating bars in the same 66pt of glass
+          is worse than either.
+        */}
+        {regions.bottomBar && bottomBar && !accessoryOpen ? (
           <View
             style={[
               styles.bottomBar,
               {
                 paddingTop: layout.floatingInset,
-                paddingBottom: Math.max(insets.bottom, layout.floatingInset),
+                paddingBottom: chromeGap,
               },
             ]}
+            /*
+              The toolbar floats over the document; only the document's own
+              last line needs to clear it, and `contentInsets.bottom` is how it
+              does. This band therefore must not eat presses aimed at the text
+              running behind it — only the pill inside it may.
+            */
+            pointerEvents="box-none"
           >
             {bottomBar}
           </View>
@@ -636,6 +870,7 @@ export function FrameIconButton({
   onPress,
   selected = false,
   round = false,
+  grouped = false,
   testID,
 }: {
   label: string;
@@ -644,6 +879,17 @@ export function FrameIconButton({
   selected?: boolean;
   /** The phone's shape: a filled circle lying over the document. */
   round?: boolean;
+  /**
+   * Inside the top bar's trailing capsule: a phone-sized target with no
+   * surface of its own.
+   *
+   * The container is the object — one fill, one radius, one shadow, however
+   * many actions are in it — so a button that brought its own would be the
+   * nested-rounded-box defect this branch removed from the other corner. It
+   * still clears `minTouchTarget`, because the target is what a thumb hits and
+   * the capsule around it is only what a reader sees.
+   */
+  grouped?: boolean;
   testID?: string;
 }) {
   const colors = useColors();
@@ -659,6 +905,7 @@ export function FrameIconButton({
       testID={testID}
       style={({ pressed }) => [
         styles.iconButton,
+        grouped && styles.iconButtonGrouped,
         round && styles.iconButtonRound,
         // `iconButtonHover` tints an untinted square; on a filled circle it
         // would paint `surface3` *over* `chrome`, which is darker than the
@@ -667,12 +914,12 @@ export function FrameIconButton({
         // a narrowed desktop browser, which is a real surface here.
         hovered && (round ? styles.iconButtonPressed : styles.iconButtonHover),
         selected && styles.iconButtonOn,
-        round && pressed && styles.iconButtonPressed,
+        (round || grouped) && pressed && styles.iconButtonPressed,
       ]}
     >
       <Icon
         name={icon}
-        size={round ? 20 : 17}
+        size={round || grouped ? 20 : 17}
         color={selected ? colors.accentText : colors.text2}
       />
     </Pressable>
@@ -781,30 +1028,71 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    * circles in a 45pt bar is a bar with half a point of air either side. The
    * hairline that made `topBarHeight` `minTouchTarget + 1` is gone here too,
    * so the pixel it was buying back has nowhere left to hide.
+   *
+   * **It is one row and there is nothing under it.** The pane below used to add
+   * a second strip — a breadcrumb with its own fill and its own rule — so the
+   * top 100pt of a 956pt phone was chrome about the note rather than the note.
+   * Obsidian spends 50: one transparent row that the document scrolls beneath.
+   * `space.x3` of air either side of the circle rather than `space.x4` gets us
+   * to the same measure, and the breadcrumb below has been reduced to a single
+   * unruled line (`Breadcrumb.barCompact`).
    */
   topBarCompact: {
-    height: layout.chromeButton + space.x4,
+    /*
+      Out of the column and over the document.
+
+      The height and the safe-area padding are applied at the call site, from
+      `contentInsets.top`, so the band a scroller pads its content by and the
+      band the chrome actually occupies are one number rather than two that
+      agree today.
+
+      `zIndex` is set because this is painted *before* the body and has to sit
+      above it. React Native's later-sibling rule is what the panels rely on;
+      this is the one place that needs the opposite, and paying for it with an
+      explicit `zIndex` is cheaper than moving the top bar below the body in the
+      tree, where it would also come after the editor in the reading order and
+      in the tab order.
+    */
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1,
     paddingHorizontal: space.x3,
     gap: space.x2,
     borderBottomWidth: 0,
     backgroundColor: "transparent",
   },
   topLead: { flexDirection: "row", alignItems: "center", gap: space.x2, minWidth: 0 },
+  /** See the drawer toggle: the control crosses to the sliver of note. */
+  toggleOnSliver: { marginLeft: "auto" },
   topTrail: {
     marginLeft: "auto",
     flexDirection: "row",
     alignItems: "center",
     gap: space.x2,
   },
-  /** See the comment at the call site: one floating object, not two. */
+  /**
+   * Obsidian's trailing group: one floating capsule, however many actions.
+   *
+   * The same surface, radius and shadow as the toggle opposite it, because
+   * they are the same kind of object — chrome lying on the note rather than a
+   * bar drawn across it. `chromeButton` is the height so the two corners of the
+   * screen match; `space.x1` of padding either side because the targets inside
+   * are already `chromeButton` wide and the capsule only has to close around
+   * them.
+   *
+   * `gap: 0` on purpose: the actions inside are full touch targets that meet,
+   * which is how the reference's book and ⋯ sit — one container, no gutters
+   * inside it.
+   */
   topTrailCompact: {
-    gap: space.x1,
-    paddingHorizontal: space.x2,
-    paddingVertical: 3,
+    gap: 0,
+    minHeight: layout.chromeButton,
+    paddingHorizontal: space.x1,
     borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.surface2,
+    backgroundColor: colors.chrome,
+    boxShadow: shadows.floating,
   },
 
   search: {
@@ -878,7 +1166,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: "rgba(0,0,0,.6)",
+    backgroundColor: colors.scrim,
   },
   /**
    * The rail as a panel: the tree drawer's geometry, 40pt narrower (300 against
@@ -920,10 +1208,17 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    * puts an invisible target over the top of the note and leaves the words
    * floating with nothing under them. A filled chip is the target *and* the
    * affordance, and it is the shape the two circles beside it are already in.
+   *
+   * **This is the only container.** The node passed as `switcher` used to draw
+   * its own 1px border and 8pt radius *inside* this pill — a bordered box in a
+   * shadowed capsule, for one line of type — which is the detail that made the
+   * phone's top edge read as a toolbar rendered twice. `_layout` drops that
+   * box at compact (`switcherCompact`); nothing in here draws an edge except
+   * this.
    */
   navToggleCompact: {
     alignSelf: "center",
-    paddingHorizontal: space.x3,
+    paddingLeft: space.x3,
     paddingRight: space.x2,
     minHeight: layout.chromeButton,
     borderRadius: radii.pill,
@@ -938,8 +1233,13 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     left: 0,
     // Never the whole screen: the sliver of editor still showing is what says
     // "this is a panel over your note", and it is a second way to dismiss it.
+    //
+    // 372 rather than 340, measured: Obsidian's covers to about 368pt of a
+    // 440pt screen. The cap is what binds on a large phone — 86% of 440 is 378
+    // — and the percentage is what binds on a small one, where a fixed 372
+    // would leave no sliver at all.
     width: "86%",
-    maxWidth: 340,
+    maxWidth: 372,
     borderRightWidth: 1,
     borderRightColor: colors.lineStrong,
     backgroundColor: colors.surface,
@@ -981,7 +1281,23 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    * document run under it. See `layout.floatingInset` for why reserved and not
    * overlaid.
    */
-  bottomBar: {},
+  bottomBar: {
+    /*
+      Over the document rather than beside it.
+
+      This slot used to be the last child of a column, so the body ended where
+      the toolbar began: a hard edge across the glass with the note stopping
+      short of it. The reference has the note running *behind* the pill — body
+      text is visible to the left and the right of it on the lines it covers —
+      which is only possible if the scroller is full height and pays for the bar
+      in content padding instead. `contentInsets.bottom` is that payment.
+    */
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1,
+  },
 
   iconButton: {
     width: 30,
@@ -996,6 +1312,12 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     borderRadius: radii.pill,
     backgroundColor: colors.chrome,
     boxShadow: shadows.floating,
+  },
+  /** See `grouped`: the target, without the surface its container already has. */
+  iconButtonGrouped: {
+    width: layout.chromeButton,
+    height: layout.chromeButton,
+    borderRadius: radii.pill,
   },
   iconButtonHover: { backgroundColor: colors.surface3 },
   iconButtonPressed: { backgroundColor: colors.chromePressed },

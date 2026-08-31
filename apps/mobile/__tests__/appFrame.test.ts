@@ -201,21 +201,31 @@ describe("regions", () => {
     // nothing is not a way to reach anything. So: either the rail is already
     // on the screen, or the control is there **and pressing it produces a
     // rail**.
+    //
+    // There are two routes now, not one, and the second is the reason the top
+    // bar can be a toggle and one group of actions: where the layout has a file
+    // tree, the switcher that opens the rail is at the *foot of that tree*
+    // (`Explorer`'s `vault` slot — Obsidian's vault switcher), reached by the
+    // drawer button. So the assertion is "a route exists and it produces a
+    // rail", by whichever of the two the layout offers.
     for (const { density, state, hasExplorer } of everyFrame()) {
       const regions = regionsFor(density, state, { hasExplorer });
       if (regions.rail !== "hidden") continue;
 
-      expect(regions.navToggle).toBe(true);
       const field = railToggleFor(density);
       const pressed = regionsFor(density, { ...state, [field]: !state[field] }, { hasExplorer });
       expect(pressed.rail).not.toBe("hidden");
+
+      // The control that reaches `railToggleFor`: the top bar's chip, or the
+      // switcher in the drawer the toggle pulls in. One or the other, always.
+      expect(regions.navToggle || regions.drawerToggle).toBe(true);
     }
   });
 
-  test("the nav control exists exactly where the rail is not already a column", () => {
+  test("the nav chip is in the bar exactly where no tree can carry the switcher", () => {
     for (const { density, state, hasExplorer } of everyFrame()) {
       const regions = regionsFor(density, state, { hasExplorer });
-      expect(regions.navToggle).toBe(density === "compact");
+      expect(regions.navToggle).toBe(density === "compact" && !hasExplorer);
     }
   });
 

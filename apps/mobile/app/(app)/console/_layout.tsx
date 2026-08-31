@@ -1,22 +1,23 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Slot, useRouter, usePathname } from "expo-router";
-import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { Button, PressRow } from "../../../features/design/components/Button";
+import { PressRow } from "../../../features/design/components/Button";
 import { Dot } from "../../../features/design/components/Dot";
-import { FormError } from "../../../features/design/components/Input";
+import { Icon } from "../../../features/design/components/Icon";
 import { Pill } from "../../../features/design/components/Pill";
 import { Palette } from "../../../features/design/components/Palette";
 import { StatusBar } from "../../../features/design/components/StatusBar";
 import { Text } from "../../../features/design/components/Text";
 import { ToastHost } from "../../../features/design/components/Toast";
 import { layout, radii, space } from "../../../features/design/tokens";
-import { useThemedStyles, type Colors } from "../../../features/design/theme";
-import { AppFrame, useFrame } from "../../../features/app/AppFrame";
+import { useColors, useThemedStyles, type Colors } from "../../../features/design/theme";
+import { AppFrame, FrameIconButton, useFrame } from "../../../features/app/AppFrame";
 import { densityFor } from "../../../features/app/frame";
 import { BottomBar } from "../../../features/console/BottomBar";
 import { AccountBlock, Avatar, ConsoleRail } from "../../../features/console/ConsoleRail";
 import { ConsoleDataProvider } from "../../../features/console/ConsoleDataContext";
+import { EditorRegion } from "../../../features/console/EditorRegion";
 import { TierChip } from "../../../features/console/ConsoleShell";
 import {
   Explorer,
@@ -38,12 +39,11 @@ import {
   visited,
   type HistoryState,
 } from "../../../features/console/files/history";
-import { targetFolder } from "../../../features/console/files/tree";
+import { entryAt, targetFolder } from "../../../features/console/files/tree";
 import {
   applyRowIntent,
   intentForRowCommand,
 } from "../../../features/console/files/rowCommand";
-import { TabStrip } from "../../../features/console/files/TabStrip";
 import { TabSwitcher, tabCountLabel } from "../../../features/console/files/TabSwitcher";
 import { statusSegments } from "../../../features/console/files/status";
 import { dirtyCount, isTabDirty } from "../../../features/console/files/tabs";
@@ -63,7 +63,6 @@ import { selectedContext, type ConsoleData } from "../../../features/console/typ
 import { useKeymap } from "../../../features/design/useKeymap";
 import type { FileBrowser } from "../../../features/console/files/browser";
 import { useLiveConsoleData } from "../../../features/console/useLiveConsoleData";
-import { canReload, reloadApp } from "../../../features/app/reload";
 import { WELCOME_ROUTE } from "../../../features/onboarding/route";
 
 /**
@@ -279,12 +278,44 @@ export default function ConsoleLayout() {
 
   const contextLabel = atName(current?.slug ?? "your context");
 
+  /**
+   * The note the top bar's Share acts on, or `null`.
+   *
+   * The one control that had to find a new home when the breadcrumb row went.
+   * `BrowsePane` puts Share beside the note's name on a pointer layout, and the
+   * name is inside the document now — so on a phone it moves into the top bar's
+   * trailing group, which is what Obsidian's ⋯ container is for.
+   *
+   * The same three conditions the pane applied, because they are the server's:
+   * `canShare` is `canEdit && isOwner`, `privacy.md` is read-only, and a folder
+   * has its own team-link offer in `FolderView` rather than this one.
+   */
+  const selectedEntry =
+    data.files.selectedPath === null
+      ? null
+      : entryAt(data.files.listings, data.files.selectedPath, data.files.editor);
+  const shareTarget =
+    browsing &&
+    data.files.canShare &&
+    selectedEntry !== null &&
+    selectedEntry.kind === "file" &&
+    !selectedEntry.readOnly
+      ? selectedEntry.path
+      : null;
+
   return (
     <ConsoleDataProvider value={data}>
       <AppFrame
         switcher={
           insideContext ? (
-            <View style={styles.switcher}>
+            /*
+              `switcherCompact` takes this chip's own border and fill away on a
+              phone. `AppFrame`'s `navToggleCompact` already draws a shadowed
+              white capsule around it, and a bordered box inside that capsule is
+              two containers for one control — most of what made the phone's top
+              edge read as a toolbar drawn twice.
+            */
+            <View style={[styles.switcher, phone && styles.switcherCompact]}>
               <Dot tone={current?.status ?? "warn"} />
               <Text variant="wsSwitch" numberOfLines={1}>
                 {contextLabel}
@@ -299,7 +330,7 @@ export default function ConsoleLayout() {
             // context" is the aggregate — everything this person can reach —
             // which is exactly what these panes span (see CLAUDE.md,
             // "Vocabulary").
-            <View style={styles.switcher}>
+            <View style={[styles.switcher, phone && styles.switcherCompact]}>
               <Text variant="wsSwitch">Your context</Text>
               <Text variant="wsSwitch" style={styles.switcherKind}>
                 {`${data.contexts.length} reachable`}
@@ -317,27 +348,70 @@ export default function ConsoleLayout() {
             ? [contextLabel, current?.kind].filter(Boolean).join(", ")
             : `Your context, ${data.contexts.length} reachable`
         }
+        /*
+          Absent on a phone, where both chips have moved to the foot of the file
+          tree — see `ContextFoot` and `Explorer`'s `vault` slot.
+
+          They are facts *about the context you are in*: which bucket it is
+          bound to, and what you are allowed to see in it. Beside the context's
+          own name, at the foot of the panel that lists it, they read as a
+          caption. Floating over the note in the top-right corner of a 390pt
+          screen they read as chrome about the note, which is what they were
+          being mistaken for — and getting them there cost a bordered pill
+          wrapping two bordered pills.
+
+          The pointer layout keeps them in the bar. It has the width, the bar
+          has a surface of its own to sit them on, and the tree's foot there is
+          a 26pt strip at the bottom of a 260pt column rather than the panel's
+          own footer.
+        */
         topTrailing={
-          <>
-            {/*
-              Gated on `insideContext`, and `StorageChip` beside it is not.
-              That is deliberate rather than an oversight to tidy: a bucket is
-              one fact about the selected context, but a tier is a claim about
-              what *you* can see, and on an all-contexts route you may be
-              looking at three contexts you hold three different roles in. One
-              chip cannot speak for them, and the wrong direction for it to be
-              wrong in is "you are seeing everything".
-            */}
-            {insideContext ? <TierChip role={current?.role} /> : null}
-            <StorageChip
-              data={data}
-              onOpenSettings={
-                current === null
-                  ? undefined
-                  : () => router.push(settingsHref(current.slug))
-              }
-            />
-          </>
+          phone ? (
+            /*
+              Obsidian's trailing group, holding the one action the note has
+              that is not on the bottom toolbar.
+
+              `AppFrame` draws the capsule; this passes what goes in it. Absent
+              rather than dimmed when there is nothing to share — `menu.ts`
+              states the rule for exactly this case, and an empty capsule
+              floating over a note is chrome about nothing.
+
+              It raises the dialog through `barDialog`, which `ExplorerDialogs`
+              already renders below with its own `canShare` re-check. A second
+              `ShareDialog` mounted here would be a second contract for one
+              offer.
+            */
+            shareTarget === null ? undefined : (
+              <FrameIconButton
+                label="Share this note"
+                icon="share"
+                grouped
+                onPress={() => setBarDialog({ kind: "share", path: shareTarget })}
+                testID="note-share"
+              />
+            )
+          ) : (
+            <>
+              {/*
+                Gated on `insideContext`, and `StorageChip` beside it is not.
+                That is deliberate rather than an oversight to tidy: a bucket is
+                one fact about the selected context, but a tier is a claim about
+                what *you* can see, and on an all-contexts route you may be
+                looking at three contexts you hold three different roles in. One
+                chip cannot speak for them, and the wrong direction for it to be
+                wrong in is "you are seeing everything".
+              */}
+              {insideContext ? <TierChip role={current?.role} /> : null}
+              <StorageChip
+                data={data}
+                onOpenSettings={
+                  current === null
+                    ? undefined
+                    : () => router.push(settingsHref(current.slug))
+                }
+              />
+            </>
+          )
         }
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
         rail={(mode) => <Rail data={data} route={route} mode={mode} />}
@@ -356,6 +430,37 @@ export default function ConsoleLayout() {
             <Explorer
               files={data.files}
               contextLabel={contextLabel}
+              /*
+                Obsidian's vault-switcher slot, and on a phone it is where the
+                two chips from the old top-right pill now live. Absent on a
+                pointer layout, where the top bar still carries them — see
+                `topTrailing`.
+              */
+              vault={
+                phone ? (
+                  <VaultSwitcher
+                    label={contextLabel}
+                    kind={current?.kind ?? ""}
+                    tone={current?.status ?? "warn"}
+                    onOpenSettings={
+                      current === null
+                        ? undefined
+                        : () => router.push(settingsHref(current.slug))
+                    }
+                  />
+                ) : undefined
+              }
+              /*
+                The binding, in front of the counts. `storagePillLabel` is the
+                same function the pointer layout's chip and the status bar
+                read, so the three cannot come to describe one bucket three
+                ways — which is how "dropbox · undefined" got printed once.
+              */
+              vaultDetail={
+                phone
+                  ? (storagePillLabel(data.storage) ?? "no bucket connected")
+                  : undefined
+              }
               onOpenPinned={(path) => {
                 data.files.select(path);
                 tabs.pin(path);
@@ -478,94 +583,6 @@ export default function ConsoleLayout() {
 }
 
 /* -------------------------------------------------------------------------- */
-
-/**
- * The editor region's scrolling, which is not one answer.
- *
- * **Browse owns its own.** It is a tab strip and a breadcrumb pinned to the top
- * edge with a document filling the rest, and the document is a textarea that
- * scrolls itself. Wrapping that in a page scroller puts a second scrollbar
- * around the first and lets the strip slide out of view — which is the shape
- * this whole rebuild exists to remove.
- *
- * **Everything else scrolls as a page.** Map, Connections and Settings are
- * documents of stacked cards with no internal scroller of their own, and they
- * are routinely taller than the viewport.
- */
-function EditorRegion({
-  browse,
-  failure,
-  tabs,
-  onCloseTab,
-  phone,
-  children,
-}: {
-  browse: boolean;
-  failure: ConsoleData["failure"];
-  /** Absent on a route with no notes open, and on every non-Browse pane. */
-  tabs: ReturnType<typeof useTabs> | null;
-  /** Closes a tab, asking first when it holds an unsaved draft. */
-  onCloseTab: (path: string) => void;
-  /** Compact. Decides the document panes' measure, not which regions exist. */
-  phone: boolean;
-  children: ReactNode;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  /*
-    The console's own subscription came back as an error rather than data. It
-    reaches here as a value — `useLiveConsoleData` reads it with `useQueries` —
-    where a `useQuery` would have re-thrown during render and blanked the page.
-    So: say what happened, offer the one thing that helps, and keep the chrome
-    around it so there is still a way out.
-  */
-  const banner =
-    failure === null ? null : (
-      <View style={styles.failure} testID="console-failure">
-        <FormError
-          headline={failure.headline}
-          next={[failure.next, failure.detail].filter(Boolean).join(" ")}
-        />
-        {canReload ? (
-          <View style={styles.failureActions}>
-            <Button label="Reload" variant="white" onPress={reloadApp} />
-          </View>
-        ) : null}
-      </View>
-    );
-
-  if (browse) {
-    return (
-      <View style={styles.browseRegion}>
-        {/*
-          At the very top edge of the region, not inside the document's
-          padding: an inset tab strip reads as a control belonging to the note
-          rather than to the frame.
-        */}
-        {tabs !== null && tabs.state.tabs.length > 0 ? (
-          <TabStrip
-            state={tabs.state}
-            onActivate={tabs.activate}
-            onClose={onCloseTab}
-            onCloseOthers={tabs.closeOthers}
-            onReopen={tabs.reopen}
-          />
-        ) : null}
-        {banner === null ? null : <View style={styles.bannerInset}>{banner}</View>}
-        {children}
-      </View>
-    );
-  }
-
-  return (
-    <ScrollView
-      style={styles.pane}
-      contentContainerStyle={[styles.paneContent, phone && styles.paneContentPhone]}
-    >
-      {banner}
-      {children}
-    </ScrollView>
-  );
-}
 
 /**
  * The keyboard.
@@ -1006,6 +1023,81 @@ function StorageChip({
   );
 }
 
+/**
+ * Obsidian's vault switcher, at the foot of the file tree.
+ *
+ * One line: which context you are in, a chevron that changes it, and a gear
+ * that configures it. It is the block the reference ends its sidebar with, and
+ * it is where the `@seyi personal` chip from the top bar has gone.
+ *
+ * **The chevron is the only way to the rail on a phone with a tree open, and
+ * that is deliberate rather than incidental.** The rail carries the other
+ * contexts, the app-level panes and sign-out; the top bar used to carry a
+ * switcher chip that opened it, and the whole point of this change is that the
+ * top bar carries a toggle and one group of actions and nothing else. So the
+ * control moved rather than went — it is here, beside the name it changes,
+ * which is what a workspace switcher is. `frame.ts` keeps the top bar's chip
+ * for the routes that have no tree (Map, Connections), where this footer does
+ * not exist.
+ *
+ * The gear is `StorageChip`'s old press target: a fact you can act on. It opens
+ * this context's settings, which is where the bucket is bound.
+ */
+function VaultSwitcher({
+  label,
+  kind,
+  tone,
+  onOpenSettings,
+}: {
+  label: string;
+  kind: string;
+  tone: "ok" | "warn" | "crit";
+  /** Absent only while there is no selected context to have settings. */
+  onOpenSettings?: () => void;
+}) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
+  const frame = useFrame();
+
+  return (
+    <>
+      <PressRow
+        accessibilityLabel={`${label}, ${kind}. Switch context`}
+        onPress={frame.toggleRail}
+        radius={radii.md}
+        style={styles.vaultName}
+        hoverStyle={styles.storagePressHover}
+        testID="vault-switcher"
+      >
+        <Dot tone={tone} />
+        <Text variant="wsSwitch" numberOfLines={1} style={styles.vaultLabel}>
+          {label}
+        </Text>
+        <Text variant="wsSwitch" style={styles.switcherKind} numberOfLines={1}>
+          {kind}
+        </Text>
+        <Icon
+          name={frame.state.navOpen ? "chevronUp" : "chevronDown"}
+          size={14}
+          color={colors.muted}
+        />
+      </PressRow>
+      {onOpenSettings === undefined ? null : (
+        <PressRow
+          accessibilityLabel="Open storage settings"
+          onPress={onOpenSettings}
+          radius={radii.control}
+          style={styles.vaultGear}
+          hoverStyle={styles.storagePressHover}
+          testID="vault-settings"
+        >
+          <Icon name="gear" size={18} color={colors.text2} />
+        </PressRow>
+      )}
+    </>
+  );
+}
+
 function Account({
   data,
   compact,
@@ -1075,6 +1167,26 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderColor: colors.line,
     backgroundColor: colors.surface,
   },
+  /**
+   * The same chip with no box of its own.
+   *
+   * On a phone `AppFrame` wraps this in `navToggleCompact` — a white capsule
+   * with a shadow — because the bar it sits in is transparent and a control
+   * lying over a note needs a surface. Keeping the border and the 8pt radius
+   * as well drew a rounded rectangle inside a capsule: two edges, two radii and
+   * two fills for one line of type. One container per control.
+   *
+   * The horizontal padding goes with the border for the same reason. The
+   * capsule already provides it, and paying it twice pushed the context name
+   * far enough right that it ellipsised at 390pt.
+   */
+  switcherCompact: {
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderWidth: 0,
+    borderRadius: 0,
+    backgroundColor: "transparent",
+  },
   switcherKind: { color: colors.muted },
 
   /**
@@ -1089,30 +1201,36 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   storagePressHover: { backgroundColor: colors.surface3 },
 
-  /** Browse fills its region and scrolls inside itself. */
-  browseRegion: { flex: 1, minHeight: 0 },
-  bannerInset: { paddingHorizontal: space.x7, paddingTop: space.x5 },
-  /** Every other pane scrolls as a page inside the region. */
-  pane: { flex: 1, minHeight: 0 },
-  paneContent: {
-    paddingTop: space.x6,
-    paddingHorizontal: space.x7,
-    paddingBottom: space.x8,
-  },
   /**
-   * A phone's gutter, and a phone's tail.
+   * The vault switcher's name line: it takes the room, the gear takes the end.
    *
-   * 28pt either side of a 390pt screen leaves a 334pt measure for a document
-   * of cards; 20 leaves 350, which is a whole word per line on the settings
-   * copy. The top loses most of its padding because the chrome above it is
-   * transparent now — the 24 was clearing a ruled bar that is no longer there.
+   * `flexShrink: 1` with `minWidth: 0` is what lets a long context name
+   * ellipsise rather than pushing the gear off the panel — the same rule the
+   * breadcrumb used to need beside Share, and the same failure if it is
+   * dropped.
    */
-  paneContentPhone: {
-    paddingTop: space.x3,
-    paddingHorizontal: space.x5,
-    paddingBottom: space.x6,
+  vaultName: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    minHeight: layout.minTouchTarget,
+    paddingHorizontal: space.x1,
+    borderRadius: radii.md,
+  },
+  vaultLabel: { flexShrink: 1, minWidth: 0 },
+  /** The gear, at the trailing edge, at a size a thumb can hit. */
+  vaultGear: {
+    flexGrow: 0,
+    flexShrink: 0,
+    marginLeft: "auto",
+    width: layout.minTouchTarget,
+    height: layout.minTouchTarget,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radii.control,
   },
 
-  failure: { marginBottom: 18 },
-  failureActions: { marginTop: 14, flexDirection: "row", gap: 14 },
 });

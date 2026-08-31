@@ -3,6 +3,7 @@ import {
   Pressable,
   StyleSheet,
   View,
+  type PressableProps,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
@@ -216,6 +217,7 @@ export function PressRow({
   hoverStyle,
   selectedStyle,
   radius = radii.md,
+  hitSlop,
   testID,
 }: {
   children: ReactNode;
@@ -232,6 +234,17 @@ export function PressRow({
   hoverStyle?: ViewStyle;
   selectedStyle?: ViewStyle;
   radius?: number;
+  /**
+   * Touch area beyond the drawn box.
+   *
+   * The only honest way to draw a row shorter than `layout.minTouchTarget`
+   * without shipping a target shorter than it. The file tree's phone row is
+   * `layout.explorerRow` — 36pt, the pitch Obsidian sets — because a 48pt row
+   * is a tree that shows five folders where the reference shows eight. The
+   * missing 8pt is bought back here, where nothing can see it. **Pad the
+   * pressable, never the visual**, and never the other way round.
+   */
+  hitSlop?: PressableProps["hitSlop"];
   testID?: string;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -248,6 +261,7 @@ export function PressRow({
       // unlabelled for assistive tech, silently, and a render test asserting
       // the prop was passed would still have gone green.
       aria-selected={role === "tab" ? selected : undefined}
+      hitSlop={hitSlop}
       onPress={onPress}
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
