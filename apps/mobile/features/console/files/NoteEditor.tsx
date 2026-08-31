@@ -1,11 +1,15 @@
+import { useRef, useState } from "react";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { densityFor } from "../../app/frame";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { fonts, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
+import { accessoryUp } from "./accessory";
 import { saveButton, type EditorState } from "./editor";
-import { LiveEditor } from "./LiveEditor";
+import { splitNote } from "./frontmatter";
+import { LiveEditor, type EditorControls } from "./LiveEditor";
+import { NoteAccessory } from "./NoteAccessory";
 import { highlightMarkdown } from "./highlight";
 
 /**
@@ -45,6 +49,26 @@ import { highlightMarkdown } from "./highlight";
  * which is a picture of the console rather than somebody's reading surface.
  * What the preview does drop on a phone is its *box*, for the same reason the
  * editor drops its own: a border around the only thing on the glass.
+ *
+ * ## The keyboard accessory bar, and the three conditions it appears under
+ *
+ * While the keyboard is up on a phone it covers the bottom bar, so the app has
+ * no controls at all — including no way to put the keyboard away, because the
+ * editor is a `WebView` with its outer scroller switched off and there is no
+ * drag-to-dismiss to fall back on. `NoteAccessory` is the answer, and
+ * `accessoryUp` holds the three conditions it renders under; the same call
+ * decides how much of the note `LiveEditor` has to keep clear for it.
+ *
+ * ## And the frontmatter, which is split for display and never for storage
+ *
+ * A captured note opens with a dozen lines of YAML, and this editor draws the
+ * file, so on a phone that block *is* the first screen. The editor is therefore
+ * handed the body alone at `compact`, and the exact prefix `splitNote` removed
+ * is put back in front of every edit before it reaches `onChange`.
+ * `frontmatter + body === draft` holds for every input by construction — which
+ * is what makes a save return the file byte for byte — and it holds for a key
+ * on the accessory bar exactly as for a keystroke, because a command's effect
+ * leaves `LiveEditor` through the same `onChange`.
  */
 export function NoteEditor({
   state,
@@ -67,6 +91,21 @@ export function NoteEditor({
   const editable = canEdit && !state.readOnly;
   const button = saveButton(state);
   const compact = densityFor(useWindowDimensions().width) === "compact";
+  /*
+    The accessory bar's two inputs. `focused` is state because it decides what
+    renders; the handle is a ref because it decides nothing — re-rendering the
+    whole note the moment the editor hands its commands over would be a render
+    for no visible change, on the mount that is already the most expensive one.
+  */
+  const [focused, setFocused] = useState(false);
+  const controls = useRef<EditorControls | null>(null);
+  const barUp = accessoryUp({ compact, editable, focused });
+  /*
+    Split for display, never for storage. `frontmatter` is the exact prefix
+    `splitNote` removed, so re-attaching it on every edit reassembles the
+    original bytes. See the file comment.
+  */
+  const { frontmatter, body } = splitNote(state.draft);
 
   return (
     <View style={[styles.wrap, compact && styles.wrapCompact]}>
@@ -94,10 +133,36 @@ export function NoteEditor({
       */}
       {editable || compact ? (
         <LiveEditor
-          value={state.draft}
+          /*
+            The body alone on a phone, and the whole file everywhere else.
+
+            **The file is not changed by this.** See the file comment:
+            `frontmatter + body === state.draft` by construction, so
+            re-attaching on every edit reassembles the original bytes and a save
+            writes `state.draft` untouched, exactly as it always did.
+
+            It also does not fight either editor. Both write an incoming `value`
+            into themselves only when it differs from what they already hold, and
+            after a keystroke it does not — the parent re-splits the very draft
+            the editor just produced. No dispatch, so no caret jump.
+          */
+          value={compact ? body : state.draft}
           editable={editable}
-          onChange={onChange}
+          /*
+            The accessory bar's keys go out through *this* `onChange`, which is
+            the whole reason they are the editor's own commands rather than
+            string surgery in the bar: pressing B on a phone has to re-attach
+            the frontmatter exactly as typing a character does.
+            `noteAccessory.test.ts` presses B and asserts the YAML block is
+            still in front of what arrives.
+          */
+          onChange={compact ? (next) => onChange(frontmatter + next) : onChange}
           onSave={onSave}
+          controls={(api) => {
+            controls.current = api;
+          }}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           accessibilityLabel={`${state.path} markdown`}
         />
       ) : (
@@ -166,6 +231,18 @@ export function NoteEditor({
           )}
         </View>
       ) : null}
+
+      {/*
+        Last, and a sibling of everything above rather than a child of any of
+        it. `KeyboardSticky` positions this absolutely against its parent, so
+        inside a scroller it would anchor to the bottom of the *document* and
+        scroll away with it; here it anchors to the note's region and rides
+        above the keyboard, which is the whole job.
+
+        See the file comment for the three conditions, and `LiveEditor.tsx` for
+        why this bar is the only way out of the keyboard rather than one of two.
+      */}
+      {barUp ? <NoteAccessory controls={() => controls.current} /> : null}
     </View>
   );
 }
