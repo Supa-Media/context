@@ -103,6 +103,30 @@ export const ICON_NAMES = [
   "constellation",
   /** The Connections pane: a two-way exchange, which is what a grant is. */
   "exchange",
+
+  /*
+    The keyboard accessory bar's keys.
+
+    A dense row of unlabelled 20pt targets riding over the keyboard, with no
+    room for a caption under any of them — which is the case the header at the
+    top of this file argues these drawings exist for at all. Each of the six is
+    added here in the same change as the control that reaches for it; see
+    `console/files/NoteAccessory.tsx`.
+  */
+  /**
+   * Undo, and its mirror `redo`. The two are told apart by the arrowhead alone
+   * — the arc between them is symmetric.
+   */
+  "undo",
+  "redo",
+  /** The task-checkbox key, drawn as the `[ ]` it inserts. */
+  "brackets",
+  /** The heading key, drawn as the letter it makes. */
+  "heading",
+  "bold",
+  "italic",
+  /** The rightmost key, and the one the whole bar exists for. */
+  "keyboardHide",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -290,8 +314,15 @@ function rect(
  * Two borders rather than two rotated bars, because a corner joined by the
  * layout engine is a clean mitre at every size and two bars meeting at a point
  * are two bars with a notch between them at exactly the sizes a phone uses.
+ *
+ * It takes a `key` like every other primitive here, and that is a fix rather
+ * than symmetry: the key used to be the constant `"chevron"`, so `exchange` —
+ * the one drawing with two of them — handed React two children with the same
+ * key. `keyboardHide` below is the second such drawing, which is what made the
+ * constant worth noticing.
  */
 function chevron(
+  key: string,
   u: number,
   w: number,
   color: string,
@@ -300,7 +331,7 @@ function chevron(
   const d = side * u;
   return (
     <View
-      key="chevron"
+      key={key}
       style={{
         position: "absolute",
         left: cx * u - d / 2,
@@ -366,23 +397,23 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
       ];
 
     case "chevronRight":
-      return chevron(u, w, c, { cx: 0.44, cy: 0.5, side: 0.4, angle: 45 });
+      return chevron("chevron", u, w, c, { cx: 0.44, cy: 0.5, side: 0.4, angle: 45 });
     case "chevronLeft":
-      return chevron(u, w, c, { cx: 0.56, cy: 0.5, side: 0.4, angle: -135 });
+      return chevron("chevron", u, w, c, { cx: 0.56, cy: 0.5, side: 0.4, angle: -135 });
     case "chevronDown":
-      return chevron(u, w, c, { cx: 0.5, cy: 0.44, side: 0.4, angle: 135 });
+      return chevron("chevron", u, w, c, { cx: 0.5, cy: 0.44, side: 0.4, angle: 135 });
     case "chevronUp":
-      return chevron(u, w, c, { cx: 0.5, cy: 0.56, side: 0.4, angle: -45 });
+      return chevron("chevron", u, w, c, { cx: 0.5, cy: 0.56, side: 0.4, angle: -45 });
 
     case "arrowLeft":
       return [
         bar("shaft", u, w, c, { cx: 0.52, cy: 0.5, length: 0.62 }),
-        chevron(u, w, c, { cx: 0.34, cy: 0.5, side: 0.34, angle: -135 }),
+        chevron("head", u, w, c, { cx: 0.34, cy: 0.5, side: 0.34, angle: -135 }),
       ];
     case "arrowRight":
       return [
         bar("shaft", u, w, c, { cx: 0.48, cy: 0.5, length: 0.62 }),
-        chevron(u, w, c, { cx: 0.66, cy: 0.5, side: 0.34, angle: 45 }),
+        chevron("head", u, w, c, { cx: 0.66, cy: 0.5, side: 0.34, angle: 45 }),
       ];
 
     case "more":
@@ -427,9 +458,95 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
     case "exchange":
       return [
         bar("top", u, w, c, { cx: 0.46, cy: 0.34, length: 0.6 }),
-        chevron(u, w, c, { cx: 0.66, cy: 0.34, side: 0.28, angle: 45 }),
+        chevron("upper", u, w, c, { cx: 0.66, cy: 0.34, side: 0.28, angle: 45 }),
         bar("bottom", u, w, c, { cx: 0.54, cy: 0.66, length: 0.6 }),
-        chevron(u, w, c, { cx: 0.34, cy: 0.66, side: 0.28, angle: -135 }),
+        chevron("lower", u, w, c, { cx: 0.34, cy: 0.66, side: 0.28, angle: -135 }),
+      ];
+
+    /*
+      Undo and redo share an arch — three chords of one circle, which is as
+      much of an arc as a set drawn from rectangles gets — and differ only in
+      which end carries the head. That is deliberate rather than lazy: a pair
+      of icons that differ in their *whole* shape read as two unrelated marks,
+      and a pair that differ in one end read as a direction, which is what
+      these two are. The head is a quarter of the box wide so the difference
+      survives the 20pt the accessory bar draws them at.
+    */
+    case "undo":
+      return [
+        bar("a1", u, w, c, { cx: 0.29, cy: 0.5, length: 0.28, angle: -60 }),
+        bar("a2", u, w, c, { cx: 0.5, cy: 0.38, length: 0.28 }),
+        bar("a3", u, w, c, { cx: 0.71, cy: 0.5, length: 0.28, angle: 60 }),
+        chevron("head", u, w, c, { cx: 0.24, cy: 0.6, side: 0.28, angle: 180 }),
+      ];
+    case "redo":
+      return [
+        bar("a1", u, w, c, { cx: 0.29, cy: 0.5, length: 0.28, angle: -60 }),
+        bar("a2", u, w, c, { cx: 0.5, cy: 0.38, length: 0.28 }),
+        bar("a3", u, w, c, { cx: 0.71, cy: 0.5, length: 0.28, angle: 60 }),
+        chevron("head", u, w, c, { cx: 0.76, cy: 0.6, side: 0.28, angle: 90 }),
+      ];
+
+    case "brackets":
+      /*
+        A stem plus two serifs each, rather than a `rect` with its middle
+        hidden. The stems are 0.58 tall and not 0.7 because a bar is laid out
+        horizontally and turned afterwards — its *declared* box is the
+        horizontal one, so a vertical stroke at x is bounded by twice its
+        distance from the nearer edge, and a taller pair would hang outside
+        the box on paper even though it draws inside it.
+      */
+      return [
+        bar("ls", u, w, c, { cx: 0.3, cy: 0.5, length: 0.58, angle: 90 }),
+        bar("lt", u, w, c, { cx: 0.37, cy: 0.22, length: 0.14 }),
+        bar("lb", u, w, c, { cx: 0.37, cy: 0.78, length: 0.14 }),
+        bar("rs", u, w, c, { cx: 0.7, cy: 0.5, length: 0.58, angle: 90 }),
+        bar("rt", u, w, c, { cx: 0.63, cy: 0.22, length: 0.14 }),
+        bar("rb", u, w, c, { cx: 0.63, cy: 0.78, length: 0.14 }),
+      ];
+
+    case "heading":
+      return [
+        bar("left", u, w, c, { cx: 0.3, cy: 0.5, length: 0.58, angle: 90 }),
+        bar("right", u, w, c, { cx: 0.7, cy: 0.5, length: 0.58, angle: 90 }),
+        bar("cross", u, w, c, { cx: 0.5, cy: 0.5, length: 0.4 }),
+      ];
+
+    case "bold":
+      /*
+        The two bowls overlap by exactly one stroke at the waist — the upper
+        one's bottom edge and the lower one's top edge are the same band —
+        because two rectangles merely stacked draw their shared line twice and
+        a "B" with a middle bar at double weight is a "B" that has been sat on.
+      */
+      return [
+        bar("stem", u, w, c, { cx: 0.31, cy: 0.5, length: 0.58, angle: 90 }),
+        rect("upper", u, w, c, { x0: 0.27, y0: 0.21, x1: 0.62, y1: 0.5 + w / u / 2, radius: 0.1 }),
+        rect("lower", u, w, c, { x0: 0.27, y0: 0.5 - w / u / 2, x1: 0.7, y1: 0.79, radius: 0.1 }),
+      ];
+
+    case "italic":
+      return [
+        bar("slant", u, w, c, { cx: 0.5, cy: 0.5, length: 0.62, angle: -70 }),
+        bar("top", u, w, c, { cx: 0.6, cy: 0.24, length: 0.26 }),
+        bar("bottom", u, w, c, { cx: 0.4, cy: 0.76, length: 0.26 }),
+      ];
+
+    case "keyboardHide":
+      /*
+        A keyboard with a chevron *under* it rather than a keyboard alone: the
+        key it stands for dismisses the keyboard, and a bare keyboard is the
+        mark for summoning one. The lower row is a bar rather than three more
+        dots, which is the space bar and is what stops the interior reading as
+        a die face.
+      */
+      return [
+        rect("body", u, w, c, { x0: 0.08, y0: 0.14, x1: 0.92, y1: 0.6, radius: 0.12 }),
+        dot("k1", u, c, { cx: 0.26, cy: 0.3, r: 0.05 }),
+        dot("k2", u, c, { cx: 0.5, cy: 0.3, r: 0.05 }),
+        dot("k3", u, c, { cx: 0.74, cy: 0.3, r: 0.05 }),
+        bar("space", u, w, c, { cx: 0.5, cy: 0.46, length: 0.34 }),
+        chevron("head", u, w, c, { cx: 0.5, cy: 0.78, side: 0.26, angle: 135 }),
       ];
 
   }
