@@ -1,0 +1,12 @@
+<!-- Generated outputs come from this file. Edit the vector, never the PNG.
+     See ./README.md for the one command that regenerates every asset. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <g transform="translate(36,36) scale(4.4)">
+  <g fill="none" stroke="#3B82F6" stroke-width="11" stroke-linecap="round">
+    <path d="M40 7 L30 93"/>
+    <path d="M70 7 L60 93"/>
+    <path d="M13 36 L93 36"/>
+    <path d="M7 66 L87 66"/>
+  </g>
+  </g>
+</svg>

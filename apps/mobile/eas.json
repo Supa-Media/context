@@ -5,16 +5,17 @@
   },
   "build": {
     "development": {
-      "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "APP_ENV": "development"
+        "APP_ENV": "development",
+        "EXPO_PUBLIC_CONVEX_URL": "https://clean-ptarmigan-116.convex.cloud"
       }
     },
     "staging": {
       "distribution": "internal",
       "env": {
-        "APP_ENV": "staging"
+        "APP_ENV": "staging",
+        "EXPO_PUBLIC_CONVEX_URL": "https://clean-ptarmigan-116.convex.cloud"
       },
       "channel": "staging",
       "ios": {
@@ -23,10 +24,18 @@
     },
     "production": {
       "env": {
-        "APP_ENV": "production"
+        "APP_ENV": "production",
+        "EXPO_PUBLIC_CONVEX_URL": "https://clean-ptarmigan-116.convex.cloud"
       },
       "channel": "production",
       "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleTeamId": "647N4W6575"
+      }
     }
   }
 }
