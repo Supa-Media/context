@@ -307,6 +307,24 @@ export function panelsClearedFor(density: Density, state: FrameState): FrameStat
 }
 
 /**
+ * The gap the floating chrome keeps from the bottom of the glass.
+ *
+ * `max`, never a sum: on a notched phone the home indicator's inset is already
+ * a gap, and adding a float on top of it is a bar hovering 68pt above the
+ * indicator. `layout.floatingGap` is the floor, measured off Obsidian, so a
+ * browser window or an un-notched phone gets the reference's 25pt rather than
+ * reading as flush against the edge.
+ *
+ * One function because there are two callers and they must not drift: the
+ * frame reserves this much below its bottom slot, and the keyboard accessory
+ * bar spends the same amount so that it lands exactly where the toolbar it
+ * covers was.
+ */
+export function floatingGapFor(safeAreaBottom: number): number {
+  return Math.max(safeAreaBottom, layout.floatingGap);
+}
+
+/**
  * Whether a selection in the tree should dismiss the explorer.
  *
  * True on a phone and nowhere else: the drawer is covering the thing you just

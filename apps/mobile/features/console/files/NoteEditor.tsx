@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import { useFrame } from "../../app/AppFrame";
 import { densityFor } from "../../app/frame";
 import { Button, PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
@@ -8,7 +9,8 @@ import { fonts, layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { saveButton, type EditorState } from "./editor";
 import { properties, splitNote } from "./frontmatter";
-import { LiveEditor } from "./LiveEditor";
+import { LiveEditor, type EditorControls } from "./LiveEditor";
+import { NoteAccessory } from "./NoteAccessory";
 import { highlightMarkdown } from "./highlight";
 
 /**
@@ -42,6 +44,24 @@ import { highlightMarkdown } from "./highlight";
  * which is a picture of the console rather than somebody's reading surface.
  * What the preview does drop on a phone is its *box*, for the same reason the
  * editor drops its own: a border around the only thing on the glass.
+ *
+ * ## The keyboard accessory bar, and the three conditions it appears under
+ *
+ * While the keyboard is up on a phone it covers the bottom bar, so the app has
+ * no controls at all — including no way to put the keyboard away. `NoteAccessory`
+ * is the answer, and it renders only when all three of `compact`, `editable`
+ * and `focused` hold. Each of those is load-bearing rather than defensive:
+ *
+ *  - **`compact`** — a pointer has a real keyboard and the chords that go with
+ *    it, and a floating toolbar over a desktop editor is chrome nobody asked
+ *    for. A phone has neither route.
+ *  - **`editable`** — every key on the bar writes to the note. On `privacy.md`,
+ *    or in a context somebody was invited into as a reader, they would all fail;
+ *    a bar of controls that cannot do anything is worse than no bar.
+ *  - **`focused`** — the bar rides above the keyboard, and there is no keyboard
+ *    until this surface has the caret. It comes from the editor's own
+ *    `onFocus`/`onBlur` rather than from the keyboard's visibility, because the
+ *    keyboard can be up over a completely different screen.
  */
 export function NoteEditor({
   state,
@@ -64,6 +84,35 @@ export function NoteEditor({
   const editable = canEdit && !state.readOnly;
   const button = saveButton(state);
   const compact = densityFor(useWindowDimensions().width) === "compact";
+  /*
+    The accessory bar's two inputs. `focused` is state because it decides what
+    renders; the handle is a ref because it decides nothing — re-rendering the
+    whole note the moment the editor hands its commands over would be a render
+    for no visible change, on the mount that is already the most expensive one.
+  */
+  const [focused, setFocused] = useState(false);
+  const controls = useRef<EditorControls | null>(null);
+  const frame = useFrame();
+  const accessoryUp = compact && editable && focused;
+  /*
+    Tell the frame while the accessory bar is up, so it puts its own toolbar
+    away. Two floating bars in the same 66pt of glass is worse than either, and
+    the reference has no bottom bar in its editing screenshot — while the
+    keyboard is up, this row *is* the toolbar.
+
+    It has to be the frame that hides it rather than this bar painting over it:
+    the two live in different stacking contexts (this is inside the editor
+    region, the toolbar is a sibling of it), so no `zIndex` either of them asks
+    for can order them against each other.
+  */
+  const { setAccessoryOpen } = frame;
+  useEffect(() => {
+    setAccessoryOpen(accessoryUp);
+    // Leaving the note with the keyboard up — closing a tab, switching context
+    // — must not leave the frame believing a bar is on screen that unmounted
+    // with it.
+    return () => setAccessoryOpen(false);
+  }, [accessoryUp, setAccessoryOpen]);
   /*
     Split for display, never for storage. `frontmatter` is put back in front of
     every edit before it reaches `onChange`, so what is saved is the file that
@@ -125,6 +174,19 @@ export function NoteEditor({
             editable={editable}
             onChange={compact ? (next) => onChange(frontmatter + next) : onChange}
             onSave={onSave}
+            /*
+              The accessory bar's keys go out through *this* `onChange`, which
+              is the whole reason they are the editor's commands rather than
+              string surgery in the bar itself: pressing B on a phone has to
+              re-attach the frontmatter exactly as typing a character does.
+              `noteAccessory.test.ts` presses B and asserts the YAML block is
+              still in front of what arrives.
+            */
+            controls={(api) => {
+              controls.current = api;
+            }}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
             accessibilityLabel={`${state.path} markdown`}
           />
         </View>
@@ -165,7 +227,22 @@ export function NoteEditor({
         </View>
       ) : null}
 
-      {editable ? (
+      {/*
+        On a phone this line appears only when it has something to say.
+
+        Under a pointer it is the foot of the region and "Saved in your bucket"
+        is a reassurance worth a permanent 26pt strip. On a phone the region is
+        the whole glass and the chrome floats over it, so a permanent strip is a
+        band of chrome across the bottom of a note that already has a toolbar
+        lying on it — and the toolbar's own Save already carries the dirty dot,
+        which is the same fact in the place a thumb is.
+
+        What survives is the case the line exists for: an unsaved draft, and the
+        Discard beside it. Discard has no other route on a phone (the row menu
+        acts on a file in the tree; this acts on the draft in front of you), so
+        it appears exactly when there is something to discard.
+      */}
+      {editable && (!compact || state.status === "dirty" || state.status === "error") ? (
         <View style={[styles.statusRow, compact && styles.statusRowCompact]}>
           <Text variant="meta" style={styles.status}>
             {statusLine(state)}
@@ -194,6 +271,15 @@ export function NoteEditor({
           )}
         </View>
       ) : null}
+
+      {/*
+        Last in the tree and absolutely positioned by `KeyboardSticky`, so it
+        lies over the foot of the note rather than taking a band of it — the
+        note is already the whole screen on a phone and the bar is up only
+        while somebody is typing into it. See the file comment for the three
+        conditions.
+      */}
+      {accessoryUp ? <NoteAccessory controls={() => controls.current} /> : null}
     </View>
   );
 }
@@ -256,17 +342,66 @@ function Properties({ frontmatter }: { frontmatter: string }) {
       </PressRow>
 
       {open ? (
-        <View style={styles.propertyList} testID="note-properties-open">
+        /*
+          Obsidian's panel, drawn from the reference: a rounded, faintly tinted
+          card; one row per field with a small leading mark; the key in muted
+          ink in a fixed leading column; the value in ordinary ink, wrapping to
+          as many lines as it needs. The card is what makes it read as a block
+          of *metadata about* the note rather than as the first paragraph of it.
+        */
+        <View style={styles.propertyCard} testID="note-properties-open">
           {rows.map((row, index) => (
             <View key={`${row.key}-${index}`} style={styles.property}>
-              <Text variant="treeMeta" style={styles.propertyKey} numberOfLines={1}>
+              {/*
+                Obsidian draws a different mark per property *type* — a
+                calendar for a date, lines for text. Frontmatter here has no
+                types, so one neutral mark stands for "this row is a labelled
+                value" and it is `aria-hidden` because the key beside it is
+                already the name.
+              */}
+              <View style={styles.propertyMark}>
+                <Icon name="filter" size={15} color={colors.muted} />
+              </View>
+              <Text variant="rowSub" style={styles.propertyKey} numberOfLines={1}>
                 {row.key}
               </Text>
-              <Text variant="treeMeta" style={styles.propertyValue}>
+              <Text variant="rowSub" style={styles.propertyValue}>
                 {row.value}
               </Text>
             </View>
           ))}
+
+          {/*
+            Obsidian's last row, and ours is deliberately inert.
+
+            Adding a property means *writing* frontmatter, and `frontmatter.ts`
+            argues at length why this codebase has a reader and no writer: a
+            reader that misunderstands a line shows it oddly, and a writer that
+            misunderstands the same line rewrites somebody's note into something
+            they did not type. Until there is a writer with a byte-for-byte
+            round-trip test behind it, this states where the capability will be
+            rather than pretending to have it — and it says so out loud to a
+            screen reader, because a control that is present and silently
+            refuses is the defect this codebase keeps recording.
+
+            It is drawn rather than dropped because the row is also the honest
+            answer to "where do I edit these?" on a phone: the frontmatter is
+            not in the editor's buffer at this density (see the `LiveEditor`
+            call above), so somebody looking for it needs to be told, not left
+            to conclude it is gone.
+          */}
+          <View style={[styles.property, styles.propertyAdd]} aria-disabled testID="note-properties-add">
+            <View style={styles.propertyMark}>
+              <Icon name="plus" size={15} color={colors.muted} />
+            </View>
+            <Text
+              variant="rowSub"
+              style={styles.propertyAddLabel}
+              accessibilityLabel="Add a property. Not available yet — edit this note's frontmatter from a desktop browser or in Obsidian."
+            >
+              Add property — from a desktop, for now
+            </Text>
+          </View>
         </View>
       ) : null}
     </View>
@@ -339,6 +474,27 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingTop: space.x1,
     paddingBottom: space.x2,
   },
+  /**
+   * The panel, as the reference draws it.
+   *
+   * A tinted rounded card rather than a bare list, which is the whole of what
+   * makes it read as metadata *about* the note instead of as the note's first
+   * paragraph. `radii.sheet` because this is a grouped card on a phone and that
+   * is what the phone geometry in `tokens.ts` is for; `surface2` because the
+   * ground is paper now and a card on paper separates by being a shade off it.
+   *
+   * The negative margin pulls it back out to the reference's own inset, which
+   * is wider than the note's text column — Obsidian's card is not aligned to
+   * its prose either, and a card indented to the text measure reads as part of
+   * the text.
+   */
+  propertyCard: {
+    marginTop: space.x1,
+    marginHorizontal: -(layout.readingMargin - space.x4),
+    paddingVertical: 6,
+    borderRadius: radii.sheet,
+    backgroundColor: colors.surface2,
+  },
   propertiesHead: {
     flexDirection: "row",
     alignItems: "center",
@@ -349,18 +505,62 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.sm,
   },
   propertiesHover: { backgroundColor: colors.surface3 },
-  propertyList: { paddingTop: space.x1, gap: 3 },
   /**
-   * Key and value on one line, key first at a fixed measure.
+   * One row: mark, key, value.
    *
    * A two-column grid is what this wants and what React Native does not have;
    * a fixed leading column is the honest approximation, and the keys in a
    * captured note (`sender-domain`, `authentication-result`) are long enough
-   * that a shrink-to-fit column would be a different width on every note.
+   * that a shrink-to-fit column would be a different width on every note — so
+   * the values would not line up down the card, which is the one thing a
+   * two-column layout exists to do.
+   *
+   * `alignItems: "flex-start"` because a long value wraps: the mark and the key
+   * stay on the first line rather than centring against a three-line value.
    */
-  property: { flexDirection: "row", alignItems: "flex-start", gap: space.x2 },
-  propertyKey: { width: 116, flexGrow: 0, flexShrink: 0 },
-  propertyValue: { flexGrow: 1, flexShrink: 1, minWidth: 0, color: colors.text2 },
+  property: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: space.x2,
+    minHeight: 36,
+    paddingVertical: 5,
+    paddingHorizontal: space.x4,
+  },
+  propertyMark: { width: 18, alignItems: "center", paddingTop: 4 },
+  /**
+   * 15 on a 22 line box, not the 12.5 a `treeMeta` row would be.
+   *
+   * These are values somebody reads — a captured note's subject, a sender, a
+   * timestamp — and the reference sets them at reading size. Metadata type is
+   * for the counts under a tree, where the number is a glance rather than a
+   * sentence.
+   */
+  propertyKey: {
+    width: 96,
+    flexGrow: 0,
+    flexShrink: 0,
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.muted,
+  },
+  propertyValue: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.text,
+  },
+  /** Dimmed rather than absent — see the call site for why it is here at all. */
+  propertyAdd: { opacity: 0.55 },
+  propertyAddLabel: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.muted,
+  },
 
   preview: {
     flex: 1,

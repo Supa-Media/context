@@ -28,6 +28,7 @@ import {
   closesOnSelect,
   densityFor,
   explorerToggleFor,
+  floatingGapFor,
   initialFrame,
   panelsClearedFor,
   railToggleFor,
@@ -153,6 +154,36 @@ export interface FrameApi {
    * surfaces and the document is genuinely beside them rather than beneath them.
    */
   contentInsets: { top: number; bottom: number };
+  /**
+   * The gap the floating chrome keeps from the bottom of the glass.
+   *
+   * Exposed rather than recomputed because a second caller has appeared: the
+   * keyboard accessory bar covers the toolbar while the keyboard is up, and it
+   * has to land exactly where that toolbar was. Two components each calling
+   * `floatingGapFor(useSafeAreaInsets().bottom)` would be the same number
+   * derived twice — and, more practically, would make every component that
+   * mounts the accessory bar need a `SafeAreaProvider` above it, which is the
+   * dependency `useFrame`'s no-provider fallback exists to avoid.
+   */
+  chromeGap: number;
+  /**
+   * Whether the keyboard accessory bar is up, and the way to say so.
+   *
+   * While a note has the caret, the row riding above the keyboard *is* the
+   * toolbar — that is what the reference shows: in the editing screenshot there
+   * is no bottom bar at all. Drawing both is two bars stacked on a 440pt screen
+   * saying different things, and the accessory bar cannot simply paint over the
+   * other one: it lives inside the editor region and the toolbar is a sibling of
+   * that region, so their `zIndex`es are compared in different stacking contexts
+   * and the toolbar wins whatever either of them asks for.
+   *
+   * So the frame puts its own toolbar away instead, which is both the correct
+   * z-order and the correct behaviour. It is state on the frame rather than a
+   * region rule in `frame.ts` because `regionsFor` decides regions from a width
+   * and knows nothing about where the caret is.
+   */
+  accessoryOpen: boolean;
+  setAccessoryOpen: (open: boolean) => void;
 }
 
 const FrameContext = createContext<FrameApi | null>(null);
@@ -181,6 +212,9 @@ export function useFrame(): FrameApi {
       setExplorerWidth: noop,
       closesOnSelect: closesOnSelect(fallbackDensity),
       contentInsets: NO_CONTENT_INSETS,
+      chromeGap: floatingGapFor(0),
+      accessoryOpen: false,
+      setAccessoryOpen: noop,
     }
   );
 }
@@ -377,18 +411,27 @@ export function AppFrame({
    * The top is the safe area plus the compact bar's own height; the bottom is
    * the toolbar, the gap above it and the gap below it.
    */
+  const chromeGap = floatingGapFor(insets.bottom);
+  /*
+    See `FrameApi.accessoryOpen`. Held here because the thing it hides — the
+    bottom toolbar — is rendered here, and because the editor that raises it is
+    several components down inside the slot this frame is given.
+  */
+  const [accessoryOpen, setAccessoryOpenState] = useState(false);
+  const setAccessoryOpen = useCallback(
+    (open: boolean) => setAccessoryOpenState((current) => (current === open ? current : open)),
+    [],
+  );
+
   const contentInsets = useMemo(
     () =>
       compact
         ? {
             top: insets.top + layout.chromeButton + space.x3,
-            bottom:
-              layout.bottomBarHeight +
-              layout.floatingInset +
-              Math.max(insets.bottom, layout.floatingGap),
+            bottom: layout.bottomBarHeight + layout.floatingInset + chromeGap,
           }
         : NO_CONTENT_INSETS,
-    [compact, insets.top, insets.bottom],
+    [compact, insets.top, chromeGap],
   );
 
   const api = useMemo<FrameApi>(
@@ -404,6 +447,9 @@ export function AppFrame({
       setExplorerWidth,
       closesOnSelect: closesOnSelect(density),
       contentInsets,
+      chromeGap,
+      accessoryOpen,
+      setAccessoryOpen,
     }),
     [
       density,
@@ -416,6 +462,9 @@ export function AppFrame({
       closeOverlays,
       setExplorerWidth,
       contentInsets,
+      chromeGap,
+      accessoryOpen,
+      setAccessoryOpen,
     ],
   );
 
@@ -665,13 +714,19 @@ export function AppFrame({
           10pt `floatingInset` that used to serve here — at 10 the pill sat
           near enough to the edge to read as attached to it. See the token.
         */}
-        {regions.bottomBar && bottomBar ? (
+        {/*
+          Not while the keyboard accessory bar is up — see
+          `FrameApi.accessoryOpen`. The reference has no bottom bar in its
+          editing screenshot, and two floating bars in the same 66pt of glass
+          is worse than either.
+        */}
+        {regions.bottomBar && bottomBar && !accessoryOpen ? (
           <View
             style={[
               styles.bottomBar,
               {
                 paddingTop: layout.floatingInset,
-                paddingBottom: Math.max(insets.bottom, layout.floatingGap),
+                paddingBottom: chromeGap,
               },
             ]}
             /*
