@@ -76,13 +76,8 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      # GITHUB_TOKEN authenticates the @supa-media/* GitHub Packages registry;
-      # pnpm errors if the variable .npmrc interpolates is undefined, even when
-      # nothing in the filtered set comes from that registry.
       - name: Install
         run: pnpm install --filter "./infra/email-worker..." --frozen-lockfile
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Typecheck
         working-directory: infra/email-worker
@@ -181,8 +176,6 @@ jobs:
 
       - name: Install
         run: pnpm install --filter "./infra/email-worker..." --frozen-lockfile
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Push the Worker's secret from GitHub on every deploy, so the live Worker
       # is reproducible from this repository rather than from whatever somebody

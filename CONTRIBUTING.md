@@ -18,7 +18,6 @@ and this file is mostly about which opinions are load-bearing.
 ## Setup
 
 ```sh
-export GITHUB_TOKEN="$(gh auth token)"   # @supa-media/* live on GitHub Packages
 pnpm install
 bash scripts/cloud-setup.sh
 ```
@@ -35,9 +34,10 @@ byte-identical to the same script in `togathernyc/togather` and
 `Supa-Media/events-os`, which is the point: three copies that drift are three
 scripts to debug.
 
-Install separately, as above. On an unattended runner, give the environment a
-`GITHUB_TOKEN` with `read:packages` as a secret — GitHub Packages requires
-authentication even for public packages, so there is no anonymous fallback.
+Install separately, as above. It needs no credentials of any kind: this used to
+require a `GITHUB_TOKEN` with `read:packages`, because `@supa-media/*` were on
+GitHub Packages, which demands a token even for packages marked public. They are
+on npmjs now, so a plain `pnpm install` works for anyone who clones this.
 
 It exists because of a trap worth knowing about:
 
@@ -55,13 +55,10 @@ pre-seeds workspace trust for the clone path.
 Doing it by hand instead:
 
 ```sh
-pnpm install                    # needs GITHUB_TOKEN with read:packages
+pnpm install                    # no token needed
 npx convex dev                  # links your own Convex deployment
 cp .env.example .env.local
 ```
-
-`@supa-media/*` come from GitHub Packages, so `pnpm install` fails without a
-token. `.npmrc` reads `${GITHUB_TOKEN}`; locally, `gh auth token` supplies one.
 
 ## Repository layout
 

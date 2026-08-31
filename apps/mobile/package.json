@@ -84,9 +84,9 @@
   },
   "devDependencies": {
     "@eslint/js": "^8.57.1",
-    "@supa-media/linter": "^1.0.0",
-    "@supa-media/metro": "^1.0.0",
-    "@supa-media/testing": "^1.0.0",
+    "@supa-media/linter": "^1.0.1",
+    "@supa-media/metro": "^1.0.1",
+    "@supa-media/testing": "^1.0.1",
     "@types/node": "^22.0.0",
     "@types/react": "~19.1.0",
     "@types/react-dom": "~19.1.0",

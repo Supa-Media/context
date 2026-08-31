@@ -54,11 +54,8 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      # GITHUB_TOKEN authenticates the @supa-media/* GitHub Packages registry.
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Publish to the `production` BRANCH, which the production channel (read by
       # production builds) points to. `--auto` would publish to the git branch

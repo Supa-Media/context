@@ -147,16 +147,8 @@ jobs:
       # into packages/shared, where CLAUDE.md says constants shared across apps
       # belong. Then the control plane's suite is self-contained and this
       # paragraph is unnecessary. Filed, not done here.
-      #
-      # @supa-media/* come from GitHub Packages, a private registry, so
-      # GITHUB_TOKEN must be present for `pnpm install` to auth (see .npmrc).
-      # This is deploy-convex.yml's recipe. Note that email-worker.yml's
-      # filtered install is NOT a precedent for auth here: it pulls no
-      # @supa-media package at all.
       - name: Install
         run: pnpm install --frozen-lockfile
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # The whole control-plane suite, not only the files the detector names.
       #

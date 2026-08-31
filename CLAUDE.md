@@ -1428,6 +1428,6 @@ a `prefers-color-scheme` query, pinned against the palettes by
 - **Mobile/web app**: React Native + Expo, Expo Router
 - **Ingestion**: Cloudflare Email Routing → Email Worker → `0-inbox/`
 - **Framework**: [supa-framework](https://github.com/Supa-Media/supa-framework)
-  (`@supa-media/*` from GitHub Packages; needs a `read:packages` token)
+  (`@supa-media/*` from npmjs, public — no token, no `.npmrc` scope line)
 
 Upstream-first: if a change is generic, it belongs in supa-framework, not here.
