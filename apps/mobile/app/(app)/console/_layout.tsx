@@ -284,7 +284,14 @@ export default function ConsoleLayout() {
       <AppFrame
         switcher={
           insideContext ? (
-            <View style={styles.switcher}>
+            /*
+              `switcherCompact` takes this chip's own border and fill away on a
+              phone. `AppFrame`'s `navToggleCompact` already draws a shadowed
+              white capsule around it, and a bordered box inside that capsule is
+              two containers for one control — most of what made the phone's top
+              edge read as a toolbar drawn twice.
+            */
+            <View style={[styles.switcher, phone && styles.switcherCompact]}>
               <Dot tone={current?.status ?? "warn"} />
               <Text variant="wsSwitch" numberOfLines={1}>
                 {contextLabel}
@@ -299,7 +306,7 @@ export default function ConsoleLayout() {
             // context" is the aggregate — everything this person can reach —
             // which is exactly what these panes span (see CLAUDE.md,
             // "Vocabulary").
-            <View style={styles.switcher}>
+            <View style={[styles.switcher, phone && styles.switcherCompact]}>
               <Text variant="wsSwitch">Your context</Text>
               <Text variant="wsSwitch" style={styles.switcherKind}>
                 {`${data.contexts.length} reachable`}
@@ -317,27 +324,46 @@ export default function ConsoleLayout() {
             ? [contextLabel, current?.kind].filter(Boolean).join(", ")
             : `Your context, ${data.contexts.length} reachable`
         }
+        /*
+          Absent on a phone, where both chips have moved to the foot of the file
+          tree — see `ContextFoot` and `Explorer`'s `vault` slot.
+
+          They are facts *about the context you are in*: which bucket it is
+          bound to, and what you are allowed to see in it. Beside the context's
+          own name, at the foot of the panel that lists it, they read as a
+          caption. Floating over the note in the top-right corner of a 390pt
+          screen they read as chrome about the note, which is what they were
+          being mistaken for — and getting them there cost a bordered pill
+          wrapping two bordered pills.
+
+          The pointer layout keeps them in the bar. It has the width, the bar
+          has a surface of its own to sit them on, and the tree's foot there is
+          a 26pt strip at the bottom of a 260pt column rather than the panel's
+          own footer.
+        */
         topTrailing={
-          <>
-            {/*
-              Gated on `insideContext`, and `StorageChip` beside it is not.
-              That is deliberate rather than an oversight to tidy: a bucket is
-              one fact about the selected context, but a tier is a claim about
-              what *you* can see, and on an all-contexts route you may be
-              looking at three contexts you hold three different roles in. One
-              chip cannot speak for them, and the wrong direction for it to be
-              wrong in is "you are seeing everything".
-            */}
-            {insideContext ? <TierChip role={current?.role} /> : null}
-            <StorageChip
-              data={data}
-              onOpenSettings={
-                current === null
-                  ? undefined
-                  : () => router.push(settingsHref(current.slug))
-              }
-            />
-          </>
+          phone ? undefined : (
+            <>
+              {/*
+                Gated on `insideContext`, and `StorageChip` beside it is not.
+                That is deliberate rather than an oversight to tidy: a bucket is
+                one fact about the selected context, but a tier is a claim about
+                what *you* can see, and on an all-contexts route you may be
+                looking at three contexts you hold three different roles in. One
+                chip cannot speak for them, and the wrong direction for it to be
+                wrong in is "you are seeing everything".
+              */}
+              {insideContext ? <TierChip role={current?.role} /> : null}
+              <StorageChip
+                data={data}
+                onOpenSettings={
+                  current === null
+                    ? undefined
+                    : () => router.push(settingsHref(current.slug))
+                }
+              />
+            </>
+          )
         }
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
         rail={(mode) => <Rail data={data} route={route} mode={mode} />}
@@ -356,6 +382,27 @@ export default function ConsoleLayout() {
             <Explorer
               files={data.files}
               contextLabel={contextLabel}
+              /*
+                Obsidian's vault-switcher slot, and on a phone it is where the
+                two chips from the old top-right pill now live. Absent on a
+                pointer layout, where the top bar still carries them — see
+                `topTrailing`.
+              */
+              vault={
+                phone ? (
+                  <>
+                    <TierChip role={current?.role} />
+                    <StorageChip
+                      data={data}
+                      onOpenSettings={
+                        current === null
+                          ? undefined
+                          : () => router.push(settingsHref(current.slug))
+                      }
+                    />
+                  </>
+                ) : undefined
+              }
               onOpenPinned={(path) => {
                 data.files.select(path);
                 tabs.pin(path);
@@ -1074,6 +1121,26 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.surface,
+  },
+  /**
+   * The same chip with no box of its own.
+   *
+   * On a phone `AppFrame` wraps this in `navToggleCompact` — a white capsule
+   * with a shadow — because the bar it sits in is transparent and a control
+   * lying over a note needs a surface. Keeping the border and the 8pt radius
+   * as well drew a rounded rectangle inside a capsule: two edges, two radii and
+   * two fills for one line of type. One container per control.
+   *
+   * The horizontal padding goes with the border for the same reason. The
+   * capsule already provides it, and paying it twice pushed the context name
+   * far enough right that it ellipsised at 390pt.
+   */
+  switcherCompact: {
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderWidth: 0,
+    borderRadius: 0,
+    backgroundColor: "transparent",
   },
   switcherKind: { color: colors.muted },
 

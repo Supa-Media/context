@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon, type IconName } from "../../design/components/Icon";
@@ -38,8 +38,24 @@ import type { Visibility } from "./types";
  * are now a single `+`, because creating something is one intent with two
  * shapes, and because the operations that used to need buttons are reachable
  * where they belong — on the row itself, through a right-click on a pointer and
- * a long press under a thumb. What earns permanent space instead is the filter,
- * which is the thing you actually reach for many times an hour.
+ * a long press under a thumb.
+ *
+ * ## The filter is a button on a phone and a field on a pointer
+ *
+ * It used to be a permanent 44pt field at both densities, on the argument that
+ * it is "the thing you actually reach for many times an hour". That is true
+ * with a keyboard under your hands and false with a thumb: on a phone the field
+ * spent the top of the panel on a control that opens a soft keyboard covering
+ * half the tree it filters. Obsidian puts a magnifier there and reveals the
+ * field when it is pressed, which is the same capability at a tenth of the
+ * resting cost.
+ *
+ * **The capability is not removed, and must not be.** Pressing the button
+ * reveals the same `TextInput`, focused, with the same ranking behind it;
+ * dismissing it clears the query, which is the one thing that has to happen,
+ * because a hidden filter still filtering is a tree that is missing files for
+ * no visible reason. On a pointer the field stays permanent — there is width
+ * for it, no keyboard to summon, and nothing gained by a press.
  *
  * ## Filtering flattens, deliberately
  *
@@ -54,12 +70,28 @@ import type { Visibility } from "./types";
 export function Explorer({
   files,
   contextLabel,
+  vault,
   onOpenPinned,
   onOverlayChange,
 }: {
   files: FileBrowser;
   /** "@seyi" — named in the empty state so it is obvious whose tree this is. */
   contextLabel: string;
+  /**
+   * The vault-switcher slot: what this context is and where it keeps its notes.
+   *
+   * Obsidian's file explorer ends with the vault's name, a chevron to change
+   * it, a gear, and a count of what is in it. This is that slot, and on a phone
+   * it is where the tier chip and the storage chip live — they are facts about
+   * the context, and this is the panel that names the context.
+   *
+   * A node rather than props because `Explorer` has no business knowing what a
+   * storage binding or a membership tier is; it knows it has a footer and that
+   * the counts go under whatever is passed. Absent on a pointer layout, where
+   * the top bar has the room and this is a 26pt strip at the bottom of a
+   * column rather than a panel's own foot.
+   */
+  vault?: ReactNode;
   /**
    * "Open in new tab" — opens the note *pinned*, where a plain open leaves a
    * preview tab the next click replaces. Absent where there are no tabs, and
@@ -77,6 +109,15 @@ export function Explorer({
   const styles = useThemedStyles(makeStyles);
   const frame = useFrame();
   const [query, setQuery] = useState("");
+  /**
+   * Whether the filter field has been asked for on a phone.
+   *
+   * Read through `filterShown` below rather than directly: on a pointer layout
+   * the field is permanent and this flag decides nothing, and a component that
+   * branches on the raw flag is one edit away from hiding the desktop's filter
+   * too.
+   */
+  const [filterOpen, setFilterOpen] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [menu, setMenu] = useState<MenuState>(null);
   const [drag, setDrag] = useState<DragSource | null>(null);
@@ -369,24 +410,73 @@ export function Explorer({
 
   const counts = countLoaded(files);
 
+  /** Permanent on a pointer; revealed by the magnifier under a thumb. */
+  const filterShown = !touch || filterOpen;
+
+  /**
+   * Putting the filter away, which must also clear it.
+   *
+   * A hidden field whose query is still filtering is a tree that is missing
+   * files with nothing on screen saying why — and on a phone the field is
+   * hidden by default, so that state would be reachable by rotating a tablet
+   * with a query in it. One handler for both the pointer's × and the phone's
+   * close, so the two cannot come to disagree about whether closing clears.
+   */
+  const closeFilter = useCallback(() => {
+    setQuery("");
+    setFilterOpen(false);
+  }, []);
+
   return (
     <View style={styles.explorer}>
       <View style={[styles.toolbar, touch && styles.toolbarTouch]}>
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Filter"
-          placeholderTextColor={colors.muted}
-          style={[styles.filter, touch && styles.filterTouch]}
-          accessibilityLabel="Filter notes and folders"
-          autoCapitalize="none"
-          autoCorrect={false}
-          spellCheck={false}
-          testID="explorer-filter"
-        />
-        {query !== "" ? (
-          <IconButton label="Clear the filter" icon="close" touch={touch} onPress={() => setQuery("")} />
+        {/*
+          The field itself, permanent on a pointer and revealed on a phone —
+          see the file comment. It is the same element either way, so the
+          ranking, the placeholder and the accessible name cannot fork.
+        */}
+        {filterShown ? (
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Filter"
+            placeholderTextColor={colors.muted}
+            style={[styles.filter, touch && styles.filterTouch]}
+            accessibilityLabel="Filter notes and folders"
+            autoCapitalize="none"
+            autoCorrect={false}
+            spellCheck={false}
+            // Only where it was just revealed. A field that has always been on
+            // screen stealing focus on mount would open the soft keyboard every
+            // time somebody opens the drawer, which is the cost this whole
+            // arrangement exists to avoid.
+            autoFocus={touch}
+            testID="explorer-filter"
+          />
+        ) : (
+          <IconButton
+            label="Filter notes and folders"
+            icon="search"
+            touch={touch}
+            onPress={() => setFilterOpen(true)}
+            testID="explorer-filter-open"
+          />
+        )}
+        {filterShown && (query !== "" || touch) ? (
+          <IconButton
+            label={touch ? "Close the filter" : "Clear the filter"}
+            icon="close"
+            touch={touch}
+            onPress={closeFilter}
+            testID="explorer-filter-clear"
+          />
         ) : null}
+        {/*
+          A spacer only where the field is not there to take the room, so the
+          create buttons stay at the trailing edge either way rather than
+          sliding left when the filter is put away.
+        */}
+        {filterShown ? null : <View style={styles.toolbarSpacer} />}
         {files.canEdit ? (
           <>
             <IconButton
@@ -465,7 +555,17 @@ export function Explorer({
         )}
       </ScrollView>
 
+      {/*
+        The vault-switcher slot, and the counts folded into it.
+
+        Obsidian's explorer ends this way: what the vault is, how to change it
+        and configure it, and one line saying how much is in it. Ours ends with
+        what the context is bound to and how much of it has been read — the
+        same shape, and the counts line becomes the caption under it rather than
+        a strip of its own with a rule above it.
+      */}
       <View style={[styles.foot, touch && styles.footTouch]}>
+        {vault === undefined ? null : <View style={styles.vault}>{vault}</View>}
         <Text variant="treeMeta" numberOfLines={1}>
           {counts}
         </Text>
@@ -759,11 +859,20 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    */
   toolbarTouch: {
     gap: space.x2,
-    paddingHorizontal: space.x3,
-    paddingTop: space.x3,
+    paddingHorizontal: space.x2,
+    paddingTop: space.x2,
     paddingBottom: space.x2,
     borderBottomWidth: 0,
   },
+  /**
+   * Holds the create buttons at the trailing edge while the filter is away.
+   *
+   * The field is `flex: 1` and takes the room when it is there; without this
+   * the row would close up and `+` would sit at the leading edge in one state
+   * and the trailing edge in the other — a target that moves when a control
+   * beside it is revealed.
+   */
+  toolbarSpacer: { flexGrow: 1, flexShrink: 1 },
   filter: {
     flex: 1,
     minWidth: 0,
@@ -844,6 +953,23 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderTopColor: colors.line,
     paddingHorizontal: space.x3,
     paddingVertical: 5,
+    gap: space.x2,
   },
-  footTouch: { borderTopColor: "transparent", paddingVertical: space.x2 },
+  /**
+   * The panel's own foot, which is a caption rather than a status bar.
+   *
+   * The hairline goes for the reason `toolbarTouch`'s went: inside a panel that
+   * is already an object with a shadow, a rule is a second edge within one
+   * border. The padding grows because this is now the bottom of a sheet a thumb
+   * reaches into, not a 26pt strip under a column.
+   */
+  footTouch: {
+    borderTopWidth: 0,
+    paddingHorizontal: space.x3,
+    paddingTop: space.x3,
+    paddingBottom: space.x2,
+    gap: 6,
+  },
+  /** The chips, on their own line above the counts. */
+  vault: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 },
 });

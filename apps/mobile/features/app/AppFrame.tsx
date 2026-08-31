@@ -433,21 +433,29 @@ export function AppFrame({
           {onSearch && !compact ? <SearchTrigger onPress={onSearch} /> : null}
 
           {/*
-            On a phone these become one object rather than two loose chips.
+            One container per control, and on a phone this one is empty.
 
-            Obsidian's top-right is a single rounded pill holding its
-            note-scoped actions, and the reason is the ground underneath: at
-            this density the top bar has no fill and no rule (see
-            `topBarCompact`), so anything in it is floating over the note. Two
-            chips floating separately read as debris; one pill reads as chrome.
+            It used to wrap its chips in a bordered, filled pill — so the tier
+            chip drew a border inside a border, and the storage chip drew one
+            inside a press target inside that. Three nested rounded boxes for
+            two words. The argument for the outer pill was that at this density
+            the bar has no fill of its own, so two chips floating separately
+            read as debris rather than as chrome; the argument was sound and the
+            conclusion was one box too many.
+
+            What actually fixes it is having nothing here to group. On a phone
+            both chips have moved to the foot of the file tree — the slot
+            Obsidian puts a vault switcher and its settings in — which is where
+            a fact *about the context you are in* belongs, beside its name, and
+            not floating over the note you are reading. `_layout` passes no
+            `topTrailing` at compact, so this renders nothing and the top edge
+            is one toggle and one chip.
+
             At every other density the bar has its own surface and its own
-            hairline, and a second container inside it would be a box in a box.
+            hairline, the chips have room, and a container around them would be
+            a box in a box.
           */}
-          {topTrailing == null ? null : (
-            <View style={[styles.topTrail, compact && styles.topTrailCompact]}>
-              {topTrailing}
-            </View>
-          )}
+          {topTrailing == null ? null : <View style={styles.topTrail}>{topTrailing}</View>}
         </View>
 
         <View style={styles.body}>
@@ -781,9 +789,17 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    * circles in a 45pt bar is a bar with half a point of air either side. The
    * hairline that made `topBarHeight` `minTouchTarget + 1` is gone here too,
    * so the pixel it was buying back has nowhere left to hide.
+   *
+   * **It is one row and there is nothing under it.** The pane below used to add
+   * a second strip — a breadcrumb with its own fill and its own rule — so the
+   * top 100pt of a 956pt phone was chrome about the note rather than the note.
+   * Obsidian spends 50: one transparent row that the document scrolls beneath.
+   * `space.x3` of air either side of the circle rather than `space.x4` gets us
+   * to the same measure, and the breadcrumb below has been reduced to a single
+   * unruled line (`Breadcrumb.barCompact`).
    */
   topBarCompact: {
-    height: layout.chromeButton + space.x4,
+    height: layout.chromeButton + space.x3,
     paddingHorizontal: space.x3,
     gap: space.x2,
     borderBottomWidth: 0,
@@ -795,16 +811,6 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: space.x2,
-  },
-  /** See the comment at the call site: one floating object, not two. */
-  topTrailCompact: {
-    gap: space.x1,
-    paddingHorizontal: space.x2,
-    paddingVertical: 3,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.surface2,
   },
 
   search: {
@@ -920,10 +926,17 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    * puts an invisible target over the top of the note and leaves the words
    * floating with nothing under them. A filled chip is the target *and* the
    * affordance, and it is the shape the two circles beside it are already in.
+   *
+   * **This is the only container.** The node passed as `switcher` used to draw
+   * its own 1px border and 8pt radius *inside* this pill — a bordered box in a
+   * shadowed capsule, for one line of type — which is the detail that made the
+   * phone's top edge read as a toolbar rendered twice. `_layout` drops that
+   * box at compact (`switcherCompact`); nothing in here draws an edge except
+   * this.
    */
   navToggleCompact: {
     alignSelf: "center",
-    paddingHorizontal: space.x3,
+    paddingLeft: space.x3,
     paddingRight: space.x2,
     minHeight: layout.chromeButton,
     borderRadius: radii.pill,

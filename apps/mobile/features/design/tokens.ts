@@ -486,6 +486,19 @@ export const layout = {
   explorerIndent: 16,
   /** Where a top-level row's *name* starts, chevron gutter included. */
   explorerInset: 37,
+
+  /**
+   * The note's side margin on a phone, measured off the same reference.
+   *
+   * One number, used by every band that has to line up with the first
+   * character of the document: the editor's own padding, the breadcrumb above
+   * it, the notices, and the status line under it. They were 20, 24 and 28
+   * before — three guesses at the same measurement, so nothing on the screen
+   * shared a left edge with the text it was about, and a breadcrumb four points
+   * out from the title under it reads as a mistake even to somebody who could
+   * not say what was wrong.
+   */
+  readingMargin: 25,
 } as const;
 
 /**
