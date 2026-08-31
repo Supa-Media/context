@@ -170,6 +170,18 @@ export function NoteEditor({
   */
   const titled = noteHeadingSource(state.draft) !== "heading";
 
+  /*
+    The two halves of the line at the foot of the document, resolved once.
+
+    `durability` is the sentence and `canDiscard` is the control beside it; the
+    row exists when either does, so a queued draft whose message never arrived
+    still gets its way out and a note with nothing to say draws no empty band.
+  */
+  const durability = statusLine(state);
+  const canDiscard =
+    editable &&
+    (state.status === "dirty" || state.status === "error" || state.status === "queued");
+
   /**
    * Everything that scrolls, as one node.
    *
@@ -333,25 +345,43 @@ export function NoteEditor({
       ) : null}
 
       {/*
-        On a phone this line appears only when it has something to say.
+        The durability line, and it is not chrome.
 
-        Under a pointer it is the foot of the region and "Saved in your bucket"
-        is a reassurance worth a permanent 26pt strip. On a phone the region is
-        the whole glass and the chrome floats over it, so a permanent strip is a
-        band of chrome across the bottom of a note that already has a toolbar
-        lying on it — and the toolbar's own Save already carries the dirty dot,
-        which is the same fact in the place a thumb is.
+        **This sentence is the product's whole promise in five words, so the
+        one thing it may never do is be wrong.** Three states reach it and each
+        has to say something different and true: a note that is in the bucket
+        says so, a queued draft says it is written down on this device, and a
+        body served from the read cache says it came off this device.
+        `statusLine` below is where that is decided, and it prints nothing at
+        all rather than fall through to the reassuring default.
 
-        What survives is the case the line exists for: an unsaved draft, and the
-        Discard beside it. Discard has no other route on a phone (the row menu
-        acts on a file in the tree; this acts on the draft in front of you), so
-        it appears exactly when there is something to discard.
+        An earlier pass drew it on a pointer layout only, arguing that a
+        permanent 26pt strip is a band of chrome across the bottom of a phone
+        that already has a floating toolbar lying on it. That argument is about
+        a *strip*, and this is no longer one: the phone's note is a single
+        full-bleed scroller, so this is the last line of the document rather
+        than a bar pinned under it. It scrolls with the text, sits at the note's
+        own reading margin, and the content padding at the foot of the scroller
+        is what brings it — and the note's last paragraph — out from under the
+        toolbar. Nothing is pinned, so nothing is chrome, and the one sentence
+        that says where somebody's writing actually is stays on the screen.
+
+        Discard sits beside it. It has no other route on a phone: the row menu
+        acts on a file in the tree, and this acts on the draft in front of you.
       */}
-      {editable && (!compact || state.status === "dirty" || state.status === "error") ? (
+      {durability !== "" || canDiscard ? (
         <View style={[styles.statusRow, compact && styles.statusRowCompact]}>
-          <Text variant="meta" style={styles.status}>
-            {statusLine(state)}
-          </Text>
+          {/*
+            Absent rather than empty. `statusLine` answers `""` for a state it
+            has no true sentence for — an empty editor, a queued draft whose
+            message never arrived — and an empty `Text` here would be a blank
+            line where a claim is supposed to be.
+          */}
+          {durability === "" ? null : (
+            <Text variant="meta" style={styles.status} testID="note-durability">
+              {durability}
+            </Text>
+          )}
           {/*
             `queued` gets Discard too, and it is not a nicety. Save is dead in
             that state — the queue already holds the newest text — so without
@@ -360,9 +390,7 @@ export function NoteEditor({
             the original and wait for it to sync. Pressing it drops the queued
             write as well as the draft; see `discard` in `useFileBrowser`.
           */}
-          {state.status === "dirty" || state.status === "error" || state.status === "queued" ? (
-            <Button label="Discard changes" onPress={onDiscard} />
-          ) : null}
+          {canDiscard ? <Button label="Discard changes" onPress={onDiscard} /> : null}
           {/*
             Save is on the bottom toolbar on a phone — `check`, which dims when
             there is nothing to save and carries a dot when there is — so
@@ -632,8 +660,32 @@ function ManifestNotice() {
   );
 }
 
+/**
+ * Where this note actually is, in one sentence — or nothing.
+ *
+ * **Every arm of this switch is a durability claim, and the default is the
+ * strongest one in the product.** "Saved in your bucket" is the promise the
+ * whole thing rests on, so a state that reaches it without being in the bucket
+ * is not a copy defect, it is the console lying about somebody's writing. Two
+ * of the states the offline queue adds are exactly that shape, and both are
+ * named here rather than left to fall through:
+ *
+ *  - `queued` — written down on this device; the bucket has never heard of it.
+ *  - `clean` **with `fromCache`** — the body came off this device, and nothing
+ *    has asked the bucket about it since.
+ *
+ * `empty` answers `""` for the same reason and it is not tidiness: an editor
+ * with no note in it would otherwise reach the default and claim a file nobody
+ * opened is safely stored. The caller draws no line at all for `""`.
+ *
+ * `__tests__/offlineEditorRender.test.ts` mounts the editor and asserts on the
+ * words, because none of this is visible to a pure test — `statusLine` is
+ * private and every one of these is a legal `EditorState` either way.
+ */
 function statusLine(state: EditorState): string {
   switch (state.status) {
+    case "empty":
+      return "";
     case "dirty":
       return "Unsaved changes";
     case "saving":
@@ -827,19 +879,22 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
 
   statusRow: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
   /**
-   * One quiet line under the note rather than a bar of controls.
+   * The last line of the document, not a strip under it.
    *
-   * It carries the surface colour, which is not decoration: the editor above it
-   * is `flex: 1` and clips, so without a fill the row sits directly against a
-   * line of the document cut off mid-height, and the two read as one thing
-   * overlapping. A painted strip reads as the foot of the region, which is what
-   * it is.
+   * It used to carry `colors.surface`, and that fill was load-bearing while
+   * this was pinned below a `flex: 1` editor that clipped: without it the row
+   * sat against a line of text cut off mid-height and the two read as one thing
+   * overlapping. Nothing clips now — the whole note is one scroller and this
+   * scrolls inside it — so a painted band here would be the bar this is
+   * deliberately not.
+   *
+   * `readingMargin` because it lines up with the first character of the note,
+   * like every other band that has to.
    */
   statusRowCompact: {
     paddingHorizontal: layout.readingMargin,
-    paddingTop: space.x2,
+    paddingTop: space.x4,
     paddingBottom: space.x2,
-    backgroundColor: colors.surface,
   },
   status: { flexGrow: 1, flexShrink: 1 },
 
