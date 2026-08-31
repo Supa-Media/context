@@ -213,12 +213,16 @@ describe("a phone", () => {
    *
    * Driven from both sides: a browser with no inset must still get a gap, and a
    * notched phone must not get one on top of its inset.
+   *
+   * The floor is `floatingGap` (25), measured off Obsidian — its bar ends about
+   * 25pt above the bottom of the glass. It used to be `floatingInset` (10),
+   * which is near enough to the edge that the pill read as attached to it.
    */
   test("the toolbar's bottom gap is the larger of the inset and the float, never both", () => {
     mockInsets.bottom = 0;
     let app = mountFrame(390);
     let band = app.find("bottom")!.parentElement!;
-    expect(Number.parseFloat(styleOf(band, "padding-bottom"))).toBe(layout.floatingInset);
+    expect(Number.parseFloat(styleOf(band, "padding-bottom"))).toBe(layout.floatingGap);
     app.unmount();
 
     mockInsets.bottom = 34;

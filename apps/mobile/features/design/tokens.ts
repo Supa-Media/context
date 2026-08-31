@@ -415,11 +415,39 @@ export const layout = {
   /**
    * The compact toolbar.
    *
-   * 56 rather than the 44 a pointer would need: this is the one strip of the
-   * phone layout a thumb has to hit reliably, and every target on it clears the
-   * 44pt minimum with room to spare.
+   * 66, measured off Obsidian on iOS: its bar runs from about 865pt to 931pt on
+   * a 956pt screen. Well above the 44 a pointer would need, because this is the
+   * one strip of the phone layout a thumb has to hit reliably — and the extra
+   * height is also what makes `radii.pill` read as a *capsule* rather than as a
+   * rounded rectangle, since a full pill's corner radius is half its height.
+   *
+   * It was 56, which is a rounded rectangle wearing a pill's radius.
    */
-  bottomBarHeight: 56,
+  bottomBarHeight: 66,
+  /**
+   * One target on that toolbar.
+   *
+   * Six of these plus `bottomBarPad` either side comes to 336pt, which on a
+   * 440pt screen leaves the ~52pt of note showing on each side that the
+   * reference has. Written as the target rather than as the bar's width because
+   * the bar has four to six actions depending on what is open, and a fixed
+   * width would centre four controls in a pill sized for six.
+   */
+  bottomBarTarget: 52,
+  /** The toolbar's own horizontal padding. See `bottomBarTarget`. */
+  bottomBarPad: 12,
+  /**
+   * How far the floating chrome sits from the bottom of the glass.
+   *
+   * 25, measured: Obsidian's bar ends about 25pt above the bottom edge — which
+   * is *inside* the 34pt home-indicator inset on a notched phone, and the
+   * reference is a notched phone. We do not follow it that far. `AppFrame`
+   * takes `max(insets.bottom, this)`, so a device with an inset keeps its
+   * inset and a browser window or an un-notched phone — where there is no
+   * indicator and nothing to clear — gets the reference's gap instead of the
+   * 10pt token that used to serve here and read as "nearly flush".
+   */
+  floatingGap: 25,
   /**
    * The gap between the floating toolbar and the edges of the glass.
    *

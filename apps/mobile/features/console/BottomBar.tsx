@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { FocusRing } from "../design/components/FocusRing";
 import { Icon, type IconName } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
-import { layout, radii, space } from "../design/tokens";
+import { layout, radii } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 
 /**
@@ -32,21 +32,32 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../design
  *
  * The first pass at that inset it from the edges by ten points, which is a
  * 420pt plank on a 440pt screen: near enough to the full width that it still
- * reads as an edge, just one with rounded corners. Measured off the reference,
- * Obsidian's is about 315pt on the same screen — the controls at their own
- * size, centred, with the note showing either side. So the bar is sized by its
- * contents (`alignSelf: "center"`) rather than by a margin, and the gap either
- * side is whatever is left.
+ * reads as an edge, just one with rounded corners. The reference, measured off
+ * a 1320x2868 screenshot (440x956pt at @3x):
+ *
+ *   - x from 52.0pt to 387.7pt — **52pt of note showing on each side**, a bar
+ *     336pt wide rather than 420;
+ *   - y from about 865pt to 931pt — **66pt tall**, and about **25pt above the
+ *     bottom of the glass**;
+ *   - the extent narrows symmetrically at both ends (87.7→352 at the top edge,
+ *     52→387.7 at the middle), which is a **full pill**: corner radius half the
+ *     height, about 33pt, not a rounded rectangle;
+ *   - white fill, no border. The pale falloff at the edges is a soft shadow.
+ *
+ * The width is reached through the targets rather than set directly
+ * (`alignSelf: "center"`, six `bottomBarTarget`s plus `bottomBarPad` either
+ * side = 336), because this bar carries four to six actions depending on what
+ * is open and a fixed width would centre four controls in a pill sized for six.
  *
  * That is deliberately **not** the flush, hairline-topped bar an earlier plan
  * called for. The reference is unambiguous on this point — reading view and
  * editing view both show a floating rounded pill with a shadow, well clear of
- * the screen edges — and where a written instruction and the screenshot
+ * all three edges — and where a written instruction and the screenshot
  * disagree, the screenshot is the specification.
  *
  * The frame still *reserves* the room (`AppFrame`'s `bottomBar` slot, plus
- * `layout.floatingInset` twice) rather than letting the document run beneath
- * it. Obsidian overlays and pays for it with bottom padding inside its
+ * `layout.floatingInset` above and `layout.floatingGap` below) rather than
+ * letting the document run beneath it. Obsidian overlays and pays for it with bottom padding inside its
  * scroller; four different things land in this slot here — a note, a folder
  * listing, a settings document, a map — so overlaying would mean getting that
  * padding right in four places instead of once.
@@ -66,9 +77,10 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../design
  *    one strip of the phone layout a thumb must hit reliably, and a toolbar
  *    whose targets are the size of their icons is a toolbar that fires the
  *    wrong command. The bar itself is taller than the minimum
- *    (`layout.bottomBarHeight`, 56) so every target clears it with room to
- *    spare, and the number is exported rather than typed twice so the test
- *    asserts the same constant the styles use.
+ *    (`layout.bottomBarHeight`, 66) and each target is wider than it
+ *    (`layout.bottomBarTarget`, 52), so every one clears the floor with room to
+ *    spare; the floor is exported rather than typed twice so the test asserts
+ *    the same constant the styles use.
  *
  *  - **The icon is decorative; the name comes from `label`.** An icon carries
  *    nothing to a screen reader, and unlike the desktop there is no menu and no
@@ -86,14 +98,14 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../design
  * ## Two things this deliberately does not do
  *
  * **It sets nothing on its bottom edge.** `AppFrame` owns that edge: it applies
- * `max(insets.bottom, floatingInset)` to the slot this renders into, so the
- * pill clears the home indicator on a notched phone and still has a gap on one
- * without. Setting anything here as well would stack, which is a bar floating
+ * `max(insets.bottom, floatingGap)` to the slot this renders into, so the pill
+ * clears the home indicator on a notched phone and still has the reference's
+ * 25pt gap on one without. Setting anything here as well would stack, which is a bar floating
  * 68px above the home indicator, and — because the frame is `100dvh` and clips
  * — pushes the icons off the bottom of the editor's space rather than growing
- * the frame. The inset either side is a `marginHorizontal` for the same reason
- * in reverse: nothing else is deciding the horizontal edges. If this component
- * ever gains a bottom margin or padding, it is a bug.
+ * the frame. The inset either side is not set at all any more — the bar is
+ * sized by its contents and centred, so what is left over *is* the inset. If
+ * this component ever gains a bottom margin or padding, it is a bug.
  *
  * **It does not reimplement the tab count.** `TabCountButton` in
  * `files/TabSwitcher.tsx` already owns the count square, its unsaved dot and
@@ -279,7 +291,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     height: layout.bottomBarHeight,
     flexDirection: "row",
     alignItems: "stretch",
-    paddingHorizontal: space.x2,
+    paddingHorizontal: layout.bottomBarPad,
     /*
       It is as wide as what is on it, and centred — not a slab across the glass.
 
@@ -299,7 +311,18 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     */
     alignSelf: "center",
     maxWidth: "100%",
-    borderRadius: radii.floating,
+    /*
+      A full pill, not a rounded rectangle. Measured off the reference, the
+      bar's horizontal extent narrows symmetrically at both ends — 87.7→352pt
+      at its top edge, widening to 52→387.7pt at its middle — which is a corner
+      radius of half its height. `radii.pill` is that at any height;
+      `radii.floating` (20) on a 66pt bar is a rectangle with the corners taken
+      off, which is a different object.
+
+      White fill and a soft shadow, and no border at all. The pale falloff at
+      the reference's edges is the shadow, not a hairline.
+    */
+    borderRadius: radii.pill,
     backgroundColor: colors.chrome,
     boxShadow: shadows.floating,
   },
@@ -311,13 +334,16 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    * width. A content-width bar distributes them by giving each the same fixed
    * box, which is the same evenness with none of the dependence on how wide the
    * phone is — and it is what lets the bar itself be as wide as what is on it.
-   * The floor is still the floor: this *is* `MIN_TOUCH_TARGET` on both axes,
-   * and the bar is taller again so every target clears it with room to spare.
+   * `bottomBarTarget` (52) rather than the 44pt floor, because six of them plus
+   * the bar's own padding is the 336pt the reference measures — the width that
+   * leaves ~52pt of note showing either side. `minWidth` still names the floor,
+   * so a future edit that shrinks the target has to argue with the constant
+   * rather than with a comment.
    */
   target: {
     flexGrow: 0,
     flexShrink: 0,
-    width: MIN_TOUCH_TARGET,
+    width: layout.bottomBarTarget,
     minWidth: MIN_TOUCH_TARGET,
     minHeight: MIN_TOUCH_TARGET,
     alignItems: "center",

@@ -565,6 +565,10 @@ export function AppFrame({
           against the bottom of the glass is not a floating object. So the pill
           gets whichever gap is larger, from here, and `BottomBar` sets nothing
           on that edge at all.
+
+          The floor is `floatingGap` (25), measured off the reference, not the
+          10pt `floatingInset` that used to serve here — at 10 the pill sat
+          near enough to the edge to read as attached to it. See the token.
         */}
         {regions.bottomBar && bottomBar ? (
           <View
@@ -572,7 +576,7 @@ export function AppFrame({
               styles.bottomBar,
               {
                 paddingTop: layout.floatingInset,
-                paddingBottom: Math.max(insets.bottom, layout.floatingInset),
+                paddingBottom: Math.max(insets.bottom, layout.floatingGap),
               },
             ]}
           >
