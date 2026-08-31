@@ -600,11 +600,60 @@ export const GENERIC_ROOT_KEYS = ["todo.md"] as const;
  * into a gap: measured, `4-archive/chat-history` unfurled as "Chat history"
  * with a live card token.
  *
- * The platform folder beneath (`<folder>/<platform>/`) is a third name we pick,
- * and refusing the parent is where the bound belongs — it cannot exist except
- * under one of these two.
+ * **The platform folder beneath is NOT bounded by refusing the parent**, and a
+ * first version of this comment said it was, twice over.
+ * `isProductMandatedPath` is exact-match — the neighbouring test pins that it
+ * must not be `startsWith` — so `4-archive/chat-history/claude` previews with
+ * its name regardless. And the parent is not the only place it can live:
+ * `save_context` takes a `destination`, so the platform folder appears under
+ * whatever the caller chose.
+ *
+ * Stopping at the parent is still right, and for a different reason than the
+ * one that was written down: the platform segment is caller-supplied
+ * (`/^[a-z0-9][a-z0-9-]{0,31}$/`), so the child set is unbounded and cannot be
+ * enumerated, and under an owner-chosen `destination` refusing it would cost a
+ * card for nothing. The residual is that `<session folder>/<platform>` is
+ * previewable for the three platform names somebody might guess. Named rather
+ * than argued away.
  */
 export const SESSION_FOLDERS = ["4-archive/chat-history", "0-inbox/sessions"] as const;
+
+/**
+ * Folders the GATEWAY creates from a capture's `source`, not the owner.
+ *
+ * `writeInboxCapture` files any capture carrying an `external_id` under
+ * `0-inbox/<safeSlug(source)>/`, so the folder name is whatever the sender
+ * called itself — and three senders are the product's own. `packages/hook`
+ * publishes exactly three client ids and bakes `--client <id>` into the
+ * command it installs, so `hook:claude-code` slugs to `hook-claude-code`;
+ * `POST /inbox` defaults `source` to `"inbox"`; the Granola webhook hardcodes
+ * `"granola"`.
+ *
+ * The hook one is the sharpest of the whole list. It is the product's most
+ * promoted surface — the safety net for a session nobody remembered to save —
+ * and the folder appears the first time an installed hook fires, so it needs
+ * no action by the owner at all beyond running the installer.
+ *
+ * A capture whose source the SENDER chose is a different matter and stays
+ * previewable: that name is not ours to guess.
+ */
+export const CAPTURE_SOURCE_FOLDERS = [
+  "0-inbox/hook-claude-code",
+  "0-inbox/hook-codex",
+  "0-inbox/hook-gemini-cli",
+  "0-inbox/inbox",
+  "0-inbox/granola",
+] as const;
+
+/**
+ * The one path the single-tenant calendar cron writes, and its folder.
+ *
+ * `2-areas/calendar/next-14-days.md` is hardcoded in the gateway and gated on
+ * `CALENDAR_ICS_URL`, so it exists only where that is configured — which is
+ * the original brain, the one deployment whose owner is publicly known. The
+ * name requires no knowledge of them.
+ */
+export const CALENDAR_PATHS = ["2-areas/calendar", "2-areas/calendar/next-14-days.md"] as const;
 
 export const PRODUCT_MANDATED_PATHS: readonly string[] = [
   INDEX_KEY,
@@ -616,6 +665,8 @@ export const PRODUCT_MANDATED_PATHS: readonly string[] = [
   // folders wholesale before this list learned to name them.
   ...PARA_FOLDERS,
   ...SESSION_FOLDERS,
+  ...CAPTURE_SOURCE_FOLDERS,
+  ...CALENDAR_PATHS,
   ...PARA_FOLDERS.map((folder) => `${folder}/README.md`),
 ];
 

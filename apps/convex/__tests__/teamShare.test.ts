@@ -677,6 +677,56 @@ describe("a folder gets a link too", () => {
   });
 
   /**
+   * The gateway-written names are tied to their writers, not restated beside
+   * them.
+   *
+   * This list has now shipped short four times — folders, the `.md` product
+   * names, the session folders, and the hook capture folders — and each time
+   * the fix was to add literals. Literals are unavoidable here (`apps/convex`
+   * cannot import the Worker or the hook package), so what closes the loop is
+   * reading the writers and asserting the list covers what they produce. That
+   * is what `scaffoldFiles` already gets, and what these did not.
+   */
+  test("every folder `defaultSessionFolder` can return is in the list", () => {
+    const gateway = readFileSync(
+      new URL("../../mcp/src/index.js", import.meta.url),
+      "utf8",
+    );
+    const fn = gateway.match(/function defaultSessionFolder\(rules\) \{\s*return [^;]*;/);
+    expect(fn, "defaultSessionFolder is not the shape this reads").not.toBeNull();
+    const returned = [...fn![0].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+
+    expect(returned.length).toBeGreaterThan(1);
+    for (const folder of returned) expect(PRODUCT_MANDATED_PATHS).toContain(folder);
+  });
+
+  test("and every client the hook installs has its capture folder in the list", () => {
+    const install = readFileSync(
+      new URL("../../../packages/hook/src/install.js", import.meta.url),
+      "utf8",
+    );
+    // `writeInboxCapture` files an `external_id` capture under
+    // `0-inbox/<safeSlug(source)>/`, and the hook's source is `hook:<id>`.
+    const ids = [...install.matchAll(/^\s{4}id: "([a-z0-9-]+)",$/gm)].map((m) => m[1]);
+
+    expect(ids.length).toBeGreaterThan(2);
+    for (const id of ids) expect(PRODUCT_MANDATED_PATHS).toContain(`0-inbox/hook-${id}`);
+  });
+
+  test("and the calendar path the cron hardcodes", () => {
+    const gateway = readFileSync(
+      new URL("../../mcp/src/index.js", import.meta.url),
+      "utf8",
+    );
+    const written = [...gateway.matchAll(/store\.put\("([0-4]-[a-z]+\/[^"]+)"/g)].map(
+      (m) => m[1],
+    );
+
+    expect(written.length).toBeGreaterThan(0);
+    for (const path of written) expect(PRODUCT_MANDATED_PATHS).toContain(path);
+  });
+
+  /**
    * The router's restated copy really does restate this one.
    *
    * `infra/router/src/preview.ts` refuses the same names to save a round trip,

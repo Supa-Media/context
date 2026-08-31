@@ -1259,9 +1259,12 @@ export const previewForNote = query({
 
     // **One list, and it is the whole rule now.**
     //
-    // `isProductMandatedPath` names every path this product writes into a fresh
-    // brain: the five PARA folders, `index.md`, `privacy.md`, a `README.md` in
-    // each folder, and `todo.md` at the root. Those are guessable without
+    // `isProductMandatedPath` names every path this product writes, which is
+    // more than what a fresh brain arrives with: the five PARA folders,
+    // `index.md`, `privacy.md`, a `README.md` in each folder and `todo.md` at
+    // the root — plus the folders the gateway creates LATER, where
+    // `save_context` files a session and where a capture lands under its
+    // sender's slug. Those are guessable without
     // knowing anything about the owner, so they get the frozen card whether
     // they are a file or a folder.
     //
