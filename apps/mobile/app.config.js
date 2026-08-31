@@ -28,7 +28,16 @@ module.exports = ({ config }) => ({
     bundleIdentifier: process.env.APP_ENV === "staging"
       ? "lc.context.staging"
       : "lc.context.mobile",
-    associatedDomains: [],
+    /**
+     * No `associatedDomains` key.
+     *
+     * It used to be `[]`, which is not the same as absent: Expo emitted a
+     * `com.apple.developer.associated-domains` entitlement containing an empty
+     * array, and an entitlement the provisioning profile does not carry fails
+     * the build with a mismatch rather than being ignored. Universal Links need
+     * the apple-app-site-association file on context.lc before this is worth
+     * turning on, so it is left out until then.
+     */
     /** `expo-apple-authentication` is inert in the binary without this. */
     usesAppleSignIn: true,
     infoPlist: {

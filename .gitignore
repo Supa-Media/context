@@ -36,6 +36,13 @@ Thumbs.db
 *.mobileprovision
 *.orig.*
 
+# Prebuild output. This app is managed workflow — `expo prebuild` is a local
+# check that the config plugins apply and the Info.plist/entitlements come out
+# right, not something we keep. Committing it would silently switch the app to
+# bare workflow and make app.config.js stop being the source of truth.
+apps/mobile/ios/
+apps/mobile/android/
+
 # Sentry
 .sentryclirc
 
