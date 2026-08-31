@@ -1147,6 +1147,10 @@ function Status({ data }: { data: ConsoleData }) {
     // printed "dropbox · undefined".
     storageLabel: storagePillLabel(data.storage),
     now: Date.now(),
+    // The connection and the writes that have not reached the bucket, from the
+    // browser that owns them. They are drawn first: somebody who has lost
+    // signal should not have to read past a word count to find that out.
+    sync: data.files.sync,
   });
 
   return <StatusBar segments={segments} testID="console-status" />;

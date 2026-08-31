@@ -87,6 +87,8 @@ function mockConsoleData(): never {
     save: () => {},
     useTheirs: () => {},
     keepMine: () => {},
+    conflict: null,
+    resolveWith: () => {},
     discard: () => {},
     notice: null,
     dismissNotice: () => {},

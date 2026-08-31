@@ -98,6 +98,8 @@ function browser(canSetVisibility: boolean): FileBrowser {
     save: noop,
     useTheirs: noop,
     keepMine: noop,
+    conflict: null,
+    resolveWith: noop,
     discard: noop,
     notice: null,
     dismissNotice: noop,

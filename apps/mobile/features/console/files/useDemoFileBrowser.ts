@@ -118,6 +118,9 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       save: noop,
       useTheirs: noop,
       keepMine: noop,
+      // No bucket, so no second writer and never a conflict to resolve.
+      conflict: null,
+      resolveWith: noop,
       discard: noop,
       notice: null,
       dismissNotice: noop,

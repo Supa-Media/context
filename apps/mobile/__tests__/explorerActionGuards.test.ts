@@ -313,6 +313,8 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     save: noop,
     useTheirs: noop,
     keepMine: noop,
+    conflict: null,
+    resolveWith: noop,
     discard: noop,
     notice: null,
     dismissNotice: noop,
