@@ -418,6 +418,9 @@ const PRODUCT_MANDATED_PATHS = new Set([
   "0-inbox/hook-gemini-cli",
   "0-inbox/inbox",
   "0-inbox/granola",
+  // `safeSlug` falls back to a literal of ours for a source with no Latin
+  // alphanumerics, so that folder name is ours rather than the sender's.
+  "0-inbox/capture",
   // The single-tenant calendar cron's one hardcoded path, and its folder.
   "2-areas/calendar",
   "2-areas/calendar/next-14-days.md",

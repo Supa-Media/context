@@ -707,12 +707,46 @@ describe("a folder gets a link too", () => {
     );
     // `writeInboxCapture` files an `external_id` capture under
     // `0-inbox/<safeSlug(source)>/`, and the hook's source is `hook:<id>`.
+    //
+    // This pins ONE of the four inputs to that folder name — the roster, which
+    // is the one most likely to move. It does not read the `hook:` prefix in
+    // `transcript.js`, nor `safeSlug`, nor the `0-inbox/` prefix. Measured:
+    // changing the prefix to `context-hook:` leaves the suite green while every
+    // real capture folder falls off the list. Stated rather than implied,
+    // because a guard that reads one input of four looks like it reads all of
+    // them.
+    //
+    // `0-inbox/inbox`, `0-inbox/granola` and `0-inbox/capture` have no
+    // writer-driven check at all: they are pinned only by the router mirror,
+    // which says "the two copies disagree" and never "the list is short". When
+    // both copies were short, as they were before this PR, nothing fired.
     const ids = [...install.matchAll(/^\s{4}id: "([a-z0-9-]+)",$/gm)].map((m) => m[1]);
 
     expect(ids.length).toBeGreaterThan(2);
     for (const id of ids) expect(PRODUCT_MANDATED_PATHS).toContain(`0-inbox/hook-${id}`);
   });
 
+  /**
+   * **A canary, not a scan, and the difference is the point.**
+   *
+   * `store.put("<N>-folder/...")` matches the one literal form the gateway
+   * uses today, so reformatting that line fires — which is what makes it worth
+   * having. It does NOT see a template literal, a line break after `put(`,
+   * single quotes, a hoisted constant, or a path built by a helper. Measured:
+   * injecting ``store.put(`2-areas/calendar/agenda-${d}.md`, md)`` leaves the
+   * whole suite green.
+   *
+   * The template-literal blindness is the one that matters, because
+   * `0-inbox/${sourceSlug}/` and `${folder}/${platform}/` — the writers behind
+   * the fourth omission and the named residual — are exactly that shape. A new
+   * hardcoded path is caught; a new computed one is not, and no regex over
+   * source will change that.
+   *
+   * It also reads `index.js` alone. `store.put` appears in `search/shards.js`,
+   * `search/maintain.js` and `store/index.js`, all writing dot-prefixed keys
+   * that `isPlumbing` refuses — safe today, and out of scope by argument now
+   * rather than by silence.
+   */
   test("and the calendar path the cron hardcodes", () => {
     const gateway = readFileSync(
       new URL("../../mcp/src/index.js", import.meta.url),

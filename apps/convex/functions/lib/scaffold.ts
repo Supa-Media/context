@@ -556,36 +556,6 @@ export function renderFolderReadme(folder: string): string {
 export const GENERIC_ROOT_KEYS = ["todo.md"] as const;
 
 /**
- * A path this product itself puts into every brain, and therefore one anybody
- * can guess without knowing a thing about the owner.
- *
- * Used by `previewForNote` to decide what an unauthenticated crawler may be
- * told about a **guessable** address. The card rule turns on guessability: a
- * share link is 32 CSPRNG bytes and may carry a title, while `/@name/<path>` is
- * typed, so it may only answer for a path the owner explicitly linked — and
- * that bound is worth exactly as much as the name space it is defended by.
- *
- * The five PARA folders are in this list, and naming them here is what let the
- * preview stop refusing folders wholesale. A folder the owner named —
- * `1-projects/public-worship-chapter-transition` — is no more guessable than a
- * note filename, and refusing it cost a card for nothing; a folder *this
- * product* wrote is five guesses, which is the whole risk. Notes are a bigger
- * list than "index.md":
- * `scaffoldFiles` also lays a `README.md` into every PARA folder, so a fresh
- * brain arrives with six guessable note names before its owner writes anything.
- *
- * The test for this drives `scaffoldFiles` rather than restating its output, so
- * an eighth scaffolded file cannot quietly become an eighth guess.
- *
- * **The `custom` template is deliberately out of scope.** It also writes a
- * `README.md` per folder, but those folder names are the owner's — `Journal/`,
- * `Clients/` — so the guessability premise that makes this list a security
- * control simply does not hold for them, and refusing them would cost a card
- * for nothing. Only `PARA_FOLDERS` is consulted, and the test's claim that
- * driving `scaffoldFiles` catches a new file is a claim about the `para`
- * branch.
- */
-/**
  * Where `save_context` files a session — a folder name WE pick, not the owner.
  *
  * `defaultSessionFolder` in the gateway returns `4-archive/chat-history` when
@@ -635,7 +605,10 @@ export const SESSION_FOLDERS = ["4-archive/chat-history", "0-inbox/sessions"] as
  * no action by the owner at all beyond running the installer.
  *
  * A capture whose source the SENDER chose is a different matter and stays
- * previewable: that name is not ours to guess.
+ * previewable: that name is not ours to guess — **except when the slug falls
+ * back**, which is why `0-inbox/capture` is on the list. A sender who picks a
+ * source with no Latin alphanumerics gets a folder name of ours, so the
+ * sender-chose-it exclusion does not reach the fallback.
  */
 export const CAPTURE_SOURCE_FOLDERS = [
   "0-inbox/hook-claude-code",
@@ -643,6 +616,12 @@ export const CAPTURE_SOURCE_FOLDERS = [
   "0-inbox/hook-gemini-cli",
   "0-inbox/inbox",
   "0-inbox/granola",
+  // `safeSlug` ends `|| "capture"`, so a source containing no `[a-z0-9]` at
+  // all — "日本語アプリ", "Здравствуй", "###", an emoji — lands in a folder
+  // named by US rather than by the sender. Narrower than the others and still
+  // a hardcoded literal in our source needing no knowledge of the owner, on
+  // exactly the generic-guess ground `todo.md` sits on.
+  "0-inbox/capture",
 ] as const;
 
 /**
@@ -654,6 +633,37 @@ export const CAPTURE_SOURCE_FOLDERS = [
  * name requires no knowledge of them.
  */
 export const CALENDAR_PATHS = ["2-areas/calendar", "2-areas/calendar/next-14-days.md"] as const;
+
+/**
+ * A path this product itself puts into every brain, and therefore one anybody
+ * can guess without knowing a thing about the owner.
+ *
+ * Used by `previewForNote` to decide what an unauthenticated crawler may be
+ * told about a **guessable** address. The card rule turns on guessability: a
+ * share link is 32 CSPRNG bytes and may carry a title, while `/@name/<path>` is
+ * typed, so it may only answer for a path the owner explicitly linked — and
+ * that bound is worth exactly as much as the name space it is defended by.
+ *
+ * The five PARA folders are in this list, and naming them here is what let the
+ * preview stop refusing folders wholesale. A folder the owner named —
+ * `1-projects/public-worship-chapter-transition` — is no more guessable than a
+ * note filename, and refusing it cost a card for nothing; a folder *this
+ * product* wrote is five guesses, which is the whole risk. Notes are a bigger
+ * list than "index.md":
+ * `scaffoldFiles` also lays a `README.md` into every PARA folder, so a fresh
+ * brain arrives with six guessable note names before its owner writes anything.
+ *
+ * The test for this drives `scaffoldFiles` rather than restating its output, so
+ * an eighth scaffolded file cannot quietly become an eighth guess.
+ *
+ * **The `custom` template is deliberately out of scope.** It also writes a
+ * `README.md` per folder, but those folder names are the owner's — `Journal/`,
+ * `Clients/` — so the guessability premise that makes this list a security
+ * control simply does not hold for them, and refusing them would cost a card
+ * for nothing. Only `PARA_FOLDERS` is consulted, and the test's claim that
+ * driving `scaffoldFiles` catches a new file is a claim about the `para`
+ * branch.
+ */
 
 export const PRODUCT_MANDATED_PATHS: readonly string[] = [
   INDEX_KEY,
