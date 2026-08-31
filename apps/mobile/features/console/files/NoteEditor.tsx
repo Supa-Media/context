@@ -136,7 +136,15 @@ export function NoteEditor({
           <Text variant="meta" style={styles.status}>
             {statusLine(state)}
           </Text>
-          {state.status === "dirty" || state.status === "error" ? (
+          {/*
+            `queued` gets Discard too, and it is not a nicety. Save is dead in
+            that state — the queue already holds the newest text — so without
+            this there is no control on the screen that lets somebody change
+            their mind about an edit made offline, and the way out is to retype
+            the original and wait for it to sync. Pressing it drops the queued
+            write as well as the draft; see `discard` in `useFileBrowser`.
+          */}
+          {state.status === "dirty" || state.status === "error" || state.status === "queued" ? (
             <Button label="Discard changes" onPress={onDiscard} />
           ) : null}
           {/*
@@ -194,13 +202,23 @@ function statusLine(state: EditorState): string {
       return "Unsaved changes";
     case "saving":
       return "Saving…";
+    /*
+      `queued` reads its own message rather than falling through to the resting
+      line. That line is "Saved in your bucket", which is precisely the claim a
+      queued draft cannot make — the text is written down on this device and the
+      bucket has never heard of it.
+    */
+    case "queued":
     case "saved":
     case "error":
       return state.message ?? "";
     case "conflict":
       return "Conflict";
     default:
-      return "Saved in your bucket";
+      // Same reason, for a body that came off the device rather than out of the
+      // bucket. `status.ts` carries how old the copy is; this says only where
+      // it came from.
+      return state.fromCache === true ? "Read from this device" : "Saved in your bucket";
   }
 }
 

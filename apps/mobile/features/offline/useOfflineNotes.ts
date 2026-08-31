@@ -325,14 +325,25 @@ export function useOfflineNotes(options: {
         void clearDraft(store, scope, path).catch(() => {});
       },
 
-      pendingFor: (path) => find(outbox, path),
+      /*
+        Every mutation below derives from `outboxRef.current`, never from the
+        `outbox` this memo closed over.
+
+        React batches state updates, so two of these in one tick — a keystroke
+        in one note and a discard in another, or a drain settling while
+        somebody types — would both build on the queue as it was at the start
+        of the render and the second would silently undo the first. `commit`
+        writes the ref synchronously alongside `setOutbox`, so reading it is
+        always the latest. The rendered `outbox` above is for drawing.
+      */
+      pendingFor: (path) => find(outboxRef.current, path),
       queueSave: (save) =>
-        commit(enqueue(outbox, { ...save, now: Date.now() }), false),
+        commit(enqueue(outboxRef.current, { ...save, now: Date.now() }), false),
       // The three below all take work *out* of the queue or change what it will
       // do, so they are written through rather than debounced.
-      dropQueued: (path) => commit(discard(outbox, path), true),
-      keepQueued: (path) => commit(forceMine(outbox, path), true),
-      retryQueued: (path) => commit(retry(outbox, path), true),
+      dropQueued: (path) => commit(discard(outboxRef.current, path), true),
+      keepQueued: (path) => commit(forceMine(outboxRef.current, path), true),
+      retryQueued: (path) => commit(retry(outboxRef.current, path), true),
 
       drain,
       lastDrain,
