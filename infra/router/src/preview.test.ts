@@ -569,28 +569,57 @@ describe("a readable team link", () => {
   });
 
   /**
-   * A folder link works and its card stays frozen: the preview turns on
-   * guessability, and `/@name/1-projects` is five guesses per handle because
-   * `scaffold.ts` writes the PARA names into every brain. `previewForNote`
-   * enforces this; here it only saves the round trip.
+   * **A folder the owner named routes like anything else they named.**
+   *
+   * This asserted the opposite a commit ago, and the reversal is the point: the
+   * preview turns on *guessability*, and file-versus-folder was only ever a
+   * proxy for it. `/@name/1-projects` is five guesses per handle and is still
+   * refused below — by name, where that refusal belongs — but
+   * `1-projects/pilot` is a name its owner typed, exactly like
+   * `1-projects/pilot/overview.md`.
    */
-  it("does not route a folder to the lookup", () => {
+  it("routes a folder the owner named", () => {
     expect(
       consoleNoteFrom(new URL("https://context.lc/console/@seyi?note=1-projects/pilot")),
-    ).toBeNull();
+    ).toEqual({ slug: "seyi", path: "1-projects/pilot" });
+  });
+
+  /** ...and the five it did not. */
+  it.each(["0-inbox", "1-projects", "2-areas", "3-resources", "4-archive"])(
+    "does not route %s, which every brain has",
+    (path) => {
+      expect(
+        consoleNoteFrom(new URL(`https://context.lc/console/@seyi?note=${path}`)),
+      ).toBeNull();
+    },
+  );
+
+  /**
+   * The shape of that refusal: **exact**, not `startsWith`. Writing it as a
+   * prefix — the obvious way to say "and everything under it" — would refuse
+   * every note in the brain, since all of them live under a PARA folder, and
+   * the frozen card would be back for everything without a test noticing.
+   */
+  it.each([
+    ["1-projects-archive", "a name that begins with a scaffolded one"],
+    ["1-projects/pilot", "a folder inside one"],
+    ["1-projects/plan.md", "a note inside one"],
+  ])("%s is still routed (%s)", (path) => {
+    expect(
+      consoleNoteFrom(new URL(`https://context.lc/console/@seyi?note=${path}`)),
+    ).not.toBeNull();
   });
 
   /**
    * Two more that are not routed. `.images/a.md` is held by the dot-segment
-   * rule and dropping that rule fails this.
+   * rule, and dropping that rule fails this.
    *
-   * `scopes.yml` is different and worth saying plainly: since the note-only
-   * rule landed, **nothing can pin the explicit `scopes.yml` check**, because
-   * `scopes.yml` does not end in `.md` and the note rule refuses it first.
-   * Deleting that half of the plumbing restatement leaves this green. It is
-   * kept anyway — it is the rule that becomes load-bearing again the moment the
-   * note-only line is relaxed — and this asserts the outcome rather than the
-   * mechanism, which is the honest thing a masked guard can be tested for.
+   * `scopes.yml` is the interesting one. It was **unpinnable** while a
+   * note-only rule stood here — it does not end in `.md`, so that rule refused
+   * it first and deleting the explicit check left this green. The comment then
+   * said the check was kept because "it becomes load-bearing again the moment
+   * the note-only line is relaxed". That moment is now, and this test has teeth
+   * it did not have: delete `path === "scopes.yml"` and it fails.
    */
   it.each([
     ["https://context.lc/console/@seyi?note=scopes.yml", "the legacy scope map"],
@@ -600,36 +629,16 @@ describe("a readable team link", () => {
   });
 
   /**
-   * The note-only rule's own two shapes, which the cases above do NOT pin.
-   *
-   * Both were found by sabotage rather than by reading: `endsWith` swapped for
-   * `includes`, and `toLowerCase` deleted, each left all 181 checks green. The
-   * control plane pins both and is where this is enforced, so neither is a
-   * security hole here — but an unpinned copy of a rule drifts from the copy
-   * that matters, and CLAUDE.md holds two copies of a rule by running both
-   * against a corpus rather than by trusting the comment between them.
-   *
-   * `a.md.png` is the `includes` half: a name containing `.md` that is not a
-   * note. `UPPER.MD` is the `toLowerCase` half, and it fails in the other
-   * direction — a legitimate link that would silently stop unfurling.
-   */
-  it("is not routed when `.md` is in the name rather than at the end of it", () => {
-    expect(
-      consoleNoteFrom(new URL("https://context.lc/console/@seyi?note=1-projects/a.md.png")),
-    ).toBeNull();
-  });
-
-  /**
    * The names the product writes itself, which are guessable however unguessable
    * an arbitrary filename is. Restated here from
    * `apps/convex/functions/lib/scaffold.ts` because this package is a separate
    * deployment; the control-plane copy is driven off `scaffoldFiles` directly,
    * so a new scaffolded file fails there and this list is the one to update —
-   * and `teamShare.test.ts` asserts these eight equal what it derives, so the
-   * update is not optional.
+   * and `teamShare.test.ts` asserts these thirteen equal what it derives, so
+   * the update is not optional.
    *
-   * `privacy.md` is in the list and passes here whatever the note-only rule
-   * does, because the explicit plumbing line above already refuses it.
+   * `privacy.md` is in the list and would pass here regardless, because the
+   * explicit plumbing line above already refuses it.
    */
   it.each([
     "index.md",
@@ -640,6 +649,11 @@ describe("a readable team link", () => {
     "2-areas/README.md",
     "3-resources/README.md",
     "4-archive/README.md",
+    "0-inbox",
+    "1-projects",
+    "2-areas",
+    "3-resources",
+    "4-archive",
   ])("%s is a name anybody can guess, so it is not routed", (note) => {
     expect(
       consoleNoteFrom(new URL(`https://context.lc/console/@seyi?note=${note}`)),

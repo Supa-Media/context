@@ -350,36 +350,32 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
   // becoming a round trip, and it is deliberately not normalisation: a trailing
   // slash slips past here and is caught there.
   if (path.split("/").some((segment) => segment.startsWith("."))) return null;
-  // `scopes.yml` is masked by the note-only rule below and cannot be pinned by
-  // a test while that rule stands — it is kept because it becomes load-bearing
-  // again the moment that rule is relaxed, which is what a folder preview would
-  // require. Two guards that mask one another are one guard with a spare; this
-  // says which is which rather than leaving a reader to find out.
+  // `scopes.yml` was masked by a note-only rule here and is not any more: that
+  // rule is gone, so this is the only thing refusing it and a test now pins it.
+  // The note above predicted exactly this — "it becomes load-bearing again the
+  // moment that rule is relaxed, which is what a folder preview would require."
   if (path === "privacy.md" || path === "scopes.yml") return null;
-  // **And a note, because this is the PREVIEW path.** `createTeamShare` takes a
-  // folder and the link works; describing one to an unauthenticated crawler is
-  // a different question, and it turns on guessability. `/@name/1-projects` is
-  // five guesses per handle — `scaffold.ts` writes the PARA names into every
-  // brain — where `/@name/<filename>.md` is not. `previewForNote` refuses the
-  // same thing in the control plane, which is where it is enforced; this only
-  // saves the round trip.
-  if (!path.toLowerCase().endsWith(".md")) return null;
-  // **...and not a name the product itself wrote there.**
+  // **And not a name the product itself wrote there.**
   //
-  // The note-only rule rests on a filename not being guessable, and a fresh
-  // brain arrives with six that are: `scaffoldFiles` lays down `index.md`,
-  // `privacy.md` and a `README.md` in each of the five PARA folders, and the
-  // house rules add a root `todo.md`. Same exhaustible space as the folder
-  // names, same answer.
+  // There was a `.md` test here once, and it was standing in for this one. The
+  // question a preview turns on is *guessability*, and file-versus-folder was
+  // only ever a proxy for it: a folder was refused because `/@name/1-projects`
+  // is five guesses per handle, not because it is a folder.
+  //
+  // So the five names are named, alongside the six files a fresh brain arrives
+  // with — `scaffoldFiles` lays down `index.md`, `privacy.md` and a `README.md`
+  // in each PARA folder, and the house rules add a root `todo.md`. Everything
+  // else in a brain is a name its owner chose, and
+  // `1-projects/chapter-transition` is exactly as unguessable as
+  // `1-projects/chapter-transition/overview.md`.
   //
   // This is the control plane's `isProductMandatedPath` restated, and the list
   // is duplicated because this package cannot import from `apps/convex`. It
   // saves the round trip; `previewForNote` is where it is enforced.
   //
   // Note that `privacy.md` in that Set is masked by the explicit plumbing line
-  // above and cannot be pinned here — same shape as `scopes.yml`, and named for
-  // the same reason: a masked guard should say so rather than let a reader
-  // discover it by deleting it.
+  // above and cannot be pinned here: a masked guard should say so rather than
+  // let a reader discover it by deleting it.
   if (PRODUCT_MANDATED_PATHS.has(path)) return null;
 
   return { slug, path };
@@ -389,7 +385,8 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
  * Every note path this product writes into a brain before its owner does.
  *
  * `apps/convex/functions/lib/scaffold.ts` is the source of truth — `INDEX_KEY`,
- * `PRIVACY_KEY`, a `README.md` per `PARA_FOLDERS` entry, and `GENERIC_ROOT_KEYS`.
+ * `PRIVACY_KEY`, the `PARA_FOLDERS` themselves, a `README.md` per folder, and
+ * `GENERIC_ROOT_KEYS`.
  * This package is a separate deployment and cannot import that module, so the
  * list is restated here.
  *
@@ -403,6 +400,11 @@ const PRODUCT_MANDATED_PATHS = new Set([
   "index.md",
   "privacy.md",
   "todo.md",
+  "0-inbox",
+  "1-projects",
+  "2-areas",
+  "3-resources",
+  "4-archive",
   "0-inbox/README.md",
   "1-projects/README.md",
   "2-areas/README.md",

@@ -1226,42 +1226,48 @@ export const previewForNote = query({
     const name = await findName(ctx, args.slug.replace(/^@/, "").toLowerCase());
     if (name?.workspaceId === undefined) return nothing;
 
-    // **A folder is a legitimate LINK target and not a legitimate PREVIEW
-    // target, and the difference is guessability.**
+    // **The rule is guessability, and it is not "files yes, folders no".**
     //
     // This query is unauthenticated. What licenses it answering at all is the
     // rule in CLAUDE.md that a card may carry a title where the address is not
     // guessable — `/s/<64 hex>` is 32 random bytes the owner handed to one
     // person, so "the requester may not have been meant to have this URL" does
     // not hold. A team link is `/@name/path`, which IS guessable, and the
-    // decision survived that only because the probe space was note FILENAMES.
+    // decision survived that only because the probe space was names the owner
+    // chose.
     //
-    // Widening it to folders collapsed that space to five values: `scaffold.ts`
-    // writes `0-inbox`, `1-projects`, `2-areas`, `3-resources` and `4-archive`
-    // into every brain this product creates. Five guesses per handle were then
-    // enough to learn which of them their owner had team-linked, and to be
-    // handed its title and a live 64-hex token, unauthenticated.
+    // Folders were refused wholesale for a real reason: `applyStructure` writes
+    // `0-inbox`, `1-projects`, `2-areas`, `3-resources` and `4-archive` into
+    // every brain this product creates, so five guesses per handle were enough
+    // to learn which of them their owner had team-linked, and to be handed its
+    // title and a live token, unauthenticated.
     //
-    // Stated precisely because the first version of this comment overstated it:
-    // a live `noteShares` row is still required below, so this was never a bare
-    // handle-existence oracle. What it published was which of a brain's five
-    // scaffolded folders had been shared — over a name space small enough to
-    // exhaust, which is the part that makes it one at all.
+    // But that is an argument about **those five names**, not about folders.
+    // `1-projects/public-worship-chapter-transition-and-people-system` is no
+    // more guessable than a note filename, and refusing it cost a card for
+    // nothing — which is the whole reason an owner links a folder at all. So
+    // the five names moved into `isProductMandatedPath`, beside the six
+    // filenames that were already there for exactly the same reason, and the
+    // category rule is gone.
     //
-    // So `createTeamShare` still takes a folder — the link works, members open
-    // it — and this refuses to describe one. A folder unfurls as the generic
-    // product card, which is what every guessable address already gets.
+    // Stated precisely, because an earlier version of this comment overstated
+    // the leak: a live `noteShares` row is still required below, so this was
+    // never a bare handle-existence oracle. What it published was which of a
+    // brain's scaffolded paths its owner had team-linked.
     const path = normalizePath(args.path);
     if (path === null || isPlumbing(path)) return nothing;
-    if (!path.toLowerCase().endsWith(".md")) return nothing;
-    // **...and not one this product wrote there itself.**
+
+    // **One list, and it is the whole rule now.**
     //
-    // The note-only rule above rests on a filename not being guessable, and for
-    // a fresh brain that is false of six of them: `scaffoldFiles` lays down
-    // `index.md`, `privacy.md` and a `README.md` in each of the five PARA
-    // folders, and the house rules put a `todo.md` at the root. Those are the
-    // same exhaustible space the five folder names are, so they get the same
-    // answer. Anything the owner named themselves is not, and still may.
+    // `isProductMandatedPath` names every path this product writes into a fresh
+    // brain: the five PARA folders, `index.md`, `privacy.md`, a `README.md` in
+    // each folder, and `todo.md` at the root. Those are guessable without
+    // knowing anything about the owner, so they get the frozen card whether
+    // they are a file or a folder.
+    //
+    // Anything else is a name the owner chose, which is the premise the whole
+    // preview rests on — and it is as true of `1-projects/chapter-transition`
+    // as it is of `1-projects/chapter-transition/overview.md`.
     if (isProductMandatedPath(path)) return nothing;
 
     const share = await ctx.db

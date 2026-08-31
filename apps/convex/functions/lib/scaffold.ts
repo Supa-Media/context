@@ -565,8 +565,12 @@ export const GENERIC_ROOT_KEYS = ["todo.md"] as const;
  * typed, so it may only answer for a path the owner explicitly linked — and
  * that bound is worth exactly as much as the name space it is defended by.
  *
- * The five PARA folders were the first version of this and the reason the
- * preview refuses folders at all. Notes are a bigger list than "index.md":
+ * The five PARA folders are in this list, and naming them here is what let the
+ * preview stop refusing folders wholesale. A folder the owner named —
+ * `1-projects/public-worship-chapter-transition` — is no more guessable than a
+ * note filename, and refusing it cost a card for nothing; a folder *this
+ * product* wrote is five guesses, which is the whole risk. Notes are a bigger
+ * list than "index.md":
  * `scaffoldFiles` also lays a `README.md` into every PARA folder, so a fresh
  * brain arrives with six guessable note names before its owner writes anything.
  *
@@ -584,6 +588,11 @@ export const GENERIC_ROOT_KEYS = ["todo.md"] as const;
 export function isProductMandatedPath(path: string): boolean {
   if (path === INDEX_KEY || path === PRIVACY_KEY) return true;
   if ((GENERIC_ROOT_KEYS as readonly string[]).includes(path)) return true;
+  // The five PARA folders themselves. `applyStructure` writes exactly these
+  // into every `para` brain, so they are five guesses per handle — the
+  // narrowest name space in the product and the reason the preview refused
+  // folders wholesale before this list learned to name them.
+  if ((PARA_FOLDERS as readonly string[]).includes(path)) return true;
   return PARA_FOLDERS.some((folder) => path === `${folder}/README.md`);
 }
 
