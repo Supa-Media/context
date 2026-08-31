@@ -53,15 +53,16 @@ describe("one runtime, and the obligation that comes with it", () => {
       halves — it scans the source for static imports of gated deps *and* it
       refuses a native dependency that nobody classified. Only the second runs
       today: `checkNativeImports` returns early when `gated` is empty, and it
-      is, so the scan is capability rather than current behaviour. A comment
-      here used to claim it
-      only did the first, and a local classification check sat beside it doing
-      the second over five regexes where the framework has fourteen. Measured:
-      an unclassified `@shopify/flash-list` fails the framework check and
-      passes the local one, and `@sentry/react-native`, `@gorhom/bottom-sheet`,
-      `@rnmapbox/*`, `@mapbox/*` and `@react-native-picker/*` are the same
-      shape. It was not a second opinion; it was a narrower one wearing the
-      same words, which is worse than no check because a reader counts two.
+      is, so the scan is capability rather than current behaviour.
+
+      A comment here used to claim it did only the first, and a local
+      classification check sat beside it doing the second — over five regexes
+      where the framework has fourteen. Measured: an unclassified
+      `@shopify/flash-list` fails the framework check and passes the local one,
+      and `@sentry/react-native`, `@gorhom/bottom-sheet`, `@rnmapbox/*`,
+      `@mapbox/*` and `@react-native-picker/*` are the same shape. It was not a
+      second opinion; it was a narrower one wearing the same words, which is
+      worse than no check because a reader counts two.
 
       What survives is the assertion the framework genuinely does not make, and
       the reason is not the one first written here. That said the scanner would
@@ -69,9 +70,11 @@ describe("one runtime, and the obligation that comes with it", () => {
       `core` entry", which is false and was never measured: `coreDeps` is not
       consulted after `allClassified` is built, and the scan's only membership
       test is `gatedDeps.has(name)`. Measured, driving `checkNativeImports`
-      directly against this tree — `react-native` in `core` alone gives 0
-      violations, in `gated` alone gives 77, and **in both gives 77**, byte for
-      byte the gated answer.
+      directly against this tree: `react-native` in `core` alone gives no
+      violations; in `gated` alone and in **both** it gives the same non-empty
+      set, element for element. The equality is the load-bearing part and the
+      magnitude is not — it was 77 files when this was written, and it is a
+      count of this app's size rather than of anything the framework does.
 
       So the real defect is that the two halves of one check disagree about
       that entry. Classification unions the lists and accepts it; the scan

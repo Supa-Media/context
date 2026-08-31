@@ -181,9 +181,11 @@ module.exports = ({ config }) => ({
    * behind a runtime check with a real fallback. `supa-framework.test.js`
    * enforces both halves of that (`tests.nativeImports`): a native dependency
    * nobody classified fails CI, and so does a static import of a gated one,
-   * rather than crashing an old phone. `gated` is empty today, so only the
-   * first is actually running — the second is the guard waiting for the first
-   * dependency that needs it.
+   * rather than crashing an old phone. Two bounds on that worth knowing.
+   * `gated` is empty today, so only the first half actually runs — the second
+   * is the guard waiting for the first dependency that needs it. And
+   * classification reads `dependencies` only: an unclassified native package
+   * in `devDependencies` is inspected by nothing.
    *
    * **The one legitimate reason to change this string** is a native change no
    * gate can paper over — an Expo SDK upgrade that moves the ABI. Bumping it
