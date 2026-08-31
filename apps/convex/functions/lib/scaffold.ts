@@ -556,6 +556,85 @@ export function renderFolderReadme(folder: string): string {
 export const GENERIC_ROOT_KEYS = ["todo.md"] as const;
 
 /**
+ * Where `save_context` files a session — a folder name WE pick, not the owner.
+ *
+ * `defaultSessionFolder` in the gateway returns `4-archive/chat-history` when
+ * the manifest declares a `4-archive` rule and `0-inbox/sessions` otherwise, so
+ * every brain whose owner has run the hook once has one of these. That makes
+ * them two guesses per handle on names nobody chose — the same shape as the
+ * five PARA folders, and they get the same answer.
+ *
+ * A blanket `.md` refusal used to cover this without naming it. Replacing that
+ * with a list was right (guessability is a property of a name, not of
+ * file-versus-folder) and it made the edge the blanket rule had been hiding
+ * into a gap: measured, `4-archive/chat-history` unfurled as "Chat history"
+ * with a live card token.
+ *
+ * **The platform folder beneath is NOT bounded by refusing the parent**, and a
+ * first version of this comment said it was, twice over.
+ * `isProductMandatedPath` is exact-match — the neighbouring test pins that it
+ * must not be `startsWith` — so `4-archive/chat-history/claude` previews with
+ * its name regardless. And the parent is not the only place it can live:
+ * `save_context` takes a `destination`, so the platform folder appears under
+ * whatever the caller chose.
+ *
+ * Stopping at the parent is still right, and for a different reason than the
+ * one that was written down: the platform segment is caller-supplied
+ * (`/^[a-z0-9][a-z0-9-]{0,31}$/`), so the child set is unbounded and cannot be
+ * enumerated, and under an owner-chosen `destination` refusing it would cost a
+ * card for nothing. The residual is that `<session folder>/<platform>` is
+ * previewable for the three platform names somebody might guess. Named rather
+ * than argued away.
+ */
+export const SESSION_FOLDERS = ["4-archive/chat-history", "0-inbox/sessions"] as const;
+
+/**
+ * Folders the GATEWAY creates from a capture's `source`, not the owner.
+ *
+ * `writeInboxCapture` files any capture carrying an `external_id` under
+ * `0-inbox/<safeSlug(source)>/`, so the folder name is whatever the sender
+ * called itself — and three senders are the product's own. `packages/hook`
+ * publishes exactly three client ids and bakes `--client <id>` into the
+ * command it installs, so `hook:claude-code` slugs to `hook-claude-code`;
+ * `POST /inbox` defaults `source` to `"inbox"`; the Granola webhook hardcodes
+ * `"granola"`.
+ *
+ * The hook one is the sharpest of the whole list. It is the product's most
+ * promoted surface — the safety net for a session nobody remembered to save —
+ * and the folder appears the first time an installed hook fires, so it needs
+ * no action by the owner at all beyond running the installer.
+ *
+ * A capture whose source the SENDER chose is a different matter and stays
+ * previewable: that name is not ours to guess — **except when the slug falls
+ * back**, which is why `0-inbox/capture` is on the list. A sender who picks a
+ * source with no Latin alphanumerics gets a folder name of ours, so the
+ * sender-chose-it exclusion does not reach the fallback.
+ */
+export const CAPTURE_SOURCE_FOLDERS = [
+  "0-inbox/hook-claude-code",
+  "0-inbox/hook-codex",
+  "0-inbox/hook-gemini-cli",
+  "0-inbox/inbox",
+  "0-inbox/granola",
+  // `safeSlug` ends `|| "capture"`, so a source containing no `[a-z0-9]` at
+  // all — "日本語アプリ", "Здравствуй", "###", an emoji — lands in a folder
+  // named by US rather than by the sender. Narrower than the others and still
+  // a hardcoded literal in our source needing no knowledge of the owner, on
+  // exactly the generic-guess ground `todo.md` sits on.
+  "0-inbox/capture",
+] as const;
+
+/**
+ * The one path the single-tenant calendar cron writes, and its folder.
+ *
+ * `2-areas/calendar/next-14-days.md` is hardcoded in the gateway and gated on
+ * `CALENDAR_ICS_URL`, so it exists only where that is configured — which is
+ * the original brain, the one deployment whose owner is publicly known. The
+ * name requires no knowledge of them.
+ */
+export const CALENDAR_PATHS = ["2-areas/calendar", "2-areas/calendar/next-14-days.md"] as const;
+
+/**
  * A path this product itself puts into every brain, and therefore one anybody
  * can guess without knowing a thing about the owner.
  *
@@ -585,15 +664,39 @@ export const GENERIC_ROOT_KEYS = ["todo.md"] as const;
  * driving `scaffoldFiles` catches a new file is a claim about the `para`
  * branch.
  */
-export function isProductMandatedPath(path: string): boolean {
-  if (path === INDEX_KEY || path === PRIVACY_KEY) return true;
-  if ((GENERIC_ROOT_KEYS as readonly string[]).includes(path)) return true;
+
+export const PRODUCT_MANDATED_PATHS: readonly string[] = [
+  INDEX_KEY,
+  PRIVACY_KEY,
+  ...GENERIC_ROOT_KEYS,
   // The five PARA folders themselves. `applyStructure` writes exactly these
   // into every `para` brain, so they are five guesses per handle — the
   // narrowest name space in the product and the reason the preview refused
   // folders wholesale before this list learned to name them.
-  if ((PARA_FOLDERS as readonly string[]).includes(path)) return true;
-  return PARA_FOLDERS.some((folder) => path === `${folder}/README.md`);
+  ...PARA_FOLDERS,
+  ...SESSION_FOLDERS,
+  ...CAPTURE_SOURCE_FOLDERS,
+  ...CALENDAR_PATHS,
+  ...PARA_FOLDERS.map((folder) => `${folder}/README.md`),
+];
+
+/**
+ * **The list, not a second statement of it.**
+ *
+ * This was a chain of `if`s, and `infra/router/src/preview.ts` mirrors it with
+ * a literal that a test compares against a THIRD hand-written array — so the
+ * comparison held two restatements against each other and never asked the
+ * predicate. Adding `SESSION_FOLDERS` to the `if`s left that test green with
+ * the router's copy short: routed ⊆ predicate was checked, predicate ⊆ routed
+ * was not. The same one-directional hole as the `native-deps.json` `core`
+ * list, in the guard written to stop hand-maintained enumerations.
+ *
+ * Exporting the array is what makes the mirror checkable: the predicate reads
+ * it, and the test compares the router's literal against it rather than
+ * against a copy somebody kept in step by remembering to.
+ */
+export function isProductMandatedPath(path: string): boolean {
+  return PRODUCT_MANDATED_PATHS.includes(path);
 }
 
 /**

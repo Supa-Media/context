@@ -362,12 +362,14 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
   // only ever a proxy for it: a folder was refused because `/@name/1-projects`
   // is five guesses per handle, not because it is a folder.
   //
-  // So the five names are named, alongside the six files a fresh brain arrives
-  // with — `scaffoldFiles` lays down `index.md`, `privacy.md` and a `README.md`
-  // in each PARA folder, and the house rules add a root `todo.md`. Everything
-  // else in a brain is a name its owner chose, and
-  // `1-projects/chapter-transition` is exactly as unguessable as
-  // `1-projects/chapter-transition/overview.md`.
+  // So the names the PRODUCT picks are named. That is more than a fresh brain's
+  // scaffold: `scaffoldFiles` lays down `index.md`, `privacy.md` and a
+  // `README.md` per PARA folder and the house rules add a root `todo.md`, but
+  // the gateway also creates folders AFTER creation — where `save_context`
+  // files a session, and where `writeInboxCapture` files a capture under the
+  // sender's own slug, three of which are ours. Everything else in a brain is a
+  // name its owner chose, and `1-projects/chapter-transition` is exactly as
+  // unguessable as `1-projects/chapter-transition/overview.md`.
   //
   // This is the control plane's `isProductMandatedPath` restated, and the list
   // is duplicated because this package cannot import from `apps/convex`. It
@@ -384,9 +386,10 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
 /**
  * Every note path this product writes into a brain before its owner does.
  *
- * `apps/convex/functions/lib/scaffold.ts` is the source of truth — `INDEX_KEY`,
- * `PRIVACY_KEY`, the `PARA_FOLDERS` themselves, a `README.md` per folder, and
- * `GENERIC_ROOT_KEYS`.
+ * `apps/convex/functions/lib/scaffold.ts` is the source of truth, and exports
+ * the list itself as `PRODUCT_MANDATED_PATHS` — `INDEX_KEY`, `PRIVACY_KEY`,
+ * `GENERIC_ROOT_KEYS`, the `PARA_FOLDERS` themselves, `SESSION_FOLDERS`, and a
+ * `README.md` per PARA folder.
  * This package is a separate deployment and cannot import that module, so the
  * list is restated here.
  *
@@ -400,6 +403,27 @@ const PRODUCT_MANDATED_PATHS = new Set([
   "index.md",
   "privacy.md",
   "todo.md",
+  // Where `save_context` files a session. `defaultSessionFolder` in the gateway
+  // picks `4-archive/chat-history` when the manifest declares a `4-archive`
+  // rule and `0-inbox/sessions` otherwise, so a brain whose owner has run the
+  // hook once has one of them — two guesses per handle on names nobody chose.
+  "4-archive/chat-history",
+  "0-inbox/sessions",
+  // Capture folders the gateway derives from a capture's `source`.
+  // `writeInboxCapture` files an `external_id` capture under
+  // `0-inbox/<safeSlug(source)>/`, and three senders are the product's own:
+  // the hook's three client ids, the `POST /inbox` default, and Granola.
+  "0-inbox/hook-claude-code",
+  "0-inbox/hook-codex",
+  "0-inbox/hook-gemini-cli",
+  "0-inbox/inbox",
+  "0-inbox/granola",
+  // `safeSlug` falls back to a literal of ours for a source with no Latin
+  // alphanumerics, so that folder name is ours rather than the sender's.
+  "0-inbox/capture",
+  // The single-tenant calendar cron's one hardcoded path, and its folder.
+  "2-areas/calendar",
+  "2-areas/calendar/next-14-days.md",
   "0-inbox",
   "1-projects",
   "2-areas",

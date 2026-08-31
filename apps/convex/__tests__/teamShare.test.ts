@@ -29,6 +29,7 @@ import {
   INDEX_KEY,
   PARA_FOLDERS,
   PRIVACY_KEY,
+  PRODUCT_MANDATED_PATHS,
   isProductMandatedPath,
   scaffoldFiles,
 } from "../functions/lib/scaffold";
@@ -642,6 +643,124 @@ describe("a folder gets a link too", () => {
   });
 
   /**
+   * The folder names the PRODUCT picks, which are not the five PARA ones.
+   *
+   * `#163` was right that guessability is a property of a name rather than of
+   * file-versus-folder — `1-projects/transition` is exactly as unguessable as
+   * the note inside it — and replaced a blanket `.md` refusal with a list.
+   * Blanket rules hide their own edges, though, and the `.md` test had been
+   * covering one: the session folder the gateway writes into is chosen by US,
+   * not by the owner.
+   *
+   * `defaultSessionFolder` in `apps/mcp/src/index.js` returns
+   * `4-archive/chat-history` when the manifest has a `4-archive` rule and
+   * `0-inbox/sessions` otherwise, so every brain whose owner has ever run
+   * `save_context` has one of them. Two guesses per handle, on names nobody
+   * chose, which is the same shape as the five PARA folders and gets the same
+   * answer.
+   *
+   * The nested platform folder beneath (`<folder>/<platform>/`) is a third
+   * name we pick, but it only exists under one of these two, so refusing the
+   * parent is where the bound belongs.
+   */
+  test.each([
+    "4-archive/chat-history",
+    "0-inbox/sessions",
+  ])("%s is a folder this product named, not its owner", async (path) => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    await teamLink(t, ownerId, workspaceId, path);
+
+    expect(
+      await t.query(api.functions.shares.previewForNote, { slug: "owner-brain", path }),
+    ).toEqual({ title: null, cardToken: null });
+  });
+
+  /**
+   * The gateway-written names are tied to their writers, not restated beside
+   * them.
+   *
+   * This list has now shipped short four times — folders, the `.md` product
+   * names, the session folders, and the hook capture folders — and each time
+   * the fix was to add literals. Literals are unavoidable here (`apps/convex`
+   * cannot import the Worker or the hook package), so what closes the loop is
+   * reading the writers and asserting the list covers what they produce. That
+   * is what `scaffoldFiles` already gets, and what these did not.
+   */
+  test("every folder `defaultSessionFolder` can return is in the list", () => {
+    const gateway = readFileSync(
+      new URL("../../mcp/src/index.js", import.meta.url),
+      "utf8",
+    );
+    const fn = gateway.match(/function defaultSessionFolder\(rules\) \{\s*return [^;]*;/);
+    expect(fn, "defaultSessionFolder is not the shape this reads").not.toBeNull();
+    const returned = [...fn![0].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+
+    expect(returned.length).toBeGreaterThan(1);
+    for (const folder of returned) expect(PRODUCT_MANDATED_PATHS).toContain(folder);
+  });
+
+  test("and every client the hook installs has its capture folder in the list", () => {
+    const install = readFileSync(
+      new URL("../../../packages/hook/src/install.js", import.meta.url),
+      "utf8",
+    );
+    // `writeInboxCapture` files an `external_id` capture under
+    // `0-inbox/<safeSlug(source)>/`, and the hook's source is `hook:<id>`.
+    //
+    // This pins ONE of the four inputs to that folder name — the roster, which
+    // is the one most likely to move. It does not read the `hook:` prefix in
+    // `transcript.js`, nor `safeSlug`, nor the `0-inbox/` prefix. Measured:
+    // changing the prefix to `context-hook:` leaves the suite green while every
+    // real capture folder falls off the list. Stated rather than implied,
+    // because a guard that reads one input of four looks like it reads all of
+    // them.
+    //
+    // `0-inbox/inbox`, `0-inbox/granola` and `0-inbox/capture` have no
+    // writer-driven check at all: they are pinned only by the router mirror,
+    // which says "the two copies disagree" and never "the list is short". When
+    // both copies were short, as they were before this PR, nothing fired.
+    const ids = [...install.matchAll(/^\s{4}id: "([a-z0-9-]+)",$/gm)].map((m) => m[1]);
+
+    expect(ids.length).toBeGreaterThan(2);
+    for (const id of ids) expect(PRODUCT_MANDATED_PATHS).toContain(`0-inbox/hook-${id}`);
+  });
+
+  /**
+   * **A canary, not a scan, and the difference is the point.**
+   *
+   * `store.put("<N>-folder/...")` matches the one literal form the gateway
+   * uses today, so reformatting that line fires — which is what makes it worth
+   * having. It does NOT see a template literal, a line break after `put(`,
+   * single quotes, a hoisted constant, or a path built by a helper. Measured:
+   * injecting ``store.put(`2-areas/calendar/agenda-${d}.md`, md)`` leaves the
+   * whole suite green.
+   *
+   * The template-literal blindness is the one that matters, because
+   * `0-inbox/${sourceSlug}/` and `${folder}/${platform}/` — the writers behind
+   * the fourth omission and the named residual — are exactly that shape. A new
+   * hardcoded path is caught; a new computed one is not, and no regex over
+   * source will change that.
+   *
+   * It also reads `index.js` alone. `store.put` appears in `search/shards.js`,
+   * `search/maintain.js` and `store/index.js`, all writing dot-prefixed keys
+   * that `isPlumbing` refuses — safe today, and out of scope by argument now
+   * rather than by silence.
+   */
+  test("and the calendar path the cron hardcodes", () => {
+    const gateway = readFileSync(
+      new URL("../../mcp/src/index.js", import.meta.url),
+      "utf8",
+    );
+    const written = [...gateway.matchAll(/store\.put\("([0-4]-[a-z]+\/[^"]+)"/g)].map(
+      (m) => m[1],
+    );
+
+    expect(written.length).toBeGreaterThan(0);
+    for (const path of written) expect(PRODUCT_MANDATED_PATHS).toContain(path);
+  });
+
+  /**
    * The router's restated copy really does restate this one.
    *
    * `infra/router/src/preview.ts` refuses the same names to save a round trip,
@@ -666,15 +785,11 @@ describe("a folder gets a link too", () => {
     expect(literal, "PRODUCT_MANDATED_PATHS is not a literal Set in preview.ts").not.toBeNull();
     const routed = [...literal![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 
-    const authoritative = [
-      INDEX_KEY,
-      PRIVACY_KEY,
-      ...GENERIC_ROOT_KEYS,
-      ...PARA_FOLDERS,
-      ...PARA_FOLDERS.map((folder) => `${folder}/README.md`),
-    ];
-
-    expect([...routed].sort()).toEqual([...authoritative].sort());
+    // The predicate's own list, not a third restatement of it. This array used
+    // to be written out here, so the test held the router's copy against a copy
+    // of its own and never asked the predicate — and adding a path to the
+    // predicate left it green with the router short.
+    expect([...routed].sort()).toEqual([...PRODUCT_MANDATED_PATHS].sort());
     // ...and the literal is not merely equal to the list, it is equal to what
     // the predicate actually does, which is the thing the router is mirroring.
     for (const path of routed) expect(isProductMandatedPath(path)).toBe(true);

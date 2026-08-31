@@ -425,6 +425,27 @@ Every one of those is refused and unfurls as the generic card. A name the
 feature. `createTeamShare` still takes any of them and the link still works —
 describing one to an anonymous crawler is the separate question.
 
+**And it is no longer only what a fresh brain arrives with.** The gateway names
+folders *after* creation: where `save_context` files a session
+(`4-archive/chat-history` or `0-inbox/sessions`, chosen by whether the manifest
+declares a `4-archive` rule), and where a capture with an `external_id` lands —
+`0-inbox/<slug of its source>`, which is ours for the hook's three client ids,
+for `POST /inbox`'s default, for the Granola webhook, and for the fallback
+`safeSlug` uses when a source has no Latin alphanumerics at all. Plus the one
+path the single-tenant calendar cron hardcodes. Every one of those was
+previewable at some point, each found after a fix that read as complete.
+
+Three residuals are named rather than argued away. The platform folder beneath a
+session folder (`<folder>/<platform>`) is ours too, and is **not** refused: the
+segment is caller-supplied and the set unbounded, so it cannot be enumerated,
+and `save_context` takes a `destination` that puts it under owner-chosen names
+anyway. The guards that tie the list to its writers read one input each — the
+hook roster, not the `hook:` prefix; one literal `store.put` form, not a
+template literal — so a *computed* new path is caught by nothing. And
+`0-inbox/inbox`, `0-inbox/granola` and `0-inbox/capture` have no writer-driven
+check at all; they are pinned only by the router mirror, which reports that the
+two copies disagree and never that both are short.
+
 An earlier version of this paragraph said the space was "five" and that "a note
 filename is not" guessable. Both were wrong, and wrong in the way this file
 warns about: counted once, for folders, and never recounted when the rule was
