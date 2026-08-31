@@ -295,10 +295,12 @@ describe("when the bar is on screen", () => {
   /**
    * **A scroll gesture is not an edit intent**, and on a phone it was one.
    *
-   * The editable surface at this density *is* the text view — `LiveEditor` on
-   * native is a `TextInput` with `scrollEnabled={false}` growing inside the
-   * note's scroller — so a swipe hands the pan to the scroller and then hands
-   * the caret to the input on touch-up. Verified on an iPhone 16 Pro Max:
+   * The editable surface at this density *is* the document, so a swipe hands
+   * the pan to the note's scroller and then hands the caret to the editor on
+   * touch-up. Measured while `LiveEditor` on native was still a `TextInput`;
+   * the surface is a `WebView` now and the rule is unchanged, because what
+   * raises the bar is the focus that arrives, not what reported it. Verified
+   * on an iPhone 16 Pro Max:
    * swiping to read a long note raised the formatting bar, put the frame's own
    * toolbar away, and left no way to read to the end of a note without being
    * dropped into an editor nobody asked for.

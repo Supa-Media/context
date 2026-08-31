@@ -107,9 +107,11 @@ export const ICON_NAMES = [
   /*
     From here down: the Obsidian-parity editing surface. The keyboard accessory
     bar that rides above the keyboard while a note is open, and the toolbar
-    across the top of the note. Both are dense rows of unlabelled targets with
-    no room for a caption, which is the case the header at the top of this file
-    argues these drawings exist for at all.
+    across the top of the note. Both are dense rows of unlabelled 20pt targets
+    with no room for a caption under any of them, which is the case the header
+    at the top of this file argues these drawings exist for at all. Each is
+    added here in the same change as the control that reaches for it; for the
+    bar's keys, see `console/files/NoteAccessory.tsx`.
   */
 
   /**
@@ -118,17 +120,28 @@ export const ICON_NAMES = [
    */
   "undo",
   "redo",
-  /** The accessory bar's link key, because a wikilink is `[[ ]]`. */
+  /** The accessory bar's task-checkbox key, drawn as the `[ ]` it inserts. */
   "brackets",
-  /** The accessory bar's tag key, which inserts a `#`. */
+  /**
+   * A tag, which would insert a `#`, and a paperclip, for embedding a file.
+   *
+   * **Neither has a caller**, which is the one exception to the rule stated at
+   * the top of this list, and it is recorded rather than quietly kept: they
+   * were drawn for a first accessory bar that mirrored Obsidian's row key for
+   * key. `NoteAccessory` drops both on purpose — Context has no tag model and
+   * no attachment upload from the console — and says so at length. Delete them
+   * with the next person who reads this if neither feature has arrived.
+   */
   "tag",
-  /** The accessory bar's attach key, for embedding a file in the note. */
   "attach",
   /** The accessory bar's heading key, drawn as the letter it inserts. */
   "heading",
   "bold",
   "italic",
-  /** The accessory bar's rightmost key, which dismisses the keyboard. */
+  /**
+   * The accessory bar's rightmost key, which dismisses the keyboard — the one
+   * the whole bar exists for.
+   */
   "keyboardHide",
   /** The toolbar's reading-view toggle, as Obsidian draws it: an open book. */
   "book",
@@ -343,6 +356,12 @@ function rect(
  * Two borders rather than two rotated bars, because a corner joined by the
  * layout engine is a clean mitre at every size and two bars meeting at a point
  * are two bars with a notch between them at exactly the sizes a phone uses.
+ *
+ * It takes a `key` like every other primitive here, and that is a fix rather
+ * than symmetry: the key used to be the constant `"chevron"`, so `exchange` —
+ * the one drawing with two of them — handed React two children with the same
+ * key. `keyboardHide` below is the second such drawing, which is what made the
+ * constant worth noticing.
  */
 function chevron(
   key: string,

@@ -8,6 +8,7 @@ import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { fonts, layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { accessoryUp } from "./accessory";
 import { describe as describeVisibility } from "./Breadcrumb";
 import { saveButton, type EditorState } from "./editor";
 import { noteHeading, noteHeadingSource, properties, splitNote, type Property } from "./frontmatter";
@@ -32,8 +33,14 @@ import type { Visibility } from "./types";
  * property this comment was protecting is stronger now, not weaker. A block
  * editor (Yoopta, TipTap) would have broken it, which is why this is not one.
  *
- * On native `LiveEditor` is the textarea this always was. CodeMirror is a DOM
- * library and the alternatives are worse than the gap; see `LiveEditor.tsx`.
+ * On native it is the same editor. CodeMirror is a DOM library, so `LiveEditor.tsx`
+ * runs it inside a `WebView` over a five-message JSON bridge — one editor
+ * configuration (`editorSetup.ts`), two hosts, one bundle committed and shipped
+ * with the app so a note opens with no network at all. This comment used to say
+ * the native half was a textarea and that the gap was deliberate; see
+ * `LiveEditor.tsx` for which halves of that argument expired and which one
+ * (a `TextInput` cannot hide a range of its own value) is why it is a web view
+ * rather than a second editor.
  *
  * Read-only notes (`privacy.md`, and the whole landing-page demo) render as the
  * mockup's tinted preview rather than a disabled editor, because a disabled
@@ -51,20 +58,22 @@ import type { Visibility } from "./types";
  * ## The keyboard accessory bar, and the three conditions it appears under
  *
  * While the keyboard is up on a phone it covers the bottom bar, so the app has
- * no controls at all — including no way to put the keyboard away. `NoteAccessory`
- * is the answer, and it renders only when all three of `compact`, `editable`
- * and `focused` hold. Each of those is load-bearing rather than defensive:
+ * no controls at all — including no way to put the keyboard away, because the
+ * editor is a `WebView` with its outer scroller switched off and there is no
+ * drag-to-dismiss to fall back on. `NoteAccessory` is the answer, and
+ * `accessoryUp` holds the three conditions it renders under; the same call
+ * decides how much of the note `LiveEditor` has to keep clear for it.
  *
- *  - **`compact`** — a pointer has a real keyboard and the chords that go with
- *    it, and a floating toolbar over a desktop editor is chrome nobody asked
- *    for. A phone has neither route.
- *  - **`editable`** — every key on the bar writes to the note. On `privacy.md`,
- *    or in a context somebody was invited into as a reader, they would all fail;
- *    a bar of controls that cannot do anything is worse than no bar.
- *  - **`focused`** — the bar rides above the keyboard, and there is no keyboard
- *    until this surface has the caret. It comes from the editor's own
- *    `onFocus`/`onBlur` rather than from the keyboard's visibility, because the
- *    keyboard can be up over a completely different screen.
+ * ## And the frontmatter, which is split for display and never for storage
+ *
+ * A captured note opens with a dozen lines of YAML, and this editor draws the
+ * file, so on a phone that block *is* the first screen. The editor is therefore
+ * handed the body alone at `compact`, and the exact prefix `splitNote` removed
+ * is put back in front of every edit before it reaches `onChange`.
+ * `frontmatter + body === draft` holds for every input by construction — which
+ * is what makes a save return the file byte for byte — and it holds for a key
+ * on the accessory bar exactly as for a keystroke, because a command's effect
+ * leaves `LiveEditor` through the same `onChange`.
  */
 /**
  * How long after the note comes to rest a focus still counts as part of the
@@ -147,16 +156,18 @@ export function NoteEditor({
   const controls = useRef<EditorControls | null>(null);
   const frame = useFrame();
   const padding = useSurfacePadding();
-  const accessoryUp = compact && editable && focused;
+  const barUp = accessoryUp({ compact, editable, focused });
 
   /**
    * Whether the note is moving, and when it last came to rest — the whole of
    * "a scroll gesture is not an edit intent".
    *
    * **Swiping to read put the note into editing.** The editable surface at this
-   * density *is* the text view — `LiveEditor` on native is a `TextInput` with
-   * `scrollEnabled={false}` growing inside this scroller — so a swipe hands the
-   * pan to the scroller and then hands the caret to the input. The formatting
+   * density *is* the document, so a swipe hands the pan to this scroller and
+   * then hands the caret to the editor. Measured while `LiveEditor` on native
+   * was still a `TextInput`; the surface is a `WebView` now and the rule is
+   * unchanged, because what raises the bar is the focus that arrives and not
+   * which half reported it. The formatting
    * bar came up, the frame put its own toolbar away, and there was no way to
    * read a long note to the end without being dropped into an editor nobody had
    * asked for. `onFocus` below refuses a caret that arrives this way.
@@ -199,12 +210,12 @@ export function NoteEditor({
   */
   const { setAccessoryOpen } = frame;
   useEffect(() => {
-    setAccessoryOpen(accessoryUp);
+    setAccessoryOpen(barUp);
     // Leaving the note with the keyboard up — closing a tab, switching context
     // — must not leave the frame believing a bar is on screen that unmounted
     // with it.
     return () => setAccessoryOpen(false);
-  }, [accessoryUp, setAccessoryOpen]);
+  }, [barUp, setAccessoryOpen]);
   /*
     Split for display, never for storage. `frontmatter` is put back in front of
     every edit before it reaches `onChange`, so what is saved is the file that
@@ -333,24 +344,24 @@ export function NoteEditor({
               over a table. A save writes `state.draft` untouched, exactly as it
               always did.
 
-              It also does not fight CodeMirror on web. That editor writes an
-              incoming `value` into itself only when it differs from what it
-              already holds, and after a keystroke it does not — the parent
-              re-splits the very draft the editor just produced. No dispatch, so
-              no caret jump.
+              It also does not fight either editor — and on native there is now
+              an editor to not fight. Both write an incoming `value` into
+              themselves only when it differs from what they already hold, and
+              after a keystroke it does not — the parent re-splits the very
+              draft the editor just produced. No dispatch, so no caret jump.
             */
             value={compact ? body : state.draft}
             editable={editable}
-            onChange={compact ? (next) => onChange(frontmatter + next) : onChange}
-            onSave={onSave}
             /*
               The accessory bar's keys go out through *this* `onChange`, which
-              is the whole reason they are the editor's commands rather than
+              is the whole reason they are the editor's own commands rather than
               string surgery in the bar itself: pressing B on a phone has to
               re-attach the frontmatter exactly as typing a character does.
               `noteAccessory.test.ts` presses B and asserts the YAML block is
               still in front of what arrives.
             */
+            onChange={compact ? (next) => onChange(frontmatter + next) : onChange}
+            onSave={onSave}
             controls={(api) => {
               controls.current = api;
             }}
@@ -358,10 +369,11 @@ export function NoteEditor({
               A press takes the caret; a swipe hands it straight back.
 
               See `moving`/`settledAt` above: on native the editable surface
-              *is* this input, so scrolling the note focuses it and the app
+              *is* the document, so scrolling the note focuses it and the app
               answered a reader's swipe by opening an editor. `blur()` is
-              `EditorControls`' own, so the input is put back the way every
-              other command reaches it.
+              `EditorControls`' own, so the caret is released the way every
+              other command reaches the editor — over the bridge, rather than
+              by this file reaching for a native input it no longer has.
             */
             onFocus={() => {
               if (moving.current || Date.now() - settledAt.current < SCROLL_GRACE_MS) {
@@ -565,10 +577,13 @@ export function NoteEditor({
         `KeyboardSticky` positions this absolutely against its parent, so inside
         a `ScrollView`'s content it would anchor to the bottom of the *document*
         and scroll away with it. As a sibling of the scroller it anchors to the
-        region and rides above the keyboard, which is the whole job. See the
-        file comment for the three conditions it appears under.
+        region and rides above the keyboard, which is the whole job.
+
+        See `accessory.ts` for the three conditions it appears under, and
+        `LiveEditor.tsx` for why this bar is the only way out of the keyboard
+        rather than one of two.
       */}
-      {accessoryUp ? <NoteAccessory controls={() => controls.current} /> : null}
+      {barUp ? <NoteAccessory controls={() => controls.current} /> : null}
     </View>
   );
 }

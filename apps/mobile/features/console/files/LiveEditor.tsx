@@ -1,334 +1,415 @@
 /**
- * The Live Preview editor's native half: a plain markdown textarea.
+ * The Live Preview editor's native half: the same CodeMirror, in a `WebView`.
  *
- * CodeMirror is a DOM library. There is no React Native build of it, and the
- * two ways of pretending otherwise are both worse than this file:
+ * This file used to be a plain `TextInput` and used to argue, at length, that
+ * it should stay one. Both of that argument's premises have since expired, and
+ * it is worth saying which, because the shape of the decision has not changed —
+ * only the facts under it.
  *
- *  - A **WebView** would put the note's text — and an auth-bearing surface —
- *    inside a second rendering context with its own keyboard handling, its own
- *    scroll physics, and a bridge to marshal every keystroke across. On a
- *    document editor that is a worse experience than a native text input, not a
- *    better one.
- *  - **Reimplementing the decorations against `TextInput`** is not possible in
- *    the way that matters: React Native's `TextInput` cannot hide a range of
- *    its own value while keeping it in the buffer, which is the entire
- *    behaviour.
+ *  - It said a WebView would need "a bridge to marshal every keystroke across".
+ *    It does, and that turned out to be the easy half: `webview/protocol.ts` is
+ *    five message types, the bridge coalesces to one message per frame, and
+ *    `webview/host.ts` and `webview/guest.ts` are both testable in plain Jest.
+ *  - It said the alternative was reimplementing the decorations against
+ *    `TextInput`, which "is not possible in the way that matters" — a
+ *    `TextInput` cannot hide a range of its own value while keeping it in the
+ *    buffer. That is still true, and it is why this is a WebView rather than a
+ *    second editor.
  *
- * So the native app keeps the editor it already had, and the console — which is
- * a web surface, on a laptop, where this editing actually happens — gets Live
- * Preview. That gap is deliberate and is the "document deliberate gaps" the
- * handoff asked for rather than an omission to be fixed later.
+ * What it got right, and what this file now has to keep true, is that the note
+ * is somebody's private markdown and the app works offline. So: the bundle is
+ * **local** — `bundle.generated.ts`, committed, no network at any point — and
+ * the document's own Content-Security-Policy is `default-src 'none'`, which
+ * makes that structural rather than a promise. Nothing is bearing auth in
+ * there: the guest receives text and a palette and can reach nothing else.
  *
- * The props are identical to the web component's on purpose: `NoteEditor` does
- * not branch on platform, Metro picks the file, and neither half can drift from
- * the other's contract without failing typecheck.
+ * ## One editor, two hosts
  *
- * ## A phone reads the note; it does not inspect it
+ * The editor is not written twice. `editorSetup.ts` builds the CodeMirror
+ * configuration — the keymap, the read-only facets, the update listener — and
+ * `LiveEditor.web.tsx` and `webview/guest.ts` are the two things that mount it.
+ * A read-only rule fixed in one is fixed in both, which is the property that
+ * made a WebView worth doing rather than a native reimplementation.
  *
- * On a pointer layout this is the mockup's `.note pre`: 12.5px mono in a
- * bordered well. That is a *source view*, and it is the right one beside a file
- * tree, a tab strip and a keyboard.
+ * ## And a fallback that is honest rather than pretty
  *
- * It is the wrong one on a phone, where the note is the entire screen and the
- * person holding it is reading. 12.5px mono at arm's length is unreadable, the
- * border draws a box around the only thing on the glass, and a monospaced
- * measure wraps a sentence about every six words — which is the effect visible
- * in the before/after in the pull request. So at `compact` the same buffer is
- * drawn at reading size in the body face, unboxed, on the ground it already
- * sits on.
+ * If the guest fails to start — a corrupt bundle, a WKWebView killed under
+ * memory pressure — this falls back to the markdown textarea it used to be,
+ * with a line saying so. "An absent capability is reported, never faked": the
+ * one outcome that is not acceptable is a person who cannot edit their note and
+ * is not told why.
  *
- * **The buffer is untouched.** This is a type scale, not a renderer: what is on
- * screen is still exactly the markdown in the file, which is the property
- * `NoteEditor` exists to protect and the reason this app has no WYSIWYG.
+ * ## The keyboard, which is the half of this file that is not the editor
  *
- * ## Two notes for whoever replaces this with a WebView
+ * `NoteAccessory` is a native row of keys riding above the soft keyboard, and
+ * it is the only route on a phone to bold, to a heading, to undo — and to
+ * putting the keyboard away at all. It talks to this file through
+ * `EditorControls`, and there are three consequences for a `WebView` that a
+ * `TextInput` did not have:
  *
- * There is work in flight to run CodeMirror inside `react-native-webview` here,
- * which would make native and web one editor. Two things about the keyboard
- * change with it, and both are easy to miss:
- *
- *  - **`hideKeyboardAccessoryView` must be set to `true` on the `WebView`.**
- *    WebKit draws its own accessory bar with a *Done* key, and `NoteAccessory`
- *    now draws ours. Leaving WebKit's on is two stacked bars saying different
- *    things.
- *  - **Drag-to-dismiss goes away with the `TextInput`.** A WebView's outer
- *    scroll view is `scrollEnabled={false}` so CodeMirror's own scroller is the
- *    only one, and `keyboardDismissMode` lives on a `ScrollView`. That makes
- *    `NoteAccessory`'s dismiss key the *only* way out of the keyboard, which
- *    raises its importance rather than lowering it.
- *
- * Neither applies to the file as it stands: there is no `WebView` here yet, and
- * `keyboardDismissMode` is not a `TextInput` prop in the first place — it is
- * declared on `ScrollViewProps` alone and implemented in `RCTScrollView`, so
- * writing it here would fail typecheck and be dropped by the native view even
- * if it did not. This is written down so the flip is made deliberately rather
- * than discovered on a device.
- *
- * ## The undo history here is a stack of whole documents, and that is a gap
- *
- * `EditorControls` promises `undo`/`redo`, and on web those are CodeMirror's
- * own commands over the same history ⌘Z drives. **React Native's `TextInput`
- * exposes no undo API at all** — iOS has a shake-to-undo stack inside UIKit
- * that JavaScript cannot read, enumerate or push onto, and Android has nothing.
- * So this file keeps its own: the previous whole value is pushed on every
- * change that leaves here, and undo emits the top of that stack.
- *
- * Three consequences, stated rather than discovered:
- *
- *  - **It is coarse.** One press steps back one `onChange`, which for typing is
- *    one character. CodeMirror coalesces a burst of keystrokes into one history
- *    event; this does not, and cannot, because it never sees a keystroke — only
- *    the value afterwards.
- *  - **It is bounded** at `HISTORY_DEPTH` entries. A long note is a few hundred
- *    kilobytes of string per entry and an unbounded stack is a memory leak that
- *    grows with how much somebody wrote today.
- *  - **It is dropped whenever the document changes underneath us.** A different
- *    note opened, a draft discarded, a conflict resolved with somebody else's
- *    version: an incoming `value` this component did not produce is a different
- *    document, and undoing across that boundary would paste one note's text
- *    into another. That is the same comparison the web half's `latestValue`
- *    guard makes, for a related reason.
- *
- * ## Dragging the note down does not put the keyboard away here
- *
- * It should — it is the gesture people try first, and the accessory bar exists
- * for when they do not. `keyboardDismissMode="interactive"` is how React Native
- * spells it, and it is a **`ScrollView` prop**: it is not on `TextInputProps`,
- * and iOS's text-input view manager does not implement it, so writing it here
- * would typecheck-fail and then be dropped by the native view. The editable
- * surface on a phone *is* this `TextInput` — there is no scroller around it —
- * so there is nowhere honest to put it without wrapping the input in a
- * `ScrollView` and taking `scrollEnabled={false}`, which costs the caret
- * following the cursor down a long note. Left as a stated gap rather than a
- * prop that looks like the feature and is not; the accessory bar's dismiss key
- * is the working route.
+ *  - **Every command is a bridge message**, not string surgery on the host.
+ *    The host does not hold the selection and must not — see `protocol.ts` for
+ *    why the caret depends on that — so `wrap` crosses as a *name* and the
+ *    guest runs the real CodeMirror command against the real state.
+ *  - **Focus crosses too.** A `WebView` has no `onFocus`; the CodeMirror
+ *    surface inside it does, and the guest reports it. `LiveEditorProps` is
+ *    unchanged, so `NoteEditor` cannot tell which half it has.
+ *  - **The caret has to be kept above the keyboard by hand**, because nothing
+ *    about a WKWebView shrinks when the keyboard opens. See the inset effect
+ *    below and `coveredBottom` in `editorSetup.ts`.
  */
 
-import { useCallback, useEffect, useRef } from "react";
-import {
-  StyleSheet,
-  TextInput,
-  useWindowDimensions,
-  type NativeSyntheticEvent,
-  type TextInputSelectionChangeEventData,
-} from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Keyboard, Platform, StyleSheet, TextInput, View, useWindowDimensions } from "react-native";
+import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { densityFor } from "../../app/frame";
-import { fonts, layout, leading, radii } from "../../design/tokens";
-import { useThemedStyles, type Colors } from "../../design/theme";
+import { Text } from "../../design/components/Text";
+import { fonts, leading, radii, space } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { EDITOR_HTML, coveredHeight, createHostBridge, themeVars } from "./webview/host";
+import { ACCESSORY_HEIGHT, accessoryUp } from "./accessory";
 import type { EditorControls, LiveEditorProps } from "./LiveEditor.web";
 
 export type { EditorControls, LiveEditorProps };
 
-/** See the file comment: whole documents, so the stack is short on purpose. */
-const HISTORY_DEPTH = 100;
-
-interface Range {
-  start: number;
-  end: number;
-}
+/**
+ * Module constants, and the reason is not micro-optimisation.
+ *
+ * react-native-webview reloads whenever `source` is a new object, and a reload
+ * is a fresh CodeMirror with no caret, no selection and no undo history. A
+ * `source` built in the render body would do that on every keystroke.
+ */
+const SOURCE = { html: EDITOR_HTML } as const;
+const ORIGINS = ["about:*"] as const;
 
 /**
- * A selection that is inside the text it is about.
+ * Nothing in this document navigates.
  *
- * `onSelectionChange` reports against the value the input held when the event
- * fired, and a command can run after the parent has replaced that value with a
- * shorter one — a discard, a conflict resolved. Slicing with a stale offset
- * silently drops the tail of somebody's note, so every command clamps first.
+ * The live-preview decorations draw a link as a styled `<span>`, not an
+ * `<a href>`, so there is no in-page navigation to allow — and a web view
+ * holding somebody's private note has no business following a URL that appeared
+ * inside it. The initial `about:blank` load is the only thing permitted.
  */
-function clampRange(range: Range, length: number): Range {
-  const start = Math.max(0, Math.min(range.start, length));
-  return { start, end: Math.max(start, Math.min(range.end, length)) };
-}
-
-/** Where the caret's line begins. `-1 + 1` is 0, which is what a first line wants. */
-function lineStart(text: string, at: number): number {
-  return text.lastIndexOf("\n", at - 1) + 1;
+function allowInitialLoadOnly(request: { url: string }): boolean {
+  return request.url === "about:blank" || request.url.startsWith("about:");
 }
 
 export function LiveEditor({
   value,
   editable,
   onChange,
+  onSave,
   controls,
   onFocus,
   onBlur,
   accessibilityLabel,
 }: LiveEditorProps) {
   const styles = useThemedStyles(makeStyles);
-  const reading = densityFor(useWindowDimensions().width) === "compact";
+  const colors = useColors();
+  const compact = densityFor(useWindowDimensions().width) === "compact";
+  const windowHeight = useWindowDimensions().height;
 
-  const input = useRef<TextInput | null>(null);
-  const selection = useRef<Range>({ start: 0, end: 0 });
-  const past = useRef<string[]>([]);
-  const future = useRef<string[]>([]);
-
+  const web = useRef<WebView | null>(null);
+  const host = useRef<View | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
   /**
-   * The last text this component sent upward.
+   * Whether the note has the caret, kept here as well as reported upward.
    *
-   * Its only job is to tell our own echo apart from a genuinely new document:
-   * the parent re-renders with what we just emitted on every keystroke, and
-   * that must not look like the note changing. Exactly the question the web
-   * half asks with `latestValue`.
+   * `NoteEditor` needs it to decide whether to render the accessory bar; this
+   * file needs it to decide whether the bar is covering the bottom of the note.
+   * The same three conditions in both places, from `accessoryUp`, rather than
+   * two predicates that agree until somebody edits one.
    */
-  const emitted = useRef(value);
+  const [focused, setFocused] = useState(false);
 
   /**
-   * The props, read at call time. The imperative handle below is built once,
-   * so closing over `value` and `onChange` directly would send every command
-   * after the first keystroke to a stale reducer with a stale document.
-   */
-  const live = useRef({ value, onChange });
-  live.current = { value, onChange };
-
-  if (value !== emitted.current) {
-    // A different document arrived from outside. See the file comment: the
-    // history belongs to the note it was recorded against, so it goes with it.
-    emitted.current = value;
-    past.current = [];
-    future.current = [];
-  }
-
-  /**
-   * The one way text leaves this component — typing and every command alike.
+   * The callbacks, held in a ref and read at call time.
    *
-   * Everything goes out through the ordinary `onChange` so that `NoteEditor`'s
-   * frontmatter concatenation applies to a command exactly as it applies to a
-   * keystroke. A command that wrote by some other route would drop the YAML
-   * block of every captured note on a phone.
+   * The bridge is built once — it holds the "what does the guest already have"
+   * state that stops the caret jumping — so an extension of it that closed over
+   * `onChange` directly would deliver every keystroke after the first state
+   * change to a stale reducer. Exactly the trap `LiveEditor.web.tsx` documents.
    */
-  const emit = useCallback((next: string) => {
-    const { value: current, onChange: send } = live.current;
-    if (next === current) return;
-    past.current.push(current);
-    if (past.current.length > HISTORY_DEPTH) past.current.shift();
-    future.current = [];
-    emitted.current = next;
-    send(next);
-  }, []);
+  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur });
+  handlers.current = { onChange, onSave, controls, onFocus, onBlur };
+
+  const bridge = useMemo(
+    () =>
+      createHostBridge(
+        (raw) => web.current?.postMessage(raw),
+        {
+          onChange: (text) => handlers.current.onChange(text),
+          onSave: () => handlers.current.onSave(),
+          /**
+           * The focus contract, crossing back out of the web view.
+           *
+           * A `WebView` has neither `onFocus` nor `onBlur` — WKWebView is one
+           * native view whose first responder is an implementation detail —
+           * so the guest listens on CodeMirror's own `contentDOM`, exactly as
+           * the web half does, and posts the result. Everything above this
+           * file sees the same two props it saw when this was a `TextInput`.
+           */
+          onFocus: (next) => {
+            setFocused(next);
+            if (next) handlers.current.onFocus?.();
+            else handlers.current.onBlur?.();
+          },
+          onFailed: (message) => setFailure(message),
+        },
+      ),
+    [],
+  );
 
   /**
-   * Built on the first render and never rebuilt, so the handle handed to
-   * `NoteAccessory` stays the same object for the life of the editor.
+   * The imperative handle, built once and aimed at the bridge rather than at an
+   * editor — because on this platform there is no editor here to aim at.
    *
-   * **It does not move the caret.** Every command is string surgery followed by
-   * `onChange`, and React Native offers no supported way to place a cursor
-   * without making the input controlled — which would fight typing on every
-   * keystroke for the sake of two characters. The tracked selection is advanced
-   * so a second command lands where the first left off; where the platform puts
-   * the visible caret is the platform's business. It is the honest gap, not the
-   * intended behaviour, and it is the reason the web half — which can do this
-   * properly — is the one whose selection handling is worth reading.
+   * Each method is one message. What runs is `runCommand` in `editorSetup.ts`,
+   * inside the guest, against the real `EditorView` — the same function the web
+   * half calls directly. That is the whole reason `EditorControls` is five
+   * verbs rather than "insert this text": a verb can be run against a state
+   * that has a selection and an undo history, and a string cannot.
    */
   const api = useRef<EditorControls | null>(null);
   if (api.current === null) {
     api.current = {
-      wrap(before, after) {
-        const text = live.current.value;
-        const { start, end } = clampRange(selection.current, text.length);
-        emit(text.slice(0, start) + before + text.slice(start, end) + after + text.slice(end));
-        selection.current = { start: start + before.length, end: end + before.length };
-      },
-      toggleLinePrefix(prefix) {
-        const text = live.current.value;
-        const { start, end } = clampRange(selection.current, text.length);
-        const from = lineStart(text, start);
-        const present = text.startsWith(prefix, from);
-        emit(
-          present
-            ? text.slice(0, from) + text.slice(from + prefix.length)
-            : text.slice(0, from) + prefix + text.slice(from),
-        );
-        const shift = present ? -prefix.length : prefix.length;
-        selection.current = {
-          start: Math.max(from, start + shift),
-          end: Math.max(from, end + shift),
-        };
-      },
-      undo() {
-        const previous = past.current.pop();
-        if (previous === undefined) return;
-        future.current.push(live.current.value);
-        emitted.current = previous;
-        live.current.onChange(previous);
-      },
-      redo() {
-        const next = future.current.pop();
-        if (next === undefined) return;
-        past.current.push(live.current.value);
-        emitted.current = next;
-        live.current.onChange(next);
-      },
-      blur() {
-        input.current?.blur();
-      },
+      wrap: (before, after) => bridge.run({ name: "wrap", before, after }),
+      toggleLinePrefix: (prefix) => bridge.run({ name: "toggleLinePrefix", prefix }),
+      undo: () => bridge.run({ name: "undo" }),
+      redo: () => bridge.run({ name: "redo" }),
+      blur: () => bridge.run({ name: "blur" }),
     };
   }
 
   /**
    * Hand the handle over, and take it back on unmount.
    *
-   * `controls` is read off a ref and the effect runs once, so a parent that
-   * passes a fresh arrow on every render — which is the normal way to write it
-   * — does not re-hand the same object over and over.
+   * `controls` is read off the ref above and the effect runs once, so a parent
+   * that passes a fresh arrow on every render — the normal way to write it —
+   * does not re-hand the same object over and over, and the teardown still
+   * calls the latest callback rather than the first render's.
    */
-  const handlers = useRef({ controls });
-  handlers.current = { controls };
   useEffect(() => {
     handlers.current.controls?.(api.current);
     return () => handlers.current.controls?.(null);
-    // Mount and unmount only. `controls` is read off the ref above, so a parent
-    // passing a fresh arrow every render — the normal way to write it — does
-    // not re-hand the same object over and over, and the teardown still uses
-    // the latest callback rather than the first render's.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return (
-    <TextInput
-      ref={input}
-      multiline
-      editable={editable}
-      value={value}
-      onChangeText={emit}
-      onSelectionChange={(event: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
-        selection.current = event.nativeEvent.selection;
-      }}
-      onFocus={onFocus}
-      onBlur={onBlur}
-      /*
-        On a phone this input does not scroll: it grows to the note's height
-        inside the one `ScrollView` `NoteEditor` owns, so the inline title and
-        the Properties panel above it scroll with the text rather than being
-        pinned over a box that scrolls separately. `scrollEnabled={false}` is
-        the half of that RN needs told explicitly — a multiline `TextInput`
-        scrolls itself otherwise, and two nested scrollers under one thumb is a
-        gesture nobody can aim.
+  const onMessage = useCallback(
+    (event: WebViewMessageEvent) => bridge.receive(event.nativeEvent.data),
+    [bridge],
+  );
 
-        **The cost, stated rather than discovered on a device:** RN does not
-        reliably scroll an *outer* `ScrollView` to follow the caret, so typing
-        past the bottom of the glass in a long note can put the caret under the
-        keyboard. The web half has no such gap (CodeMirror grows in place and
-        the browser keeps the caret visible), and the fix here is the WebView
-        this file's header already anticipates. It is a real gap and it is
-        smaller than the one it replaces, which was the note's own name being
-        chrome.
-      */
-      scrollEnabled={!reading}
-      style={[styles.editor, reading && styles.reading]}
-      accessibilityLabel={accessibilityLabel}
-      spellCheck={false}
-      autoCapitalize="none"
-      autoCorrect={false}
-    />
+  // Authoritative text: a different note opened, a draft discarded, a conflict
+  // resolved. Never the echo of typing — `setDoc` drops that, which is the one
+  // guard the whole bridge turns on.
+  useEffect(() => {
+    bridge.setDoc(value);
+  }, [bridge, value]);
+
+  useEffect(() => {
+    bridge.setEditable(editable);
+  }, [bridge, editable]);
+
+  useEffect(() => {
+    bridge.setTheme(themeVars(colors, fonts.mono, compact));
+  }, [bridge, colors, compact]);
+
+  /**
+   * KEEPING THE CARET OFF THE KEYBOARD.
+   *
+   * The sharpest thing in this file, and the one a screenshot cannot show.
+   * Nothing about a WKWebView shrinks when the keyboard opens: the web view
+   * keeps its full height, the keyboard is drawn on top of it, and CodeMirror —
+   * which measures its scroller's client rectangle — believes the whole note is
+   * visible. Typing down a long note therefore puts the caret behind the keys
+   * and CodeMirror is satisfied.
+   *
+   * Three parts, and all three are needed:
+   *
+   *  1. **This effect** measures how much of the editor is covered and sends it
+   *     as `inset`.
+   *  2. The guest turns it into bottom padding on the scroller, so the last
+   *     line *can* be scrolled clear — `styles.ts`.
+   *  3. The guest also hands it to CodeMirror as a `scrollMargins` facet, which
+   *     is what makes "scroll the caret into view" mean *above the keyboard*.
+   *     That facet is consulted on every scroll, including the one CodeMirror
+   *     performs for itself on every keystroke, which is why typing keeps
+   *     working and not just the moment the keyboard opens. See `coveredBottom`.
+   *
+   * The overlap is **measured** rather than taken as the keyboard's height, so
+   * it is right whether or not something above has already resized the editor to
+   * make room — a `KeyboardAvoidingView`, `react-native-keyboard-controller`.
+   * The accessory bar is the exception and is added rather than measured,
+   * because it is positioned absolutely and resizes nothing; see
+   * `coveredHeight`.
+   *
+   * `keyboardWillShow` on iOS so the room is there before the keyboard is;
+   * Android only emits the `Did` events.
+   *
+   * It re-runs when the bar appears or goes away, because the bar's height is
+   * part of the answer and the keyboard does not move when it does.
+   */
+  const keyboardHeight = useRef(0);
+  const barUp = accessoryUp({ compact, editable, focused });
+  useEffect(() => {
+    const publish = () => {
+      if (keyboardHeight.current <= 0) {
+        bridge.setInset(0);
+        return;
+      }
+      host.current?.measureInWindow((_x, top, _width, height) => {
+        bridge.setInset(
+          coveredHeight({
+            top,
+            height,
+            windowHeight,
+            keyboardHeight: keyboardHeight.current,
+            accessoryHeight: barUp ? ACCESSORY_HEIGHT : 0,
+          }),
+        );
+      });
+    };
+
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const show = Keyboard.addListener(showEvent, (event) => {
+      keyboardHeight.current = event.endCoordinates.height;
+      publish();
+    });
+    const hide = Keyboard.addListener(hideEvent, () => {
+      keyboardHeight.current = 0;
+      bridge.setInset(0);
+    });
+    // The bar can appear while the keyboard is already up — focus arrives over
+    // the bridge a frame or two after the keys do — so the inset is republished
+    // here rather than only from the keyboard's own events.
+    publish();
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, [bridge, windowHeight, barUp]);
+
+  if (failure !== null) {
+    /*
+      The degraded editor reports no focus, so the accessory bar never appears
+      over it — and that is deliberate rather than an oversight.
+
+      Five of the bar's six editing keys are CodeMirror commands that only exist
+      inside the guest. Over a plain `TextInput` they would be present and do
+      nothing, which is the defect this codebase keeps recording against itself.
+      A `TextInput` also keeps iOS's own behaviour: tapping outside it resigns
+      first responder, so the keyboard has a way out that the web view does not
+      have. This state stays what it says it is — the markdown itself.
+    */
+    return (
+      <View style={styles.wrap} accessibilityLabel={accessibilityLabel}>
+        <Text variant="hint" style={styles.failure}>
+          The formatted editor could not start, so this is the markdown itself.
+          Your note is unchanged and still saves normally.
+        </Text>
+        <TextInput
+          multiline
+          editable={editable}
+          value={value}
+          onChangeText={onChange}
+          style={[styles.fallback, compact && styles.fallbackReading]}
+          accessibilityLabel={accessibilityLabel}
+          spellCheck={false}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+      </View>
+    );
+  }
+
+  return (
+    <View ref={host} style={styles.wrap} accessibilityLabel={accessibilityLabel}>
+      <WebView
+        ref={web}
+        source={SOURCE}
+        originWhitelist={ORIGINS as unknown as string[]}
+        onMessage={onMessage}
+        onShouldStartLoadWithRequest={allowInitialLoadOnly}
+        onError={() => setFailure("the web view failed to load")}
+        onContentProcessDidTerminate={() => setFailure("the web view was terminated")}
+        /*
+          The editor's own scroller scrolls; WKWebView's must not, or the note
+          has two and reads as sticking and then lurching. `styles.ts` sets
+          `overflow: hidden` on the document for the same reason.
+
+          **Do not reach for `keyboardDismissMode` here, and this is where you
+          would.** Dragging the note down to put the keyboard away is the
+          gesture people try first, and it cannot work: `keyboardDismissMode`
+          is implemented by `RCTScrollView`, so it acts on the scroll view this
+          prop has just switched off. CodeMirror's scroller is a `<div>` inside
+          a web view and React Native cannot see it, let alone drive a keyboard
+          from it. Turning the outer scroller back on to get the gesture would
+          give the note two scrollers, which is the defect this line exists to
+          prevent.
+
+          So `NoteAccessory`'s dismiss key is the **only** way out of the
+          keyboard on this surface. That raises its importance rather than
+          lowering it: it is why the bar renders whenever the note has the
+          caret, why the dismiss key is in its own object that cannot be the one
+          that gets clipped on a narrow screen, and why `blur` is the one
+          command `acceptsCommand` never refuses.
+        */
+        scrollEnabled={false}
+        automaticallyAdjustContentInsets={false}
+        contentInsetAdjustmentBehavior="never"
+        // Nothing in here needs storage, a cache, or a second window, and this
+        // is somebody's private note. `incognito` puts WKWebView on a
+        // non-persistent data store, so nothing survives the screen.
+        incognito
+        cacheEnabled={false}
+        domStorageEnabled={false}
+        allowFileAccess={false}
+        allowsLinkPreview={false}
+        javaScriptCanOpenWindowsAutomatically={false}
+        setSupportMultipleWindows={false}
+        // The guest calls `focus()` when a tap lands in the document, and
+        // WebKit otherwise refuses to raise the keyboard for it.
+        keyboardDisplayRequiresUserAction={false}
+        /*
+          WebKit draws its own accessory bar over the keyboard — the grey strip
+          with *Done* on it — and this is the prop that takes it away.
+
+          It was `false` because that bar's *Done* was the only way to dismiss
+          the keyboard from inside the note. That is no longer the case:
+          `NoteAccessory` is ours, it rides in the same place, and its rightmost
+          key does the same job. Two stacked bars saying different things is
+          worse than either, so WebKit's goes.
+
+          Ours is now the only one, which is the sentence the `scrollEnabled`
+          comment above turns on: there is no drag-to-dismiss on this surface, so
+          if the accessory bar ever stops rendering while the keyboard is up, a
+          person is trapped in the keyboard with no way out. That is what
+          `noteAccessory.test.ts` pins when it asserts the bar appears on focus.
+        */
+        hideKeyboardAccessoryView
+        style={styles.web}
+        containerStyle={styles.webContainer}
+      />
+    </View>
   );
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
+  wrap: { flex: 1, minHeight: 0 },
   /**
-   * `.note pre`, made editable — the same surface the mockup specifies, and the
-   * same one this editor had before Live Preview existed on web.
+   * A `WebView` has an opaque white background of its own until it paints,
+   * which on a dark note is a full-screen flash on every open. The document's
+   * own ground is `--lp-bg`, from the same token.
    */
-  editor: {
+  web: { flex: 1, backgroundColor: colors.surface },
+  webContainer: { flex: 1, backgroundColor: colors.surface },
+
+  failure: { paddingHorizontal: space.x5, paddingTop: space.x2, color: colors.warnText },
+
+  /** The editor this file used to be, kept as the fallback and nothing else. */
+  fallback: {
     flex: 1,
     minHeight: 160,
     borderWidth: 1,
@@ -342,25 +423,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
   },
-  /**
-   * See the file comment: the phone reads, it does not inspect.
-   *
-   * 16 on a 24 line box in `layout.readingMargin` of side padding, measured
-   * off Obsidian mobile — and the same three numbers the web half sets in CSS,
-   * because a note that reflows differently on the two platforms is two
-   * documents. The margin is a token because four other bands have to line up
-   * with the first character of this text; see `readingMargin`.
-   */
-  reading: {
-    /*
-      `flex: 0` with no `minHeight`: this is a block inside somebody else's
-      scroller now and has to be exactly as tall as the note. A `flex: 1` here
-      would fill the scroller's content box — which is the note's own height —
-      and a `minHeight` would leave a short note with a tail of dead space
-      between its last line and the toolbar.
-    */
-    flex: 0,
-    minHeight: undefined,
+  fallbackReading: {
     borderWidth: 0,
     borderRadius: 0,
     backgroundColor: "transparent",
@@ -368,13 +431,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontFamily: fonts.body,
     fontSize: 16,
     lineHeight: leading(16, 1.5),
-    /*
-      No vertical padding. The room the floating chrome takes at each end is
-      content padding on the `ScrollView` above — one payment, by the surface
-      that scrolls — and the same three numbers the web half sets in CSS, so a
-      note does not reflow differently on the two platforms.
-    */
-    paddingVertical: 0,
-    paddingHorizontal: layout.readingMargin,
+    paddingTop: space.x2,
+    paddingHorizontal: space.x6,
+    paddingBottom: space.x8,
   },
 });
