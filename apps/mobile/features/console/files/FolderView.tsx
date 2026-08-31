@@ -38,12 +38,13 @@
  * which is the point.
  */
 
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { Button, PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { densityFor } from "../../app/frame";
 import { baseName, displayName } from "./paths";
 import type { FileEntry, FolderListing, Visibility } from "./types";
 
@@ -72,11 +73,19 @@ export function FolderView({
   onShare: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  /*
+    The document's own side margin, on the density where nothing else supplies
+    one. `BrowsePane` runs the phone's scroll surface full-bleed so a note can
+    keep its own reading margin, which left this listing's title and its first
+    row hanging on the edge of the glass. On a pointer layout the pane pads
+    itself and this must not pay twice.
+  */
+  const compact = densityFor(useWindowDimensions().width) === "compact";
   const isTeam = entry.visibility === "team";
   const rows = listing?.entries ?? [];
 
   return (
-    <View style={styles.folder}>
+    <View style={[styles.folder, compact && styles.folderCompact]}>
       {/*
         The folder names itself the way a note does — an inline title at the top
         of its own content — rather than under a `FOLDER` eyebrow. The route
@@ -203,6 +212,7 @@ const ROW_SLOP = layout.explorerRowSlop;
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   folder: { gap: space.x2 },
+  folderCompact: { paddingHorizontal: layout.readingMargin },
   head: { flexDirection: "row", alignItems: "flex-start", gap: space.x2 },
   title: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
   rule: { color: colors.muted },
