@@ -24,8 +24,14 @@ import { highlightMarkdown } from "./highlight";
  * property this comment was protecting is stronger now, not weaker. A block
  * editor (Yoopta, TipTap) would have broken it, which is why this is not one.
  *
- * On native `LiveEditor` is the textarea this always was. CodeMirror is a DOM
- * library and the alternatives are worse than the gap; see `LiveEditor.tsx`.
+ * On native it is the same editor. CodeMirror is a DOM library, so `LiveEditor.tsx`
+ * runs it inside a `WebView` over a five-message JSON bridge — one editor
+ * configuration (`editorSetup.ts`), two hosts, one bundle committed and shipped
+ * with the app so a note opens with no network at all. This comment used to say
+ * the native half was a textarea and that the gap was deliberate; see
+ * `LiveEditor.tsx` for which halves of that argument expired and which one
+ * (a `TextInput` cannot hide a range of its own value) is why it is a web view
+ * rather than a second editor.
  *
  * Read-only notes (`privacy.md`, and the whole landing-page demo) render as the
  * mockup's tinted preview rather than a disabled editor, because a disabled
