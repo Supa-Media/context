@@ -16,9 +16,15 @@ name: Session hook
 # No `paths:` filter on pull_request, deliberately — see mcp.yml. A required
 # check that is filtered out never reports at all, and leaves every unrelated
 # pull request stuck on an "Expected" status it can never satisfy.
+#
+# And no `branches:` filter on pull_request either — see mcp.yml. A base-branch
+# filter means a pull request stacked on another branch runs no checks at all,
+# which is how #169 merged with zero check runs. The key is absent rather than
+# `branches: ['**']` so that a tidy-up to `'*'` cannot silently stop matching
+# `claude/…`-shaped branches; `scripts/check-workflow-triggers.mjs` enforces it.
+# The `push:` filter below stays on `main`.
 on:
   pull_request:
-    branches: [main]
   push:
     branches: [main]
     paths:

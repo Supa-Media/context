@@ -10,9 +10,15 @@ name: Email Worker
 
 # No `paths:` filter on pull_request. A filtered-out required check never
 # reports and leaves the PR pending forever; see the note in mcp.yml.
+#
+# And no `branches:` filter on pull_request either — see mcp.yml. A base-branch
+# filter means a pull request stacked on another branch runs no checks at all,
+# which is how #169 merged with zero check runs. The key is absent rather than
+# `branches: ['**']` so that a tidy-up to `'*'` cannot silently stop matching
+# `claude/…`-shaped branches; `scripts/check-workflow-triggers.mjs` enforces it.
+# The `push:` filter below stays on `main`.
 on:
   pull_request:
-    branches: [main]
   push:
     branches: [main]
     paths:
@@ -40,6 +46,15 @@ jobs:
       # for the apostrophe that made this necessary.
       - name: Workflow run blocks parse as shell
         run: node scripts/check-workflow-shell.mjs
+
+      # The second half of the same idea, and the second host for it: this
+      # asserts what the `on:` blocks SAY rather than what their run blocks do.
+      # mcp.yml runs it too — see the note there for why one host is not
+      # enough.
+      - name: Workflow triggers reach pull requests, and deploys reach none
+        run: |
+          node scripts/check-workflow-triggers.mjs --self-test
+          node scripts/check-workflow-triggers.mjs
 
       - uses: pnpm/action-setup@v4
 

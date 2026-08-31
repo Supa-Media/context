@@ -62,9 +62,15 @@ name: Gateway Contracts
 # The push filter names apps/mobile and packages/shared because the suite
 # genuinely reaches into both — see the install step below. A filter that
 # contradicts the file's own comments is how this class of bug starts.
+#
+# And no `branches:` filter on pull_request either — see mcp.yml. A base-branch
+# filter means a pull request stacked on another branch runs no checks at all,
+# which is how #169 merged with zero check runs. The key is absent rather than
+# `branches: ['**']` so that a tidy-up to `'*'` cannot silently stop matching
+# `claude/…`-shaped branches; `scripts/check-workflow-triggers.mjs` enforces it.
+# The `push:` filter below stays on `main`.
 on:
   pull_request:
-    branches: [main]
   push:
     branches: [main]
     paths:
