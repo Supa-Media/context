@@ -50,6 +50,7 @@ import {
   createSearchBudget,
   defaultIsIndexable,
   exceedsUtf8Bytes,
+  inWaves,
 } from "./maintain.js";
 
 /** The diff surface and the bookkeeping. One object per bucket. */
@@ -105,6 +106,24 @@ const FETCH_FLOOR = 2;
 /** Fetched in parallel, indexed in list order once a wave lands — see the wave loop. */
 const BACKFILL_CONCURRENCY = 12;
 /**
+ * Folder listings a pass may have in flight at once.
+ *
+ * Cloudflare allows a Worker six simultaneous open connections, so this is the
+ * width at which the queue behind it starts absorbing the gain rather than a
+ * number tuned to anything. Pagination *inside* one folder stays sequential
+ * and must: the next page is addressed by the previous page's cursor.
+ */
+const LIST_CONCURRENCY = 6;
+/**
+ * Shard objects the query walk may have in flight at once — `readShards`.
+ *
+ * Six raw bodies under `SHARD_PARSE_BYTE_CAP` is at most 12MB of retained
+ * `ArrayBuffer`, which is why the wave holds **bytes** and decodes one at a
+ * time: a wave of six *parsed* shards would be six times the peak v2 exists to
+ * hold at one, inside the same 128MB.
+ */
+export const SHARD_READ_CONCURRENCY = 6;
+/**
  * Shards a pass may open that its diff found no work for — the audit, and the
  * answer to the one blind spot in a manifest-only diff: a shard whose stored
  * object is unreadable while none of its notes changed is in no worklist, so
@@ -135,20 +154,29 @@ const BACKFILL_CONCURRENCY = 12;
  * eventual, which is all a disposable derivative needs.
  *
  * **"Eventual" has a measured ceiling, and above it the audit never runs at
- * all.** The gate below is `reserve + 1 + AUDIT_OPS + shardCount`, which at the
- * one real call site is `13 + shardCount`; on the default budget of 40 a pass
- * reaches this loop with about 33 ops left, so the audit stops firing entirely
- * at `shardCount >= 20` — roughly 5,700 notes at `ceil(notes / 300)`. Not
- * "rarely": never, on that budget. Those brains keep the blind spot exactly as
- * it was, and they are the population it costs most.
+ * all.** The gate below is `callerReserve + 1 + AUDIT_OPS + shardCount`, and
+ * `callerReserve` carries the query walk's own op per occupied shard as well as
+ * its snippet reads. Where the line falls depends on what the listing costs, so
+ * it is measured rather than derived: on a two-root fixture at the default
+ * budget of 40, the last shard count that audits is **9** (~2,700 notes), where
+ * the same fixture reached **14** (~4,200 notes) before the walk's reserve
+ * existed. Not "rarely": never, above it. Those brains keep the blind spot
+ * exactly as it was, and they are the population it costs most.
  *
- * That is stated rather than left implied because this file's own rule is that
+ * **The line moved deliberately, and the direction is the right one.** What
+ * took those ops back is the answer: a walk with no budget to open a shard
+ * answers `0 matching notes` over a bucket where everything matches, which is
+ * a worse failure than a shard that stays corrupt for another few passes. The
+ * backfill cap does the same thing from the other side — a pass that spent it
+ * skips the audit — and that costs nothing where it matters, because the pass
+ * an audit is *for* is a converged one, which spends none of it.
+ *
+ * This is stated rather than left implied because this file's own rule is that
  * a floor is never printed as a total, and a coverage claim a measurement
  * contradicts is the same defect in prose. Raising `SEARCH_SUBREQUEST_BUDGET`
- * restores it (measured: 24 shards audit at 60, 48 and 64 at 120). Closing it
- * properly means bounding the walk's reserve by what the walk will actually
- * spend rather than by `shardCount`, which needs its own argument and its own
- * measurements.
+ * restores it. Closing it properly means bounding the walk's reserve by what
+ * the walk will actually spend rather than by `shardCount`, which needs its own
+ * argument and its own measurements.
  */
 const AUDIT_SHARDS_PER_SYNC = 1;
 /**
@@ -608,16 +636,39 @@ export function parseShard(text, byteCap = SHARD_PARSE_BYTE_CAP) {
  * @returns {Promise<ReturnType<typeof emptyShard>|null>}
  */
 export async function loadShard(store, budget, reserve, id, byteCap = SHARD_PARSE_BYTE_CAP) {
+  const bytes = await fetchShardBytes(store, budget, reserve, id, byteCap);
+  return bytes ? decodeShard(bytes, byteCap) : null;
+}
+
+/**
+ * The read half of `loadShard`: one shard's stored bytes, or `null`.
+ *
+ * Held apart from the parse so a caller can have several reads in flight and
+ * still parse **one at a time** — the query walk does, in waves of
+ * `SHARD_READ_CONCURRENCY`, which is the fetch/parse split CONTRACT.md § Query
+ * named as the follow-up to its sequential walk. The memory bound v2 exists for
+ * survives that only because what a wave holds is bytes: six `ArrayBuffer`s
+ * under the cap is at most 12MB, where six *parsed* shards would be six times
+ * the peak this whole format is arranged to keep at one.
+ *
+ * The byte cap is applied here rather than only at the parse, for the same
+ * reason it always was — the length is read from the bytes, never from a
+ * header, because the header is the backend's word for it — so an oversized
+ * object is dropped before anything decodes it.
+ *
+ * `null` covers every way a read can fail: no budget, absent, refused by the
+ * backend, oversized. As with `loadShard`, a caller that must tell a budget
+ * refusal from an absence checks `budget.remaining` before calling.
+ */
+export async function fetchShardBytes(store, budget, reserve, id, byteCap = SHARD_PARSE_BYTE_CAP) {
   const cap = Number.isFinite(byteCap) ? byteCap : SHARD_PARSE_BYTE_CAP;
   if (!budget.take(reserve)) return null;
   try {
     const stored = await store.get(shardKey(id));
     if (!stored) return null;
     const bytes = await stored.arrayBuffer();
-    // Read from the bytes, not from a header: the header is the backend's word
-    // for it, and the cap exists to protect a parse that happens here.
     if (bytes.byteLength > cap) return null;
-    return parseShard(new TextDecoder().decode(bytes), cap);
+    return bytes;
   } catch {
     // One unreadable shard must not cost the whole search its answer. The op
     // was already spent, so a bucket of unreadable shards still terminates.
@@ -625,14 +676,32 @@ export async function loadShard(store, budget, reserve, id, byteCap = SHARD_PARS
   }
 }
 
+/** The parse half: bytes in, a shard or `null` out. Never throws. */
+export function decodeShard(bytes, byteCap = SHARD_PARSE_BYTE_CAP) {
+  const cap = Number.isFinite(byteCap) ? byteCap : SHARD_PARSE_BYTE_CAP;
+  try {
+    if (!bytes || bytes.byteLength > cap) return null;
+    return parseShard(new TextDecoder().decode(bytes), cap);
+  } catch {
+    return null;
+  }
+}
+
 // -- the listing walk ------------------------------------------------------
 //
-// A second copy of `listNoteObjects` in `maintain.js`, which is the master and
-// is not exported. Everything about its shape is load-bearing and reproduced
+// Descended from `listNoteObjects` in `maintain.js`, which is v1's and is not
+// exported. Everything about its shape is load-bearing and was reproduced
 // rather than reinvented — the delimited root, the flat per-folder walk, the
 // budget on every page, and `regionComplete` — and it is held here by checks
 // that drive truncation and removal rather than by reading the two side by
-// side. When v2 replaces v1 the v1 copy is what goes.
+// side.
+//
+// **They are no longer identical**, and that is deliberate rather than drift:
+// this copy runs its folder listings in waves and v1's does not. v1 is reached
+// by nothing in production — the gateway and the console both answer from v2 —
+// so it is legacy carried for its fixtures, and giving it concurrency would be
+// changing code no caller runs to keep a sentence true. When v2 replaces v1 the
+// v1 copy is what goes.
 
 function toIso(value) {
   if (value instanceof Date) {
@@ -720,10 +789,17 @@ async function listNoteObjects(store, budget, reserve, isIndexable) {
   );
 
   const realFolders = [...folders].filter((prefix) => !prefix.startsWith(".")).sort();
+  // One folder's pages are sequential — the next page is addressed by the last
+  // one's cursor — and the folders are independent of each other, so they run
+  // in waves. That is wall clock the budget cannot see: the ops are identical,
+  // the round trips are not. `record` and the shared counter are touched from
+  // several listings at once, which is safe because a Worker runs one turn at a
+  // time; nothing here is re-entered mid-statement.
   const folderComplete = new Map();
-  for (const prefix of realFolders) {
-    folderComplete.set(prefix, await listPaged(store, { prefix }, budget, listingReserve, record));
-  }
+  const completions = await inWaves(realFolders, LIST_CONCURRENCY, (prefix) =>
+    listPaged(store, { prefix }, budget, listingReserve, record)
+  );
+  realFolders.forEach((prefix, at) => folderComplete.set(prefix, completions[at]));
 
   /**
    * Whether the region a path lives in was listed to the end — the only ground
@@ -898,6 +974,55 @@ export async function syncShardedIndex(
     shardByteCap: requestedShardCap = SHARD_PARSE_BYTE_CAP,
     manifestByteCap: requestedManifestCap = MANIFEST_PARSE_BYTE_CAP,
     /**
+     * Store ops to keep back **per shard the caller will have to open**, on top
+     * of `reserve`.
+     *
+     * `reserve` alone was the snippet reads, and that was the whole of what a
+     * caller was assumed to owe after this returns. It is not: the query walk
+     * opens one shard per occupied shard before it can read a snippet at all,
+     * and this loop spent every op down to `reserve` before that walk began. On
+     * a bucket wide enough to need several passes the result was not a slow
+     * answer, it was a **wrong** one — measured, on a 1,500-note fixture at a
+     * budget of 120: passes 4 onward answered `0 matching notes` for a term
+     * carried by every note in the bucket, because the sync had left the walk
+     * nothing to open a shard with, and the same shape produced thirteen
+     * consecutive false misses on a 7,961-note fixture at 600.
+     *
+     * A miss is the one answer this system must not get wrong — it is what
+     * `toolSearchNotes`'s miss copy exists to argue against, and an agent that
+     * reads it concludes the thing was never written down. So the caller's
+     * later work is reserved *before* maintenance may spend anything, and the
+     * cost is paid where it belongs: on a budget too small to do both, the
+     * answer is served and the index simply does not grow that pass.
+     *
+     * Counted over shards the manifest says hold documents, because the walk
+     * skips the empty ones on the same authority.
+     */
+    walkReserve = 0,
+    /**
+     * Note reads this pass may spend on the backfill, or `Infinity`.
+     *
+     * The budget bounds what a search may spend; it does not bound what a
+     * person **waits for**, and on a paid-plan budget of 600 those are wildly
+     * different numbers — ~580 note reads, which is 40-60 seconds against a
+     * real bucket and was the reported failure this whole change is about. A
+     * search is an interactive request; finishing somebody's index is not.
+     *
+     * So the gateway hands this a small number and continues the same sync
+     * after the response has been sent (`searchVisibleNotes`, `store.defer`).
+     * The default is `Infinity` because a caller with no such deadline —
+     * the console, running in a Convex action with no subrequest cap — should
+     * keep making real progress on a cold bucket rather than nibbling at it.
+     *
+     * It caps note reads rather than every op: the listing is what tells the
+     * diff which notes are stale, and a pass that cannot finish listing reports
+     * `listingTruncated` on a converged bucket, which is a banner that says the
+     * index is catching up when it is not. Shard and manifest writes are not
+     * capped either — they persist what was already fetched, and refusing them
+     * would spend the reads and land nothing.
+     */
+    backfillOps = Infinity,
+    /**
      * The clock the audit rotates on — a `Date`, a number of milliseconds, or
      * absent for the wall clock. Injectable for the same reason `searchIndex`'s
      * is: which shard a pass audits is otherwise a function of when the test
@@ -939,6 +1064,20 @@ export async function syncShardedIndex(
       null;
   }
 
+  // What the caller still owes after this returns, settled before this pass
+  // spends anything on maintenance. `reserve` is its snippet reads;
+  // `walkReserve` is one op per shard it will have to open, counted over the
+  // shards the stored manifest says hold documents — the same set the walk
+  // itself fetches, since an empty shard is never asked for. A bucket with no
+  // manifest has no shards to walk, so it owes nothing extra.
+  const occupiedShards = manifest
+    ? manifest.stats.reduce((count, entry) => count + (entry.docCount > 0 ? 1 : 0), 0)
+    : 0;
+  const perShard = Number.isFinite(walkReserve) ? Math.max(0, Math.floor(walkReserve)) : 0;
+  const callerReserve = reserve + perShard * occupiedShards;
+  const backfillCap = Number.isFinite(backfillOps) ? Math.max(0, Math.floor(backfillOps)) : Infinity;
+  let fetchedNotes = 0;
+
   // The listing comes before a fresh manifest is minted, because `shardCount`
   // is a function of how many notes there are. On a truncated first listing
   // that count is a floor and the shard count is therefore low — the honest
@@ -947,7 +1086,7 @@ export async function syncShardedIndex(
   const { entries, regionComplete, truncated } = await listNoteObjects(
     store,
     ops,
-    reserve,
+    callerReserve,
     isIndexable
   );
 
@@ -1010,15 +1149,24 @@ export async function syncShardedIndex(
     // reuses what the sync already read rather than fetching it again.
     if (
       auditing.has(id) &&
-      ops.remaining <= reserve + MANIFEST_WRITE_RESERVE + AUDIT_OPS + shardCount
+      ops.remaining <= callerReserve + MANIFEST_WRITE_RESERVE + AUDIT_OPS + shardCount
     ) {
+      continue;
+    }
+    // Once the interactive share of the backfill is spent, a shard whose only
+    // work is fetching is skipped rather than opened: the read would land
+    // nothing. Removals are free and correcting, so a shard that has them still
+    // runs. An audit reaches here with neither, so this is also where a capped
+    // pass stops auditing — spare-budget work has no spare pass to be in.
+    if (fetchedNotes >= backfillCap && removals.length === 0) {
+      pending += stale.length;
       continue;
     }
     // Checked, not attempted. A budget refusal inside `loadShard` is
     // indistinguishable from an empty shard, and rebuilding a shard from
     // "empty" when we were never allowed to look at it would write away every
     // doc in it. One op for the read, one kept back for the manifest write.
-    if (ops.remaining <= reserve + MANIFEST_WRITE_RESERVE) {
+    if (ops.remaining <= callerReserve + MANIFEST_WRITE_RESERVE) {
       pending += stale.length;
       continue;
     }
@@ -1027,7 +1175,7 @@ export async function syncShardedIndex(
     // object to read, and a GET to prove it is a subrequest spent on a 404.
     const hasStored = manifest.docsByShard[id].size > 0;
     const loaded = hasStored
-      ? await loadShard(store, ops, reserve + MANIFEST_WRITE_RESERVE, id, shardCap)
+      ? await loadShard(store, ops, callerReserve + MANIFEST_WRITE_RESERVE, id, shardCap)
       : null;
     const shard = loaded || emptyShard();
     shards.set(id, shard);
@@ -1061,7 +1209,9 @@ export async function syncShardedIndex(
     for (let start = 0; start < work.length; start += BACKFILL_CONCURRENCY) {
       const wave = [];
       for (const entry of work.slice(start, start + BACKFILL_CONCURRENCY)) {
-        if (!ops.take(reserve + MANIFEST_WRITE_RESERVE + SHARD_WRITE_RESERVE)) break;
+        if (fetchedNotes >= backfillCap) break;
+        if (!ops.take(callerReserve + MANIFEST_WRITE_RESERVE + SHARD_WRITE_RESERVE)) break;
+        fetchedNotes += 1;
         wave.push(
           (async ([path, listed]) => {
             let object;
@@ -1139,7 +1289,7 @@ export async function syncShardedIndex(
       if (!exceedsUtf8Bytes(body, shardCap)) {
         // `remaining` is peeked before the op is charged, so a refused shard
         // does not take a subrequest from the caller's snippet reads.
-        if (ops.take(reserve + MANIFEST_WRITE_RESERVE)) {
+        if (ops.take(callerReserve + MANIFEST_WRITE_RESERVE)) {
           // Unconditional: the manifest is the concurrency point, and a shard
           // written by a pass whose manifest write then loses the race is
           // re-derived by the pass that won.
@@ -1187,7 +1337,7 @@ export async function syncShardedIndex(
       // only on the pass that creates a manifest, so a first pass with no op to
       // spare leaves v1's object behind for good — dead weight in the
       // customer's bucket, which is what it already was.
-      if (written !== null && !manifestExisted && ops.take(reserve)) {
+      if (written !== null && !manifestExisted && ops.take(callerReserve)) {
         // v1's object, once and only once — on the pass that first creates a
         // manifest. `delete` is one op, idempotent and 404-tolerant in both
         // adapters, which is why this is a blind delete rather than a `get` to

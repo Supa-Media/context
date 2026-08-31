@@ -8,6 +8,7 @@ import { runSearchIntegrationChecks } from "./searchIntegration.test.mjs";
 import { runSearchQueryChecks } from "./searchQuery.test.mjs";
 import { runSearchShardQueryChecks } from "./searchShardQuery.test.mjs";
 import { runSearchShardsChecks } from "./searchShards.test.mjs";
+import { runSearchPacingChecks } from "./searchPacing.test.mjs";
 import { runSearchV2IntegrationChecks } from "./searchV2Integration.test.mjs";
 import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
@@ -3375,6 +3376,10 @@ await runSearchIntegrationChecks(check);
 await runSearchShardsChecks(check);
 await runSearchShardQueryChecks(check);
 await runSearchV2IntegrationChecks(check);
+// What a search *costs*: the ops it reserves for its own answer, the share of
+// the backfill it does while somebody waits, and the round trips it no longer
+// serializes.
+await runSearchPacingChecks(check);
 
 await runTenancyChecks(check);
 

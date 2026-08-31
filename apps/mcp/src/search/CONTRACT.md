@@ -249,6 +249,29 @@ conditional on the etag it was read at; on conflict serve the query and skip,
 as v1 does. A legacy `.index/search-v1.json` found while a manifest exists is
 deleted when budget allows — disposable, and dead weight.
 
+**A pass may be given a backfill cap and a walk reserve**, and both exist
+because the subrequest budget bounds spending rather than waiting.
+
+- `backfillOps` caps the **note reads** one pass performs. The gateway hands an
+  interactive search a small number and continues the same sync after its
+  response has been sent (`ctx.waitUntil`); the console, which has no
+  subrequest ceiling and nobody watching a spinner, passes nothing. It caps
+  reads and not every op: the listing is what tells the diff which notes are
+  stale, and a pass that cannot finish listing reports `listingTruncated` on a
+  converged bucket, which renders as "the index is still catching up" forever.
+- `walkReserve` keeps back one op **per occupied shard**, on top of `reserve`,
+  because the query walk opens those shards before it can read a snippet. Both
+  are the caller's work and neither may be spent by maintenance. Without it a
+  bucket wide enough to need several passes answers **`0 matching notes` over a
+  term every note carries** — measured on a 1,500-note fixture at a budget of
+  120 (passes 4 onward, permanently) and on a 7,961-note fixture at 600
+  (thirteen consecutive searches). On a budget too small to do both, the answer
+  is served and the index does not grow that pass.
+
+**Folder listings run in bounded waves** (`LIST_CONCURRENCY`). Pagination
+inside one folder stays sequential — the next page is addressed by the previous
+page's cursor — and the folders are independent of each other.
+
 **One shard the diff wanted nothing from is audited per pass**, on budget the
 real work left over. The diff reads the manifest, so a shard whose stored
 object is unreadable — corrupt, truncated, half-written, or in a dialect this
@@ -267,29 +290,47 @@ Two things about that are worth stating rather than leaving to be inferred.
 that refuses a version-3 shard predates this audit and so cannot run it, and the
 gateway that runs it reads both dialects, so those shards are healthy to it. The
 audit is what makes the *next* such rollback survivable. And **the audit has a
-budget cutoff above which it never runs**: the gate is `reserve + 1 +
-AUDIT_OPS + shardCount`, so on the default `SEARCH_SUBREQUEST_BUDGET` of 40 it
-stops firing at `shardCount >= 20` — about 5,700 notes. Coverage is eventual
-below that line and absent above it, which is the opposite of where it is most
-needed; raising the budget restores it.
+budget cutoff above which it never runs**: the gate is `callerReserve + 1 +
+AUDIT_OPS + shardCount`, and `callerReserve` now carries the walk's own op per
+occupied shard as well as the snippet reads. Where that line falls depends on
+what the listing costs, so it is measured rather than derived — on a two-root
+fixture at the default `SEARCH_SUBREQUEST_BUDGET` of 40, the last shard count
+that audits is **9** (~2,700 notes), against **14** (~4,200 notes) for the same
+fixture before the walk's reserve existed. Coverage is eventual below that line
+and absent above it, which is the opposite of where it is most needed; raising
+the budget restores it.
+
+That line moved **because the answer now outranks the audit**, which is the
+right way round: an audit is spare-budget work against a rare corruption, and
+the ops it was taking were the ones the walk needed to open a shard at all. The
+same is true of the backfill cap, which stops the audit on any pass that spent
+it — a converged bucket spends none of it, so the pass an audit is actually for
+still runs one.
 
 ## Query
 
-Gather-then-score, streaming: GET manifest → for each non-empty shard (the
-manifest's docCount decides — an empty shard is never fetched), sequentially
-today: parse, collect the
+Gather-then-score, streaming: GET manifest → collect from every shard the sync
+already loaded, which costs nothing and is fresher than the stored object when a
+write was refused — taking those first is not an optimisation, since the walk
+stops on a budget refusal and in shard-id order that refusal used to arrive
+before shards the sync had already paid for, so a pass holding the answer in
+memory answered from none of it → then for each remaining non-empty shard (the
+manifest's docCount decides — an empty shard is never fetched), **read in waves
+of `SHARD_READ_CONCURRENCY` and decode one at a time**: parse, collect the
 query terms' postings, each term's per-shard df, per-shard prefix/fuzzy vocab
 expansions, and doc metadata for candidate paths only, then release the shard.
+A wave holds **bytes**, never parsed shards: six `ArrayBuffer`s under
+`SHARD_PARSE_BYTE_CAP` is at most 12MB, where six parsed shards would be six
+times the peak this format exists to keep at one. That is the fetch/parse split
+this section used to name as a queued follow-up.
 After all shards: assemble global `N`, `avglen` and per-term df **from the
 visible docs encountered during the walk** — never from manifest stats, which
 are bookkeeping only, and never over all docs: the v1 inference-oracle rule
 (`visibleIndex`) carries over whole, so every statistic and every expansion
 vocabulary is computed on the caller's visible corpus. Score the merged
 candidates with v1 semantics; `rankedVisibleTo`/`canSee` apply unchanged at
-the output. The sequential walk is a known wall-clock cost at high shard
-counts (64 serial GETs); a fetch/parse split that reads in bounded waves while
-parsing one at a time is the queued follow-up, and amending this sentence
-without building it would be the contract describing code that does not exist.
+the output. Snippet reads are a wave too, with every op taken before any read
+starts, so a wave can never overspend the counter.
 
 **What a shard retains while the walk runs is bounded.** The shard objects
 themselves are streamed and dropped one at a time, which is the memory bound v2
@@ -316,3 +357,12 @@ snippet reads. At 64 shards that is ~80 ops — paid-plan territory; a
 deployment on the free tier keeps small brains (shardCount 1–2) inside its
 budget and larger ones degrade to the bounded scan honestly, which is v1's
 behavior too.
+
+**Ops are not the cost a person feels.** The same steady state, measured on a
+7,961-note fixture at a simulated 20ms per operation: 57 ops, and 1,439ms when
+55 of them were serialized against 670ms in waves. Cold, an uncapped pass on a
+budget of 600 spends 600 ops and 1,831ms on that fixture — which at a real
+backend's latency is the 40-60 second search this pacing exists to remove;
+capped, the interactive share is 93 ops and 535ms, and the rest of the budget is
+spent after the response. About 320ms of the warm figure is CPU spent parsing
+shards, and no amount of concurrency moves it.

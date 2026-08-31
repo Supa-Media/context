@@ -40,6 +40,7 @@
 
 import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
+import { createWorkerCtx } from "./workerCtx.mjs";
 
 const OWNER_TOKEN = `cat_orientation_owner_${"0".repeat(14)}`;
 const TEAM_TOKEN = `cat_orientation_member_${"0".repeat(13)}`;
@@ -123,6 +124,7 @@ function createDeadBucket() {
 }
 
 async function rpc(env, token, method, params) {
+  const { ctx, settle } = createWorkerCtx();
   const response = await worker.fetch(
     new Request("https://mcp.context.test/mcp", {
       method: "POST",
@@ -130,9 +132,14 @@ async function rpc(env, token, method, params) {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
     }),
     env,
-    { waitUntil() {} }
+    ctx
   );
-  return { status: response.status, body: await response.json() };
+  const body = await response.json();
+  // The worker finishes the search index after its response; that work spends
+  // the same subrequest counter, so a measurement taken before it lands is a
+  // measurement of half an invocation.
+  await settle();
+  return { status: response.status, body };
 }
 
 async function orientText(env, token) {
