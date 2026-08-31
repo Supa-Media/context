@@ -67,13 +67,8 @@ jobs:
           cache: pnpm
 
       # Scoped to infra/router and its dependencies — all this job needs.
-      # GITHUB_TOKEN authenticates the @supa-media/* GitHub Packages registry;
-      # pnpm errors if the variable .npmrc interpolates is undefined, even when
-      # nothing in the filtered set comes from that registry.
       - name: Install dependencies
         run: pnpm install --filter "./infra/router..." --frozen-lockfile
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Typecheck
         working-directory: infra/router

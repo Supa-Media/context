@@ -182,15 +182,10 @@ jobs:
           cache: pnpm
 
       # Scoped to apps/mcp, which needs exactly one devDependency (wrangler) —
-      # the gateway itself still has no runtime dependencies. GITHUB_TOKEN
-      # authenticates the @supa-media/* GitHub Packages registry; pnpm errors
-      # if the variable .npmrc interpolates is undefined, even when nothing in
-      # the filtered set comes from that registry.
+      # the gateway itself still has no runtime dependencies.
       - name: Install wrangler
         if: steps.config.outputs.found == 'true'
         run: pnpm install --filter "./apps/mcp..." --frozen-lockfile
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Push the Worker's secrets from GitHub on every deploy, so the live
       # gateway is reproducible from this repository rather than from whatever

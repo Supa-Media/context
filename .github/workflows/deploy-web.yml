@@ -5,10 +5,6 @@
 # `*.expo.app` origin. That origin is NOT the address people use: context.lc is
 # a Cloudflare Worker (infra/router) that proxies to it, because EAS Hosting
 # only attaches custom domains on a paid plan. See infra/router/src/route.ts.
-#
-# @supa-media/* packages come from GitHub Packages, a registry that needs auth,
-# so every `pnpm install` step passes GITHUB_TOKEN (see .npmrc — pnpm errors
-# outright if the variable the file interpolates is undefined).
 name: Deploy Web (production)
 
 on:
@@ -125,8 +121,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup EAS
         uses: expo/expo-github-action@v8

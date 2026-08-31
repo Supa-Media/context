@@ -1,6 +1,3 @@
-# @supa-media/* packages are installed from GitHub Packages (npm.pkg.github.com),
-# a PRIVATE registry — GITHUB_TOKEN must be present for `pnpm install` to auth
-# (see .npmrc).
 name: Deploy Convex
 
 on:
@@ -27,8 +24,6 @@ jobs:
           cache: "pnpm"
 
       - run: pnpm install --frozen-lockfile
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Deploy to Convex
         run: npx convex deploy

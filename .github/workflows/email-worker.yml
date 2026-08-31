@@ -50,8 +50,6 @@ jobs:
 
       - name: Install
         run: pnpm install --filter @context/email-worker... --frozen-lockfile
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Typecheck
         working-directory: infra/email-worker
