@@ -114,8 +114,24 @@ export interface DrainDeps {
   onWritten?: (result: { path: string; etag: string; conflictCheck: ConflictCheck }) => void;
 }
 
+/** One write that reached the bucket. */
+export interface Sent {
+  path: string;
+  /** The etag the bucket now holds for it. */
+  etag: string;
+  conflictCheck: ConflictCheck;
+  /**
+   * The entry's `updatedAt` at the moment it was sent.
+   *
+   * Here because a drain is asynchronous and a person keeps typing through it.
+   * A caller reconciling the result against the live queue needs to know
+   * *which version* went, or it drops an edit made mid-drain.
+   */
+  sentUpdatedAt: number;
+}
+
 export interface DrainReport {
-  sent: { path: string; etag: string; conflictCheck: ConflictCheck }[];
+  sent: Sent[];
   conflicted: string[];
   rejected: string[];
   /** Stopped before the end because a write failed in a way that may recover. */
@@ -151,7 +167,12 @@ export async function drainOutbox(
 
     if (outcome.kind === "written") {
       current = settle(current, write.path);
-      sent.push({ path: write.path, etag: outcome.etag, conflictCheck: outcome.conflictCheck });
+      sent.push({
+        path: write.path,
+        etag: outcome.etag,
+        conflictCheck: outcome.conflictCheck,
+        sentUpdatedAt: write.updatedAt,
+      });
       deps.onWritten?.({
         path: write.path,
         etag: outcome.etag,

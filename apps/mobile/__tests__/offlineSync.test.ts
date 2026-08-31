@@ -20,8 +20,10 @@ import {
   MAX_ATTEMPTS,
   classifyWriteFailure,
   drainOutbox,
+  type DrainReport,
   type WriteOutcome,
 } from "../features/offline/sync";
+import { reconcile } from "../features/offline/useOfflineNotes";
 import { memoryStore } from "../features/offline/memory";
 import { getOutbox, putOutbox } from "../features/offline/cache";
 import { connectionLine, queueLine, signOutWarning } from "../features/offline/copy";
@@ -146,7 +148,9 @@ describe("draining the queue", () => {
     });
 
     expect(bucket.asked[0]!.baseEtag).toBe("e1");
-    expect(report.sent).toEqual([{ path: "a.md", etag: "server", conflictCheck: "conditional" }]);
+    expect(report.sent).toEqual([
+      { path: "a.md", etag: "server", conflictCheck: "conditional", sentUpdatedAt: 1_000 },
+    ]);
     expect(outbox.writes).toEqual([]);
   });
 
@@ -410,6 +414,85 @@ describe("a queue that outlives the app", () => {
       ],
     });
     expect(parseOutbox(raw, "ws1").writes.map((w) => w.path)).toEqual(["good.md"]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+describe("typing through a drain", () => {
+  /*
+    A drain is asynchronous and nobody stops writing for it. These are the cases
+    where the queue that finished is not the queue that started, and each of
+    them loses somebody's work if it is collapsed into another.
+  */
+
+  const report = (sent: DrainReport["sent"]): DrainReport => ({
+    sent,
+    conflicted: [],
+    rejected: [],
+    stoppedEarly: false,
+  });
+
+  test("an entry that went, untouched since, is dropped", () => {
+    const live = queued("a.md", "one", "e1", 1_000);
+    const after = reconcile(
+      live,
+      emptyOutbox("ws1"),
+      report([{ path: "a.md", etag: "e2", conflictCheck: "conditional", sentUpdatedAt: 1_000 }]),
+    );
+    expect(after.writes).toEqual([]);
+  });
+
+  test("an edit made mid-drain survives, re-based onto what the drain just wrote", () => {
+    /*
+      Both halves. Dropping it loses typing. Keeping it on the old base etag
+      conflicts the person against their own write of thirty seconds ago, which
+      is the most confusing conflict it is possible to show somebody.
+    */
+    let live = queued("a.md", "one", "e1", 1_000);
+    live = enqueue(live, { path: "a.md", text: "one and more", baseEtag: "e1", now: 4_000 });
+
+    const after = reconcile(
+      live,
+      emptyOutbox("ws1"),
+      report([{ path: "a.md", etag: "e2", conflictCheck: "conditional", sentUpdatedAt: 1_000 }]),
+    );
+
+    expect(after.writes[0]!.text).toBe("one and more");
+    expect(after.writes[0]!.baseEtag).toBe("e2");
+    expect(after.writes[0]!.state).toBe("pending");
+  });
+
+  test("a verdict the drain reached survives newer typing", () => {
+    // The conflict is a fact about the bucket. Typing more does not change it —
+    // the same rule `enqueue` holds, applied to the reconciliation.
+    let live = queued("a.md", "one", "e1", 1_000);
+    live = enqueue(live, { path: "a.md", text: "more", baseEtag: "e1", now: 4_000 });
+    const drained = markConflict(queued("a.md", "one", "e1", 1_000), "a.md", {
+      currentEtag: "e2",
+      message: "moved",
+      now: 3_000,
+    });
+
+    const after = reconcile(live, drained, report([]));
+
+    expect(after.writes[0]!.state).toBe("conflicted");
+    expect(after.writes[0]!.text).toBe("more");
+    expect(after.writes[0]!.conflict?.currentEtag).toBe("e2");
+  });
+
+  test("a note first queued during the drain is left completely alone", () => {
+    let live = queued("a.md", "one", "e1", 1_000);
+    live = enqueue(live, { path: "new.md", text: "typed mid-drain", baseEtag: null, now: 4_000 });
+
+    const after = reconcile(
+      live,
+      emptyOutbox("ws1"),
+      report([{ path: "a.md", etag: "e2", conflictCheck: "conditional", sentUpdatedAt: 1_000 }]),
+    );
+
+    expect(after.writes.map((w) => w.path)).toEqual(["new.md"]);
+    expect(after.writes[0]!.text).toBe("typed mid-drain");
   });
 });
 

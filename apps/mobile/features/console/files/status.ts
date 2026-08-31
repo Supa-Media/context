@@ -26,6 +26,7 @@
 
 import type { EditorState } from "./editor";
 import type { ConflictCheck } from "./types";
+import { connectionLine, queueLine, type SyncFacts } from "../../offline/copy";
 
 export interface StatusFacts {
   editor: EditorState;
@@ -37,12 +38,21 @@ export interface StatusFacts {
   now: number;
   /** When the open note was last saved in this session. */
   savedAt?: number;
+  /**
+   * The connection, and the writes that have not reached the bucket.
+   *
+   * Absent on a console with no offline layer under it — the landing page's
+   * demo, which has no bucket to be offline from. The sentences themselves live
+   * in `features/offline/copy.ts` beside the states they describe; this decides
+   * where they sit and in what tone.
+   */
+  sync?: SyncFacts;
 }
 
 export type StatusTone = "quiet" | "ok" | "warn" | "crit";
 
 export interface StatusSegment {
-  id: "words" | "characters" | "save" | "conflictCheck" | "storage";
+  id: "connection" | "queue" | "words" | "characters" | "save" | "conflictCheck" | "storage";
   text: string;
   tone: StatusTone;
   /** Longer explanation for a tooltip / a tap. */
@@ -132,6 +142,15 @@ function saveSegment(facts: StatusFacts): StatusSegment | null {
       return null;
 
     case "clean":
+      /*
+        A note read off the device is not "Saved", and calling it that is the
+        console telling somebody their context contains something it does not.
+        The word changes, the tone changes, and how old the copy is goes in the
+        detail — `message` carries it, set by `opened`.
+      */
+      if (editor.fromCache === true) {
+        return { id: "save", text: "Cached copy", tone: "warn", detail: message };
+      }
       return {
         id: "save",
         text: savedAt === undefined ? "Saved" : `Saved ${relativeTime(savedAt, now)}`,
@@ -157,6 +176,21 @@ function saveSegment(facts: StatusFacts): StatusSegment | null {
 
     case "saved":
       return { id: "save", text: "Saved", tone: "ok", detail: message };
+
+    case "queued":
+      /*
+        `warn`, never `ok`. A queued draft is written down and is not in the
+        customer's bucket, and the whole product is that the bucket is the thing
+        that is real — so this may not wear the same tone as a save that landed.
+        What it is worth is in `message`, which changes with whether the store
+        is durable.
+      */
+      return {
+        id: "save",
+        text: "Queued",
+        tone: "warn",
+        detail: message ?? "Waiting for a connection. Not in your bucket yet.",
+      };
 
     case "conflict":
       return {
@@ -218,6 +252,27 @@ function conflictCheckSegment(check: ConflictCheck | undefined): StatusSegment |
 export function statusSegments(facts: StatusFacts): StatusSegment[] {
   const segments: StatusSegment[] = [];
   const { editor } = facts;
+
+  /*
+    First, before the counts, because they are facts about whether anything on
+    this screen can reach the bucket at all — and because a person who has lost
+    signal should not have to read past a word count to find that out.
+  */
+  if (facts.sync !== undefined) {
+    const connection = connectionLine(facts.sync);
+    if (connection !== null) {
+      segments.push({
+        id: "connection",
+        text: connection.text,
+        tone: "warn",
+        detail: connection.detail,
+      });
+    }
+    const queue = queueLine(facts.sync);
+    if (queue !== null) {
+      segments.push({ id: "queue", text: queue.text, tone: queue.tone, detail: queue.detail });
+    }
+  }
 
   // Counts describe an open note. With nothing open they would be zeroes about
   // no file.

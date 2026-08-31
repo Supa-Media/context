@@ -47,6 +47,11 @@ import {
   isMarkdown,
 } from "./paths";
 import { raceTimeout } from "../storage/timeout";
+import { useOfflineNotes } from "../../offline/useOfflineNotes";
+import { restoreFor } from "../../offline/restore";
+import { classifyWriteFailure, type WriteOutcome } from "../../offline/sync";
+import type { PendingWrite } from "../../offline/outbox";
+import { NOT_CACHED, cachedNotice } from "../../offline/copy";
 import { findEntry, foldersToRefresh, namesIn } from "./tree";
 import type { FolderListing, OpenNote, Visibility } from "./types";
 import { canResetPrivacy, canSetVisibility, canShare } from "../capabilities";
@@ -121,6 +126,15 @@ export function useFileBrowser(options: {
    * rather than handing back a URL with `undefined` in it.
    */
   slug?: string;
+  /**
+   * Whether this bucket's connect-time probe found real conditional writes.
+   *
+   * Passed in rather than read here, because the binding is a Convex query the
+   * console already holds and a second subscription to it would be a second
+   * answer that can disagree. `undefined` while it is loading, which the copy
+   * treats as "do not claim either way".
+   */
+  conditionalWrite?: boolean;
 }): FileBrowser {
   const workspaceId = options.workspaceId as Id<"workspaces"> | null;
   const slug = options.slug ?? null;
@@ -204,19 +218,109 @@ export function useFileBrowser(options: {
     [],
   );
 
+  /* ------------------------------- offline -------------------------------- */
+
+  /**
+   * One queued write, sent through the same action the Save button uses.
+   *
+   * This is the whole reason a drained write is as safe as an online one: it is
+   * not a second write path, it is `writeNote` with the etag the draft was
+   * typed against, so it gets the server's `onlyIf: { etagMatches }` where the
+   * bucket supports one and its read-compare where it does not — and the same
+   * `CONFLICT`, with the same `currentEtag`, when somebody got there first.
+   */
+  const sendQueued = useCallback(
+    async (pending: PendingWrite): Promise<WriteOutcome> => {
+      if (workspaceId === null) return { kind: "failed", message: "No context is open." };
+      try {
+        const result = await writeNote({
+          workspaceId,
+          path: pending.path,
+          text: pending.text,
+          expectedEtag: pending.baseEtag ?? undefined,
+        });
+        return { kind: "written", etag: result.etag, conflictCheck: result.conflictCheck };
+      } catch (error) {
+        return classifyWriteFailure(toFileError(error));
+      }
+    },
+    [workspaceId, writeNote],
+  );
+
+  /**
+   * A drained write moves the open editor onto the etag the bucket now holds.
+   *
+   * Without this, the note you are looking at still carries the etag its
+   * queued draft was typed against — which the drain has just superseded — and
+   * your very next Save conflicts you against your own write of a moment ago.
+   */
+  const onDrained = useCallback((result: { path: string; etag: string }) => {
+    const current = editorRef.current;
+    if (current.path !== result.path) return;
+    dispatch({ type: "queueSettled", etag: result.etag });
+  }, []);
+
+  const offline = useOfflineNotes({ workspaceId, write: sendQueued, onWritten: onDrained });
+
+  /*
+    Read through a ref inside every callback below.
+
+    `offline` is a fresh object whenever the queue changes — which is on every
+    keystroke while offline — and a `refresh`/`select`/`save` that depended on
+    it would be rebuilt just as often. `refresh` is a dependency of the effect
+    that loads the root, so that is not a performance note: it is the render
+    loop `consoleRenderLoop.test.ts` exists to catch. The rendered values
+    (`reachability`, `counts`) come off `offline` itself; the behaviour reads
+    the ref.
+  */
+  const offlineRef = useRef(offline);
+  offlineRef.current = offline;
+
+  /**
+   * Reload folders, from the bucket where it can be reached and from the device
+   * where it cannot.
+   *
+   * **It answers whether anything came off the device, and callers have to use
+   * that.** A tree redrawn from a cached listing is not a reloaded tree: it is
+   * the same picture as before, and if an operation has just changed the bucket
+   * it is a picture that is now wrong. `run` turns that into the same "the file
+   * list did not reload" line a failed refresh has always produced, because it
+   * is the same fact. Swallowing it would put the console back in the state it
+   * already learned not to be in — showing somebody a listing it has no reason
+   * to believe.
+   */
   const refresh = useCallback(
-    async (folders: readonly string[]) => {
-      if (workspaceId === null) return;
+    async (folders: readonly string[]): Promise<{ servedFromCache: boolean }> => {
+      if (workspaceId === null) return { servedFromCache: false };
+      const offline = offlineRef.current;
+      let servedFromCache = false;
       const pages = await Promise.all(
         folders.map(async (folder) => {
+          if (offline.reachability === "offline") {
+            // Deliberately not "call it and see". `listFiles` is a Convex
+            // action and `ConvexReactClient.action()` has no client-side
+            // timeout, so with no connection the promise never settles at all
+            // — the tree would sit empty forever rather than showing what is
+            // on the device.
+            const cached = await offline.cachedListing(folder);
+            servedFromCache = true;
+            return [folder, cached?.value ?? null] as const;
+          }
           try {
-            return [folder, await listFiles({ workspaceId, path: folder })] as const;
+            const page = await listFiles({ workspaceId, path: folder });
+            offline.rememberListing(page);
+            return [folder, page] as const;
           } catch (error) {
             const failure = toFileError(error);
             // A folder that has become invisible (its visibility changed, or
             // it was moved) is not an error worth shouting about — it is a
             // listing that should stop existing.
             if (failure.code === "FILE_NOT_FOUND") return [folder, null] as const;
+            const cached = await offline.cachedListing(folder);
+            if (cached !== null) {
+              servedFromCache = true;
+              return [folder, cached.value] as const;
+            }
             throw error;
           }
         }),
@@ -229,6 +333,7 @@ export function useFileBrowser(options: {
         }
         return next;
       });
+      return { servedFromCache };
     },
     [listFiles, workspaceId],
   );
@@ -245,16 +350,44 @@ export function useFileBrowser(options: {
 
     let cancelled = false;
     setLoading(true);
-    listFiles({ workspaceId, path: "" })
-      .then((page) => {
-        if (!cancelled) setListings({ "": page });
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) setNotice(toFileError(error).message);
-      })
-      .finally(() => {
+    void (async () => {
+      const offline = offlineRef.current;
+      try {
+        /*
+          Offline, the root is read off the device rather than asked for. Not a
+          fallback after a failure: `listFiles` is a Convex action with no
+          client-side timeout, so with no connection nothing ever rejects and
+          the console would sit on a spinner for as long as the tab was open.
+        */
+        if (offline.reachability === "offline") {
+          const cached = await offline.cachedListing("");
+          if (cancelled) return;
+          if (cached === null) {
+            setNotice(
+              "You are offline and nothing from this context is on this device yet. Open it once with a connection.",
+            );
+            return;
+          }
+          setListings({ "": cached.value });
+          return;
+        }
+        const page = await listFiles({ workspaceId, path: "" });
+        if (cancelled) return;
+        offline.rememberListing(page);
+        setListings({ "": page });
+      } catch (error: unknown) {
+        if (cancelled) return;
+        const cached = await offline.cachedListing("");
+        if (cancelled) return;
+        if (cached !== null) {
+          setListings({ "": cached.value });
+          return;
+        }
+        setNotice(toFileError(error).message);
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -296,6 +429,72 @@ export function useFileBrowser(options: {
     [searchContext, workspaceId],
   );
 
+  /**
+   * Put a note in the editor, from the bucket if it can be reached and from the
+   * device if it cannot — and put back whatever was waiting for it.
+   *
+   * Three things happen here that did not before, and each is a case that was
+   * previously an empty screen:
+   *
+   *  - **Offline reads go straight to the cache.** Not as a fallback after a
+   *    failure: `readNote` is a Convex action with no client-side timeout, so
+   *    with no connection it never rejects and the editor would sit blank.
+   *  - **A failed read falls back to the cache.** The signal can say online and
+   *    be wrong — a captive portal, a dead uplink — and a copy is better than a
+   *    refusal, as long as it says it is a copy.
+   *  - **Waiting work is restored.** A queued write, or a draft typed and never
+   *    saved. `restoreFor` decides which, and turns a draft whose base etag has
+   *    moved on into a conflict rather than into an armed overwrite.
+   */
+  const openNote = useCallback(
+    async (path: string): Promise<void> => {
+      if (workspaceId === null) return;
+      const offline = offlineRef.current;
+
+      let note: OpenNote | null = null;
+      let fromCache = false;
+      let notice: string | undefined;
+
+      if (offline.reachability === "offline") {
+        const cached = await offline.cachedNote(path);
+        if (cached !== null) {
+          note = cached.value;
+          fromCache = true;
+          notice = cachedNotice({ cachedAt: cached.cachedAt, now: Date.now() });
+        }
+      } else {
+        try {
+          note = await readNote({ workspaceId, path });
+          offline.rememberNote(note);
+        } catch (error) {
+          const cached = await offline.cachedNote(path);
+          if (cached === null) {
+            dispatch({ type: "closed" });
+            setNotice(toFileError(error).message);
+            return;
+          }
+          note = cached.value;
+          fromCache = true;
+          notice = cachedNotice({ cachedAt: cached.cachedAt, now: Date.now() });
+        }
+      }
+
+      if (note === null) {
+        dispatch({ type: "closed" });
+        setNotice(NOT_CACHED);
+        return;
+      }
+
+      const restored = restoreFor({
+        note,
+        pending: offline.pendingFor(path),
+        draft: await offline.savedDraft(path),
+      });
+      dispatch({ type: "opened", note, fromCache, notice, restored });
+    },
+    [readNote, workspaceId],
+  );
+
   const select = useCallback(
     (path: string): boolean => {
       const guard = guardLeaving(editorRef.current);
@@ -334,17 +533,12 @@ export function useFileBrowser(options: {
         return true;
       }
       if (workspaceId === null) return true;
-      readNote({ workspaceId, path })
-        .then((note: OpenNote) => dispatch({ type: "opened", note }))
-        .catch((error: unknown) => {
-          dispatch({ type: "closed" });
-          setNotice(toFileError(error).message);
-        });
+      void openNote(path);
       // The selection moved; whether the *read* lands is a separate question
       // this answer is not about. A caller only needs to know the guard let go.
       return true;
     },
-    [listings, readNote, refresh, workspaceId],
+    [listings, openNote, refresh, workspaceId],
   );
 
   /**
@@ -430,12 +624,15 @@ export function useFileBrowser(options: {
       const result = settled.value;
       let listingReloaded = true;
       try {
-        await refresh(
+        const reloaded = await refresh(
           foldersToRefresh(result.touched, {
             cascadeFrom: result.cascadeFrom,
             loaded: Object.keys(listings),
           }),
         );
+        // A listing served off the device is the tree as it was *before* this
+        // operation. Not a failure, and not a reload either — see `refresh`.
+        listingReloaded = !reloaded.servedFromCache;
       } catch {
         listingReloaded = false;
       }
@@ -476,6 +673,38 @@ export function useFileBrowser(options: {
   const save = useCallback(() => {
     const current = editorRef.current;
     if (workspaceId === null || current.path === null || current.readOnly) return;
+    const offline = offlineRef.current;
+
+    /*
+      With no connection the draft goes into the queue instead of into a socket
+      that will never answer.
+
+      Decided from the signal rather than from an error, because there is no
+      error to decide from: `writeNote` is a Convex action, `action()` has no
+      client-side timeout, and offline it neither resolves nor rejects. The
+      existing behaviour was thirty seconds of a disabled toolbar followed by
+      "we don't know whether that save landed" — for a save that certainly did
+      not.
+
+      `enqueue` carries the etag this draft was typed against, so the write that
+      eventually goes is the same conflict-checked write this function would
+      have made now.
+    */
+    if (offline.reachability === "offline") {
+      offline.queueSave({
+        path: current.path,
+        text: current.draft,
+        baseEtag: current.etag,
+      });
+      offline.forgetDraft(current.path);
+      dispatch({
+        type: "saveQueued",
+        message: offline.durable
+          ? "No connection, so this is written down on this device and will be sent when you are back."
+          : "No connection, so this is held for this session and will be sent when you are back. Closing the app loses it.",
+      });
+      return;
+    }
 
     saveRun.current += 1;
     const mine = saveRun.current;
@@ -507,6 +736,15 @@ export function useFileBrowser(options: {
       .then((result) => {
         if (saveRun.current !== mine) return;
         settle();
+        /*
+          The draft is in the bucket now, so the copy of it on this device is
+          not a draft any more — leaving it would restore "unsaved changes"
+          identical to the file, on a note nobody had touched. The cache moves
+          onto the text and etag that were just written, so a later offline read
+          of this note shows what the person saved rather than what they opened.
+        */
+        offline.forgetDraft(current.path!);
+        offline.rememberBody({ path: current.path!, text: current.draft, etag: result.etag });
         dispatch({
           type: "saveSucceeded",
           etag: result.etag,
@@ -521,17 +759,88 @@ export function useFileBrowser(options: {
       });
   }, [refresh, workspaceId, writeNote]);
 
+  /**
+   * "Load theirs" — take the bucket's version and let this draft go.
+   *
+   * The one path in the console that deliberately destroys somebody's typing,
+   * and it is reached from a control pressed with the conflict explained beside
+   * it. So it has to take the draft *and* anything holding a copy of it: the
+   * queue entry and the written-down draft both go, or the next time this note
+   * is opened the console restores the very text the person just chose to drop.
+   */
   const useTheirs = useCallback(() => {
     const current = editorRef.current;
     if (workspaceId === null || current.path === null) return;
-    readNote({ workspaceId, path: current.path })
-      .then((note: OpenNote) => dispatch({ type: "reloaded", note }))
+    const path = current.path;
+    const offline = offlineRef.current;
+    offline.dropQueued(path);
+    offline.forgetDraft(path);
+    readNote({ workspaceId, path })
+      .then((note: OpenNote) => {
+        offlineRef.current.rememberNote(note);
+        dispatch({ type: "reloaded", note });
+      })
       .catch((error: unknown) => setNotice(toFileError(error).message));
   }, [readNote, workspaceId]);
 
-  const keepMine = useCallback(() => dispatch({ type: "conflictOverridden" }), []);
-  const discard = useCallback(() => dispatch({ type: "discarded" }), []);
-  const setDraft = useCallback((text: string) => dispatch({ type: "edited", text }), []);
+  /**
+   * "Keep mine" — send this draft over the version that is there now.
+   *
+   * The queue is re-based in step with the editor. Leaving it behind would mean
+   * the editor moving onto the current etag while a queued entry still carried
+   * the stale one, so the next drain would raise the same conflict again about
+   * a decision the person has already made.
+   */
+  const keepMine = useCallback(() => {
+    const path = editorRef.current.path;
+    if (path !== null) offlineRef.current.keepQueued(path);
+    dispatch({ type: "conflictOverridden" });
+  }, []);
+
+  const discard = useCallback(() => {
+    const path = editorRef.current.path;
+    if (path !== null) {
+      offlineRef.current.dropQueued(path);
+      offlineRef.current.forgetDraft(path);
+    }
+    dispatch({ type: "discarded" });
+  }, []);
+
+  /**
+   * Every keystroke, written down.
+   *
+   * Two destinations, and which one depends on whether Save has been pressed
+   * yet. Before it, the text is a *draft* — nothing has tried to send it — and
+   * it is kept so that closing the tab, or the OS reclaiming a backgrounded
+   * app, does not throw it away. After it, the text belongs to the queue, and
+   * `queueSave` supersedes the entry so what eventually reaches the bucket is
+   * the last thing typed rather than the version that happened to be waiting
+   * when the signal went.
+   *
+   * Both are debounced inside `useOfflineNotes`; neither writes to storage per
+   * character.
+   */
+  const setDraft = useCallback((text: string) => {
+    const current = editorRef.current;
+    dispatch({ type: "edited", text });
+    if (current.path === null || current.readOnly) return;
+    const offline = offlineRef.current;
+    if (current.status === "queued") {
+      offline.queueSave({ path: current.path, text, baseEtag: current.etag });
+      return;
+    }
+    if (text === current.baseline) {
+      offline.forgetDraft(current.path);
+      return;
+    }
+    offline.rememberDraft({
+      path: current.path,
+      text,
+      baseEtag: current.etag,
+      savedAt: Date.now(),
+    });
+  }, []);
+
   const dismissNotice = useCallback(() => setNotice(null), []);
 
   const createNote = useCallback(
@@ -952,6 +1261,12 @@ export function useFileBrowser(options: {
       useTheirs,
       keepMine,
       discard,
+      sync: {
+        reachability: offline.reachability,
+        counts: offline.counts,
+        durable: offline.durable,
+        conditionalWrite: options.conditionalWrite,
+      },
       notice,
       dismissNotice,
       toasts,
@@ -1011,7 +1326,11 @@ export function useFileBrowser(options: {
       loading,
       move,
       notice,
+      offline.counts,
+      offline.durable,
+      offline.reachability,
       options.canEdit,
+      options.conditionalWrite,
       options.isOwner,
       options.readOnlyReason,
       paste,
