@@ -165,7 +165,7 @@ function mountBrowser(): () => void {
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
 
   function Probe() {
-    browser = useFileBrowser({ workspaceId: WORKSPACE, canEdit: true });
+    browser = useFileBrowser({ workspaceId: WORKSPACE, canEdit: true, tier: "private" });
     return null;
   }
 
@@ -288,6 +288,7 @@ function mountOffline(write: (pending: { path: string }) => Promise<WriteOutcome
   function Probe() {
     offline = useOfflineNotes({
       workspaceId: WORKSPACE,
+      tier: "private",
       write: write as never,
     });
     return null;
@@ -401,7 +402,7 @@ describe("a drain that settles after the session ended", () => {
 describe("every writer drops a write from a session that has ended", () => {
   test("the four cache writers, and the queue", async () => {
     const seeded = { ...NOTE, text: "the version already on the device" };
-    await cache.putNote(openStore(), WORKSPACE, seeded, Date.now());
+    await cache.putNote(openStore(), "private", WORKSPACE, seeded, Date.now());
 
     unmount = mountOffline(async () => ({ kind: "failed", message: "unused" }));
     await settle();

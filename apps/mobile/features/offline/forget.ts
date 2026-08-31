@@ -1,6 +1,6 @@
 import { forgetEverything, forgetWorkspace, waitingOnDevice } from "./cache";
 import { endSession } from "./epoch";
-import { ownedKeys, parseKey } from "./keys";
+import { keysForWorkspace, ownedKeys } from "./keys";
 import type { OutboxCounts } from "./outbox";
 import { openStore } from "./store";
 
@@ -254,9 +254,11 @@ async function clearContext(workspaceId: string): Promise<ForgetResult> {
     const store = openStore();
     await forgetWorkspace(store, workspaceId);
     if (!store.durable) return { verdict: "unmeasured" };
-    const left = (await store.keys()).filter(
-      (key) => parseKey(key)?.workspaceId === workspaceId,
-    );
+    // The same set the clear took, through the same function. A verification
+    // with its own idea of which keys belong to this context is a verification
+    // that reports `cleared` over records nothing looked at — which is the
+    // failure this module's "never silently" stance exists to prevent.
+    const left = keysForWorkspace(await store.keys(), workspaceId);
     if (left.length > 0) {
       warnLeftBehind("leave", left.length);
       return { verdict: "left-behind" };

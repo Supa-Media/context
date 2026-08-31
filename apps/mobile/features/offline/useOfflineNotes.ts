@@ -31,7 +31,9 @@ import {
 } from "./outbox";
 import { drainOutbox, type DrainReport, type WriteOutcome } from "./sync";
 import { useReachability } from "./reachability";
+import type { CacheScope } from "./keys";
 import type { Reachability } from "./copy";
+import type { VisibilityTier } from "../console/visibility";
 import type { FolderListing, OpenNote } from "../console/files/types";
 
 /**
@@ -72,6 +74,23 @@ import type { FolderListing, OpenNote } from "../console/files/types";
  * clear is a point-in-time `remove()` loop with an open window behind it, and
  * the measured result is a private note body back on the device after sign-out.
  * See `epoch.ts` for the whole argument, including why it re-arms by itself.
+ *
+ * ## Why the clearance is an input rather than something this hook derives
+ *
+ * A cached note is a copy of a *filtered* answer, so the clearance it was read
+ * at belongs in its key — `keys.ts` argues that at length. The tier itself is
+ * decided in exactly one place in this app (`visibilityTierForRole`, pinned
+ * against the control plane's `scopeForRole` by
+ * `__tests__/consoleVisibility.test.ts`) and is passed down from the console,
+ * because a second derivation here would be a second answer that can disagree
+ * with the one on screen — and the direction that disagreement fails is "the
+ * device serves more than the server would".
+ *
+ * `unknown` — the moment before the context list lands, or a role a newer
+ * control plane invented — writes nothing and reads nothing. Only the two
+ * *copies* are gated on it: a draft and the queue are the person's own typing,
+ * carry no clearance, and must keep working while the console is still finding
+ * out what this person is.
  */
 
 /** A second of typing is what a crash may cost. See the file comment. */
@@ -124,13 +143,28 @@ export interface OfflineNotes {
 
 export function useOfflineNotes(options: {
   workspaceId: string | null;
+  /**
+   * How much of this context the person at the keyboard can see.
+   *
+   * From `visibilityTierForRole`, never re-derived here. `unknown` turns the
+   * note and listing cache off — see the file comment.
+   */
+  tier: VisibilityTier;
   /** Performs one queued write against the control plane. */
   write: (write: PendingWrite) => Promise<WriteOutcome>;
   /** Called for each write that landed, so the editor can take the new etag. */
   onWritten?: (result: { path: string; etag: string }) => void;
 }): OfflineNotes {
-  const { workspaceId } = options;
+  const { tier, workspaceId } = options;
   const reachability = useReachability();
+
+  /*
+    `null` is "we do not know yet", and it is not the same as `team`. Guessing
+    the narrow one would be safe to *read* and wrong to *write*: an owner's
+    private note would be filed under the clearance a team-level session reads
+    at, which is the leak with an extra step. So both halves stop.
+  */
+  const scope: CacheScope | null = tier === "unknown" ? null : tier;
 
   // One store for the life of the app. `openStore` probes the platform, and
   // doing that per render would be a `localStorage` write per render.
@@ -312,7 +346,17 @@ export function useOfflineNotes(options: {
   }, [drain, reachability, ready]);
 
   const api = useMemo<OfflineNotes>(() => {
-    const scope = workspaceId ?? "";
+    /*
+      One value that says whether a *copy* may be touched at all, and under what
+      clearance: a context has to be open and its tier has to be known. It is an
+      object rather than a boolean so that the two facts travel together — a
+      flag plus two separately-read variables is how a call site ends up filing
+      a note under a clearance the flag was not about. Drafts and the queue are
+      deliberately not behind it: they are typing, not a copy of an answer.
+    */
+    const copies: { scope: CacheScope; workspaceId: string } | null =
+      workspaceId === null || scope === null ? null : { scope, workspaceId };
+    const workspace = workspaceId ?? "";
     return {
       ready,
       durable: store.durable,
@@ -329,17 +373,18 @@ export function useOfflineNotes(options: {
         untestable and would make `putNote` mean two different things.
       */
       rememberNote: (note) => {
-        if (workspaceId === null || !mine()) return;
-        void putNote(store, scope, note, Date.now()).catch(() => {});
+        if (copies === null || !mine()) return;
+        void putNote(store, copies.scope, copies.workspaceId, note, Date.now()).catch(() => {});
       },
       rememberBody: (body) => {
-        if (workspaceId === null || !mine()) return;
-        void getNote(store, scope, body.path)
+        if (copies === null || !mine()) return;
+        void getNote(store, copies.scope, copies.workspaceId, body.path)
           .then((cached) => {
             if (cached === null) return;
             return putNote(
               store,
-              scope,
+              copies.scope,
+              copies.workspaceId,
               { ...cached.value, text: body.text, etag: body.etag },
               Date.now(),
             );
@@ -347,14 +392,17 @@ export function useOfflineNotes(options: {
           .catch(() => {});
       },
       rememberListing: (listing) => {
-        if (workspaceId === null || !mine()) return;
-        void putListing(store, scope, listing, Date.now()).catch(() => {});
+        if (copies === null || !mine()) return;
+        void putListing(store, copies.scope, copies.workspaceId, listing, Date.now()).catch(
+          () => {},
+        );
       },
-      cachedNote: async (path) => (workspaceId === null ? null : getNote(store, scope, path)),
+      cachedNote: async (path) =>
+        copies === null ? null : getNote(store, copies.scope, copies.workspaceId, path),
       cachedListing: async (path) =>
-        workspaceId === null ? null : getListing(store, scope, path),
+        copies === null ? null : getListing(store, copies.scope, copies.workspaceId, path),
 
-      savedDraft: async (path) => (workspaceId === null ? null : getDraft(store, scope, path)),
+      savedDraft: async (path) => (workspaceId === null ? null : getDraft(store, workspace, path)),
       rememberDraft: (draft) => {
         if (workspaceId === null) return;
         /*
@@ -371,7 +419,7 @@ export function useOfflineNotes(options: {
           draftPending.current = null;
           // The gap this closes is the most ordinary sequence in the product:
           // type a word, press sign out. Checked when the timer fires.
-          if (latest !== null && mine()) void putDraft(store, scope, latest).catch(() => {});
+          if (latest !== null && mine()) void putDraft(store, workspace, latest).catch(() => {});
         }, PERSIST_DEBOUNCE_MS);
       },
       forgetDraft: (path) => {
@@ -379,7 +427,7 @@ export function useOfflineNotes(options: {
         // Cancel anything still in flight for this note first, or the debounced
         // write lands a second after the clear and resurrects it.
         if (draftPending.current?.path === path) draftPending.current = null;
-        void clearDraft(store, scope, path).catch(() => {});
+        void clearDraft(store, workspace, path).catch(() => {});
       },
 
       /*
@@ -405,7 +453,7 @@ export function useOfflineNotes(options: {
       drain,
       lastDrain,
     };
-  }, [commit, drain, lastDrain, mine, outbox, reachability, ready, store, workspaceId]);
+  }, [commit, drain, lastDrain, mine, outbox, reachability, ready, scope, store, workspaceId]);
 
   return api;
 }

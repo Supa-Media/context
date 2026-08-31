@@ -108,7 +108,7 @@ function mount(options: { canEdit: boolean; isOwner?: boolean }): () => void {
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
   function Probe() {
-    browser = useFileBrowser({ workspaceId: "w1", ...options });
+    browser = useFileBrowser({ workspaceId: "w1", tier: "private", ...options });
     return null;
   }
   act(() => {

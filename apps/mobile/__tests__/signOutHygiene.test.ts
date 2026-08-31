@@ -219,9 +219,9 @@ async function seedDevice(what: { cached?: boolean; typed?: boolean } = {}) {
   const opened = store.openStore();
 
   if (what.cached !== false) {
-    await cache.putNote(opened, "w1", note("1-projects/pay.md", "salary numbers"), 1);
+    await cache.putNote(opened, "private", "w1", note("1-projects/pay.md", "salary numbers"), 1);
     await cache.putListing(
-      opened,
+      opened, "private",
       "w1",
       { path: "", folderDefault: "private", entries: [], truncated: false, manifestUsable: true },
       1,

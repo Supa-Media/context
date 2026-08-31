@@ -117,10 +117,10 @@ function note(path: string): OpenNote {
 async function seedBothContexts() {
   const store = openStore();
   const now = Date.now();
-  await cache.putNote(store, "w1", note("1-projects/mine.md"), now);
-  await cache.putNote(store, "w2", note("1-projects/theirs.md"), now);
+  await cache.putNote(store, "private", "w1", note("1-projects/mine.md"), now);
+  await cache.putNote(store, "private", "w2", note("1-projects/theirs.md"), now);
   await cache.putListing(
-    store,
+    store, "private",
     "w2",
     { path: "", folderDefault: "team", entries: [], truncated: false, manifestUsable: true },
     now,

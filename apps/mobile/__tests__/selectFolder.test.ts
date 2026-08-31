@@ -85,7 +85,7 @@ beforeEach(() => {
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
 
   function Probe() {
-    browser = useFileBrowser({ workspaceId: "w1", canEdit: true, isOwner: true });
+    browser = useFileBrowser({ workspaceId: "w1", canEdit: true, isOwner: true, tier: "private" });
     return null;
   }
   act(() => {

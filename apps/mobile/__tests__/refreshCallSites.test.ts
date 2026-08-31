@@ -102,7 +102,7 @@ function mount(): () => void {
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
 
   function Probe() {
-    browser = useFileBrowser({ workspaceId: WORKSPACE, canEdit: true });
+    browser = useFileBrowser({ workspaceId: WORKSPACE, canEdit: true, tier: "private" });
     return null;
   }
 
@@ -137,7 +137,7 @@ beforeEach(async () => {
     const { path } = args as unknown as { path: string };
     return path === "" ? ROOT : listing(path);
   };
-  await cache.putListing(openStore(), WORKSPACE, CACHED_FOLDER, Date.now());
+  await cache.putListing(openStore(), "private", WORKSPACE, CACHED_FOLDER, Date.now());
 });
 
 afterEach(() => {

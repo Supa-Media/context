@@ -43,7 +43,8 @@ const {
 } = require("../features/offline/forget") as typeof import("../features/offline/forget");
 const { currentEpoch } =
   require("../features/offline/epoch") as typeof import("../features/offline/epoch");
-const { keyFor } = require("../features/offline/keys") as typeof import("../features/offline/keys");
+const { keyFor, scopedKeyFor } =
+  require("../features/offline/keys") as typeof import("../features/offline/keys");
 
 /** A store backed by a `Map`, with any of its four methods replaceable. */
 function store(
@@ -65,8 +66,8 @@ function store(
   };
 }
 
-const NOTE_KEY = keyFor("note", "w1", "1-projects/pay.md");
-const OTHER_NOTE_KEY = keyFor("note", "w2", "1-projects/other.md");
+const NOTE_KEY = scopedKeyFor("note", "private", "w1", "1-projects/pay.md");
+const OTHER_NOTE_KEY = scopedKeyFor("note", "private", "w2", "1-projects/other.md");
 const DRAFT_KEY = keyFor("draft", "w1", "1-projects/pay.md");
 
 const SEEDED = {

@@ -55,6 +55,7 @@ import { NOT_CACHED, cachedNotice } from "../../offline/copy";
 import { findEntry, foldersToRefresh, namesIn } from "./tree";
 import type { FolderListing, OpenNote, Visibility } from "./types";
 import { canResetPrivacy, canSetVisibility, canShare } from "../capabilities";
+import type { VisibilityTier } from "../visibility";
 
 /** The literal the backend requires before it will delete anything. */
 const DELETE_CONFIRMATION = "permanently delete";
@@ -119,6 +120,17 @@ export function useFileBrowser(options: {
    * exists — see `canResetPrivacy` on `FileBrowser`.
    */
   isOwner?: boolean;
+  /**
+   * How much of this context the person at the keyboard can see.
+   *
+   * Not derivable from `isOwner`, and that is the point: `isOwner === false`
+   * covers both "an editor" and "the context list has not landed yet", and
+   * those two need opposite answers from a cache. `visibilityTierForRole` is
+   * the one place this app decides it, so it is passed rather than re-derived
+   * — see `features/offline/keys.ts` for what a copy taken at the wrong
+   * clearance costs.
+   */
+  tier: VisibilityTier;
   /**
    * The context's slug, for the readable team link (`/console/@slug?note=…`).
    *
@@ -260,7 +272,12 @@ export function useFileBrowser(options: {
     dispatch({ type: "queueSettled", etag: result.etag });
   }, []);
 
-  const offline = useOfflineNotes({ workspaceId, write: sendQueued, onWritten: onDrained });
+  const offline = useOfflineNotes({
+    workspaceId,
+    tier: options.tier,
+    write: sendQueued,
+    onWritten: onDrained,
+  });
 
   /*
     Read through a ref inside every callback below.

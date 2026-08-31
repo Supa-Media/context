@@ -14,6 +14,7 @@ import { EMPTY_QUERY_SPEC } from "./querySpec";
 import { useFileBrowser } from "./files/useFileBrowser";
 import { ingestionAvailabilityFor } from "./ingestion/settings";
 import { capabilitiesForRole } from "./capabilities";
+import { visibilityTierForRole } from "./visibility";
 import { useIngestionSettings } from "./ingestion/useIngestionSettings";
 import { useMembers } from "./members/useMembers";
 import { toBindStorageArgs, type Provider } from "./storage/connect";
@@ -392,6 +393,11 @@ export function useLiveConsoleData(): ConsoleData {
     // `storageActions`, and the same reason — the control is absent rather than
     // present and refused.
     isOwner,
+    // The clearance every read in this console is filtered by, and therefore
+    // the clearance a local copy of one has to be filed under. Same derivation
+    // the tier chip in `ConsoleShell` draws from — there is one
+    // `visibilityTierForRole` and no second answer.
+    tier: visibilityTierForRole(selected?.role),
     readOnlyReason:
       selected === null
         ? undefined

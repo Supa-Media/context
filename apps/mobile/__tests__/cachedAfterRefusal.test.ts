@@ -116,7 +116,7 @@ function mount(): () => void {
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
 
   function Probe() {
-    browser = useFileBrowser({ workspaceId: WORKSPACE, canEdit: true });
+    browser = useFileBrowser({ workspaceId: WORKSPACE, canEdit: true, tier: "private" });
     return null;
   }
 
@@ -155,8 +155,8 @@ function shown(): string {
 async function seedCache() {
   const store = openStore();
   const now = Date.now();
-  await cache.putNote(store, WORKSPACE, CACHED_NOTE, now);
-  await cache.putListing(store, WORKSPACE, CACHED_LISTING, now);
+  await cache.putNote(store, "private", WORKSPACE, CACHED_NOTE, now);
+  await cache.putListing(store, "private", WORKSPACE, CACHED_LISTING, now);
 }
 
 let unmount: (() => void) | null = null;
@@ -315,7 +315,7 @@ describe("the folder tree", () => {
     await settle();
     // The live load overwrote the cache with what the bucket said; put the
     // older copy back, so there is something to wrongly fall back to.
-    await cache.putListing(openStore(), WORKSPACE, CACHED_LISTING, Date.now());
+    await cache.putListing(openStore(), "private", WORKSPACE, CACHED_LISTING, Date.now());
 
     actions[name("moveEntry")] = async () => undefined;
     actions[name("listFiles")] = async () => {
@@ -525,7 +525,7 @@ describe("the folder tree when the bucket could not be reached", () => {
     */
     unmount = mount();
     await settle();
-    await cache.putListing(openStore(), WORKSPACE, CACHED_LISTING, Date.now());
+    await cache.putListing(openStore(), "private", WORKSPACE, CACHED_LISTING, Date.now());
 
     actions[name("moveEntry")] = async () => undefined;
     actions[name("listFiles")] = async () => {
@@ -547,7 +547,7 @@ describe("the folder tree when the bucket could not be reached", () => {
   test("a reload refused with a code nobody has seen before does not", async () => {
     unmount = mount();
     await settle();
-    await cache.putListing(openStore(), WORKSPACE, CACHED_LISTING, Date.now());
+    await cache.putListing(openStore(), "private", WORKSPACE, CACHED_LISTING, Date.now());
 
     actions[name("moveEntry")] = async () => undefined;
     actions[name("listFiles")] = async () => {
