@@ -33,10 +33,25 @@ const {
  * Measured before this test existed, with `react-native` moved into `gated`:
  * `eslint .` reported **0** findings for the rule while the jest scanner
  * correctly reported **77**. So the "two complementary guards" the design
- * assumes were one guard, and the half that was gone is the half that sees
- * sub-path imports (`dep/inner`) and unguarded top-level `require()` — neither
- * of which the scanner's exact `Set.has` on the specifier can see at all.
+ * assumes were one guard.
+ *
+ * **Complementary in both directions, and neither is a superset** — worth
+ * stating precisely, because this is where somebody will decide whether one
+ * guard can stand in for the other. Measured over one file holding all five
+ * shapes: the rule sees a plain import, a sub-path import (`dep/inner`) and an
+ * unguarded top-level `require()`, because it visits `ImportDeclaration` and
+ * `CallExpression`. The scanner sees a plain import and both re-export forms
+ * (`export { C } from`, `export * from`), because its regex matches
+ * `…from "spec"`, but its exact `Set.has` on the specifier cannot see a
+ * sub-path and it never looks at `require()`. Barrel files are routine in an
+ * Expo app, so the scanner's half is not academic either.
  * Latent today only because `gated` is empty; live the moment it is not.
+ *
+ * One inherited cost, named rather than left to be discovered: both guards
+ * flag **type-only** imports, which TypeScript erases and which cannot reach
+ * any bundle. Not introduced here, but this is the change that makes the lint
+ * half live at `"error"`, so the day a dependency is gated that false positive
+ * arrives twice.
  *
  * The real fix belongs upstream. What is here is the bridge and its proof:
  * `eslint.native-deps.js` derives the map dialect from the arrays and hands it
@@ -168,6 +183,38 @@ describe("the classification is derived, never authored twice", () => {
     expect(() => classifyNativeDeps({ core: ["a"] })).toThrow(/gated/);
     expect(() => classifyNativeDeps({ core: "a", gated: [] })).toThrow(/core/);
     expect(() => classifyNativeDeps({ core: [1], gated: [] })).toThrow(/core/);
+  });
+
+  test("an unwritable target falls back rather than taking eslint down", () => {
+    /*
+      A source fault and a write fault are different faults with very different
+      blast radii, and the first version of this file conflated them: any throw
+      here happens at config-evaluation time, so it stops eslint starting at
+      all — losing every core, TypeScript and react-hooks rule over a handoff
+      file. That is the "eslint refuses to run at all" disaster
+      `eslint.config.js` records above this one, except originating in this
+      repo rather than in a dependency, and it is reachable on the read-only
+      checkout that self-hosting implies.
+
+      So a write fault falls back to the system temp directory. The target here
+      is under a path component that is a regular file, which is the cheapest
+      way to make `mkdirSync` fail; `EROFS` and `EACCES` take the same branch.
+    */
+    const unwritable = path.join(__dirname, "..", "package.json", "nope", "x.json");
+    const written = writeClassifiedNativeDeps({ target: unwritable });
+
+    expect(written).not.toBe(unwritable);
+    expect(written.startsWith(os.tmpdir())).toBe(true);
+    expect(JSON.parse(fs.readFileSync(written, "utf8"))).toEqual(classifyNativeDeps(nativeDeps));
+  });
+
+  test("but a source fault is still fatal", () => {
+    // The other side of the same decision. An unreadable or wrong-shaped
+    // `native-deps.json` means no classification exists, and linting on with
+    // the rule inert is the whole failure being bridged.
+    expect(() =>
+      writeClassifiedNativeDeps({ source: path.join(os.tmpdir(), "no-such-native-deps.json") }),
+    ).toThrow();
   });
 
   test("the real eslint config hands the rule the converted map", () => {

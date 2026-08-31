@@ -52,6 +52,7 @@
  */
 
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
 /** The one authored copy. */
@@ -107,18 +108,67 @@ function classifyNativeDeps(nativeDeps) {
  * @returns {string} absolute path to the derived map
  */
 function writeClassifiedNativeDeps({ source = NATIVE_DEPS_PATH, target = CLASSIFIED_PATH } = {}) {
+  // A *source* fault — the file missing, unparseable, or the wrong shape —
+  // throws, and takes eslint down with it. That is the intent: the
+  // classification could not be built, and linting on with the rule inert is
+  // the failure this file exists to end.
   const map = classifyNativeDeps(JSON.parse(fs.readFileSync(source, "utf8")));
+  const body = `${JSON.stringify(map, null, 2)}\n`;
+
+  /*
+    A *write* fault is a different fault and must not share that fate. The
+    classification was built; only the handoff file failed. Taking eslint down
+    then loses every core, TypeScript and react-hooks rule — which is exactly
+    the "eslint refuses to run at all" disaster `eslint.config.js` records
+    above this one, except originating here rather than in a dependency.
+
+    It is reachable on the self-hosting path this repo commits to supporting:
+    a read-only checkout, a hermetic build, `docker run --read-only`. So the
+    write falls back to the system temp directory, and only a failure there
+    too is fatal. `node_modules/.cache` is preferred solely because it is
+    already gitignored, which `os.tmpdir()` gives for free.
+  */
+  for (const candidate of [target, path.join(os.tmpdir(), "supa-linter-native-deps.json")]) {
+    try {
+      return writeAtomically(candidate, body);
+    } catch (error) {
+      if (candidate !== target) throw error;
+    }
+  }
+  /* c8 ignore next */
+  throw new Error("unreachable: the loop above either returns or throws");
+}
+
+/**
+ * Write through a per-process temp file and rename.
+ *
+ * More than one process writes this path — a jest run has `lintRuns.test.ts`
+ * spawning the eslint binary while another worker requires the config. A plain
+ * `writeFileSync` truncates before it writes, so a concurrent reader can see a
+ * partial file, and upstream answers an unreadable `nativeDepsPath` by
+ * catching and returning an empty visitor. So a torn read does not surface as
+ * a parse error; it makes the rule **silently inert for that run**, which is
+ * the precise failure this whole file exists to end.
+ *
+ * The staging file is in the target's own directory, so the rename is on one
+ * filesystem and is therefore atomic. The `finally` is for the throw between
+ * write and rename, which would otherwise leave a stray `.tmp` behind.
+ */
+function writeAtomically(target, body) {
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  // Written through a per-process temp file and renamed, because more than one
-  // process writes this path: a jest run has `lintRuns.test.ts` spawning the
-  // eslint binary while another worker requires this config. A plain
-  // `writeFileSync` truncates first, so a concurrent reader can see a partial
-  // file — and a partial file is a parse error in a lint run that has nothing
-  // to do with linting.
   const staging = `${target}.${process.pid}.tmp`;
-  fs.writeFileSync(staging, `${JSON.stringify(map, null, 2)}\n`);
-  fs.renameSync(staging, target);
-  return target;
+  try {
+    fs.writeFileSync(staging, body);
+    fs.renameSync(staging, target);
+    return target;
+  } finally {
+    try {
+      if (fs.existsSync(staging)) fs.unlinkSync(staging);
+    } catch {
+      // A staging file we could not clean up is inert: it is gitignored,
+      // named for this pid, and overwritten by this pid's next run.
+    }
+  }
 }
 
 // Only the two functions: the paths are defaults, and the one place that needs

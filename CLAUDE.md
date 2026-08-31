@@ -1330,9 +1330,18 @@ list authored twice. So `eslint.native-deps.js` derives the map from the arrays
 on every lint run and passes it through the rule's own `nativeDepsPath` option,
 which is the only configuration `meta.schema` offers. Upstream's matching logic
 runs unmodified, so this is a bridge and not a second implementation of the
-rule — and the reach it restores is real rather than duplicated: the scanner
-matches an import specifier with an exact `Set.has`, so `dep/inner` and an
-unguarded top-level `require()` are seen by the lint rule and by nothing else.
+rule — and the reach it restores is real rather than duplicated. **The two are
+complementary in both directions and neither is a superset**, which is the part
+to get right, because this is where somebody decides whether one can stand in
+for the other. Measured over one file holding all five shapes: the rule sees a
+plain import, a sub-path import (`dep/inner`) and an unguarded top-level
+`require()`, because it visits `ImportDeclaration` and `CallExpression`; the
+scanner sees a plain import and both re-export forms (`export { C } from`,
+`export * from`), because its regex matches `…from "spec"` — but its exact
+`Set.has` cannot see a sub-path and it never looks at `require()`. Barrel files
+are routine in an Expo app, so neither half is academic. Both also flag
+type-only imports, which TypeScript erases; that false positive is inherited
+rather than introduced, and arrives twice the day a dependency is gated.
 
 `__tests__/nativeImportGuard.test.js` proves the rule *fires* — resolving is
 what `lintRuns.test.ts` already asserted, and resolving was never the problem —
