@@ -837,7 +837,7 @@ async function loadNoteVisibilityOverrides(store) {
 }
 
 function effectiveVisibility(key, rules, overrides) {
-  return overrides?.get(key) || visibilityOf(key, rules);
+  return overrideFor(overrides, key) || visibilityOf(key, rules);
 }
 
 async function persistExactVisibility(store, path, visibility, rules) {
@@ -857,8 +857,8 @@ async function persistExactVisibility(store, path, visibility, rules) {
       return;
     }
     const inherited = visibilityOf(path, state.rules);
-    if (visibility === inherited) state.overrides.delete(path);
-    else state.overrides.set(path, visibility);
+    deleteOverride(state.overrides, path);
+    if (visibility !== inherited) state.overrides.set(path, visibility);
     const next = replacePrivacyRulesBlock(state.text, state.rules, state.overrides);
     const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
     if (put) return;
@@ -874,8 +874,8 @@ async function clearExactVisibility(store, path) {
       await store.delete(noteAclKey(path));
       return;
     }
-    if (!state.overrides.has(path)) return;
-    state.overrides.delete(path);
+    if (!hasOverride(state.overrides, path)) return;
+    deleteOverride(state.overrides, path);
     const next = replacePrivacyRulesBlock(state.text, state.rules, state.overrides);
     const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
     if (put) return;
@@ -883,13 +883,87 @@ async function clearExactVisibility(store, path) {
   throw new Error("privacy manifest changed concurrently; retry the operation");
 }
 
+/**
+ * One object, one privacy answer — even where two strings name one object.
+ *
+ * Every decision in this engine is keyed on an exact path: `isPlumbing` opens
+ * with `key === PRIVACY_KEY`, and `effectiveVisibility` is an exact `Map.get`
+ * against the exact-note overrides. That is sound on a keyspace where one
+ * string is one object, which is what R2 and S3 are — and `DropboxStore` is
+ * not. Its own header lists the difference: Dropbox "treats `Foo.md` and
+ * `foo.md` as the same file and normalises Unicode", and it deliberately does
+ * not re-case a caller's key, because a store that silently rewrote one would
+ * be worse than one that returns what Dropbox actually has.
+ *
+ * That is the right call for the adapter and it leaves the question here. Every
+ * note path in this gateway arrives from a connected AI client, so on a
+ * Dropbox-backed context an attacker picks which of two strings to send and
+ * therefore which of two answers to be scored by: `Privacy.md` is not
+ * `privacy.md`, so nothing reserved it, and Dropbox wrote the manifest anyway.
+ *
+ * So the fold happens where the decision is made rather than where the bytes
+ * are stored, and it happens on **every** backend. A privacy answer that
+ * depends on which adapter is underneath is an answer nobody can check, and the
+ * cost of folding on a case-sensitive store is only ever restrictive: a note
+ * whose name differs from a reserved key or a narrowing override by case alone
+ * is refused rather than served.
+ *
+ * `visibilityOf`'s folder rules are deliberately NOT folded. Re-casing a folder
+ * makes every prefix miss and the default `private` takes over, which already
+ * fails closed; folding them would make a `team` rule match folders its author
+ * did not name, which fails open. The two halves differ in direction, not in rigour.
+ */
+function foldPath(key) {
+  return key.normalize("NFC").toLowerCase();
+}
+
 /** Dot-prefixed segments (.history, .obsidian, …) are plumbing, never notes. */
 function isPlumbing(key) {
+  const folded = foldPath(key);
   return (
-    key === PRIVACY_KEY ||
-    key === LEGACY_SCOPES_KEY ||
+    folded === PRIVACY_KEY ||
+    folded === LEGACY_SCOPES_KEY ||
     key.split("/").some((s) => s.startsWith("."))
   );
+}
+
+/**
+ * The exact-note overrides, looked up so the fold cannot be left out.
+ *
+ * A `Map` subclass overriding `get`/`has` was the first shape of this and is
+ * the wrong one: it folds only for maps this module built, so a caller holding
+ * a plain `Map` — `__tests__/privacyEngine.test.ts` passes one — silently gets
+ * the unfolded answer, and the control plane, which cannot use a subclass at
+ * all because `nextOverrides` copies with `new Map(overrides)`, would then
+ * disagree with this file about a live note. Two engines that disagree is the
+ * one failure that whole test exists to prevent.
+ *
+ * So both copies fold in a helper over any map, and the helper is the only way
+ * either of them reads an override.
+ */
+function overrideFor(overrides, key) {
+  if (!overrides) return undefined;
+  const exact = overrides.get(key);
+  if (exact !== undefined) return exact;
+  const folded = foldPath(key);
+  for (const [existing, visibility] of overrides) {
+    if (foldPath(existing) === folded) return visibility;
+  }
+  return undefined;
+}
+
+/** Whether any override names this note, under any casing. */
+function hasOverride(overrides, key) {
+  return overrideFor(overrides, key) !== undefined;
+}
+
+/** Drop this note's override, and any that folds onto it. */
+function deleteOverride(overrides, key) {
+  overrides.delete(key);
+  const folded = foldPath(key);
+  for (const existing of [...overrides.keys()]) {
+    if (foldPath(existing) === folded) overrides.delete(existing);
+  }
 }
 
 /**
@@ -1002,7 +1076,7 @@ function base64FromBytes(bytes) {
 }
 
 function canSee(key, scope, rules, overrides) {
-  if (key === PRIVACY_KEY) return scope === "private";
+  if (foldPath(key) === PRIVACY_KEY) return scope === "private";
   if (isPlumbing(key)) return false; // plumbing is not part of the note surface for any tool
   if (scope === "private") return true;
   return effectiveVisibility(key, rules, overrides) === "team";
@@ -2582,7 +2656,7 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
   if (!path || !path.endsWith(".md")) return toolError("invalid path (must end in .md)");
   if (typeof content !== "string") return toolError("content must be a string");
   if (isPlumbing(path)) return toolError("that path is reserved");
-  if (scope === "team" && overrides.get(path) === "private") {
+  if (scope === "team" && overrideFor(overrides, path) === "private") {
     return writePermissionError("write destination");
   }
 
@@ -3626,7 +3700,7 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
   if (scope !== "private" && visibilityOf(destination, rules) !== "team") {
     return writePermissionError("move destination");
   }
-  if (scope === "team" && overrides.has(destination)) {
+  if (scope === "team" && hasOverride(overrides, destination)) {
     return writePermissionError("move destination");
   }
 
@@ -3703,7 +3777,7 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
     if (scope !== "private" && visibilityOf(move.destination, rules) !== "team") {
       return writePermissionError(`move destination ${move.destination}`);
     }
-    if (scope === "team" && overrides.has(move.destination)) {
+    if (scope === "team" && hasOverride(overrides, move.destination)) {
       return writePermissionError("move destination");
     }
     const sourceObject = await store.get(move.source);
@@ -3722,7 +3796,7 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
     const fastArchiveCandidate =
       move.source.startsWith("4-archive/") &&
       move.destination.startsWith("4-archive/") &&
-      !overrides.has(move.source) &&
+      !hasOverride(overrides, move.source) &&
       sourceVisibility === destinationFolderVisibility;
     const destinationObject = await store.get(move.destination);
     let preloadedBody = null;
@@ -3887,7 +3961,7 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
   ) {
     return writePermissionError("folder move destination");
   }
-  if (scope === "team" && moves.some(({ destination: path }) => overrides.has(path))) {
+  if (scope === "team" && moves.some(({ destination: path }) => hasOverride(overrides, path))) {
     return writePermissionError("folder move destination");
   }
   for (const move of moves) {

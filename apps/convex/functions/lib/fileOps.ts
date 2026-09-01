@@ -49,9 +49,11 @@ import {
   canSee,
   clearedOverrides,
   effectiveVisibility,
+  hasOverride,
   isPlumbing,
   movedOverrides,
   nextOverrides,
+  overrideFor,
   parsePrivacyManifest,
   renderPrivacyRulesBlock,
   replacePrivacyRulesBlock,
@@ -1255,7 +1257,7 @@ function assertDestinationsVisible(
     // the walk kept, which filtered plumbing out. A dot segment cannot appear.
     // Instrumented before this was written, rather than after.
     if (visibilityOf(destination, rules) !== "team") throw notFound();
-    if (overrides.has(destination)) throw notFound();
+    if (hasOverride(overrides, destination)) throw notFound();
   }
 }
 
@@ -2233,7 +2235,7 @@ async function remapPrivacy(
   const state = await loadPrivacyState(store);
   if (state.text === null || state.invalid) return; // nothing to keep in sync
 
-  const touchesOverride = change.moves.some(({ from }) => state.overrides.has(from));
+  const touchesOverride = change.moves.some(({ from }) => hasOverride(state.overrides, from));
   const touchesRule =
     change.folderMove !== null &&
     state.rules.some(
@@ -2274,12 +2276,12 @@ async function copyPrivacy(
 ): Promise<void> {
   const state = await loadPrivacyState(store);
   if (state.text === null || state.invalid) return;
-  if (!pairs.some(({ from }) => state.overrides.has(from))) return;
+  if (!pairs.some(({ from }) => hasOverride(state.overrides, from))) return;
 
   await mutateManifest(store, (current) => {
     let overrides = current.overrides;
     for (const pair of pairs) {
-      const existing = current.overrides.get(pair.from);
+      const existing = overrideFor(current.overrides, pair.from);
       if (existing === undefined) continue;
       overrides = nextOverrides(pair.to, existing, current.rules, overrides);
     }
@@ -2298,13 +2300,13 @@ async function forgetPrivacy(
   const state = await loadPrivacyState(store);
   if (state.text === null || state.invalid) return;
 
-  const hasOverride = keys.some((key) => state.overrides.has(key));
+  const keyHasOverride = keys.some((key) => hasOverride(state.overrides, key));
   const hasRule =
     deletedFolder !== null &&
     state.rules.some(
       (rule) => rule.prefix === deletedFolder || rule.prefix.startsWith(`${deletedFolder}/`),
     );
-  if (!hasOverride && !hasRule) return;
+  if (!keyHasOverride && !hasRule) return;
 
   await mutateManifest(store, (current) => {
     let overrides = current.overrides;

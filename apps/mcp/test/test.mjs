@@ -3026,6 +3026,79 @@ check(
   "a note made private by exact-note override resolves no image for a team caller",
   refusalText(teamReachingIntoOverride) === REFUSAL
 );
+/**
+ * **The same override, re-cased — because one shipped backend folds case.**
+ *
+ * Every privacy decision in this gateway is keyed on an exact path string.
+ * `effectiveVisibility` is `overrides?.get(key) || visibilityOf(key, rules)`,
+ * an exact `Map.get`; `isPlumbing` opens with `key === PRIVACY_KEY`. Both are
+ * sound on a keyspace where one string is one object, which is what R2 and S3
+ * are — and `DropboxStore` is not. Its own header says so, in the list of
+ * things that make Dropbox not a keyspace:
+ *
+ *   > **Case-insensitive, Unicode-folding paths.** Dropbox treats `Foo.md` and
+ *   > `foo.md` as the same file and normalises Unicode. Nothing here tries to
+ *   > paper over that: the keys this product writes are already normalised …
+ *
+ * The keys *this product* writes are. The keys a **caller** supplies are not,
+ * and `write_note`, `read_note`, `move_note` and `propose_note` all take a
+ * path straight from the connected AI client. So on a Dropbox-backed context
+ * two different strings name one file while the privacy engine scores them as
+ * two different notes, and the score that matters is the one the attacker
+ * picks:
+ *
+ *  - `Privacy.md` is not `privacy.md`, so `isPlumbing` does not reserve it —
+ *    and Dropbox writes it to the manifest anyway. That is `write_note`
+ *    rewriting the file that decides what every team connection may read,
+ *    through the one path the tool answers "that path is reserved" for.
+ *  - `1-projects/portable/Override-Image.md` misses the override Map, but the
+ *    FOLDER rule `1-projects: team` still matches — folder matching is a
+ *    prefix compare that the re-casing above leaves untouched. So the note
+ *    scores `team`, and Dropbox hands back the private file.
+ *
+ * The direction is what makes this a hole rather than a wobble. Re-casing a
+ * *folder* makes every rule miss and `visibilityOf` falls back to `private`,
+ * which fails closed. Re-casing a *note* leaves the folder rule matching and
+ * drops only the narrowing override, which fails open — the exception
+ * mechanism, again, and the same one the fixture above exists for.
+ *
+ * These assertions are about the DECISION, not about Dropbox: this suite's
+ * store stub is case-sensitive, so the twin below is a genuinely different
+ * object here and refusing it is the fail-closed cost of the fix rather than
+ * the vulnerability itself. That cost is the point. A privacy answer that
+ * depends on which backend is underneath is an answer nobody can check, so the
+ * engine gives the restrictive one everywhere and the adapter is left alone —
+ * which is also what `DropboxStore` asks for when it says a store that
+ * silently re-cased a caller's key would be worse than one that does not.
+ */
+const recasedManifest = await call("priv-token", "write_note", {
+  path: "Privacy.md",
+  content: "default_visibility: team\n",
+});
+check(
+  "the privacy manifest is reserved under any casing",
+  recasedManifest.isError === true && /reserved/.test(recasedManifest.content?.[0]?.text ?? "")
+);
+
+const recasedOverridePath = "1-projects/portable/Override-Image.md";
+const recasedOverrideWrite = await call("team-token", "write_note", {
+  path: recasedOverridePath,
+  content: "# written past an override\n",
+});
+check(
+  "a team caller cannot write past an exact-note override by re-casing it",
+  recasedOverrideWrite.isError === true
+);
+
+await contextStore.put(recasedOverridePath, "# the same file, on a folding backend\n");
+const recasedOverrideRead = await call("team-token", "read_note", {
+  path: recasedOverridePath,
+});
+check(
+  "a team caller cannot read past an exact-note override by re-casing it",
+  recasedOverrideRead.isError === true
+);
+await contextStore.delete(recasedOverridePath);
 
 /**
  * **And the other direction, because the fixture above only narrows.**

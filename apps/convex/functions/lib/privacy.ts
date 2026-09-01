@@ -214,6 +214,75 @@ export function replacePrivacyRulesBlock(
  * Segment-aware: a rule for `2-areas` covers `2-areas/x.md` but not
  * `2-areas-public/x.md`.
  */
+/**
+ * One object, one privacy answer — even where two strings name one object.
+ *
+ * Every decision below is keyed on an exact path, which is sound on a keyspace
+ * where one string is one object. R2 and S3 are that; Dropbox is not — the
+ * gateway's `DropboxStore` header records that it "treats `Foo.md` and
+ * `foo.md` as the same file and normalises Unicode", and deliberately does not
+ * re-case a caller's key. Note paths reach both engines from outside (an AI
+ * client's tool call here, a console request there), so on a Dropbox-backed
+ * context the caller chooses which of two strings to send and therefore which
+ * of two answers to be scored by.
+ *
+ * The fold is applied where the decision is made rather than where the bytes
+ * are stored, and on every backend: a privacy answer that depends on which
+ * adapter is underneath is an answer nobody can check. On a case-sensitive
+ * store the cost is only ever restrictive — a note whose name differs from a
+ * reserved key or a narrowing override by case alone is refused, never served.
+ *
+ * `visibilityOf`'s folder rules are deliberately NOT folded. Re-casing a folder
+ * makes every prefix miss and the default `private` takes over, which already
+ * fails closed; folding them would let a `team` rule match folders its author
+ * did not name, which fails open.
+ *
+ * The gateway holds the same fold in `apps/mcp/src/index.js`, and
+ * `__tests__/privacyEngine.test.ts` runs both over one matrix asserting
+ * identical output — which is what stops the two copies drifting apart.
+ */
+export function foldPath(key: string): string {
+  return key.normalize("NFC").toLowerCase();
+}
+
+/** The override for this note, or for any note whose path folds onto it. */
+export function overrideFor(
+  overrides: ReadonlyMap<string, Visibility> | undefined,
+  key: string,
+): Visibility | undefined {
+  if (!overrides) return undefined;
+  const exact = overrides.get(key);
+  if (exact !== undefined) return exact;
+  const folded = foldPath(key);
+  for (const [existing, visibility] of overrides) {
+    if (foldPath(existing) === folded) return visibility;
+  }
+  return undefined;
+}
+
+/** Whether any override names this note, under any casing. */
+export function hasOverride(
+  overrides: ReadonlyMap<string, Visibility> | undefined,
+  key: string,
+): boolean {
+  return overrideFor(overrides, key) !== undefined;
+}
+
+/**
+ * Drop this note's override, and any that folds onto it.
+ *
+ * The copies below are built with `new Map(overrides)`, so a folding Map
+ * subclass would be silently downgraded to a plain one on every copy. Deleting
+ * through a helper is what survives that idiom.
+ */
+export function deleteOverride(next: Map<string, Visibility>, key: string): void {
+  next.delete(key);
+  const folded = foldPath(key);
+  for (const existing of [...next.keys()]) {
+    if (foldPath(existing) === folded) next.delete(existing);
+  }
+}
+
 export function visibilityOf(
   key: string,
   rules: readonly PrivacyRule[],
@@ -233,7 +302,7 @@ export function effectiveVisibility(
   rules: readonly PrivacyRule[],
   overrides: ReadonlyMap<string, Visibility> | undefined,
 ): Visibility {
-  return overrides?.get(key) || visibilityOf(key, rules);
+  return overrideFor(overrides, key) || visibilityOf(key, rules);
 }
 
 /**
@@ -241,9 +310,10 @@ export function effectiveVisibility(
  * never notes — and neither is the manifest itself or its legacy predecessor.
  */
 export function isPlumbing(key: string): boolean {
+  const folded = foldPath(key);
   return (
-    key === PRIVACY_KEY ||
-    key === LEGACY_SCOPES_KEY ||
+    folded === PRIVACY_KEY ||
+    folded === LEGACY_SCOPES_KEY ||
     key.split("/").some((segment) => segment.startsWith("."))
   );
 }
@@ -261,7 +331,7 @@ export function canSee(
   rules: readonly PrivacyRule[],
   overrides: ReadonlyMap<string, Visibility> | undefined,
 ): boolean {
-  if (key === PRIVACY_KEY) return scope === "private";
+  if (foldPath(key) === PRIVACY_KEY) return scope === "private";
   if (isPlumbing(key)) return false;
   if (scope === "private") return true;
   return effectiveVisibility(key, rules, overrides) === "team";
@@ -288,8 +358,11 @@ export function nextOverrides(
   overrides: ReadonlyMap<string, Visibility>,
 ): Map<string, Visibility> {
   const next = new Map(overrides);
-  if (visibility === visibilityOf(path, rules)) next.delete(path);
-  else next.set(path, visibility);
+  if (visibility === visibilityOf(path, rules)) deleteOverride(next, path);
+  else {
+    deleteOverride(next, path);
+    next.set(path, visibility);
+  }
   return next;
 }
 
@@ -308,9 +381,9 @@ export function movedOverrides(
   rules: readonly PrivacyRule[],
   overrides: ReadonlyMap<string, Visibility>,
 ): Map<string, Visibility> {
-  const existing = overrides.get(from);
+  const existing = overrideFor(overrides, from);
   const next = new Map(overrides);
-  next.delete(from);
+  deleteOverride(next, from);
   if (existing === undefined) return next;
   // The note kept its *effective* visibility, so re-derive whether that is
   // still an exception at the destination.
@@ -323,6 +396,6 @@ export function clearedOverrides(
   overrides: ReadonlyMap<string, Visibility>,
 ): Map<string, Visibility> {
   const next = new Map(overrides);
-  next.delete(path);
+  deleteOverride(next, path);
   return next;
 }

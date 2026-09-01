@@ -471,3 +471,105 @@ describe("frontmatter is description, the manifest is access control", () => {
     expect(gateway.canSee(key, "team", rules, overrides as Map<string, string>)).toBe(false);
   });
 });
+
+/**
+ * ONE OBJECT, ONE ANSWER — WHERE TWO STRINGS NAME ONE OBJECT.
+ *
+ * Every decision in both engines is keyed on an exact path. That is sound on a
+ * keyspace where one string is one object, which R2 and S3 are and Dropbox is
+ * not: `DropboxStore`'s own header records that Dropbox "treats `Foo.md` and
+ * `foo.md` as the same file and normalises Unicode", and that it deliberately
+ * does not re-case a caller's key, because a store that silently rewrote one
+ * would be worse than one that returns what Dropbox actually has.
+ *
+ * That is right for the adapter and it left the question here. Note paths reach
+ * both engines from outside — a connected AI client's tool call, a console
+ * request — so on a Dropbox-backed context the caller picks which of two
+ * strings to send, and therefore which of two answers to be scored by:
+ *
+ *  - `Privacy.md` is not `privacy.md`, so nothing reserved it, and Dropbox
+ *    wrote the access map anyway.
+ *  - a note re-cased inside a `team` folder misses its narrowing override while
+ *    the FOLDER rule still matches, because folder matching is a prefix compare
+ *    the re-casing leaves untouched. It scores `team`, and Dropbox returns the
+ *    private file.
+ *
+ * The direction is what makes the second one a hole. Re-casing a *folder* makes
+ * every rule miss and the `private` default takes over — closed. Re-casing a
+ * *note* drops only the narrowing, and that is open.
+ *
+ * Both engines therefore fold, on every backend, and the assertions below are
+ * doubled because a fold in one copy alone is the divergence this whole file
+ * exists to prevent — the console calling a note private while the gateway
+ * hands it to an AI client.
+ */
+describe("a privacy decision does not change when a path is re-cased", () => {
+  const rules: PrivacyRule[] = [{ prefix: "1-projects", vis: "team" }];
+
+  test("the manifest is reserved under any casing, in both engines", () => {
+    for (const key of ["Privacy.md", "PRIVACY.MD", "privacy.md"]) {
+      expect(isPlumbing(key), key).toBe(true);
+      expect(gateway.isPlumbing(key), `gateway ${key}`).toBe(true);
+      expect(canSee(key, "team", rules, new Map()), key).toBe(false);
+      expect(gateway.canSee(key, "team", rules, new Map()), `gateway ${key}`).toBe(false);
+    }
+  });
+
+  test("the legacy manifest is reserved under any casing, in both engines", () => {
+    // `scopes.yml` is not dot-prefixed, so it rested on exact equality too.
+    for (const key of ["Scopes.yml", "SCOPES.YML"]) {
+      expect(isPlumbing(key), key).toBe(true);
+      expect(gateway.isPlumbing(key), `gateway ${key}`).toBe(true);
+    }
+  });
+
+  test("a narrowing override survives re-casing the note, in both engines", () => {
+    const overrides = new Map<string, Visibility>([["1-projects/salary.md", "private"]]);
+    // The positive control: without it, a note that was never team-visible
+    // would satisfy the assertion below for the wrong reason.
+    expect(canSee("1-projects/public.md", "team", rules, overrides)).toBe(true);
+    expect(gateway.canSee("1-projects/public.md", "team", rules, overrides as Map<string, string>))
+      .toBe(true);
+
+    for (const key of ["1-projects/Salary.md", "1-projects/SALARY.MD", "1-projects/salary.md"]) {
+      expect(effectiveVisibility(key, rules, overrides), key).toBe("private");
+      expect(gateway.effectiveVisibility(key, rules, overrides), `gateway ${key}`).toBe("private");
+      expect(canSee(key, "team", rules, overrides), key).toBe(false);
+      expect(gateway.canSee(key, "team", rules, overrides as Map<string, string>), `gateway ${key}`)
+        .toBe(false);
+    }
+  });
+
+  test("a widening override is not invented by re-casing, in both engines", () => {
+    // The other direction, which must NOT fold open: nothing here publishes a
+    // note the owner did not name. `2-areas` is private by default, and the
+    // override names a different note.
+    const privateRules: PrivacyRule[] = [{ prefix: "2-areas", vis: "private" }];
+    const overrides = new Map<string, Visibility>([["2-areas/published.md", "team"]]);
+    const key = "2-areas/Published-Other.md";
+    expect(canSee(key, "team", privateRules, overrides)).toBe(false);
+    expect(gateway.canSee(key, "team", privateRules, overrides as Map<string, string>)).toBe(false);
+  });
+
+  test("re-casing a FOLDER stays closed rather than folding, in both engines", () => {
+    // Folder rules are deliberately not folded: the default is `private`, so a
+    // missed prefix already fails closed, and folding them would let a `team`
+    // rule match folders its author never named.
+    const key = "1-Projects/anything.md";
+    expect(visibilityOf(key, rules)).toBe("private");
+    expect(gateway.visibilityOf(key, rules)).toBe("private");
+    expect(canSee(key, "team", rules, new Map())).toBe(false);
+    expect(gateway.canSee(key, "team", rules, new Map())).toBe(false);
+  });
+
+  test("Unicode composition is folded too, in both engines", () => {
+    // Dropbox normalises Unicode as well as case. NFD "é" is two code points
+    // and NFC "é" is one; they are the same file there.
+    const nfc = "1-projects/reévaluation.md";
+    const nfd = "1-projects/reévaluation.md";
+    expect(nfc).not.toBe(nfd);
+    const overrides = new Map<string, Visibility>([[nfc, "private"]]);
+    expect(effectiveVisibility(nfd, rules, overrides)).toBe("private");
+    expect(gateway.effectiveVisibility(nfd, rules, overrides)).toBe("private");
+  });
+});

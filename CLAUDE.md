@@ -1516,6 +1516,52 @@ Three things about it are decisions rather than implementation:
   That annotation is also what stops *opening* a note reporting itself as an
   edit of it.
 
+### A privacy decision is folded, because one backend folds the keyspace
+
+Every decision in both privacy engines is keyed on an exact path — `isPlumbing`
+opens `key === PRIVACY_KEY`, `effectiveVisibility` is a `Map` lookup on the
+note's own path. That is sound where one string is one object, which R2 and S3
+are and **Dropbox is not**: `DropboxStore`'s header records that Dropbox "treats
+`Foo.md` and `foo.md` as the same file and normalises Unicode", and that it
+deliberately does not re-case a caller's key, because a store that silently
+rewrote one would be worse than one that returns what Dropbox actually has.
+
+That is the right call for the adapter, and it left the question one layer up.
+Note paths arrive from outside both engines — a connected AI client's tool call,
+a console request — so on a Dropbox-backed context the caller chose which of two
+strings to send and therefore which of two answers to be scored by. Two were
+reachable: `Privacy.md` was not `privacy.md`, so nothing reserved it and
+`write_note` rewrote the access map through the one path it answers "that path
+is reserved" for; and a note re-cased inside a `team` folder missed its narrowing
+override while the folder rule still matched, so it scored `team` and Dropbox
+returned the private file. `scopes.yml` is not dot-prefixed either and rested on
+the same equality.
+
+Four things hold the fix:
+
+- **The fold is where the decision is, not where the bytes are, and it applies
+  on every backend.** A privacy answer that depends on which adapter is
+  underneath is an answer nobody can check. On a case-sensitive store the cost
+  is only ever restrictive — a note differing from a reserved key or a narrowing
+  override by case alone is refused, never served — and that direction is the
+  whole reason it is safe to apply everywhere.
+- **Folder rules are deliberately NOT folded**, and this is the half a tidy-up
+  will want to "finish". Re-casing a folder makes every prefix miss and the
+  `private` default takes over, which already fails closed; folding them would
+  let a `team` rule match folders its author never named, which fails open. The
+  two halves differ in direction, not in rigour.
+- **Both engines fold through a helper over any map, never a `Map` subclass.**
+  The subclass was the first shape and is wrong twice: it folds only for maps
+  its own module built, so a caller holding a plain `Map` silently gets the
+  unfolded answer, and the control plane cannot use one at all because
+  `nextOverrides` copies with `new Map(overrides)`. Either way the two engines
+  would disagree about a live note, which is the one failure
+  `__tests__/privacyEngine.test.ts` exists to prevent.
+- **That differential test is what pins it.** Its matrix runs the gateway's
+  *actual* functions beside the port, so sabotaging `foldPath` in **either**
+  copy fails the same four checks. The gateway suite additionally proves the
+  end-to-end refusals through `write_note` and `read_note`.
+
 ### A guard nobody has checked is not a guard
 
 Three times now a protection has been weaker than it looked: a credential check
