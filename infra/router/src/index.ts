@@ -419,13 +419,19 @@ function withCardHeaders(response: Response): Response {
 }
 
 /**
- * The title and card for a readable team link, or nothing.
+ * The title, card and folder contents for a readable team link, or nothing.
  *
- * `[null, null]` on every failure — no CONVEX_ORIGIN, a non-200, a body that is
- * not JSON, a timeout, a thrown fetch — and `previewForNote(null)` renders
- * GENERIC_PREVIEW byte for byte. So an unlinked note, a revoked link and a
- * control plane mid-deploy are one answer, which is what keeps the probe to
- * "which notes has the owner published a card for".
+ * `[null, null, []]` on every failure — no CONVEX_ORIGIN, a non-200, a body
+ * that is not JSON, a timeout, a thrown fetch — and `previewForNote(null)`
+ * renders GENERIC_PREVIEW byte for byte. So an unlinked note, a revoked link
+ * and a control plane mid-deploy are one answer, which is what keeps the probe
+ * to "which notes has the owner published a card for".
+ *
+ * The third element is **only ever a decoration on a card that already has a
+ * title.** It is passed through untouched here and bounded inside
+ * `previewForNote`, which is also where a falsy title short-circuits to the
+ * frozen card — so a control plane that answered with children and no title
+ * publishes nothing at all.
  *
  * POST, like every route it talks to: a GET would put a handle and a note path
  * in this Worker's outbound URL and from there into logs.
@@ -434,8 +440,8 @@ async function noteTitle(
   slug: string,
   path: string,
   convexOrigin: string | null,
-): Promise<[string | null, string | null]> {
-  if (!convexOrigin) return [null, null];
+): Promise<[string | null, string | null, unknown[]]> {
+  if (!convexOrigin) return [null, null, []];
 
   const timeout =
     typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
@@ -449,15 +455,17 @@ async function noteTitle(
       body: JSON.stringify({ slug, path }),
       ...(timeout ? { signal: timeout } : {}),
     });
-    if (!response.ok) return [null, null];
+    if (!response.ok) return [null, null, []];
     const body: unknown = await response.json();
     const title = (body as { title?: unknown } | null)?.title;
     const cardToken = (body as { cardToken?: unknown } | null)?.cardToken;
+    const children = (body as { children?: unknown } | null)?.children;
     return [
       typeof title === "string" && title.trim() !== "" ? title : null,
       typeof cardToken === "string" && /^[0-9a-f]{64}$/.test(cardToken) ? cardToken : null,
+      Array.isArray(children) ? children : [],
     ];
   } catch {
-    return [null, null];
+    return [null, null, []];
   }
 }

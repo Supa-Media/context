@@ -796,20 +796,36 @@ http.route({ path: "/share/card", method: "POST", handler: shareCard });
  * only for notes the owner has explicitly team-linked: an unlinked note is
  * byte-identical to one that does not exist. See `previewForNote`, which is
  * where that trade is argued.
+ *
+ * **This route grew a field and did not become a fourth route**, which is the
+ * cheap-looking half of the change worth stating. `children` is two or three
+ * names from inside a linked folder; it is bounded and privacy-filtered in
+ * `previewForNote`, bounded again there on the way out, and bounded a third
+ * time at the edge. Answering it from here rather than from a new endpoint
+ * keeps `UNAUTHENTICATED_HTTP_ROUTES` at three — the enumeration is a pin
+ * rather than an amnesty, and a fourth entry is a conversation this feature did
+ * not need to have.
  */
 export const shareNotePreview = httpAction(async (ctx, request) => {
   const body = await readJsonBody(request);
   const slug = body === null ? null : stringField(body, "slug");
   const path = body === null ? null : stringField(body, "path");
   if (slug === null || path === null) {
-    return json({ title: null, cardToken: null });
+    return json({ title: null, cardToken: null, children: [] });
   }
 
   const result = await ctx.runQuery(api.functions.shares.previewForNote, {
     slug,
     path,
   });
-  return json(result);
+  // Named rather than spread, so the shape of what leaves this deployment
+  // unauthenticated is legible in this file and cannot grow by a field being
+  // added upstream. `structure.test.ts` reads this body and asserts it.
+  return json({
+    title: result.title,
+    cardToken: result.cardToken,
+    children: result.children,
+  });
 });
 
 http.route({ path: "/share/note", method: "POST", handler: shareNotePreview });

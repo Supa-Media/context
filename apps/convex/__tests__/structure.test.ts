@@ -1571,6 +1571,12 @@ describe("the gateway's HTTP routes", () => {
       // only for notes the owner has explicitly team-linked, which is what
       // keeps the probe to the set they already chose to publish — see
       // `previewForNote`.
+      //
+      // **A folder link learned to name what is inside it and this list did not
+      // grow**, which is the part worth stating: the contents are a field on
+      // this route rather than a fourth route, so the argument that had to be
+      // made three times has not had to be made a fourth. The exemption is a
+      // pin, not an amnesty, and a route added here still owes it in full.
       "shareNotePreview",
     ]);
 
@@ -1585,6 +1591,47 @@ describe("the gateway's HTTP routes", () => {
     expect(body).toMatch(/json\(\{\s*title:/);
     for (const forbidden of ["workspaceId", "slug", "entryPath", "recipient", "createdBy"]) {
       expect(body, `sharePreview must not return ${forbidden}`).not.toContain(forbidden);
+    }
+  });
+
+  /**
+   * **The third route is three fields wide, and each one was argued for.**
+   *
+   * `title` is the note's or folder's own name; `cardToken` is a locator that
+   * grants nothing, because a team share's reader is authorised by membership
+   * on every request; `children` is two or three names from inside a linked
+   * folder, filtered to what a `team` reader may see and bounded in
+   * `previewForNote` before it gets here.
+   *
+   * The exact shape is pinned rather than a subset, because the failure to
+   * expect on an unauthenticated route is a field being added upstream and
+   * arriving here by a spread nobody looked at. `shareNotePreview` names its
+   * three fields for that reason, and this reads them back.
+   *
+   * **`children` growing is the thing to watch.** The field is the only list on
+   * any of these three routes, and the addition that would look like an
+   * improvement — a count of what is inside — is the one that must never be
+   * made from anything but the visible names themselves.
+   */
+  test("the readable team link's route returns three fields and no more", () => {
+    const source = httpModule().source;
+    const start = source.indexOf("export const shareNotePreview");
+    expect(start, "shareNotePreview is enumerated but not defined").toBeGreaterThan(-1);
+    const body = source.slice(start, source.indexOf("\n});", start));
+
+    expect(body).toContain("previewForNote");
+    for (const field of ["title:", "cardToken:", "children:"]) {
+      expect(body, `shareNotePreview must return ${field}`).toContain(field);
+    }
+    // A spread would let a field added upstream reach the internet without
+    // anybody deciding it should.
+    expect(body, "shareNotePreview must name its fields, never spread them").not.toMatch(
+      /json\(\s*\{?\s*\.\.\.|json\(result\)/,
+    );
+    for (const forbidden of ["workspaceId", "recipient", "createdBy", "entryPath"]) {
+      expect(body, `shareNotePreview must not return ${forbidden}`).not.toContain(
+        forbidden,
+      );
     }
   });
 

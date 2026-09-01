@@ -56,8 +56,21 @@ export function titleSize(title: string): number {
   return 54;
 }
 
-/** The card, as satori's element tree. */
-export function cardElement(title: string): unknown {
+/**
+ * The card, as satori's element tree.
+ *
+ * `children` is what a **folder** link carries beside its name: two or three
+ * team-visible things inside it, already filtered by the privacy engine and
+ * already bounded by `boundPreviewChildren`. Nothing here filters or truncates
+ * — this file draws what it is handed, and a drawing function that re-derived
+ * a security bound would be a second place for that bound to be wrong.
+ *
+ * An empty list is the ordinary card, byte for byte. That is deliberate and it
+ * is what makes a folder with nothing team-visible inside it indistinguishable
+ * from a note: the mark and the row appear together or not at all, so a card
+ * never says "this is a folder, and there is nothing in it for you".
+ */
+export function cardElement(title: string, children: readonly string[] = []): unknown {
   return {
     type: "div",
     props: {
@@ -71,7 +84,7 @@ export function cardElement(title: string): unknown {
         backgroundColor: GROUND,
         fontFamily: "Onest",
       },
-      children: [wordmark(), heading(title), footer()],
+      children: [wordmark(), heading(title, children), footer()],
     },
   };
 }
@@ -106,26 +119,78 @@ function wordmark(): unknown {
   };
 }
 
-function heading(title: string): unknown {
+function heading(title: string, children: readonly string[]): unknown {
+  const rows: unknown[] = [];
+  if (children.length > 0) rows.push(folderMark());
+  rows.push(
+    {
+      type: "div",
+      props: {
+        style: {
+          display: "flex",
+          fontWeight: 600,
+          fontSize: titleSize(title),
+          lineHeight: 1.06,
+          letterSpacing: "-0.038em",
+          color: TEXT,
+          // Wraps rather than truncating.
+          maxWidth: 940,
+        },
+        children: title,
+      },
+    },
+    {
+      type: "div",
+      props: {
+        style: {
+          display: "flex",
+          marginTop: 26,
+          fontSize: 25,
+          color: TEXT_2,
+          letterSpacing: "-0.005em",
+        },
+        children: CARD_SUBTITLE,
+      },
+    },
+  );
+  if (children.length > 0) rows.push(childRow(children));
+
   return {
     type: "div",
     props: {
       style: { display: "flex", flexDirection: "column" },
+      children: rows,
+    },
+  };
+}
+
+/**
+ * A folder, drawn out of two divs.
+ *
+ * Not an `<svg>` and not a glyph. A glyph would go through the bundled font,
+ * which `isRenderableTitle` already proves cannot draw much outside Latin — and
+ * an icon that renders as tofu is the exact failure `cardCoverage.ts` exists to
+ * stop, written permanently into every unfurler's CDN. Two flex boxes need no
+ * coverage at all, and satori has no `position: absolute` in this file to get
+ * wrong: the tab is simply the first child of a column.
+ */
+function folderMark(): unknown {
+  return {
+    type: "div",
+    props: {
+      style: { display: "flex", flexDirection: "column", marginBottom: 26 },
       children: [
         {
           type: "div",
           props: {
             style: {
               display: "flex",
-              fontWeight: 600,
-              fontSize: titleSize(title),
-              lineHeight: 1.06,
-              letterSpacing: "-0.038em",
-              color: TEXT,
-              // Wraps rather than truncating.
-              maxWidth: 940,
+              width: 34,
+              height: 11,
+              borderTopLeftRadius: 4,
+              borderTopRightRadius: 4,
+              backgroundColor: ACCENT,
             },
-            children: title,
           },
         },
         {
@@ -133,15 +198,49 @@ function heading(title: string): unknown {
           props: {
             style: {
               display: "flex",
-              marginTop: 26,
-              fontSize: 25,
-              color: TEXT_2,
-              letterSpacing: "-0.005em",
+              width: 78,
+              height: 52,
+              borderRadius: 9,
+              borderTopLeftRadius: 0,
+              backgroundColor: ACCENT,
             },
-            children: CARD_SUBTITLE,
           },
         },
       ],
+    },
+  };
+}
+
+/**
+ * What is inside, as up to three chips.
+ *
+ * A row rather than a list because it has to sit under a title that may already
+ * be two lines. Each name is drawn as it is stored — the filename the owner's
+ * bucket actually holds, with a trailing `/` where it is a folder — because a
+ * prettified one would be a word this product invented about somebody's file,
+ * and `titleFromPath`'s own rule is that there is no fallback that invents.
+ */
+function childRow(children: readonly string[]): unknown {
+  return {
+    type: "div",
+    props: {
+      style: { display: "flex", alignItems: "center", gap: 12, marginTop: 30 },
+      children: children.map((name) => ({
+        type: "div",
+        props: {
+          style: {
+            display: "flex",
+            alignItems: "center",
+            padding: "10px 20px",
+            borderRadius: 999,
+            border: `1px solid ${LINE_STRONG}`,
+            fontSize: 24,
+            color: TEXT_2,
+            letterSpacing: "-0.01em",
+          },
+          children: name,
+        },
+      })),
     },
   };
 }

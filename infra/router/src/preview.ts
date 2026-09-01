@@ -455,22 +455,65 @@ function decodeSafely(segment: string): string {
 export function previewForNote(
   title: string | null | undefined,
   cardToken?: string | null,
+  children?: readonly unknown[] | null,
 ): PreviewMeta {
   const clean = title?.trim();
   if (!clean) return GENERIC_PREVIEW;
 
   const bounded = clean.slice(0, 60);
+  const inside = boundChildren(children);
   return {
     ...GENERIC_PREVIEW,
     title: `${bounded} — Context`,
     description:
-      "Shared with you on Context. Sign in to read it — plain markdown in a " +
-      "bucket its owner controls.",
+      inside.length === 0
+        ? "Shared with you on Context. Sign in to read it — plain markdown in a " +
+          "bucket its owner controls."
+        : `Inside: ${inside.join(" · ")}. Shared with you on Context — sign in to ` +
+          "read it.",
     imageUrl:
       cardToken === undefined || cardToken === null
         ? undefined
-        : `${ORIGIN}${shareCardPath(cardToken, bounded)}`,
+        : `${ORIGIN}${shareCardPath(cardToken, bounded, inside)}`,
   };
+}
+
+/**
+ * The most children a folder's card may name, and the longest one.
+ *
+ * Mirrors `MAX_PREVIEW_CHILDREN` and `MAX_PREVIEW_CHILD_NAME` in
+ * `apps/convex/functions/lib/shareTitle.ts`, and the duplication is the point.
+ * The control plane bounds this list where it is written and again where it is
+ * read; this bounds it a third time because **an edge that trusts its upstream
+ * to have been careful has no bound at all** — the rule `previewForShare`'s own
+ * title bound was written down for, applied to the one field on this response
+ * that is a list rather than a string.
+ */
+const MAX_CHILDREN = 3;
+const MAX_CHILD_NAME = 40;
+
+/**
+ * Whatever the upstream sent, made safe to put in a card.
+ *
+ * Typed `unknown[]` on purpose: this is parsed JSON off the wire, so "it is an
+ * array of strings" is a claim rather than a fact, and a non-string entry that
+ * reached `join` would be `[object Object]` on somebody's card. Control
+ * characters go for the reason the control plane strips them — a newline inside
+ * an `og:description` renders differently in every unfurler and there is
+ * nothing to escape it *to*, where `<` is handled correctly by `escapeHtml` on
+ * the way out and is tested for.
+ */
+function boundChildren(children: readonly unknown[] | null | undefined): string[] {
+  if (!Array.isArray(children)) return [];
+  const bounded: string[] = [];
+  for (const entry of children) {
+    if (bounded.length >= MAX_CHILDREN) break;
+    if (typeof entry !== "string") continue;
+    const clean = entry.replace(/\p{Cc}/gu, " ").replace(/\s+/g, " ").trim();
+    if (clean === "") continue;
+    bounded.push(clean.slice(0, MAX_CHILD_NAME));
+  }
+  return bounded;
 }
 
 /**
@@ -556,11 +599,36 @@ export function previewForShare(
  * entirely: a changed title is simply a different URL, and the old one is never
  * requested again.
  */
-export function shareCardPath(token: string, title: string): string {
-  return `${SHARE_CARD_PREFIX}${token}.png?v=${hashTitle(title)}`;
+export function shareCardPath(
+  token: string,
+  title: string,
+  children: readonly string[] = [],
+): string {
+  return `${SHARE_CARD_PREFIX}${token}.png?v=${hashTitle(cardSignature(title, children))}`;
 }
 
 export const SHARE_CARD_PREFIX = "/og/s/";
+
+/**
+ * Everything the card draws, as one string to hash.
+ *
+ * A folder link's card carries its name **and** two or three of the things
+ * inside it, so the title alone no longer identifies the picture — and the URL
+ * built from this hash is the only invalidation there is, because the Workers
+ * Cache API is per-datacenter and `cache.delete` purges one colo.
+ *
+ * An empty child list must hash **exactly as the bare title did**, or every
+ * note share in existence changes its card URL for a picture that has not
+ * changed.
+ *
+ * Mirrored from `apps/convex/functions/lib/cardKey.ts`, which this package
+ * cannot import, and pinned against it in `apps/convex/__tests__/shareCard.test.ts`
+ * the same way `hashTitle` is — the two spellings name the same object in the
+ * customer's bucket, so a disagreement is a card written once and never found.
+ */
+export function cardSignature(title: string, children: readonly string[] = []): string {
+  return children.length === 0 ? title : `${title}\n${children.join("\n")}`;
+}
 
 /**
  * A short, stable digest of the title.

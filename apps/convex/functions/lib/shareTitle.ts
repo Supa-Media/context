@@ -83,3 +83,117 @@ export function normalizePreviewTitle(raw: string): string | null {
   if (clean === "") return null;
   return clean.slice(0, MAX_PREVIEW_TITLE);
 }
+
+/* -------------------------------------------------------------------------- */
+/* What a FOLDER link unfurls with, beside its name                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How many children a folder's card may name.
+ *
+ * Three, because that is what makes the card useful — a folder link that
+ * unfurls as a bare name is barely better than bare branding — and because a
+ * card is a card: a fourth line does not fit under a 54px title, and every
+ * extra name is one more thing published to whoever the URL reaches.
+ *
+ * **There is deliberately no `+N more`.** A count is the useful-looking
+ * addition and it is the one this list must not grow. A total computed over the
+ * *visible* set is safe; a total computed over the folder is an existence
+ * oracle by subtraction — exactly what the console's note census is owner-only
+ * to prevent, and what search computes its own totals from the visible list to
+ * avoid. If a count is ever wanted here it must come from the same filtered
+ * array these names come from, and from nowhere else.
+ */
+export const MAX_PREVIEW_CHILDREN = 3;
+
+/**
+ * The longest child name that reaches a card.
+ *
+ * Shorter than `MAX_PREVIEW_TITLE` on purpose: three of these sit under the
+ * title, and the bound is what stops the response size — and the card's layout
+ * — varying with a filename somebody chose. Bounded here and again in
+ * `infra/router/src/preview.ts`, for the reason the title is: an edge that
+ * trusts its upstream to have been careful has no bound at all.
+ */
+export const MAX_PREVIEW_CHILD_NAME = 40;
+
+/**
+ * Every control character, as one class.
+ *
+ * `\p{Cc}` rather than an explicit range: it is the Unicode category itself,
+ * so it covers C1 (U+0080–U+009F) as well as C0 and DEL. `normalizePreviewTitle`
+ * above predates this and names the range by hand; the two agree on everything
+ * a title can contain, and this is the wider of the two.
+ */
+const CONTROL_CHARACTERS = /\p{Cc}/gu;
+
+/**
+ * Normalise one child's display name, or `null` if nothing usable survives.
+ *
+ * The input is **a key out of a bucket we do not own**. Obsidian's sync plugin,
+ * rclone and the provider's own console all write keys directly, so a filename
+ * can carry a newline, a control character, or three hundred bytes of anything
+ * — the same premise `writableAsRule` starts from when it refuses to treat a
+ * bucket key as a manifest rule. Control characters are stripped rather than
+ * escaped, at the point the value is taken rather than at every point it is
+ * read, exactly as `normalizePreviewTitle` does: the router escapes on the way
+ * out and is tested for it, but a newline inside an `og:description` renders
+ * differently in every unfurler and there is nothing to escape it *to*.
+ */
+export function normalizePreviewChild(raw: string): string | null {
+  const clean = raw.replace(CONTROL_CHARACTERS, " ").replace(/\s+/g, " ").trim();
+  if (clean === "") return null;
+  return clean.slice(0, MAX_PREVIEW_CHILD_NAME);
+}
+
+/**
+ * Bound a child list, on the way in and again on the way out.
+ *
+ * Applied where the list is written *and* where it is read, for one reason:
+ * what is stored came out of the customer's bucket, and a row written by an
+ * older deployment — or by a listing that ran before a bound was tightened —
+ * must not be able to widen a response served to an anonymous crawler. Same
+ * shape as the title's double bound, same argument.
+ */
+export function boundPreviewChildren(raw: readonly string[]): string[] {
+  const bounded: string[] = [];
+  for (const entry of raw) {
+    if (bounded.length >= MAX_PREVIEW_CHILDREN) break;
+    const clean = normalizePreviewChild(entry);
+    if (clean !== null) bounded.push(clean);
+  }
+  return bounded;
+}
+
+/**
+ * The names a folder's card may carry, from a listing the privacy engine has
+ * already filtered.
+ *
+ * **The filtering is not done here and must not be.** The argument is a
+ * `listFolder` result taken at `team` scope, so `canSee` and
+ * `folderVisibleAtScope` have already dropped every private note and every
+ * private subfolder — one privacy engine, the same one the console and the
+ * gateway read through, rather than a second predicate in the preview path
+ * that could disagree with it. A second filter is a second place for a
+ * visibility bug, which is the rule the two search dialects already follow.
+ *
+ * A folder child keeps a trailing `/`, so a card can say which of the three
+ * names is a folder without a second field travelling beside them to disagree
+ * with the first.
+ *
+ * The order is folders first, then names ascending, and it is deterministic on
+ * purpose: this list feeds the card image's cache key, so a re-render that
+ * produced the same names in a different order would name a different object
+ * and re-publish an identical picture to every unfurler that had cached it.
+ */
+export function previewChildrenFrom(
+  entries: ReadonlyArray<{ kind: "file" | "folder"; name: string }>,
+): string[] {
+  const ordered = [...entries].sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+  });
+  return boundPreviewChildren(
+    ordered.map((entry) => (entry.kind === "folder" ? `${entry.name}/` : entry.name)),
+  );
+}

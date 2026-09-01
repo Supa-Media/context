@@ -397,6 +397,44 @@ const schema = defineSchema({
      */
     previewTitle: v.optional(v.string()),
     /**
+     * Two or three things inside a team-linked **folder**, for its card.
+     *
+     * Absent for every note share and for every folder with nothing a `team`
+     * reader may see. Present only on a `members` row, because a personal share
+     * is note-only and its card is never reached by the guessable address this
+     * list is published to.
+     *
+     * ## Where these come from, and where they do not
+     *
+     * A **listing** of the folder, taken once when the owner made or refreshed
+     * the link, at `team` scope, through the same privacy engine the console
+     * and the gateway read through. So a private note and a private subfolder
+     * are gone before this array exists, and nothing here counts what was
+     * dropped — a total over the folder rather than over the visible set is an
+     * existence oracle by subtraction.
+     *
+     * Never note *content*. A listing is metadata about keys, the way
+     * `previewTitle` is metadata about a path; a body would be the thing
+     * non-negotiable #1 keeps out of the control plane.
+     *
+     * ## Frozen at link time, exactly as the title is
+     *
+     * Nothing re-reads the bucket on an unfurl — a crawler is unauthenticated,
+     * uncontrolled and endlessly retrying, and making one trigger a LIST
+     * against the customer's own bucket on their quota is what
+     * `lib/shareTitle.ts` refuses for the title on the same grounds. The cost
+     * is the same too and is stated rather than discovered: a child that was
+     * `team` when the owner pressed Copy link stays on the card after they make
+     * it private. Re-linking the folder re-takes the snapshot; revoking is what
+     * takes the card back. And a card already unfurled cannot be taken back at
+     * all.
+     *
+     * Bounded by `MAX_PREVIEW_CHILDREN` and `MAX_PREVIEW_CHILD_NAME` on the way
+     * in and again on the way out, so a row written by an older deployment
+     * cannot widen a response served to an anonymous reader.
+     */
+    previewChildren: v.optional(v.array(v.string())),
+    /**
      * The leaf of the card image in the owner's own bucket, under `.images/`.
      *
      * **Their bytes, in their storage.** A card is derived from a note they

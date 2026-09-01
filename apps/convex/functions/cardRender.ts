@@ -68,7 +68,21 @@ import { onestFont } from "./lib/cardFont/onest";
  * credential-free.
  */
 export const renderCard = internalAction({
-  args: { title: v.string() },
+  args: {
+    title: v.string(),
+    /**
+     * What a folder link's card names beside its own name.
+     *
+     * Already filtered to what a `team` reader may see and already bounded by
+     * `boundPreviewChildren` before it reaches this action — this module draws
+     * what it is handed and derives no bound of its own, for the reason the
+     * whole file is credential-free: a renderer that re-decided a security
+     * question would be a second place for that question to be answered wrong.
+     *
+     * Optional so every existing caller and every note share is unchanged.
+     */
+    children: v.optional(v.array(v.string())),
+  },
   returns: v.bytes(),
   handler: async (ctx, args): Promise<ArrayBuffer> => {
     // Imported inside the handler, not at module scope. Both packages are
@@ -87,7 +101,7 @@ export const renderCard = internalAction({
     }
     await ensureWasm(ctx, initWasm, storageId);
 
-    const svg = await satori(cardElement(args.title) as never, {
+    const svg = await satori(cardElement(args.title, args.children ?? []) as never, {
       width: CARD_WIDTH,
       height: CARD_HEIGHT,
       fonts: [
