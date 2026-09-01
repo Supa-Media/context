@@ -116,3 +116,83 @@ describe("listEvents.limit", () => {
     expect(errorCode(error)).toBe("WORKSPACE_NOT_FOUND");
   });
 });
+
+/**
+ * INGESTION SETTINGS ARE OWNER-ONLY IN BOTH DIRECTIONS, AND THE TRAIL IS PART
+ * OF THAT.
+ *
+ * `getIngestionSettings` and `updateIngestionSettings` both require `owner`,
+ * deliberately: an allow-list over a header the sender wrote is the only thing
+ * between a stranger and a note in somebody's inbox, and members "cannot read
+ * or change the allow-list" is what holds the original risk after sharing a
+ * personal context stopped killing its capture address.
+ *
+ * The audit row was not part of that. `listEvents` gates on membership, and
+ * `ingestion.settings.updated` carries `allowedSendersBefore/After`,
+ * `allowedDomainsBefore/After`, `allowAnySenderBefore/After`, the attachment
+ * policy and the target folder. So anyone the owner invited into their brain
+ * could read the list's cardinality, whether it is open to any sender, and
+ * where captures land -- and from `ingestion.captured` rows, the timing and
+ * byte size of every message the owner receives.
+ *
+ * Contents were never recorded, so this is metadata rather than the list. It
+ * is withheld the way `getStorageBinding` withholds the note census from a
+ * non-owner, and for the same reason: a member deriving what they are not being
+ * shown is the thing that census is owner-only to prevent.
+ *
+ * The event itself stays visible. "Something changed the capture policy, and
+ * who" is what the trail exists to answer, and hiding the row would hide that.
+ */
+describe("an ingestion row's details are the owner's", () => {
+  async function sharedBrainWithIngestionEvent() {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const member = await createUser(t, "member@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "atlas");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("workspaceMembers", {
+        workspaceId,
+        userId: member,
+        role: "member",
+        joinedAt: Date.now(),
+      });
+      await ctx.db.insert("auditEvents", {
+        workspaceId,
+        actorUserId: owner,
+        action: "ingestion.settings.updated",
+        paths: ["0-inbox/"],
+        at: Date.now(),
+        details: {
+          allowedSendersBefore: 2,
+          allowedSendersAfter: 3,
+          allowAnySenderAfter: false,
+          widened: true,
+        },
+      });
+    });
+    return { t, owner, member, workspaceId };
+  }
+
+  test("the owner still sees what changed", async () => {
+    const { t, owner, workspaceId } = await sharedBrainWithIngestionEvent();
+    const rows = await asUser(t, owner).query(api.functions.audit.listEvents, {
+      workspaceId,
+      limit: 10,
+    });
+    expect(rows[0]?.action).toBe("ingestion.settings.updated");
+    expect(rows[0]?.details?.allowedSendersAfter).toBe(3);
+  });
+
+  test("a member sees that it happened and not what it said", async () => {
+    const { t, member, workspaceId } = await sharedBrainWithIngestionEvent();
+    const rows = await asUser(t, member).query(api.functions.audit.listEvents, {
+      workspaceId,
+      limit: 10,
+    });
+    expect(rows[0]?.action, "the event itself is not hidden").toBe(
+      "ingestion.settings.updated"
+    );
+    expect(rows[0]?.actorEmail, "nor is who did it").toBe("owner@example.invalid");
+    expect(rows[0]?.details).toBeUndefined();
+  });
+});

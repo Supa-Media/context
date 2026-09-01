@@ -121,6 +121,22 @@ export const listEvents = query({
     const membership = await getMembership(ctx, args.workspaceId, userId);
     if (membership === null) throw workspaceNotFound();
 
+    // **An ingestion row's details are the owner's**, the way the note census
+    // is. `getIngestionSettings` and `updateIngestionSettings` are both
+    // owner-only on purpose — an allow-list over a header the sender wrote is
+    // the only thing between a stranger and a note in somebody's inbox, and
+    // "members cannot read or change the allow-list" is what carries the
+    // original risk now that sharing a personal context no longer kills its
+    // capture address. The trail was not part of that: these rows carry the
+    // list's cardinality, whether it is open to any sender, the attachment
+    // policy and the capture folder, and `ingestion.captured` carries the
+    // timing and byte size of every message the owner receives.
+    //
+    // The event itself stays. "Something changed the capture policy, and who"
+    // is the question the trail exists to answer, and a member losing the row
+    // entirely would lose that too. Only `details` is withheld.
+    const ownsIngestionDetail = membership.role === "owner";
+
     const limit = requireLimit(args.limit);
 
     const events = await ctx.db
@@ -146,7 +162,10 @@ export const listEvents = query({
         action: event.action,
         paths: event.paths,
         at: event.at,
-        details: event.details,
+        details:
+          !ownsIngestionDetail && event.action.startsWith("ingestion.")
+            ? undefined
+            : event.details,
       });
     }
     return rows;
