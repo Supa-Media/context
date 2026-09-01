@@ -8,6 +8,7 @@
 
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
+import { MAX_ACCESS_TOKEN_TTL_MS } from "../functions/lib/consentScopes";
 import {
   addMember,
   asUser,
@@ -252,6 +253,55 @@ describe("createGrant (internal)", () => {
       hashedRefreshToken: VALID_HASH,
     });
     expect(await t.run((ctx) => ctx.db.get(grantId))).not.toBeNull();
+  });
+
+  /**
+   * `createGrant` clamps `scopes` and says why: "A gateway that is compromised,
+   * confused, or simply newer than this deployment must not be able to write
+   * `context:private` onto a member's grant by sending it." The access token's
+   * lifetime arrived from the same place and was written verbatim.
+   *
+   * `resolveLiveGrant` only ever asks whether the stored expiry is in the past,
+   * no cron sweeps `oauthGrants`, and the one-hour TTL is a constant in
+   * `apps/mcp/src/oauth.js` — on the side this clamp is written to distrust. So
+   * a gateway that could send scopes it should not could equally send
+   * `accessTokenExpiresAt: 4e15` and turn a transient compromise into an access
+   * token good for the next hundred thousand years, for every workspace that
+   * connected during it. Revocation still works; nothing surfaces the anomaly.
+   */
+  test("a grant's access token cannot outlive the server-side ceiling", async () => {
+    const { t, user, workspaceId } = await registeredWorkspace();
+    const absurd = Date.now() + 100_000 * 365 * 24 * 60 * 60 * 1000;
+    const grantId = await t.mutation(internal.functions.grants.createGrant, {
+      workspaceId,
+      userId: user,
+      clientId: "claude",
+      scopes: ["context.read"],
+      hashedRefreshToken: VALID_HASH,
+      hashedAccessToken: VALID_HASH,
+      accessTokenExpiresAt: absurd,
+    });
+    const grant = await t.run((ctx) => ctx.db.get(grantId));
+    expect(grant?.accessTokenExpiresAt).toBeLessThan(absurd);
+    expect(grant?.accessTokenExpiresAt).toBeLessThanOrEqual(
+      Date.now() + MAX_ACCESS_TOKEN_TTL_MS + 1000
+    );
+  });
+
+  test("an ordinary hour-long expiry is written through untouched", async () => {
+    const { t, user, workspaceId } = await registeredWorkspace();
+    const ordinary = Date.now() + 60 * 60 * 1000;
+    const grantId = await t.mutation(internal.functions.grants.createGrant, {
+      workspaceId,
+      userId: user,
+      clientId: "claude",
+      scopes: ["context.read"],
+      hashedRefreshToken: VALID_HASH,
+      hashedAccessToken: VALID_HASH,
+      accessTokenExpiresAt: ordinary,
+    });
+    const grant = await t.run((ctx) => ctx.db.get(grantId));
+    expect(grant?.accessTokenExpiresAt).toBe(ordinary);
   });
 
   test("refuses an empty or non-hash refresh token", async () => {

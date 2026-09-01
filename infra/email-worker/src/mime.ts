@@ -831,10 +831,28 @@ export function parseContentType(value: string): ContentType {
  * trusts. Callers get the address; ./note.ts renders only the address.
  */
 export function addrSpec(value: string): string {
-  const decoded = singleLine(decodeEncodedWords(value));
+  // **Not decoded, and the last pair rather than the first.** Both halves were
+  // one character short of the attack this function exists to stop.
+  //
+  // Encoded words were decoded first, so a base64 payload of
+  // `<alice@example.com>` became the earliest angle-addr in the string. A
+  // quoted display name may legally contain `<` and `>` too, so it needed no
+  // encoding at all. Either way the display name supplied the brackets and the
+  // first pair won — and this result is the string `senderIsAllowed` is
+  // evaluated against. An addr-spec is ASCII, so it can never be an encoded
+  // word; only the display name can, and skipping the decode is what stops it
+  // reaching in here.
+  //
+  // RFC 5322's `name-addr` is `display-name angle-addr`, so the address is the
+  // LAST bracketed pair; anything before it is display text.
+  const raw = singleLine(value);
+  // `From:` may carry several mailboxes. There is no honest way to attribute
+  // one capture to one of them, and taking the first let an attacker put an
+  // allow-listed address in front of their own.
+  if (raw.includes(",")) return "";
   // `[^<>]` — no nesting, no backtracking.
-  const angled = /<([^<>]{0,320})>/.exec(decoded);
-  const candidate = angled ? angled[1]! : decoded.split(",")[0]!;
+  const angled = [...raw.matchAll(/<([^<>]{0,320})>/g)];
+  const candidate = angled.length ? angled[angled.length - 1]![1]! : raw;
   const cleaned = candidate.trim().replace(/^"|"$/g, "").trim();
   // One `@`, no whitespace, both sides non-empty. Anything else is not an
   // address we are willing to hand to a policy check.
