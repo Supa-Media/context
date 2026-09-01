@@ -156,6 +156,22 @@ export function useConflictReview(input: {
           Deliberately not the thrown message. This is one of the two sides of
           a decision somebody is about to make, so the sentence has to say what
           it means for the decision rather than what the storage layer said.
+
+          **And deliberately not gated on `isServerRefusal`**, unlike the three
+          read paths in `useFileBrowser`. The rule those follow is that a copy
+          on the device may never overrule an answer from the server, and it
+          holds here without a check: the cached ancestor is not shown. It only
+          reaches `offerMerge`, which refuses with `"offline"` the moment
+          `theirs` is absent, so a failed read produces no merge and no bucket
+          text at all — just the fixed sentence below. What stays on screen is
+          the person's own draft, which was already there.
+
+          Reaching for the discriminator anyway would cost the one thing this
+          panel exists for. Somebody whose membership was revoked mid-conflict
+          still has unsaved typing in front of them, and blanking the panel
+          would be the console taking it away at exactly the moment they need
+          to copy it out. `keepMine` is refused by the server like any other
+          write, which is where that decision belongs.
         */
         setFetched({
           ...IDLE,

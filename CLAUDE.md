@@ -1779,6 +1779,70 @@ only thing this product treats as real), `Cached copy` with the copy's age, and
 the three answers. Pictures of both palettes are in `docs/design/conflict/`,
 written by `__tests__/conflictShots.render.ts`.
 
+### A copy on the device is bounded by who read it, when, and whether the server said no
+
+Three rules sit under the queue and the cache, and each of them was reachable
+as a working exploit in the first version of that feature. They are separate
+because they fail separately: fixing any one of them leaves the other two.
+
+**A cached copy carries the clearance it was read at, in the key.** Every note
+and listing on the device is a copy of an answer `scopeForRole` had already
+filtered — an owner reads at `private`, everybody else is narrowed to `team`.
+Membership is a row in the control plane that an owner changes from another
+machine, and nothing on this device hears about it: `forgetContextCopies` fires
+when a context *leaves* your list, and a demotion does not. So the clearance is
+a segment of the key (`scopedKeyFor` in `features/offline/keys.ts`), not a field
+beside the value — a demoted session builds a different key, misses, and takes a
+round trip. A field would need a comparison at every read, and a comparison is
+something a later call site can forget. `keyFor` is typed to `UnscopedKind`, so
+filing a copy under no clearance at all is a compile error rather than a review
+note.
+
+`readableAt` is the direction and the direction is the security property:
+`private` may read a `team` copy, `team` may never read a `private` one. Adding
+`"private"` to the `team` answer is the one-line way to put the leak back;
+losing the widening costs an owner a cache miss, which is the right way round.
+Only `note` and `listing` are scoped. A draft and the queue are the person's own
+typing, carry no clearance, and keying them by one would orphan unsent work on a
+demotion — `waitingOnDevice` would still count edits the console could then
+neither show nor drain.
+
+**A refusal is never overruled by a copy.** The read paths fall back to the
+device when a read fails, and the `catch` they sat on could not tell a captive
+portal from a removed membership — so a revoked grant became a cache hit, with
+an age stamp under it that made it read as considered. `isServerRefusal`
+(`features/console/files/browser.ts`) splits the two on the same shape check
+`toFileError` already uses: a `ConvexError` carrying `{ code, message }` is the
+only thing this server produces deliberately, and anything else is transport and
+may not deny somebody their own copy. **`OVERRIDABLE_STORAGE_CODES` is a list of
+codes safe to override, never a list of codes that are denials** — an unknown
+code is treated as a refusal, so a denial added next year is closed by default.
+The inverted list reads the same and fails the opposite way.
+`STORAGE_NOT_CONNECTED` and `STORAGE_UNUSABLE` are on it because they are raised
+*before* `executeOperation`, after membership and role, so nothing was refused —
+a person whose bucket is down is exactly who an offline copy is for.
+`apps/convex/__tests__/storageCodePosition.test.ts` reads the allow-list out of
+the console and pins that premise where it lives, because it is a fact about the
+server asserted in another app.
+
+**The sign-out clear is a barrier, not a moment.** `forgetEverything` had no
+production caller at all for one release, and wiring it is only half the fix: a
+`remove()` loop deletes the keys that exist while it runs, and every writer in
+the offline layer is fire-and-forget over an async store fed by Convex actions
+with no client-side timeout. The measured result was a private note body back in
+`localStorage` *after* sign-out. So `endSession()` in `features/offline/epoch.ts`
+is bumped **before** anything is removed, each mount captures the number once,
+and every writer — and the drain — drops work from a session that has ended. It
+re-arms by itself on the next mount, because a barrier that has to be lowered by
+hand is one that stays raised the day somebody forgets. The clear never blocks
+(being unable to end a session is worse than a cache that outlives one) and
+never absorbs: it is bounded by a deadline, because a wedged bridge never
+settles and a `catch` has nothing to catch, and it re-lists what it owns
+afterwards rather than trusting its own removals. Leaving a context clears it
+**on the server's answer, never on the request** — `leaveWorkspace` answers
+`{ left: false }` for a row it did not find, and clearing on the press would
+discard the copies of a context the person still has.
+
 ## Engineering standards
 
 - **Test-first.** Write the failing test, then the code. Tenant isolation,

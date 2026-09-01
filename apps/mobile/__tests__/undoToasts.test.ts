@@ -93,7 +93,7 @@ function mount(): () => void {
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
   function Probe() {
-    browser = useFileBrowser({ workspaceId: "w1", canEdit: true, isOwner: true });
+    browser = useFileBrowser({ workspaceId: "w1", tier: "private", canEdit: true, isOwner: true });
     return null;
   }
   act(() => {

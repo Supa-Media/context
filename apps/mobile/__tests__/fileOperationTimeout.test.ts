@@ -120,7 +120,7 @@ function mount(): () => void {
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
 
   function Probe() {
-    browser = useFileBrowser({ workspaceId: "w1", canEdit: true });
+    browser = useFileBrowser({ workspaceId: "w1", tier: "private", canEdit: true });
     return null;
   }
 
