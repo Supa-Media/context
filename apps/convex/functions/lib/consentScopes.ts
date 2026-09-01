@@ -78,7 +78,15 @@ export const MAX_ACCESS_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** Clamp an access-token expiry a gateway sent to the ceiling above. */
 export function clampAccessTokenExpiry(requested: number | undefined, now: number): number | undefined {
-  if (typeof requested !== "number" || !Number.isFinite(requested)) return requested;
+  if (typeof requested !== "number") return requested;
+  // A non-finite value is the one the ceiling exists to stop, and handing it
+  // back was the first version of this: `Infinity` and `NaN` both make
+  // `accessTokenExpiresAt <= Date.now()` false at the resolve, which is an
+  // access token that never expires. What made it unreachable was a validator
+  // in another file on the HTTP edge; these are internal mutations whose
+  // `v.number()` accepts both. Clamped rather than refused, because the caller
+  // this distrusts should not get to choose between a token and an error.
+  if (!Number.isFinite(requested)) return now + MAX_ACCESS_TOKEN_TTL_MS;
   return Math.min(requested, now + MAX_ACCESS_TOKEN_TTL_MS);
 }
 

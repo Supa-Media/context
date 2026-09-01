@@ -304,6 +304,67 @@ describe("createGrant (internal)", () => {
     expect(grant?.accessTokenExpiresAt).toBe(ordinary);
   });
 
+  /**
+   * And the same ceiling on the ROTATE path, which is the one that matters
+   * more: a compromised gateway holding a refresh token re-mints on every
+   * rotation, so rotate is what turns a transient compromise into a standing
+   * one. Sabotaging the clamp at its `createGrant` call site fails the check
+   * above; sabotaging it at `rotateGrant`'s used to fail nothing.
+   */
+  test("a rotated access token cannot outlive the ceiling either", async () => {
+    const { t, user, workspaceId } = await registeredWorkspace();
+    await t.mutation(internal.functions.grants.createGrant, {
+      workspaceId,
+      userId: user,
+      clientId: "claude",
+      scopes: ["context.read"],
+      hashedRefreshToken: "d".repeat(64),
+      hashedAccessToken: VALID_HASH,
+      accessTokenExpiresAt: Date.now() + 60 * 60 * 1000,
+    });
+    const absurd = Date.now() + 100_000 * 365 * 24 * 60 * 60 * 1000;
+    const rotated = await t.mutation(internal.functions.controlPlane.rotateGrant, {
+      hashedRefreshToken: "d".repeat(64),
+      clientId: "claude",
+      newHashedRefreshToken: "e".repeat(64),
+      newHashedAccessToken: "f".repeat(64),
+      accessTokenExpiresAt: absurd,
+      scopes: null,
+    });
+    expect(rotated, "the rotation itself must succeed").not.toBeNull();
+    const grant = await t.run((ctx) => ctx.db.get(rotated!.grantId));
+    expect(grant?.accessTokenExpiresAt).toBeLessThan(absurd);
+    expect(grant?.accessTokenExpiresAt).toBeLessThanOrEqual(
+      Date.now() + MAX_ACCESS_TOKEN_TTL_MS + 1000
+    );
+  });
+
+  /**
+   * A non-finite expiry is the value the ceiling exists to stop, and the first
+   * version of the clamp handed it straight back: `Infinity` and `NaN` both
+   * make `accessTokenExpiresAt <= Date.now()` false, which is an access token
+   * that never expires. Only a validator in a different file on the HTTP edge
+   * made it unreachable, while these are internal mutations taking `v.number()`.
+   */
+  test("a non-finite expiry is clamped, not passed through", async () => {
+    const { t, user, workspaceId } = await registeredWorkspace();
+    for (const hostile of [Number.POSITIVE_INFINITY, Number.NaN]) {
+      const grantId = await t.mutation(internal.functions.grants.createGrant, {
+        workspaceId,
+        userId: user,
+        clientId: "claude",
+        scopes: ["context.read"],
+        hashedRefreshToken: "a".repeat(64),
+        hashedAccessToken: VALID_HASH,
+        accessTokenExpiresAt: hostile,
+      });
+      const grant = await t.run((ctx) => ctx.db.get(grantId));
+      const stored = grant?.accessTokenExpiresAt;
+      expect(Number.isFinite(stored), `${hostile} must not survive`).toBe(true);
+      expect(stored).toBeLessThanOrEqual(Date.now() + MAX_ACCESS_TOKEN_TTL_MS + 1000);
+    }
+  });
+
   test("refuses an empty or non-hash refresh token", async () => {
     const { t, user, workspaceId } = await registeredWorkspace();
 
