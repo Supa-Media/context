@@ -1868,6 +1868,37 @@ person is already waiting for a round trip. Set against a link that silently
 loses what it points at, it was not a close call — but it is a real cost, and
 "tidying" it back to `router.replace` restores a bug three fixes deep.
 
+### A folder page is a page, and a folder is acted on like a note
+
+Two things a folder link exposed, once one could actually be followed.
+
+**The folder's own listing was thrown away by the root's.** `select` fetches a
+folder's listing when it does not have one — which is exactly what following a
+team link to a folder does — and `useFileBrowser`'s per-context load finished by
+*replacing* the whole listings map with `{ "": root }`. That request is started
+first and can land second, because a folder's listing is the smaller one, so the
+folder page sat on "Loading…" and nothing retried: the only way back was
+expanding that folder in the side panel, which asks again. `takeRootListing`
+merges instead. That is safe rather than lenient — forgetting the previous
+context is done by the reset at the top of the same effect, before any request
+goes out — and the wholesale replace is the tidy-up that reads as equivalent.
+
+**And a folder drew its own pair of controls.** A "Share…" pill in the heading
+and a full-width "Make this folder private" beneath it were the first two things
+on a folder screen, offering the same two capabilities a *note* offers through a
+different pair, in a different place. They are one pair now — a lock and a
+share, in the frame's trailing group on a phone and in `BrowsePane`'s note head
+on a pointer — and `FolderView` draws neither. What a share *means* still
+differs by kind and that stays `ShareDialog`'s to say: `createShare` has no
+folder form, so a folder gets the team link.
+
+The lock draws the state a thing **is in** and its label names the state it
+moves to, and the disagreement is deliberate: an unlabelled 20pt target can only
+show what is true, while a label is read aloud before the press and is worth
+more as a verb. Making them agree in either direction loses one of the two
+facts. The visibility *sentence* stays on the folder page — it says what `team`
+means for the notes inside, which is the one thing a padlock cannot.
+
 ### A copy on the device is bounded by who read it, when, and whether the server said no
 
 Three rules sit under the queue and the cache, and each of them was reachable

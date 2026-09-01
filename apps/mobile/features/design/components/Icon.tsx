@@ -169,6 +169,20 @@ export const ICON_NAMES = [
   "sort",
   /** The file tree's collapse-all: a pane with only its top band left open. */
   "collapse",
+  /**
+   * Visibility, in the group beside Share — the same control on a note and on a
+   * folder, and it draws the state a thing **is in** rather than the state it
+   * would move to.
+   *
+   * A padlock reads as *private* everywhere, so the shut one is `private` and
+   * the open one is `team`. That is the opposite of the label it replaces
+   * ("Make this folder private", which named the destination), and it is the
+   * right way round for an unlabelled 20pt target: an icon says what is true, a
+   * verb says what will happen, and only one of those can sit beside a share
+   * button that also says what is true.
+   */
+  "lock",
+  "lockOpen",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -384,6 +398,46 @@ function chevron(
         borderRightWidth: w,
         borderColor: color,
         transform: [{ rotate: `${angle}deg` }],
+      }}
+    />
+  );
+}
+
+/**
+ * A padlock's shackle: an arch, open at the bottom.
+ *
+ * Three borders on one box rather than a ring with something drawn over its
+ * lower half, for the reason `chevron` gives — a corner joined by the layout
+ * engine is a clean mitre at every size — and because the alternative needs a
+ * *filled* body to hide what it covers. That would cost the lock its keyhole
+ * and only work over an opaque ground, and these icons are drawn on a
+ * translucent capsule.
+ *
+ * The top radius is half the box's width, so the two corners meet in a
+ * semicircle rather than in two quarter-turns with a flat between them.
+ */
+function shackle(
+  key: string,
+  u: number,
+  w: number,
+  color: string,
+  { x0, y0, x1, y1 }: { x0: number; y0: number; x1: number; y1: number },
+) {
+  return (
+    <View
+      key={key}
+      style={{
+        position: "absolute",
+        left: x0 * u,
+        top: y0 * u,
+        width: (x1 - x0) * u,
+        height: (y1 - y0) * u,
+        borderTopWidth: w,
+        borderLeftWidth: w,
+        borderRightWidth: w,
+        borderTopLeftRadius: ((x1 - x0) / 2) * u,
+        borderTopRightRadius: ((x1 - x0) / 2) * u,
+        borderColor: color,
       }}
     />
   );
@@ -708,6 +762,23 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         bar("l1", u, w, c, { cx: 0.66, cy: 0.28, length: 0.44 }),
         bar("l2", u, w, c, { cx: 0.6, cy: 0.5, length: 0.32 }),
         bar("l3", u, w, c, { cx: 0.54, cy: 0.72, length: 0.2 }),
+      ];
+
+    case "lock":
+      return [
+        // The body sits under the shackle's legs rather than beside them, so
+        // the two read as one object at 18pt.
+        rect("body", u, w, c, { x0: 0.18, y0: 0.46, x1: 0.82, y1: 0.86, radius: 0.1 }),
+        shackle("shackle", u, w, c, { x0: 0.32, y0: 0.16, x1: 0.68, y1: 0.5 }),
+      ];
+
+    case "lockOpen":
+      // The same body with the shackle swung clear of it — off the body's axis
+      // and raised, which is the whole difference between the two marks and
+      // the only difference that survives being drawn this small.
+      return [
+        rect("body", u, w, c, { x0: 0.14, y0: 0.46, x1: 0.72, y1: 0.86, radius: 0.1 }),
+        shackle("shackle", u, w, c, { x0: 0.5, y0: 0.12, x1: 0.86, y1: 0.46 }),
       ];
 
     case "collapse":

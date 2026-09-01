@@ -431,6 +431,27 @@ export function useFileBrowser(options: {
    */
   const [contextId, setContextId] = useState<string | null>(null);
 
+  /**
+   * Take the root's own listing without disturbing anything else in the map.
+   *
+   * **This used to be `setListings({ "": page })`, and the wholesale replace
+   * was a bug with a witness.** `select` fetches a folder's own listing when it
+   * does not have one — which is exactly what following a team link to a folder
+   * does — and that fetch is started *after* this one and can land *before* it,
+   * because a folder's listing is the smaller request. The root then replaced a
+   * map holding a listing it was never told about, the folder page sat on
+   * "Loading…", and nothing retried: the only way back was expanding that
+   * folder in the side panel, which asks again.
+   *
+   * Merging is safe rather than merely lenient. Forgetting the previous context
+   * is done by the reset at the top of the effect below, which runs before any
+   * request goes out — so by the time a page comes back, the map holds only
+   * listings for the context being loaded.
+   */
+  const takeRootListing = useCallback((page: FolderListing) => {
+    setListings((current) => ({ ...current, "": page }));
+  }, []);
+
   /** Load the root whenever the context changes, and forget the old one. */
   useEffect(() => {
     setListings({});
@@ -462,13 +483,13 @@ export function useFileBrowser(options: {
             );
             return;
           }
-          setListings({ "": cached.value });
+          takeRootListing(cached.value);
           return;
         }
         const page = await listFiles({ workspaceId, path: "" });
         if (cancelled) return;
         offline.rememberListing(page);
-        setListings({ "": page });
+        takeRootListing(page);
       } catch (error: unknown) {
         if (cancelled) return;
         // A refusal is an answer, and the tree is not repainted from the
@@ -478,7 +499,7 @@ export function useFileBrowser(options: {
         const cached = isServerRefusal(error) ? null : await offline.cachedListing("");
         if (cancelled) return;
         if (cached !== null) {
-          setListings({ "": cached.value });
+          takeRootListing(cached.value);
           return;
         }
         setNotice(toFileError(error).message);
@@ -489,7 +510,7 @@ export function useFileBrowser(options: {
     return () => {
       cancelled = true;
     };
-  }, [listFiles, workspaceId]);
+  }, [listFiles, takeRootListing, workspaceId]);
 
   const toggleFolder = useCallback(
     (path: string) => {
