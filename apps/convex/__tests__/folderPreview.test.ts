@@ -60,6 +60,7 @@ import {
   MAX_PREVIEW_CHILD_NAME,
   boundPreviewChildren,
   normalizePreviewChild,
+  normalizePreviewTitle,
   previewChildrenFrom,
 } from "../functions/lib/shareTitle";
 
@@ -675,5 +676,35 @@ describe("format characters do not reach a card", () => {
     store.seed("1-projects/transition/a​b.md", "# split\n");
     const children = await childrenOf(store, "1-projects/transition");
     expect(children.some((name) => name.includes("​"))).toBe(false);
+  });
+});
+
+
+/**
+ * AND THE TITLE, WHICH IS THE MORE PROMINENT FIELD.
+ *
+ * The child names were cleaned before the title above them was, which is the
+ * wrong way round: `normalizePreviewTitle` named a hand-written range that
+ * covered C0 and DEL, so C1 (U+0085) and every format character survived into
+ * `og:title`. Same actor, same card, same argument -- on a shared workspace an
+ * editor creates the file and the owner links the folder, and `titleFromPath`
+ * derives the title from that filename.
+ */
+describe("a title is stripped like the names beneath it", () => {
+  const RLO = "\u202E";
+  const PDF = "\u202D";
+  const NEL = "\u0085";
+  const ZWSP = "\u200B";
+
+  test("format and C1 characters do not reach og:title", () => {
+    const clean = normalizePreviewTitle(`Report ${RLO}gnp.exe${PDF}${NEL}${ZWSP}`);
+    expect(clean, "the title must survive as text").toContain("gnp.exe");
+    for (const hostile of [RLO, PDF, NEL, ZWSP]) {
+      expect(clean).not.toContain(hostile);
+    }
+  });
+
+  test("a title that is only format characters is no title at all", () => {
+    expect(normalizePreviewTitle(`${RLO}${ZWSP}${PDF}`)).toBeNull();
   });
 });

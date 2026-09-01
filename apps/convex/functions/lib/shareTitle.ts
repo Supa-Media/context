@@ -78,7 +78,13 @@ export function titleFromPath(path: string): string | null {
  */
 export function normalizePreviewTitle(raw: string): string | null {
   const clean = raw
-    .replace(/[\u0000-\u001F\u007F]/g, " ")
+    // The same categories the child names get, and for the same reason: this is
+    // the MORE prominent field. The hand-written range here covered C0 and DEL
+    // and missed C1 (U+0085) and every format character — so a bidi override
+    // survived into `og:title` while the names underneath it were being
+    // cleaned, which is the wrong way round. Named by category rather than by
+    // range so the two cannot drift apart again.
+    .replace(CONTROL_CHARACTERS, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (clean === "") return null;
@@ -178,13 +184,20 @@ export function boundPreviewChildren(raw: readonly string[]): string[] {
  * The names a folder's card may carry, from a listing the privacy engine has
  * already filtered.
  *
- * **The filtering is not done here and must not be.** The argument is a
- * `listFolder` result taken at `team` scope, so `canSee` and
- * `folderVisibleAtScope` have already dropped every private note and every
- * private subfolder — one privacy engine, the same one the console and the
- * gateway read through, rather than a second predicate in the preview path
- * that could disagree with it. A second filter is a second place for a
- * visibility bug, which is the rule the two search dialects already follow.
+ * **Almost no filtering is done here, and the exception is exact.** The
+ * argument is a `listFolder` result taken at `team` scope, so `canSee` has
+ * already dropped every private note — one privacy engine, the same one the
+ * console and the gateway read through, rather than a second predicate that
+ * could disagree with it. A second filter is a second place for a visibility
+ * bug, which is the rule the two search dialects follow.
+ *
+ * This comment used to say "and every private subfolder", and that was false:
+ * `folderVisibleAtScope` admits a private folder whose nested content is team,
+ * deliberately, so a member can navigate to something shared inside a folder
+ * that is not. A card is read by an anonymous crawler instead, so the one
+ * filter below drops those — by reading `visibility`, the field the engine
+ * already computed and put on the entry, rather than deciding anything itself.
+ * The sentence mattered: it read as an instruction to delete that line.
  *
  * A folder child keeps a trailing `/`, so a card can say which of the three
  * names is a folder without a second field travelling beside them to disagree

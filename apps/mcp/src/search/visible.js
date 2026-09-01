@@ -349,6 +349,7 @@ async function answerFromIndex(store, options) {
   // shortcut: skipping shards for a misspelled query is skipping the only
   // thing that could have answered it.
   const { shardsToRead, routed, expansionShards } = routeShards(manifest, occupied, queryTerms);
+  let shardsRead = 0;
 
   // **The floor is a fact about this index and this budget, never about this
   // query.** `shardsUnread` below is set when the budget runs out partway
@@ -374,7 +375,16 @@ async function answerFromIndex(store, options) {
   // their note is not written down." The residual is stated rather than closed:
   // the *number of store reads* still varies with the routed set, so a caller
   // who can time the call retains a coarser version of the same channel, and
-  // closing that means routing that cannot see private vocabulary at all.
+  // closing that means routing that cannot see private vocabulary at all. And
+  // one query-dependent path to `shardsUnread` survives this: a shard inside
+  // the routed set that is absent, oversized or corrupt. It is not a channel an
+  // attacker can aim — they do not choose which shards are broken — but it is
+  // the reason this flag is an OR rather than a replacement.
+  //
+  // On the deployed budget (600) this trips only past 589 occupied shards, so
+  // the oracle it closes is a free-tier and console-budget shape. That is not a
+  // gap: the oracle could only ever fire where the budget cannot cover the
+  // occupied set, which is the same condition.
   // A separate flag, because `shardsUnread` also *controls the read loop* —
   // setting it here would stop the walk before it started.
   const budgetCannotCoverIndex = occupied.length > Math.max(0, budget.remaining - limit);
@@ -426,6 +436,7 @@ async function answerFromIndex(store, options) {
       // decoded. Accumulating parsed shards into an array instead would be the
       // whole-corpus heap v2 exists to remove, wearing a loop — `collections`
       // holds one small summary each.
+      shardsRead += 1;
       collections.push(collectShardCandidates(shard, queryTerms, isVisible));
     }
   }
@@ -451,7 +462,9 @@ async function answerFromIndex(store, options) {
   // whose visible df is still zero needed the sample after all, and the shards
   // it names are read now. This costs nothing on a query that hit — which is
   // the case routing exists to make fast — and only pays on the miss it was
-  // wrong about.
+  // wrong about — though "nothing" is per-QUERY-TERM, not per query: a
+  // two-word search where one word hits and the other has no visible df still
+  // pays, bounded by the sample.
   if (routed && !shardsUnread) {
     const alreadyRead = new Set(shardsToRead);
     const missing = expansionShards.filter((id) => !alreadyRead.has(id));
@@ -470,6 +483,7 @@ async function answerFromIndex(store, options) {
           shardsUnread = true;
           continue;
         }
+        shardsRead += 1;
         collections.push(collectShardCandidates(shard, queryTerms, isVisible));
       }
     }
@@ -559,7 +573,10 @@ async function answerFromIndex(store, options) {
     index: {
       shardCount: manifest.shardCount,
       occupiedShards: occupied.length,
-      shardsRead: shardsToRead.length,
+      // Counted, not assumed: the verification wave below reads shards this
+    // list does not name, and this is the operator's number for what a search
+    // cost. Reporting the planned set understated it by up to the sample.
+    shardsRead: shardsRead,
       routed,
       docs: manifest.stats.reduce((total, entry) => total + entry.docCount, 0),
       pending: manifest.freshness.pending,
