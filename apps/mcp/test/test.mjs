@@ -3,6 +3,7 @@ import { R2Store } from "../src/store/r2.js";
 import { SUPPORTED_SCOPES, visibilityTierForGrant } from "../src/session.js";
 import { runStoreChecks } from "./store.test.mjs";
 import { runOrientationChecks } from "./orientation.test.mjs";
+import { runSearchFilterChecks } from "./searchFilter.test.mjs";
 import { runSearchIndexerChecks } from "./searchIndexer.test.mjs";
 import { runSearchIntegrationChecks } from "./searchIntegration.test.mjs";
 import { runSearchQueryChecks } from "./searchQuery.test.mjs";
@@ -3375,6 +3376,7 @@ await runSearchIntegrationChecks(check);
 // and the gateway wired to both through the worker.
 await runSearchShardsChecks(check);
 await runSearchShardQueryChecks(check);
+await runSearchFilterChecks(check);
 await runSearchV2IntegrationChecks(check);
 // What a search *costs*: the ops it reserves for its own answer, the share of
 // the backfill it does while somebody waits, and the round trips it no longer

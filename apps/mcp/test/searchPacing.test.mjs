@@ -437,11 +437,22 @@ export async function runSearchPacingChecks(check) {
       occupied > 1 && manifest.stats.reduce((n, entry) => n + entry.docCount, 0) === 1500
     );
 
-    // The miss this converged index is about to be asked for, and a budget
-    // tight enough that a refresh spending all of it is the difference between
-    // an answer and a lie. Nothing carries "wombat", so the refresh runs and
-    // finds nothing to do — and the re-ask must still open every occupied
-    // shard rather than report a miss it never looked for.
+    // The miss this converged index is about to be asked for, on a budget tight
+    // enough that a refresh spending all of it is the difference between an
+    // answer and a lie.
+    //
+    // The note is seeded *after* convergence, so the refresh has real work: it
+    // lists, finds one stale key, indexes it, and the re-ask has to find it.
+    // A pass that keeps nothing back for that re-ask hands it a spent counter,
+    // the walk opens no shard, and the answer is the miss it started as — with
+    // the note now sitting in the index, which is the worst version of this
+    // failure because nothing about it looks wrong afterwards.
+    bucket.seed(`${ROOTS[0]}/p0/wombat.md`, "# Wombat\n\nA wombat, newly written.\n");
+    // Measured rather than chosen: the first walk spends six here, and
+    // `missWorthARefresh` wants the caller's ten snippet reads plus a pass's
+    // worth on top of that before it will buy anything — so under about
+    // thirty-six the refresh correctly declines and this fixture would be
+    // asserting nothing.
     const missBudget = createSearchBudget(40);
     const missed = await searchIndexedNotes(bucket, {
       isVisible: alwaysVisible,
@@ -451,8 +462,31 @@ export async function runSearchPacingChecks(check) {
       refreshOnMiss: true,
     });
     check(
-      "a miss that buys a refresh still gets an answer assembled from every occupied shard",
-      missed.indexed && missed.index.shardsUnread === false && missed.hits.length === 0
+      "a miss buys one listing and finds the note written since the last pass",
+      missed.indexed &&
+        missed.index.shardsUnread === false &&
+        missed.hits.length === 1 &&
+        missed.hits[0].key.endsWith("wombat.md")
+    );
+
+    // …and a miss whose listing finds nothing does not walk the index twice to
+    // arrive at the same answer. The pass is the point; the re-ask only earns
+    // its cost when the pass moved a document.
+    bucket.resetCounts();
+    const stillMissing = await searchIndexedNotes(bucket, {
+      isVisible: alwaysVisible,
+      isIndexable: indexable,
+      query: "aardvark",
+      budget: createSearchBudget(40),
+      refreshOnMiss: true,
+    });
+    // One manifest read per walk, one for the pass between them. A third means
+    // the index was walked twice to arrive at the same miss — and shard reads
+    // cannot say this, because the pass reads shards of its own.
+    const manifestReads = bucket.counts.getKeys.filter((key) => key === MANIFEST_KEY).length;
+    check(
+      "and a refresh that moved nothing answers from the walk it already did",
+      stillMissing.indexed && stillMissing.hits.length === 0 && manifestReads === 2
     );
 
     // And the ordinary tight read, with a few hundred notes edited under it, so
