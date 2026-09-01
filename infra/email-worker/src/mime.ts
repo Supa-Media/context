@@ -849,7 +849,24 @@ export function addrSpec(value: string): string {
   // `From:` may carry several mailboxes. There is no honest way to attribute
   // one capture to one of them, and taking the first let an attacker put an
   // allow-listed address in front of their own.
-  if (raw.includes(",")) return "";
+  //
+  // A comma INSIDE the quotes is not a list. `"Doe, Jane" <jane@x.test>` is
+  // legal and is what Exchange emits for a directory entry, so refusing every
+  // comma drops mail from an allow-listed corporate sender — which the first
+  // version of this did, against a form this repository already asserts in
+  // `ingestionPolicy.test.ts` and lists under Accepted in `parseEmailAddress`'s
+  // docstring. An unquoted `Doe, Jane <j@x.test>` stays refused: it genuinely
+  // parses as two mailboxes.
+  let quoted = false;
+  for (let at = 0; at < raw.length; at += 1) {
+    const ch = raw[at];
+    if (ch === "\\") {
+      at += 1;
+      continue;
+    }
+    if (ch === '"') quoted = !quoted;
+    else if (ch === "," && !quoted) return "";
+  }
   // `[^<>]` — no nesting, no backtracking.
   const angled = [...raw.matchAll(/<([^<>]{0,320})>/g)];
   const candidate = angled.length ? angled[angled.length - 1]![1]! : raw;

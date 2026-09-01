@@ -244,6 +244,28 @@ describe("addresses", () => {
     expect(addrSpec("alice@example.com, attacker@evil.test")).toBe("");
     expect(addrSpec("Alice <alice@example.com>, Bob <bob@example.com>")).toBe("");
   });
+
+  /**
+   * …and a comma inside a QUOTED display name is not a list.
+   *
+   * `"Doe, Jane" <jane@x.test>` is legal RFC 5322 and is what Exchange and
+   * Outlook emit for a directory entry, so refusing every comma silently drops
+   * mail from an allow-listed corporate sender. This repository already
+   * asserted the form it was about to break: `ingestionPolicy.test.ts` requires
+   * `senderIsAllowed('"Olujide, Seyi" <seyi@example.test>')`, and
+   * `parseEmailAddress`'s docstring lists that shape under Accepted.
+   *
+   * The list refusal exists for a genuine mailbox list, so it looks for a comma
+   * outside the quotes. An UNQUOTED `Doe, Jane <j@x.test>` stays refused: it
+   * really does parse as two mailboxes, and guessing which one the sender meant
+   * is the guessing this function exists to avoid.
+   */
+  it("keeps a comma that is inside a quoted display name", () => {
+    expect(addrSpec('"Doe, Jane" <jane@x.test>')).toBe("jane@x.test");
+    expect(addrSpec('"Olujide, Seyi" <seyi@example.test>')).toBe("seyi@example.test");
+    expect(addrSpec('"a\\"b, c" <q@x.test>')).toBe("q@x.test");
+    expect(addrSpec("Doe, Jane <jane@x.test>")).toBe("");
+  });
 });
 
 describe("malformed and hostile structures fail closed", () => {
