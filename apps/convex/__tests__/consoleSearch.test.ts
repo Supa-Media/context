@@ -25,7 +25,13 @@
 
 import { describe, expect, test } from "vitest";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
-import { type FileStore, searchNotes, setFolderVisibility, setVisibility } from "../functions/lib/fileOps";
+import {
+  type FileStore,
+  maintainSearchIndex,
+  searchNotes,
+  setFolderVisibility,
+  setVisibility,
+} from "../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 
@@ -54,19 +60,25 @@ async function shareProjects(store: FileStore): Promise<void> {
 }
 
 /**
- * Run searches until the index has caught up, the way a real surface does —
- * each call syncs a further pass. Bounded so a genuinely stuck backfill fails
- * the test rather than hanging it.
+ * Run the maintenance the way the console does — scheduled behind a search,
+ * never inside one — and then ask.
+ *
+ * A search reads a ready index and builds nothing, which is what took a
+ * console search over a real brain from twenty-odd seconds to a fraction of
+ * one. So a fixture that wants an indexed answer has to run the pass, and
+ * running it here rather than hiding it inside `searchNotes` is the honest
+ * shape: `searchContext` schedules exactly this. Bounded so a genuinely stuck
+ * backfill fails the test rather than hanging it.
  */
 async function settled(
   store: FileStore,
   options: { query: string; prefix?: string; scope: "private" | "team" },
 ) {
-  let result = await searchNotes(store, options);
-  for (let pass = 0; pass < 10 && (result.indexMissing || result.indexIncomplete); pass += 1) {
-    result = await searchNotes(store, options);
+  for (let pass = 0; pass < 10; pass += 1) {
+    const maintained = await maintainSearchIndex(store);
+    if (maintained.complete) break;
   }
-  return result;
+  return searchNotes(store, options);
 }
 
 describe("the console's search", () => {
@@ -150,15 +162,95 @@ describe("the console's search", () => {
     expect(found.hits).toEqual([]);
   });
 
-  test("the index it maintains is the one the gateway reads", async () => {
+  test("the index the maintenance builds is the one the gateway reads", async () => {
     const store = bucket();
     await settled(store, { query: "quokkaplan", scope: "private" });
 
-    // Not an implementation detail: a console search that built its own index
-    // under its own key would be a second derivative to keep honest, and the
-    // gateway would go on answering from a cold one.
+    // Not an implementation detail: a console that built its own index under
+    // its own key would be a second derivative to keep honest, and the gateway
+    // would go on answering from a cold one.
     const keys = Object.keys(store.snapshot());
     expect(keys).toContain(".index/v2/manifest.json");
     expect(keys.some((key) => key.startsWith(".index/v2/shard-"))).toBe(true);
+  });
+
+  /**
+   * The measured failure this whole direction is about, at the console's own
+   * door: a search over a real brain took twenty-odd seconds and then failed,
+   * because every search listed the customer's bucket and indexed what it
+   * found stale before answering.
+   */
+  test("a search with an answer in it touches nothing but reads", async () => {
+    const store = bucket();
+    await settled(store, { query: "quokkaplan", scope: "private" });
+
+    const before = Object.keys(store.snapshot()).length;
+    const writes: string[] = [];
+    const watched = {
+      ...store,
+      get: (key: string) => store.get(key),
+      list: (options: unknown) => store.list(options as never),
+      put: (key: string, ...rest: unknown[]) => {
+        writes.push(key);
+        return (store.put as (...args: unknown[]) => unknown)(key, ...rest);
+      },
+      delete: (key: string) => store.delete(key),
+    } as unknown as FileStore;
+
+    const found = await searchNotes(watched, { query: "quokkaplan", scope: "private" });
+    expect(found.hits.length).toBeGreaterThan(0);
+    // No listing to diff, no note re-read to index, no shard rewritten — and
+    // nothing new in the bucket either, which is the half a write counter
+    // alone would miss.
+    expect(writes).toEqual([]);
+    expect(Object.keys(store.snapshot()).length).toBe(before);
+  });
+
+  /**
+   * The freshness a search gave up when it stopped listing, bought back at the
+   * one moment it matters. A note written after the last pass is invisible to
+   * an index nobody has re-listed — and a miss is the answer somebody acts on
+   * by concluding the thing is not written down.
+   */
+  test("a miss over a converged index buys one listing and finds the newer note", async () => {
+    const store = bucket();
+    await settled(store, { query: "quokkaplan", scope: "private" });
+
+    store.seed("1-projects/fresh.md", "# Fresh\n\nThe numbatplan landed today.\n");
+    const found = await searchNotes(store, { query: "numbatplan", scope: "private" });
+    expect(found.hits.map((hit) => hit.path)).toEqual(["1-projects/fresh.md"]);
+  });
+
+  /**
+   * …and only a miss. A hit is answered from the index as it stands, because
+   * the alternative is a full listing of somebody's bucket on every search
+   * that works — which is the cost this change exists to remove.
+   */
+  test("an answer with hits in it does not buy a listing, however stale", async () => {
+    const store = bucket();
+    await settled(store, { query: "quokkaplan", scope: "private" });
+
+    store.seed("1-projects/fresh.md", "# Fresh\n\nAnother quokkaplan, unindexed.\n");
+    const found = await searchNotes(store, { query: "quokkaplan", scope: "private" });
+    expect(found.hits.map((hit) => hit.path)).not.toContain("1-projects/fresh.md");
+
+    // And the next maintenance pass is what makes it findable, rather than the
+    // next search paying for it.
+    await maintainSearchIndex(store);
+    const after = await searchNotes(store, { query: "quokkaplan", scope: "private" });
+    expect(after.hits.map((hit) => hit.path)).toContain("1-projects/fresh.md");
+  });
+
+  test("a pass over a bucket with nothing to do reports itself complete", async () => {
+    const store = bucket();
+    await settled(store, { query: "quokkaplan", scope: "private" });
+
+    // What the scheduled chain reads to decide whether to run again. A pass
+    // that always claimed progress would schedule itself twelve deep over a
+    // converged bucket, on the customer's request quota.
+    const idle = await maintainSearchIndex(store);
+    expect(idle.complete).toBe(true);
+    expect(idle.changed).toBe(false);
+    expect(idle.pending).toBe(0);
   });
 });

@@ -73,6 +73,7 @@
 import { R2Store } from "../src/store/r2.js";
 import { createSearchBudget } from "../src/search/maintain.js";
 import {
+  DOCMAP_KEY,
   LEGACY_V1_KEY,
   MANIFEST_KEY,
   MANIFEST_PARSE_BYTE_CAP,
@@ -82,8 +83,10 @@ import {
   emptyShard,
   fnv1a32,
   loadShard,
+  parseDocmap,
   parseManifest,
   parseShard,
+  serializeDocmap,
   serializeManifest,
   serializeShard,
   shardKey,
@@ -91,6 +94,7 @@ import {
   syncShardedIndex,
 } from "../src/search/shards.js";
 import { addDoc } from "../src/search/indexer.js";
+import { buildTermFilter } from "../src/search/filter.js";
 
 const encoder = new TextEncoder();
 
@@ -211,9 +215,28 @@ function referenceFnv1a32(value) {
 }
 
 /** The stored manifest, parsed — what a *later* pass would actually read. */
+/**
+ * The manifest as the sync sees it: the stored object, with the diff read back
+ * out of the docmap beside it.
+ *
+ * Two objects since the manifest became the query surface — a query needs a
+ * shard count, a filter and a freshness record, and needed none of the
+ * `[path, version]` pair per note that used to make it the largest thing a
+ * search downloaded. Every assertion below that reads `docsByShard` is
+ * asserting a fact about the *diff*, so this helper puts the two halves back
+ * together rather than each of those checks learning about the split.
+ */
 function storedManifest(bucket) {
   const raw = bucket.objects.get(MANIFEST_KEY);
-  return raw ? parseManifest(raw.body) : null;
+  if (!raw) return null;
+  const manifest = parseManifest(raw.body);
+  if (!manifest) return null;
+  const docmap = bucket.objects.get(DOCMAP_KEY);
+  if (docmap) {
+    const docsByShard = parseDocmap(docmap.body, manifest.shardCount);
+    if (docsByShard) manifest.docsByShard = docsByShard;
+  }
+  return manifest;
 }
 
 function storedShard(bucket, id) {
@@ -368,7 +391,14 @@ export async function runSearchShardsChecks(check) {
     manifest.docsByShard[0].set("1-projects/plan.md", "e2");
     manifest.docsByShard[2].set("constructor", "e3");
     manifest.stats[0] = { docCount: 2, lenTotals: { title: 4, headings: 2, tags: 1, body: 90 } };
+    manifest.filters[0] = buildTermFilter(["plan", "shipping"]);
+    manifest.freshness = { listedAt: "2026-09-01T00:00:00.000Z", pending: 4, truncated: true };
+    // Two objects, one round trip each: the manifest is what a query reads and
+    // the docmap is the diff only maintenance needs. They are parsed back
+    // together here because every property below belongs to the index as a
+    // whole, and the split is a storage decision rather than a semantic one.
     const round = parseManifest(serializeManifest(manifest));
+    round.docsByShard = parseDocmap(serializeDocmap(manifest), 3);
     check(
       "a manifest round trips through serialize/parse with its docs, versions and stats intact",
       round !== null &&
@@ -379,6 +409,19 @@ export async function runSearchShardsChecks(check) {
         round.stats[0].docCount === 2 &&
         round.stats[0].lenTotals.body === 90 &&
         typeof round.generatedAt === "string"
+    );
+    check(
+      "and it carries the two things a query cannot ask a listing for",
+      round.filters[0] === manifest.filters[0] &&
+        round.filters[1] === null &&
+        round.freshness.listedAt === "2026-09-01T00:00:00.000Z" &&
+        round.freshness.pending === 4 &&
+        round.freshness.truncated === true
+    );
+    check(
+      "a docmap for a different shard count is refused, never applied to this index",
+      parseDocmap(serializeDocmap(manifest), 2) === null &&
+        parseDocmap(serializeDocmap(manifest), 3) !== null
     );
     check(
       "and a note path of \"__proto__\" is a Map key, never a property name",
@@ -564,8 +607,11 @@ export async function runSearchShardsChecks(check) {
     check(
       "a first pass on a bucket with no manifest writes one, sized by the notes it listed",
       manifest !== null &&
-        manifest.version === 2 &&
+        manifest.version === 3 &&
         manifest.shardCount === chooseShardCount(7) &&
+        // The freshness record a search reads instead of listing for itself.
+        typeof manifest.freshness.listedAt === "string" &&
+        manifest.freshness.pending === 0 &&
         first.pending === 0 &&
         first.listingTruncated === false &&
         first.manifestOverflow === false
@@ -606,10 +652,19 @@ export async function runSearchShardsChecks(check) {
     bucket.resetCounts();
     const idle = await syncShardedIndex(store, { budget: createSearchBudget(60) });
     check(
-      "a converged index re-syncs without re-reading a single note body or writing anything",
+      "a converged index re-syncs without re-reading a single note body or rewriting a shard",
       idle.pending === 0 &&
         bucket.counts.noteGets.length === 0 &&
-        bucket.counts.put === 0 &&
+        // Nothing but the manifest, and at most once: what it writes is the
+        // stamp saying when this listing happened, which is what a search reads
+        // instead of listing the bucket itself. A converged pass that wrote
+        // nothing at all would leave every search believing the index had never
+        // been listed, and starting a pass to find out. `<= 1` rather than `=== 1`
+        // because two passes inside one millisecond stamp the same instant and
+        // the second has nothing to record. The shard and the diff are what must
+        // not move: those are the megabytes.
+        bucket.counts.put <= 1 &&
+        bucket.counts.puts.every((key) => key === MANIFEST_KEY) &&
         // One shard read, and only one: the audit below, which opens a single
         // vouched-for shard per pass so an unreadable one is noticed rather
         // than vouched for until somebody edits a note in it. It finds this one
@@ -1062,7 +1117,9 @@ export async function runSearchShardsChecks(check) {
       healthy.pending === 0 &&
         before.shardCount === 4 &&
         bucket.counts.gets.filter((key) => key.startsWith(".index/v2/shard-")).length <= 1 &&
-        bucket.counts.puts.length === 0 &&
+        // The manifest, stamping when this listing happened, and nothing else:
+        // no shard rewritten, no diff rewritten, no note re-read.
+        bucket.counts.puts.every((key) => key === MANIFEST_KEY) &&
         bucket.counts.noteGets.length === 0
     );
 
@@ -1118,7 +1175,7 @@ export async function runSearchShardsChecks(check) {
       storedManifest(bucket).shardCount === 4 &&
         audited.length === 4 &&
         audited.every((key) => key === occupied) &&
-        bucket.counts.put === 0
+        bucket.counts.puts.every((key) => key === MANIFEST_KEY)
     );
   }
 

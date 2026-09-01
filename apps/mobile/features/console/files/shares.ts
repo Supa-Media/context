@@ -65,13 +65,6 @@ export function shareUrl(token: string, origin: string): string {
  * wrong in the direction that matters, because "and the notes it links to" is
  * the part nobody expects.
  */
-export function describeShare(): string {
-  return (
-    "They sign in to read it, and can open this note and the notes it links to — " +
-    "nothing else in your context."
-  );
-}
-
 /**
  * The consequence of leaving the preview title on, in the words it costs.
  *
@@ -198,8 +191,21 @@ export function describeTeamLink(): string {
  * of your whole context to read one note.
  */
 export function describePersonalShare(): string {
+  /*
+    **All three facts, in one sentence.** There were two, one under the other,
+    and the second (`describeShare`, now gone) said "they sign in to read it,
+    and can open this note and the notes it links to — nothing else in your
+    context" directly beneath a line that had just said the same. Two
+    paragraphs making one point read as two points, and on a phone they pushed
+    the controls below the fold.
+
+    What could not be dropped with it is `sign in` — this file's header names
+    it as one of the three things an owner guesses wrong, because "Share"
+    everywhere else in software means a link anybody can open. So it is folded
+    in rather than deleted: audience, sign-in, depth-one, revocable.
+  */
   return (
-    "For somebody who does not have access to this context. They get this note " +
+    "For somebody who does not have access. They sign in, then get this note " +
     "and the notes it links to — nothing else — and you can take it back."
   );
 }

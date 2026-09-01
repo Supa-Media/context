@@ -27,6 +27,7 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { isServerRefusal, toFileError, type FileBrowser } from "./browser";
 import type { NoteShare } from "./shares";
 import type { ToastSpec } from "../../design/components/Toast";
+import { copyDeferred } from "../../design/clipboard";
 import { consoleOrigin } from "./shareOrigin";
 import { noteHref } from "../nav";
 import { afterPaste, planPaste, put, type Clipboard } from "./clipboard";
@@ -137,7 +138,7 @@ export function useFileBrowser(options: {
   /**
    * The context's slug, for the readable team link (`/console/@slug?note=…`).
    *
-   * Absent means no team link can be built, and `teamShareLink` answers `null`
+   * Absent means no team link can be built, and `copyShareLink` copies nothing
    * rather than handing back a URL with `undefined` in it.
    */
   slug?: string;
@@ -1416,11 +1417,27 @@ export function useFileBrowser(options: {
 
   const createTeamShareMutation = useMutation(api.functions.shares.createTeamShare);
 
-  const teamShareLink = useCallback(
-    async (path: string): Promise<string | null> => {
-      if (!mayShare || workspaceId === null) return null;
-      try {
-        await createTeamShareMutation({ workspaceId, path });
+  const copyShareLink = useCallback(
+    async (
+      target: { kind: "team"; path: string } | { kind: "share"; url: string },
+    ): Promise<boolean> => {
+      /**
+       * Started inside the press, finished whenever the round trip is.
+       *
+       * `copyDeferred` calls this *once*, and calls it after it has already
+       * asked the browser for the clipboard — which is the whole point, and
+       * why minting cannot be hoisted out to an `await` above. See the
+       * clipboard module for what iOS does to the alternative.
+       */
+      const produce = async (): Promise<string | null> => {
+        if (target.kind === "share") return target.url;
+        if (!mayShare || workspaceId === null || slug === null) return null;
+        try {
+          await createTeamShareMutation({ workspaceId, path: target.path });
+        } catch (error) {
+          setNotice(toFileError(error).message);
+          return null;
+        }
         /**
          * The **readable** URL, not `/s/<token>`.
          *
@@ -1433,11 +1450,28 @@ export function useFileBrowser(options: {
          * Access is unchanged either way: the console decides by membership.
          * The token is a locator for the card, never a grant.
          */
-        return slug === null ? null : `${consoleOrigin()}${noteHref(slug, path)}`;
-      } catch (error) {
-        setNotice(toFileError(error).message);
-        return null;
-      }
+        return `${consoleOrigin()}${noteHref(slug, target.path)}`;
+      };
+
+      const { ok, text } = await copyDeferred(produce);
+      /*
+        A link that could not be made has already said why — `produce` set the
+        server's own sentence. Saying "couldn't copy" over the top of it would
+        replace a real refusal with a symptom of it.
+      */
+      if (text === null) return false;
+      setNotice(
+        ok
+          ? "Link copied."
+          : /*
+              Not "copy failed". The clipboard is the only part that did not
+              work, and the person still wants the link — on native there is no
+              clipboard at all, so this is the whole feature there rather than
+              an edge case. Printing it is the one useful thing left.
+            */
+            `Couldn't reach the clipboard. The link is ${text}`,
+      );
+      return ok;
     },
     [createTeamShareMutation, mayShare, slug, workspaceId],
   );
@@ -1537,7 +1571,7 @@ export function useFileBrowser(options: {
         isOwner: options.isOwner === true,
       }),
       canShare: mayShare,
-      teamShareLink,
+      copyShareLink,
       shares,
       share,
       revokeShare,
@@ -1587,7 +1621,7 @@ export function useFileBrowser(options: {
       revokeShare,
       toasts,
       setSharePreviewTitle,
-      teamShareLink,
+      copyShareLink,
       shares,
       mayShare,
       toggleFolder,
