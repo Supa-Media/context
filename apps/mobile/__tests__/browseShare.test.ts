@@ -318,10 +318,11 @@ describe("copying a link finishes the job", () => {
 
   test("…and a copy that did not stays open", async () => {
     /*
-      The positive control, and a real state rather than a defensive one:
-      native has no clipboard and says so, and a browser can refuse. The notice
-      raised in that case carries the URL, and closing the one surface that
-      could show it again would be the unhelpful half of honesty.
+      The positive control, and a real state rather than a defensive one: a
+      browser can refuse the clipboard, and a private window or blocked site
+      data can take it away entirely. The notice raised in that case carries
+      the URL, and closing the one surface that could show it again would be
+      the unhelpful half of honesty.
     */
     const pane = paneRoot();
     pane.render(dataWith({ copyShareLink: async () => false }));

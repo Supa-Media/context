@@ -1539,9 +1539,10 @@ earlier. So the two halves are one policy:
   (`tests.nativeImports`) so a static import of a gated dependency fails CI
   instead of crashing somebody's phone.
 - The repo already has the shape of the fallback in its platform splits:
-  `writeClipboard` returns `false` on native rather than claiming "Copied" over
-  a no-op, and `useUnsavedGuard`'s native half is a documented no-op. An absent
-  capability is reported honestly; it is never faked.
+  `useUnsavedGuard`'s native half is a documented no-op, and `writeClipboard`
+  returned `false` on native for as long as there was no module to call rather
+  than claiming "Copied" over one. An absent capability is reported honestly;
+  it is never faked. (That one is no longer absent — see below.)
 
 **The second enforcer was inert for the life of the repo, and the fix is why
 `native-deps.json` keeps the shape it has.** `@supa-media/linter`'s preset turns
@@ -1635,9 +1636,14 @@ Two consequences worth stating:
   check, with an honest fallback.
 - Several documented "deliberate native gaps" are no longer blocked by a
   missing dependency, only by nobody having written the code:
-  `writeClipboard` returning `false` (expo-clipboard is installed now),
-  `fonts.ts` being a no-op (expo-font), and `useUnsavedGuard` (async-storage).
+  `fonts.ts` being a no-op (expo-font) and `useUnsavedGuard` (async-storage).
   Each is a project, not a config change — but the native half is paid for.
+  **`writeClipboard` has been spent**: it calls `expo-clipboard` now, which is
+  a static import needing no gate and no `runtimeVersion` bump precisely
+  because it is in `core`. What forced it was the share dialog learning to
+  *say* what happened: an honest permanent "no" nobody displayed became
+  "Couldn't reach the clipboard" in front of somebody in the app, and reporting
+  an absent capability is right only while it is genuinely absent.
   **The fourth one has been spent**: iOS Live Preview is built, on the
   `react-native-webview` the baseline was carrying for exactly this. See below.
 

@@ -91,7 +91,9 @@ export function ShareDialog({
    *
    * Only on success. A failed copy keeps the dialog open, because the notice
    * it raises carries the URL and closing the one surface that could show it
-   * again would be the unhelpful half of honesty.
+   * again would be the unhelpful half of honesty. That path is a real refusal
+   * now rather than a whole platform: native copies for real (`expo-clipboard`
+   * is in the baseline), so a `false` here means a browser said no.
    */
   const copyAndClose = (
     target: { kind: "team"; path: string } | { kind: "share"; url: string },

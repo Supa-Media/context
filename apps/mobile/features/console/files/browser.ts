@@ -294,7 +294,8 @@ export interface FileBrowser {
    * Reports through `notice` either way, because a copy is exactly the kind of
    * thing that has to be confirmed and cannot be seen: the clipboard is
    * invisible. A failure says so and prints the URL, which is the only useful
-   * thing left to do with it.
+   * thing left to do with it — a real refusal on either platform, since native
+   * copies through `expo-clipboard` rather than reporting a permanent no.
    */
   copyShareLink: (
     target: { kind: "team"; path: string } | { kind: "share"; url: string },
