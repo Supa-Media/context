@@ -13,9 +13,15 @@
  * So the guard is structural, in the shape this repository already uses for a
  * rule two copies have to keep — read the file, do not trust a comment.
  *
- * It is deliberately narrow. It does not prove the fold is *correct* (the
- * differential matrix in `privacyEngine.test.ts` does that); it proves nobody
- * has quietly gone around it.
+ * It is deliberately narrow, and the narrowness is worth stating rather than
+ * discovering. It does not prove the fold is *correct* — the differential
+ * matrix in `privacyEngine.test.ts` does that — only that the three files below
+ * do not read an override by name without it. It is line-scoped, name-scoped
+ * and dot-scoped, so it does NOT see an alias (`const o = state.overrides;
+ * o.has(k)`), a subscript (`overrides["get"](k)`), a destructured method, a
+ * `Map.prototype.get.call`, a newline between the receiver and the `.`, or any
+ * file not listed here. Each of those is a deliberate act rather than the thing
+ * this catches, which is somebody reverting a call site to what it used to say.
  */
 
 import { readFileSync } from "node:fs";
@@ -43,8 +49,16 @@ function codeOnly(source: string): string[] {
     .map((line) => line.trimEnd());
 }
 
-/** `overrides.get(`, `state.overrides.has(`, `current.overrides.get(` … */
-const RAW_ACCESS = /\boverrides\s*\.\s*(get|has)\s*\(/i;
+/**
+ * `overrides.get(`, `state.overrides.has(`, `overrides?.get(` …
+ *
+ * The optional-call form is included because leaving it out was not a
+ * hypothetical gap: `overrideFor`'s own signature accepts `| undefined`, so
+ * `overrides?.has(k)` is the natural thing for a caller to write, and it
+ * type-checks, passes every behavioural suite, and restores the whole defect
+ * this file exists for — one character wide.
+ */
+const RAW_ACCESS = /\boverrides\s*\??\s*\.\s*(get|has)\s*\(/i;
 
 describe("every override read goes through the folding helpers", () => {
   for (const relative of FILES) {
@@ -80,6 +94,10 @@ describe("every override read goes through the folding helpers", () => {
     ].join("\n");
     const lines = codeOnly(sabotaged);
     expect(lines.some((line) => RAW_ACCESS.test(line))).toBe(true);
+
+    // The optional-call form, which type-checks and passes every other suite.
+    expect(RAW_ACCESS.test("    if (overrides?.has(destination)) throw notFound();")).toBe(true);
+    expect(RAW_ACCESS.test("  const exact = overrides ?. get (key);")).toBe(true);
 
     // …and that it does not read a comment as code.
     const prose = codeOnly(["/**", " * Once upon a time this was overrides.get(key).", " */"].join("\n"));

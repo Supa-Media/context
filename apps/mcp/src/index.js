@@ -840,6 +840,30 @@ function effectiveVisibility(key, rules, overrides) {
   return overrideFor(overrides, key) || visibilityOf(key, rules);
 }
 
+/**
+ * Would writing this visibility leave the note reading as something else?
+ *
+ * The same write `persistExactVisibility` is about to make, made against a
+ * throwaway copy. It happens because the fold READS across case while the
+ * delete WRITES exactly, so a different note folding onto this path can hold a
+ * narrowing this write cannot reach — and the manifest then comes back
+ * unchanged while the caller is told the visibility moved.
+ *
+ * A plain `Map`, so `overrideFor` scans it: the accelerator is never the
+ * authority.
+ */
+function foldedTwinBlocks(path, visibility, rules, overrides) {
+  const probe = new Map(overrides);
+  if (visibility === visibilityOf(path, rules)) probe.delete(path);
+  else probe.set(path, visibility);
+  return effectiveVisibility(path, rules, probe) !== visibility;
+}
+
+const FOLDED_TWIN_REFUSAL =
+  "another note in this context differs from this path only by case and is private, " +
+  "and visibility is recorded per exact path: rename one of them, or change that note's " +
+  "visibility instead.";
+
 async function persistExactVisibility(store, path, visibility, rules) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const state = await loadPrivacyState(store);
@@ -859,6 +883,15 @@ async function persistExactVisibility(store, path, visibility, rules) {
     const inherited = visibilityOf(path, state.rules);
     if (visibility === inherited) state.overrides.delete(path);
     else state.overrides.set(path, visibility);
+    // The fold reads across case and the delete writes exactly, so a DIFFERENT
+    // note folding onto this path can hold a narrowing this write cannot reach.
+    // Without this the manifest comes back unchanged and the caller is told the
+    // visibility moved — over a note nobody can read. Refuse rather than report
+    // a change that did not happen; the backstop is here, at the one place
+    // every caller goes through, and `toolSetVisibility` says it more kindly.
+    if (effectiveVisibility(path, state.rules, state.overrides) !== visibility) {
+      throw new Error(FOLDED_TWIN_REFUSAL);
+    }
     const next = replacePrivacyRulesBlock(state.text, state.rules, state.overrides);
     const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
     if (put) return;
@@ -932,20 +965,6 @@ function isPlumbing(key) {
 }
 
 /**
- * The exact-note overrides, looked up so the fold cannot be left out.
- *
- * A `Map` subclass overriding `get`/`has` was the first shape of this and is
- * the wrong one: it folds only for maps this module built, so a caller holding
- * a plain `Map` — `__tests__/privacyEngine.test.ts` passes one — silently gets
- * the unfolded answer, and the control plane, which cannot use a subclass at
- * all because `nextOverrides` copies with `new Map(overrides)`, would then
- * disagree with this file about a live note. Two engines that disagree is the
- * one failure that whole test exists to prevent.
- *
- * So both copies fold in a helper over any map, and the helper is the only way
- * either of them reads an override.
- */
-/**
  * The overrides map, with the folded lookup precomputed.
  *
  * `overrideFor` has to answer "is there a private override folding onto this
@@ -977,18 +996,46 @@ class PrivacyOverrides extends Map {
     return super.delete(key);
   }
 
+  // No caller today, and that is exactly why it is here: it is the one
+  // remaining mutation that would leave the index standing over an empty map.
+  clear() {
+    this.folds = null;
+    return super.clear();
+  }
+
   /** The folded paths of every `private` override. */
   privateFolds() {
     if (!this.folds) {
-      this.folds = new Set();
+      // Built whole, then published — never filled in place. A throw partway
+      // through would otherwise cache a SHORT index, and a short index answers
+      // "no private fold" where there is one, which is the one direction this
+      // must never fail in. `foldPath` cannot throw on a string today; the
+      // control plane's copy is written the same way, and two copies of one
+      // rule are held here by being identical rather than by a comment.
+      const folds = new Set();
       for (const [key, visibility] of this) {
-        if (visibility === "private") this.folds.add(foldPath(key));
+        if (visibility === "private") folds.add(foldPath(key));
       }
+      this.folds = folds;
     }
     return this.folds;
   }
 }
 
+/**
+ * The exact-note overrides, looked up so the fold cannot be left out.
+ *
+ * A `Map` subclass that folded inside `get`/`has` was the first shape of this
+ * and was wrong: it folds only for maps this module built, so a caller holding
+ * a plain `Map` — `__tests__/privacyEngine.test.ts` passes one, and the control
+ * plane's `nextOverrides` copies with `new Map(overrides)` — silently got the
+ * unfolded answer, and the two engines then disagreed about a live note. Which
+ * is the one failure that whole test file exists to prevent.
+ *
+ * So the fold lives in this helper, over any map, and `PrivacyOverrides` below
+ * only makes it fast. The container may change the speed; it may never change
+ * the answer.
+ */
 function overrideFor(overrides, key) {
   if (!overrides) return undefined;
   const exact = overrides.get(key);
@@ -1014,10 +1061,12 @@ function overrideFor(overrides, key) {
 /**
  * Whether any override names this note, under any casing.
  *
- * Deliberately wider than `overrideFor`: its callers are the move and write
- * guards, which REFUSE when an override exists, so seeing a folded twin of
- * either visibility only ever refuses more. It is not a visibility answer and
- * must not be used as one.
+ * Deliberately wider than `overrideFor`: it folds a `team` override too. Every
+ * caller either REFUSES when an override exists, or — at `fastArchiveCandidate`
+ * — takes a slower path that re-reads through `overrideFor`, so a folded twin
+ * of either visibility only ever refuses more or works harder. It is not a
+ * visibility answer and must not be used as one; that is what would put the
+ * widening back.
  */
 function hasOverride(overrides, key) {
   if (!overrides) return false;
@@ -2745,6 +2794,13 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
   if (scope === "team" && existing && existingVisibility !== "team") {
     return writePermissionError("write destination");
   }
+  // Refused here rather than left to the backstop in `persistExactVisibility`,
+  // which throws — and a throw reaches the client as a protocol error instead
+  // of a refusal it can read. Unreachable at team scope: a private fold was
+  // already refused above, with no path disclosed.
+  if (foldedTwinBlocks(path, desiredVisibility, rules, overrides)) {
+    return toolError(FOLDED_TWIN_REFUSAL);
+  }
   const isPublishing =
     scope === "private" && desiredVisibility === "team" && (!existing || existingVisibility === "private");
   if (isPublishing && args.confirm_team_publish !== true) {
@@ -2814,6 +2870,11 @@ async function toolSetVisibility(store, scope, rules, overrides, args) {
     );
   }
   const current = effectiveVisibility(path, rules, overrides);
+  // Reachable only at owner scope: a team caller writing over a private fold is
+  // already refused by `toolWriteNote`, with no path disclosed.
+  if (foldedTwinBlocks(path, visibility, rules, overrides)) {
+    return toolError(FOLDED_TWIN_REFUSAL);
+  }
   if (current === visibility) {
     return toolText(`unchanged: ${path}\nvisibility: ${visibility}\netag: ${obj.etag}`);
   }
@@ -3782,6 +3843,13 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
     sourceVisibility === "private" || visibilityOf(destination, rules) === "private"
       ? "private"
       : "team";
+  // Before anything is written. `persistExactVisibility`'s backstop would catch
+  // this too, but only after the body had already been copied to the
+  // destination — a torn move (fail-closed, since the fold makes the
+  // destination read private, but torn) instead of a refusal.
+  if (foldedTwinBlocks(destination, destinationVisibility, rules, overrides)) {
+    return toolError(FOLDED_TWIN_REFUSAL);
+  }
   const stamp = timestampSlug();
   await store.put(`${HISTORY_PREFIX}${source}.${stamp}.move.md`, body);
   if (destinationVisibility === "private") {

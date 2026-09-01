@@ -2084,6 +2084,11 @@ export interface VisibilityResult {
  * writing a redundant line, so the exception list stays a statement of what is
  * unusual. See `nextOverrides`.
  */
+export const FOLDED_TWIN_REFUSAL =
+  "Another note in this context differs from this path only by case and is private, " +
+  "and visibility is recorded per exact path: rename one of them, or change that note's " +
+  "visibility instead.";
+
 export async function setVisibility(
   store: FileStore,
   options: { path: string; visibility: Visibility; scope: Scope },
@@ -2109,18 +2114,27 @@ export async function setVisibility(
 
   const state = await mutateManifest(store, (current) => {
     if (!canSee(path, options.scope, current.rules, current.overrides)) throw notFound();
-    return {
-      rules: current.rules,
-      overrides: nextOverrides(path, options.visibility, current.rules, current.overrides),
-    };
+    const overrides = nextOverrides(path, options.visibility, current.rules, current.overrides);
+    // The fold reads across case and the delete writes exactly, so a DIFFERENT
+    // note folding onto this path can hold a narrowing this write cannot reach.
+    // Without this the manifest is rewritten to something identical and the
+    // console reports the visibility it was ASKED for, over a note nobody can
+    // read. See "A privacy decision is folded" in CLAUDE.md.
+    if (effectiveVisibility(path, current.rules, overrides) !== options.visibility) {
+      throw new FileOpError("PATH_INVALID", FOLDED_TWIN_REFUSAL);
+    }
+    return { rules: current.rules, overrides };
   });
 
   const inherited = visibilityOf(path, state.rules);
+  // Re-derived, never echoed back: the request is what was asked for, and the
+  // manifest is what happened.
+  const visibility = effectiveVisibility(path, state.rules, state.overrides);
   return {
     path,
-    visibility: options.visibility,
+    visibility,
     inherited,
-    exception: options.visibility !== inherited,
+    exception: visibility !== inherited,
   };
 }
 

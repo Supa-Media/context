@@ -1556,18 +1556,48 @@ stays exact. The first version folded the delete too, so publishing
 for one file and spent on another — and creating `2-areas/Report.md` silently
 un-shared `2-areas/report.md`. Nothing in either suite noticed.
 
-Four things hold it, and each fails a test if removed:
+**And that costs a publish, which is refused rather than faked.** The two rules
+above meet on one path: the fold reads across case, so a note scores `private`
+from a twin's narrowing; the delete writes exactly, so publishing that note
+removes nothing. The manifest comes back byte-identical and the tool used to
+answer "visibility changed: from private to team", with a `.audit/` row saying
+so, over a note every team caller still could not read — and retrying never
+converged, because nothing about the second attempt differed. That is "an
+absent capability is reported, never faked" broken on the publish path, and it
+is the direct cost of keeping the delete exact. The cost is worth paying and
+the silence was not: `foldedTwinBlocks` makes the write the caller is about to
+make against a throwaway copy, and `write_note`, `set_visibility` and
+`move_note` refuse up front with a message naming the collision. The console's
+`setVisibility` re-derives its answer from the manifest rather than echoing the
+request back.
+
+Two residuals, named rather than argued away. `persistExactVisibility`'s
+post-condition throw and the exactness of its delete are now unreachable from
+all three tools that refuse first — sabotaging either passes the whole gateway
+suite — so what they actually protect is the **batch** move paths
+(`move_notes`, `move_folder`, the proposal appliers), which reach
+`persistExactVisibility` directly and which no test exercises. And a fold-driven
+move leaves the source's override standing, because the clear is exact too: a
+note later created at that exact path inherits a narrowing its owner did not
+write. Both fail closed.
+
+Four things hold it. The first three fail a test if removed; the fourth is a
+rule about how a helper may be used, which no test can state for it:
 
 - **Both copies changed together.** A fix in one is the divergence, not the
   repair. `__tests__/privacyEngine.test.ts` runs the gateway's *actual*
   functions beside the port, so sabotaging `foldPath` in either copy fails the
   same checks.
-- **The helpers are the only way an override is read**, and that is enforced by
+- **No override is read by name without the helpers**, and that is enforced by
   reading the files rather than by discipline. Reverting all five `fileOps.ts`
   call sites to raw `Map` access passes 1430 behavioural checks and 167 fileOps
   checks — the twin only differs on a Dropbox-backed context, which no suite
   stands up — so `__tests__/privacyAccessors.test.ts` is structural, strips
-  comments before matching, and carries its own self-test.
+  comments before matching, and carries its own self-test. It is line-, name-
+  and dot-scoped, and that reach is stated in its own header rather than
+  overclaimed: it catches a call site reverted to what it used to say, including
+  the `overrides?.has(` form that type-checks and passes every behavioural
+  suite, and it does not see an alias, a subscript, or a file not on its list.
 - **`PrivacyOverrides` accelerates and never decides.** The scan it replaces was
   per-note on the search path: measured over 8,000 documents with 200 private
   overrides, `canSee` went 6.1ms → 214.1ms, handing back a large slice of the

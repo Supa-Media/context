@@ -3102,6 +3102,140 @@ check(
   recasedOverrideRead.isError === true &&
     (recasedOverrideRead.content?.[0]?.text ?? "") === "not found"
 );
+
+/**
+ * **And the owner must not be told a publish worked when it did not.**
+ *
+ * The two halves above are each right and together they close a door. The fold
+ * READS across case, so `Override-Image.md` scores `private` from the twin's
+ * narrowing; the delete WRITES exactly, so publishing the twin removes nothing.
+ * `visibilityOf` says the folder is `team`, so `visibility === inherited` takes
+ * the delete branch, the manifest comes back byte-identical, and the tool used
+ * to answer "visibility changed: from private to team" — with a `.audit/` row
+ * saying so — over a note every team caller still could not read. Retrying
+ * never converged, because nothing about the second attempt differed.
+ *
+ * That is the "an absent capability is reported, never faked" rule broken on
+ * the publish path, and it is the direct cost of keeping the delete exact. The
+ * cost is worth paying and the silence was not: the write is refused, and the
+ * refusal says which two things collide so the owner can rename one.
+ */
+const twinPublish = await call("priv-token", "set_visibility", {
+  path: recasedOverridePath,
+  visibility: "team",
+  confirm_team_publish: true,
+});
+check(
+  "publishing a note whose case-twin is private is refused, not silently ignored",
+  twinPublish?.isError === true &&
+    /only by case/.test(twinPublish.content?.[0]?.text ?? "")
+);
+check(
+  "and the note it could not publish is still refused to a team caller",
+  (await call("team-token", "read_note", { path: recasedOverridePath }))?.isError === true
+);
+
+/**
+ * **And the delete stays exact, proven on THIS side of the port.**
+ *
+ * The control plane's differential matrix pins the narrowing rule for both
+ * engines, but it extracts only the pure functions — `parsePrivacyManifest`,
+ * `visibilityOf`, `effectiveVisibility`, `isPlumbing`, `canSee` and the
+ * renderers. `persistExactVisibility` and `clearExactVisibility` are not among
+ * them, so re-folding the delete here — putting back the bug where publishing
+ * `Notes.md` strips `notes.md`'s narrowing, consent taken for one file and
+ * spent on another — passed all 983 of these checks. Measured, not assumed.
+ *
+ * The twin below is the live fixture's own override, so this asserts the thing
+ * the rule protects: changing one note must leave the other alone.
+ */
+const exactDeleteTwin = "1-projects/portable/exact-delete-twin.md";
+await contextStore.put(exactDeleteTwin, "# the note that must not be touched\n");
+const exactDeleteEtag = (await call("priv-token", "read_note", { path: exactDeleteTwin }))
+  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
+await call("priv-token", "set_visibility", {
+  path: exactDeleteTwin,
+  visibility: "private",
+  expected_etag: exactDeleteEtag,
+});
+const manifestAfterNarrowing = await (await contextStore.get("privacy.md")).text();
+check(
+  "the positive control: the twin is private, by a line in the manifest",
+  manifestAfterNarrowing.includes(`${exactDeleteTwin}: private`) &&
+    (await call("team-token", "read_note", { path: exactDeleteTwin }))?.isError === true
+);
+// Publishing its case-variant must not clear that line.
+const twinVariantPublish = await call("priv-token", "set_visibility", {
+  path: "1-projects/portable/Exact-Delete-Twin.md",
+  visibility: "team",
+  confirm_team_publish: true,
+});
+const manifestAfterVariant = await (await contextStore.get("privacy.md")).text();
+check(
+  "publishing a case-variant leaves the original's narrowing in the manifest",
+  twinVariantPublish?.isError === true &&
+    manifestAfterVariant.includes(`${exactDeleteTwin}: private`) &&
+    (await call("team-token", "read_note", { path: exactDeleteTwin }))?.isError === true
+);
+// `set_visibility` refuses this up front, so it never reaches the delete. The
+// write path does: `write_note` with `visibility: "team"` runs
+// `persistExactVisibility`, whose delete branch is the one that must stay
+// exact. Re-folding that delete publishes the ORIGINAL, and the check below is
+// the only thing in this suite that sees it.
+const twinWrite = await call("priv-token", "write_note", {
+  path: "1-projects/portable/Exact-Delete-Twin.md",
+  content: "# a different file that folds onto the private one\n",
+  visibility: "team",
+  // Without this the write is refused for wanting confirmation and never
+  // reaches `persistExactVisibility` at all — which is how the first version of
+  // this check passed under the very sabotage it was written for.
+  confirm_team_publish: true,
+});
+const manifestAfterWrite = await (await contextStore.get("privacy.md")).text();
+check(
+  "writing a case-variant as team leaves the original's narrowing in the manifest",
+  manifestAfterWrite.includes(`${exactDeleteTwin}: private`) &&
+    (await call("team-token", "read_note", { path: exactDeleteTwin }))?.isError === true &&
+    twinWrite?.isError === true
+);
+await contextStore.delete("1-projects/portable/Exact-Delete-Twin.md");
+
+/**
+ * **And the move family, which is ten of the thirteen callers.**
+ *
+ * `write_note` and `set_visibility` refuse a folded twin up front, so neither
+ * of them can reach `persistExactVisibility`'s delete branch any more —
+ * measured: re-folding that delete passes every check above. The move and copy
+ * paths call it directly, with no such refusal, so they are what the exact
+ * delete and the post-condition backstop actually protect. Without this the two
+ * of them are unreachable-by-test, which is the state "a guard nobody has
+ * checked is not a guard" is about.
+ */
+const moveSource = "1-projects/portable/move-into-a-fold.md";
+await contextStore.put(moveSource, "# a note that is about to be moved\n");
+const foldedMove = await call("priv-token", "move_note", {
+  source: moveSource,
+  destination: "1-projects/portable/Exact-Delete-Twin.md",
+});
+const manifestAfterMove = await (await contextStore.get("privacy.md")).text();
+check(
+  "a move onto a path whose case-twin is private is refused, and clears nothing",
+  foldedMove?.isError === true &&
+    manifestAfterMove.includes(`${exactDeleteTwin}: private`) &&
+    (await call("team-token", "read_note", { path: exactDeleteTwin }))?.isError === true
+);
+await contextStore.delete(moveSource);
+await contextStore.delete("1-projects/portable/Exact-Delete-Twin.md");
+
+// Put the fixture back: clear the override first, then the object, so no line
+// is left behind pointing at a note that no longer exists.
+await call("priv-token", "set_visibility", {
+  path: exactDeleteTwin,
+  visibility: "team",
+  confirm_team_publish: true,
+});
+await contextStore.delete(exactDeleteTwin);
+
 await contextStore.delete(recasedOverridePath);
 
 /**

@@ -273,6 +273,13 @@ export class PrivacyOverrides extends Map<string, Visibility> {
     return super.delete(key);
   }
 
+  // No caller today, and that is exactly why it is here: it is the one
+  // remaining mutation that would leave the index standing over an empty map.
+  override clear(): void {
+    this.folds = null;
+    super.clear();
+  }
+
   /** The folded paths of every `private` override. */
   privateFolds(): Set<string> {
     if (!this.folds) {
@@ -316,10 +323,11 @@ export function overrideFor(
 /**
  * Whether any override names this note, under any casing.
  *
- * Deliberately wider than `overrideFor`: its callers are the move and write
- * guards, which REFUSE when an override exists, so seeing a folded twin of
- * either visibility only ever refuses more. It is not a visibility answer and
- * must not be used as one.
+ * Deliberately wider than `overrideFor`: it folds a `team` override too. Every
+ * caller either REFUSES when an override exists or takes a slower path that
+ * re-reads through `overrideFor`, so a folded twin of either visibility only
+ * ever refuses more or works harder. It is not a visibility answer and must not
+ * be used as one; that is what would put the widening back.
  */
 export function hasOverride(
   overrides: ReadonlyMap<string, Visibility> | undefined,
