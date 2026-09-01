@@ -21,10 +21,13 @@ import {
   describeShareRow,
   shareEligibility,
   shareUrl,
+  shareUrlFor,
   sharesBreakingWarning,
   sharesFor,
   type NoteShare,
 } from "../features/console/files/shares";
+
+const TOKEN = "a1b2c3d4".repeat(8);
 
 const share = (over: Partial<NoteShare> = {}): NoteShare => ({
   shareId: "s1",
@@ -131,6 +134,53 @@ describe("the link", () => {
 
   test("is absolute and built from the console's own origin", () => {
     expect(shareUrl("abc", "https://context.lc")).toBe("https://context.lc/s/abc");
+  });
+
+  /**
+   * A URL that says nothing is one people paste without knowing what they are
+   * sending. The name goes in front of the token, Notion's shape — and the
+   * token is untouched, because it is the capability and the slug is
+   * decoration.
+   */
+  test("the note's name goes in front of the token", () => {
+    expect(shareUrl(TOKEN, "https://context.lc", "Chapter transition")).toBe(
+      `https://context.lc/s/Chapter-transition-${TOKEN}`,
+    );
+  });
+
+  test("a title with no slug in it leaves the bare token", () => {
+    expect(shareUrl(TOKEN, "https://context.lc", "日本語")).toBe(
+      `https://context.lc/s/${TOKEN}`,
+    );
+  });
+
+  /**
+   * THE rule for this half. Switching the preview title off is the owner
+   * saying they do not want this note named to somebody who has not opened it
+   * — and the URL is seen by *more* people than the card is, since it survives
+   * every forward. A slug there would undo the setting through a different
+   * door.
+   */
+  test("a share with its preview title off gets no slug", () => {
+    const row = share({ token: TOKEN, previewTitle: "Salaries", titleInPreview: false });
+    expect(shareUrlFor(row, "https://context.lc")).toBe(
+      `https://context.lc/s/${TOKEN}`,
+    );
+  });
+
+  test("…and one with it on gets the name the card would have shown", () => {
+    const row = share({ token: TOKEN, previewTitle: "Salaries", titleInPreview: true });
+    expect(shareUrlFor(row, "https://context.lc")).toBe(
+      `https://context.lc/s/Salaries-${TOKEN}`,
+    );
+  });
+
+  test("a row with no preview title at all is the bare token", () => {
+    const row = share({ token: TOKEN, titleInPreview: true });
+    delete (row as { previewTitle?: string }).previewTitle;
+    expect(shareUrlFor(row, "https://context.lc")).toBe(
+      `https://context.lc/s/${TOKEN}`,
+    );
   });
 
   /**

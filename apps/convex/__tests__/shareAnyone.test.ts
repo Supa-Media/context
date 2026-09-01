@@ -335,6 +335,164 @@ describe("taking an unlisted link back", () => {
   });
 });
 
+describe("a share page is read-only, and only a member is offered a way out", () => {
+  /**
+   * The page draws rendered markdown and calls one action; there is no write
+   * anywhere in the feature (`apps/mobile/__tests__/shareReadOnly.test.ts`
+   * checks that structurally). What the server owes it is the one fact it
+   * cannot work out for itself: whether *this* reader could edit the note
+   * somewhere they already have access to.
+   */
+  test("an anonymous reader is told nothing about where to edit", async () => {
+    const f = await fixture();
+    const token = await unlisted(f);
+
+    expect((await readAnonymously(f, token)).editableInContext).toBeNull();
+  });
+
+  test("nor is a signed-in stranger, who is not in this context at all", async () => {
+    const f = await fixture();
+    const token = await unlisted(f);
+
+    const result = await asUser(f.t, f.lk).action(
+      api.functions.shares.readSharedNote,
+      { token },
+    );
+    expect(result.editableInContext).toBeNull();
+  });
+
+  /**
+   * `member` is deliberately not enough. The console is read-only for that
+   * role too, so a route offered to them would lead to the same document
+   * behind the same glass — a button that goes nowhere useful is worse than
+   * no button.
+   */
+  test("nor a member, for whom the console is read-only too", async () => {
+    const f = await fixture();
+    const token = await unlisted(f);
+
+    const result = await asUser(f.t, f.member).action(
+      api.functions.shares.readSharedNote,
+      { token },
+    );
+    expect(result.editableInContext).toBeNull();
+  });
+
+  test("the owner opening their own link is sent to their console", async () => {
+    const f = await fixture();
+    const token = await unlisted(f);
+
+    const result = await asUser(f.t, f.owner).action(
+      api.functions.shares.readSharedNote,
+      { token },
+    );
+    expect(result.editableInContext).toBe("atlas");
+  });
+
+  /**
+   * Live rather than stored. A route offered on the strength of a role
+   * somebody used to have is a button that leads to a refusal — and the
+   * direction it must fail is towards no button.
+   */
+  test("and it goes away the moment that membership does", async () => {
+    const f = await fixture();
+    const token = await unlisted(f);
+    await f.t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("workspaceMembers")
+        .filter((q) => q.eq(q.field("userId"), f.member))
+        .unique();
+      await ctx.db.patch(row!._id, { role: "editor" as const });
+    });
+
+    const asEditor = await asUser(f.t, f.member).action(
+      api.functions.shares.readSharedNote,
+      { token },
+    );
+    expect(asEditor.editableInContext).toBe("atlas");
+
+    await f.t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("workspaceMembers")
+        .filter((q) => q.eq(q.field("userId"), f.member))
+        .unique();
+      await ctx.db.delete(row!._id);
+    });
+
+    const afterRemoval = await asUser(f.t, f.member).action(
+      api.functions.shares.readSharedNote,
+      { token },
+    );
+    expect(afterRemoval.editableInContext).toBeNull();
+  });
+});
+
+describe("what an unlisted link unfurls as", () => {
+  /**
+   * The card is the same feature it always was — an owner-chosen title derived
+   * from the path, never read from the note — and it works here for the same
+   * reason it works for a personal share: `previewTitleForToken` looks at
+   * liveness and the title switch, and has never cared which kind of share it
+   * is.
+   */
+  test("a live unlisted link unfurls with its title", async () => {
+    const f = await fixture();
+    const token = await unlisted(f);
+
+    expect(
+      await f.t.query(api.functions.shares.previewTitleForToken, { token }),
+    ).toEqual({ title: "Overview", openToAnyone: true });
+  });
+
+  /**
+   * The one field the card needed that it did not have. Without it the
+   * description reads "Sign in to read it" at somebody who needs no account,
+   * which is the product being wrong on the first surface a stranger sees.
+   */
+  test("and says a reader needs no account, where every other kind does not", async () => {
+    const f = await fixture();
+    const open = await unlisted(f, LINKED);
+    const { token: personal } = await asUser(f.t, f.owner).mutation(
+      api.functions.shares.createShare,
+      { workspaceId: f.workspaceId, path: ENTRY, recipient: "@lk" },
+    );
+
+    const openCard = await f.t.query(api.functions.shares.previewTitleForToken, {
+      token: open,
+    });
+    const personalCard = await f.t.query(api.functions.shares.previewTitleForToken, {
+      token: personal,
+    });
+    expect(openCard.openToAnyone).toBe(true);
+    expect(personalCard.openToAnyone).toBe(false);
+  });
+
+  /**
+   * And a revoked one is byte-identical to a token nobody minted — over the
+   * whole tuple, not just its first field. A crawler that could tell "revoked,
+   * and it used to be open" from "never existed" has learned two things about
+   * a context it is not in.
+   */
+  test("a revoked unlisted link is the same absence as one that never existed", async () => {
+    const f = await fixture();
+    const token = await unlisted(f);
+    const [live] = await asUser(f.t, f.owner).query(api.functions.shares.listShares, {
+      workspaceId: f.workspaceId,
+    });
+    await asUser(f.t, f.owner).mutation(api.functions.shares.revokeShare, {
+      shareId: live!.shareId,
+    });
+
+    expect(
+      await f.t.query(api.functions.shares.previewTitleForToken, { token }),
+    ).toEqual(
+      await f.t.query(api.functions.shares.previewTitleForToken, {
+        token: "2".repeat(64),
+      }),
+    );
+  });
+});
+
 describe("how the owner sees it", () => {
   test("the audience names the rule, because there is nobody to name", async () => {
     const f = await fixture();

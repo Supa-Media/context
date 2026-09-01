@@ -92,10 +92,11 @@ export default {
         // exception to the frozen-card rule, argued in preview.ts. Everything
         // about this branch is built so that failing produces the frozen card
         // rather than an error or a partial one.
-        const meta = previewForShare(
-          await shareTitle(decision.token, readOrigin(env.CONVEX_ORIGIN)),
+        const [title, openToAnyone] = await shareTitle(
           decision.token,
+          readOrigin(env.CONVEX_ORIGIN),
         );
+        const meta = previewForShare(title, decision.token, openToAnyone);
         return new Response(renderPreviewHtml(meta), {
           status: 200,
           headers: {
@@ -223,8 +224,15 @@ const SHARE_TITLE_TIMEOUT_MS = 1_500;
 async function shareTitle(
   token: string,
   convexOrigin: string | null,
-): Promise<string | null> {
-  if (!convexOrigin) return null;
+): Promise<[string | null, boolean]> {
+  // Every failure below answers the same pair, and it has to be the *pair*
+  // rather than the title alone: an absence that came back "sign-in required"
+  // and a live open link that came back "no sign-in" would be two answers where
+  // this route has always had one. `previewForShare(null, …)` renders
+  // GENERIC_PREVIEW whatever the second value is, so the pair is belt and
+  // braces rather than the only guard — which is how two copies of a rule are
+  // held here.
+  if (!convexOrigin) return [null, false];
 
   const timeout =
     typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
@@ -238,12 +246,18 @@ async function shareTitle(
       body: JSON.stringify({ token }),
       ...(timeout ? { signal: timeout } : {}),
     });
-    if (!response.ok) return null;
+    if (!response.ok) return [null, false];
     const body: unknown = await response.json();
-    const title = (body as { title?: unknown } | null)?.title;
-    return typeof title === "string" && title.trim() !== "" ? title : null;
+    const payload = body as { title?: unknown; openToAnyone?: unknown } | null;
+    const title = payload?.title;
+    if (typeof title !== "string" || title.trim() === "") return [null, false];
+    // Strictly `=== true`, so an upstream that is older than this deployment —
+    // or newer, or compromised — sends the reader to sign in rather than
+    // telling them they need no account. The direction an unknown falls is
+    // the same one the whole file falls in: towards saying less.
+    return [title, payload?.openToAnyone === true];
   } catch {
-    return null;
+    return [null, false];
   }
 }
 

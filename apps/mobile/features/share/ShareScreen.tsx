@@ -38,10 +38,12 @@ import { StageBackdrop } from "../design/components/StageBackdrop";
 import { Text } from "../design/components/Text";
 import { radii } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
+import { noteHref } from "../console/nav";
 import { NoteBody } from "./NoteBody";
 import { noteTitle, parseNote } from "./markdown";
 import {
   firstParam,
+  shareTokenFromSegment,
   linkLabel,
   onwardLinks,
   resolveShareView,
@@ -53,7 +55,12 @@ import {
 export function ShareScreen() {
   const styles = useThemedStyles(makeStyles);
   const params = useLocalSearchParams<{ token?: string | string[]; path?: string | string[] }>();
-  const token = firstParam(params.token);
+  // The URL segment as the reader has it — `Chapter-transition-<64 hex>`, or a
+  // bare token on a link minted before slugs existed. The segment is what
+  // onward navigation is built from, so the readable URL survives following a
+  // link inside the share; the token is what the server is asked with.
+  const segment = firstParam(params.token);
+  const token = segment === null ? null : shareTokenFromSegment(segment);
   const requestedPath = firstParam(params.path);
   const auth = useConvexAuth();
   const router = useRouter();
@@ -93,20 +100,40 @@ export function ShareScreen() {
     // signing out must re-ask rather than leave a stale note in state.
   }, [auth.isAuthenticated, auth.isLoading, readSharedNote, requestedPath, token]);
 
-  const view = resolveShareView({ token, auth, note, requestedPath });
+  // `token` rather than `segment`: a segment whose tail is not a token is not a
+  // share link at all, and it must reach the same screen a spent one does
+  // rather than a different one — the rule this page is built around.
+  const view = resolveShareView({ token, auth, note, requestedPath, segment });
 
   const open = useCallback(
     (path: string) => {
-      if (token === null) return;
-      router.push(shareHref(token, path));
+      if (segment === null) return;
+      router.push(shareHref(segment, path));
     },
-    [router, token],
+    [router, segment],
   );
 
   const backToEntry = useCallback(() => {
-    if (token === null) return;
-    router.push(shareHref(token));
-  }, [router, token]);
+    if (segment === null) return;
+    router.push(shareHref(segment));
+  }, [router, segment]);
+
+  /**
+   * Leave the share page for the console, where the note is editable.
+   *
+   * `push` rather than `replace`: the reader arrived on a link somebody sent
+   * them and Back has to still work. `noteHref` is the console's own builder,
+   * so the two cannot disagree about what a note URL looks like.
+   */
+  const edit = useCallback(
+    (slug: string, path: string) => {
+      // The slug undecorated: `noteHref` runs it through `contextSegment`,
+      // which is what puts the `@` on. Adding one here would be a second
+      // helper doing the same job.
+      router.push(noteHref(slug, path));
+    },
+    [router],
+  );
 
   if (view.kind === "wait") return <View style={styles.ground} />;
   if (view.kind === "signIn") return <Redirect href={view.href} />;
@@ -123,6 +150,7 @@ export function ShareScreen() {
             awayFromEntry={view.awayFromEntry}
             onOpen={open}
             onBack={backToEntry}
+            onEdit={edit}
           />
         ) : null}
       </CenteredScroll>
@@ -173,11 +201,13 @@ function Note({
   awayFromEntry,
   onOpen,
   onBack,
+  onEdit,
 }: {
   note: SharedNote;
   awayFromEntry: boolean;
   onOpen: (path: string) => void;
   onBack: () => void;
+  onEdit: (slug: string, path: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const parsed = useMemo(() => parseNote(note.text), [note.text]);
@@ -204,10 +234,45 @@ function Note({
 
       <Card>
         <View style={styles.head}>
-          <Text variant="eyebrow">SHARED WITH YOU</Text>
+          {/*
+            Says which kind of link this is, because the two are read
+            differently. Somebody sent an unlisted link is holding something
+            forwardable, and a page that let them assume otherwise would be the
+            product being quiet about the one thing about it that matters.
+          */}
+          <Text variant="eyebrow">
+            {note.openToAnyone ? "SHARED BY LINK" : "SHARED WITH YOU"}
+          </Text>
           <Text variant="paneTitle" role="heading" aria-level={1}>
             {title}
           </Text>
+          {/*
+            This page is read-only by construction — it draws rendered markdown
+            and there is no write action anywhere in the feature. That is right
+            for the person a link was sent to and wrong for the person who
+            *wrote* the note and opened their own link, for whom it is their own
+            document behind glass.
+
+            So the way out is offered only to a reader whose own membership
+            already lets them edit, decided by the server (`editableInContext`)
+            and never here — a client that worked out for itself who may edit
+            would be a second place for that answer to be wrong, and the
+            direction it would fail is naming somebody else's context to a
+            stranger holding a link.
+          */}
+          {note.editableInContext === null ? (
+            <Text variant="meta" testID="share-read-only">
+              You are reading a shared copy. It cannot be edited here.
+            </Text>
+          ) : (
+            <Pressable
+              onPress={() => onEdit(note.editableInContext!, note.path)}
+              accessibilityRole="link"
+              testID="share-edit"
+            >
+              <Text variant="meta">Open in your console to edit →</Text>
+            </Pressable>
+          )}
         </View>
 
         <NoteBody blocks={body} />

@@ -86,7 +86,7 @@ import {
   titleFromPath,
 } from "./lib/shareTitle";
 import { scheduleCardRender } from "./shareCard";
-import { getMembership, requireWorkspaceRole } from "./lib/workspaceAuth";
+import { getMembership, requireWorkspaceRole, roleAtLeast } from "./lib/workspaceAuth";
 
 /**
  * Caps on how many rows one response carries, and on how many shares one
@@ -1290,6 +1290,22 @@ export const authorizeShareRead = internalQuery({
        * gets one of the two wrong whichever way it is written.
        */
       openToAnyone: v.boolean(),
+      /**
+       * The context's slug, for a caller who may **edit** this note there.
+       *
+       * `null` for everybody else, and that is the whole disclosure argument:
+       * a share page is read-only by construction, and the only person it can
+       * offer a way out of that to is somebody whose own membership already
+       * lets them edit. Telling them the slug of a context they are a member
+       * of tells them nothing — they can list it. Telling anybody else would
+       * name a context to a stranger holding a link, which is what the card's
+       * whole frozen-preview rule exists to prevent.
+       *
+       * Resolved live rather than stored: membership changes, and a route
+       * offered on the strength of a role somebody used to have is a button
+       * that leads to a refusal.
+       */
+      editableInContext: v.union(v.string(), v.null()),
     }),
   ),
   handler: async (ctx, args) => {
@@ -1310,11 +1326,24 @@ export const authorizeShareRead = internalQuery({
     // the owner, both returned the note's text.
     if ((await shareStillStands(ctx, share, args.actorUserId, now)) === null) return null;
 
+    // Their own membership, and only ever their own. `member` is deliberately
+    // not enough: the console is read-only for that role too, so a route
+    // offered to them would lead to the same page they are already on.
+    let editableInContext: string | null = null;
+    if (args.actorUserId !== null) {
+      const membership = await getMembership(ctx, share.workspaceId, args.actorUserId);
+      if (membership !== null && roleAtLeast(membership.role, "editor")) {
+        const workspace = await ctx.db.get(share.workspaceId);
+        editableInContext = workspace?.slug ?? null;
+      }
+    }
+
     return {
       shareId: share._id,
       workspaceId: share.workspaceId,
       entryPath: share.entryPath,
       openToAnyone: share.recipientKind === "anyone",
+      editableInContext,
     };
   },
 });
@@ -1382,6 +1411,18 @@ export const readSharedNote = action({
      * private when it is not.
      */
     openToAnyone: v.boolean(),
+    /**
+     * Where this note can be **edited**, for a reader whose own membership
+     * already lets them — `@slug`, or `null` for everybody else.
+     *
+     * A share page is read-only by construction: it draws rendered markdown and
+     * there is no write action anywhere in the feature. That is right for the
+     * person a link was sent to, and wrong for the person who *wrote* the note
+     * and opened their own link — for whom the page is a dead end with their
+     * own document behind glass. This is the way out, offered only to somebody
+     * who could already have got there by opening their console.
+     */
+    editableInContext: v.union(v.string(), v.null()),
   }),
   // Annotated rather than inferred: this action calls another function in the
   // same deployment, which is the inference cycle `runFileOperation` has.
@@ -1396,6 +1437,7 @@ export const readSharedNote = action({
     entryPath: string;
     links: string[];
     openToAnyone: boolean;
+    editableInContext: string | null;
   }> => {
     // The session is read, not required, and the order is the whole change. A session
     // is *usually* required and is not always: an unlisted link's reader never
@@ -1446,6 +1488,7 @@ export const readSharedNote = action({
         entryPath: grant.entryPath,
         links,
         openToAnyone: grant.openToAnyone,
+        editableInContext: grant.editableInContext,
       };
     }
 
@@ -1455,6 +1498,7 @@ export const readSharedNote = action({
       entryPath: grant.entryPath,
       links,
       openToAnyone: grant.openToAnyone,
+      editableInContext: grant.editableInContext,
     };
   },
 });
@@ -1721,17 +1765,47 @@ export const previewForNote = query({
  */
 export const previewTitleForToken = query({
   args: { token: v.string() },
-  returns: v.object({ title: v.union(v.string(), v.null()) }),
+  returns: v.object({
+    title: v.union(v.string(), v.null()),
+    /**
+     * Whether the card should say a reader must sign in.
+     *
+     * **The second field on this route, and it was argued for rather than
+     * added.** The card's description has always read "Sign in to read it",
+     * which was true of every share there was. It is false of an unlisted
+     * link, and a card that tells somebody to sign in when they need no
+     * account is the product being wrong on the one surface a stranger sees
+     * first — the exact failure the frozen card exists to avoid, arrived at
+     * from the other direction.
+     *
+     * It discloses nothing a crawler could not learn by following the link it
+     * already holds, which is the test every field on an unauthenticated route
+     * has to pass. And it is `false` for **every absence**, so an unknown,
+     * revoked, expired or title-less share is one byte-identical answer rather
+     * than two — the rule this route exists under, now over a tuple instead of
+     * a single value.
+     */
+    openToAnyone: v.boolean(),
+  }),
   handler: async (ctx, args) => {
+    // One absence, spelled once. Every refusal below returns this exact
+    // object, so a crawler cannot tell a share that was taken back from one
+    // that never existed — including by the second field.
+    const nothing = { title: null, openToAnyone: false };
+
     const share = await ctx.db
       .query("noteShares")
       .withIndex("by_token", (q) => q.eq("token", args.token))
       .unique();
 
-    if (share === null) return { title: null };
-    if (!isLive(share, Date.now())) return { title: null };
-    if (!share.titleInPreview) return { title: null };
+    if (share === null) return nothing;
+    if (!isLive(share, Date.now())) return nothing;
+    if (!share.titleInPreview) return nothing;
+    if (share.previewTitle === undefined) return nothing;
 
-    return { title: share.previewTitle ?? null };
+    return {
+      title: share.previewTitle,
+      openToAnyone: share.recipientKind === "anyone",
+    };
   },
 });

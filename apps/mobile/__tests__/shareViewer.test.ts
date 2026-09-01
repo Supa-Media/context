@@ -24,7 +24,9 @@ import {
   type Inline,
 } from "../features/share/markdown";
 import { ConvexError } from "convex/values";
+import shareSegmentCases from "../../../infra/router/src/shareSegment.fixtures.json";
 import {
+  MAX_SHARE_SLUG,
   SHARE_ROUTE,
   firstParam,
   isNotAuthenticated,
@@ -32,7 +34,10 @@ import {
   onwardLinks,
   resolveShareView,
   shareHref,
+  shareSegment,
   shareSignInHref,
+  shareSlug,
+  shareTokenFromSegment,
   type SharedNote,
 } from "../features/share/share";
 
@@ -42,6 +47,7 @@ const note = (over: Partial<SharedNote> = {}): SharedNote => ({
   entryPath: "1-projects/overview.md",
   links: [],
   openToAnyone: false,
+  editableInContext: null,
   ...over,
 });
 
@@ -274,6 +280,71 @@ describe("which screen a reader gets", () => {
       requestedPath: "1-projects/proposal.md",
     });
     expect(view.kind === "ready" && view.awayFromEntry).toBe(true);
+  });
+});
+
+describe("the readable half of a link", () => {
+  /**
+   * The app's half of one rule that lives in two deployments.
+   *
+   * `shareTokenFrom` in `infra/router/src/preview.ts` reads the same URL shape
+   * and cannot be imported here, so both run over the corpus in
+   * `shareSegment.fixtures.json` and neither is trusted to match a comment.
+   * The one that matters most is `token` being read off the **end**: a slug is
+   * whatever the owner's note is called, so it can contain hex, and a search
+   * rather than an anchor would let a title decide which token was looked up.
+   */
+  test.each(
+    shareSegmentCases.cases.map((c) => [c.why, c.segment, c.token] as const),
+  )("%s", (_why, segment, token) => {
+    expect(shareTokenFromSegment(segment)).toBe(token);
+  });
+
+  test("a slug is decoration: the token decides, so a rename cannot break a link", () => {
+    const token = "a1b2c3d4".repeat(8);
+    expect(shareTokenFromSegment(shareSegment(token, "Chapter transition"))).toBe(token);
+    expect(shareTokenFromSegment(shareSegment(token, "Renamed entirely"))).toBe(token);
+    expect(shareTokenFromSegment(shareSegment(token, null))).toBe(token);
+  });
+
+  describe("what a title becomes", () => {
+    test("words are joined by hyphens, and the owner's case is kept", () => {
+      expect(shareSlug("Chapter transition")).toBe("Chapter-transition");
+      expect(shareSlug("Onboarding — All Public Worship")).toBe(
+        "Onboarding-All-Public-Worship",
+      );
+    });
+
+    test("punctuation and runs of separators collapse", () => {
+      expect(shareSlug("  Q3: the *plan*, v2  ")).toBe("Q3-the-plan-v2");
+    });
+
+    /**
+     * Not a transliteration. A slug of percent-escapes is less readable than
+     * no slug at all, and this whole feature is about readability — so a title
+     * with no Latin letters gets the bare token, honestly.
+     */
+    test("a title with nothing Latin in it yields no slug at all", () => {
+      expect(shareSlug("日本語のノート")).toBe("");
+      expect(shareSlug("   ")).toBe("");
+      expect(shareSlug(null)).toBe("");
+      expect(shareSlug(undefined)).toBe("");
+    });
+
+    test("it is bounded, and never left ending in a separator", () => {
+      const slug = shareSlug("word ".repeat(50));
+      expect(slug.length).toBeLessThanOrEqual(MAX_SHARE_SLUG);
+      expect(slug.endsWith("-")).toBe(false);
+      // A bound that cut mid-separator would leave the slug's own trailing
+      // hyphen running into the one that introduces the token, and the segment
+      // would no longer parse.
+      const token = "a1b2c3d4".repeat(8);
+      expect(shareTokenFromSegment(shareSegment(token, "word ".repeat(50)))).toBe(token);
+    });
+
+    test("a title that is only punctuation is no slug rather than a row of dashes", () => {
+      expect(shareSlug("——···——")).toBe("");
+    });
   });
 });
 

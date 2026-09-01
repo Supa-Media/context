@@ -646,6 +646,56 @@ The icon is a globe rather than a wider-open padlock. Shut and open are two
 states of one object and read as *degrees* of the same thing, which is right for
 "me" versus "my team" and wrong for "and now people I have never met".
 
+**A link says what it points at, and the readable half is decoration.**
+`/s/<64 hex>` says nothing, and a URL that says nothing is one people paste
+without knowing what they are sending and open without knowing what they are
+opening — so a link carries the note's name in front of its token, Notion's
+shape: `/s/Chapter-transition-<64 hex>`. Four things about that:
+
+- **The token is still the whole capability and the whole entropy.** Nothing
+  looks the slug up, so a renamed note does not break a link already sent, and
+  two links with different slugs are the same link when their tokens match.
+- **It is read off the end**, with one hyphen in front of it, in both copies of
+  the rule (`shareTokenFromSegment` in the app, `shareTokenFrom` in the router).
+  Anchoring rather than searching is what keeps the parse unambiguous — a slug
+  is whatever somebody called their note, so it can contain hex, and a search
+  would let a title decide which token was looked up. The two copies are held
+  the way two copies are always held here: `shareSegment.fixtures.json` is one
+  corpus both suites run.
+- **A bare 64-hex path stays valid**, because every link minted before this
+  existed is that shape and they are live in other people's messages.
+- **`titleInPreview: false` means no slug.** Switching the card's title off is
+  the owner saying they do not want this note named to somebody who has not
+  opened it, and the URL is seen by *more* people than the card is — it survives
+  every forward. A slug there would undo the setting through a different door.
+
+**And the card had to stop telling unlisted readers to sign in.** The
+description read "Sign in to read it", which was true of every share there was
+and is false of this one; a card that asks a stranger for an account they do not
+need is the product being wrong on the first surface they see, in the way that
+stops a link being opened at all. `previewTitleForToken` therefore returns
+`openToAnyone` beside the title — the second field on an unauthenticated route,
+and it had to earn that the way the third route did. It discloses nothing a
+crawler could not learn by following the link it already holds, and it is
+`false` for **every** absence, so an unknown, revoked, expired or title-less
+share is one byte-identical *tuple* rather than one field that matches and one
+that does not. The router defaults it to the sign-in wording, so an upstream
+older or newer than the edge asks for a sign-in rather than promising access.
+
+**A share page is read-only, structurally, and only one reader is offered a way
+out.** The feature holds one Convex action and renders parsed markdown; no
+mutation, no write hook, no file operation —
+`apps/mobile/__tests__/shareReadOnly.test.ts` reads the files and says so, with
+its own self-test, because "there is no Save button" is the kind of property
+that stays true until somebody adds one to a page they were looking at anyway.
+The exception is the person who *wrote* the note and opened their own link, for
+whom the page is their own document behind glass: `editableInContext` names the
+context, and it is decided by the server from the reader's own membership and
+never by the client. `member` is deliberately not enough — the console is
+read-only for that role too, so the button would lead to the same glass — and it
+is resolved live, because a route offered on the strength of a role somebody
+used to have is a button that leads to a refusal.
+
 **A folder has no third position**, and that is a boundary rather than an
 omission: `createLinkShare` runs the note-only `checkSharePath`, so what a
 folder link would reach is a scope nobody has designed. Do not answer it by
