@@ -72,6 +72,18 @@ import { searchIndexedNotes } from "../src/search/visible.js";
 
 const encoder = new TextEncoder();
 
+/**
+ * One timestamp for every seeded note.
+ *
+ * Recency is a score multiplier — `1 + 0.3·e^(−ageDays/90)` — and a fixture
+ * that stamps each note with `new Date()` as it is written spreads a corpus
+ * across a few milliseconds, which is enough to break ties between notes whose
+ * BM25F scores are identical. The ranking comparison below then flips run to
+ * run: measured, six runs, five different answers. A fixed stamp makes recency
+ * a constant factor, so what the checks compare is the thing they are about.
+ */
+const SEEDED_AT = new Date("2026-06-01T00:00:00.000Z");
+
 /** The same in-memory bucket shape the other search fixtures use. */
 function createBucket() {
   const objects = new Map();
@@ -88,7 +100,7 @@ function createBucket() {
       return counts.gets.filter((key) => key.startsWith(".index/v2/shard-"));
     },
     seed(key, body) {
-      objects.set(key, { body, etag: `e${(etags += 1)}`, uploaded: new Date() });
+      objects.set(key, { body, etag: `e${(etags += 1)}`, uploaded: SEEDED_AT });
     },
     async get(key) {
       counts.gets.push(key);
@@ -105,7 +117,7 @@ function createBucket() {
       const expected = options?.onlyIf?.etagMatches;
       if (expected && objects.get(key)?.etag !== expected) return null;
       const body = typeof value === "string" ? value : new TextDecoder().decode(value);
-      objects.set(key, { body, etag: `e${(etags += 1)}`, uploaded: new Date() });
+      objects.set(key, { body, etag: `e${(etags += 1)}`, uploaded: SEEDED_AT });
       return { etag: `e${etags}` };
     },
     async delete(key) {
@@ -309,6 +321,44 @@ export async function runSearchFilterChecks(check) {
       }
     }
     check("and every note is still found by the term only it carries", missed === 0);
+
+    // **Routing changes what is read, and must not change what comes back.**
+    // The corpus statistics are computed over the shards the walk opened, so a
+    // routed search scores against a smaller `N` and `avglen` than an unrouted
+    // one — a change to scores, and the claim being made is that it is not a
+    // change to *results*. Asserted by running the same query over the same
+    // corpus twice, once with the filters stripped.
+    //
+    // Over a term with **separable** scores, not a term every note carries:
+    // three thousand six hundred notes tied on one word are ordered by their
+    // paths, the cap takes fifty of them, and which fifty is a float
+    // comparison between identical numbers. Measured on that fixture, the two
+    // rankings differed in about half of runs and the check was asserting
+    // floating-point luck rather than the property.
+    for (let i = 0; i < 6; i += 1) {
+      bucket.seed(
+        `2-areas/kestrel-${i}.md`,
+        `# Kestrel ${i}\n\n${"A kestrel. ".repeat(i + 1)}\n`
+      );
+    }
+    await converge(bucket);
+    const withFilters = bucket.objects.get(MANIFEST_KEY).body;
+    const routed = await ask(bucket, "kestrel");
+    const stripped = parseManifest(withFilters);
+    stripped.filters = stripped.filters.map(() => null);
+    bucket.seed(MANIFEST_KEY, serializeManifest(stripped));
+    const unrouted = await ask(bucket, "kestrel");
+    bucket.seed(MANIFEST_KEY, withFilters);
+    check(
+      "a routed search returns the same hits, in the same order, as an unrouted one",
+      routed.index.routed === true &&
+        unrouted.index.routed === false &&
+        // The fixture is honest only if routing actually narrowed something.
+        routed.index.shardsRead < unrouted.index.shardsRead &&
+        routed.hits.length === 6 &&
+        routed.hits.map((hit) => hit.key).join(",") ===
+          unrouted.hits.map((hit) => hit.key).join(",")
+    );
 
     // A term nothing carries: there is provably no exact match to find, so the
     // shards opened are opened for expansion vocabulary and are a sample.

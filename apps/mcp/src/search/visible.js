@@ -175,18 +175,25 @@ export function snippetLinesFor(text, matchedTerms) {
  *
  * Two deliberate consequences:
  *
- * - **A query term no shard claims is a term that needs expanding**, and
- *   expansion is a walk of the vocabulary. That case reads every shard, exactly
- *   as before, because a misspelling is precisely when the whole vocabulary is
- *   the answer.
+ * - **A query term no shard claims has provably no exact match**, since the
+ *   filter has no false negatives — so the shards read for it are read for
+ *   expansion vocabulary alone, and that is a bounded sample rather than the
+ *   whole index. An expansion the sample missed costs a suggestion, never a
+ *   hit.
  * - **The corpus statistics are computed over the shards that were opened**,
- *   not over the whole index. `N`, `avglen` and every `df` shift together and
- *   the ordering they produce is what a caller sees, so this is a change to
- *   scores rather than to results — `searchPacing.test.mjs` pins the routed and
- *   unrouted orderings equal on a fixture rather than leaving that to
- *   confidence. What has not changed is *whose* corpus: every statistic is
- *   still computed over docs `isVisible` accepts, which is the inference
- *   channel `visibleIndex` exists to close.
+ *   not over the whole index. `N`, `avglen` and every `df` shift together, so
+ *   this changes scores rather than results — `searchFilter.test.mjs` runs the
+ *   same query over the same corpus with the filters stripped and asserts the
+ *   two rankings identical, rather than leaving that to confidence. What has
+ *   not changed is *whose* corpus: every statistic is still computed over docs
+ *   `isVisible` accepts, which is the inference channel `visibleIndex` exists
+ *   to close.
+ *
+ * `prefix` narrows the results and does not make the call cheaper: it is
+ * applied to the ranked list, and the index it was scored against covers the
+ * whole bucket. A per-prefix index would be a second derivative to keep honest
+ * and would make the first search in an unvisited folder as expensive as the
+ * scan this replaces.
  *
  * @param {object} store the caller's per-request store
  * @param {object} options
