@@ -348,7 +348,7 @@ async function answerFromIndex(store, options) {
   // shard back in the list, and that is the honest shape rather than a
   // shortcut: skipping shards for a misspelled query is skipping the only
   // thing that could have answered it.
-  const { shardsToRead, routed } = routeShards(manifest, occupied, queryTerms);
+  const { shardsToRead, routed, expansionShards } = routeShards(manifest, occupied, queryTerms);
 
   // **The floor is a fact about this index and this budget, never about this
   // query.** `shardsUnread` below is set when the budget runs out partway
@@ -427,6 +427,51 @@ async function answerFromIndex(store, options) {
       // whole-corpus heap v2 exists to remove, wearing a loop — `collections`
       // holds one small summary each.
       collections.push(collectShardCandidates(shard, queryTerms, isVisible));
+    }
+  }
+  // **A claim is a maybe, and this is where the walk learns which.**
+  //
+  // `routeShards` skips the expansion sample when a filter claims every query
+  // term. `termFilterMayHold` answers *maybe* by construction — `filter.js`
+  // says the asymmetry is the whole design, "no way it can be wrong costs a
+  // hit" — and consuming it as certainty breaks exactly that. Two ways it is
+  // wrong, and only the first is probabilistic:
+  //
+  //   - a Bloom false positive claims a term no shard actually holds;
+  //   - the filters are built over EVERY doc in a shard, so a word the owner
+  //     uses only in private notes claims the shard for a team caller whose
+  //     visible `df` for it is zero. True of the index, false of the caller.
+  //
+  // Either way the sample is skipped, and the sample is the only thing that
+  // widens a query whose exact term has no visible hits — so every note the
+  // caller may read that would have matched by prefix is dropped, while the
+  // answer reports `matchCountIsFloor: false` and asserts it is exact.
+  //
+  // So the claim is verified rather than trusted: after reading, a query term
+  // whose visible df is still zero needed the sample after all, and the shards
+  // it names are read now. This costs nothing on a query that hit — which is
+  // the case routing exists to make fast — and only pays on the miss it was
+  // wrong about.
+  if (routed && !shardsUnread) {
+    const alreadyRead = new Set(shardsToRead);
+    const missing = expansionShards.filter((id) => !alreadyRead.has(id));
+    const anyTermUnfound = queryTerms.some(
+      (term) => !collections.some((c) => (Number(c.dfByTerm?.get(term)) || 0) > 0)
+    );
+    if (anyTermUnfound && missing.length > 0) {
+      for (const id of missing) {
+        if (budget.remaining <= limit + 1) {
+          shardsUnread = true;
+          break;
+        }
+        const bytes = await fetchShardBytes(store, budget, limit, id);
+        const shard = bytes && decodeShard(bytes);
+        if (!shard) {
+          shardsUnread = true;
+          continue;
+        }
+        collections.push(collectShardCandidates(shard, queryTerms, isVisible));
+      }
     }
   }
   const ranked = scoreCollected(collections, query);
@@ -587,9 +632,15 @@ function routeShards(manifest, occupied, queryTerms) {
   // rather than taken from the front, and it is an approximation in the same
   // way `SHARD_FUZZY_RETAIN` already is: an expansion the sample missed costs a
   // suggestion, never a hit.
-  if (expanding) {
-    const stride = Math.max(1, Math.ceil(occupied.length / EXPANSION_SHARD_SAMPLE));
-    for (let at = 0; at < occupied.length; at += stride) keep.add(occupied[at]);
-  }
-  return { shardsToRead: occupied.filter((id) => keep.has(id)), routed: !expanding };
+  const stride = Math.max(1, Math.ceil(occupied.length / EXPANSION_SHARD_SAMPLE));
+  const expansionShards = [];
+  for (let at = 0; at < occupied.length; at += stride) expansionShards.push(occupied[at]);
+  if (expanding) for (const id of expansionShards) keep.add(id);
+  return {
+    shardsToRead: occupied.filter((id) => keep.has(id)),
+    routed: !expanding,
+    // Handed back rather than discarded, because a claim is a MAYBE and the
+    // walk only finds out after reading. See the second wave in the caller.
+    expansionShards,
+  };
 }
