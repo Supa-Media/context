@@ -726,19 +726,25 @@ export const gatewayIngestRecord = emailWorkerRoute(async (ctx, body) => {
  * token in a URL, and from there into an access log, a referrer header, and
  * browser history. The token is the capability.
  *
- * Always 200, always `{ "title": string | null }`. A malformed body is `null`
- * rather than a 400, because a crawler cannot act on a 400 and a status code
- * that varied would be one more thing to read.
+ * Always 200, always `{ "title": string | null, "openToAnyone": boolean }`. A
+ * malformed body is the same shape with `null` and `false`, because a crawler
+ * cannot act on a 400 and a status code that varied would be one more thing to
+ * read — and because every absence on this route has to be one absence, which
+ * over two fields means the whole tuple rather than the first of them.
  */
 export const sharePreview = httpAction(async (ctx, request) => {
   const body = await readJsonBody(request);
   const token = body === null ? null : stringField(body, "token");
-  if (token === null) return json({ title: null });
+  if (token === null) return json({ title: null, openToAnyone: false });
 
   const result = await ctx.runQuery(api.functions.shares.previewTitleForToken, {
     token,
   });
-  return json({ title: result.title });
+  // Both fields named, never a spread of `result`. The failure to expect on an
+  // unauthenticated route is a field added upstream arriving here by a spread
+  // nobody looked at — which is why `structure.test.ts` pins this handler's
+  // fields by name and refuses one.
+  return json({ title: result.title, openToAnyone: result.openToAnyone });
 });
 
 http.route({ path: "/share/preview", method: "POST", handler: sharePreview });

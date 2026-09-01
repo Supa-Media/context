@@ -52,8 +52,8 @@ export const CONTEXT_OVERVIEW_FACTS: readonly OverviewFact[] = [
     body: "PARA, or folders you invented years ago. We don't impose a schema on a brain you have already arranged.",
   },
   {
-    title: "Named people only",
-    body: "Sharing is with named people the owner granted access to, never the public internet. There is no anonymous tier.",
+    title: "Named people, or one link you mint",
+    body: "A context is shared with named people the owner granted access to — there is no public tier and nothing is indexed. The one exception is deliberate: the owner can hand out an unlisted link to a single note, which whoever holds it can open without an account, and take it back whenever they like.",
   },
   {
     title: "Shared workspaces",

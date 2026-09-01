@@ -59,8 +59,18 @@ boundary and invisible above it).
 ### 5. `team` never means public
 
 Visibility is `private` or `team`. `team` means **named people the owner
-granted access to**. There is no anonymous or internet-public tier. Do not add
-one.
+granted access to**. There is no anonymous or internet-public *tier*, and there
+must not be one: no setting publishes a context, a folder, or a whole
+visibility class to the internet, and nothing here is indexed.
+
+**One note at a time, by an owner, through a link they mint and can revoke, is
+the single exception** — see "An unlisted share is the third audience" below. It
+is a share row and never a value in `privacy.md`, which is what keeps this rule
+intact rather than holed: the manifest still has exactly two words in it, the
+privacy engine's `Scope` is still two-valued, and every anonymous request that
+is not redeeming one specific 64-hex token still gets the same nothing it always
+got. A change that put a third word in the manifest, or that let anything other
+than one owner-minted row be read anonymously, is what this paragraph forbids.
 
 ## Architecture
 
@@ -569,6 +579,138 @@ there is. An empty child list hashes *exactly* as the bare title did, so no
 existing note share renames its card and re-publishes an identical picture. The
 two copies are held the way two copies are always held here: by running both
 against the same shapes.
+
+### An unlisted share is the third audience, and it is one row rather than a tier
+
+Asked for by the owner (2026-09-01) with the cost stated in front of them, and
+recorded here because the shape of the answer matters more than the feature.
+
+The ask was "three scopes: private, team and public". The thing that was
+actually built is a fourth `recipientKind` on the share row that already carried
+`name`, `email` and `members` — `anyone`, meaning nobody is addressed and nobody
+signs in. **Not a third value in `privacy.md`**, and that is the whole design:
+
+- The manifest is the stable on-bucket format (#3) and the gateway fails
+  **closed** on a rule it cannot parse. A third word in it makes every note in
+  the bucket read private for anybody on an older deployment — a rollback that
+  silently takes a customer's whole context away rather than one that loses a
+  feature.
+- `Scope` in both privacy engines stays two-valued, so an anonymous request
+  never flows through `canSee` as a clearance. What licenses the read is a token
+  lookup that resolves to one row over one path; the *visibility* question is
+  still asked and answered at `team`.
+- Everything the existing share model already proved carries over unchanged
+  rather than being re-argued: owner-only to mint, revocable, capacity-capped,
+  and re-derived from the live `privacy.md` on every read — so a note made
+  private is absent through an unlisted link exactly as it is through a personal
+  one, and there is nothing stored on the row that could disagree.
+
+**What it genuinely costs, stated rather than left to be rediscovered.** An
+anonymous reader has no name, so revocation stops *future* reads and cannot
+retrieve a copy already taken — the same honesty the share card's own section
+arrives at, one step further along, because this time it is the note's text and
+not its title. The owner was told this before deciding, chose it, and the answer
+to somebody proposing to "fix" it by adding an expiry or a view count is that
+neither un-publishes anything.
+
+Four things hold the line, and each fails a test if removed:
+
+- **One uniform anonymous refusal.** `readSharedNote` reads the session rather
+  than requiring it and lets `authorizeShareRead` decide whether an absent
+  caller is enough — which it is for exactly one kind. So an invented token, a
+  personal share, a members-only link and a revoked unlisted link are one
+  `NOT_AUTHENTICATED`, and a holder cannot learn whether a link ever existed or
+  has been taken back. Dropping the null-caller guard in `shareStillStands` does
+  not compile, which is the strongest form this file asks for.
+- **`openToAnyone` is reported, never inferred.** The viewer has to withdraw a
+  note when a session drops *and* keep showing one that never needed a session,
+  and deriving that from "is there a session now" gets one of the two wrong
+  whichever way it is written. The first of those is a property this repo
+  deliberately fixed once — `note` is component state and survives the auth flip
+  — and the obvious version of this change would have quietly taken it back.
+- **The creation-time check is a courtesy and is proved to be one.**
+  `createLinkShare` is an action so it can refuse over a note the team cannot
+  read, which matters here in a way it does not for a personal share: an
+  unlisted link is pasted into a channel, and one that silently resolves to "not
+  available" for everybody is indistinguishable, from the owner's side, from
+  having published something. Sabotage it and only its own test fails.
+- **The control cannot publish in one press.** `scope.ts` cycles private → team
+  → anyone → private, so reaching the internet is always at least two deliberate
+  presses from a state the icon has been showing; closing revokes the link
+  *before* it narrows the manifest, because a failed revoke after a successful
+  narrowing leaves a private note with a live public link on it; and a private
+  note draws a padlock however many rows point at it, because a globe over a
+  note nobody can open is the control lying in the one direction that matters.
+
+The icon is a globe rather than a wider-open padlock. Shut and open are two
+states of one object and read as *degrees* of the same thing, which is right for
+"me" versus "my team" and wrong for "and now people I have never met".
+
+**A link says what it points at, and the readable half is decoration.**
+`/s/<64 hex>` says nothing, and a URL that says nothing is one people paste
+without knowing what they are sending and open without knowing what they are
+opening — so a link carries the note's name in front of its token, Notion's
+shape: `/s/Chapter-transition-<64 hex>`. Four things about that:
+
+- **The token is still the whole capability and the whole entropy.** Nothing
+  looks the slug up, so a renamed note does not break a link already sent, and
+  two links with different slugs are the same link when their tokens match.
+- **It is read off the end**, with one hyphen in front of it, in both copies of
+  the rule (`shareTokenFromSegment` in the app, `shareTokenFrom` in the router).
+  Anchoring rather than searching is what keeps the parse unambiguous — a slug
+  is whatever somebody called their note, so it can contain hex, and a search
+  would let a title decide which token was looked up. The two copies are held
+  the way two copies are always held here: `shareSegment.fixtures.json` is one
+  corpus both suites run.
+- **A bare 64-hex path stays valid**, because every link minted before this
+  existed is that shape and they are live in other people's messages.
+- **`titleInPreview: false` means no slug.** Switching the card's title off is
+  the owner saying they do not want this note named to somebody who has not
+  opened it, and the URL is seen by *more* people than the card is — it survives
+  every forward. A slug there would undo the setting through a different door.
+
+**And the card had to stop telling unlisted readers to sign in.** The
+description read "Sign in to read it", which was true of every share there was
+and is false of this one; a card that asks a stranger for an account they do not
+need is the product being wrong on the first surface they see, in the way that
+stops a link being opened at all. `previewTitleForToken` therefore returns
+`openToAnyone` beside the title — the second field on an unauthenticated route,
+and it had to earn that the way the third route did. It discloses nothing a
+crawler could not learn by following the link it already holds, and it is
+`false` for **every** absence, so an unknown, revoked, expired or title-less
+share is one byte-identical *tuple* rather than one field that matches and one
+that does not. The router defaults it to the sign-in wording, so an upstream
+older or newer than the edge asks for a sign-in rather than promising access.
+
+**A share page is read-only, structurally, and only one reader is offered a way
+out.** The feature holds one Convex action and renders parsed markdown; no
+mutation, no write hook, no file operation —
+`apps/mobile/__tests__/shareReadOnly.test.ts` reads the files and says so, with
+its own self-test, because "there is no Save button" is the kind of property
+that stays true until somebody adds one to a page they were looking at anyway.
+The exception is the person who *wrote* the note and opened their own link, for
+whom the page is their own document behind glass: `editableInContext` names the
+context, and it is decided by the server from the reader's own membership and
+never by the client. `member` is deliberately not enough — the console is
+read-only for that role too, so the button would lead to the same glass — and it
+is resolved live, because a route offered on the strength of a role somebody
+used to have is a button that leads to a refusal.
+
+**A folder has no third position**, and that is a boundary rather than an
+omission: `createLinkShare` runs the note-only `checkSharePath`, so what a
+folder link would reach is a scope nobody has designed. Do not answer it by
+loosening the path check.
+
+Two things a tidy-up would get wrong. The gateway's own copy no longer claims
+"there is no anonymous or internet-public visibility", because that sentence
+became false the day this landed and a server contract that says something false
+is worse than one that says less; what it says instead is the narrower claim
+that survived intact and is what a connected client actually needs — visibility
+is private or team, and *nothing on that connection* can publish past the people
+the owner named. And `noteUrl` still returns a `context://` URI: an unlisted
+link now exists, but this connection is not told which notes have one, and
+putting a real URL there would republish somebody's deliberate hand-off into
+every search result.
 
 ### Two MCP eras, two lists, and they must never be merged
 

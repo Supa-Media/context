@@ -1,0 +1,100 @@
+{
+  "_comment": "One corpus, two implementations. `shareTokenFromSegment` in apps/mobile/features/share/share.ts and `shareTokenFrom` in infra/router/src/preview.ts read the same URL shape in two deployments that cannot import each other, so they are held the way two copies of a rule are always held here: by running both over these shapes rather than by trusting the comment between them. Add a case here and both suites pick it up.",
+  "cases": [
+    {
+      "why": "a bare token, the shape every link minted before slugs was",
+      "segment": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
+      "token": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"
+    },
+    {
+      "why": "a readable slug in front of it",
+      "segment": "Chapter-transition-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
+      "token": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"
+    },
+    {
+      "why": "a one-character slug",
+      "segment": "A-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
+      "token": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"
+    },
+    {
+      "why": "a slug with a run of doubled separators",
+      "segment": "Chapter--transition-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
+      "token": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"
+    },
+    {
+      "why": "digits in the slug",
+      "segment": "2026-Q3-plan-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
+      "token": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"
+    },
+    {
+      "why": "a slug that is itself hex \u2014 only the tail is ever read as a token",
+      "segment": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
+      "token": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"
+    },
+    {
+      "why": "the token is read off the end, so a leading token is just slug",
+      "segment": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "token": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+      "why": "uppercase hex is not a token",
+      "segment": "plan-A1B2C3D4A1B2C3D4A1B2C3D4A1B2C3D4A1B2C3D4A1B2C3D4A1B2C3D4A1B2C3D4",
+      "token": null
+    },
+    {
+      "why": "63 characters is not a token",
+      "segment": "plan-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d",
+      "token": null
+    },
+    {
+      "why": "65 characters is not a token",
+      "segment": "plan-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a",
+      "token": null
+    },
+    {
+      "why": "a hyphen with no slug in front of it",
+      "segment": "-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
+      "token": null
+    },
+    {
+      "why": "a token with nothing after its separator",
+      "segment": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4-",
+      "token": null
+    },
+    {
+      "why": "a slug and no token",
+      "segment": "Chapter-transition",
+      "token": null
+    },
+    {
+      "why": "an underscore is not slug material",
+      "segment": "Chapter_transition-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
+      "token": null
+    },
+    {
+      "why": "nor is a space",
+      "segment": "Chapter transition-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
+      "token": null
+    },
+    {
+      "why": "nor a dot, which is how a path segment stops being one",
+      "segment": "a.b-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
+      "token": null
+    },
+    {
+      "why": "nor a slash",
+      "segment": "a/b-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
+      "token": null
+    },
+    {
+      "why": "nor a percent escape",
+      "segment": "a%20b-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
+      "token": null
+    },
+    {
+      "why": "the empty segment",
+      "segment": "",
+      "token": null
+    }
+  ]
+}

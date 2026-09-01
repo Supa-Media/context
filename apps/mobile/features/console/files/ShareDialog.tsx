@@ -39,8 +39,9 @@ import { baseName } from "./paths";
 import {
   describePersonalShare,
   describePreviewTitle,
+  describeShareRow,
   describeTeamLink,
-  shareUrl,
+  shareUrlFor,
   sharesFor,
   type NoteShare,
 } from "./shares";
@@ -72,7 +73,7 @@ export function ShareDialog({
     target: { kind: "team"; path: string } | { kind: "share"; url: string },
   ) => Promise<{ ok: boolean; message: string | null }>;
   onRevoke: (shareId: string) => void;
-  onSetPreviewTitle: (recipient: string, titleInPreview: boolean) => void;
+  onSetPreviewTitle: (share: NoteShare, titleInPreview: boolean) => void;
   onClose: () => void;
 }) {
   const colors = useColors();
@@ -243,7 +244,7 @@ function SharedWith({
   origin: string;
   onCopyLink: (target: { kind: "share"; url: string }) => void;
   onRevoke: (shareId: string) => void;
-  onSetPreviewTitle: (recipient: string, titleInPreview: boolean) => void;
+  onSetPreviewTitle: (share: NoteShare, titleInPreview: boolean) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   if (shares === undefined) {
@@ -272,7 +273,7 @@ function SharedWith({
               <Button
                 label="Copy link"
                 onPress={() =>
-                  onCopyLink({ kind: "share", url: shareUrl(share.token, origin) })
+                  onCopyLink({ kind: "share", url: shareUrlFor(share, origin) })
                 }
               />
               <Button
@@ -282,16 +283,25 @@ function SharedWith({
               />
             </View>
 
+            {/*
+              What this row actually grants, under its name. The list holds
+              three things that look alike and one of them needs no account at
+              all — "Copy link / Revoke" beside each says nothing about which.
+            */}
+            <Text variant="meta" style={styles.previewText}>
+              {describeShareRow(share.audience)}
+            </Text>
+
             <View style={styles.previewRow}>
               <Text variant="meta" style={styles.previewText}>
                 {share.titleInPreview
-                  ? describePreviewTitle(share.previewTitle)
+                  ? describePreviewTitle(share.previewTitle, share.audience)
                   : "The link shows nothing about this note before signing in."}
               </Text>
               <Button
                 label={share.titleInPreview ? "Hide name" : "Show name"}
                 onPress={() =>
-                  onSetPreviewTitle(share.recipient, !share.titleInPreview)
+                  onSetPreviewTitle(share, !share.titleInPreview)
                 }
               />
             </View>

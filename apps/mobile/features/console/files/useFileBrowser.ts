@@ -26,6 +26,7 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { isServerRefusal, toFileError, type FileBrowser } from "./browser";
 import type { NoteShare } from "./shares";
+import { stepsTo, type NoteScope } from "./scope";
 import type { ToastSpec } from "../../design/components/Toast";
 import { copyDeferred } from "../../design/clipboard";
 import { consoleOrigin } from "./shareOrigin";
@@ -1386,13 +1387,19 @@ export function useFileBrowser(options: {
    * the same reader every other operation in this file uses.
    */
   const runShare = useCallback(
-    async (work: () => Promise<unknown>, done: string | null) => {
-      if (!mayShare || workspaceId === null) return;
+    async (work: () => Promise<unknown>, done: string | null): Promise<boolean> => {
+      // Answers whether the work landed, because `setScope` runs steps in
+      // sequence and must not carry on past a refusal — see `stepsTo`. A
+      // caller that only wants the notice can ignore it, which every existing
+      // one does.
+      if (!mayShare || workspaceId === null) return false;
       try {
         await work();
         if (done !== null) setNotice(done);
+        return true;
       } catch (error) {
         setNotice(toFileError(error).message);
+        return false;
       }
     },
     [mayShare, workspaceId],
@@ -1416,6 +1423,29 @@ export function useFileBrowser(options: {
   );
 
   const createTeamShareMutation = useMutation(api.functions.shares.createTeamShare);
+  const createLinkShareAction = useAction(api.functions.shares.createLinkShare);
+
+  /**
+   * The notes that currently have a link anybody can open.
+   *
+   * Derived from the same `listShares` subscription the dialog reads, so the
+   * lock and the share list cannot disagree about what is published — a second
+   * source for that would be a second place to be wrong, and the direction it
+   * would fail is a control saying less is out there than is.
+   *
+   * `undefined` while the subscription is in flight is deliberately *not*
+   * distinguished from "none": an owner whose shares have not loaded sees the
+   * padlock they had before, and it corrects itself a tick later. The
+   * alternative — a third icon state for "we do not know yet" — is a flicker on
+   * every cold load of a control people press without looking.
+   */
+  const openLinkPaths = useMemo(() => {
+    const paths = new Set<string>();
+    for (const share of shares ?? []) {
+      if (share.audience === "anyone") paths.add(share.entryPath);
+    }
+    return paths;
+  }, [shares]);
 
   const copyShareLink = useCallback(
     async (
@@ -1494,22 +1524,126 @@ export function useFileBrowser(options: {
   );
 
   /**
+   * Move one entry between the three positions of the visibility control.
+   *
+   * The steps come from `scope.ts` rather than being branched on here, so the
+   * order — which matters, see `stepsTo` — is testable without a server, and
+   * so the console and its tests cannot disagree about what a press does.
+   *
+   * **The steps run in sequence and stop at the first failure.** Not for
+   * tidiness: closing a note is revoke-then-narrow, and carrying on after a
+   * failed revoke would leave a note the owner believes is private with a live
+   * public link on it. Each step reports through the path it already had —
+   * `run` for the manifest, `runShare` for the link — so a refusal arrives in
+   * the notice line in the server's own words.
+   */
+  const setScope = useCallback(
+    (path: string, kind: "file" | "folder", from: NoteScope, to: NoteScope) => {
+      void (async () => {
+        for (const step of stepsTo(from, to)) {
+          if (step.kind === "visibility") {
+            setVisibility(path, kind, step.to);
+            continue;
+          }
+          if (step.on) {
+            const ok = await runShare(
+              () => createLinkShareAction({ workspaceId: workspaceId!, path }),
+              // Says the reach, not just the fact. `SHARE_TRAVERSAL_DEPTH` is
+              // 1, so a link carries the notes this one links to as well —
+              // `ShareDialog` states that beside the personal-share control
+              // because it is the part everybody guesses wrong, and a
+              // one-press control that published silently would be the same
+              // surprise with nowhere for the sentence to live. Copying the
+              // link is in the share dialog rather than here: a copy has to
+              // happen inside its own press to reach the clipboard on iOS.
+              "Anyone with the link can now open this note and the notes it links to." +
+                " Copy the link from Share.",
+            );
+            if (!ok) return;
+            continue;
+          }
+          const live = (shares ?? []).find(
+            (share) => share.audience === "anyone" && share.entryPath === path,
+          );
+          // Nothing to revoke is not a failure: the row may have gone from
+          // under us, and the caller's intent — no open link on this note — is
+          // already true. Stopping here would strand the narrowing that
+          // follows it.
+          if (live === undefined) continue;
+          const ok = await runShare(
+            () => revokeShareMutation({ shareId: live.shareId as Id<"noteShares"> }),
+            "That link no longer works.",
+          );
+          if (!ok) return;
+        }
+      })();
+    },
+    [
+      createLinkShareAction,
+      revokeShareMutation,
+      runShare,
+      setVisibility,
+      shares,
+      workspaceId,
+    ],
+  );
+
+  /**
    * Toggling the preview title goes through `createShare`, which supersedes an
    * existing share **in place and keeps its token**. So this changes what a
    * crawler is told without breaking a link the owner has already sent — which
    * a revoke-and-reshare would not, because that deliberately mints a new one.
    */
   const setSharePreviewTitle = useCallback(
-    (path: string, recipient: string, titleInPreview: boolean) => {
+    (
+      path: string,
+      share: { audience: NoteShare["audience"]; recipient: string },
+      titleInPreview: boolean,
+    ) => {
       if (workspaceId === null) return;
+      /**
+       * Each kind of share is superseded through the mutation that made it.
+       *
+       * **This used to be `createShare` for all of them, and for two of the
+       * three that could not work.** `recipient` on a `members` or an `anyone`
+       * row is a *display string* — "Anyone with access" — and `parseInvitee`
+       * rejects it, since it is neither an address nor a valid handle. So Hide
+       * name on a team link has been raising a refusal rather than doing
+       * anything, and adding a third kind would have added a second instance
+       * of the same bug rather than exposing it.
+       *
+       * All three supersede in place and keep their token, which is the
+       * property this control depends on: changing what a crawler is told must
+       * not break a link the owner has already sent.
+       */
+      const change = () => {
+        if (share.audience === "members") {
+          return createTeamShareMutation({ workspaceId, path, titleInPreview });
+        }
+        if (share.audience === "anyone") {
+          return createLinkShareAction({ workspaceId, path, titleInPreview });
+        }
+        return createShare({
+          workspaceId,
+          path,
+          recipient: share.recipient,
+          titleInPreview,
+        });
+      };
       void runShare(
-        () => createShare({ workspaceId, path, recipient, titleInPreview }),
+        change,
         titleInPreview
           ? "The link will show the note's name."
           : "The link will show nothing about the note.",
       );
     },
-    [createShare, runShare, workspaceId],
+    [
+      createLinkShareAction,
+      createShare,
+      createTeamShareMutation,
+      runShare,
+      workspaceId,
+    ],
   );
 
   return useMemo(
@@ -1561,6 +1695,8 @@ export function useFileBrowser(options: {
       archive,
       destroy,
       setVisibility,
+      setScope,
+      openLinkPaths,
       resetPrivacy,
       // A control that cannot work is a control that is not drawn. All three
       // have to hold: the manifest is broken, this is the owner, and this
@@ -1624,6 +1760,8 @@ export function useFileBrowser(options: {
       selectedPath,
       setDraft,
       setVisibility,
+      setScope,
+      openLinkPaths,
       share,
       revokeShare,
       toasts,

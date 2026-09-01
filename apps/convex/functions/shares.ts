@@ -57,7 +57,13 @@ import { ConvexError, v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { requireAuthId } from "@supa-media/convex/auth";
 import { internal } from "../_generated/api";
-import { action, internalQuery, mutation, query } from "../_generated/server";
+import {
+  action,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "../_generated/server";
 import type { ActionCtx, MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
@@ -80,7 +86,7 @@ import {
   titleFromPath,
 } from "./lib/shareTitle";
 import { scheduleCardRender } from "./shareCard";
-import { getMembership, requireWorkspaceRole } from "./lib/workspaceAuth";
+import { getMembership, requireWorkspaceRole, roleAtLeast } from "./lib/workspaceAuth";
 
 /**
  * Caps on how many rows one response carries, and on how many shares one
@@ -211,7 +217,7 @@ function isLive(share: Doc<"noteShares">, now: number): boolean {
 async function shareStillStands(
   ctx: QueryCtx,
   share: Doc<"noteShares">,
-  userId: Id<"users">,
+  userId: Id<"users"> | null,
   now: number,
 ): Promise<Doc<"workspaces"> | null> {
   if (!isLive(share, now)) return null;
@@ -235,6 +241,24 @@ async function shareStillStands(
   // outlive their standing to make it.
   const sharer = await getMembership(ctx, share.workspaceId, share.createdBy);
   if (sharer === null || sharer.role !== "owner") return null;
+
+  /**
+   * An unlisted link is authorised by possession, and by nothing else.
+   *
+   * This is the only branch that answers without a caller, and it is placed
+   * here — after liveness, after the context, after the sharer's standing —
+   * rather than first, so that everything an unlisted link shares with every
+   * other share is still checked. Revoking it, deleting the context, or the
+   * sharer ceasing to be the owner each take it down, exactly as they take
+   * down a personal share.
+   *
+   * What it does NOT decide is what the reader may see. That stays the live
+   * `privacy.md` at `team` scope in `readThroughShare`, which is why nothing
+   * about visibility is stored on the row: a note made private after the link
+   * was pasted is absent through it, and the only place that answer can be
+   * current is the read itself.
+   */
+  if (share.recipientKind === "anyone") return workspace;
 
   if (share.recipientKind === "name" && share.recipientHeldSince !== undefined) {
     const claim = await findName(ctx, share.recipient);
@@ -272,6 +296,18 @@ async function shareStillStands(
    * through to the caller's single `null`, not raise `WORKSPACE_NOT_FOUND`,
    * because every refusal on this path is one answer.
    */
+  /**
+   * Every kind below this line resolves a caller, so there has to be one.
+   *
+   * The `anyone` branch above is the *only* answer a null caller can get, and
+   * this is what makes that true rather than incidental: without it, `null`
+   * would fall into `getMembership` and `resolveAddressedUser` as a value to
+   * compare against, and both of those answer "no" today by luck rather than
+   * by rule. A future helper that treated an absent caller as a wildcard would
+   * turn every share in the table into an unlisted one.
+   */
+  if (userId === null) return null;
+
   if (share.recipientKind === "members") {
     const membership = await getMembership(ctx, share.workspaceId, userId);
     return membership === null ? null : workspace;
@@ -410,6 +446,11 @@ async function findShareFor(
  */
 function describeAudience(kind: string, recipient: string): string {
   if (kind === "members") return "Anyone with access";
+  // Named the way the owner has to weigh it. "Public" would be shorter and
+  // would describe a listing; this link is not listed anywhere and is not
+  // indexed — what it actually is, and the whole of what it is, is that
+  // holding the URL is enough.
+  if (kind === "anyone") return "Anyone with the link";
   return formatInvitee({ kind: kind as Invitee["kind"], value: recipient });
 }
 
@@ -427,6 +468,23 @@ const shareSummary = v.object({
   token: v.string(),
   /** Decorated for display: `@lk`, or a bare address. */
   recipient: v.string(),
+  /**
+   * Which kind of audience `recipient` is describing.
+   *
+   * A projection of `recipientKind`, never a second stored field — the schema
+   * keeps one field for the audience precisely so its two halves cannot
+   * disagree. The console needs the discriminator rather than the sentence,
+   * because "Anyone with the link" has to be drawn differently from a person:
+   * it is the one row whose reader never signs in, and a share list that made
+   * it look like the others would be the list failing to say the one thing
+   * about it that matters.
+   */
+  audience: v.union(
+    v.literal("name"),
+    v.literal("email"),
+    v.literal("members"),
+    v.literal("anyone"),
+  ),
   entryPath: v.string(),
   titleInPreview: v.boolean(),
   previewTitle: v.optional(v.string()),
@@ -684,6 +742,208 @@ export const createTeamShare = mutation({
 });
 
 /**
+ * Mint an unlisted link over one note. Owner-only.
+ *
+ * ## Why this is an action where its two siblings are mutations
+ *
+ * `createShare` and `createTeamShare` do not check that the note is
+ * `team`-visible, deliberately: a creation-time check reads a bucket and its
+ * answer goes stale the moment the owner edits `privacy.md`, so the read path
+ * re-derives it every time and that is where the security lives. Nothing about
+ * that changes here — `shareStillStands` and `readThroughShare` are what
+ * enforce it, and `shareAnyone.test.ts` proves a note made private after
+ * minting is absent through the link.
+ *
+ * What changes is what a *stale* answer costs the owner. A personal share over
+ * a note that is not team-visible fails in front of one named person who can
+ * say so. An unlisted link is pasted into a channel, and a link that silently
+ * resolves to "not available" for everybody who opens it is indistinguishable,
+ * from the owner's side, from having published something. So this one refuses
+ * at creation as a courtesy to the person pressing the button — and the module
+ * comment's rule holds exactly as written: it must never become the thing the
+ * read path relies on. Sabotage this check and the read tests still pass.
+ *
+ * It reuses `runFileOperation`, which is the single credential barrier
+ * `readThroughShare` already goes through. A second barrier for "the share
+ * mint needs its own" is precisely how an enumeration becomes an amnesty, and
+ * `CREDENTIAL_BARRIERS` holds one member for that reason.
+ */
+export const createLinkShare = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    path: v.string(),
+    titleInPreview: v.optional(v.boolean()),
+  },
+  returns: v.object({ token: v.string() }),
+  handler: async (ctx, args): Promise<{ token: string }> => {
+    // An action has no `db`, so `requireAuthId` is unavailable here; the
+    // clearance below is what refuses, and it refuses an absent caller for the
+    // same reason it refuses an editor.
+    const userId = (await getAuthUserId(ctx)) as Id<"users"> | null;
+    if (userId === null) throw notAuthenticated();
+    // Owner clearance before a single byte of the customer's bucket is spent:
+    // an editor must not be able to make us issue a LIST or a GET, and the
+    // refusal they get must not depend on what the note turned out to be.
+    await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId: userId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+
+    const pathCheck = checkSharePath(args.path);
+    if (!pathCheck.ok) throw pathRejection(pathCheck);
+
+    // The courtesy check. `team` scope, not the owner's own `private` — the
+    // question is what the link's readers will be able to see, and they read at
+    // `team` like every other share.
+    try {
+      const visible = await ctx.runAction(internal.functions.files.runFileOperation, {
+        workspaceId: args.workspaceId,
+        scope: "team",
+        operation: { kind: "read", path: pathCheck.path },
+      });
+      if (visible.kind !== "file") throw notTeamVisible();
+    } catch (error) {
+      // A note the manifest hides and a note that is not there answer
+      // identically at `team` scope, by design — that indistinguishability is
+      // what stops a team-scoped reader enumerating private paths, and it is
+      // not something to unpick for the owner's convenience. So one refusal
+      // covers both, worded to cover both. Anything else — a bucket that is
+      // unreachable, a binding that is gone — is passed through, because
+      // telling an owner their note is private during an outage would send
+      // them to fix a manifest that is fine.
+      const code =
+        error instanceof ConvexError
+          ? (error.data as { code?: string } | undefined)?.code
+          : undefined;
+      if (code === "FILE_NOT_FOUND" || code === "PATH_INVALID") throw notTeamVisible();
+      throw error;
+    }
+
+    return await ctx.runMutation(internal.functions.shares.mintLinkShare, {
+      workspaceId: args.workspaceId,
+      actorUserId: userId,
+      path: pathCheck.path,
+      ...(args.titleInPreview === undefined
+        ? {}
+        : { titleInPreview: args.titleInPreview }),
+    });
+  },
+});
+
+/**
+ * A note an unlisted link may not be minted over, because its readers could not
+ * see it anyway.
+ *
+ * Distinct from `PATH_NOT_SHAREABLE`, which is about paths no share may ever
+ * cover whatever the manifest says. This one is a fact about the owner's own
+ * `privacy.md` that they can change, so telling them apart is the difference
+ * between "fix your path" and "publish the note first".
+ *
+ * It discloses nothing: the caller is the owner, who can read their own
+ * manifest, and it is reachable only after owner clearance.
+ */
+function notTeamVisible(): ConvexError<{ code: string; message: string }> {
+  return new ConvexError({
+    code: "PATH_NOT_TEAM_VISIBLE",
+    message:
+      "Your team cannot read that note, so a link cannot either. Check the path, " +
+      "and share it with your team before making a link anyone can open.",
+  });
+}
+
+/**
+ * The row an unlisted link is, written after the checks above have passed.
+ *
+ * INTERNAL, and `actorUserId` is supplied by the action that read it from the
+ * session — `authorizeFileAccess`' arrangement, safe for its reason: an
+ * internal function is unreachable from any client, so there is nobody to pass
+ * a forged one.
+ *
+ * Supersession, re-minting and capacity follow `createTeamShare` exactly,
+ * including the rule that matters most: a link that was revoked and then made
+ * again gets a **new** token, so a URL somebody already forwarded stays dead.
+ * "Revoke" must never mean "pause", and for the one share whose readers are
+ * anonymous it must mean it least of all.
+ */
+export const mintLinkShare = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    path: v.string(),
+    titleInPreview: v.optional(v.boolean()),
+  },
+  returns: v.object({ token: v.string() }),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const chosenTitle = titleFromPath(args.path);
+
+    const existing = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_entry_recipient", (q) =>
+        q
+          .eq("workspaceId", args.workspaceId)
+          .eq("entryPath", args.path)
+          .eq("recipientKind", "anyone")
+          .eq("recipient", ""),
+      )
+      .unique();
+
+    if (existing !== null && existing.status === "active") {
+      await ctx.db.patch(existing._id, {
+        titleInPreview: args.titleInPreview ?? existing.titleInPreview,
+        previewTitle: chosenTitle ?? existing.previewTitle,
+      });
+      await scheduleCardRender(ctx, existing._id);
+      return { token: existing.token };
+    }
+
+    await assertShareCapacity(ctx, args.workspaceId);
+    const token = randomOpaqueToken();
+
+    let shareId: Id<"noteShares">;
+    if (existing !== null) {
+      shareId = existing._id;
+      await ctx.db.patch(existing._id, {
+        status: "active",
+        token,
+        titleInPreview: args.titleInPreview ?? true,
+        previewTitle: chosenTitle ?? undefined,
+        createdBy: args.actorUserId,
+        createdAt: now,
+        revokedAt: undefined,
+      });
+    } else {
+      shareId = await ctx.db.insert("noteShares", {
+        workspaceId: args.workspaceId,
+        entryPath: args.path,
+        // Nobody to name, and nobody to sign in. One field carries the
+        // audience — see the schema.
+        recipientKind: "anyone",
+        recipient: "",
+        createdBy: args.actorUserId,
+        token,
+        status: "active",
+        titleInPreview: args.titleInPreview ?? true,
+        previewTitle: chosenTitle ?? undefined,
+        createdAt: now,
+      });
+    }
+
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: args.actorUserId,
+      action: "share.link.created",
+      paths: [args.path],
+      details: { audience: "anyone" },
+    });
+
+    await scheduleCardRender(ctx, shareId);
+    return { token };
+  },
+});
+
+/**
  * Refuse a share that would take the context past its outstanding cap.
  *
  * Checked on both paths that produce a live row — the insert, and the patch
@@ -767,6 +1027,7 @@ export const listShares = query({
         shareId: row._id,
         token: row.token,
         recipient: describeAudience(row.recipientKind, row.recipient),
+        audience: row.recipientKind,
         entryPath: row.entryPath,
         titleInPreview: row.titleInPreview,
         previewTitle: row.previewTitle,
@@ -998,13 +1259,53 @@ function shareUnavailable(): ConvexError<{ code: string; message: string }> {
  * distinction gets reintroduced by accident.
  */
 export const authorizeShareRead = internalQuery({
-  args: { actorUserId: v.id("users"), token: v.string() },
+  args: {
+    /**
+     * The signed-in caller, or `null` for a caller with no session at all.
+     *
+     * `null` is not a weaker argument that the caller may supply to skip a
+     * check — it is the *narrowest* one. With no caller, `shareStillStands`
+     * can only answer for an `anyone` share; every other kind resolves an
+     * identity or a membership and so returns `null` here. That is what makes
+     * one uniform refusal safe on the anonymous path: an invented token, a
+     * personal token, a members-only token and a revoked unlisted token all
+     * come back the same way.
+     */
+    actorUserId: v.union(v.id("users"), v.null()),
+    token: v.string(),
+  },
   returns: v.union(
     v.null(),
     v.object({
       shareId: v.id("noteShares"),
       workspaceId: v.id("workspaces"),
       entryPath: v.string(),
+      /**
+       * Whether this share needs no session at all.
+       *
+       * Reported rather than inferred downstream, because the viewer has a
+       * decision that genuinely depends on it: a reader whose session drops
+       * while a note is on screen must stop being shown it, and a reader who
+       * never had one must not. Deriving that from "is there a session now"
+       * gets one of the two wrong whichever way it is written.
+       */
+      openToAnyone: v.boolean(),
+      /**
+       * The context's slug, for a caller who may **edit** this note there.
+       *
+       * `null` for everybody else, and that is the whole disclosure argument:
+       * a share page is read-only by construction, and the only person it can
+       * offer a way out of that to is somebody whose own membership already
+       * lets them edit. Telling them the slug of a context they are a member
+       * of tells them nothing — they can list it. Telling anybody else would
+       * name a context to a stranger holding a link, which is what the card's
+       * whole frozen-preview rule exists to prevent.
+       *
+       * Resolved live rather than stored: membership changes, and a route
+       * offered on the strength of a role somebody used to have is a button
+       * that leads to a refusal.
+       */
+      editableInContext: v.union(v.string(), v.null()),
     }),
   ),
   handler: async (ctx, args) => {
@@ -1025,10 +1326,24 @@ export const authorizeShareRead = internalQuery({
     // the owner, both returned the note's text.
     if ((await shareStillStands(ctx, share, args.actorUserId, now)) === null) return null;
 
+    // Their own membership, and only ever their own. `member` is deliberately
+    // not enough: the console is read-only for that role too, so a route
+    // offered to them would lead to the same page they are already on.
+    let editableInContext: string | null = null;
+    if (args.actorUserId !== null) {
+      const membership = await getMembership(ctx, share.workspaceId, args.actorUserId);
+      if (membership !== null && roleAtLeast(membership.role, "editor")) {
+        const workspace = await ctx.db.get(share.workspaceId);
+        editableInContext = workspace?.slug ?? null;
+      }
+    }
+
     return {
       shareId: share._id,
       workspaceId: share.workspaceId,
       entryPath: share.entryPath,
+      openToAnyone: share.recipientKind === "anyone",
+      editableInContext,
     };
   },
 });
@@ -1038,10 +1353,18 @@ export const authorizeShareRead = internalQuery({
  *
  * The whole authorization argument, in the order it happens:
  *
- *  1. **The caller is signed in.** A share URL is a locator, never a
- *     credential; there is no unauthenticated path to note content anywhere in
- *     this product and this must not become the first one.
- *  2. **The token resolves to a live grant addressed to this caller.**
+ *  1. **The token resolves to a live grant this caller may redeem.** For every
+ *     kind but one that means a signed-in caller who is the addressed identity
+ *     or a member: a share URL is a locator, not a credential. The exception is
+ *     an `anyone` share, where the URL *is* the credential by the owner's
+ *     explicit choice — see the schema, and "An unlisted share is the third
+ *     audience" in `CLAUDE.md`. That is the only unauthenticated path to note
+ *     content in this product, it is one row the owner minted and can revoke,
+ *     and widening it to a second is a decision, never a tidy-up.
+ *  2. **A caller with no session is told about their session and nothing
+ *     else.** Every anonymous refusal is one `NOT_AUTHENTICATED`, so an
+ *     invented token, a personal share, a members-only link and a revoked
+ *     unlisted link are indistinguishable to somebody holding a URL.
  *  3. **The read runs at `team` scope.** Not the caller's role — they have no
  *     role here, they are not a member — but the fixed tier a share can ever
  *     reach. `readFile` then puts the path through the live `privacy.md`, so a
@@ -1077,6 +1400,29 @@ export const readSharedNote = action({
     entryPath: v.string(),
     /** Paths the viewer may follow from here — the entry note's links, resolved. */
     links: v.array(v.string()),
+    /**
+     * Whether whoever holds this link can read it without signing in.
+     *
+     * Not a disclosure: the caller has just been handed the note, so they know
+     * they got in, and that the owner made this link open is the owner's own
+     * choice about the link they sent. It is here because the viewer needs it
+     * — see `authorizeShareRead` — and because a screen that knows can say so,
+     * which is worth more to a reader than leaving them to assume a link is
+     * private when it is not.
+     */
+    openToAnyone: v.boolean(),
+    /**
+     * Where this note can be **edited**, for a reader whose own membership
+     * already lets them — `@slug`, or `null` for everybody else.
+     *
+     * A share page is read-only by construction: it draws rendered markdown and
+     * there is no write action anywhere in the feature. That is right for the
+     * person a link was sent to, and wrong for the person who *wrote* the note
+     * and opened their own link — for whom the page is a dead end with their
+     * own document behind glass. This is the way out, offered only to somebody
+     * who could already have got there by opening their console.
+     */
+    editableInContext: v.union(v.string(), v.null()),
   }),
   // Annotated rather than inferred: this action calls another function in the
   // same deployment, which is the inference cycle `runFileOperation` has.
@@ -1090,14 +1436,34 @@ export const readSharedNote = action({
     text: string;
     entryPath: string;
     links: string[];
+    openToAnyone: boolean;
+    editableInContext: string | null;
   }> => {
-    const actorUserId = await shareCallerId(ctx);
+    // The session is read, not required, and the order is the whole change. A session
+    // is *usually* required and is not always: an unlisted link's reader never
+    // signs in. So the grant is resolved with whatever caller there is — `null`
+    // included — and `authorizeShareRead` is what decides whether that is
+    // enough, which it is for exactly one kind of share.
+    const actorUserId = await getAuthUserId(ctx);
 
     const grant = await ctx.runQuery(internal.functions.shares.authorizeShareRead, {
-      actorUserId,
+      actorUserId: actorUserId as Id<"users"> | null,
       token: args.token,
     });
-    if (grant === null) throw shareUnavailable();
+    if (grant === null) {
+      // Nothing resolved. For a signed-in caller that is the share's one
+      // refusal; for a caller with no session it is a fact about their own
+      // session, which discloses nothing and is the only thing they can act
+      // on — the same distinction this path has always drawn, moved to the
+      // point where the answer is actually known.
+      //
+      // Every anonymous refusal is therefore byte-identical: a token nobody
+      // minted, a personal share, a members-only link, and an unlisted link
+      // the owner has taken back. A holder who could tell those apart would
+      // learn whether a link had existed and whether it had been revoked.
+      if (actorUserId === null) throw notAuthenticated();
+      throw shareUnavailable();
+    }
 
     const requested =
       args.path === undefined ? grant.entryPath : normalizePath(args.path);
@@ -1121,6 +1487,8 @@ export const readSharedNote = action({
         text: target.text,
         entryPath: grant.entryPath,
         links,
+        openToAnyone: grant.openToAnyone,
+        editableInContext: grant.editableInContext,
       };
     }
 
@@ -1129,24 +1497,26 @@ export const readSharedNote = action({
       text: entry.text,
       entryPath: grant.entryPath,
       links,
+      openToAnyone: grant.openToAnyone,
+      editableInContext: grant.editableInContext,
     };
   },
 });
 
 /**
- * The signed-in caller, refused the way a share refuses.
+ * The refusal a caller with no session gets, whatever they presented.
  *
  * `NOT_AUTHENTICATED` rather than `SHARE_UNAVAILABLE`, because "sign in" is
  * something the person can act on and it discloses nothing: they are being told
  * about their own session, not about the share. The viewer page sends them to
  * sign-in and back.
+ *
+ * It is raised only once the grant has failed to resolve, never before the
+ * lookup — an unlisted link's whole premise is a reader who has no session and
+ * needs none.
  */
-async function shareCallerId(ctx: ActionCtx): Promise<Id<"users">> {
-  const userId = await getAuthUserId(ctx);
-  if (userId === null) {
-    throw new ConvexError({ code: "NOT_AUTHENTICATED", message: "Not authenticated" });
-  }
-  return userId as Id<"users">;
+function notAuthenticated(): ConvexError<{ code: string; message: string }> {
+  return new ConvexError({ code: "NOT_AUTHENTICATED", message: "Not authenticated" });
 }
 
 /**
@@ -1395,17 +1765,47 @@ export const previewForNote = query({
  */
 export const previewTitleForToken = query({
   args: { token: v.string() },
-  returns: v.object({ title: v.union(v.string(), v.null()) }),
+  returns: v.object({
+    title: v.union(v.string(), v.null()),
+    /**
+     * Whether the card should say a reader must sign in.
+     *
+     * **The second field on this route, and it was argued for rather than
+     * added.** The card's description has always read "Sign in to read it",
+     * which was true of every share there was. It is false of an unlisted
+     * link, and a card that tells somebody to sign in when they need no
+     * account is the product being wrong on the one surface a stranger sees
+     * first — the exact failure the frozen card exists to avoid, arrived at
+     * from the other direction.
+     *
+     * It discloses nothing a crawler could not learn by following the link it
+     * already holds, which is the test every field on an unauthenticated route
+     * has to pass. And it is `false` for **every absence**, so an unknown,
+     * revoked, expired or title-less share is one byte-identical answer rather
+     * than two — the rule this route exists under, now over a tuple instead of
+     * a single value.
+     */
+    openToAnyone: v.boolean(),
+  }),
   handler: async (ctx, args) => {
+    // One absence, spelled once. Every refusal below returns this exact
+    // object, so a crawler cannot tell a share that was taken back from one
+    // that never existed — including by the second field.
+    const nothing = { title: null, openToAnyone: false };
+
     const share = await ctx.db
       .query("noteShares")
       .withIndex("by_token", (q) => q.eq("token", args.token))
       .unique();
 
-    if (share === null) return { title: null };
-    if (!isLive(share, Date.now())) return { title: null };
-    if (!share.titleInPreview) return { title: null };
+    if (share === null) return nothing;
+    if (!isLive(share, Date.now())) return nothing;
+    if (!share.titleInPreview) return nothing;
+    if (share.previewTitle === undefined) return nothing;
 
-    return { title: share.previewTitle ?? null };
+    return {
+      title: share.previewTitle,
+      openToAnyone: share.recipientKind === "anyone",
+    };
   },
 });

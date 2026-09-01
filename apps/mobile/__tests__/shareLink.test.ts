@@ -18,17 +18,22 @@ import {
   describePersonalShare,
   SHARE_PATH_PREFIX,
   describePreviewTitle,
+  describeShareRow,
   shareEligibility,
   shareUrl,
+  shareUrlFor,
   sharesBreakingWarning,
   sharesFor,
   type NoteShare,
 } from "../features/console/files/shares";
 
+const TOKEN = "a1b2c3d4".repeat(8);
+
 const share = (over: Partial<NoteShare> = {}): NoteShare => ({
   shareId: "s1",
   token: "a".repeat(64),
   recipient: "@lk",
+  audience: "name",
   entryPath: "1-projects/plan.md",
   titleInPreview: true,
   previewTitle: "Plan",
@@ -132,6 +137,53 @@ describe("the link", () => {
   });
 
   /**
+   * A URL that says nothing is one people paste without knowing what they are
+   * sending. The name goes in front of the token, Notion's shape — and the
+   * token is untouched, because it is the capability and the slug is
+   * decoration.
+   */
+  test("the note's name goes in front of the token", () => {
+    expect(shareUrl(TOKEN, "https://context.lc", "Chapter transition")).toBe(
+      `https://context.lc/s/Chapter-transition-${TOKEN}`,
+    );
+  });
+
+  test("a title with no slug in it leaves the bare token", () => {
+    expect(shareUrl(TOKEN, "https://context.lc", "日本語")).toBe(
+      `https://context.lc/s/${TOKEN}`,
+    );
+  });
+
+  /**
+   * THE rule for this half. Switching the preview title off is the owner
+   * saying they do not want this note named to somebody who has not opened it
+   * — and the URL is seen by *more* people than the card is, since it survives
+   * every forward. A slug there would undo the setting through a different
+   * door.
+   */
+  test("a share with its preview title off gets no slug", () => {
+    const row = share({ token: TOKEN, previewTitle: "Salaries", titleInPreview: false });
+    expect(shareUrlFor(row, "https://context.lc")).toBe(
+      `https://context.lc/s/${TOKEN}`,
+    );
+  });
+
+  test("…and one with it on gets the name the card would have shown", () => {
+    const row = share({ token: TOKEN, previewTitle: "Salaries", titleInPreview: true });
+    expect(shareUrlFor(row, "https://context.lc")).toBe(
+      `https://context.lc/s/Salaries-${TOKEN}`,
+    );
+  });
+
+  test("a row with no preview title at all is the bare token", () => {
+    const row = share({ token: TOKEN, titleInPreview: true });
+    delete (row as { previewTitle?: string }).previewTitle;
+    expect(shareUrlFor(row, "https://context.lc")).toBe(
+      `https://context.lc/s/${TOKEN}`,
+    );
+  });
+
+  /**
    * Self-hosting is a supported path. A Copy Link that pasted our domain into a
    * self-hoster's chat sends their colleague to sign in to somebody else's
    * product to look for a note that is not there.
@@ -174,14 +226,78 @@ describe("what the owner is told", () => {
 
   /** Named after the title that will actually appear, not "may expose metadata". */
   test("the preview warning quotes the title it will show", () => {
-    expect(describePreviewTitle("Chapter transition")).toContain("Chapter transition");
-    expect(describePreviewTitle("Chapter transition")).toMatch(/before signing in/i);
+    expect(describePreviewTitle("Chapter transition", "name")).toContain(
+      "Chapter transition",
+    );
+    expect(describePreviewTitle("Chapter transition", "name")).toMatch(
+      /before signing in/i,
+    );
   });
 
   test("with no title it says so rather than quoting an empty string", () => {
-    const text = describePreviewTitle(undefined);
+    const text = describePreviewTitle(undefined, "name");
     expect(text).toMatch(/note's name/i);
     expect(text).not.toContain("“”");
+  });
+
+  /**
+   * "Before signing in" is the cost for a link whose reader signs in
+   * afterwards. An unlisted link's reader never does, so that sentence would
+   * be naming a step that does not happen — and would read as reassurance.
+   */
+  test("an unlisted link does not promise a sign-in that never comes", () => {
+    const text = describePreviewTitle("Chapter transition", "anyone");
+    expect(text).not.toMatch(/signing in/i);
+    expect(text).toContain("Chapter transition");
+  });
+
+  test("each kind of row says what it actually grants", () => {
+    expect(describeShareRow("anyone")).toMatch(/no sign-in/i);
+    expect(describeShareRow("anyone")).toMatch(/anyone who has this link/i);
+    expect(describeShareRow("members")).toMatch(/already given access/i);
+    expect(describeShareRow("name")).toMatch(/notes it links to/i);
+    // The one a reader must not mistake for another: the members link grants
+    // nothing, the unlisted one grants everything it points at.
+    expect(describeShareRow("anyone")).not.toBe(describeShareRow("members"));
+  });
+});
+
+describe("what a rename costs the links people hold", () => {
+  /**
+   * An unlisted link is held by an unknown number of people — that is the whole
+   * point of it — so a row count printed as a headcount would be read as the
+   * size of the audience. It is named rather than counted.
+   */
+  test("an unlisted link is named, never counted as one person", () => {
+    const text = sharesBreakingWarning(
+      [share({ audience: "anyone", recipient: "Anyone with the link" })],
+      "1-projects/plan.md",
+      "Renaming",
+    );
+    expect(text).toMatch(/unlisted link anyone can open/i);
+    expect(text).not.toMatch(/1 person/i);
+    expect(text).toMatch(/Renaming it breaks it/);
+  });
+
+  test("addressed links are still counted, beside it", () => {
+    const text = sharesBreakingWarning(
+      [
+        share({ shareId: "s1" }),
+        share({ shareId: "s2", recipient: "a@example.invalid", audience: "email" }),
+        share({ shareId: "s3", audience: "anyone", recipient: "Anyone with the link" }),
+      ],
+      "1-projects/plan.md",
+      "Moving",
+    );
+    expect(text).toMatch(/2 people hold links/i);
+    expect(text).toMatch(/unlisted link/i);
+    expect(text).toMatch(/breaks them/);
+  });
+
+  test("and with no unlisted link the sentence is what it always was", () => {
+    expect(
+      sharesBreakingWarning([share()], "1-projects/plan.md", "Archiving"),
+    ).toMatch(/^1 person holds a link to this note\. Archiving it breaks it —/);
   });
 });
 

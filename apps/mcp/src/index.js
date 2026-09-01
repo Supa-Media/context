@@ -315,8 +315,11 @@ stop paying.
    \`set_visibility\`, and before creating a note tell them which folder it will
    land in — the folder decides who else can read it. Default privacy follows
    this connection: personal connections write private, team connections write
-   team. Publishing something private to team needs their explicit yes. There is
-   no anonymous or internet-public tier; "team" means people they named.
+   team. Publishing something private to team needs their explicit yes. Visibility
+   here is private or team and nothing else — "team" means people they named,
+   and no tool on this connection can publish anything beyond them. The owner
+   can separately hand out a link to one note from their console; you cannot,
+   and you are not told which notes those are.
 4. **Many tools read these notes, not just you.** Keep them concise and factual.
    No transient chatter, and when you save a conversation, save the user-visible
    messages only — never system or developer prompts, internal reasoning,
@@ -2582,7 +2585,8 @@ function scopeInfoText(scope, rules) {
       overrideList +
       "\n\nExact private or team notes may override a folder default through privacy.md. " +
       "Frontmatter is never access control. Publishing private content to team requires explicit confirmation. " +
-      "There is no anonymous or internet-public visibility. Personal reviewers can process queued proposals."
+      "Visibility is private or team; nothing on this connection can publish beyond the people the owner named. " +
+      "Personal reviewers can process queued proposals."
     );
   }
 
@@ -2598,7 +2602,7 @@ function scopeInfoText(scope, rules) {
     "Write and move destinations outside the surface return permission denied without confirming whether anything exists there.\n\n" +
     "If the PARA-correct destination is not writable, use propose_note. A personal connection must approve it before the note is filed. " +
     "Archive paths never encode visibility. Exact archive visibility is enforced through privacy.md. " +
-    "There is no anonymous or internet-public visibility."
+    "Visibility is private or team; nothing on this connection can publish beyond the people the owner named."
   );
 }
 
@@ -3716,9 +3720,17 @@ async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg)
  * is literally `scanVisibleNotes`, shared with `search_notes` — so this
  * dialect discloses nothing the ordinary one would not.
  *
- * A note has no public URL (there is no public tier), so `url` is a
+ * A note has no public URL the gateway can name, so `url` is a
  * `context://note/...` URI: stable, unique per result as the contract wants,
  * resolving nowhere on purpose.
+ *
+ * An owner can now mint an unlisted link to one note from their console, so
+ * "there is no public URL" — what this comment used to say — is no longer the
+ * reason. The reason is stronger: that link is a 64-hex token the owner handed
+ * to somebody deliberately, this connection is not told which notes have one,
+ * and putting one here would republish it into every search result. An https
+ * URL invented for a note that has no link would imply a page that does not
+ * exist.
  */
 function noteUrl(path) {
   return `context://note/${encodeURI(path)}`;

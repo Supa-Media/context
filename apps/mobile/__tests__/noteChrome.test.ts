@@ -165,6 +165,8 @@ function dataWith(
     archive: () => {},
     destroy: () => {},
     setVisibility: () => {},
+    setScope: () => {},
+    openLinkPaths: new Set<string>(),
     resetPrivacy: () => {},
     canResetPrivacy: false,
     canSetVisibility: true,
@@ -497,7 +499,7 @@ describe("the top bar is a toggle and one group", () => {
     // the press and says what will happen. See `ICON_NAMES`.
     const shared = mountConsole(dataWith());
     const lock = shared.find("note-visibility")!;
-    expect(lock.getAttribute("aria-label")).toBe("Make this private");
+    expect(lock.getAttribute("aria-label")).toBe("Make a link anyone can open");
     expect(lock.querySelector('[data-icon="lockOpen"]')).not.toBeNull();
 
     const priv = mountConsole(dataWith({}, { visibility: "private", inherited: "private" }));
@@ -506,16 +508,54 @@ describe("the top bar is a toggle and one group", () => {
     expect(shut.querySelector('[data-icon="lock"]')).not.toBeNull();
   });
 
-  test("pressing it asks the server to move the visibility, once", () => {
+  test("pressing it asks the server to move the scope, once", () => {
     // Asserted on the *call*, not on what the screen then shows: the console
     // does not move a visibility optimistically, so a test that read the icon
     // afterwards would pass on a button wired to nothing.
+    //
+    // A team note's next position is the link anybody can open — the middle of
+    // the three — so this also pins that the widening step is the one taken
+    // rather than the close.
     const moved: unknown[] = [];
     const app = mountConsole(
-      dataWith({ setVisibility: (...args: unknown[]) => moved.push(args) } as never),
+      dataWith({ setScope: (...args: unknown[]) => moved.push(args) } as never),
     );
     app.press(app.find("note-visibility"));
-    expect(moved).toEqual([[NOTE, "file", "private"]]);
+    expect(moved).toEqual([[NOTE, "file", "team", "anyone"]]);
+  });
+
+  /**
+   * The third position, and the one property this screen must not get wrong:
+   * a globe means a link that works, so it is drawn from the share row AND the
+   * manifest together. `scopeOf` is where that rule lives; this is the wiring.
+   */
+  test("a note with a live open link draws the globe and closes on a press", () => {
+    const moved: unknown[] = [];
+    const app = mountConsole(
+      dataWith({
+        openLinkPaths: new Set([NOTE]),
+        setScope: (...args: unknown[]) => moved.push(args),
+      } as never),
+    );
+    const globe = app.find("note-visibility")!;
+    expect(globe.getAttribute("aria-label")).toBe("Make this private");
+    expect(globe.querySelector('[data-icon="globe"]')).not.toBeNull();
+
+    app.press(globe);
+    expect(moved).toEqual([[NOTE, "file", "anyone", "private"]]);
+  });
+
+  test("…and a private note with a stale link row still draws the padlock", () => {
+    // The link grants nothing over a private note — the server re-derives
+    // visibility from the live manifest on every read — so a globe here would
+    // tell somebody they had published something they had not.
+    const app = mountConsole(
+      dataWith({ openLinkPaths: new Set([NOTE]) } as never, {
+        visibility: "private",
+        inherited: "private",
+      }),
+    );
+    expect(app.find("note-visibility")!.querySelector('[data-icon="lock"]')).not.toBeNull();
   });
 
   test("and the lock is absent for anybody the server would refuse", () => {

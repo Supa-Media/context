@@ -14,6 +14,11 @@
  * control people cannot predict is a sharing control they cannot use safely.
  */
 
+// The link's shape is the viewer's, not a second copy of it: one function
+// builds a segment and one reads it, so the console cannot mint a URL the page
+// at the other end declines to parse.
+import { shareSegment } from "../../share/share";
+
 /**
  * One live share, as `listShares` returns it.
  *
@@ -27,6 +32,16 @@ export interface NoteShare {
   token: string;
   /** Decorated for display: `@lk`, or a bare address. */
   recipient: string;
+  /**
+   * Which kind of audience `recipient` names.
+   *
+   * The discriminator rather than the sentence, because one of these rows is
+   * not like the others: an `anyone` share's reader never signs in, so it is
+   * what the lock control reads to know a note is published, and a list that
+   * drew it like a person would be omitting the one thing about it that
+   * matters.
+   */
+  audience: "name" | "email" | "members" | "anyone";
   entryPath: string;
   titleInPreview: boolean;
   previewTitle?: string;
@@ -53,8 +68,36 @@ export const SHARE_PATH_PREFIX = "/s/";
  * wrong — they would sign in to the wrong product to look for a note that is
  * not there.
  */
-export function shareUrl(token: string, origin: string): string {
-  return `${origin.replace(/\/+$/, "")}${SHARE_PATH_PREFIX}${token}`;
+export function shareUrl(
+  token: string,
+  origin: string,
+  /**
+   * The note's own name, when the owner has left it on the card.
+   *
+   * Omitted — or passed with `titleInPreview` off — gives a bare-token URL.
+   * That is not tidiness: switching the title off is the owner saying they do
+   * not want this note named to somebody who has not opened it, and a slug in
+   * the URL would put the name in front of every person the link is forwarded
+   * to, which is a larger audience than the card's.
+   */
+  title?: string | null,
+): string {
+  return `${origin.replace(/\/+$/, "")}${SHARE_PATH_PREFIX}${shareSegment(token, title)}`;
+}
+
+/**
+ * The link for one share row, with the readable half filled in from the row.
+ *
+ * The row is the authority on both halves — the token and whether the owner
+ * left the title on — so the two cannot be assembled inconsistently by a
+ * caller that has one and guesses the other.
+ */
+export function shareUrlFor(share: NoteShare, origin: string): string {
+  return shareUrl(
+    share.token,
+    origin,
+    share.titleInPreview ? share.previewTitle : undefined,
+  );
 }
 
 /**
@@ -72,10 +115,37 @@ export function shareUrl(token: string, origin: string): string {
  * metadata" is a sentence nobody weighs. `previewTitle` is what the card will
  * say; if there is none, the honest version says so.
  */
-export function describePreviewTitle(previewTitle: string | undefined): string {
+export function describePreviewTitle(
+  previewTitle: string | undefined,
+  audience: NoteShare["audience"],
+): string {
+  // "Before signing in" is the cost for every link whose reader signs in
+  // *afterwards*. An unlisted link's reader never does, so the sentence would
+  // be describing a step that does not happen — and the thing actually worth
+  // saying about that row is not the title at all, it is that the note itself
+  // is readable by whoever holds the URL.
+  const when = audience === "anyone" ? "even without opening it" : "before signing in";
   return previewTitle === undefined
-    ? "Anyone with the link sees the note's name before signing in."
-    : `Anyone with the link sees “${previewTitle}” before signing in.`;
+    ? `Anyone with the link sees the note's name ${when}.`
+    : `Anyone with the link sees “${previewTitle}” ${when}.`;
+}
+
+/**
+ * What a row in SHARED WITH grants, said in one line under its name.
+ *
+ * The list holds three different things that look alike — a person, a link for
+ * people who already have access, and a link that needs no account at all — and
+ * "Copy link / Revoke" beside each of them says nothing about which is which.
+ * The third is the one somebody must not mistake for the second.
+ */
+export function describeShareRow(audience: NoteShare["audience"]): string {
+  if (audience === "anyone") {
+    return "Anyone who has this link can read the note. No sign-in, no account.";
+  }
+  if (audience === "members") {
+    return "Only people you have already given access to. It grants nothing on its own.";
+  }
+  return "They sign in as themselves, and can read this note and the notes it links to.";
 }
 
 /**
@@ -154,8 +224,20 @@ export function sharesBreakingWarning(
 ): string | null {
   const live = sharesFor(shares, path);
   if (live === undefined || live.length === 0) return null;
-  const count = live.length === 1 ? "1 person holds a link" : `${live.length} people hold links`;
-  return `${count} to this note. ${verb} it breaks ${live.length === 1 ? "it" : "them"} — a share follows the path, not the note.`;
+  // An unlisted link is held by an unknown number of people — that is what it
+  // is for — so counting rows and calling them "people" would be a number the
+  // owner would read as the size of the audience. It is named rather than
+  // counted, and the count covers the rest.
+  const open = live.filter((share) => share.audience === "anyone").length;
+  const addressed = live.length - open;
+  const parts: string[] = [];
+  if (addressed > 0) {
+    parts.push(addressed === 1 ? "1 person holds a link" : `${addressed} people hold links`);
+  }
+  if (open > 0) parts.push("an unlisted link anyone can open points");
+  const subject = parts.join(", and ");
+  const breaks = live.length === 1 ? "it" : "them";
+  return `${subject[0]!.toUpperCase()}${subject.slice(1)} to this note. ${verb} it breaks ${breaks} — a share follows the path, not the note.`;
 }
 
 
