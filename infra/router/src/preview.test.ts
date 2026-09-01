@@ -20,6 +20,9 @@ import {
 } from "./preview";
 import { route } from "./route";
 import shareSegmentCases from "./shareSegment.fixtures.json";
+// The app's copy of this rule, imported so a corpus change is checked against
+// both implementations in the one suite the corpus's own directory triggers.
+import { shareTokenFromSegment } from "../../../apps/mobile/features/share/share";
 
 /** Render whatever a crawler asking for `pathname` would be sent. */
 function previewHtml(pathname: string): string {
@@ -506,6 +509,33 @@ describe("share links: the one card that may say something", () => {
    * already follow one repository over. The floor is asserted rather than the
    * exact count, so adding a case is free and removing one is not.
    */
+  /**
+   * BOTH PARSERS, IN THE SUITE THE CORPUS'S OWN DIRECTORY TRIGGERS.
+   *
+   * The corpus exists to hold `shareTokenFrom` here and
+   * `shareTokenFromSegment` in `apps/mobile` together, and both suites do run
+   * it — but only one of them runs in CI when the corpus changes. The file
+   * lives under `infra/router/src/`, so editing it triggers `router.yml`
+   * (`paths: infra/router/**`) while the reusable workflow's change detection
+   * skips `ci / Test Mobile App`, which is gated on `apps/mobile/**`.
+   *
+   * So the edit the corpus is *designed* to receive — adding a case — was
+   * checked against one of the two implementations it exists to compare.
+   * Measured on the pull request that added six cases: `Test Edge Router` ran,
+   * `Test Mobile App` was skipped. A case that this parser accepts and the
+   * app's rejects would have gone green.
+   *
+   * The mobile suite keeps its own copy of this loop, because a corpus change
+   * is not the only way the two can drift — a change to either parser must fail
+   * on its own side too.
+   */
+  it.each(shareSegmentCases.cases.map((c) => [c.why, c.segment, c.token] as const))(
+    "the app's parser agrees: %s",
+    (_why, segment, token) => {
+      expect(shareTokenFromSegment(segment)).toBe(token);
+    },
+  );
+
   it("the shared corpus keeps its negative cases", () => {
     const cases = shareSegmentCases.cases;
     const refused = cases.filter((c) => c.token === null);
