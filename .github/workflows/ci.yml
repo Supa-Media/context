@@ -75,6 +75,18 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # What this binds, and what it does not. A hand-edited blob is caught:
+      # the rebuild does not reproduce it. A compromised *dependency* is not —
+      # it rebuilds to the same bytes and this job goes green. That is npm's
+      # threat model rather than this one, and saying so here stops the job
+      # reading as a broader promise than it is.
+      #
+      # `esbuild` is a root transitive of `convex` and deliberately not a
+      # bundle input, so a root lockfile bump changes the minified output and
+      # turns this red — with a message whose second branch reads "contains
+      # code that is not in this repository". That is the wrong sentence for
+      # that cause; the honest fix is to record esbuild's resolved version in
+      # the generated header so the failure can name itself.
       - name: Rebuild the bundle from its sources
         run: node scripts/build-editor-bundle.mjs
 

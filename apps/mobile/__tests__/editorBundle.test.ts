@@ -224,5 +224,41 @@ describe("what shipped is a script and nothing else", () => {
     expect(code).toMatch(/^\s+if git diff --quiet -- "\$file"; then\s*$/m);
     // On `pull_request`, or it is a check that runs after the merge.
     expect(code).toMatch(/^on:\n\s+pull_request:/m);
+
+    /*
+      And the job must actually run, and must actually block.
+
+      Everything above pins that the *steps exist*, which is a different claim.
+      Measured: adding `if: false` and `continue-on-error: true` to this job
+      leaves all of these green while the guard does nothing at all — and that
+      is not a hypothetical, it is this file's own neighbour. `ci.yml` records
+      three lines above this job that `ci / Lint` "reported skipping on every
+      PR for months", and that `lint-continue-on-error` defaults to true
+      upstream, so "even once the job runs, a lint failure would be reported as
+      a pass". Both halves of that trap are reachable here by one line each.
+
+      Scoped to this job's own block rather than the whole file, so a legitimate
+      `if:` on some unrelated job cannot fail this and cannot satisfy it either.
+    */
+    const start = code.indexOf("\n  editor-bundle:");
+    expect(start).toBeGreaterThan(-1);
+    // From the line after the job's own key, so the search below does not
+    // match `editor-bundle:` itself and cut the block to nothing.
+    const rest = code.slice(start + 1);
+    const next = rest.search(/\n  [a-z][a-z-]*:\n/);
+    const job = next === -1 ? rest : rest.slice(0, next);
+    expect(job).toMatch(/^\s+run: node scripts\/build-editor-bundle\.mjs\s*$/m);
+    /*
+      Job-level keys only — four spaces. A *step* may carry an `if:`, and one
+      here does: the artifact upload is `if: failure()`, which is the whole
+      point of it. Forbidding `if:` at any depth caught that and would have
+      made this test refuse a correct workflow, which is its own kind of
+      useless guard.
+    */
+    expect(job).not.toMatch(/^ {4}if:/m);
+    expect(job).not.toMatch(/^ {4}continue-on-error:/m);
+    // `continue-on-error` on a step turns that step's failure into a pass, so
+    // it is refused at every depth rather than only at the job's.
+    expect(job).not.toMatch(/^\s+continue-on-error:/m);
   });
 });
