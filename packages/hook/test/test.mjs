@@ -1070,6 +1070,48 @@ check(
   (await registrationScopeFor(undefined)) === HOOK_SCOPE
 );
 
+/**
+ * ...AND THE PRODUCTION CALLER MUST BE THE ONE PASSING IT.
+ *
+ * The three checks above drive `registerClient` directly, which is exactly the
+ * gap the `state` section twenty lines up records: a unit check passes whether
+ * or not anything calls the function. Measured -- deleting the `scope,` line
+ * from `commands.authorize` leaves all three of them green, because they never
+ * go through it, and that is the line the whole section exists to protect.
+ *
+ * So the flow itself is driven, twice, with a browser that approves, and the
+ * assertion is made against the registration body the fake gateway actually
+ * received. `state.registered` is appended to by `/oauth/register`, so this
+ * cannot pass without a real request having been made.
+ *
+ * A fresh config path each time, because `authorize` reuses a stored client
+ * whose scope already matches and would then register nothing at all.
+ */
+async function registrationBodyFrom(orient) {
+  const before = server.state.registered.length;
+  await commands.authorize({
+    endpoint: server.endpoint,
+    orient,
+    configPath: join(await mkdtemp(join(tmpdir(), "context-hook-scope-")), "config.json"),
+    log,
+    openBrowser: (href) => server.state.approve(href),
+  });
+  const registered = server.state.registered.slice(before);
+  if (registered.length !== 1) throw new Error(`expected one registration, got ${registered.length}`);
+  return registered[0];
+}
+const captureRegistration = await registrationBodyFrom(false);
+check(
+  "the install flow registers a capture-only client",
+  captureRegistration.scope === HOOK_SCOPE
+);
+const orientRegistration = await registrationBodyFrom(true);
+check(
+  "and --orient registers one that declares the read scope it then asks for",
+  orientRegistration.scope === ORIENT_SCOPE &&
+    server.state.lastAuthorize.searchParams.get("scope") === ORIENT_SCOPE
+);
+
 server.close();
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");
 process.exit(failures ? 1 : 0);
