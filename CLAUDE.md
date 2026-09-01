@@ -1083,11 +1083,12 @@ Renaming either tool, or "simplifying" the pair away because they duplicate
 The brute-force scan behind `search_notes` fetched every candidate note per
 query, and Cloudflare allows 50 subrequests per Worker invocation — so a real
 context, measured live at 154 notes, answered every unprefixed search with
-"Too many subrequests". Search now answers from `.index/search-v1.json` in the
-customer's own bucket: an inverted index with BM25F ranking, synced by etag
-diff on each search under one shared subrequest budget. The format, scoring
-constants, and maintenance loop are pinned in `apps/mcp/src/search/CONTRACT.md`;
-what belongs here is what a tidy-up would break:
+"Too many subrequests". Search now answers from an inverted index with BM25F
+ranking, in the customer's own bucket, synced by etag diff under one shared
+subrequest budget — **behind the response, never in front of it**; the three
+sections after this one are about that. The format, scoring constants, and
+maintenance loop are pinned in `apps/mcp/src/search/CONTRACT.md`; what belongs
+here is what a tidy-up would break:
 
 - **It is a disposable derivative, and every consequence of that is
   deliberate.** Rebuildable from the notes, never snapshotted to `.history/`,
@@ -1107,9 +1108,9 @@ what belongs here is what a tidy-up would break:
   language, and a future-dated `uploaded` timestamp is clamped — unclamped,
   `e^(+age/90)` is an unbounded score multiplier one crafted `LastModified`
   away.
-- **One search path.** `search_notes` and the ChatGPT-dialect `search` share
-  `searchVisibleNotes` the way they shared the scan before it; a second path
-  is a second place for a visibility bug.
+- **One search path.** `search_notes`, the ChatGPT-dialect `search` and the
+  console share `searchIndexedNotes` the way the first two shared the scan
+  before it; a second path is a second place for a visibility bug.
 - **The index is sharded (v2) because the single object hit a real ceiling.**
   A brain in the mid-thousands of notes built a capped index that could never
   be parsed within the Worker's 128MB, so coverage plateaued forever —
@@ -1140,88 +1141,141 @@ what belongs here is what a tidy-up would break:
   does not allocate a second copy of the body to do it — and it is held the way
   two copies of a rule are always held here, by running both against a corpus.
 
-### A search is paced, and what it may not spend is the answer
+### A search reads a ready index, and never builds one
 
-Two failures, one cause, and the cause is that a **subrequest budget bounds
-spending and cannot see a round trip**.
-
-Measured live on 2026-08-31 against a 7,961-note context: searches took **40 to
+Measured live on 2026-08-31 against a 7,961-note context: searches took **20 to
 60 seconds**, and one returned nothing for a note that was certainly there. The
-second half of that is the worse half and it was not a coincidence — every
-search ran `syncShardedIndex` first, and the sync spent every op down to
-`reserve`, which was the snippet reads. The query walk opens one shard per
-occupied shard *before* it can read a snippet, and those ops were nobody's. So
-the sync took them and the answer was assembled from no shards at all.
-Reproduced on fixtures: 1,500 notes at a budget of 120 answered `0 matching
-notes` from the fourth pass onward, **permanently**, for a term every note
-carried; 7,961 notes at 600 gave thirteen consecutive false misses.
+console's palette showed the same thing from the other side — twenty-odd
+seconds of spinner, then "that search could not be run", because one of the
+hundreds of round trips it was making hit the Convex action's ten-second fetch
+deadline.
 
-A miss is the one answer this system must not get wrong. `toolSearchNotes`'s
-miss copy exists to argue an agent out of concluding "it is not written down",
-and an index that starves its own reader hands that conclusion to every client
-on a large context.
+One cause under both: **every search ran the index maintenance first.** A full
+listing of the customer's bucket, an etag diff, and as many note reads as the
+budget allowed, all in front of the answer. The subrequest budget bounded what a
+search could *spend*; nothing bounded what a person *waited for*, and on the
+deployment's budget of 600 those differ by two orders of magnitude.
 
-Four things hold the fix, and each fails a test if removed
-(`test/searchPacing.test.mjs`, whose header carries the numbers and the
-sabotage record):
+So the two are separated, and the separation is the rule rather than a tuning:
 
-- **The caller's work is reserved before maintenance may spend.** `walkReserve`
-  keeps back one op per occupied shard on top of `reserve`. On a budget too
-  small to do both, the answer is served and the index does not grow that pass
-  — which is the honest direction, and it is why the shard audit's coverage
-  ceiling moved down (measured, and restated in CONTRACT.md rather than left to
-  be discovered).
-- **The walk takes what the sync already loaded, first and free.** It used to
-  read shards in id order and stop on a budget refusal, so a pass holding the
-  answer in memory could answer from none of it. This is the *other*
-  independent cause of the same false miss, and both are kept: removing either
-  one alone leaves a real shape broken.
-- **The interactive share of the backfill is capped**, and the rest of the same
-  sync continues after the response through `ctx.waitUntil`. A budget of 600
-  authorizes ~580 note reads in front of an answer; the person waits for 60 of
-  them. **The cap is on note reads and never on the listing** — a pass that
-  cannot finish listing reports `listingTruncated`, which renders as "the index
-  is still catching up" over a converged bucket, and a banner that is
-  permanently on is a banner nobody reads. Deferral is an accelerator and never
-  where the work happens: a host that offers no `ctx` still answers correctly,
-  and a converged bucket defers nothing rather than paying a manifest read and
-  a full listing per search to discover there was nothing to do.
-- **Independent reads run in bounded waves** — folder listings, shard objects,
-  snippet reads. Six at a time, because Cloudflare allows a Worker six
-  simultaneous open connections. A shard wave holds **bytes** and decodes one at
-  a time, so the one-parsed-shard memory bound v2 exists for is untouched.
-  Measured on the 7,961-note fixture at a simulated 20ms per operation: a warm
-  search spends the same 57 ops and went from **1,439ms to 670ms**. Op counts
-  are byte-identical either way, which is exactly why 952 checks could not see
-  any of this: **the suite counted spending, and nobody had measured waiting.**
+- **`searchIndexedNotes` reads the manifest, opens shards, cuts snippets, and
+  returns.** No listing, no diff, no write, no note read that is not being
+  quoted.
+- **Maintenance runs behind the response.** `ctx.waitUntil` in the gateway; a
+  scheduled `maintainIndex` operation in the control plane, which chains itself
+  while it is making progress so a cold brain converges without anybody
+  searching eight times to finish their own backfill. A host with no `waitUntil`
+  runs the pass **inline and awaited**, capped — deferral is an accelerator, and
+  a promise left running on a host with nothing keeping the invocation alive is
+  an index nothing ever builds.
+- **The manifest records its own freshness** (`listedAt`, `pending`,
+  `truncated`), because every honest thing an answer says about its own
+  completeness used to be a by-product of the listing it did on the way in.
+  `listedAt: null` counts as behind: an unknown reported as complete is the one
+  direction that tells somebody their note is not written down.
 
-The console passes no cap and gets no deferral, deliberately: it runs in a
-Convex action with no subrequest ceiling, and a cold bucket there should be
-finished rather than nibbled at.
+**The one exception is a miss, and it is the narrowest one available: a miss may
+pay for a listing, a hit never does.** An answer is only as fresh as the last
+pass, and this bucket is also written by Obsidian and rclone — fine for an
+answer with hits in it, not fine for an empty one, which is the answer an agent
+acts on by concluding the thing was never written down. So an empty answer over
+an index whose freshness says it is *converged* runs one pass and asks again.
+Not over an index that already knows it is behind: that answer is honestly
+qualified everywhere, one more capped pass out of a dozen would not change it,
+and the cost would land on the buckets least able to afford it. The re-ask is
+skipped when the pass moved no document, and preferred only when it has hits —
+a refresh must never turn an answer into a miss.
 
-**This is a bridge, not the destination.** The project note
-(`1-projects/context-lc-search-performance`) is explicit that a search should
-read a *ready* index and not list the bucket at all, and the listing is still
-interactive here. Removing it needs the manifest to record its own freshness so
-"the index is catching up" can still be said honestly — a format change, and
-the next phase's work rather than a line to sneak into this one.
+### …and it opens the shards that can answer it, not all of them
+
+v2 partitions by document, so a term can be in any shard and the walk read every
+one: 27 objects and 5.2MB on a 7,961-note fixture to return a single hit. Each
+shard carries a **Bloom filter over its own vocabulary** in the manifest, and a
+shard whose filter holds none of the query's terms is not opened.
+
+The asymmetry is the whole design. A Bloom filter has false positives and no
+false negatives, so every way this can be wrong costs one shard read, and no way
+it can be wrong costs a hit. Four things hold that, and each fails a test:
+
+- **Absence always means "read the shard".** No filter, an unreadable filter, a
+  shard no pass has been over — reading any of those as "no terms" is every
+  search on every index that predates this answering nothing.
+- **The filter is rebuilt in the same step that records the shard's documents**,
+  from the shard that was just written. A filter describing an older shard than
+  the object a query opens is the one way to make it wrong in the fatal
+  direction.
+- **A term no shard claims has provably no exact match**, so the shards read for
+  it are read for expansion vocabulary alone — and that is a *sample*, in the
+  same spirit as `SHARD_FUZZY_RETAIN`: an expansion the sample missed costs a
+  suggestion, never a hit.
+- **The corpus statistics are computed over the shards that were opened.** `N`,
+  `avglen` and every `df` move together, so this changes scores rather than
+  results; what has not changed is whose corpus, which is still the caller's
+  visible docs.
+
+The bug this shipped with is worth keeping, because it is the file's own rule
+about guards: the second hash was `fnv1a32(x) | 1`, a **signed** bitwise
+operation, so any hash with its top bit set went negative, `%` kept the sign,
+and the bit positions ran off the front of the array — a silent no-op on write
+and a zero bit on read, which is a false negative. A filter over four terms
+answered "no" to three of them, and the whole suite was green because nothing
+had yet asked a filter about a term it had been given.
+
+Measured on the 7,961-note fixture at 60ms per store operation:
+
+| | before | after |
+| --- | --- | --- |
+| warm, a one-note term | 49 ops · 5.21MB · 1,357ms | 3 ops · 0.19MB · 188ms |
+| warm, a term every note carries | 58 ops · 5.22MB · 1,471ms | 38 ops · 4.92MB · 752ms |
+| cold, the answer | 590 ops · 3,926ms | 1 op · 61ms |
+
+`apps/mcp/src/search/CONTRACT.md` pins the format and the constants;
+`test/searchFilter.test.mjs` carries the sabotage record.
+
+### The manifest is the query surface, and the diff moved out from under it
+
+The manifest carried a `[path, version]` pair per note — ~900KB at eight
+thousand notes — and every search downloaded all of it to learn a shard count.
+That surface is `.index/v2/docmap.json` now, read by maintenance and by nothing
+else, and what took its place is the two things a query genuinely cannot ask a
+listing for: the routing filters and the freshness record.
+
+Three consequences that a tidy-up would get wrong:
+
+- **The docmap is written after the manifest**, never before. A docmap *ahead*
+  of the manifest tells the next pass a note is already indexed while the
+  manifest's stats and filter still describe the shard before it: the note is
+  never re-indexed, the filter never learns its terms, and the query that would
+  have found it skips its shard, permanently. A docmap *behind* costs a
+  re-fetch. Slow and self-correcting is the direction every unknown here falls.
+- **`MANIFEST_WRITE_RESERVE` is two ops**, because the commit is two objects. At
+  one, every pass spent its last op on the manifest and had none left for the
+  diff, so the next pass re-diffed against an empty map — measured on 1,500
+  notes at a budget of 600, 591 documents indexed on pass one and 591 on pass
+  eight, `pending` stuck at 909 forever. The shards were written; nothing
+  remembered that they had been.
+- **A rollback rebuilds.** A gateway that only reads version 2 finds no
+  `docsByShard` and refuses the manifest like any other invalid shape. That is
+  what a disposable derivative is for, and it is cheaper than the alternative:
+  writing the diff into both objects is one list authored twice, and the
+  direction it fails is two copies disagreeing about what a shard holds.
+
 
 ### The console searches through the gateway's search, not a copy of it
 
-The console's palette filtered the folders somebody had happened to expand,
-and said so: "only folders you have opened are searched". That is a file
-picker. The question search exists for — "where did I write about this person"
-— is asked precisely about the folders nobody has opened, so the honest message
-did not make the answer less wrong.
+The console's palette filtered the folders somebody had happened to expand, and
+said so: "only folders you have opened are searched". That is a file picker. The
+question search exists for — "where did I write about this person" — is asked
+precisely about the folders nobody has opened, so the honest message did not
+make the answer less wrong.
 
-It answers from the index now, and the load-bearing part is *whose* code runs.
-`searchIndexedNotes` moved out of `apps/mcp/src/index.js` into
-`src/search/visible.js` so that `search_notes`, the ChatGPT-dialect `search`
-and the console are three callers of one function rather than three
-implementations. "One search path" was already the rule for the first two,
-because a second path is a second place for a visibility bug; a console with
-its own scorer would have been that second place, with a person's whole bucket
-behind it.
+It answers from the index, and the load-bearing part is *whose* code runs.
+`searchIndexedNotes` lives in `src/search/visible.js` so that `search_notes`,
+the ChatGPT-dialect `search` and the console are three callers of one function
+rather than three implementations. "One search path" was already the rule for
+the first two, because a second path is a second place for a visibility bug; a
+console with its own scorer would have been that second place, with a person's
+whole bucket behind it.
 
 **Privacy is injected rather than imported, and that is not a loophole.**
 `isVisible` and `isIndexable` are parameters because the two callers hold the
@@ -1232,20 +1286,31 @@ keys and scopes asserting identical output, rejections included. So the
 parameter composes two proven-equal implementations; it does not invent a
 third. What it must never become is a caller passing a predicate for a
 different scope than the one it serves: sabotage `isVisible` to `() => true` on
-either side and the suites fail (eight gateway checks, two control-plane ones),
-which is the guard.
+either side and the suites fail, which is the guard.
 
-Two console-specific answers differ from the gateway's, deliberately. The
-budget is larger (`CONSOLE_SEARCH_BUDGET`), because Cloudflare's subrequest cap
-per invocation is what sets the gateway's and a Convex action has no such cap —
-so a console search on a cold bucket makes real progress on the backfill rather
-than nibbling at it. And there is no literal-scan fallback: `indexed: false`
-comes back as `indexMissing`, and the console says the context is still being
-indexed while its own filename filter keeps working. **Collapsing that into "no
-matches" is the bug this whole feature exists to remove** — a console that
-reports absence for a bucket nothing has read yet is worse than the message it
-replaced, and the palette carries the same rule for a search that is still
-running or that failed.
+**A console search maintained the index and no longer does, and the reasoning
+that put it there is the reasoning to not restore.** It passed a budget of 300
+and no backfill cap, deliberately — "a Convex action has no subrequest ceiling,
+and a cold bucket there should be finished rather than nibbled at" — on the
+premise that nobody was watching. Somebody was: the palette is the surface it
+serves, and what that premise bought was twenty-odd seconds of spinner and then
+"that search could not be run", because the action's ten-second fetch deadline
+fires somewhere inside three hundred sequential round trips.
+
+So `searchContext` **schedules** `maintainIndex` after it answers, and only when
+the answer says the index is missing or behind — scheduling propagates no taint,
+and a converged bucket must not pay a full listing per search to discover there
+was nothing to do. The chain lives inside `runFileOperation` rather than in a
+job of its own, because a second internal action opening a bucket credential is
+a second entry in `CREDENTIAL_BARRIERS`, and that set holding one member with a
+long warning attached is the point of it.
+
+There is still no literal-scan fallback: `indexed: false` comes back as
+`indexMissing`, and the console says the context is still being indexed while
+its own filename filter keeps working. **Collapsing that into "no matches" is
+the bug this whole feature exists to remove** — a console that reports absence
+for a bucket nothing has read yet is worse than the message it replaced, and the
+palette carries the same rule for a search that is still running or that failed.
 
 ### The hook is a capture-only OAuth client, and that is the whole design
 
