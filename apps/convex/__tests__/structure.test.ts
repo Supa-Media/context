@@ -445,6 +445,47 @@ const UNAUTHENTICATED_HTTP_ROUTES = new Set([
 ]);
 
 /**
+ * Every response an unauthenticated route can produce, as its field names.
+ *
+ * A handler has more than one `return` — the success path and an early answer
+ * for a malformed body — and a field added to the quiet one reaches the same
+ * anonymous crawler on every bad request. Pinning the last literal, or the
+ * first, is pinning half a route: measured, `owner: "seyi", notes: 42` on
+ * either handler's early return passed all 39 checks here and the whole 1543
+ * convex suite.
+ *
+ * It also asserts that **every** `return` is one of those literals. Without
+ * that, the loop is satisfied by a handler that keeps its two `json({…})`
+ * calls and adds a third branch returning a bare `new Response` — which was
+ * also measured green.
+ */
+function unauthenticatedRouteResponses(source: string, handlerName: string): string[][] {
+  const start = source.indexOf(`export const ${handlerName}`);
+  expect(start, `${handlerName} is enumerated but not defined`).toBeGreaterThan(-1);
+  const body = source.slice(start, source.indexOf("\n});", start));
+
+  const returns = [...body.matchAll(/\breturn\s+([\s\S]{0,20}?)[({]/g)].map((m) =>
+    m[0].replace(/\s+/g, " "),
+  );
+  for (const statement of returns) {
+    expect(
+      statement,
+      `${handlerName} answers with something other than json(...): ${statement}`,
+    ).toMatch(/return json\(/);
+  }
+
+  const literals = [...body.matchAll(/json\(\{([^{}]*)\}\)/g)];
+  expect(
+    literals.length,
+    `${handlerName} should answer with flat object literals only`,
+  ).toBe(returns.length);
+
+  return literals.map(([, literal]) =>
+    [...literal.matchAll(/([a-zA-Z_$][\w$]*)\s*:/g)].map((m) => m[1]!).sort(),
+  );
+}
+
+/**
  * Build the graph and return every way a public function can reach a decrypt.
  *
  * Pure over its input so the same analyzer can be pointed at the real codebase
@@ -1613,21 +1654,10 @@ describe("the gateway's HTTP routes", () => {
       expect(body, `sharePreview must not return ${forbidden}`).not.toContain(forbidden);
     }
 
-    // **EVERY response, not the last one.** The assertions above pin the
-    // success return and then deny five names; the handler has a second
-    // `json(` — the early return for a body with no token — and a field added
-    // to THAT reaches the same anonymous crawler on every malformed request.
-    // Measured: appending `owner: "seyi", notes: 42` to the early return passed
-    // this test and all 39 checks beside it, because neither name is on the
-    // five-item list. `shareNotePreview` below already reads its keys out of
-    // the literal rather than listing them here; this does the same, for each
-    // literal it finds, so a rename fails loudly and a fourth field cannot
-    // arrive on the quiet branch.
-    const literals = [...body.matchAll(/json\(\{([^}]*)\}\)/g)];
-    expect(literals.length, "sharePreview should answer with object literals only").toBe(2);
-    for (const [, literal] of literals) {
-      const keys = [...literal.matchAll(/([a-zA-Z_$][\w$]*)\s*:/g)].map((m) => m[1]);
-      expect(keys.sort(), "every sharePreview response returns exactly these fields").toEqual([
+    // **EVERY response, not the last one**, and every response a `json(`.
+    // See `unauthenticatedRouteResponses`.
+    for (const keys of unauthenticatedRouteResponses(source, "sharePreview")) {
+      expect(keys, "every sharePreview response returns exactly these fields").toEqual([
         "openToAnyone",
         "title",
       ]);
@@ -1677,15 +1707,18 @@ describe("the gateway's HTTP routes", () => {
     // but the visible names themselves. The keys are read out of the literal
     // rather than listed here, so a rename fails loudly instead of silently
     // widening the exemption.
-    const literalStart = body.lastIndexOf("return json({");
-    expect(literalStart, "shareNotePreview must return a named object literal").toBeGreaterThan(-1);
-    const literal = body.slice(literalStart, body.indexOf("});", literalStart));
-    const keys = [...literal.matchAll(/^\s+([a-zA-Z_$][\w$]*):/gm)].map((m) => m[1]);
-    expect(keys.sort(), "the route returns exactly these fields").toEqual([
-      "cardToken",
-      "children",
-      "title",
-    ]);
+    //
+    // Read from EVERY response rather than the last, which is the hole the
+    // sibling route's pin had and this one kept: `body.lastIndexOf("return
+    // json({")` skipped the early answer for a malformed body, and
+    // `owner: "seyi", noteCount: 42` on that branch passed all 39 checks here.
+    for (const keys of unauthenticatedRouteResponses(source, "shareNotePreview")) {
+      expect(keys, "every shareNotePreview response returns exactly these fields").toEqual([
+        "cardToken",
+        "children",
+        "title",
+      ]);
+    }
     for (const forbidden of ["workspaceId", "recipient", "createdBy", "entryPath"]) {
       expect(body, `shareNotePreview must not return ${forbidden}`).not.toContain(
         forbidden,

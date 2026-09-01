@@ -708,3 +708,58 @@ describe("resolveShare does not answer for an unlisted link", () => {
     expect(resolved?.workspaceId).toBe(f.workspaceId);
   });
 });
+
+/**
+ * INFRASTRUCTURE FAILURE IS NOT AN AUTHORIZATION ANSWER, ON THE ANONYMOUS PATH
+ * TOO.
+ *
+ * `anonymousSafe` exists to make every *refusal* one answer for a caller with
+ * no session, and its doc comment says the boundary in its own words: an
+ * unreachable bucket is deliberately not laundered through it, because
+ * "reporting it as one would tell a viewer their access was withdrawn when it
+ * was not".
+ *
+ * That claim had no test. `shareRead.test.ts` covers both outage shapes and
+ * uses a signed-in caller for each, so it structurally cannot see this path —
+ * and laundering every `ConvexError` in `readThroughShare`'s catch left all
+ * 1547 checks green. The behaviour was already right; it simply was not a
+ * guard, which is this repository's own named failure mode.
+ *
+ * The reader is the one who loses if this is wrong. A stranger following a
+ * live unlisted link during a bucket outage would be sent to create an account
+ * they do not need, and would conclude the link was withdrawn.
+ */
+describe("an anonymous reader is told about an outage, not about their session", () => {
+  test("an unreachable bucket is not a refusal", async () => {
+    const f = await fixture();
+    const token = await unlisted(f);
+    expect((await readAnonymously(f, token)).text).toContain("# Chapter transition");
+
+    // At the socket rather than the stub's `unreachable` option, which refuses
+    // LIST only — a note read is a GET, so that option would leave this path
+    // working and the test would pass vacuously.
+    vi.stubGlobal("fetch", () => Promise.reject(new Error("ECONNREFUSED")));
+
+    const error = await captureError(() => readAnonymously(f, token));
+    expect(errorCode(error), "an outage must not read as a withdrawn link").not.toBe(
+      "NOT_AUTHENTICATED",
+    );
+    expect(errorCode(error)).toMatch(/^STORAGE_/);
+  });
+
+  test("nor is a context whose bucket is gone", async () => {
+    const f = await fixture();
+    const token = await unlisted(f);
+    await f.t.run(async (ctx) => {
+      const binding = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", f.workspaceId))
+        .unique();
+      await ctx.db.delete(binding!._id);
+    });
+
+    const error = await captureError(() => readAnonymously(f, token));
+    expect(errorCode(error)).not.toBe("NOT_AUTHENTICATED");
+    expect(errorCode(error)).toMatch(/^STORAGE_/);
+  });
+});

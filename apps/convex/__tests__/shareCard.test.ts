@@ -736,3 +736,45 @@ describe("the tofu guard cannot be deleted quietly", () => {
     expect(code).not.toContain("decryptSecret");
   });
 });
+
+/**
+ * A ROW MINTED BEFORE THE STRIP STILL DRAWS ITS TITLE INTO A PICTURE.
+ *
+ * `titleFromPath` and `normalizePreviewTitle` remove `Cc`/`Cf` on the way in,
+ * so every row written from now on is clean. A row stored before they did is
+ * not, and this is the one artefact that cannot be taken back: CLAUDE.md's own
+ * record is that Discord and WhatsApp copy a card image onto their CDNs, and a
+ * 404 at our origin leaves their copy intact.
+ *
+ * So it is stripped where it is read as well as where it is written — the same
+ * rule the edge already follows for the title and the child names, applied to
+ * the renderer, which is the third place the stored string is drawn.
+ */
+describe("the card renderer strips a title it was handed", () => {
+  const RLO = "\u202E";
+
+  test("a legacy row's bidi override does not reach the drawing", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "atlas");
+
+    const shareId = await t.run((ctx) =>
+      ctx.db.insert("noteShares", {
+        workspaceId,
+        token: "b".repeat(64),
+        entryPath: "1-projects/report.md",
+        recipientKind: "anyone" as const,
+        recipient: "",
+        createdBy: owner,
+        createdAt: Date.now(),
+        status: "active" as const,
+        titleInPreview: true,
+        previewTitle: `Salary${RLO}gnp.exe`,
+      }),
+    );
+
+    const card = await t.query(internal.functions.shareCard.cardSubject, { shareId });
+    expect(card?.title, "the title must survive as text").toContain("gnp.exe");
+    expect(card?.title).not.toContain(RLO);
+  });
+});

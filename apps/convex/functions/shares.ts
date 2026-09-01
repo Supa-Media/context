@@ -1593,7 +1593,31 @@ function notAuthenticated(): ConvexError<{ code: string; message: string }> {
  * Infrastructure failure is deliberately NOT laundered through here — an
  * unreachable bucket is not an authorization answer, and reporting it as one
  * would tell a viewer their access was withdrawn when it was not. Only a
- * refusal this module raised is passed in.
+ * refusal this module raised is passed in, and `shareAnyone.test.ts` drives an
+ * anonymous caller through both outage shapes so that boundary is a guard
+ * rather than a sentence.
+ *
+ * ## Two residuals, stated rather than left to be rediscovered
+ *
+ * **The body is uniform; the latency is not.** Measured, for an anonymous
+ * caller, all answering `NOT_AUTHENTICATED`: an invented or revoked token costs
+ * **0** bucket round trips, a live row whose note was made private costs
+ * **1**, and a live row whose note is gone costs **2**. So the distinction this
+ * function removes from the response survives as timing, and a determined
+ * holder can still learn that a row is live. Closing it means spending the same
+ * reads on a token nobody minted, which is an unauthenticated caller choosing
+ * how much of the customer's bucket quota to spend — the trade is not obviously
+ * worth making, and it is not made here. Do not claim byte-indistinguishability
+ * without this paragraph beside it.
+ *
+ * **The reader is sent to sign in for a note that will not be there.**
+ * `NOT_AUTHENTICATED` routes the viewer to the sign-in screen, so a stranger
+ * following an unlisted link whose note has since been made private is now
+ * asked to create an account and *then* told it is unavailable — where before
+ * they were told at once, and while the card they clicked may still say "no
+ * account needed". That is the price of one uniform refusal, paid by the person
+ * least able to understand it, and it is the right trade only because the
+ * alternative tells them which kind of withdrawal happened.
  */
 function anonymousSafe(
   actorUserId: Id<"users"> | null,

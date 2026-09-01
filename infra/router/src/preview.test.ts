@@ -545,7 +545,12 @@ describe("share links: the one card that may say something", () => {
     // Each hazard by name, because a count alone is satisfied by twenty copies
     // of one shape. These are the classes a divergence would hide in.
     for (const [hazard, matches] of [
-      ["uppercase hex", (c: string) => /[A-F]/.test(c)],
+      // Scoped to the tail. `/[A-F]/` alone is satisfied by `Chapter-transition`
+      // — a slug case, not the hazard — so replacing the one genuine
+      // uppercase-hex case with a lowercase near-duplicate kept this green.
+      // The failure the corpus's own comment names: a case that passes for two
+      // different reasons reads as coverage and is not.
+      ["uppercase hex", (c: string) => /(?:^|-)[0-9a-fA-F]{64}$/.test(c) && /[A-F]/.test(c)],
       // A hex run of the wrong length, wherever in the segment it sits — the
       // corpus spells these with a slug in front.
       ["a wrong length", (c: string) => /(?:^|-)[0-9a-f]{63}$|(?:^|-)[0-9a-f]{65}$/.test(c)],
@@ -1059,5 +1064,17 @@ describe("a title from upstream is stripped, not only shortened", () => {
 
   it("an ordinary title is untouched", () => {
     expect(previewForShare("Chapter transition").title).toBe("Chapter transition — Context");
+  });
+
+  /**
+   * ...and cleaned BEFORE it is bounded, which is the ordering `boundTitle`'s
+   * comment claims and nothing was checking: swapping to clean-after-bound left
+   * all 291 green. Sixty format characters in front of a real title push every
+   * readable byte past the cut, so the card falls back to generic — fail-closed
+   * rather than a leak, and still the title the owner chose, gone.
+   */
+  it("cleans before it bounds, so padding cannot push the title past the cut", () => {
+    const padded = `${ZWSP.repeat(60)}Chapter transition`;
+    expect(previewForShare(padded).title).toBe("Chapter transition — Context");
   });
 });

@@ -35,7 +35,11 @@ import type { Id } from "../_generated/dataModel";
 import type { ActionCtx, MutationCtx } from "../_generated/server";
 import { cardImageLeaf } from "./lib/cardKey";
 import { isRenderableTitle } from "./lib/cardCoverage";
-import { boundPreviewChildren, previewChildrenFrom } from "./lib/shareTitle";
+import {
+  boundPreviewChildren,
+  normalizePreviewTitle,
+  previewChildrenFrom,
+} from "./lib/shareTitle";
 
 /**
  * Draw a share's card and put it in the owner's bucket.
@@ -151,7 +155,16 @@ export const cardSubject = internalQuery({
     return {
       workspaceId: share.workspaceId,
       token: share.token,
-      title: share.previewTitle,
+      // Stripped where it is READ as well as where it is written. Every row
+      // stored from now on is clean — `titleFromPath` and
+      // `normalizePreviewTitle` both remove `Cc`/`Cf` — and a row minted before
+      // they did is not. This is the one artefact that cannot be taken back:
+      // Discord and WhatsApp copy a card image onto their own CDNs, so a 404 at
+      // our origin leaves their copy intact. `normalizePreviewTitle` is reused
+      // rather than a fourth copy of the rule, and it cannot widen anything: it
+      // only ever removes characters, and a title that normalises to nothing
+      // was already refused two lines above.
+      title: normalizePreviewTitle(share.previewTitle) ?? share.previewTitle,
       entryPath: share.entryPath,
       teamLink: share.recipientKind === "members",
       children: boundPreviewChildren(share.previewChildren ?? []),
