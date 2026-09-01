@@ -173,3 +173,57 @@ export function safeNextRoute(next: string | undefined | null): string {
 
   return trimmed;
 }
+
+/** Just enough of `window.location` to name the URL that is on screen. */
+export interface BrowserLocation {
+  pathname?: string | null;
+  search?: string | null;
+}
+
+/**
+ * The URL somebody actually followed, for `/login?next=…`.
+ *
+ * ## Why this is not expo-router's own hook
+ *
+ * `useUnstableGlobalHref` does not read the URL. It **re-serializes** one from
+ * React Navigation's state — and that state is incomplete precisely here.
+ * `routeInfo.ts` says so in its own words: "If React Navigation didn't render
+ * the entire tree (e.g it was interrupted in a layout) then the state maybe
+ * incomplete." The `(app)` gate *is* that interruption: refusing a signed-out
+ * visitor means returning a `<Redirect>` instead of its `<Stack>`, so nothing
+ * below the group ever renders, and the rest of the route is left sitting in
+ * `params.screen` / `params.params` rather than as routes.
+ *
+ * Measured on the live site, following
+ * `/console/@seyi?note=3-resources%2Fengineering%2Fshipping-an-expo-app-safely.md`
+ * signed out: the reconstruction came back as `/console/@seyi?slug=%40seyi`.
+ * Both halves are wrong in the same breath — the `note` the link exists for is
+ * **gone**, and `[slug]`, which belongs in the path, is re-emitted as a query
+ * parameter because the interrupted state never classified it as one.
+ *
+ * So this is not a bug to route around; it is the documented limit of a hook
+ * whose name says `unstable`. A gate that reads a reconstruction is asking the
+ * router what it *would* render. What is wanted is what the person clicked.
+ *
+ * ## What it reads instead
+ *
+ * `window.location`, which on the web is the document's real URL: not derived
+ * from anything, unable to drop a query parameter, and unable to invent one.
+ * React Native has a `window` and no `window.location`, so native falls back to
+ * the router's answer — the same fallback `shouldHandleCodeHere` already makes,
+ * and the narrower case, since a native deep link has no browser URL to read.
+ */
+export function attemptedHrefFrom(
+  browser: BrowserLocation | null | undefined,
+  routerHref: string,
+): string {
+  const pathname = browser?.pathname;
+  // A rooted pathname is the whole test for "there is a real URL here".
+  // Anything else — no window, React Native's location-less window, a host
+  // that hands back an empty string — is not a URL and must not be dressed up
+  // as one; `safeNextRoute` would then narrow it to the console, and the note
+  // would be lost the quiet way rather than the loud one.
+  if (typeof pathname !== "string" || !pathname.startsWith("/")) return routerHref;
+  const search = typeof browser?.search === "string" ? browser.search : "";
+  return `${pathname}${search}`;
+}

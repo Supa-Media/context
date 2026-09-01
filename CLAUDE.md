@@ -1804,20 +1804,38 @@ tidy-up that reads as equivalent and silently restores the bug.
 also the only version that is *correct* rather than merely working, since a
 selection made before the reset is made against the previous context's state.
 
-**And the sign-in the link triggers dropped the query.** The `(app)` gate
-carried `usePathname()` into `/login?next=…`, and expo-router documents that
-hook as returning the location *without search parameters*. Nothing about the
-redirect rule was wrong — `safeNextRoute` passes a query through untouched — so
-no test of it could have seen this. It carries `useUnstableGlobalHref()` now.
-That hook is expo-router's own private one and warns it "may change in the
-future to include the hostname"; if it does, `safeNextRoute` refuses the value
-for not being rooted and the gate falls back to a bare `/login`, which is what
-it did before. The failure direction is the status quo, and it is asserted
-rather than assumed.
+**And the sign-in the link triggers dropped the query — twice, for two
+different reasons, and the second one is the interesting one.** The `(app)` gate
+first carried `usePathname()` into `/login?next=…`, and expo-router documents
+that hook as returning the location *without search parameters*. Nothing about
+the redirect rule was wrong — `safeNextRoute` passes a query through untouched —
+so no test of it could have seen this.
+
+The obvious repair, `useUnstableGlobalHref()`, was **also wrong, and shipped**.
+That hook does not read the URL; it re-serializes one from React Navigation's
+state, and `routeInfo.ts` says in its own words that the state "maybe
+incomplete" when React Navigation "didn't render the entire tree (e.g it was
+interrupted in a layout)". **This gate is that interruption**: refusing a
+signed-out visitor means returning a `<Redirect>` instead of its `<Stack>`, so
+nothing below the group ever renders and the rest of the route is left sitting
+in `params.screen` / `params.params`. Measured live, following
+`/console/@seyi?note=3-resources%2F…md` signed out reconstructed as
+`/console/@seyi?slug=%40seyi` — the `note` the link exists for **gone**, and
+`[slug]`, which belongs in the path, re-emitted as a query parameter.
+
+So the rule is: **a gate reads the URL, never a reconstruction of it.**
+`attemptedHrefFrom` takes `window.location` where there is one, which on the web
+is the document's real URL — not derived from anything, unable to drop a query
+parameter and unable to invent one. React Native has a `window` and no
+`window.location`, so native falls back to the router's answer: the same
+fallback `shouldHandleCodeHere` already makes, and the narrower case, since a
+native deep link has no browser URL to read. Reaching the real URL requires a
+*rooted* pathname and nothing else, because a half-built value narrowed by
+`safeNextRoute` loses the note quietly instead of loudly.
 
 Two links in this product carry their meaning in the query and can be recovered
 by nothing else: `/authorize?request_id=…` and this one. A gate that reads a
-pathname where a person followed an href is a gate that strands both.
+pathname — or a reconstruction — where a person followed an href strands both.
 
 ### A copy on the device is bounded by who read it, when, and whether the server said no
 

@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { describe, expect, jest, test } from "@jest/globals";
+import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { ConvexError } from "convex/values";
@@ -11,6 +11,9 @@ import { ConvexError } from "convex/values";
 // every call when it is not. Setting it keeps the suite's output readable and
 // makes an update outside `act` a signal rather than background noise.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+/** jsdom's own, put back after a test has taken it away. */
+const realLocation = window.location;
 
 /**
  * The `(app)` gate, on a cold start.
@@ -131,6 +134,30 @@ function signedInClient(workspaces: unknown[]) {
   return client as never;
 }
 
+/**
+ * Run the next render as a platform with no browser URL — which is React
+ * Native, where `window` exists and `window.location` does not.
+ *
+ * Restored in `afterEach` rather than by each caller, so a test that throws
+ * cannot leave the rest of the file running against a location-less window.
+ */
+let locationHidden = false;
+function withoutBrowserLocation(): void {
+  locationHidden = true;
+  Object.defineProperty(window, "location", { value: undefined, configurable: true });
+}
+
+afterEach(() => {
+  if (locationHidden) {
+    locationHidden = false;
+    Object.defineProperty(window, "location", { value: realLocation, configurable: true });
+  }
+  // The gate reads the document's URL now, so a test that set one must not
+  // leave it standing for the next.
+  window.history.replaceState({}, "", "/");
+  mockHref = null;
+});
+
 function render(client: never): { html: string; error: Error | null } {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -173,6 +200,9 @@ describe("the (app) gate on a cold start", () => {
 
   test("redirects a signed-out visitor to sign in instead of crashing", () => {
     mockAuthState = { isLoading: false, isAuthenticated: false };
+    // A bare `/login`, because the console is where a bare `/login` already
+    // lands — `loginHref` says so — and there is nothing here worth carrying.
+    window.history.replaceState({}, "", "/console");
     const { client, subscriptions } = unauthenticatedClient();
 
     const { html, error } = render(client);
@@ -203,6 +233,10 @@ describe("the (app) gate on a cold start", () => {
     mockAuthState = { isLoading: false, isAuthenticated: false };
     mockPathname = "/console/@seyi";
     mockHref = "/console/@seyi?note=3-resources/engineering/note.md";
+    // The native half: React Native has a `window` and no `window.location`,
+    // so the router's answer is all there is. jsdom always has one, so it is
+    // taken away rather than assumed absent.
+    withoutBrowserLocation();
     const { client } = unauthenticatedClient();
 
     const { html, error } = render(client);
@@ -211,8 +245,43 @@ describe("the (app) gate on a cold start", () => {
     expect(html).toContain(
       `data-href="/login?next=${encodeURIComponent(mockHref)}"`,
     );
+  });
 
-    mockHref = null;
+  test("reads the browser's real URL, not the router's reconstruction of it", () => {
+    /**
+     * **The live failure, with its measured values.**
+     *
+     * Following
+     * `/console/@seyi?note=3-resources%2Fengineering%2Fshipping-an-expo-app-safely.md`
+     * signed out landed, after signing in, on `/console/@seyi?slug=%40seyi` —
+     * the note gone and the `[slug]` path param re-emitted as a query
+     * parameter.
+     *
+     * The cause is that `useUnstableGlobalHref` re-serializes a URL from React
+     * Navigation's state rather than reading one, and this gate is the case
+     * expo-router's own `routeInfo.ts` warns about: returning a `<Redirect>`
+     * instead of a `<Stack>` means the tree below `(app)` never renders, so
+     * the state is incomplete and the reconstruction is wrong in both
+     * directions at once.
+     *
+     * So the mock returns that exact wrong value while the document holds the
+     * real one. Passing means the gate ignored the reconstruction.
+     */
+    mockAuthState = { isLoading: false, isAuthenticated: false };
+    const link = "/console/@seyi?note=3-resources%2Fengineering%2Fshipping-an-expo-app-safely.md";
+    window.history.replaceState({}, "", link);
+    mockPathname = "/console/@seyi";
+    mockHref = "/console/@seyi?slug=%40seyi";
+    const { client } = unauthenticatedClient();
+
+    const { html, error } = render(client);
+
+    expect(error).toBeNull();
+    expect(html).toContain(`data-href="/login?next=${encodeURIComponent(link)}"`);
+    // And not merely "carries the note": the wrong reconstruction must not
+    // reach the URL at all, or a later change could satisfy the line above by
+    // sending both.
+    expect(html).not.toContain("slug");
   });
 
   test("an href that is not a rooted path is refused, not followed", () => {
@@ -225,6 +294,7 @@ describe("the (app) gate on a cold start", () => {
     mockAuthState = { isLoading: false, isAuthenticated: false };
     mockPathname = "/console/@seyi";
     mockHref = "https://context.lc/console/@seyi?note=a.md";
+    withoutBrowserLocation();
     const { client } = unauthenticatedClient();
 
     const { html, error } = render(client);
@@ -232,8 +302,6 @@ describe("the (app) gate on a cold start", () => {
     expect(error).toBeNull();
     expect(html).toContain('data-href="/login"');
     expect(html).not.toContain("context.lc");
-
-    mockHref = null;
   });
 
   test("still reads the context list once there is a session", () => {

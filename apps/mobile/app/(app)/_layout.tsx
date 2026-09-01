@@ -1,8 +1,9 @@
 import { useMemo } from "react";
-import { Redirect, Stack, usePathname, useUnstableGlobalHref } from "expo-router";
+import { Redirect, Stack, usePathname } from "expo-router";
 import { useConvexAuth, useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { useColors } from "../../features/design/theme";
+import { useAttemptedHref } from "../../features/auth/attemptedHref";
 import { resolveProtectedRoute } from "../../features/auth/redirect";
 import { EMPTY_QUERY_SPEC } from "../../features/console/querySpec";
 import {
@@ -77,14 +78,14 @@ export default function AppLayout() {
    * screen, with no way of knowing which note they had been sent — the link
    * worked, and it landed nowhere.
    *
-   * `useUnstableGlobalHref` is expo-router's own private hook and its comment
-   * warns it "may change in the future to include the hostname". If it does,
-   * `safeNextRoute` refuses the value for not being a rooted path and this
-   * gate falls back to a bare `/login`, which is what it did before any of
-   * this — so the direction it can fail in is the one that was already the
-   * status quo. `appLayoutGate.test.ts` asserts both halves.
+   * **And not expo-router's reconstruction of it either**, which is the second
+   * half of the same bug and the more interesting one: this gate is exactly
+   * the "interrupted in a layout" case that leaves React Navigation's state
+   * incomplete, so what `useUnstableGlobalHref` hands back is not the URL —
+   * measured live, it dropped the `note` and re-emitted `[slug]` as a query
+   * parameter. See `attemptedHrefFrom` in `features/auth/redirect.ts`.
    */
-  const decision = resolveProtectedRoute(useConvexAuth(), useUnstableGlobalHref());
+  const decision = resolveProtectedRoute(useConvexAuth(), useAttemptedHref());
   const authed = decision.action === "render";
 
   const spec = useMemo<RequestForQueries>(() => {
