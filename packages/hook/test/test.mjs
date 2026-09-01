@@ -64,7 +64,14 @@ import { createHash } from "node:crypto";
 
 import * as commands from "../src/commands.js";
 import { transcriptToMarkdown, messageFromEntry } from "../src/transcript.js";
-import { createPkce, stateMatches, discover } from "../src/oauth.js";
+import {
+  createPkce,
+  stateMatches,
+  discover,
+  registerClient,
+  HOOK_SCOPE,
+  ORIENT_SCOPE,
+} from "../src/oauth.js";
 import { endpointKey, credentialEndpointKey, saveEndpoint } from "../src/config.js";
 import { clientById, installHook, uninstallHook, HOOK_MARKER } from "../src/install.js";
 
@@ -1010,6 +1017,58 @@ check("a state of a different length is not equal", !stateMatches("abc", "abcd")
 check("the right state matches", stateMatches("abc", "abc"));
 const pkce = createPkce();
 check("a fresh verifier and challenge differ and are long", pkce.verifier !== pkce.challenge && pkce.verifier.length >= 43);
+
+/**
+ * **A CLIENT MUST DECLARE THE SCOPE IT IS ABOUT TO ASK FOR.**
+ *
+ * `install` picks `ORIENT_SCOPE` or `HOOK_SCOPE`, refuses to reuse a client
+ * registered for the other one, and says why: "re-using a client registered for
+ * the narrower one would ask for something it never declared. Widening silently
+ * is the thing this whole flow exists to not do."
+ *
+ * The re-registration it then performs did not carry the scope. `registerClient`
+ * named `context:capture` whatever the caller wanted, so an `--orient` install
+ * registered a capture-only client and immediately asked it to authorize
+ * `context:read` — asking for something it never declared, which is the sentence
+ * above.
+ *
+ * Not an escalation today: the consent screen governs what is granted, and the
+ * gateway does not currently refuse an authorize request wider than the client
+ * record. It costs the two things that record is for. A person auditing their
+ * registered clients — the reason each machine registers its own, so revoking
+ * the laptop you lost does not sign out the one on your desk — sees "capture"
+ * beside a client that holds read. And the day the gateway does enforce the
+ * registered scope, every `--orient` install breaks.
+ */
+const registrationScopes = [];
+async function registrationScopeFor(scope) {
+  const captured = { scope: null };
+  await registerClient(
+    { registrationEndpoint: "https://ctx.example/oauth/register" },
+    {
+      clientName: "Context hook (test)",
+      scope,
+      fetchImpl: async (_url, init) => {
+        captured.scope = JSON.parse(init.body).scope;
+        return { ok: true, json: async () => ({ client_id: "cid" }) };
+      },
+    }
+  );
+  registrationScopes.push(captured.scope);
+  return captured.scope;
+}
+check(
+  "a capture-only install registers a capture-only client",
+  (await registrationScopeFor(HOOK_SCOPE)) === HOOK_SCOPE
+);
+check(
+  "an orienting install registers a client that declares the read scope",
+  (await registrationScopeFor(ORIENT_SCOPE)) === ORIENT_SCOPE
+);
+check(
+  "and with no scope named it still declares the narrow one, never the menu",
+  (await registrationScopeFor(undefined)) === HOOK_SCOPE
+);
 
 server.close();
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");

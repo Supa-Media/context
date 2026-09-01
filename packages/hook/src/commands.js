@@ -107,6 +107,9 @@ export async function authorize({
   if (!clientId) {
     const registration = await registerClient(discovery, {
       clientName: `Context hook (${hostname()})${orient ? " — orienting" : ""}`,
+      // Declared, not assumed. The comment above is only true if the new client
+      // says what it is about to ask for.
+      scope,
       fetchImpl,
     });
     clientId = registration.clientId;
