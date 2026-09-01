@@ -1789,9 +1789,23 @@ check(
     (await call("team-token", "read_note", { path: managedPrivatePath }))?.isError &&
     privacyAfterFolderPrivate.includes(`  ${managedFolder}: private`)
 );
+/**
+ * This check used to assert the opposite — that making a folder private removed
+ * the now-redundant `private` override inside it. Since the fold, that line is
+ * not only about its own path: it is the only thing narrowing every note that
+ * folds onto it, including one in a differently-cased sibling folder that
+ * `set_folder_visibility` never scans. Compacting it away published a private
+ * note and reported `newly_team_visible_notes: 0`.
+ *
+ * The note's visibility is identical either way — it is private under the
+ * folder rule and private under the override — so what was traded is a tidier
+ * manifest for a fail-open publish, which is not a close call. A `team`
+ * override that has become redundant is still compacted; only narrowings stay.
+ */
 check(
-  "folder rule change removes redundant exact-note exceptions",
-  !privacyAfterFolderPrivate.includes(`  ${managedPrivatePath}: private`)
+  "a redundant exact-note narrowing is kept, because a twin may be relying on it",
+  privacyAfterFolderPrivate.includes(`  ${managedPrivatePath}: private`) &&
+    (await call("team-token", "read_note", { path: managedPrivatePath }))?.isError === true
 );
 const teamBlockedUnderManagedPrivate = await call("team-token", "write_note", {
   path: `${managedFolder}/team-must-not-create.md`,
@@ -3362,6 +3376,59 @@ check(
 // Narrowing the FIRST folder makes its own override redundant. Compacting it
 // away would publish the twin in the second folder.
 const narrowed = await setFolder(foldFolderA, "private");
+/**
+ * **And the same publish through the most ordinary call there is.**
+ *
+ * The first guard written for this reasoned over folder rules: a twin is only
+ * widened, it said, by a `team` rule governing the folded path but not the
+ * exact one — a case-variant folder rule, enumerable in the manifest. That is
+ * false, and the counter-example needs no hand-edited manifest at all.
+ * `visibilityOf` is longest-prefix; the guard was any-prefix. A single `team`
+ * rule governing BOTH the note and its twin, out-ranked for the note by the
+ * longer `private` rule *this very call adds*, widens the twin and the guard
+ * cannot see it — reached by "make this folder private", which is the last call
+ * an owner would audit.
+ *
+ * So no `private` override is compacted away, full stop. This loop cannot see
+ * who is relying on one, and a redundant line costs a line of manifest. The
+ * rule-shaped version of this was written, shipped, and found wrong within the
+ * hour; reasoning about who a narrowing protects is what `foldedTwinBlocks`
+ * does by simulation, and a second, weaker copy of that reasoning is worth
+ * nothing.
+ */
+const quietA = "1-projects/quiet/x.md";
+const quietTwin = "1-projects/Quiet/x.md";
+await contextStore.put(quietA, "# the private one\n");
+await contextStore.put(quietTwin, "# a different file that folds onto it\n");
+const quietEtag = (await call("priv-token", "read_note", { path: quietA }))
+  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
+await call("priv-token", "set_visibility", {
+  path: quietA,
+  visibility: "private",
+  expected_etag: quietEtag,
+});
+check(
+  "the positive control: the twin is private by fold, under one plain team rule",
+  (await call("team-token", "read_note", { path: quietTwin }))?.isError === true
+);
+const quietNarrow = await setFolder("1-projects/quiet", "private");
+check(
+  "narrowing a folder does not publish a twin governed by the same team rule",
+  quietNarrow?.isError !== true &&
+    (await call("team-token", "read_note", { path: quietTwin }))?.isError === true
+);
+// Folder rule first, then the override — clearing an override means setting it
+// to what the note now INHERITS, so doing it in the other order writes a fresh
+// override instead of removing one.
+await setFolder("1-projects/quiet", "inherit");
+await call("priv-token", "set_visibility", {
+  path: quietA,
+  visibility: "team",
+  confirm_team_publish: true,
+});
+await contextStore.delete(quietA);
+await contextStore.delete(quietTwin);
+
 check(
   "narrowing one folder does not publish a note that folds onto it in another",
   narrowed?.isError !== true &&
@@ -3445,6 +3512,24 @@ check(
 await call("priv-token", "set_visibility", { path: widenFoldPath, visibility: "private" });
 await contextStore.delete(widenFoldPath);
 await contextStore.delete(widenFoldTwin);
+// Put the manifest back too, not just the objects. The first version of this
+// block deleted the two notes and left `fold-folder: private`,
+// `Fold-Folder: team` and the note override standing in the shared bucket for
+// every check after it — eight lines below its own comment saying to clear the
+// override before the object.
+// An override is cleared by setting the note to what it INHERITS — and
+// `set_visibility` short-circuits when the value already matches, so asking for
+// `private` while the note already reads private removes nothing. Put the
+// folder back to `team` for one call, clear the override against it, then drop
+// the rule.
+await setFolder(foldFolderB, "inherit");
+await setFolder(foldFolderA, "team");
+await call("priv-token", "set_visibility", {
+  path: `${foldFolderA}/note.md`,
+  visibility: "team",
+  confirm_team_publish: true,
+});
+await setFolder(foldFolderA, "inherit");
 for (const key of [`${foldFolderA}/note.md`, `${foldFolderB}/Note.md`]) {
   await contextStore.delete(key);
 }

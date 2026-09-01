@@ -83,7 +83,7 @@ Zero npm dependencies — keep it that way. It runs on the Workers runtime, so
 use Web Crypto and `fetch`, not Node APIs.
 
 `pnpm test` in `apps/mcp` runs the suite against an in-memory store stub. It is
-fast, offline, and currently 997 checks. **Do not let it regress.** If you
+fast, offline, and currently 999 checks. **Do not let it regress.** If you
 change behavior, change the test in the same commit and say why.
 
 The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,
@@ -1575,19 +1575,33 @@ request back.
 defect.** Five refuse up front — `write_note`, `set_visibility`, `move_note`,
 `move_notes`, `move_folder` — rather than leaving it to the backstop, because a
 throw from inside `persistExactVisibility` fires *after* the caller has already
-written the destination. `archive_note` deliberately has no check: an archive's
-destination is always `private`, and `foldedTwinBlocks` is unconditionally false
-for `private`, so a guard there could never fire and would be nothing but oracle
-surface. The seventh is `set_folder_visibility`, and it is the one that failed
+written the destination. `archive_note` has one too, and briefly did not: it
+was deleted on the reasoning that an archive's destination is always `private`
+and `foldedTwinBlocks` is unconditionally false for `private`. The second half
+is true; the first is not — the destination is `private` only at owner scope and
+`team` for everybody else, so the guard was reachable at exactly the scope whose
+refusal must disclose nothing. It refuses generically there and names the
+collision only for an owner. What bounds it in practice is the millisecond
+timestamp in the destination, so no test constructs the collision, and that is
+stated rather than papered over. The seventh is `set_folder_visibility`, and it is the one that failed
 **open**: its compaction loop drops an override that has become redundant for
 its own exact path, which since the fold is also the only thing narrowing every
 path that folds onto it — a note in a differently-cased sibling folder, which
 that loop cannot see and which its impact report never scans, because the report
 walks only the folder being changed. It published a private note, said
-`newly_team_visible_notes: 0`, and asked for no confirmation. The manifest
-answers the question on its own: a twin is only widened by a `team` rule that
-governs the folded path without governing the exact one, and case-variant folder
-rules are enumerable right there.
+`newly_team_visible_notes: 0`, and asked for no confirmation. **No `private`
+override is compacted away now, however redundant it looks.** The first fix
+reasoned over the manifest instead — a twin is only widened, it said, by a
+`team` rule governing the folded path but not the exact one, and case-variant
+folder rules are enumerable right there. That is false, and this file said it
+for an hour: `visibilityOf` is longest-prefix and the test was any-prefix, so one
+plain `team` rule governing both the note and its twin, out-ranked for the note
+by the longer `private` rule the same call adds, widens the twin and passes the
+test — on the default scaffolded manifest, through "make this folder private".
+Deciding who a narrowing protects is what `foldedTwinBlocks` does by simulating
+the write, and a second, weaker copy of that reasoning is worth less than a
+redundant line of manifest. A `team` override that has become redundant is still
+compacted; only narrowings stay.
 
 **The refusal names no path, and must not.** `FOLDED_TWIN_REFUSAL` is a static
 string. For an owner it is actionable; for anybody else it is an existence

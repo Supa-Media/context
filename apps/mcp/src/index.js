@@ -2935,29 +2935,26 @@ async function toolSetFolderVisibility(store, scope, args) {
   const nextOverrides = new Map(state.overrides);
   const compacted = [];
   for (const [notePath, visibility] of nextOverrides) {
-    // A `private` override that has become redundant for its OWN exact path may
-    // still be the only thing narrowing a note that folds onto it — one living
-    // in a differently-cased sibling folder, which this loop cannot see and
-    // which `newlyTeamVisible` below never scans, because it walks only
-    // `${path}/`. Compacting it away published that note, reported
-    // `newly_team_visible_notes: 0`, and asked for no confirmation. Content,
-    // not existence, and the only place in this fold that failed open.
+    // No `private` override is ever compacted away, however redundant it looks
+    // for its own exact path. Since the fold, that one line is also the only
+    // thing narrowing every path that folds onto it, and this loop cannot see
+    // who those are: the impact report walks only `${path}/`, so a twin in a
+    // differently-cased sibling folder is never scanned. Compacting it away
+    // published a note the owner had marked private, said
+    // `newly_team_visible_notes: 0`, and asked for no confirmation — content,
+    // not existence, and the only place in this change that failed open.
     //
-    // The manifest can answer the question on its own: a twin is only widened
-    // if some `team` rule governs the folded path without governing this exact
-    // one. That is a case-variant folder rule, and it is enumerable here — no
-    // second listing, and a folder with no such variant compacts as it always
-    // did.
-    if (visibility === "private") {
-      const foldedNote = foldPath(notePath);
-      const twinWouldWiden = nextRules.some(
-        (rule) =>
-          rule.vis === "team" &&
-          foldedNote.startsWith(`${foldPath(rule.prefix)}/`) &&
-          !notePath.startsWith(`${rule.prefix}/`)
-      );
-      if (twinWouldWiden) continue;
-    }
+    // The first fix reasoned over folder rules instead: a twin is only widened,
+    // it said, by a `team` rule governing the folded path but not the exact
+    // one. That is false. `visibilityOf` is longest-prefix and the test was
+    // any-prefix, so one `team` rule governing both the note and its twin —
+    // out-ranked for the note by the longer `private` rule this very call adds
+    // — widens the twin and passes the test. It needed no case-variant folder
+    // rule and no hand-edited manifest, and it shipped. Deciding who a
+    // narrowing protects is what `foldedTwinBlocks` does by simulating the
+    // write; a second, weaker copy of that reasoning is worth less than a
+    // redundant line of manifest.
+    if (visibility === "private") continue;
     if (notePath.startsWith(`${path}/`) && visibility === visibilityOf(notePath, nextRules)) {
       nextOverrides.delete(notePath);
       compacted.push(notePath);
@@ -3817,13 +3814,24 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
     return writePermissionError("archive destination");
   }
   if (await store.get(dest)) return toolError("conflict: archive destination already exists");
-  // No fold check here, deliberately. `destinationVisibility` above is always
-  // `private` for an archive, and `foldedTwinBlocks` is unconditionally false
-  // for `private` — the probe sets the path private, so the answer always
-  // matches what was asked. A guard that cannot fire is not defence in depth;
-  // at team scope it would be nothing but extra oracle surface. The version of
-  // this comment that shipped blamed the timestamp for the unreachability,
-  // which was the wrong reason for a true statement.
+  // Before any write, because this path has no rollback at all: a throw from
+  // the backstop leaves the destination written, the source undeleted, and a
+  // protocol error in the caller's hands.
+  //
+  // The comment that briefly replaced this said the guard could never fire,
+  // because "an archive's destination is always `private`" and
+  // `foldedTwinBlocks` is unconditionally false for `private`. The second half
+  // is true and the first is not: `destinationVisibility` above is `private`
+  // only at owner scope, and `team` for everybody else. So the guard is
+  // reachable, at exactly the scope where its message must not be — hence the
+  // split below. What actually bounds it is the millisecond timestamp in
+  // `dest`, which is what the ORIGINAL comment said, and which was deleted for
+  // being "the wrong reason for a true statement". It was the right reason.
+  if (foldedTwinBlocks(dest, destinationVisibility, rules, overrides)) {
+    return scope === "private"
+      ? toolError(FOLDED_TWIN_REFUSAL)
+      : writePermissionError("archive destination");
+  }
   const body = await obj.arrayBuffer();
   await store.put(`${HISTORY_PREFIX}${path}.${stamp}.archive.md`, body);
   if (destinationVisibility === "private") {
