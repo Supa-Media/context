@@ -62,6 +62,7 @@ import {
   normalizePreviewChild,
   normalizePreviewTitle,
   previewChildrenFrom,
+  titleFromPath,
 } from "../functions/lib/shareTitle";
 
 /** Characters a filename can carry that a card must never. */
@@ -706,5 +707,43 @@ describe("a title is stripped like the names beneath it", () => {
 
   test("a title that is only format characters is no title at all", () => {
     expect(normalizePreviewTitle(`${RLO}${ZWSP}${PDF}`)).toBeNull();
+  });
+
+  /**
+   * ...AND `titleFromPath` IS THE FUNCTION THIS BLOCK'S OWN RATIONALE NAMES.
+   *
+   * The paragraph above ends "`titleFromPath` derives the title from that
+   * filename" and then asserts nothing about it. The strip landed on
+   * `normalizePreviewTitle` alone, which is the owner-typed title -- the input
+   * least likely to be hostile -- while the *derived* one, taken straight off a
+   * key out of a bucket we do not own, went through untouched.
+   *
+   * It matters most on the card with the widest audience. `mintLinkShare` takes
+   * no `previewTitle` argument, so for an **unlisted** link `titleFromPath` is
+   * the only title source there is: the strangers who never sign in get the one
+   * card built from the unstripped path, and CLAUDE.md's own record is that a
+   * card already unfurled cannot be retracted from anybody's CDN.
+   *
+   * A filename is not owner-typed in the sense that matters either. Obsidian's
+   * sync plugin, rclone and the provider's console all write keys directly, and
+   * on a shared workspace an editor creates the file while the owner mints the
+   * link.
+   */
+  test("format and C1 characters do not reach og:title through a filename", () => {
+    const derived = titleFromPath(`1-projects/Report ${RLO}gnp.exe${PDF}${NEL}${ZWSP}.md`);
+    expect(derived, "the title must survive as text").toContain("gnp.exe");
+    for (const hostile of [RLO, PDF, NEL, ZWSP]) {
+      expect(derived).not.toContain(hostile);
+    }
+  });
+
+  test("a filename that is only format characters yields no title", () => {
+    expect(titleFromPath(`1-projects/${RLO}${ZWSP}${PDF}.md`)).toBeNull();
+  });
+
+  test("an ordinary filename is unchanged by the strip", () => {
+    expect(titleFromPath("1-projects/transition/implementation-handoff.md")).toBe(
+      "Implementation handoff",
+    );
   });
 });

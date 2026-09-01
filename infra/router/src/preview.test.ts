@@ -951,3 +951,42 @@ describe("previewForNote: a folder link names what is inside it", () => {
     );
   });
 });
+
+/**
+ * THE EDGE STRIPS THE TITLE THE WAY IT ALREADY STRIPS THE NAMES UNDER IT.
+ *
+ * `boundChildren` removes `Cc`/`Cf` from every child name and says why. The
+ * title -- the more prominent field, and the one an unlisted card is built
+ * entirely from -- was bounded for *length* here and not cleaned, so the rule
+ * this file states in its own words ("an edge that trusts its upstream to have
+ * been careful has no bound at all") was applied to one field of the response
+ * and not the other.
+ *
+ * The control plane strips it at the source now too. Both, because that is how
+ * two copies of a rule are held here -- by running both against the same
+ * shapes, not by a comment saying they agree.
+ */
+describe("a title from upstream is stripped, not only shortened", () => {
+  const RLO = "\u202E";
+  const NEL = "\u0085";
+  const ZWSP = "\u200B";
+
+  it("keeps a bidi override out of og:title on a share card", () => {
+    const meta = previewForShare(`Salary${RLO}gnp.exe`);
+    expect(meta.title).toContain("gnp.exe");
+    for (const hostile of [RLO, NEL, ZWSP]) expect(meta.title).not.toContain(hostile);
+  });
+
+  it("and out of a note card's title", () => {
+    const meta = previewForNote(`Report${RLO}fdp`, null, []);
+    expect(meta.title).not.toContain(RLO);
+  });
+
+  it("a title that is only format characters renders the generic card", () => {
+    expect(previewForShare(`${RLO}${ZWSP}${NEL}`)).toEqual(GENERIC_PREVIEW);
+  });
+
+  it("an ordinary title is untouched", () => {
+    expect(previewForShare("Chapter transition").title).toBe("Chapter transition — Context");
+  });
+});
