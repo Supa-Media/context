@@ -509,7 +509,10 @@ function boundChildren(children: readonly unknown[] | null | undefined): string[
   for (const entry of children) {
     if (bounded.length >= MAX_CHILDREN) break;
     if (typeof entry !== "string") continue;
-    const clean = entry.replace(/\p{Cc}/gu, " ").replace(/\s+/g, " ").trim();
+    // `Cf` beside `Cc`: the categories are disjoint, and a bidi override
+    // (U+202E and friends) is `Cf`. See `lib/shareTitle.ts` for the argument;
+    // the two copies are held by running both, not by this comment.
+    const clean = entry.replace(/[\p{Cc}\p{Cf}]/gu, " ").replace(/\s+/g, " ").trim();
     if (clean === "") continue;
     bounded.push(clean.slice(0, MAX_CHILD_NAME));
   }

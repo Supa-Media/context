@@ -582,3 +582,98 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
     );
   });
 });
+
+/**
+ * A PRIVATE SUBFOLDER'S NAME IS NOT A TEAM READER'S TO PUBLISH.
+ *
+ * `folderVisibleAtScope` makes a folder visible at `team` scope when anything
+ * nested under it is `team` — a nested exception or a nested rule. That is
+ * deliberate and its comment argues for it: an owner who shares
+ * `2-areas/shared` out of a private `2-areas` needs the ancestor to appear, or
+ * the thing they just shared is reachable only by somebody who already knows
+ * its name. The disclosure it accepts is "an ancestor's name, in exchange for
+ * the shared folder being reachable".
+ *
+ * That argument was made about a signed-in **member** navigating a tree. A
+ * folder link changed the audience to an anonymous crawler at an address
+ * anybody can type, and did not re-make it. The owner's decision was "one note
+ * inside this private folder is for the team"; the outcome was "the private
+ * folder's name is on the internet", on a card that cannot be retracted once
+ * unfurled.
+ *
+ * So a preview names a subfolder only when it is team-visible **in its own
+ * right**. That is not a second predicate over the engine's answer — the entry
+ * already carries `visibility: visibilityOf(child, rules)`, computed by the
+ * engine — it is reading the field that answers this question rather than the
+ * one that answers the navigation question.
+ */
+describe("a private subfolder is not named by an upward-visible child", () => {
+  test("a private subfolder holding one team note is not published", async () => {
+    const store = await bucket();
+    await setFolderVisibility(store, {
+      path: "1-projects/transition/interviews",
+      visibility: "private",
+      scope: "private",
+    });
+    await setVisibility(store, {
+      path: "1-projects/transition/interviews/first.md",
+      visibility: "team",
+      scope: "private",
+    });
+
+    // The positive control: the shared note really is reachable by a member,
+    // which is the behaviour `folderVisibleAtScope` exists to preserve.
+    const listing = await listFolder(store, {
+      path: "1-projects/transition/interviews",
+      scope: "team",
+    });
+    expect(listing.entries.map((entry) => entry.name)).toContain("first.md");
+
+    // …and the private folder's own name is still not on the card.
+    expect(await childrenOf(store, "1-projects/transition")).not.toContain("interviews/");
+  });
+
+  test("a subfolder team-visible in its own right is still named", async () => {
+    const store = await bucket();
+    await setFolderVisibility(store, {
+      path: "1-projects/transition/interviews",
+      visibility: "team",
+      scope: "private",
+    });
+    expect(await childrenOf(store, "1-projects/transition")).toContain("interviews/");
+  });
+});
+
+/**
+ * A CHILD'S NAME IS A KEY OUT OF A BUCKET WE DO NOT OWN.
+ *
+ * Obsidian, rclone and the provider's console all write keys directly, so a
+ * filename is attacker-influenced text arriving in an `og:description` under
+ * this product's branding, on a card that cannot be retracted once cached.
+ *
+ * The strip was `\p{Cc}` alone, and `Cc` and `Cf` are disjoint categories:
+ * U+202E RIGHT-TO-LEFT OVERRIDE, the U+2066 isolates and U+200B ZERO WIDTH
+ * SPACE all survived it. A bidi override reverses the rendering of everything
+ * after it in most unfurlers — enough to make `gnp.exe` read as `exe.png`. On a
+ * shared workspace the writer need not be the owner: an editor creates the
+ * file, the owner links the folder.
+ */
+describe("format characters do not reach a card", () => {
+  test("a bidi override in a filename is stripped, not escaped", async () => {
+    const store = await bucket();
+    store.seed("1-projects/transition/a‮gnp.exe‭.md", "# spoofed\n");
+    const children = await childrenOf(store, "1-projects/transition");
+    const named = children.find((name) => name.includes("gnp"));
+    expect(named, "the file must still be named").toBeDefined();
+    for (const hostile of ["‮", "‭", "⁦", "⁩", "​"]) {
+      expect(named).not.toContain(hostile);
+    }
+  });
+
+  test("a zero-width space cannot hide inside a name", async () => {
+    const store = await bucket();
+    store.seed("1-projects/transition/a​b.md", "# split\n");
+    const children = await childrenOf(store, "1-projects/transition");
+    expect(children.some((name) => name.includes("​"))).toBe(false);
+  });
+});

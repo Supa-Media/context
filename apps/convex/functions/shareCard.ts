@@ -207,10 +207,14 @@ async function snapshotChildren(
     const listing = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: share.workspaceId,
       // **`team`, and it is the security boundary rather than a formality.**
-      // `listFolder` runs `canSee` and `folderVisibleAtScope` at this scope, so
-      // a private note and a private subfolder are gone before anything here
-      // sees them. `private` would put the owner's own hidden notes on a card
-      // served to an anonymous crawler.
+      // `listFolder` runs `canSee` at this scope, so a private note is gone
+      // before anything here sees it. `private` would put the owner's own
+      // hidden notes on a card served to an anonymous crawler.
+      //
+      // A private SUBFOLDER is not gone, which this comment used to claim:
+      // `folderVisibleAtScope` admits one whose nested content is team, on
+      // purpose and for a member navigating a tree. `previewChildrenFrom` drops
+      // it, because a card has a different audience — see the argument there.
       scope: "team",
       operation: { kind: "list", path: share.entryPath },
     });

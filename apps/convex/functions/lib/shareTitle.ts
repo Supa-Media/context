@@ -27,6 +27,7 @@
  * words: a path that yields nothing usable yields nothing, and the card falls
  * back to plain product branding.
  */
+import type { Visibility } from "./privacy";
 
 /**
  * The longest title that reaches a card.
@@ -120,12 +121,20 @@ export const MAX_PREVIEW_CHILD_NAME = 40;
 /**
  * Every control character, as one class.
  *
+ * `\p{Cf}` is here beside `\p{Cc}` because the categories are disjoint and only
+ * one of them was being stripped. U+202E RIGHT-TO-LEFT OVERRIDE, the U+2066
+ * isolates and U+200B ZERO WIDTH SPACE are all `Cf`, and a bidi override in an
+ * `og:description` reverses the rendering of everything after it in most
+ * unfurlers — under this product's own branding, on a card CLAUDE.md says
+ * cannot be retracted once cached. The writer need not be the owner: on a
+ * shared workspace an editor creates the file and the owner links the folder.
+ *
  * `\p{Cc}` rather than an explicit range: it is the Unicode category itself,
  * so it covers C1 (U+0080–U+009F) as well as C0 and DEL. `normalizePreviewTitle`
  * above predates this and names the range by hand; the two agree on everything
  * a title can contain, and this is the wider of the two.
  */
-const CONTROL_CHARACTERS = /\p{Cc}/gu;
+const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}]/gu;
 
 /**
  * Normalise one child's display name, or `null` if nothing usable survives.
@@ -187,9 +196,30 @@ export function boundPreviewChildren(raw: readonly string[]): string[] {
  * and re-publish an identical picture to every unfurler that had cached it.
  */
 export function previewChildrenFrom(
-  entries: ReadonlyArray<{ kind: "file" | "folder"; name: string }>,
+  entries: ReadonlyArray<{
+    kind: "file" | "folder";
+    name: string;
+    visibility?: Visibility;
+  }>,
 ): string[] {
-  const ordered = [...entries].sort((a, b) => {
+  // A folder reaches a `team` listing two ways: its own rule says `team`, or
+  // `folderVisibleAtScope` let it through because something NESTED under it is
+  // team. The second is deliberate — an owner who shares `2-areas/shared` out
+  // of a private `2-areas` needs the ancestor to appear, or the thing they just
+  // shared is reachable only by somebody who already knows its name — and the
+  // disclosure it accepts is "an ancestor's name, in exchange for the shared
+  // folder being reachable", to a signed-in MEMBER navigating a tree.
+  //
+  // A card is read by an anonymous crawler at an address anybody can type, and
+  // cannot be retracted once unfurled. So a preview names a subfolder only when
+  // it is team-visible in its own right. The entry already carries
+  // `visibility: visibilityOf(child, rules)` — this reads the engine's answer
+  // to that question rather than adding a predicate of its own, which is the
+  // rule the two search dialects follow for the same reason.
+  const visible = entries.filter(
+    (entry) => entry.kind !== "folder" || entry.visibility !== "private",
+  );
+  const ordered = [...visible].sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
     return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
   });
