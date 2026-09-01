@@ -590,6 +590,35 @@ export async function runSearchPacingChecks(check) {
         !serialized.includes("1-projects") &&
         !serialized.includes(".md")
     );
+    /*
+      The check above is a denylist of three strings this fixture happens to
+      contain, so it answers "did *these* leak" and not "may this field be
+      here at all". Measured: adding `topHit: "salary numbers, private tier"`
+      to `toJSON` passes the entire gateway suite, that check included —
+      because note text a future field carries will not contain the fixture's
+      query or its paths.
+
+      So the permitted keys are enumerated instead, and an unknown one fails.
+      The direction is what matters: a denylist admits every field nobody
+      thought of, and the fields nobody thought of are the ones that carry
+      what somebody wrote. `trace.set` spreads whatever it is given, and
+      `logSearchTrace` prints the lot.
+    */
+    const TRACE_KEYS = new Set([
+      "event", "workspace", "grant", "client", "provider", "budget", "prefixed",
+      "indexed", "hits", "matches", "matchesIsFloor", "index", "spent",
+      "deferred", "scannedCount", "totalCount", "ms",
+    ]);
+    const INDEX_KEYS = new Set([
+      "shardCount", "occupiedShards", "docs", "pending", "shardsUnread",
+      "listingTruncated", "manifestOverflow",
+    ]);
+    const strayTop = Object.keys(traced[0]).filter((key) => !TRACE_KEYS.has(key));
+    const strayIndex = Object.keys(traced[0].index ?? {}).filter((key) => !INDEX_KEYS.has(key));
+    check(
+      "and carries no field beyond the ones enumerated here",
+      strayTop.length === 0 && strayIndex.length === 0
+    );
     check(
       "the interactive pass read no more notes than the interactive cap",
       bucket.noteGets() > 0 && traced[0]?.deferred === true
