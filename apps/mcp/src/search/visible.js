@@ -350,6 +350,35 @@ async function answerFromIndex(store, options) {
   // thing that could have answered it.
   const { shardsToRead, routed } = routeShards(manifest, occupied, queryTerms);
 
+  // **The floor is a fact about this index and this budget, never about this
+  // query.** `shardsUnread` below is set when the budget runs out partway
+  // through `shardsToRead` — and since #185 that list is chosen from
+  // `manifest.filters`, which is built from every doc in a shard, private ones
+  // included. So the number of shards a query opens is a function of content
+  // the caller may not see, and it surfaces: unread shards become
+  // `matchCountIsFloor` and `indexIncomplete`, which `toolSearchNotes` prints
+  // as "the search index is still catching up".
+  //
+  // Measured at the gateway's default budget, 12,000 notes in 40 shards, a team
+  // caller: a word occurring only in the owner's private notes came back with
+  // the banner on and 29 shard reads; a word occurring nowhere at all came back
+  // with the banner off and 2 reads. Both answer "(no matches)". That
+  // difference is the subtraction the console's census is owner-only to
+  // prevent, asked one word at a time.
+  //
+  // So the flag starts from whether this budget could have covered the WHOLE
+  // index, which no query influences. It over-reports — a routed query that
+  // really did read everything it needed still says "catching up" on a context
+  // too big for one call — and that is the direction this file already prefers:
+  // "an unknown reported as complete is the one direction that tells somebody
+  // their note is not written down." The residual is stated rather than closed:
+  // the *number of store reads* still varies with the routed set, so a caller
+  // who can time the call retains a coarser version of the same channel, and
+  // closing that means routing that cannot see private vocabulary at all.
+  // A separate flag, because `shardsUnread` also *controls the read loop* —
+  // setting it here would stop the walk before it started.
+  const budgetCannotCoverIndex = occupied.length > Math.max(0, budget.remaining - limit);
+
   // Read in waves, decoded one at a time. What a wave holds is **bytes**, and
   // the decode stays one at a time, so the peak parsed shard is one: the memory
   // bound v2 exists for is a property of the parse, not of the fetch.
@@ -466,7 +495,7 @@ async function answerFromIndex(store, options) {
     // thing is not written down, which is the failure `toolSearchNotes`'s
     // miss copy exists to prevent. So it is a floor, in the census's own
     // language: "A floor is never printed as a total."
-    matchCountIsFloor: visible.length >= MAX_RESULTS || shardsUnread,
+    matchCountIsFloor: visible.length >= MAX_RESULTS || shardsUnread || budgetCannotCoverIndex,
     // Read off the manifest rather than off a listing this call did not make.
     // `listedAt: null` is an index no pass has recorded freshness for — every
     // manifest written before the field existed — and it counts as behind: an
@@ -476,7 +505,8 @@ async function answerFromIndex(store, options) {
       manifest.freshness.listedAt === null ||
       manifest.freshness.pending > 0 ||
       manifest.freshness.truncated ||
-      shardsUnread,
+      shardsUnread ||
+      budgetCannotCoverIndex,
     // For the trace, and for a caller deciding whether finishing this index is
     // worth a background pass. Never rendered: these count every doc in the
     // bucket, so printing one beside a team connection's visible hits is the

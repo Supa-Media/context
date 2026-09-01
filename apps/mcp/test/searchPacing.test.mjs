@@ -364,7 +364,76 @@ async function captureLogs(run) {
   });
 }
 
+/**
+ * **A QUERY MUST NOT BE A PROBE OF WHAT THE CALLER CANNOT READ.**
+ *
+ * Shard routing picks which shards to open from `manifest.filters`, and those
+ * filters are built from every doc in a shard — private ones included, by
+ * construction, since a shard mixes them. So the NUMBER of shards a query opens
+ * is a function of content the caller may not see, and it used to surface: a
+ * budget exhausted partway through the routed list set `shardsUnread`, which
+ * became `matchCountIsFloor` and `indexIncomplete`, which `toolSearchNotes`
+ * prints as "the search index is still catching up on this context".
+ *
+ * Measured at the gateway's default budget over 12,000 notes in 40 shards: a
+ * word occurring only in the owner's private notes answered with the banner on
+ * and 29 shard reads; a word occurring nowhere answered with the banner off and
+ * 2 reads. Both print "(no matches)". A team-scope grant could therefore ask
+ * "does this word occur in something I may not read" one word at a time — the
+ * subtraction the console's census is owner-only to prevent.
+ *
+ * The reported floor is now a fact about the index and the budget, which no
+ * query influences. What this check holds is the equality itself, so the fix
+ * cannot be undone by reintroducing any query-dependent term.
+ */
+function visibleOnly(prefix) {
+  return (key) => !key.startsWith(prefix);
+}
+
+async function runFloorIsNotAQueryProbe(check) {
+  const bucket = createBucket();
+  // Enough shards that a tight budget cannot cover them all — which is the
+  // precondition, and the reason the numbers here are what they are. Most of
+  // the corpus is unreadable to the caller and carries a word found nowhere
+  // else, so a filter built over the whole shard claims it and a filter built
+  // over what the caller may read would not.
+  seedNotes(bucket, 600, "rhubarb", 2);
+  for (let i = 0; i < 2400; i += 1) {
+    bucket.seed(`9-private/p${i % 6}/secret-${i}.md`, `# Secret ${i}\n\nThe zarquon appears here.\n`);
+  }
+  for (let pass = 0; pass < 14; pass += 1) {
+    await syncShardedIndex(bucket, { budget: createSearchBudget(4000), isIndexable: indexable });
+  }
+
+  const ask = (query) =>
+    searchIndexedNotes(bucket, {
+      isVisible: visibleOnly("9-private/"),
+      isIndexable: indexable,
+      query,
+      // 20 is measured, not chosen: at this budget the routed query reads all
+      // ten shards and runs out, while the unrouted one reads the five-shard
+      // expansion sample and does not. Below it both run out and above it
+      // neither does, so this is the window where the difference was visible —
+      // and the window a caller would look for.
+      budget: createSearchBudget(20),
+    });
+
+  const inPrivateOnly = await ask("zarquon");
+  const nowhereAtAll = await ask("wtnpqxz");
+
+  check(
+    "the positive control: neither query returns a visible note",
+    inPrivateOnly.hits.length === 0 && nowhereAtAll.hits.length === 0
+  );
+  check(
+    "a word living only in unreadable notes is indistinguishable from a word living nowhere",
+    inPrivateOnly.matchCountIsFloor === nowhereAtAll.matchCountIsFloor &&
+      inPrivateOnly.indexIncomplete === nowhereAtAll.indexIncomplete
+  );
+}
+
 export async function runSearchPacingChecks(check) {
+  await runFloorIsNotAQueryProbe(check);
   /* -- (a) the false miss: maintenance may not starve the answer ----------- */
   //
   // 1,500 notes at a budget of 120 is the smallest fixture that reproduced it:
