@@ -830,12 +830,21 @@ export function parseContentType(value: string): ContentType {
  * sender is how a capture ends up looking like it came from someone the owner
  * trusts. Callers get the address; ./note.ts renders only the address.
  *
- * **This does not implement RFC 5322 CFWS, and two consequences are known and
- * open.** A comment is `(...)` and may appear after an addr-spec; the scan
+ * **This does not implement RFC 5322 CFWS, and three consequences are known
+ * and open.** A comment is `(...)` and may appear after an addr-spec; the scan
  * below does not skip one, so:
  *
- *     alice@allowed.test (note <mallory@evil.test>)  ->  mallory@evil.test
- *     alice@allowed.test (Jane Doe)                  ->  ""
+ *     alice@allowed.test (note <mallory@evil.test>)   ->  mallory@evil.test
+ *     alice@allowed.test (Jane Doe)                   ->  ""
+ *     attacker@evil.test (x") , <alice@allowed.test>  ->  alice@allowed.test
+ *
+ * The third is the multi-mailbox refusal below, defeated by one character that
+ * is not the one the refusal was hardened against. `"` is `%d34`, inside
+ * `ctext`, so `(x")` is a legal comment and that header is a legal
+ * `mailbox-list` of two mailboxes -- but the scan's quote flag is not
+ * comment-aware, so the stray `"` opens a phantom quoted-string, the top-level
+ * comma is skipped, and the last angle pair wins. Byte for byte the outcome
+ * the backslash fix was written to stop, reached a different way.
  *
  * The first is a part of the header that means nothing influencing the
  * decision, which is exactly what `parseEmailAddress`'s docstring says must
@@ -849,10 +858,12 @@ export function parseContentType(value: string): ContentType {
  * address before it consults `allowAnySender`, so those are dropped even under
  * "anyone".
  *
- * Both want the same fix -- strip comments before the bracket search, honouring
- * nesting and quoting -- and that is parser surgery in the one function whose
- * output is the allow-list's input, so it belongs in its own change with its
- * own review rather than riding along with a fix that was ready.
+ * All three want the same fix -- strip comments before the bracket search,
+ * honouring nesting and quoting -- and that is parser surgery in the one
+ * function whose output is the allow-list's input, so it belongs in its own
+ * change with its own review rather than riding along with a fix that was
+ * ready. Until it lands, **the multi-mailbox refusal is not a control that
+ * holds**; it stops the forms below and not a commented one.
  */
 export function addrSpec(value: string): string {
   // **Not decoded, and the last pair rather than the first.** Both halves were

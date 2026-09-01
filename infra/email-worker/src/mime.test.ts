@@ -279,14 +279,27 @@ describe("addresses", () => {
    *
    * -- a genuine two-mailbox `From:` whose comma the scan skipped, resolving
    * to the last pair, which the sender chose. Not an escalation while `From:`
-   * is attacker-typed and the allow-list is a filter rather than a gate, and
-   * still a one-character bypass of a control this file documents as holding.
+   * is attacker-typed and the allow-list is a filter rather than a gate.
+   *
+   * **This closes the backslash and does not make the refusal a control that
+   * holds.** A review of the fix found the same outcome one character further
+   * along: `attacker@evil.test (x") , <alice@allowed.test>` is a legal
+   * two-mailbox header whose comment contains a legal `"`, which opens a
+   * phantom quoted-string and hides the top-level comma. `addrSpec`'s
+   * docstring records it as the third open CFWS consequence, and the same
+   * comment-stripping fix closes all three. Asserted below so the day that
+   * lands, the assertion is here to be flipped.
    */
   it("does not let a backslash outside the quotes hide the comma", () => {
     expect(addrSpec("<attacker@evil.test>\\, <alice@allowed.test>")).toBe("");
     expect(addrSpec("alice@allowed.test\\, attacker@evil.test")).toBe("");
     // Still an escape where RFC 5322 says it is one.
     expect(addrSpec('"a\\", b" <q@x.test>')).toBe("q@x.test");
+    // Known open, per the docstring: a `"` inside a comment still hides a
+    // top-level comma. Pinned so the CFWS change has to come here and say so.
+    expect(addrSpec('attacker@evil.test (x") , <alice@allowed.test>')).toBe(
+      "alice@allowed.test"
+    );
   });
 });
 

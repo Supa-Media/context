@@ -121,9 +121,18 @@ export const recordEvent = internalMutation({
  *    every grant only to `editor` and above -- a plain member sees their own
  *    and nothing else. `grant.created` records `{ scopes, tier }` and
  *    `oauth.authorized` records `{ scope, grantedScope, tier }`, so leaving
- *    them on would let a read-only member read which AI clients everybody else
- *    connected and with what reach: the same shape as the `ingestion.*` hole
+ *    them on would let a read-only member read with what reach everybody
+ *    else's AI clients connected: the same shape as the `ingestion.*` hole
  *    this gate was written to close, one rung lower.
+ *
+ *    **The scopes are what this removes, and not the fact of the grant.**
+ *    `actorUserId`, `actorEmail`, `actorClientId` and `at` sit outside the
+ *    gate, so a member still reads who connected a client, when, and -- by
+ *    joining `grant.created` to `grant.revoked` on the client id -- whose was
+ *    revoked and whether it was involuntary. Four of the six fields
+ *    `listGrants` gates at `editor`. Closing that means gating those columns
+ *    too, which is the same shape as the `paths` decision below and belongs
+ *    with it.
  *
  * What is on it is what a member can already derive from the context they can
  * read: that a note was written or deleted, that a visibility changed and to
@@ -141,15 +150,22 @@ const MEMBER_VISIBLE_DETAIL_ACTIONS: ReadonlySet<string> = new Set([
   "file.write",
   "file.delete",
   "folder.create",
+  // `{ template, folderCount }`, where `folderCount === paths.length` exactly,
+  // so today it says nothing the row does not already say. **Revisit it in the
+  // same commit that ever withholds `paths`**: the scaffold's manifest is
+  // `default_visibility: private`, so on its own this is an exact count of the
+  // top-level folders of a context the member can list none of -- verbatim the
+  // criterion that keeps `privacy.reset` off this list.
   "workspace.structure_applied",
   "visibility.note",
   "visibility.folder",
   "member.joined",
   "member.left",
   "share.team.created",
-  // `{ onBehalfOfSelf }` or `{ reason }` -- no scope, no client, no third
-  // party. Kept deliberately rather than by omission: "a grant was revoked,
-  // and why" is what a trail is for. Its two siblings are off the list below.
+  // `{ onBehalfOfSelf }`, `{ reason: "refresh_token_reuse" }` or
+  // `{ reason: "client_revocation" }` -- no scope, no client, no third party.
+  // Kept deliberately rather than by omission: "a grant was revoked, and why"
+  // is what a trail is for. Its two siblings are off the list below.
   "grant.revoked",
 ]);
 
