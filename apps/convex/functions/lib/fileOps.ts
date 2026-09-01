@@ -2574,14 +2574,20 @@ export interface SearchResults {
  * the backfill instead of nibbling at it, and the same index serves both
  * surfaces afterwards.
  *
- * **A search writes**, under `.index/`, whatever the caller's role — which is
- * worth saying out loud beside a module whose every other write is gated on
- * `canEdit`. It is not an escalation and it is not new: an AI client on a
- * team-tier grant already maintains this index on every `search_notes`, the
- * keys are plumbing rather than note content, and the whole thing is a
- * disposable derivative that a person's own notes can rebuild. What a member
- * must not be able to do is *read* more than their scope, and that is
- * `isVisible`, below.
+ * **A search does not maintain the index**, and that is the change that took a
+ * console search over a real brain from twenty-odd seconds to a fraction of
+ * one. It reads a manifest, the shards this query's terms can be in, and the
+ * notes it is quoting. `searchContext` schedules `maintainSearchIndex` behind
+ * the answer when the answer says the index is behind.
+ *
+ * The one exception is `refreshOnMiss`, and it is the reason a member's search
+ * can still cause a write under `.index/` whatever their role — worth saying
+ * out loud beside a module whose every other write is gated on `canEdit`. It is
+ * not an escalation and it is not new: an AI client on a team-tier grant
+ * maintains this index too, the keys are plumbing rather than note content, and
+ * the whole thing is a disposable derivative a person's own notes can rebuild.
+ * What a member must not be able to do is *read* more than their scope, and
+ * that is `isVisible`, below.
  */
 export async function searchNotes(
   store: FileStore,
@@ -2682,7 +2688,11 @@ export async function maintainSearchIndex(
   });
   return {
     pending: pass.pending,
-    changed: Boolean(pass.changed),
+    // `committed`, not `changed`: a pass whose manifest write lost a race to a
+    // concurrent one did work the winner is about to re-derive, and the chain
+    // below must not treat that as progress. Otherwise every search in a burst
+    // schedules twelve more passes over the same notes.
+    changed: Boolean(pass.committed),
     // "Nothing left to do", which is what decides whether another pass is
     // scheduled behind this one. A truncated listing counts as incomplete for
     // the same reason it does everywhere else here: a walk that was cut short

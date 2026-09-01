@@ -156,7 +156,7 @@ export function snippetLinesFor(text, matchedTerms) {
  * what a person *waited for*. So the two halves are separated: this reads a
  * ready index and never writes, never lists, and never fetches a note it is not
  * quoting, and the maintenance that makes the index ready runs behind the
- * response — `deferIndexSync` in the gateway, a scheduled action in the control
+ * response — `maintainIndexAfter` in the gateway, a scheduled action in the control
  * plane. A search is an interactive request; finishing somebody's index is not.
  *
  * What that costs is freshness, and it is bought back rather than waved away:
@@ -371,6 +371,10 @@ async function answerFromIndex(store, options) {
     // `Promise.all` rather than `inWaves`: the wave is already bounded by the
     // loop above, and it has to be — each wave's budget check depends on what
     // the last one spent, so the chunking cannot be delegated.
+    // One shard the backend refuses answers `null` — `fetchShardBytes` owns
+    // that, and there is deliberately no second catch here: a shard that could
+    // not be read is a floor on this answer, and a rule enforced in two places
+    // is a rule that can disagree with itself.
     const bodies = await Promise.all(wave.map((id) => fetchShardBytes(store, budget, limit, id)));
     for (const bytes of bodies) {
       const shard = bytes && decodeShard(bytes);
@@ -402,22 +406,23 @@ async function answerFromIndex(store, options) {
     wanted.push(hit);
   }
   const read = await inWaves(wanted, SNIPPET_READ_CONCURRENCY, async ({ path, matchedTerms }) => {
-    let object;
     try {
-      object = await store.get(path);
+      // The body read is inside the `try` as well as the fetch. A backend can
+      // hand back an object whose stream then fails, and a rejection there is
+      // the same kind of failure as a refused GET: one hit's snippet, never
+      // the whole answer. The sequential loop broke on this, which dropped
+      // every lower-ranked hit for a key the adapter happened to refuse.
+      const object = await store.get(path);
+      if (!object) return null;
+      const text = await object.text();
+      return {
+        key: path,
+        title: noteTitle(path, text),
+        snippets: snippetLinesFor(text, matchedTerms),
+      };
     } catch {
-      // One unreadable note costs its own snippet and nothing else. The
-      // sequential loop broke here, which dropped every lower-ranked hit for a
-      // key the adapter happened to refuse.
       return null;
     }
-    if (!object) return null;
-    const text = await object.text();
-    return {
-      key: path,
-      title: noteTitle(path, text),
-      snippets: snippetLinesFor(text, matchedTerms),
-    };
   });
   const hits = read.filter(Boolean);
 

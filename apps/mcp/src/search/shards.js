@@ -1197,6 +1197,7 @@ function auditCandidates(manifest, busy, nowMs, count = AUDIT_SHARDS_PER_SYNC) {
  *   listingTruncated: boolean,
  *   manifestOverflow: boolean,
  *   changed: boolean,
+ *   committed: boolean,
  *   spent: number,
  * }>} `shards` holds only what this pass loaded or built.
  */
@@ -1291,6 +1292,7 @@ export async function syncShardedIndex(
       listingTruncated: true,
       manifestOverflow: false,
       changed: false,
+      committed: false,
       spent: ops.spent,
     };
   }
@@ -1646,6 +1648,12 @@ export async function syncShardedIndex(
   }
 
   let manifestOverflow = false;
+  // Whether this pass's work was *recorded*. A pass whose manifest write lost
+  // the race wrote shards nothing vouches for, and the pass that won will
+  // re-derive them — so as far as anything downstream is concerned it changed
+  // nothing, and a caller deciding whether to run again or to re-ask a query
+  // must be told that rather than "yes, and again next time".
+  let committed = false;
   if (manifestChanged) {
     // The diff first, and unconditionally: it is the object whose staleness
     // costs work rather than correctness (see `DOCMAP_KEY`), and writing it
@@ -1686,6 +1694,7 @@ export async function syncShardedIndex(
       // spend the last op there is — it is the pass's whole point — but this is
       // bookkeeping for the *next* pass, and a caller that lost a snippet read
       // to it would have paid for that pass out of its own answer.
+      committed = written !== null;
       if (written !== null && docmapChanged && ops.remaining > callerReserve) {
         const docmap = serializeDocmap(manifest);
         if (!exceedsUtf8Bytes(docmap, manifestCap) && ops.take(callerReserve)) {
@@ -1722,11 +1731,21 @@ export async function syncShardedIndex(
     pending,
     listingTruncated: truncated,
     manifestOverflow,
-    // Whether any shard's documents moved. Not "did anything get written" — the
-    // freshness stamp writes the manifest on every pass — but "is the index a
-    // different index than it was", which is the only question a caller
-    // deciding whether to re-ask a query needs answered.
+    // Two answers to two questions that look like one, and conflating them
+    // breaks one caller or the other.
+    //
+    // `changed` is "did a document move in an object a query will read", and
+    // shards are written unconditionally, so a pass whose manifest write lost
+    // the race still changed the index: the *re-ask* a miss buys must run,
+    // because the note it was looking for is now in a shard object.
+    //
+    // `committed` is "was that recorded", and it is what decides whether
+    // another pass is worth scheduling. A pass that lost the race did work the
+    // winner is about to re-derive; reporting progress there would have every
+    // one of a burst of concurrent passes chain itself twelve deep over the
+    // same notes.
     changed: docmapChanged,
+    committed: docmapChanged && committed,
     spent: ops.spent,
   };
 }

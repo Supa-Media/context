@@ -38,6 +38,13 @@
  *   the expansion sample removed (skip the shards for a term
  *     nothing claims, rather than sampling them)                  2
  *   `buildTermFilter` skipped for a shard the sync rewrote        4
+ *   `fetchShardBytes` rethrowing a refused read                   crash
+ *   the snippet read's body fetch moved outside its `try`         crash
+ *
+ * The last two are marked `crash` rather than counted: a rejection there
+ * propagates out of `searchIndexedNotes` and takes the run down, which is the
+ * loudest possible way for a guard to fire and exactly what those two `catch`
+ * blocks exist to stop happening to a person's search.
  *
  * The second row is the finding worth keeping, and it is a finding about this
  * file as much as about that one. `fnv1a32(x) | 1` is a *signed* bitwise
@@ -313,6 +320,69 @@ export async function runSearchFilterChecks(check) {
         absent.hits.length === 0 &&
         absent.index.routed === false &&
         bucket.shardGets().length < manifest.shardCount
+    );
+  }
+
+  /* -- (d2) one refused object is a floor, never a failed search ----------- */
+  //
+  // The reported failure, from the other end. In the control plane a search
+  // runs in a Convex action whose `fetch` carries a ten-second deadline, and
+  // the console renders any rejection as "that search could not be run" — so
+  // one slow object must never be able to take an answer with it.
+  //
+  // `fetchShardBytes` and the snippet wave each own their own refusal, and
+  // this asserts the property end to end rather than either of those
+  // separately: a refused shard reported as a floor, a refused note costing
+  // its own snippet. The snippet half is the one that was wrong — the body
+  // read sat outside the `try` that covered the fetch, so a stream that failed
+  // after a successful GET still threw the search away.
+  {
+    const bucket = createBucket();
+    for (let i = 0; i < 1_200; i += 1) {
+      bucket.seed(
+        `${ROOTS[i % ROOTS.length]}/note-${i}.md`,
+        `# Note ${i}\n\nA capybara sighting, number ${i}.\n`
+      );
+    }
+    await converge(bucket);
+    const manifest = parseManifest(bucket.objects.get(MANIFEST_KEY).body);
+
+    const refused = new Set([".index/v2/shard-000.json", `${ROOTS[0]}/note-0.md`]);
+    // A GET that succeeds and a body that then does not. Separately, because
+    // they are separately catchable and one of them was not caught: the fetch
+    // sat inside a `try` and the `await object.text()` after it did not.
+    const truncated = `${ROOTS[1]}/note-1.md`;
+    const flaky = {
+      ...bucket,
+      get: async (key) => {
+        if (refused.has(key)) throw new Error("the backend took too long");
+        const object = await bucket.get(key);
+        if (object && key === truncated) {
+          return { ...object, text: async () => { throw new Error("the stream ended early"); } };
+        }
+        return object;
+      },
+    };
+    const found = await searchIndexedNotes(flaky, {
+      isVisible: alwaysVisible,
+      isIndexable: indexable,
+      query: "capybara",
+      budget: createSearchBudget(400),
+    });
+    check(
+      "a shard the backend refuses costs coverage and not the answer",
+      manifest.shardCount > 1 &&
+        found.indexed &&
+        found.hits.length > 0 &&
+        // Docs exist that these results cannot include, and the answer says so
+        // rather than reporting a total it cannot support.
+        found.matchCountIsFloor === true &&
+        found.index.shardsUnread === true
+    );
+    check(
+      "and a note that will not read costs its own snippet and nothing else",
+      found.hits.every((hit) => hit.key !== `${ROOTS[0]}/note-0.md`) &&
+        found.hits.every((hit) => hit.key !== truncated)
     );
   }
 
