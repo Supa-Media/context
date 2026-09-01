@@ -22,10 +22,14 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import {
   CARET_MARGIN,
   EDITOR_HTML,
   ESTIMATED_HEIGHT,
+  NAVIGATION_ORIGINS,
+  allowInitialLoadOnly,
   caretOvershoot,
   coveredHeight,
   createHostBridge,
@@ -136,6 +140,56 @@ describe("the ready handshake", () => {
     sent.length = 0;
     bridge.setDoc("typed");
     expect(sent).toEqual([]);
+  });
+
+  /**
+   * A SECOND `ready` IS A RELOAD, AND IT MUST NOT REWIND THE NOTE.
+   *
+   * The handshake's whole reason for resending state rather than flushing a
+   * queue is that a WKWebView can reload on its own after a memory warning —
+   * `createHostBridge`'s own header says so. What it resends is `doc`, and the
+   * echo guard used to return *before* `doc` was assigned, so `doc` froze at
+   * the text the note was opened with while `known` tracked what the person had
+   * actually typed.
+   *
+   * The visible half of that is bad and the invisible half is worse. The editor
+   * reverts, which a person can see; but `replaceDocument` is annotated
+   * `externalDoc` so no `change` is emitted, leaving `known` at the reverted
+   * text — so the very next keystroke posts a `change` derived from the rewound
+   * document and overwrites the draft, with no undo entry and nothing said.
+   * Unsaved work, lost silently, on a memory warning nobody triggered.
+   */
+  test("a reload is answered with what the person has typed, not what they opened", () => {
+    const { bridge, sent } = traced(true);
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "change", text: "typed" }));
+    // The echo of that change, which is exactly the call that must not be
+    // allowed to leave `doc` behind.
+    bridge.setDoc("typed");
+    sent.length = 0;
+
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
+    const doc = sent.map((raw) => JSON.parse(raw)).filter((message) => message.type === "doc");
+    expect(doc).toEqual([{ v: PROTOCOL_VERSION, type: "doc", text: "typed" }]);
+  });
+
+  /**
+   * And the guest is believed to hold what it was just resent.
+   *
+   * `known` is what stops the next keystroke being written back over the
+   * caret; after a reload it has to name the resent document. Asserted through
+   * the seam rather than inferred from the `doc` message above, because the
+   * two are set in different statements and a fix that moved one and not the
+   * other would pass the test before this one.
+   */
+  test("and the guest is believed to hold that, not the opened text", () => {
+    const { bridge } = traced(true);
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "change", text: "typed" }));
+    bridge.setDoc("typed");
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
+
+    expect(bridge.known()).toBe("typed");
   });
 });
 
@@ -317,5 +371,149 @@ describe("how far the page must scroll to clear the caret", () => {
     // clear of the bar.
     expect(caretOvershoot({ ...box, accessoryHeight: 0, caretBottom: clear })).toBe(0);
     expect(caretOvershoot({ ...box, caretBottom: clear })).toBe(ACCESSORY_HEIGHT);
+  });
+});
+
+
+/**
+ * WHERE THE NOTE COULD HAVE LEFT THE DEVICE, AND WHY THE FIX LOOKS LIKE A HOLE.
+ *
+ * `editorDocument`'s CSP closes fetching, framing, form posts and base
+ * rewriting. It cannot close navigation — no browser has a directive that stops
+ * `location.assign()` — so the one remaining way a script inside that document
+ * could put somebody's private markdown on the network is by navigating to
+ * `https://attacker.example/?d=<the note>`. `allowInitialLoadOnly` refuses that.
+ * These tests are about whether it is ever *asked*.
+ *
+ * The model below is react-native-webview's own
+ * `createOnShouldStartLoadWithRequest`, transcribed from
+ * `src/WebViewShared.tsx` at the version this app pins (asserted at the bottom
+ * of this block, so an upgrade forces somebody to read it again). It is
+ * modelled rather than imported for the reason this whole file exists: the
+ * package has no web build, so a suite resolving `react-native` to
+ * `react-native-web` cannot load it — and the branch that matters is four lines
+ * of dispatch around a `Linking` call, not behaviour that needs a device.
+ *
+ * The first test is the model's self-test: driven with the whitelist this
+ * repository used to carry, it must reproduce the defect. A model that passes
+ * both values proves nothing.
+ */
+describe("a URL that appears inside the note", () => {
+  /** `escape-string-regexp`, inlined — the library's own escaping. */
+  const escapeStringRegexp = (text: string) =>
+    text.replace(/[|\\{}()[\]^$+*?.]/g, "\\$&").replace(/-/g, "\\x2d");
+
+  const originWhitelistToRegex = (entry: string) =>
+    `^${escapeStringRegexp(entry).replace(/\\\*/g, ".*")}`;
+
+  // The library prepends `about:blank` itself, which is why the initial load
+  // passes whatever this app sets and why the whitelist has no work left to do.
+  const compileWhitelist = (whitelist: readonly string[]) =>
+    ["about:blank", ...whitelist].map(originWhitelistToRegex);
+
+  const extractOrigin = (url: string) => {
+    const result = /^[A-Za-z][A-Za-z0-9+\-.]+:(\/\/)?[^/]*/.exec(url);
+    return result === null ? "" : result[0];
+  };
+
+  const passesWhitelist = (compiled: readonly string[], url: string) =>
+    compiled.some((entry) => new RegExp(entry).test(extractOrigin(url)));
+
+  /**
+   * The library's dispatch, as an answer rather than a side effect.
+   *
+   * `askedTheApp` is the whole point: `onShouldStartLoadWithRequest` sits in
+   * the `else` of the whitelist check, so a URL that fails the whitelist never
+   * reaches it — it reaches `Linking.openURL`, in full, query string included.
+   */
+  function dispatch(whitelist: readonly string[], url: string) {
+    const compiled = compileWhitelist(whitelist);
+    if (!passesWhitelist(compiled, url)) {
+      return { shouldStart: false, handedToTheOs: url, askedTheApp: false };
+    }
+    return {
+      shouldStart: allowInitialLoadOnly({ url }),
+      handedToTheOs: null as string | null,
+      askedTheApp: true,
+    };
+  }
+
+  const NOTE = "the%20thing%20I%20told%20nobody";
+  const EXFILTRATION = `https://attacker.example/?d=${NOTE}`;
+  const HOSTILE = [
+    EXFILTRATION,
+    "http://attacker.example/",
+    "data:text/html,<script>1</script>",
+    "file:///etc/passwd",
+    "intent://x#Intent;scheme=http;end",
+  ];
+
+  test("the model reproduces the defect it exists to catch", () => {
+    // `["about:*"]` is the value this app carried until this test was written.
+    // It reads as the tightest possible whitelist and is the leak: the URL is
+    // not refused, it is handed to the operating system with the note in it,
+    // and the app's own refusal is never consulted.
+    const narrow = dispatch(["about:*"], EXFILTRATION);
+    expect(narrow.askedTheApp).toBe(false);
+    expect(narrow.handedToTheOs).toBe(EXFILTRATION);
+    expect(narrow.handedToTheOs).toContain(NOTE);
+  });
+
+  test("reaches this app's refusal, rather than Safari", () => {
+    for (const url of HOSTILE) {
+      const result = dispatch(NAVIGATION_ORIGINS, url);
+      expect({ url, ...result }).toEqual({
+        url,
+        shouldStart: false,
+        handedToTheOs: null,
+        askedTheApp: true,
+      });
+    }
+  });
+
+  test("which is what `[\"*\"]` buys, and why it may not be tightened", () => {
+    // The property, stated directly and not through one worked example: every
+    // URL passes the whitelist, so every URL is decided by this app.
+    expect(NAVIGATION_ORIGINS).toEqual(["*"]);
+    for (const url of [...HOSTILE, "about:blank", "https://context.lc/"]) {
+      expect(passesWhitelist(compileWhitelist(NAVIGATION_ORIGINS), url)).toBe(true);
+    }
+  });
+
+  test("and the load that brings the editor up is still allowed", () => {
+    expect(dispatch(NAVIGATION_ORIGINS, "about:blank")).toEqual({
+      shouldStart: true,
+      handedToTheOs: null,
+      askedTheApp: true,
+    });
+    expect(allowInitialLoadOnly({ url: "about:blank" })).toBe(true);
+    expect(allowInitialLoadOnly({ url: EXFILTRATION })).toBe(false);
+  });
+
+  test("the component wires both of these rather than its own literals", () => {
+    // `LiveEditor.tsx` cannot be mounted here — see this file's header — so the
+    // half that proves the policy reaches the view is read instead. A local
+    // `originWhitelist={["about:*"]}` in the component would put the leak back
+    // with `host.ts` still passing every test above it.
+    const component = readFileSync(
+      resolve(__dirname, "..", "features/console/files/LiveEditor.tsx"),
+      "utf8",
+    );
+    expect(component).toContain("originWhitelist={NAVIGATION_ORIGINS as string[]}");
+    expect(component).toContain("onShouldStartLoadWithRequest={allowInitialLoadOnly}");
+    expect(component).toMatch(/NAVIGATION_ORIGINS,\s*\n\s*allowInitialLoadOnly,/);
+    // One `originWhitelist` in the file, and it is that one.
+    expect(component.match(/originWhitelist/g)).toHaveLength(1);
+  });
+
+  test("the modelled dispatch is pinned to the version it was read from", () => {
+    // The model above is a copy of somebody else's four lines. What keeps it
+    // honest is not a comment claiming it is current: it is that the version
+    // is pinned exactly, so an upgrade fails here and somebody re-reads
+    // `src/WebViewShared.tsx` before the whitelist argument is trusted again.
+    const manifest = JSON.parse(
+      readFileSync(join(resolve(__dirname, ".."), "package.json"), "utf8"),
+    );
+    expect(manifest.dependencies["react-native-webview"]).toBe("13.15.0");
   });
 });

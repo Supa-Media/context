@@ -68,6 +68,8 @@ import { fonts, leading, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import {
   EDITOR_HTML,
+  NAVIGATION_ORIGINS,
+  allowInitialLoadOnly,
   caretOvershoot,
   coveredHeight,
   createHostBridge,
@@ -87,19 +89,6 @@ export type { EditorControls, LiveEditorProps };
  * `source` built in the render body would do that on every keystroke.
  */
 const SOURCE = { html: EDITOR_HTML } as const;
-const ORIGINS = ["about:*"] as const;
-
-/**
- * Nothing in this document navigates.
- *
- * The live-preview decorations draw a link as a styled `<span>`, not an
- * `<a href>`, so there is no in-page navigation to allow — and a web view
- * holding somebody's private note has no business following a URL that appeared
- * inside it. The initial `about:blank` load is the only thing permitted.
- */
-function allowInitialLoadOnly(request: { url: string }): boolean {
-  return request.url === "about:blank" || request.url.startsWith("about:");
-}
 
 export function LiveEditor({
   value,
@@ -435,7 +424,15 @@ export function LiveEditor({
       <WebView
         ref={web}
         source={SOURCE}
-        originWhitelist={ORIGINS as unknown as string[]}
+        /*
+          Both from `host.ts`, and the whitelist is deliberately `["*"]`. That
+          is not a loosening: react-native-webview hands a URL that FAILS the
+          whitelist to `Linking.openURL` instead of to the handler below, so a
+          narrow list here would open somebody's note in Safari rather than
+          refuse it. `NAVIGATION_ORIGINS` carries the whole argument, and it is
+          the one thing on this component the document's CSP cannot do for us.
+        */
+        originWhitelist={NAVIGATION_ORIGINS as string[]}
         onMessage={onMessage}
         onShouldStartLoadWithRequest={allowInitialLoadOnly}
         onError={() => setFailure("the web view failed to load")}

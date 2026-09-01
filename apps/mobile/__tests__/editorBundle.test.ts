@@ -1,22 +1,37 @@
 /**
- * THE COMMITTED BUNDLE IS THE CODE IN THIS REPOSITORY.
+ * THE COMMITTED BUNDLE IS BUILT FROM UNCHANGED SOURCES — WHICH IS NOT THE SAME
+ * SENTENCE AS "THE COMMITTED BUNDLE IS THE CODE IN THIS REPOSITORY".
  *
- * `bundle.generated.ts` holds the iOS editor as one minified script, built by
- * `scripts/build-editor-bundle.mjs`. That is the only way an offline app with a
- * pinned `runtimeVersion` can ship a DOM library — see the script for the
- * argument — and it has exactly one failure mode, which is that somebody edits
- * `livePreview.ts`, runs the suite, sees green, and ships a phone build running
- * last month's editor.
+ * This file used to open with the second sentence, and did not check it. The
+ * difference was a working supply-chain hole: appending a
+ * `navigator.sendBeacon` snippet to the `EDITOR_BUNDLE` string passed every
+ * assertion below and all 2,459 mobile tests, because no *source* file was
+ * touched and nothing in the payload needs `eval`. A guard whose header claims
+ * more than it checks is worse than no guard, because it is the sentence the
+ * next reader trusts instead of looking.
  *
- * There is nothing subtle about catching it. The generator records a SHA-256 of
- * every repository file that went into the bundle and the resolved version of
- * every package that did, both read out of esbuild's own metafile rather than
- * from a list somebody maintains. This recomputes both.
+ * So what this file actually proves is the staleness half, and it proves it
+ * well. `bundle.generated.ts` holds the iOS editor as one minified script,
+ * built by `scripts/build-editor-bundle.mjs` — the only way an offline app with
+ * a pinned `runtimeVersion` can ship a DOM library, see the script for the
+ * argument. Its failure mode is somebody editing `livePreview.ts`, running the
+ * suite, seeing green, and shipping a phone build running last month's editor.
+ * The generator records a SHA-256 of every repository file that went into the
+ * bundle and the resolved version of every package that did, both read out of
+ * esbuild's own metafile rather than from a list somebody maintains. This
+ * recomputes both.
  *
  * It deliberately does **not** run esbuild. Rebuilding here would make the
  * check depend on a bundler that is not a declared dependency of this app, and
  * would turn "you forgot to rebuild" into a slow test rather than a fast
  * message. The point is to fail with the command to run.
+ *
+ * **The other half — that the committed bytes are what those sources build — is
+ * the `editor-bundle` job in `.github/workflows/ci.yml`**, which rebuilds and
+ * diffs. It can only live there for the same reason this file cannot run
+ * esbuild, and the last test below pins it, because a check that exists in one
+ * file and is relied upon by the header of another is a check that gets deleted
+ * by somebody tidying a workflow.
  */
 
 import { describe, expect, test } from "@jest/globals";
@@ -171,5 +186,79 @@ describe("what shipped is a script and nothing else", () => {
     // could change that.
     expect(EDITOR_BUNDLE).not.toContain("eval(");
     expect(EDITOR_BUNDLE).not.toContain("new Function(");
+  });
+
+  /**
+   * ...AND NEITHER OF THOSE IS THE CHECK THAT MATTERS, WHICH IS WHY THIS EXISTS.
+   *
+   * The two assertions above are shape checks on an attacker-controlled 500kb
+   * string: an exfiltration snippet appended to the bundle starts
+   * `"use strict";(()=>{`, is over 100kb, and needs no `eval`. The only thing
+   * that closes it is rebuilding from source and comparing bytes, and that runs
+   * in CI rather than here — esbuild is deliberately not a dependency of
+   * `apps/mobile`.
+   *
+   * A guard in another file is a guard that can be deleted without this suite
+   * noticing, so the job is read. Named steps rather than the whole script: the
+   * message and the artifact are free to be reworded, but a `ci.yml` with no
+   * rebuild and no diff in it is this file's header become false again.
+   */
+  test("and what it IS is proved by rebuilding, in CI, which must still be there", () => {
+    const workflow = readFileSync(join(repoRoot, ".github/workflows/ci.yml"), "utf8");
+    /*
+      Comments stripped, and every assertion anchored to a line of shell rather
+      than to a substring — because the first version of this test was not, and
+      the sabotage run caught it. Deleting the rebuild step outright left the
+      test green: the job's own header names the script, and so does the failure
+      message it prints. That is this repository's "an import guard that read
+      English prose as code", reproduced inside the fix for it.
+    */
+    const code = workflow
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("#"))
+      .join("\n");
+    expect(code).toMatch(/^\s+run: node scripts\/build-editor-bundle\.mjs\s*$/m);
+    expect(code).toMatch(
+      /^\s+file=apps\/mobile\/features\/console\/files\/webview\/bundle\.generated\.ts\s*$/m,
+    );
+    expect(code).toMatch(/^\s+if git diff --quiet -- "\$file"; then\s*$/m);
+    // On `pull_request`, or it is a check that runs after the merge.
+    expect(code).toMatch(/^on:\n\s+pull_request:/m);
+
+    /*
+      And the job must actually run, and must actually block.
+
+      Everything above pins that the *steps exist*, which is a different claim.
+      Measured: adding `if: false` and `continue-on-error: true` to this job
+      leaves all of these green while the guard does nothing at all — and that
+      is not a hypothetical, it is this file's own neighbour. `ci.yml` records
+      three lines above this job that `ci / Lint` "reported skipping on every
+      PR for months", and that `lint-continue-on-error` defaults to true
+      upstream, so "even once the job runs, a lint failure would be reported as
+      a pass". Both halves of that trap are reachable here by one line each.
+
+      Scoped to this job's own block rather than the whole file, so a legitimate
+      `if:` on some unrelated job cannot fail this and cannot satisfy it either.
+    */
+    const start = code.indexOf("\n  editor-bundle:");
+    expect(start).toBeGreaterThan(-1);
+    // From the line after the job's own key, so the search below does not
+    // match `editor-bundle:` itself and cut the block to nothing.
+    const rest = code.slice(start + 1);
+    const next = rest.search(/\n {2}[a-z][a-z-]*:\n/);
+    const job = next === -1 ? rest : rest.slice(0, next);
+    expect(job).toMatch(/^\s+run: node scripts\/build-editor-bundle\.mjs\s*$/m);
+    /*
+      Job-level keys only — four spaces. A *step* may carry an `if:`, and one
+      here does: the artifact upload is `if: failure()`, which is the whole
+      point of it. Forbidding `if:` at any depth caught that and would have
+      made this test refuse a correct workflow, which is its own kind of
+      useless guard.
+    */
+    expect(job).not.toMatch(/^ {4}if:/m);
+    expect(job).not.toMatch(/^ {4}continue-on-error:/m);
+    // `continue-on-error` on a step turns that step's failure into a pass, so
+    // it is refused at every depth rather than only at the job's.
+    expect(job).not.toMatch(/^\s+continue-on-error:/m);
   });
 });
