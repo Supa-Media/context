@@ -1148,6 +1148,22 @@ export const resolveShare = query({
     if (share === null) return null;
     if ((await shareStillStands(ctx, share, userId, now)) === null) return null;
 
+    // **An unlisted link was sent to nobody, so there is nobody this answers
+    // for.** `shareStillStands` says the link is live and, for an `anyone` row,
+    // says it for every caller — which is right for the *read* and wrong here.
+    // Every other kind required identity or membership before it, so a signed-in
+    // stranger holding a token got `null`; without this they would get the
+    // workspace id, the sharer and the mint time, which correlates two unrelated
+    // unlisted links to one context and one sharer without opening either note.
+    //
+    // The reader loses nothing: `readSharedNote` still hands them the note, and
+    // `entryPath` with it. This withholds the handle, not the thing the link is
+    // for.
+    if (share.recipientKind === "anyone") {
+      const membership = await getMembership(ctx, share.workspaceId, userId);
+      if (membership === null) return null;
+    }
+
     return {
       shareId: share._id,
       workspaceId: share.workspaceId,

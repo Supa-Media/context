@@ -1612,6 +1612,26 @@ describe("the gateway's HTTP routes", () => {
     for (const forbidden of ["workspaceId", "slug", "entryPath", "recipient", "createdBy"]) {
       expect(body, `sharePreview must not return ${forbidden}`).not.toContain(forbidden);
     }
+
+    // **EVERY response, not the last one.** The assertions above pin the
+    // success return and then deny five names; the handler has a second
+    // `json(` — the early return for a body with no token — and a field added
+    // to THAT reaches the same anonymous crawler on every malformed request.
+    // Measured: appending `owner: "seyi", notes: 42` to the early return passed
+    // this test and all 39 checks beside it, because neither name is on the
+    // five-item list. `shareNotePreview` below already reads its keys out of
+    // the literal rather than listing them here; this does the same, for each
+    // literal it finds, so a rename fails loudly and a fourth field cannot
+    // arrive on the quiet branch.
+    const literals = [...body.matchAll(/json\(\{([^}]*)\}\)/g)];
+    expect(literals.length, "sharePreview should answer with object literals only").toBe(2);
+    for (const [, literal] of literals) {
+      const keys = [...literal.matchAll(/([a-zA-Z_$][\w$]*)\s*:/g)].map((m) => m[1]);
+      expect(keys.sort(), "every sharePreview response returns exactly these fields").toEqual([
+        "openToAnyone",
+        "title",
+      ]);
+    }
   });
 
   /**

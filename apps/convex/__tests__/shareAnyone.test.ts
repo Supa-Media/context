@@ -659,3 +659,52 @@ describe("how the owner sees it", () => {
     expect(row!.audience).toBe("anyone");
   });
 });
+
+/**
+ * `resolveShare` ANSWERS A LINK SOMEBODY WAS SENT, AND AN UNLISTED LINK WAS
+ * SENT TO NOBODY.
+ *
+ * Its own header calls it the query that "answers a link somebody was sent",
+ * and for every kind that existed before this one `shareStillStands` required
+ * identity or membership — so a signed-in stranger holding a token got `null`.
+ *
+ * The `anyone` branch made that true for any caller, and `resolveShare` reads
+ * its answer, so a free account plus a pasted URL yielded `workspaceId`,
+ * `sharedBy` and `createdAt`. `entryPath` is not new — `readSharedNote` returns
+ * it to a caller with no session at all — but the ids and the mint timestamp
+ * are, and they let two unrelated unlisted links be correlated to one context
+ * and one sharer without ever opening either note.
+ *
+ * Low, because the ids are opaque and nothing turns one into a name without
+ * membership. Fixed anyway, because it costs nothing: this query has no caller
+ * anywhere outside its own tests, and the contract it states never meant to
+ * answer for a link addressed to nobody.
+ */
+describe("resolveShare does not answer for an unlisted link", () => {
+  test("a signed-in stranger learns nothing from a token they hold", async () => {
+    const f = await fixture();
+    const token = await unlisted(f);
+
+    // The premise: the same stranger CAN read the note. This withholds the
+    // context handle, not the note the link is for.
+    const read = await asUser(f.t, f.lk).action(api.functions.shares.readSharedNote, {
+      token,
+    });
+    expect(read.text).toContain("# Chapter transition");
+
+    expect(
+      await asUser(f.t, f.lk).query(api.functions.shares.resolveShare, { token }),
+    ).toBeNull();
+  });
+
+  test("and a member of the context still resolves it", async () => {
+    const f = await fixture();
+    const token = await unlisted(f);
+
+    const resolved = await asUser(f.t, f.member).query(
+      api.functions.shares.resolveShare,
+      { token },
+    );
+    expect(resolved?.workspaceId).toBe(f.workspaceId);
+  });
+});
