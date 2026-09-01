@@ -212,6 +212,45 @@ describe("what the owner is told", () => {
   });
 });
 
+describe("what a rename costs the links people hold", () => {
+  /**
+   * An unlisted link is held by an unknown number of people — that is the whole
+   * point of it — so a row count printed as a headcount would be read as the
+   * size of the audience. It is named rather than counted.
+   */
+  test("an unlisted link is named, never counted as one person", () => {
+    const text = sharesBreakingWarning(
+      [share({ audience: "anyone", recipient: "Anyone with the link" })],
+      "1-projects/plan.md",
+      "Renaming",
+    );
+    expect(text).toMatch(/unlisted link anyone can open/i);
+    expect(text).not.toMatch(/1 person/i);
+    expect(text).toMatch(/Renaming it breaks it/);
+  });
+
+  test("addressed links are still counted, beside it", () => {
+    const text = sharesBreakingWarning(
+      [
+        share({ shareId: "s1" }),
+        share({ shareId: "s2", recipient: "a@example.invalid", audience: "email" }),
+        share({ shareId: "s3", audience: "anyone", recipient: "Anyone with the link" }),
+      ],
+      "1-projects/plan.md",
+      "Moving",
+    );
+    expect(text).toMatch(/2 people hold links/i);
+    expect(text).toMatch(/unlisted link/i);
+    expect(text).toMatch(/breaks them/);
+  });
+
+  test("and with no unlisted link the sentence is what it always was", () => {
+    expect(
+      sharesBreakingWarning([share()], "1-projects/plan.md", "Archiving"),
+    ).toMatch(/^1 person holds a link to this note\. Archiving it breaks it —/);
+  });
+});
+
 describe("the shares on one note", () => {
   test("only this note's, newest first", () => {
     const rows = sharesFor(

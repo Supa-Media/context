@@ -191,8 +191,20 @@ export function sharesBreakingWarning(
 ): string | null {
   const live = sharesFor(shares, path);
   if (live === undefined || live.length === 0) return null;
-  const count = live.length === 1 ? "1 person holds a link" : `${live.length} people hold links`;
-  return `${count} to this note. ${verb} it breaks ${live.length === 1 ? "it" : "them"} — a share follows the path, not the note.`;
+  // An unlisted link is held by an unknown number of people — that is what it
+  // is for — so counting rows and calling them "people" would be a number the
+  // owner would read as the size of the audience. It is named rather than
+  // counted, and the count covers the rest.
+  const open = live.filter((share) => share.audience === "anyone").length;
+  const addressed = live.length - open;
+  const parts: string[] = [];
+  if (addressed > 0) {
+    parts.push(addressed === 1 ? "1 person holds a link" : `${addressed} people hold links`);
+  }
+  if (open > 0) parts.push("an unlisted link anyone can open points");
+  const subject = parts.join(", and ");
+  const breaks = live.length === 1 ? "it" : "them";
+  return `${subject[0]!.toUpperCase()}${subject.slice(1)} to this note. ${verb} it breaks ${breaks} — a share follows the path, not the note.`;
 }
 
 

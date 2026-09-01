@@ -1548,7 +1548,16 @@ export function useFileBrowser(options: {
           if (step.on) {
             const ok = await runShare(
               () => createLinkShareAction({ workspaceId: workspaceId!, path }),
-              "Anyone with the link can now open this note.",
+              // Says the reach, not just the fact. `SHARE_TRAVERSAL_DEPTH` is
+              // 1, so a link carries the notes this one links to as well —
+              // `ShareDialog` states that beside the personal-share control
+              // because it is the part everybody guesses wrong, and a
+              // one-press control that published silently would be the same
+              // surprise with nowhere for the sentence to live. Copying the
+              // link is in the share dialog rather than here: a copy has to
+              // happen inside its own press to reach the clipboard on iOS.
+              "Anyone with the link can now open this note and the notes it links to." +
+                " Copy the link from Share.",
             );
             if (!ok) return;
             continue;
