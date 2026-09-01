@@ -169,8 +169,9 @@ describe("the folder card", () => {
     );
 
     expect(folder).not.toBe(plain);
-    expect(folder).toContain("interviews/");
-    expect(folder).toContain("overview.md");
+    // One text node, joined exactly as the `og:description` joins it, so the
+    // picture and the text cannot say different things about one folder.
+    expect(folder).toContain("interviews/ · overview.md");
     // The mark is two boxes rather than a glyph, so it needs no font coverage —
     // an icon drawn from the bundled font would be tofu for the same titles
     // `isRenderableTitle` already refuses, written permanently onto a CDN.
@@ -186,9 +187,7 @@ describe("the folder card", () => {
    */
   test("it draws what it is given, and invents nothing", () => {
     const drawn = JSON.stringify(cardElement("Transition", ["a", "b", "c"]));
-    expect(drawn).toContain('"a"');
-    expect(drawn).toContain('"b"');
-    expect(drawn).toContain('"c"');
+    expect(drawn).toContain("a · b · c");
     // No count, no "and 4 more". A total is the addition this card must not
     // grow: over the folder rather than over the visible set it is an existence
     // oracle by subtraction.

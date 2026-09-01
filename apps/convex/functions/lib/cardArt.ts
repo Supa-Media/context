@@ -212,35 +212,40 @@ function folderMark(): unknown {
 }
 
 /**
- * What is inside, as up to three chips.
+ * What is inside, as one line of text that wraps.
  *
- * A row rather than a list because it has to sit under a title that may already
- * be two lines. Each name is drawn as it is stored — the filename the owner's
- * bucket actually holds, with a trailing `/` where it is a folder — because a
- * prettified one would be a word this product invented about somebody's file,
- * and `titleFromPath`'s own rule is that there is no fallback that invents.
+ * **One text node rather than three chips, and the reason is arithmetic.** A
+ * chip per name is a flex row that cannot wrap and cannot shrink: three names
+ * at `MAX_PREVIEW_CHILD_NAME` plus their padding is roughly 1,600px inside a
+ * 1,040px column, so the third one leaves the frame — and satori clips rather
+ * than complaining, which would ship a cut-off card into every unfurler's CDN
+ * permanently. Text wraps, so the worst case is a second line, and the height
+ * budget under a two-line 66px title has room for it.
+ *
+ * It is also **the same string the `og:description` carries**, joined the same
+ * way, so the picture and the text cannot say different things about the same
+ * folder.
+ *
+ * Each name is drawn as it is stored — the filename the owner's bucket actually
+ * holds, with a trailing `/` where it is a folder — because a prettified one
+ * would be a word this product invented about somebody's file, and
+ * `titleFromPath`'s own rule is that there is no fallback that invents.
  */
 function childRow(children: readonly string[]): unknown {
   return {
     type: "div",
     props: {
-      style: { display: "flex", alignItems: "center", gap: 12, marginTop: 30 },
-      children: children.map((name) => ({
-        type: "div",
-        props: {
-          style: {
-            display: "flex",
-            alignItems: "center",
-            padding: "10px 20px",
-            borderRadius: 999,
-            border: `1px solid ${LINE_STRONG}`,
-            fontSize: 24,
-            color: TEXT_2,
-            letterSpacing: "-0.01em",
-          },
-          children: name,
-        },
-      })),
+      style: {
+        display: "flex",
+        marginTop: 28,
+        fontSize: 24,
+        lineHeight: 1.35,
+        color: TEXT_2,
+        letterSpacing: "-0.01em",
+        // Wraps rather than leaving the card.
+        maxWidth: 940,
+      },
+      children: children.join(" · "),
     },
   };
 }
