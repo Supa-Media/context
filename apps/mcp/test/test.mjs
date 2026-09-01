@@ -3298,6 +3298,156 @@ await call("priv-token", "set_visibility", {
 });
 await contextStore.delete(batchTwin);
 await contextStore.delete(batchSource);
+
+/**
+ * **The seventh tool, which nobody had counted.**
+ *
+ * Three reviews and four commits said "six tools can change a visibility and
+ * all six refuse up front". `set_folder_visibility` is the seventh, and it is
+ * the one that fails OPEN rather than closed.
+ *
+ * Its compaction loop drops an override that has become redundant *for its own
+ * exact path* — correct before the fold, and wrong after it, because the same
+ * line is what narrows every path that folds onto it. The impact report walks
+ * only `${folder}/`, so a twin living in a differently-cased sibling folder is
+ * never scanned: `newly_team_visible_notes` says 0, no publication confirmation
+ * is required, and a note the owner had marked private becomes team-readable
+ * with nothing said. That is content, not existence — the severe direction.
+ *
+ * The fold created the coupling, so the fix belongs here: a `private` override
+ * is never compacted away, because this loop cannot see who else is relying on
+ * it. A redundant private line costs a line of manifest.
+ */
+const foldFolderA = "fold-folder";
+const foldFolderB = "Fold-Folder";
+await contextStore.put(`${foldFolderA}/note.md`, "# the note that must stay private\n");
+await contextStore.put(`${foldFolderB}/Note.md`, "# its twin, in a folder that folds\n");
+// `set_folder_visibility` refuses an apply with no `expected_privacy_etag`, and
+// that refusal looks like any other — the first version of this fixture never
+// applied at all, so the scenario it describes never existed. Drive it the way
+// a real client does: dry run, take the etag, apply.
+const setFolder = async (path, visibility) => {
+  const preview = await call("priv-token", "set_folder_visibility", {
+    path,
+    visibility,
+    dry_run: true,
+  });
+  const privacyEtag = preview?.content?.[0]?.text?.match(/privacy_etag: (\S+)/)?.[1];
+  return call("priv-token", "set_folder_visibility", {
+    path,
+    visibility,
+    expected_privacy_etag: privacyEtag,
+    confirm_team_publish: true,
+  });
+};
+const sharedA = await setFolder(foldFolderA, "team");
+const sharedB = await setFolder(foldFolderB, "team");
+check(
+  "the fixture applied: both folders really are team before the narrowing",
+  sharedA?.isError !== true &&
+    sharedB?.isError !== true &&
+    (await call("team-token", "read_note", { path: `${foldFolderB}/Note.md` }))?.isError !== true
+);
+const foldNoteEtag = (await call("priv-token", "read_note", { path: `${foldFolderA}/note.md` }))
+  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
+await call("priv-token", "set_visibility", {
+  path: `${foldFolderA}/note.md`,
+  visibility: "private",
+  expected_etag: foldNoteEtag,
+});
+check(
+  "the positive control: the twin is private by fold before the folder changes",
+  (await call("team-token", "read_note", { path: `${foldFolderB}/Note.md` }))?.isError === true
+);
+// Narrowing the FIRST folder makes its own override redundant. Compacting it
+// away would publish the twin in the second folder.
+const narrowed = await setFolder(foldFolderA, "private");
+check(
+  "narrowing one folder does not publish a note that folds onto it in another",
+  narrowed?.isError !== true &&
+    (await call("team-token", "read_note", { path: `${foldFolderB}/Note.md` }))?.isError === true
+);
+/**
+ * **And the refusal must never be the thing a team caller learns from.**
+ *
+ * `FOLDED_TWIN_REFUSAL` says a private note differing only by case exists. For
+ * an owner that is the actionable message; for anybody else it is an existence
+ * oracle, and `dry_run` costs nothing to ask. `move_folder` answered it at team
+ * scope for one commit, because its fold check sat above the two scope gates
+ * where every other tool puts it below. The control is what makes this check
+ * mean something: the same call must come back with the generic permission
+ * error, which discloses nothing.
+ */
+// The source must actually collide: a file named `note.md`, so the destination
+// `Fold-Folder/note.md` folds onto the private `fold-folder/note.md`. Without
+// that the probe is refused by nothing and the check passes for no reason —
+// which is what its first version did.
+await contextStore.put("1-projects/probe-src/note.md", "# a team note to move\n");
+const teamFoldProbe = await call("team-token", "move_folder", {
+  source: "1-projects/probe-src",
+  destination: foldFolderB,
+  dry_run: true,
+});
+const ownerFoldProbe = await call("priv-token", "move_folder", {
+  source: "1-projects/probe-src",
+  destination: foldFolderB,
+  dry_run: true,
+});
+check(
+  "the positive control: the owner IS told about the collision",
+  ownerFoldProbe?.isError === true &&
+    /only by case/.test(ownerFoldProbe?.content?.[0]?.text ?? "")
+);
+check(
+  "a team caller learns nothing from a folded twin, in move_folder as anywhere else",
+  teamFoldProbe?.isError === true &&
+    !/only by case/.test(teamFoldProbe?.content?.[0]?.text ?? "") &&
+    /permission denied/.test(teamFoldProbe?.content?.[0]?.text ?? "")
+);
+
+await contextStore.delete("1-projects/probe-src/note.md");
+
+/**
+ * **The fold's direction, checked in the gateway's own suite.**
+ *
+ * `overrideFor` folding a `team` override as well as a `private` one is the
+ * hole this whole change had in its first version, and it was caught only by
+ * `apps/convex/__tests__/privacyEngine.test.ts` — the gateway suite passed with
+ * the widening in place. CLAUDE.md calls this suite the fast, offline one a
+ * self-hoster runs, and it could not see a widening fold in its own privacy
+ * engine.
+ *
+ * `2-areas/private` is a private folder. Publishing one note by exact override
+ * must not publish its case-variant, which on R2 and S3 is a different file the
+ * owner never named.
+ */
+const widenFoldPath = "2-areas/private/fold-widen.md";
+const widenFoldTwin = "2-areas/private/Fold-Widen.md";
+await contextStore.put(widenFoldPath, "# deliberately published\n");
+await contextStore.put(widenFoldTwin, "# a different file, never named\n");
+const widenFoldEtag = (await call("priv-token", "read_note", { path: widenFoldPath }))
+  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
+const widenFoldPublish = await call("priv-token", "set_visibility", {
+  path: widenFoldPath,
+  visibility: "team",
+  expected_etag: widenFoldEtag,
+  confirm_team_publish: true,
+});
+check(
+  "the positive control: the note the owner named IS readable by a team caller",
+  widenFoldPublish?.isError !== true &&
+    (await call("team-token", "read_note", { path: widenFoldPath }))?.isError !== true
+);
+check(
+  "a team override does not travel by re-casing, in the gateway's own suite",
+  (await call("team-token", "read_note", { path: widenFoldTwin }))?.isError === true
+);
+await call("priv-token", "set_visibility", { path: widenFoldPath, visibility: "private" });
+await contextStore.delete(widenFoldPath);
+await contextStore.delete(widenFoldTwin);
+for (const key of [`${foldFolderA}/note.md`, `${foldFolderB}/Note.md`]) {
+  await contextStore.delete(key);
+}
 await contextStore.delete("1-projects/portable/Exact-Delete-Twin.md");
 
 // Put the fixture back: clear the override first, then the object, so no line

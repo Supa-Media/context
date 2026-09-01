@@ -83,7 +83,7 @@ Zero npm dependencies — keep it that way. It runs on the Workers runtime, so
 use Web Crypto and `fetch`, not Node APIs.
 
 `pnpm test` in `apps/mcp` runs the suite against an in-memory store stub. It is
-fast, offline, and currently 979 checks. **Do not let it regress.** If you
+fast, offline, and currently 997 checks. **Do not let it regress.** If you
 change behavior, change the test in the same commit and say why.
 
 The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,
@@ -1571,11 +1571,29 @@ make against a throwaway copy, and `write_note`, `set_visibility` and
 `setVisibility` re-derives its answer from the manifest rather than echoing the
 request back.
 
-**Six tools can change a visibility and all six refuse up front** — `write_note`,
-`set_visibility`, `archive_note`, `move_note`, `move_notes`, `move_folder` —
-rather than leaving it to the backstop, because a throw from inside
-`persistExactVisibility` fires *after* the caller has already written the
-destination. In the batch movers that was a torn write with a false report:
+**Seven tools can change a visibility, and counting six of them was itself a
+defect.** Five refuse up front — `write_note`, `set_visibility`, `move_note`,
+`move_notes`, `move_folder` — rather than leaving it to the backstop, because a
+throw from inside `persistExactVisibility` fires *after* the caller has already
+written the destination. `archive_note` deliberately has no check: an archive's
+destination is always `private`, and `foldedTwinBlocks` is unconditionally false
+for `private`, so a guard there could never fire and would be nothing but oracle
+surface. The seventh is `set_folder_visibility`, and it is the one that failed
+**open**: its compaction loop drops an override that has become redundant for
+its own exact path, which since the fold is also the only thing narrowing every
+path that folds onto it — a note in a differently-cased sibling folder, which
+that loop cannot see and which its impact report never scans, because the report
+walks only the folder being changed. It published a private note, said
+`newly_team_visible_notes: 0`, and asked for no confirmation. The manifest
+answers the question on its own: a twin is only widened by a `team` rule that
+governs the folded path without governing the exact one, and case-variant folder
+rules are enumerable right there.
+
+**The refusal names no path, and must not.** `FOLDED_TWIN_REFUSAL` is a static
+string. For an owner it is actionable; for anybody else it is an existence
+oracle, and `dry_run` costs nothing to ask — so it sits *below* the scope gates
+in every tool. `move_folder` had it above them for one commit and answered a
+team caller, which is exactly what that function's own comment forbids. In the batch movers that was a torn write with a false report:
 `copied.push` sat after the visibility write, so the one destination whose
 persist threw was the one the rollback could not see, and the tool answered
 "batch move aborted before deleting sources" over a copy that was still there.
@@ -1587,7 +1605,7 @@ what the check in `test.mjs` sabotages against.
 Three residuals, named rather than argued away.
 
 - `persistExactVisibility`'s post-condition throw and the exactness of its
-  delete are now unreachable from every tool, since all six refuse first —
+  delete are now unreachable from every tool that refuses first —
   sabotaging either passes the whole gateway suite. They are defence-in-depth,
   not a guarded rule, and saying otherwise would be the third wrong sentence
   written about this in three passes.
@@ -1632,7 +1650,10 @@ rule about how a helper may be used, which no test can state for it:
   drift towards a narrowing that stops being found. `overrideFor` falls back to
   the scan for a plain `Map`, so the answer never depends on the container; a
   container that changed the answer is exactly what shipped in this fix's first
-  version and had to be taken back out.
+  version and had to be taken back out. The index holds only `private` folds, so
+  the accelerated path cannot widen even if the scan were broken to — which is
+  why sabotaging the scan alone leaves the gateway suite green, and why the
+  differential test, which passes plain maps, is where that direction is pinned.
 - **`hasOverride` is not a visibility answer.** It folds both directions
   because its callers are move and write *guards* that refuse when an override
   exists, so a folded twin only ever refuses more. Using it to decide what a

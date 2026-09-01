@@ -4331,17 +4331,28 @@ describe("a note whose case-twin is private cannot be published by accident", ()
     expect(store.snapshot()[PRIVACY_KEY]).toContain("1-projects/pay.md: private");
   });
 
-  test("the answer is re-derived from the manifest, never echoed back", async () => {
+  /**
+   * Named for what it can actually see. The version before this was called
+   * "the answer is re-derived from the manifest, never echoed back" and asked
+   * for `private` on a path that was already `private` — so `options.visibility`
+   * and the manifest's answer were the same string and the assertion could not
+   * tell them apart. Restoring `const visibility = options.visibility;` passed
+   * it, which is the regression it was added to catch.
+   *
+   * With the throw above it in place the re-derivation IS a tautology and
+   * cannot be tested apart from it; `fileOps.ts` says so at the line itself.
+   * What this pins instead is the reporting around it, which is not.
+   */
+  test("a no-op set reports the manifest's answer, not the request", async () => {
     const store = bucket();
     await shareProjects(store);
-    // `pay.md` is private by exact override; asking for private again is a
-    // no-op that must still report what the manifest says.
     const result = await setVisibility(store, {
       path: "1-projects/pay.md",
       visibility: "private",
       scope: "private",
     });
     expect(result.visibility).toBe("private");
+    // These two are what the request cannot supply: they come from the rules.
     expect(result.inherited).toBe("team");
     expect(result.exception).toBe(true);
   });

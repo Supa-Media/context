@@ -2935,6 +2935,29 @@ async function toolSetFolderVisibility(store, scope, args) {
   const nextOverrides = new Map(state.overrides);
   const compacted = [];
   for (const [notePath, visibility] of nextOverrides) {
+    // A `private` override that has become redundant for its OWN exact path may
+    // still be the only thing narrowing a note that folds onto it — one living
+    // in a differently-cased sibling folder, which this loop cannot see and
+    // which `newlyTeamVisible` below never scans, because it walks only
+    // `${path}/`. Compacting it away published that note, reported
+    // `newly_team_visible_notes: 0`, and asked for no confirmation. Content,
+    // not existence, and the only place in this fold that failed open.
+    //
+    // The manifest can answer the question on its own: a twin is only widened
+    // if some `team` rule governs the folded path without governing this exact
+    // one. That is a case-variant folder rule, and it is enumerable here — no
+    // second listing, and a folder with no such variant compacts as it always
+    // did.
+    if (visibility === "private") {
+      const foldedNote = foldPath(notePath);
+      const twinWouldWiden = nextRules.some(
+        (rule) =>
+          rule.vis === "team" &&
+          foldedNote.startsWith(`${foldPath(rule.prefix)}/`) &&
+          !notePath.startsWith(`${rule.prefix}/`)
+      );
+      if (twinWouldWiden) continue;
+    }
     if (notePath.startsWith(`${path}/`) && visibility === visibilityOf(notePath, nextRules)) {
       nextOverrides.delete(notePath);
       compacted.push(notePath);
@@ -3794,15 +3817,13 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
     return writePermissionError("archive destination");
   }
   if (await store.get(dest)) return toolError("conflict: archive destination already exists");
-  // Before any write. This path has no rollback at all, so the backstop firing
-  // mid-way would leave the destination written and the source undeleted, and
-  // report it as a protocol error. Contrived to reach — it needs a private
-  // override at a case-variant of a second-resolution archive stamp — but it is
-  // the same shape as the move tools and gets the same guard rather than a
-  // sentence explaining why it is fine.
-  if (foldedTwinBlocks(dest, destinationVisibility, rules, overrides)) {
-    return toolError(FOLDED_TWIN_REFUSAL);
-  }
+  // No fold check here, deliberately. `destinationVisibility` above is always
+  // `private` for an archive, and `foldedTwinBlocks` is unconditionally false
+  // for `private` — the probe sets the path private, so the answer always
+  // matches what was asked. A guard that cannot fire is not defence in depth;
+  // at team scope it would be nothing but extra oracle surface. The version of
+  // this comment that shipped blamed the timestamp for the unreachability,
+  // which was the wrong reason for a true statement.
   const body = await obj.arrayBuffer();
   await store.put(`${HISTORY_PREFIX}${path}.${stamp}.archive.md`, body);
   if (destinationVisibility === "private") {
@@ -4038,6 +4059,11 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
       await store.delete(key).catch(() => {});
       await clearExactVisibility(store, key).catch(() => {});
     }
+    // `copied` holds only destinations this batch CREATED. A destination that
+    // already existed got a private ACL written for it and is not in that list,
+    // so without this loop a "rolled back" move leaves a pre-existing team note
+    // un-shared, silently. The catch above already did this; this one did not.
+    for (const key of preparedAcls) await clearExactVisibility(store, key).catch(() => {});
     return toolError(`batch move rolled back after a source-delete failure: ${error.message}`);
   }
 
@@ -4110,12 +4136,6 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
         : "team";
     return { source: key, destination: destinationPath, visibility: destinationVisibility };
   });
-  // Same reason as `move_notes`: before any write, not from inside the apply
-  // loop where an abort has already copied the file it is aborting over.
-  const foldBlocked = moves.find((move) =>
-    foldedTwinBlocks(move.destination, move.visibility, rules, overrides)
-  );
-  if (foldBlocked) return toolError(FOLDED_TWIN_REFUSAL);
   if (
     scope !== "private" &&
     moves.some(({ destination: path }) => visibilityOf(path, rules) !== "team")
@@ -4125,6 +4145,19 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
   if (scope === "team" && moves.some(({ destination: path }) => hasOverride(overrides, path))) {
     return writePermissionError("folder move destination");
   }
+  // AFTER the two scope gates, which is the whole point of where this sits.
+  // Above them it answered a team caller — and `dry_run` costs nothing, the
+  // attacker picks the destination name, and the message distinguishes "a
+  // private note folds onto this" from an ordinary permission denial. That is
+  // the existence oracle the comment further up this function forbids, and it
+  // is the one tool that had it: every other refuses at team scope with
+  // `writePermissionError`, which discloses nothing.
+  //
+  // Still before any write, which is why it is not left to the backstop.
+  const foldBlocked = moves.find((move) =>
+    foldedTwinBlocks(move.destination, move.visibility, rules, overrides)
+  );
+  if (foldBlocked) return toolError(FOLDED_TWIN_REFUSAL);
   for (const move of moves) {
     if (await store.get(move.destination)) {
       return toolError(`conflict: destination already exists: ${move.destination}`);
