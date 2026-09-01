@@ -66,6 +66,7 @@ function browser(
 ): FileBrowser {
   return {
     canEdit: true,
+    contextId: "w1",
     loading: false,
     busy: false,
     listings,

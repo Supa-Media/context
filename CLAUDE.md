@@ -1779,6 +1779,46 @@ only thing this product treats as real), `Cached copy` with the copy's age, and
 the three answers. Pictures of both palettes are in `docs/design/conflict/`,
 written by `__tests__/conflictShots.render.ts`.
 
+### A team link's note survives the console's own cold start, and the login gate
+
+`teamShareLink` returns the **readable** URL — `/console/@seyi?note=…` — and the
+whole reason it is that rather than `/s/<token>` is that the address says what
+it points at. Following one landed on the context's empty "choose a note"
+screen, twice over, for two unrelated reasons. Both were invisible to every
+existing test because both are about a *cold* start, and every test exercised
+the warm path.
+
+**The route's effect ran before the file browser had changed context.**
+`useFileBrowser` forgets its previous context — listings, expansion, selection,
+the open note — in an effect owned by the console **layout**, and React runs a
+*route's* effects before its parent's. So in the one commit where
+`selectedContextId` goes from `null` to the workspace the URL names, the route
+selected the note and the layout cleared it microseconds later. The route had
+already recorded the URL as honoured, so nothing retried.
+
+`FileBrowser.contextId` is the fix and it is deliberately **not** derived from
+the `workspaceId` prop: it is set *inside* the reset, so it moves one commit
+later than the prop does, and that lag is the entire signal. Deriving it is the
+tidy-up that reads as equivalent and silently restores the bug.
+`useLinkedNote` waits for it to name the context it is acting on — which is
+also the only version that is *correct* rather than merely working, since a
+selection made before the reset is made against the previous context's state.
+
+**And the sign-in the link triggers dropped the query.** The `(app)` gate
+carried `usePathname()` into `/login?next=…`, and expo-router documents that
+hook as returning the location *without search parameters*. Nothing about the
+redirect rule was wrong — `safeNextRoute` passes a query through untouched — so
+no test of it could have seen this. It carries `useUnstableGlobalHref()` now.
+That hook is expo-router's own private one and warns it "may change in the
+future to include the hostname"; if it does, `safeNextRoute` refuses the value
+for not being rooted and the gate falls back to a bare `/login`, which is what
+it did before. The failure direction is the status quo, and it is asserted
+rather than assumed.
+
+Two links in this product carry their meaning in the query and can be recovered
+by nothing else: `/authorize?request_id=…` and this one. A gate that reads a
+pathname where a person followed an href is a gate that strands both.
+
 ### A copy on the device is bounded by who read it, when, and whether the server said no
 
 Three rules sit under the queue and the cache, and each of them was reachable

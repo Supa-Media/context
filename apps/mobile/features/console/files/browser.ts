@@ -61,6 +61,22 @@ export interface FileBrowser {
   /** Why not. Shown once, plainly, rather than on every disabled control. */
   readOnlyReason?: string;
 
+  /**
+   * The context every other field here is *about*, or `null` before any.
+   *
+   * Not the context the console has selected — the one this browser's own
+   * state has caught up with. The two differ for exactly one commit, and that
+   * commit is where a team link used to be lost: `useFileBrowser` forgets the
+   * previous context in an effect, and React runs a *route's* effects before
+   * its *layout's*, so anything the route selected on the strength of a URL was
+   * cleared immediately afterwards by a reset it could not see coming.
+   *
+   * So a caller acting on the URL waits for this to name the context it is
+   * acting on. See `useLinkedNote`, which is the one caller and the one that
+   * was broken; the panes read the state itself and never needed to ask.
+   */
+  contextId: string | null;
+
   loading: boolean;
   /** True while an operation is in flight, so the toolbar can settle. */
   busy: boolean;

@@ -119,6 +119,9 @@ jest.mock("expo-router", () => {
     useRouter: () => ({ replace: () => {}, push: () => {}, back: () => {} }),
     useLocalSearchParams: () => ({}),
     usePathname: () => "/",
+    // What `(app)/_layout.tsx` carries into `?next=`: the href *with* its
+    // query, which `usePathname` deliberately strips.
+    useUnstableGlobalHref: () => "/",
   };
 });
 

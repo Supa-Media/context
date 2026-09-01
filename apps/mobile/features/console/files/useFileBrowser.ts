@@ -420,6 +420,17 @@ export function useFileBrowser(options: {
     setNotice(toFileError(error).message);
   }, []);
 
+  /**
+   * The context the state below actually belongs to.
+   *
+   * Published as `contextId` so a caller acting on a URL can wait for the
+   * reset beneath to have happened — see the field's own comment in
+   * `browser.ts` for the team link this existed to lose. It is set *inside*
+   * the reset rather than derived from `workspaceId`, because the whole point
+   * is that it moves one commit later than the prop does.
+   */
+  const [contextId, setContextId] = useState<string | null>(null);
+
   /** Load the root whenever the context changes, and forget the old one. */
   useEffect(() => {
     setListings({});
@@ -428,6 +439,7 @@ export function useFileBrowser(options: {
     setClipboard(null);
     setNotice(null);
     dispatch({ type: "closed" });
+    setContextId(workspaceId);
     if (workspaceId === null) return;
 
     let cancelled = false;
@@ -1442,6 +1454,7 @@ export function useFileBrowser(options: {
     () => ({
       canEdit: options.canEdit,
       readOnlyReason: options.readOnlyReason,
+      contextId,
       loading,
       busy,
       listings,
@@ -1513,6 +1526,7 @@ export function useFileBrowser(options: {
       archive,
       busy,
       clipboard,
+      contextId,
       copyTo,
       createFolder,
       createNote,
