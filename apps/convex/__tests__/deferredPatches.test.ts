@@ -20,10 +20,18 @@
  * message. Neither time was it true afterwards. The check has to run after the
  * tree settles, which is what a test does and what a person doing it by hand
  * does not.
+ *
+ * **What runs this is `gateway-contracts.yml`, not `ci / Test Convex Backend`.**
+ * That job is gated on a paths filter over `apps/convex/**`, so it is skipped on
+ * exactly the `apps/mcp`-only pull request that broke this patch the second
+ * time. `gateway-contracts.yml` has no `paths:` filter and runs the whole convex
+ * suite on every pull request, which is what gives this guard its reach — worth
+ * knowing before somebody adds a filter there.
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -57,9 +65,25 @@ describe("every deferred patch still applies", () => {
     });
   }
 
-  test("the check can actually see a broken patch", () => {
-    // The self-test: a guard nobody has checked is not a guard.
-    const nonsense = join(__dirname, "deferredPatches.nonexistent.patch");
-    expect(gitApplyCheck(nonsense).ok).toBe(false);
+  test("the check can actually see a patch that does not apply", () => {
+    // The self-test, and the fixture has to be the real failure. A MISSING file
+    // makes git exit 128 ("No such file or directory"); a patch that does not
+    // apply exits 1 ("patch does not apply"). `gitApplyCheck` collapses both to
+    // `ok: false`, so pointing this at a nonexistent path — which is what it
+    // did first — proves only that the catch is wired, not that a broken patch
+    // reaches it. That is the same "covers the thing next to what it claims"
+    // shape this file exists to stop.
+    const real = readFileSync(join(DEFERRED, "folded-twin-refusals.patch"), "utf8");
+    const mangled = real.replace(/^ (\S)/m, " ZZ$1");
+    expect(mangled, "the mangle must actually change the patch").not.toBe(real);
+
+    const scratch = join(mkdtempSync(join(tmpdir(), "deferred-selftest-")), "broken.patch");
+    writeFileSync(scratch, mangled);
+    const result = gitApplyCheck(scratch);
+    expect(result.ok).toBe(false);
+    expect(result.message, "and it must fail for the right reason").toMatch(/does not apply/);
+
+    // …and a missing file is still seen, which is the weaker case.
+    expect(gitApplyCheck(join(DEFERRED, "nothing-here.patch")).ok).toBe(false);
   });
 });
