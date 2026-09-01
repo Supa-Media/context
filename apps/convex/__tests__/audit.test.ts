@@ -8,6 +8,7 @@
 
 import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import {
   asUser,
   captureError,
@@ -194,5 +195,128 @@ describe("an ingestion row's details are the owner's", () => {
     );
     expect(rows[0]?.actorEmail, "nor is who did it").toBe("owner@example.invalid");
     expect(rows[0]?.details).toBeUndefined();
+  });
+});
+
+/**
+ * THE DETAIL GATE IS AN ALLOW-LIST, BECAUSE A DENY-LIST PUBLISHES BY DEFAULT.
+ *
+ * The first version of the gate above withheld `details` for actions whose
+ * name starts with `ingestion.`, which is the shape this file's own
+ * neighbours warn about: `OVERRIDABLE_STORAGE_CODES` is a list of codes safe
+ * to override rather than a list of codes that are denials, precisely so a
+ * code added next year is closed rather than open.
+ *
+ * It was not a hypothetical hole. `share.created` records
+ * `details: { recipient: formatInvitee(...) }` -- the email address or handle
+ * of somebody the owner shared one note with, who need not be a member of
+ * anything. `listShares` requires `owner`, so that recipient is owner-only
+ * through the shares API and was readable by every member through the trail.
+ * Third-party PII, through a gate written for a different family of rows.
+ *
+ * So the question is inverted: an action's `details` reach a member only if
+ * that action is named on `MEMBER_VISIBLE_DETAIL_ACTIONS`, and every action
+ * that is not -- including one added next year, and including one this file
+ * has never heard of -- is the owner's.
+ */
+describe("audit details are allow-listed, not deny-listed", () => {
+  async function sharedBrainWithRows() {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const member = await createUser(t, "member@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "atlas");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("workspaceMembers", {
+        workspaceId,
+        userId: member,
+        role: "member",
+        joinedAt: Date.now(),
+      });
+      await ctx.db.insert("auditEvents", {
+        workspaceId,
+        actorUserId: owner,
+        action: "file.write",
+        paths: ["1-projects/atlas.md"],
+        at: 1_000,
+        details: { conflictCheck: "etag" },
+      });
+      await ctx.db.insert("auditEvents", {
+        workspaceId,
+        actorUserId: owner,
+        action: "share.created",
+        paths: ["1-projects/atlas.md"],
+        at: 2_000,
+        details: { recipient: "outsider@example.invalid" },
+      });
+      await ctx.db.insert("auditEvents", {
+        workspaceId,
+        actorUserId: owner,
+        action: "member.invited",
+        paths: [],
+        at: 3_000,
+        details: { invitee: "recruit@example.invalid", role: "member" },
+      });
+      // An action nobody has classified. A deny-list publishes it; an
+      // allow-list withholds it.
+      await ctx.db.insert("auditEvents", {
+        workspaceId,
+        actorUserId: owner,
+        action: "billing.plan_changed",
+        paths: [],
+        at: 4_000,
+        details: { last4: "4242" },
+      });
+    });
+    return { t, owner, member, workspaceId };
+  }
+
+  async function rowsFor(t: ReturnType<typeof setupTest>, who: Id<"users">, workspaceId: Id<"workspaces">) {
+    const rows = await asUser(t, who).query(api.functions.audit.listEvents, {
+      workspaceId,
+      limit: 20,
+    });
+    return new Map(rows.map((row) => [row.action, row]));
+  }
+
+  test("the owner reads every detail", async () => {
+    const { t, owner, workspaceId } = await sharedBrainWithRows();
+    const rows = await rowsFor(t, owner, workspaceId);
+    expect(rows.get("share.created")?.details?.recipient).toBe(
+      "outsider@example.invalid"
+    );
+    expect(rows.get("member.invited")?.details?.invitee).toBe(
+      "recruit@example.invalid"
+    );
+    expect(rows.get("billing.plan_changed")?.details?.last4).toBe("4242");
+  });
+
+  test("a member reads a share's path and never its recipient", async () => {
+    const { t, member, workspaceId } = await sharedBrainWithRows();
+    const rows = await rowsFor(t, member, workspaceId);
+    const share = rows.get("share.created");
+    expect(share, "the event itself is not hidden").toBeDefined();
+    expect(share?.paths, "nor is what was shared").toEqual([
+      "1-projects/atlas.md",
+    ]);
+    expect(share?.details, "the recipient is a stranger's address").toBeUndefined();
+  });
+
+  test("a member reads neither an invitee nor an action nobody classified", async () => {
+    const { t, member, workspaceId } = await sharedBrainWithRows();
+    const rows = await rowsFor(t, member, workspaceId);
+    expect(rows.get("member.invited")?.details).toBeUndefined();
+    expect(
+      rows.get("billing.plan_changed")?.details,
+      "an unclassified action is withheld by default"
+    ).toBeUndefined();
+  });
+
+  test("an ordinary file row keeps its details for a member", async () => {
+    const { t, member, workspaceId } = await sharedBrainWithRows();
+    const rows = await rowsFor(t, member, workspaceId);
+    expect(
+      rows.get("file.write")?.details?.conflictCheck,
+      "withholding everything would make the trail useless"
+    ).toBe("etag");
   });
 });

@@ -83,6 +83,61 @@ export const recordEvent = internalMutation({
 });
 
 /**
+ * The actions whose `details` a non-owner member may read.
+ *
+ * An **allow-list**, because the alternative publishes by default. The first
+ * version of this gate withheld details for actions named `ingestion.*`, which
+ * is the deny-list shape `OVERRIDABLE_STORAGE_CODES` in the console is written
+ * inside-out to avoid: an action added next year would have arrived readable by
+ * every member, having been classified by nobody.
+ *
+ * It missed one that already existed. `share.created` records the address or
+ * handle the owner shared a note with -- somebody who need not be a member of
+ * anything, and who is owner-only through `listShares`. The same for
+ * `member.invited` and `invitation.revoked`, which name a person who has not
+ * answered yet and may never.
+ *
+ * Three families are off the list and each for its own reason:
+ *
+ *  - **A third party's identity.** `share.created`, `share.revoked`,
+ *    `member.invited`, `invitation.revoked`, and the `targetUserId` on
+ *    `member.removed` / `member.role_changed`.
+ *  - **Owner-only configuration.** `ingestion.*` carries the allow-list's
+ *    cardinality, whether it is open to any sender, and where captures land;
+ *    `storage.*` carries the bucket, the endpoint and the provider's error
+ *    codes. Both are owner-only through their own APIs, and a trail that
+ *    republished them would be the hole rather than a second copy of the rule.
+ *  - **Anything countable over what a member cannot see.** `privacy.reset`
+ *    reports how many top-level folders the bucket really has, which is an
+ *    exact private-folder total by subtraction for somebody shown a subset --
+ *    the census's own reason for being owner-only.
+ *
+ * What is on it is what a member can already derive from the context they can
+ * read: their colleagues' file operations, visibility changes, joins and
+ * leaves, the scaffold, and the connections people made to the workspace.
+ * Withholding those too would leave a trail that answers nothing.
+ */
+const MEMBER_VISIBLE_DETAIL_ACTIONS: ReadonlySet<string> = new Set([
+  "file.create",
+  "file.write",
+  "file.move",
+  "file.copy",
+  "file.duplicate",
+  "file.archive",
+  "file.delete",
+  "folder.create",
+  "workspace.structure_applied",
+  "visibility.note",
+  "visibility.folder",
+  "member.joined",
+  "member.left",
+  "share.team.created",
+  "grant.created",
+  "grant.revoked",
+  "oauth.authorized",
+]);
+
+/**
  * Read a workspace's audit trail, newest first.
  *
  * Any member may read it, including read-only members: the point of an audit
@@ -121,21 +176,26 @@ export const listEvents = query({
     const membership = await getMembership(ctx, args.workspaceId, userId);
     if (membership === null) throw workspaceNotFound();
 
-    // **An ingestion row's details are the owner's**, the way the note census
-    // is. `getIngestionSettings` and `updateIngestionSettings` are both
-    // owner-only on purpose — an allow-list over a header the sender wrote is
-    // the only thing between a stranger and a note in somebody's inbox, and
-    // "members cannot read or change the allow-list" is what carries the
-    // original risk now that sharing a personal context no longer kills its
-    // capture address. The trail was not part of that: these rows carry the
-    // list's cardinality, whether it is open to any sender, the attachment
-    // policy and the capture folder, and `ingestion.captured` carries the
-    // timing and byte size of every message the owner receives.
+    // **A row's `details` are the owner's unless the action is on the
+    // allow-list above.** The rule is inverted from the obvious direction on
+    // purpose: an action nobody classified is withheld rather than published,
+    // so the failure mode of forgetting to think about a new event is a member
+    // seeing less than they could have rather than more than they should.
     //
-    // The event itself stays. "Something changed the capture policy, and who"
-    // is the question the trail exists to answer, and a member losing the row
-    // entirely would lose that too. Only `details` is withheld.
-    const ownsIngestionDetail = membership.role === "owner";
+    // The event itself always stays. "Something changed the capture policy /
+    // shared this note / invited somebody, and who" is the question the trail
+    // exists to answer, and a member losing the row entirely would lose that.
+    //
+    // What that leaves visible on a withheld row, stated rather than implied,
+    // because the previous version of this comment said only "details is
+    // withheld" and left the rest to be discovered: the action name, the actor
+    // and their email, the client id, the timestamp, and `paths`. So a member
+    // still learns that a capture folder was set and which folder it is
+    // (`ingestion.settings.updated` records `paths: [targetFolder]`), and that
+    // a note was shared and which note. Withholding `paths` would take the
+    // trail's subject away from it, and the folder is one a member can list.
+    // The address it was shared with is what they do not get.
+    const readsEveryDetail = membership.role === "owner";
 
     const limit = requireLimit(args.limit);
 
@@ -163,9 +223,9 @@ export const listEvents = query({
         paths: event.paths,
         at: event.at,
         details:
-          !ownsIngestionDetail && event.action.startsWith("ingestion.")
-            ? undefined
-            : event.details,
+          readsEveryDetail || MEMBER_VISIBLE_DETAIL_ACTIONS.has(event.action)
+            ? event.details
+            : undefined,
       });
     }
     return rows;
