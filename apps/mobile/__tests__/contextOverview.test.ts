@@ -116,20 +116,37 @@ describe("the shared-buckets line does not promise a team capture address", () =
   });
 });
 
-describe("sharing is with named people, and there is no public tier", () => {
-  const sharing = CONTEXT_OVERVIEW_FACTS.find((fact) => fact.title === "Named people only");
+describe("sharing is with named people, and the one exception is stated", () => {
+  const sharing = CONTEXT_OVERVIEW_FACTS.find(
+    (fact) => fact.title === "Named people, or one link you mint",
+  );
 
   test("the line names who can see a context", () => {
     expect(sharing).toBeDefined();
     expect(sharing!.body).toMatch(/named people/i);
   });
 
-  test("and rules out an anonymous one rather than leaving it open", () => {
+  /**
+   * There IS a way for a stranger to read one note now, and a page explaining
+   * the model that left it out would be reassuring somebody about a product
+   * that no longer works that way. It is named, bounded to one note, and said
+   * to be revocable — which is all three of the things that make it safe.
+   */
+  test("…and names the unlisted link rather than leaving it out", () => {
+    expect(sharing!.body).toMatch(/unlisted link/i);
+    expect(sharing!.body).toMatch(/single note/i);
+    expect(sharing!.body).toMatch(/take it back/i);
+  });
+
+  test("and rules out a public tier rather than leaving it open", () => {
     // `team` means named people the owner granted access to. A reader who has
-    // met "team" in any other product will assume a public link exists unless
-    // told it does not.
-    expect(sharing!.body).toMatch(/no anonymous tier/i);
-    expect(render()).toMatch(/never the public internet/i);
+    // met "team" in any other product will assume a whole context can be
+    // published unless told it cannot. The wording moved from "no anonymous
+    // tier" — which stopped being true when an unlisted link could be minted
+    // for one note — to the claim that survived it intact: there is no public
+    // tier, and nothing here is indexed.
+    expect(sharing!.body).toMatch(/no public tier/i);
+    expect(render()).toMatch(/nothing is indexed/i);
   });
 });
 

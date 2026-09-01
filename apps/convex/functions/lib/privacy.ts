@@ -53,7 +53,17 @@ export const PRIVACY_KEY = "privacy.md";
 /** The pre-`privacy.md` format. Read by the gateway, never written by us. */
 export const LEGACY_SCOPES_KEY = "scopes.yml";
 
-/** Visibility is `private` or `team`. There is no public tier — CLAUDE.md #5. */
+/**
+ * Visibility is `private` or `team`, and this union has exactly two members on
+ * purpose — CLAUDE.md #5.
+ *
+ * An owner can hand out an unlisted link to one note, and that is deliberately
+ * **not** a third value here. `privacy.md` is the stable on-bucket format and
+ * the gateway fails closed on a rule it cannot parse, so a third word in it
+ * would make every note in the bucket read private for anybody on an older
+ * deployment. It is a share row instead — see "An unlisted share is the third
+ * audience" in `CLAUDE.md`, and `functions/shares.ts`.
+ */
 export type Visibility = "private" | "team";
 
 /**

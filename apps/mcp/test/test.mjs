@@ -471,10 +471,22 @@ check(
   succeeded(await call("team-token", "read_note", { path: "team-native/info.md" })) &&
     succeeded(await call("team-token", "read_note", { path: "1-projects/togather/status.md" }))
 );
+// This asserted the instructions said there was "no anonymous or
+// internet-public tier". That sentence is no longer true of the *product* — an
+// owner can hand out an unlisted link to one note from their console — and a
+// server contract that says something false is worse than one that says less.
+//
+// What is still true, and is the thing a connected client actually has to know,
+// is narrower and stronger: visibility here is private or team, and nothing on
+// this connection can publish past the people the owner named. The check is
+// pinned to that rather than to a phrase, so the day somebody gives an AI
+// client a way to publish, this fails instead of reassuring a model that it
+// cannot do what it just did.
 check(
-  "server contract says team access is authenticated and not internet-public",
+  "server contract says this connection cannot publish past the named people",
   /team/i.test(init.result?.instructions) &&
-    /(?:not|no|never)[^\n.]{0,40}(?:internet[- ]public|publicly accessible)/i.test(init.result?.instructions)
+    /private or team/i.test(init.result?.instructions) &&
+    /(?:no|not|never|cannot|can't)[^\n.]{0,60}publish/i.test(init.result?.instructions)
 );
 
 // -- Origin validation on the Streamable HTTP transport (DNS rebinding)
