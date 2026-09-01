@@ -17,15 +17,28 @@ import * as Clipboard from "expo-clipboard";
  * relabel a button, "Couldn't reach the clipboard" is what Copy link told
  * somebody in the app. Reporting an absent capability is right; leaving it
  * absent when the module is sitting in the binary is not.
+ *
+ * **Nothing in `pnpm test` runs this file**, and that is worth knowing rather
+ * than assuming a green suite covered it. `jest.config.js` resolves `.web.ts`
+ * ahead of the bare extension — deliberately, so the suite exercises what
+ * ships to the browser — and its own comment records that the native halves of
+ * every platform split "were never once" reached. What stands in for a test
+ * here is the dependency's own type: `setStringAsync` answers
+ * `Promise<boolean>`, which is why the line below returns it.
  */
 export async function writeClipboard(text: string): Promise<boolean> {
   try {
-    await Clipboard.setStringAsync(text);
-    return true;
+    /*
+      **Returned, not discarded.** `setStringAsync` answers whether the copy
+      actually happened. `await …; return true` reads as correct and turns a
+      `false` into a claimed copy — the exact "small lie nobody forgives" this
+      file has warned about since it was a stub, and an invisible one: the
+      dialog would close and say "Link copied" over an empty clipboard.
+    */
+    return await Clipboard.setStringAsync(text);
   } catch {
-    // Still honest. A refusal here is real — the caller says the copy did not
-    // happen rather than claiming one, which is the rule this file has always
-    // followed and the reason it returns a boolean at all.
+    // A throw is a refusal too. Reported, never faked — which is the whole
+    // reason this function returns a boolean rather than nothing.
     return false;
   }
 }
