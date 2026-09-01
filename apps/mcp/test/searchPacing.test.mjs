@@ -613,11 +613,18 @@ export async function runSearchPacingChecks(check) {
       "shardCount", "occupiedShards", "docs", "pending", "shardsUnread",
       "listingTruncated", "manifestOverflow",
     ]);
+    // `ms` is a third level and was missed on the first pass, which is the
+    // same mistake one layer down: `trace.span(name)` writes into it, so its
+    // keys are as unbounded as the top level's were. Measured — a field
+    // planted inside `ms` passed the whole suite while the two sets below
+    // were being called "both levels".
+    const MS_KEYS = new Set(["answer", "scan", "total"]);
     const strayTop = Object.keys(traced[0]).filter((key) => !TRACE_KEYS.has(key));
     const strayIndex = Object.keys(traced[0].index ?? {}).filter((key) => !INDEX_KEYS.has(key));
+    const strayMs = Object.keys(traced[0].ms ?? {}).filter((key) => !MS_KEYS.has(key));
     check(
       "and carries no field beyond the ones enumerated here",
-      strayTop.length === 0 && strayIndex.length === 0
+      strayTop.length === 0 && strayIndex.length === 0 && strayMs.length === 0
     );
     check(
       "the interactive pass read no more notes than the interactive cap",

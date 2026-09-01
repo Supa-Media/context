@@ -13,6 +13,15 @@ names, a production command against a live deployment, where a set of
 credentials is filed, a named kill switch, and the name of a repository secret
 the note itself said had probably not been revoked yet.
 
+`06` went the same way, and it is the more instructive one. Its subject is the
+sidebar, so the note is four fifths hidden behind the drawer — but the
+uncovered strip still carried legible fragments of the same file, the selected
+row reads `todo`, and the footer names the live brain rather than a throwaway
+one. **An earlier version of this file listed it as clean.** A screenshot does
+not stop being a photograph of somebody's notes because the notes are not what
+it is a photograph *of*, and a README written to stop this recurring is the
+worst possible place to certify a recurrence.
+
 CLAUDE.md's rule covers this exactly — *"no secrets, no internal hostnames, no
 account identifiers, no customer data — not in code, tests, fixtures,
 comments, commit messages, or docs"* — and the neighbouring
@@ -32,7 +41,10 @@ screenshot properly before committing one.
 ## What a shot may show
 
 Use a context whose notes are scaffolded or written for the purpose — the
-`index.md` a new brain arrives with is ideal, and `01`–`05b` are that. A shot
+`index.md` a new brain arrives with is ideal, and `01`–`05b` are that. Check
+the whole frame, not the subject: a drawer, a sheet or a keyboard covering a
+note does not make the note safe, and the strip left showing is the part
+nobody looks at twice. A shot
 may show product chrome, a synthetic note, and an account name that is already
 public elsewhere in this repository.
 
@@ -50,4 +62,3 @@ of the product and a picture of somebody's life.
 | `04-tap-places-caret-and-raises-keyboard.png` | A tap places the caret and raises the keyboard. |
 | `05-typing-changes-the-document.png` | Typing marks the document dirty. |
 | `05b-save-lights-up-bar-returns.png` | Save lights, and the bar returns after the keyboard goes. |
-| `06-sidebar-no-bottom-bar-no-files-pill.png` | The sidebar open, with no bottom bar and no files pill. |

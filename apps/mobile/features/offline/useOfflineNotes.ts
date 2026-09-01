@@ -378,7 +378,22 @@ export function useOfflineNotes(options: {
         if (copies === null || !mine()) return;
         void getNote(store, copies.scope, copies.workspaceId, body.path)
           .then((cached) => {
-            if (cached === null) return;
+            /*
+              Checked again here, and this is the one writer where the entry
+              gate is not enough: every other one writes synchronously after
+              it, or re-checks when its timer fires. This one awaits a read
+              first, so the session can end in the gap.
+
+              Web hid it — `store.web.ts` reads `localStorage` synchronously
+              inside an async function, so the whole chain drains in
+              microtasks before a press can be handled. Native does not:
+              `AsyncStorage.getItem` is a queued bridge call, so a read issued
+              before sign-out resolves after the clear has walked past that
+              key, and the write behind it lands on a device whose session is
+              over. Measured that way round, from `useFileBrowser`'s two call
+              sites — a save, then sign out.
+            */
+            if (cached === null || !mine()) return;
             return putNote(
               store,
               copies.scope,

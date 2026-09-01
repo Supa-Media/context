@@ -400,6 +400,36 @@ describe("a drain that settles after the session ended", () => {
  * behind, which is a verdict this module already knows how to return.
  */
 describe("every writer drops a write from a session that has ended", () => {
+  test("including one whose session ends after its read and before its write", async () => {
+    /*
+      The test below calls `endSession()` first, so it only ever exercises a
+      writer's entry gate. `rememberBody` is the one writer where that is not
+      the whole story: it awaits `getNote` and writes in the continuation, so
+      the session can end in between — and the entry gate has already passed
+      by then.
+
+      Ending it synchronously in the same block is what opens that window
+      here: the read resolves in a microtask, so the continuation runs after
+      this `act` returns and therefore after the session is over. On a device
+      the window is far wider — `AsyncStorage.getItem` is a queued bridge
+      call, so the read that started before a sign-out press can resolve well
+      after the clear has walked past that key.
+    */
+    const seeded = { ...NOTE, text: "the version already on the device" };
+    await cache.putNote(openStore(), "private", WORKSPACE, seeded, Date.now());
+
+    unmount = mountOffline(async () => ({ kind: "failed", message: "unused" }));
+    await settle();
+
+    act(() => {
+      offline.rememberBody({ path: NOTE_PATH, text: SECRET, etag: "etag-2" });
+      endSession();
+    });
+    await settle();
+
+    expect(deviceHolds()).not.toContain(SECRET);
+  });
+
   test("the four cache writers, and the queue", async () => {
     const seeded = { ...NOTE, text: "the version already on the device" };
     await cache.putNote(openStore(), "private", WORKSPACE, seeded, Date.now());
