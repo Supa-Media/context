@@ -296,13 +296,39 @@ export default function ConsoleLayout() {
     data.files.selectedPath === null
       ? null
       : entryAt(data.files.listings, data.files.selectedPath, data.files.editor);
+  /**
+   * **A folder is a share target too, and it used to draw its own button.**
+   *
+   * `FolderView` had a text "Share…" pill in its heading and a full-width
+   * "Make this folder private" beneath it, so a folder and a note offered the
+   * same two capabilities through two different sets of controls in two
+   * different places — the folder's being the pair that filled the top third
+   * of a phone screen. They are one pair now, in the group Obsidian's ⋯
+   * container is for, and `FolderView` draws neither.
+   *
+   * What is shared differs and that is the dialog's business, not this
+   * button's: `ShareDialog` offers a person a note and offers a *team link*
+   * for a folder, because `createShare` has no folder form — see
+   * `SHARE_TRAVERSAL_DEPTH` in `functions/shares.ts` and the rule `menu.ts`
+   * states for the row menu.
+   */
   const shareTarget =
-    browsing &&
-    data.files.canShare &&
-    selectedEntry !== null &&
-    selectedEntry.kind === "file" &&
-    !selectedEntry.readOnly
+    browsing && data.files.canShare && selectedEntry !== null && !selectedEntry.readOnly
       ? selectedEntry.path
+      : null;
+
+  /**
+   * Visibility, as the second action in the same group.
+   *
+   * Owner-only, like every visibility control — `canSetVisibility` is the
+   * server's rule and `FolderView`'s own comment records what offering it to
+   * an editor cost. `readOnly` is excluded because `privacy.md` *is* the
+   * access map: a control that offered to change its visibility would be
+   * offering to edit the file that decides everybody else's.
+   */
+  const visibilityTarget =
+    browsing && data.files.canSetVisibility && selectedEntry !== null && !selectedEntry.readOnly
+      ? selectedEntry
       : null;
 
   return (
@@ -383,14 +409,44 @@ export default function ConsoleLayout() {
               `ShareDialog` mounted here would be a second contract for one
               offer.
             */
-            shareTarget === null ? undefined : (
-              <FrameIconButton
-                label="Share this note"
-                icon="share"
-                grouped
-                onPress={() => setBarDialog({ kind: "share", path: shareTarget })}
-                testID="note-share"
-              />
+            shareTarget === null && visibilityTarget === null ? undefined : (
+              <>
+                {visibilityTarget === null ? null : (
+                  <FrameIconButton
+                    /*
+                      The label is the *destination*, because that is what a
+                      screen reader has to announce about a button, while the
+                      icon is the current state — see `ICON_NAMES`. The two
+                      disagreeing is the point rather than a slip: one is read
+                      aloud before the press and the other is looked at.
+                    */
+                    label={
+                      visibilityTarget.visibility === "team"
+                        ? "Make this private"
+                        : "Share this with your team"
+                    }
+                    icon={visibilityTarget.visibility === "team" ? "lockOpen" : "lock"}
+                    grouped
+                    onPress={() =>
+                      data.files.setVisibility(
+                        visibilityTarget.path,
+                        visibilityTarget.kind,
+                        visibilityTarget.visibility === "team" ? "private" : "team",
+                      )
+                    }
+                    testID="note-visibility"
+                  />
+                )}
+                {shareTarget === null ? null : (
+                  <FrameIconButton
+                    label="Share this"
+                    icon="share"
+                    grouped
+                    onPress={() => setBarDialog({ kind: "share", path: shareTarget })}
+                    testID="note-share"
+                  />
+                )}
+              </>
             )
           ) : (
             <>

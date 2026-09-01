@@ -396,12 +396,67 @@ describe("the top bar is a toggle and one group", () => {
     expect(editor.find("note-inline-title")).not.toBeNull();
   });
 
+  /**
+   * **A folder and a note are acted on identically now.**
+   *
+   * `FolderView` used to draw its own pair — a "Share…" pill in the heading and
+   * a full-width "Make this folder private" under it — which put the same two
+   * capabilities behind two different sets of controls in two different places,
+   * and on a phone the folder's pair was the first two things on the screen.
+   * The group in the top bar is the one answer for both.
+   */
+  test("a folder gets the same two actions, in the same group", () => {
+    const app = mountConsole(
+      dataWith({}, { kind: "folder", path: "3-resources", name: "3-resources" }),
+    );
+    expect(app.find("note-share")).not.toBeNull();
+    expect(app.find("note-visibility")).not.toBeNull();
+  });
+
+  test("the lock draws the state it is in, and names the state it moves to", () => {
+    // Two different things on purpose, and the disagreement is the point: the
+    // icon is looked at and says what is true, the label is read aloud before
+    // the press and says what will happen. See `ICON_NAMES`.
+    const shared = mountConsole(dataWith());
+    const lock = shared.find("note-visibility")!;
+    expect(lock.getAttribute("aria-label")).toBe("Make this private");
+    expect(lock.querySelector('[data-icon="lockOpen"]')).not.toBeNull();
+
+    const priv = mountConsole(dataWith({}, { visibility: "private", inherited: "private" }));
+    const shut = priv.find("note-visibility")!;
+    expect(shut.getAttribute("aria-label")).toBe("Share this with your team");
+    expect(shut.querySelector('[data-icon="lock"]')).not.toBeNull();
+  });
+
+  test("pressing it asks the server to move the visibility, once", () => {
+    // Asserted on the *call*, not on what the screen then shows: the console
+    // does not move a visibility optimistically, so a test that read the icon
+    // afterwards would pass on a button wired to nothing.
+    const moved: unknown[] = [];
+    const app = mountConsole(
+      dataWith({ setVisibility: (...args: unknown[]) => moved.push(args) } as never),
+    );
+    app.press(app.find("note-visibility"));
+    expect(moved).toEqual([[NOTE, "file", "private"]]);
+  });
+
+  test("and the lock is absent for anybody the server would refuse", () => {
+    const member = mountConsole(dataWith({ canSetVisibility: false }));
+    expect(member.find("note-visibility")).toBeNull();
+    // The positive control, the same one Share's test uses: the note opened.
+    expect(member.find("note-inline-title")).not.toBeNull();
+  });
+
   test("nor for `privacy.md`, which is the access map itself", () => {
     const app = mountConsole(
       dataWith({}, { path: "privacy.md", name: "privacy.md", readOnly: true }),
     );
     expect(app.find("note-inline-title")).not.toBeNull();
     expect(app.find("note-share")).toBeNull();
+    // The lock too: `privacy.md` *is* the access map, so a control offering to
+    // change its visibility would be offering to edit the file that decides
+    // everybody else's.
+    expect(app.find("note-visibility")).toBeNull();
   });
 });
 

@@ -22,6 +22,19 @@
  * files rendered as eight form fields, which reads as a settings screen rather
  * than as a place with notes in it.
  *
+ * ## Its two controls are the frame's, not its own
+ *
+ * A "Share…" pill in the heading and a full-width "Make this folder private"
+ * beneath it used to be the first two things on the screen, and they were the
+ * same two capabilities a *note* offers through a different pair of controls in
+ * a different place. They are one pair now — a lock and a share, in the group
+ * the frame draws — so a folder and a note are acted on identically. See
+ * `shareTarget` and `visibilityTarget` in `app/(app)/console/_layout.tsx`, and
+ * the note head in `BrowsePane` for the pointer layout.
+ *
+ * The visibility *sentence* stays. It is the one thing here that says something
+ * a lock cannot: what `team` means for the notes inside this folder.
+ *
  * `displayName` is shared with the tree rather than reimplemented, so "what a
  * row is called" cannot come to have two answers. The **order** is the
  * server's — folders first, then files, each case-insensitively alphabetical —
@@ -39,38 +52,33 @@
  */
 
 import { StyleSheet, View, useWindowDimensions } from "react-native";
-import { Button, PressRow } from "../../design/components/Button";
+import { PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { densityFor } from "../../app/frame";
 import { baseName, displayName } from "./paths";
-import type { FileEntry, FolderListing, Visibility } from "./types";
+import type { FileEntry, FolderListing } from "./types";
 
 export function FolderView({
   entry,
   listing,
   canSetVisibility,
-  canShare,
-  onSetVisibility,
   onSelect,
-  onShare,
 }: {
   entry: FileEntry;
   /** The folder's own listing, or `undefined` while it loads. */
   listing: FolderListing | undefined;
   /**
-   * Owner-only, like every visibility control. This pane's button said
-   * `canEdit` once, which put "Make this folder private" in front of an editor
-   * on somebody else's context — offered, then refused by the server. Absent
-   * is the truth.
+   * Owner-only, like every visibility control — and all this decides now is
+   * which sentence the empty state gets, since the control itself moved to the
+   * frame. Kept rather than derived from `canShare` at the call site: they are
+   * two different server rules and the day they diverge is not the day to find
+   * out this file guessed.
    */
   canSetVisibility: boolean;
-  canShare: boolean;
-  onSetVisibility: (visibility: Visibility) => void;
   onSelect: (path: string) => void;
-  onShare: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   /*
@@ -96,15 +104,6 @@ export function FolderView({
         <Text variant="noteTitle" role="heading" aria-level={2} style={styles.title}>
           {baseName(entry.path) || entry.path}
         </Text>
-        {/*
-          Share is offered for a folder, and it is the *team link* only — a
-          folder has an address and an address is a sentence that means
-          something. A per-person folder share is deliberately not built: it
-          would have to decide what a folder share reaches, and "the notes in
-          this folder, but not its subfolders, unless they are also team" is a
-          rule nobody could predict. Outsiders get per-note shares.
-        */}
-        {canShare ? <Button label="Share…" onPress={onShare} testID="folder-share" /> : null}
       </View>
 
       {/*
@@ -120,15 +119,6 @@ export function FolderView({
           ? "team — visible to the people you granted access, unless a note is held back"
           : "private — yours alone, unless a note is shared as an exception"}
       </Text>
-
-      {canSetVisibility ? (
-        <Button
-          label={isTeam ? "Make this folder private" : "Share this folder with your team"}
-          variant="white"
-          style={styles.action}
-          onPress={() => onSetVisibility(isTeam ? "private" : "team")}
-        />
-      ) : null}
 
       <View style={styles.contents}>
         {listing === undefined ? (

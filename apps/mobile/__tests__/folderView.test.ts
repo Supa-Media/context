@@ -70,14 +70,12 @@ const listing = (entries: FileEntry[], over: Partial<FolderListing> = {}): Folde
 interface Mounted {
   container: HTMLElement;
   selected: string[];
-  shares: number;
 }
 
 function mount(props: {
   entry?: FileEntry;
   listing?: FolderListing;
   canSetVisibility?: boolean;
-  canShare?: boolean;
 }): Mounted {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -88,30 +86,18 @@ function mount(props: {
   });
 
   const selected: string[] = [];
-  const state = { shares: 0 };
   act(() => {
     root.render(
       createElement(FolderView, {
         entry: props.entry ?? entry(),
         listing: props.listing,
         canSetVisibility: props.canSetVisibility ?? true,
-        canShare: props.canShare ?? true,
-        onSetVisibility: () => {},
         onSelect: (path: string) => selected.push(path),
-        onShare: () => {
-          state.shares += 1;
-        },
       }),
     );
   });
 
-  return {
-    container,
-    selected,
-    get shares() {
-      return state.shares;
-    },
-  } as Mounted;
+  return { container, selected };
 }
 
 describe("the folder's contents are the screen", () => {
@@ -229,43 +215,40 @@ describe("what an empty folder is told", () => {
 });
 
 describe("the controls", () => {
-  test("an owner is offered Share", () => {
-    const view = mount({ listing: listing([]) });
-    expect(view.container.querySelector('[data-testid="folder-share"]')).not.toBeNull();
-  });
-
   /**
-   * Owner-only, absent rather than disabled — the same rule every other
-   * visibility-adjacent control follows, and the server refuses anyone else
-   * with `minimum: "owner"` regardless.
+   * **This pane draws neither of them any more, and that is the change.**
+   *
+   * A "Share…" pill in the heading and a full-width "Make this folder private"
+   * beneath it were the first two things on a folder screen — the same two
+   * capabilities a *note* offers, through a different pair of controls, in a
+   * different place. They are one pair now: a lock and a share, drawn by the
+   * frame's trailing group on a phone and by `BrowsePane`'s note head on a
+   * pointer, for a folder and a note alike.
+   *
+   * Asserted as absence rather than deleted, because "the button is gone" and
+   * "the button silently stopped rendering" look identical in a passing suite,
+   * and this is the file somebody would edit to bring it back.
    */
-  test("an editor is not", () => {
-    const view = mount({ listing: listing([]), canShare: false });
+  test("no share button of its own", () => {
+    const view = mount({ listing: listing([]) });
     expect(view.container.querySelector('[data-testid="folder-share"]')).toBeNull();
   });
 
-  test("pressing it asks for a link", () => {
-    const view = mount({ listing: listing([]) });
-    act(() => {
-      (view.container.querySelector('[data-testid="folder-share"]') as HTMLElement).click();
-    });
-    expect(view.shares).toBe(1);
-  });
-
-  test("the visibility control says which way it goes", () => {
-    expect(mount({ listing: listing([]) }).container.textContent).toContain(
+  test("no visibility button of its own, in either direction", () => {
+    expect(mount({ listing: listing([]) }).container.textContent).not.toContain(
       "Make this folder private",
     );
     expect(
       mount({ entry: entry({ visibility: "private" }), listing: listing([]) }).container
         .textContent,
-    ).toContain("Share this folder with your team");
+    ).not.toContain("Share this folder with your team");
   });
 
-  test("somebody who cannot set visibility is offered no switch", () => {
+  test("…and still says what the folder's visibility is", () => {
+    // The sentence stays where the buttons did not: it says what `team` means
+    // for the notes inside this folder, which is the one thing a padlock
+    // cannot.
     const view = mount({ listing: listing([]), canSetVisibility: false });
-    expect(view.container.textContent).not.toContain("Make this folder private");
-    // …and is still told what the folder's visibility is.
     expect(view.container.textContent).toContain("team —");
   });
 

@@ -273,10 +273,7 @@ export function BrowsePane({
         entry={selected}
         listing={files.listings[selected.path]}
         canSetVisibility={files.canSetVisibility}
-        canShare={files.canShare}
-        onSetVisibility={(visibility) => files.setVisibility(selected.path, "folder", visibility)}
         onSelect={files.select}
-        onShare={() => setSharing(selected.path)}
       />
     ) : files.conflict?.path === selected.path ? (
       /*
@@ -403,12 +400,35 @@ export function BrowsePane({
             `minimum: "owner"`.
           */}
           {/*
-            A note only. `FolderView` draws its own Share for a folder — the
-            team-link one, which is a different offer with a different
-            explanation beside it — so rendering this here as well would put
-            two Share buttons on one folder screen.
+            A folder as well as a note. `FolderView` used to draw its own pair
+            and no longer does — see its header — so this is the one place a
+            pointer layout offers either, and the phone's answer is the frame's
+            trailing group. What a share *means* still differs by kind, and
+            that is `ShareDialog`'s to say rather than this button's.
           */}
-          {selected.kind === "file" && files.canShare && !selected.readOnly ? (
+          {files.canSetVisibility && !selected.readOnly ? (
+            <Button
+              /*
+                A verb here and a padlock on a phone, which is the same control
+                said two ways rather than two controls. `ICON_NAMES` has the
+                argument: an unlabelled 20pt target can only show what is
+                *true*, so the icon draws the state; a button with room for
+                words says what pressing it will *do*, which is the more useful
+                half when there is space for it.
+              */
+              label={selected.visibility === "team" ? "Make private" : "Share with team"}
+              onPress={() =>
+                files.setVisibility(
+                  selected.path,
+                  selected.kind,
+                  selected.visibility === "team" ? "private" : "team",
+                )
+              }
+              style={styles.share}
+              testID="browse-visibility"
+            />
+          ) : null}
+          {files.canShare && !selected.readOnly ? (
             <Button
               label="Share…"
               onPress={() => setSharing(selected.path)}
