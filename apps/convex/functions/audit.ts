@@ -108,22 +108,37 @@ export const recordEvent = internalMutation({
  *    codes. Both are owner-only through their own APIs, and a trail that
  *    republished them would be the hole rather than a second copy of the rule.
  *  - **Anything countable over what a member cannot see.** `privacy.reset`
- *    reports how many top-level folders the bucket really has, which is an
- *    exact private-folder total by subtraction for somebody shown a subset --
- *    the census's own reason for being owner-only.
+ *    reports how many top-level folders the bucket really has, and
+ *    `file.move`, `file.copy`, `file.duplicate` and `file.archive` report
+ *    `{ files: result.paths.length }`, which `keysUnder` expands at the
+ *    *actor's* clearance. An owner archiving a `team` folder holding three
+ *    team notes and three private ones writes `files: 6` where the member can
+ *    list three. Both are the exact subtraction `getStorageBinding` withholds
+ *    the note census to prevent, arriving through the trail instead. The count
+ *    is withheld rather than dropped at the call site, so the owner's record
+ *    keeps it.
+ *  - **Anything another API answers at a higher role.** `listGrants` shows
+ *    every grant only to `editor` and above -- a plain member sees their own
+ *    and nothing else. `grant.created` records `{ scopes, tier }` and
+ *    `oauth.authorized` records `{ scope, grantedScope, tier }`, so leaving
+ *    them on would let a read-only member read which AI clients everybody else
+ *    connected and with what reach: the same shape as the `ingestion.*` hole
+ *    this gate was written to close, one rung lower.
  *
  * What is on it is what a member can already derive from the context they can
- * read: their colleagues' file operations, visibility changes, joins and
- * leaves, the scaffold, and the connections people made to the workspace.
- * Withholding those too would leave a trail that answers nothing.
+ * read: that a note was written or deleted, that a visibility changed and to
+ * what, who joined and who left. Withholding those too would leave a trail
+ * that answers nothing.
+ *
+ * The last two families were found by a review of the first version of this
+ * list, which broke its own criteria with its own entries -- which is the
+ * argument for the shape rather than against it: an entry has to be defended
+ * on the details it actually carries, and adding one is where that happens.
  */
 const MEMBER_VISIBLE_DETAIL_ACTIONS: ReadonlySet<string> = new Set([
+  // `{ conflictCheck }` and `{ recoverable }`. No count, no identity.
   "file.create",
   "file.write",
-  "file.move",
-  "file.copy",
-  "file.duplicate",
-  "file.archive",
   "file.delete",
   "folder.create",
   "workspace.structure_applied",
@@ -132,9 +147,10 @@ const MEMBER_VISIBLE_DETAIL_ACTIONS: ReadonlySet<string> = new Set([
   "member.joined",
   "member.left",
   "share.team.created",
-  "grant.created",
+  // `{ onBehalfOfSelf }` or `{ reason }` -- no scope, no client, no third
+  // party. Kept deliberately rather than by omission: "a grant was revoked,
+  // and why" is what a trail is for. Its two siblings are off the list below.
   "grant.revoked",
-  "oauth.authorized",
 ]);
 
 /**
@@ -186,15 +202,32 @@ export const listEvents = query({
     // shared this note / invited somebody, and who" is the question the trail
     // exists to answer, and a member losing the row entirely would lose that.
     //
-    // What that leaves visible on a withheld row, stated rather than implied,
-    // because the previous version of this comment said only "details is
-    // withheld" and left the rest to be discovered: the action name, the actor
-    // and their email, the client id, the timestamp, and `paths`. So a member
-    // still learns that a capture folder was set and which folder it is
-    // (`ingestion.settings.updated` records `paths: [targetFolder]`), and that
-    // a note was shared and which note. Withholding `paths` would take the
-    // trail's subject away from it, and the folder is one a member can list.
-    // The address it was shared with is what they do not get.
+    // What that leaves visible on a withheld row: the action name, the actor
+    // and their email, the client id, the timestamp, and `paths`.
+    //
+    // **`paths` IS AN OPEN LEAK AND THIS COMMENT IS NOT A DEFENCE OF IT.** An
+    // earlier draft of this paragraph said "the folder is one a member can
+    // list", which is false in general and was the worst thing in this file:
+    // a reassurance a later reviewer would have trusted. Measured through the
+    // real actions and the real privacy engine, a read-only member whose
+    // `listFiles` on `1-projects` correctly returns **zero entries** gets the
+    // hidden note's full path out of `listEvents` three times over -- from
+    // `file.create`, from `visibility.note` (labelled `visibility: "private"`,
+    // so they learn it is a note they were not meant to have), and from
+    // `file.delete`, which records `keysUnder(...)` expanded at the *actor's*
+    // clearance and therefore lists every private sibling by name. That is the
+    // module header's own example -- "a path can be as revealing as a note
+    // (`1-projects/acquisition-of-acme.md`)" -- handed to a member.
+    //
+    // It predates the detail gate and is not fixed by it, and it is left open
+    // here deliberately rather than quietly: the fix is a design decision, not
+    // a line. `canSee` needs the privacy manifest, which lives in the
+    // customer's bucket, and a Convex `query` cannot reach storage -- so the
+    // three candidates are making this an action (losing reactivity, and
+    // spending a bucket read per trail load), stamping each row's visibility
+    // at write time (which a later visibility change then makes wrong), or
+    // withholding `paths` from non-owners entirely (which takes the trail's
+    // subject away from it). Each is its own change with its own review.
     const readsEveryDetail = membership.role === "owner";
 
     const limit = requireLimit(args.limit);

@@ -320,3 +320,94 @@ describe("audit details are allow-listed, not deny-listed", () => {
     ).toBe("etag");
   });
 });
+
+/**
+ * TWO ENTRIES CAME OFF THE ALLOW-LIST, EACH BY THE LIST'S OWN CRITERIA.
+ *
+ * The list above was written with three reasons for withholding, and the first
+ * version of it then broke two of them with its own entries.
+ *
+ * **A count taken at the actor's scope.** `file.move`, `file.copy`,
+ * `file.duplicate` and `file.archive` record `{ files: result.paths.length }`,
+ * and `keysUnder` expands that list at the *actor's* clearance -- `private`
+ * for the owner. So an owner archiving a `team` folder holding three team
+ * notes and three private ones wrote `files: 6` where the member could list
+ * three. That is the subtraction `getStorageBinding` withholds the note census
+ * to prevent, arriving through the trail instead. The count is kept for the
+ * owner and withheld from members rather than dropped at the call site, so
+ * nothing is lost from the record itself.
+ *
+ * **A scope another API will not show.** `listGrants` shows every grant only
+ * to `editor` and above; a plain member sees their own and nothing else.
+ * `grant.created` records `{ scopes, tier }` and `oauth.authorized` records
+ * `{ scope, grantedScope, tier }`, so a read-only member could read which AI
+ * clients everybody else connected, with what reach -- the same shape as the
+ * `ingestion.*` hole this gate was written to close, one rung lower.
+ *
+ * `grant.revoked` stays, deliberately rather than by omission: its details are
+ * `{ onBehalfOfSelf }` or `{ reason: "refresh_token_reuse" }`, which name no
+ * scope, no client and no third party. "A grant was revoked, and why" is the
+ * kind of thing an audit trail exists to tell the people in a context.
+ */
+describe("the allow-list's own criteria are applied to the allow-list", () => {
+  async function sharedBrainWith(action: string, details: Record<string, string | number | boolean | null>) {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const member = await createUser(t, "member@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "atlas");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("workspaceMembers", {
+        workspaceId,
+        userId: member,
+        role: "member",
+        joinedAt: Date.now(),
+      });
+      await ctx.db.insert("auditEvents", {
+        workspaceId,
+        actorUserId: owner,
+        action,
+        paths: ["1-projects", "4-archive/2026/1-projects"],
+        at: Date.now(),
+        details,
+      });
+    });
+    const rows = await asUser(t, member).query(api.functions.audit.listEvents, {
+      workspaceId,
+      limit: 10,
+    });
+    return rows[0];
+  }
+
+  for (const action of ["file.move", "file.copy", "file.duplicate", "file.archive"]) {
+    test(`a member cannot subtract a private-note count out of ${action}`, async () => {
+      const row = await sharedBrainWith(action, { files: 6, recoverable: true });
+      expect(row?.action, "the event itself is not hidden").toBe(action);
+      expect(row?.details, "the count was taken at the owner's clearance").toBeUndefined();
+    });
+  }
+
+  test("a member cannot read another person's granted scopes", async () => {
+    const row = await sharedBrainWith("grant.created", {
+      scopes: "context:read context:write context:private",
+      tier: "private",
+    });
+    expect(row?.action).toBe("grant.created");
+    expect(row?.details, "listGrants shows this to editors and above only").toBeUndefined();
+  });
+
+  test("nor what an authorization was granted", async () => {
+    const row = await sharedBrainWith("oauth.authorized", {
+      grantedScope: "context:read context:private",
+      tier: "private",
+    });
+    expect(row?.details).toBeUndefined();
+  });
+
+  test("but a revocation still says it happened and why", async () => {
+    const row = await sharedBrainWith("grant.revoked", { reason: "refresh_token_reuse" });
+    expect(
+      row?.details?.reason,
+      "it names no scope, no client and no third party"
+    ).toBe("refresh_token_reuse");
+  });
+});
