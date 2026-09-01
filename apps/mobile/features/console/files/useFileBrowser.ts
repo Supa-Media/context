@@ -26,6 +26,7 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { isServerRefusal, toFileError, type FileBrowser } from "./browser";
 import type { NoteShare } from "./shares";
+import { shareUrl } from "./shares";
 import { stepsTo, type NoteScope } from "./scope";
 import type { ToastSpec } from "../../design/components/Toast";
 import { copyDeferred } from "../../design/clipboard";
@@ -1449,7 +1450,10 @@ export function useFileBrowser(options: {
 
   const copyShareLink = useCallback(
     async (
-      target: { kind: "team"; path: string } | { kind: "share"; url: string },
+      target:
+        | { kind: "team"; path: string }
+        | { kind: "link"; path: string }
+        | { kind: "share"; url: string },
     ): Promise<{ ok: boolean; message: string | null }> => {
       /**
        * Started inside the press, finished whenever the round trip is.
@@ -1462,6 +1466,37 @@ export function useFileBrowser(options: {
       const produce = async (): Promise<string | null> => {
         if (target.kind === "share") return target.url;
         if (!mayShare || workspaceId === null || slug === null) return null;
+
+        /**
+         * The unlisted link, minted inside the copy like every other one.
+         *
+         * `createLinkShare` supersedes an active row **in place and keeps its
+         * token**, so pressing this twice is one link rather than two — and
+         * pressing it on a note that already has one copies the link that is
+         * already out there rather than replacing it, which is the difference
+         * between Copy link and Revoke.
+         *
+         * A note the team cannot read is refused here, in the server's own
+         * words, rather than silently producing a URL that resolves to "not
+         * available" for everybody who opens it.
+         */
+        if (target.kind === "link") {
+          try {
+            const { token, title } = await createLinkShareAction({
+              workspaceId,
+              path: target.path,
+            });
+            // The title comes back from the mint rather than being derived
+            // here: the slug in this URL and the name on the card have to be
+            // the same string, and a second copy of `titleFromPath` on this
+            // side is a second thing to drift.
+            return shareUrl(token, consoleOrigin(), title);
+          } catch (error) {
+            setNotice(toFileError(error).message);
+            return null;
+          }
+        }
+
         try {
           await createTeamShareMutation({ workspaceId, path: target.path });
         } catch (error) {
@@ -1510,7 +1545,7 @@ export function useFileBrowser(options: {
       if (ok) setNotice(message);
       return { ok, message };
     },
-    [createTeamShareMutation, mayShare, slug, workspaceId],
+    [createLinkShareAction, createTeamShareMutation, mayShare, slug, workspaceId],
   );
 
   const revokeShare = useCallback(
@@ -1557,7 +1592,7 @@ export function useFileBrowser(options: {
               // link is in the share dialog rather than here: a copy has to
               // happen inside its own press to reach the clipboard on iOS.
               "Anyone with the link can now open this note and the notes it links to." +
-                " Copy the link from Share.",
+                " Copy it from Share, under “Anyone with the link”.",
             );
             if (!ok) return;
             continue;

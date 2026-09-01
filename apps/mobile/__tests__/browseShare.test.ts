@@ -236,7 +236,19 @@ function paneRoot(): {
 }
 
 function press(testID: string): void {
-  const node = document.body.querySelector<HTMLElement>(`[data-testid="${testID}"]`);
+  pressIn(document.body, testID);
+}
+
+/**
+ * The same press, scoped to one pane.
+ *
+ * `paneRoot` appends to `document.body`, so a test that mounts two panes has
+ * two of every control in the document and a body-wide query answers about the
+ * first one. Scoping is the difference between comparing two states and
+ * pressing the same one twice.
+ */
+function pressIn(scope: ParentNode, testID: string): void {
+  const node = scope.querySelector<HTMLElement>(`[data-testid="${testID}"]`);
   if (node === null) throw new Error(`no element with testID ${testID}`);
   act(() => {
     for (const type of ["mousedown", "mouseup", "click"]) {
@@ -389,6 +401,110 @@ describe("copying a link finishes the job", () => {
     });
 
     expect(asked).toEqual([{ kind: "team", path: NOTE }]);
+  });
+});
+
+/**
+ * **THE regression.** The lock's third position publishes a note by unlisted
+ * link, and the only Copy button within reach of somebody who had just pressed
+ * it minted a *team* link — a `/console/@…` URL, which shows nothing at all to
+ * the person it was sent to. Reported from a real paste.
+ *
+ * The dialog holds three audiences now and each has its own control, so the
+ * failure this pins is not "the wrong words" but "the wrong link": every check
+ * below asserts which target a press asks for, because that is the thing that
+ * was wrong and the thing a tidy-up could get wrong again.
+ */
+describe("the unlisted link has a control of its own", () => {
+  const openShare = {
+    shareId: "s-open",
+    token: "b".repeat(64),
+    recipient: "Anyone with the link",
+    audience: "anyone" as const,
+    entryPath: NOTE,
+    titleInPreview: true,
+    previewTitle: "Plan",
+    createdAt: 1,
+  };
+
+  test("its press asks for the unlisted link, never the team one", async () => {
+    const asked: unknown[] = [];
+    const pane = paneRoot();
+    pane.render(
+      dataWith({
+        copyShareLink: async (target: unknown) => {
+          asked.push(target);
+          return { ok: true, message: "Link copied." };
+        },
+      } as never),
+    );
+    press("browse-share");
+    await act(async () => {
+      press("share-open-link");
+    });
+
+    expect(asked).toEqual([{ kind: "link", path: NOTE }]);
+  });
+
+  /**
+   * One pane per case. `ShareDialog` is a `Modal`, which react-native-web
+   * renders outside the pane's own container, so a test that mounted two panes
+   * to compare states would be reading one dialog twice.
+   */
+  test("with no link yet, it offers to create one and has nothing to revoke", () => {
+    const pane = paneRoot();
+    pane.render(dataWith());
+    press("browse-share");
+    expect(
+      document.body.querySelector('[data-testid="share-open-link"]')?.textContent,
+    ).toContain("Create link");
+    expect(
+      document.body.querySelector('[data-testid="share-open-link-revoke"]'),
+    ).toBeNull();
+  });
+
+  test("with one live, it offers to copy that link and to take it back", () => {
+    const pane = paneRoot();
+    pane.render(dataWith({ shares: [openShare] } as never));
+    press("browse-share");
+    expect(
+      document.body.querySelector('[data-testid="share-open-link"]')?.textContent,
+    ).toContain("Copy link");
+    expect(
+      document.body.querySelector('[data-testid="share-open-link-revoke"]'),
+    ).not.toBeNull();
+  });
+
+  test("revoking asks for that row, and not for some other share on the note", () => {
+    const revoked: string[] = [];
+    const pane = paneRoot();
+    pane.render(
+      dataWith({
+        shares: [
+          { ...openShare, shareId: "s-person", audience: "name", recipient: "@lk" },
+          openShare,
+        ],
+        revokeShare: (id: string) => revoked.push(id),
+      } as never),
+    );
+    press("browse-share");
+    press("share-open-link-revoke");
+    expect(revoked).toEqual(["s-open"]);
+  });
+
+  /**
+   * The sentence next to it says what revoking cannot do. An owner who thinks
+   * taking the link back un-publishes the note will hand it out more freely
+   * than one who knows it only closes the door.
+   */
+  test("the copy says a revoke cannot take back a copy already made", () => {
+    const pane = paneRoot();
+    pane.render(dataWith({ shares: [openShare] } as never));
+    press("browse-share");
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("ANYONE WITH THE LINK");
+    expect(text).toMatch(/no account, no sign-in/i);
+    expect(text).toMatch(/cannot take back a copy somebody already has/i);
   });
 });
 

@@ -265,6 +265,24 @@ export function describeTeamLink(): string {
 }
 
 /**
+ * What the unlisted link is, in the words it costs.
+ *
+ * Two sentences, and the second is the one that matters: this is the only link
+ * in the product whose reader never signs in, so "you can take it back" has to
+ * be said next to what taking it back cannot do. An owner who believes revoking
+ * un-publishes a note will hand this out more freely than one who knows it
+ * only closes the door.
+ */
+export function describeOpenLink(exists: boolean): string {
+  const what =
+    "Anyone who has this link can read the note and the notes it links to — " +
+    "no account, no sign-in.";
+  return exists
+    ? `${what} Revoking stops anyone opening it from now on; it cannot take back a copy somebody already has.`
+    : `${what} You can revoke it at any time, though that cannot take back a copy somebody already has.`;
+}
+
+/**
  * …and what a personal share is for, said next to it.
  *
  * The distinction people get wrong is which one to reach for, so the dialog

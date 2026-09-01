@@ -306,10 +306,23 @@ export interface FileBrowser {
    * silently stayed "Copy link". See `copyDeferred`, which is what makes the
    * team case possible at all.
    *
-   * `team` mints-or-reuses the link for people who already have access — it
-   * grants nothing, since reading is authorised by membership on every request,
-   * and its token exists to make the URL unguessable, which is what lets its
-   * card carry a title. `share` copies a link that already exists.
+   * Three targets, and the first two are two different audiences rather than
+   * two spellings of one:
+   *
+   *  - `team` mints-or-reuses the link for people who already have access — it
+   *    grants nothing, since reading is authorised by membership on every
+   *    request, and its token exists to make the URL unguessable, which is what
+   *    lets its card carry a title.
+   *  - `link` mints-or-reuses the **unlisted** link, which anybody holding can
+   *    open with no account. Reusing rather than replacing is the whole
+   *    difference between Copy link and Revoke: pressing it on a note that
+   *    already has one hands back the link that is already out there.
+   *  - `share` copies a link that already exists.
+   *
+   * The first two were briefly one control in the dialog, and it was the bug
+   * that made this comment worth extending: the lock published a note by
+   * unlisted link and the only Copy button in reach handed over the *team*
+   * URL, which shows nothing at all to the person it was sent to.
    *
    * A copy has to be confirmed and cannot be seen — the clipboard is invisible
    * — so this answers with the words as well as the outcome, and the **caller
@@ -325,7 +338,10 @@ export interface FileBrowser {
    * refusal replaces it with a symptom.
    */
   copyShareLink: (
-    target: { kind: "team"; path: string } | { kind: "share"; url: string },
+    target:
+      | { kind: "team"; path: string }
+      | { kind: "link"; path: string }
+      | { kind: "share"; url: string },
   ) => Promise<{ ok: boolean; message: string | null }>;
 
   /**
