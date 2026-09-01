@@ -265,6 +265,34 @@ export function BrowsePane({
    * here rather than in each branch is what stops the two placements drifting
    * into two sets of props.
    */
+  /**
+   * Where you are, and the way up — the phone's answer to both.
+   *
+   * Built here and handed to two surfaces, because a note and a folder scroll
+   * in different containers on a phone: a note brings its own (see the comment
+   * on the branch below, and `NoteEditor.pathBar`), a folder sits in this
+   * pane's. One node passed twice rather than two copies of the same line —
+   * `NoteEditor`'s own header states the rule this follows: two copies of a
+   * tree is how a control ends up on one surface and missing from the other.
+   *
+   * `pathOnly` is the subtractive form: ancestors and the context root, all
+   * pressable, and none of the naming a phone already does inside the
+   * document. `Breadcrumb`'s header has the argument.
+   */
+  const pathBar =
+    compact && selected !== null ? (
+      <Breadcrumb
+        pathOnly
+        path={selected.path}
+        contextLabel={contextLabel}
+        visibility={selected.visibility}
+        inherited={selected.inherited}
+        exception={selected.exception}
+        readOnly={selected.readOnly}
+        onSelectFolder={files.select}
+      />
+    ) : null;
+
   const openDocument =
     selected === null ? (
       <Empty contextLabel={contextLabel} />
@@ -273,6 +301,7 @@ export function BrowsePane({
         entry={selected}
         listing={files.listings[selected.path]}
         canSetVisibility={files.canSetVisibility}
+        contextLabel={contextLabel}
         onSelect={files.select}
       />
     ) : files.conflict?.path === selected.path ? (
@@ -315,6 +344,7 @@ export function BrowsePane({
           readOnly: selected.readOnly,
         }}
         notices={compact ? notices : null}
+        pathBar={compact ? pathBar : null}
         onChange={files.setDraft}
         onSave={files.save}
         onDiscard={files.discard}
@@ -535,6 +565,27 @@ export function BrowsePane({
             }}
             testID="browse-scroll"
           >
+            {/*
+              Where you are, and the way up — on a phone, where the drawer was
+              the only answer to both.
+
+              This line is the reversal of a stated decision, so it is worth
+              saying what changed rather than letting the comment above go
+              quietly untrue. The breadcrumb was dropped here because Obsidian
+              spends nothing on it and the note names itself inside the
+              document, which is right about *naming* and was wrong about
+              *navigation*: a folder page reached by a link had no route to its
+              parent at all, and the only way to another folder was the drawer,
+              which is the surface a phone makes hardest to get at. `pathOnly`
+              is the half that navigates and none of the half that labelled.
+
+              Inside the scroller rather than pinned above it, so it scrolls
+              away with the document: it answers a question people ask on
+              arrival, and a permanent band is a band that costs a line of the
+              note forever. It rides below the floating chrome because the
+              scroller already pays `padding.content.top` for it.
+            */}
+            {pathBar}
             {notices}
             <View style={styles.bodyCompact}>{openDocument}</View>
           </ScrollView>

@@ -94,6 +94,7 @@ export function NoteEditor({
   canEdit,
   visibility,
   notices,
+  pathBar,
   onChange,
   onSave,
   onDiscard,
@@ -136,6 +137,20 @@ export function NoteEditor({
    * is the editor's.
    */
   notices?: ReactNode;
+  /**
+   * The phone's path bar, above the notices and above the inline title.
+   *
+   * Passed in for the reason `notices` is: a note on a phone brings its own
+   * scroller, because `NoteAccessory` anchors to the *region* and would ride
+   * away with the content inside one. Anything that must scroll with the
+   * document therefore has to be handed to this component rather than drawn
+   * around it — otherwise it is a band pinned above the note, which is what a
+   * phone breadcrumb was deleted for being.
+   *
+   * `BrowsePane` builds it; what it says is the pane's business, and this only
+   * decides where it sits.
+   */
+  pathBar?: ReactNode;
   onChange: (text: string) => void;
   onSave: () => void;
   onDiscard: () => void;
@@ -271,6 +286,7 @@ export function NoteEditor({
    */
   const flow = (
     <>
+      {compact ? pathBar : null}
       {compact ? notices : null}
       {state.readOnly ? <ManifestNotice /> : null}
 

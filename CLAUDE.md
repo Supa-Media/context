@@ -1899,6 +1899,47 @@ more as a verb. Making them agree in either direction loses one of the two
 facts. The visibility *sentence* stays on the folder page — it says what `team`
 means for the notes inside, which is the one thing a padlock cannot.
 
+### A phone gets a path bar, which is half of the line that was deleted
+
+`BrowsePane`'s own comment argued the breadcrumb off a phone at length, and the
+argument is right about one thing and wrong about the other. Right about
+**naming**: the note titles itself inside its own text, the visibility is a
+Properties row, and a path pinned above the document is a second band of chrome
+under a bar that already floats there. Wrong about **navigation**: a folder page
+reached by a team link had no route to its parent at all, and the only way to
+another folder was the drawer — the one surface a phone makes hardest to reach.
+Deleting the row took both halves because they were one row.
+
+`Breadcrumb`'s `pathOnly` is the half that navigates, and it is subtractive
+rather than a second design — the same segments and the same press targets,
+minus what a phone already says:
+
+- **No leaf.** The next line down is the note's inline title or the folder's
+  heading, so a trailing segment is the same words twice.
+- **No visibility chip.** A note carries it as a Properties row and a folder
+  states it in a sentence directly beneath, both fuller than the brief chip.
+- **The context segment comes back, pressable.** The full line drops it because
+  the switcher above says it; here it is not a label but the way *up*, and
+  without it the bar bottoms out one level short of home. What that duplication
+  argument was paying for — a line that ellipsised at both ends — is refunded by
+  the leaf and the chip being gone.
+
+Selecting the root is what that segment does, so the root needs a name:
+`baseName("")` is empty, and `FolderView` takes a `contextLabel` for the one
+folder with no name of its own. A context's root folder *is* the context.
+
+**It is built once and handed to two surfaces**, because a note and a folder
+scroll in different containers on a phone: `NoteEditor` owns its own scroller so
+`NoteAccessory` can anchor to the region rather than ride away with the content,
+so anything that must scroll with a note is passed *in* (`pathBar`, beside
+`notices`) rather than drawn around it. Two copies of that line is how a control
+ends up on one surface and missing from the other — which is what happened while
+this was being written, and the note branch simply had no bar.
+
+It scrolls away with the document rather than being pinned: it answers a
+question people ask on arrival, and a permanent band costs a line of every note
+forever.
+
 ### A copy on the device is bounded by who read it, when, and whether the server said no
 
 Three rules sit under the queue and the cache, and each of them was reachable
