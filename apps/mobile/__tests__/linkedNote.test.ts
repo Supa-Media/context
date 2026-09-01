@@ -195,6 +195,55 @@ describe("a team link opens the note it names", () => {
     ).toHaveLength(1);
   });
 
+  test("the folder's own listing survives the root listing landing after it", async () => {
+    /**
+     * **A folder opened by a link said "Loading…" until the tree fetched it.**
+     *
+     * `select` asks for a folder's own listing when it does not have one, and
+     * the console's root load — the effect that forgets the previous context —
+     * finished by *replacing* the whole listings map with `{ "": root }`. So a
+     * folder listing that arrived first was thrown away by a round trip that
+     * had been started before it and knew nothing about it, and nothing
+     * retried: the page sat on "Loading…" until somebody expanded that folder
+     * in the side panel, which asks again.
+     *
+     * Ordering is what decides it, and both orders are ordinary — the folder's
+     * listing is the smaller request. The folder test above passes because its
+     * two round trips settle in the lucky order, which is exactly why this one
+     * defers the root instead.
+     */
+    let landRoot: (() => void) | null = null;
+    const rootLanded = new Promise<void>((resolve) => {
+      landRoot = resolve;
+    });
+    actions[name("listFiles")] = async (args: never) => {
+      const path = (args as { path: string }).path;
+      if (path === "") {
+        await rootLanded;
+        return ROOT;
+      }
+      return { ...ROOT, path, entries: [entry(NOTE, "file")] };
+    };
+
+    unmount = mount(FOLDER);
+    await settle();
+    await act(async () => setContext("w1"));
+    await settle();
+
+    // The folder answered first, and only now does the root.
+    expect(browser.listings[FOLDER]).toBeDefined();
+    await act(async () => {
+      landRoot!();
+      await Promise.resolve();
+    });
+    await settle();
+
+    expect(browser.listings[""]).toBeDefined();
+    // The whole point: the root landing must not take the folder with it.
+    expect(browser.listings[FOLDER]).toBeDefined();
+    expect(browser.listings[FOLDER]!.entries.map((e) => e.path)).toEqual([NOTE]);
+  });
+
   test("a URL naming no note leaves the console where it was", async () => {
     // The positive control for the guard, not for the fix: without it the two
     // tests above would pass on a hook that selects something unconditionally.
