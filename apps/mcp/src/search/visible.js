@@ -201,6 +201,13 @@ export function snippetLinesFor(text, matchedTerms) {
  * @param {object} [options.budget] a `createSearchBudget` counter to share
  *   with the caller's other storage work; one is made if absent
  * @param {number} [options.limit]
+ * @param {boolean} [options.refreshOnMiss] whether an empty answer over an
+ *   index that believes it is converged may buy one listing and ask again.
+ *   Off by default: the module stays maintenance-free for anyone composing it,
+ *   and the surfaces a person is waiting on opt in.
+ * @param {number} [options.backfillOps] note reads that one refresh pass may
+ *   spend, so a bucket that turns out to be far behind cannot turn an honest
+ *   re-check into the search this whole shape removed
  * @returns {Promise<{indexed: boolean,
  *   hits?: {key: string, title: string, snippets: string[]}[],
  *   matchCount?: number, matchCountIsFloor?: boolean,

@@ -1196,6 +1196,7 @@ function auditCandidates(manifest, busy, nowMs, count = AUDIT_SHARDS_PER_SYNC) {
  *   pending: number,
  *   listingTruncated: boolean,
  *   manifestOverflow: boolean,
+ *   changed: boolean,
  *   spent: number,
  * }>} `shards` holds only what this pass loaded or built.
  */
@@ -1289,6 +1290,7 @@ export async function syncShardedIndex(
       pending: 0,
       listingTruncated: true,
       manifestOverflow: false,
+      changed: false,
       spent: ops.spent,
     };
   }
