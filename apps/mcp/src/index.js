@@ -157,12 +157,19 @@ const DEFERRED_SYNC_FLOOR = 8;
  * How stale the index's own listing may be before a search starts a pass
  * behind itself.
  *
- * A search no longer lists the bucket, so this is the only clock on which a
- * note somebody wrote in Obsidian becomes searchable. Short enough that "I
- * saved it a minute ago" holds; long enough that a person typing through a
- * palette does not start a full listing on every keystroke's worth of query.
- * Writes made *through* Context do not wait for it — they start a pass of their
- * own — so what this bounds is out-of-band editing.
+ * A search no longer lists the bucket, so this is the clock on which a note
+ * somebody wrote in Obsidian, in rclone or through another client becomes
+ * searchable. Short enough that "I saved it a minute ago" holds; long enough
+ * that a person typing through a palette does not start a full listing on every
+ * keystroke's worth of query.
+ *
+ * It is not the only thing covering that gap, and it is deliberately not the
+ * one that covers the case people notice: an answer that comes back **empty**
+ * over an index that believes it is converged buys a listing of its own
+ * immediately (`refreshOnMiss`). So this bounds how stale a *successful*
+ * answer's corpus may be, where the cost of being a minute behind is a hit
+ * somebody was not looking for going unlisted — and a miss, which is the answer
+ * that would be acted on, never waits for it.
  */
 const INDEX_RECONCILE_INTERVAL_MS = 60_000;
 

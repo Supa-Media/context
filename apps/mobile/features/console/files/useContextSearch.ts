@@ -9,7 +9,7 @@
  * an honest message about it does not make it less of a miss.
  *
  * This asks `functions/files.searchContext`, which runs the gateway's own
- * indexed search over the customer's bucket. Three consequences worth knowing:
+ * indexed search over the customer's bucket. Four consequences worth knowing:
  *
  *  - **It costs a round trip and touches storage**, so the query is debounced
  *    and short queries are never sent. Every keystroke reaching the bucket
@@ -20,12 +20,19 @@
  *  - **Answers can arrive out of order.** Each request records the query it
  *    was for and a later answer for an earlier query is dropped, so a fast
  *    reply to "ike" cannot overwrite the results for "ikenna".
+ *  - **It can fail to arrive at all**, and that has to end. `searchContext` is
+ *    a Convex action, and `ConvexReactClient.action()` has no client-side
+ *    timeout — the same property `features/offline` exists around — so a
+ *    request lost to a dead uplink leaves "Searching the rest of this
+ *    context…" on screen with nothing behind it and no way out but retyping.
+ *    A spinner that cannot stop is the one state a person cannot act on.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SearchAnswer } from "./browser";
 import type { PaletteItem } from "./palette";
 import { parentPath } from "./paths";
+import { raceTimeout } from "../storage/timeout";
 
 /**
  * Below this, a query is a prefix of a word rather than a word, and the
@@ -40,6 +47,19 @@ const MIN_QUERY = 3;
  * the results feel like they belong to what is on screen.
  */
 const DEBOUNCE_MS = 250;
+
+/**
+ * How long to wait for an answer before saying we stopped waiting.
+ *
+ * A search reads a ready index: a manifest, the shards the query's terms are
+ * in, and the notes it quotes — a handful of round trips against the customer's
+ * bucket, plus the one listing a miss over a converged index is allowed to buy.
+ * Ten seconds is far past all of that and short enough that a palette does not
+ * hold a spinner nobody can dismiss. It is the same order as the per-request
+ * deadline the control plane puts on the customer's endpoint, which is what
+ * would end a hung search from the other side if the request got that far.
+ */
+export const SEARCH_TIMEOUT_MS = 10_000;
 
 export type SearchState = "idle" | "searching" | "ready" | "indexing" | "failed";
 
@@ -96,26 +116,42 @@ export function useContextSearch(
     const timer = setTimeout(() => {
       latest.current = trimmed;
       void (async () => {
-        try {
-          const found = await search(trimmed);
-          if (latest.current !== trimmed) return;
-          const hits = itemsFromHits(found.hits);
+        // Raced rather than awaited, so a request that never settles ends as a
+        // stated failure instead of a permanent spinner. A late answer is
+        // dropped rather than shown: `raceTimeout` settles once, and the query
+        // check below drops it again if the person has typed since.
+        const settled = await raceTimeout(
+          // Called inside the race so a `search()` that throws synchronously is
+          // a rejected promise here rather than an exception out of the effect.
+          (async () => await search(trimmed))(),
+          {
+            ms: SEARCH_TIMEOUT_MS,
+            schedule: (fn, ms) => setTimeout(fn, ms),
+            cancel: (handle) => clearTimeout(handle),
+          },
+        );
+        if (latest.current !== trimmed) return;
+        if (settled.kind === "value") {
+          const hits = itemsFromHits(settled.value.hits);
           setItems(hits);
           // An empty answer from an index that is still catching up is not an
           // answer about somebody's notes. With hits on screen the caveat is
           // not worth a state of its own — the rows are real either way — but
           // with none, "nothing matches" would be exactly the claim this
           // feature exists to stop making.
-          const behind = found.indexMissing || (found.indexIncomplete && hits.length === 0);
+          const behind =
+            settled.value.indexMissing || (settled.value.indexIncomplete && hits.length === 0);
           setState(behind ? "indexing" : "ready");
-        } catch {
-          if (latest.current !== trimmed) return;
-          // Deliberately not surfaced as an error dialog: the local filter is
-          // still filtering, so the palette went from "better" back to what it
-          // was, and a modal over a working list is worse than a line of text.
-          setItems([]);
-          setState("failed");
+          return;
         }
+        // A failure and a timeout land in the same place on purpose: both mean
+        // this half of the palette has no answer, and the copy already says
+        // only the loaded folders were filtered. Deliberately not an error
+        // dialog either — the local filter is still filtering, so the palette
+        // went from "better" back to what it was, and a modal over a working
+        // list is worse than a line of text.
+        setItems([]);
+        setState("failed");
       })();
     }, DEBOUNCE_MS);
 
