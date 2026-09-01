@@ -49,6 +49,13 @@ afterEach(() => {
 
 const ENTRY = "1-projects/transition/overview.md";
 const LINKED = "1-projects/transition/proposal.md";
+/**
+ * `team`-visible, in the same folder as the entry note, and deliberately NOT
+ * linked from it. This is the only shape that tests the traversal bound: a
+ * private note is refused by `canSee` whether or not `links.includes` runs.
+ */
+const UNLINKED = "1-projects/transition/sibling.md";
+const UNLINKED_MARKER = "zzq-unlinked-body-marker-7c30-never-reachable";
 const PRIVATE_NOTE = "2-areas/salaries.md";
 const PRIVATE_MARKER = "zzq-private-body-marker-4a91-never-shared";
 
@@ -91,6 +98,7 @@ async function fixture(): Promise<Fixture> {
     ["# Chapter transition", "", "See [the proposal](proposal.md).", ""].join("\n"),
   );
   backend.seed(LINKED, "# Proposal\n\nThe numbers.\n");
+  backend.seed(UNLINKED, `# Sibling\n\n${UNLINKED_MARKER}\n`);
   backend.seed(PRIVATE_NOTE, `# Salaries\n\n${PRIVATE_MARKER}\n`);
   vi.stubGlobal("fetch", backend.fetchImpl);
 
@@ -167,12 +175,40 @@ describe("what an unlisted link reaches", () => {
     expect(linked.text).toContain("# Proposal");
   });
 
-  test("a note that is not linked from the entry note is refused", async () => {
+  /**
+   * THE TRAVERSAL BOUND, TESTED ON A NOTE THE MANIFEST WOULD LET THROUGH.
+   *
+   * This used to ask for `2-areas/salaries.md`, which is private — so it was
+   * refused by `canSee` whether or not `links.includes` ran, and deleting the
+   * link check entirely left it green. It asserted the privacy engine's answer
+   * while claiming to assert the share's.
+   *
+   * `UNLINKED` is `team`-visible and in the entry note's own folder, so the
+   * only thing standing between an anonymous holder and its body is the link
+   * check. Sabotage that line and this fails.
+   */
+  test("a team-visible note the entry note does not link to is still refused", async () => {
+    const f = await fixture();
+    const token = await unlisted(f);
+
+    // The premise: a signed-in member of the workspace can read it, so it is
+    // genuinely `team` and this test is not passing on visibility.
+    const readable = await asUser(f.t, f.member).action(api.functions.files.readNote, {
+      workspaceId: f.workspaceId,
+      path: UNLINKED,
+    });
+    expect(readable.text).toContain(UNLINKED_MARKER);
+
+    const error = await captureError(() => readAnonymously(f, token, UNLINKED));
+    expect(errorCode(error)).toBe("NOT_AUTHENTICATED");
+  });
+
+  test("and a private one is refused too, by the manifest rather than the link", async () => {
     const f = await fixture();
     const token = await unlisted(f);
 
     const error = await captureError(() => readAnonymously(f, token, PRIVATE_NOTE));
-    expect(errorCode(error)).toBe("SHARE_UNAVAILABLE");
+    expect(errorCode(error)).toBe("NOT_AUTHENTICATED");
   });
 
   /**
@@ -192,6 +228,77 @@ describe("what an unlisted link reaches", () => {
     });
 
     const error = await captureError(() => readAnonymously(f, token));
+    expect(errorCode(error)).toBe("NOT_AUTHENTICATED");
+  });
+
+  /**
+   * ...AND THAT WITHDRAWAL IS INVISIBLE, WHICH IS THE WHOLE POINT OF THE ONE
+   * REFUSAL.
+   *
+   * `shareUnavailable()`'s own doc comment promises it: "Revoked, expired,
+   * never issued, addressed to somebody else, entry note deleted, entry note no
+   * longer `team`-visible ... all of it is one sentence. Somebody holding a link
+   * who could tell 'the owner revoked this' from 'the owner made it private'
+   * from 'the note moved' has learned three different things about a context
+   * they are not in."
+   *
+   * On the anonymous path it was two sentences. Five causes answered
+   * `NOT_AUTHENTICATED` and the two that mean "the row is still live, the note
+   * just is not readable right now" answered `SHARE_UNAVAILABLE` — so a holder
+   * learned that making a note private is a *visible* withdrawal where revoking
+   * is an invisible one, and that a `SHARE_UNAVAILABLE` row is worth polling
+   * for the moment the owner publishes again.
+   *
+   * A signed-in caller still gets `SHARE_UNAVAILABLE`: they have a name, the
+   * refusal is about the share rather than their session, and "sign in" is not
+   * something they can act on.
+   */
+  test("every anonymous refusal is one answer, whatever the cause", async () => {
+    const f = await fixture();
+
+    const invented = await captureError(() => readAnonymously(f, "0".repeat(64)));
+
+    const privatised = await (async () => {
+      const g = await fixture();
+      const token = await unlisted(g);
+      await asUser(g.t, g.owner).action(api.functions.files.setDirectoryVisibility, {
+        workspaceId: g.workspaceId,
+        path: "1-projects",
+        visibility: "private",
+      });
+      return captureError(() => readAnonymously(g, token));
+    })();
+
+    const revoked = await (async () => {
+      const g = await fixture();
+      const token = await unlisted(g);
+      const [live] = await asUser(g.t, g.owner).query(api.functions.shares.listShares, {
+        workspaceId: g.workspaceId,
+      });
+      await asUser(g.t, g.owner).mutation(api.functions.shares.revokeShare, {
+        shareId: live!.shareId,
+      });
+      return captureError(() => readAnonymously(g, token));
+    })();
+
+    expect(errorShape(privatised), "a live row is not distinguishable from a dead one").toBe(
+      errorShape(invented),
+    );
+    expect(errorShape(revoked)).toBe(errorShape(invented));
+  });
+
+  test("but a signed-in reader is told about the share, not about their session", async () => {
+    const f = await fixture();
+    const token = await unlisted(f);
+    await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
+      workspaceId: f.workspaceId,
+      path: "1-projects",
+      visibility: "private",
+    });
+
+    const error = await captureError(() =>
+      asUser(f.t, f.lk).action(api.functions.shares.readSharedNote, { token }),
+    );
     expect(errorCode(error)).toBe("SHARE_UNAVAILABLE");
   });
 
