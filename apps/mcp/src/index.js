@@ -2906,9 +2906,9 @@ async function toolSetFolderVisibility(store, scope, args) {
     // out-ranked for the note by the longer `private` rule this very call adds
     // — widens the twin and passes the test. It needed no case-variant folder
     // rule and no hand-edited manifest, and it shipped. Deciding who a
-    // Deciding who a narrowing protects means simulating the write, not
-    // reasoning about rules; a weaker copy of that reasoning is worth less than
-    // a redundant line of manifest.
+    // narrowing protects means simulating the write, not reasoning about rules;
+    // a weaker copy of that reasoning is worth less than a redundant line of
+    // manifest.
     if (visibility === "private") continue;
     if (notePath.startsWith(`${path}/`) && visibility === visibilityOf(notePath, nextRules)) {
       nextOverrides.delete(notePath);
@@ -3965,8 +3965,10 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
         // can throw. The other order makes the one destination whose persist
         // failed the one destination the rollback below cannot see — so the
         // abort message says "aborted before deleting sources" over a copy that
-        // is still there. Only a CAS exhaustion could reach that before the
-        // folded-twin backstop existed; it is caller-reachable now.
+        // is still there. Only a CAS exhaustion reaches it — a folded-twin
+        // backstop briefly made it caller-reachable, and that backstop is not
+        // in this change. The ordering is kept anyway: it is correct either
+        // way, and it is what the refusals will need when they return.
         copied.push(move.destination);
       }
       if (!fastArchiveRelocation && move.visibility === "team") {

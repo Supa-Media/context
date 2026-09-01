@@ -3123,11 +3123,12 @@ check(
 );
 
 /**
- * **The seventh tool, which nobody had counted.**
+ * **The tool nobody had counted.**
  *
- * Three reviews and four commits said "six tools can change a visibility and
- * all six refuse up front". `set_folder_visibility` is the seventh, and it is
- * the one that fails OPEN rather than closed.
+ * Three reviews and four commits enumerated the tools that change a visibility
+ * and left this one out every time. It is also the only one that fails OPEN
+ * rather than closed, which is why its guard is the one piece of that work
+ * kept here: without it the fold is a regression rather than a fix.
  *
  * Its compaction loop drops an override that has become redundant *for its own
  * exact path* — correct before the fold, and wrong after it, because the same
@@ -3243,6 +3244,116 @@ check(
   narrowed?.isError !== true &&
     (await call("team-token", "read_note", { path: `${foldFolderB}/Note.md` }))?.isError === true
 );
+/**
+ * **The exact delete, which this change made reachable.**
+ *
+ * `persistExactVisibility` and `clearExactVisibility` delete an override by its
+ * exact path — a fold reads across case, it never writes across it. That used
+ * to be documented as unreachable defence-in-depth, because six tools refused a
+ * folded twin before either could be called, and CLAUDE.md said so: "sabotaging
+ * either passes the whole gateway suite". Those refusals came out with the
+ * write-path apparatus, and the residual bullet came out with them — so the
+ * exact delete is now the only thing standing between `set_visibility` on
+ * `Notes.md` and `notes.md` losing the narrowing its owner wrote. Consent taken
+ * for one file and spent on another, and it fails OPEN.
+ *
+ * Both directions are here because they are separate functions: the persist
+ * path (a visibility change that lands on the delete branch) and the clear path
+ * (the source of a move).
+ */
+const exactDeleteKeep = "1-projects/portable/keep-narrowing.md";
+const exactDeleteTwin = "1-projects/portable/Keep-Narrowing.md";
+await contextStore.put(exactDeleteKeep, "# the narrowed original\n");
+await contextStore.put(exactDeleteTwin, "# a different file that folds onto it\n");
+const keepEtag = (await call("priv-token", "read_note", { path: exactDeleteKeep }))
+  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
+await call("priv-token", "set_visibility", {
+  path: exactDeleteKeep,
+  visibility: "private",
+  expected_etag: keepEtag,
+});
+check(
+  "the positive control: the original is narrowed and its twin reads private too",
+  (await call("team-token", "read_note", { path: exactDeleteKeep }))?.isError === true &&
+    (await call("team-token", "read_note", { path: exactDeleteTwin }))?.isError === true
+);
+// persistExactVisibility's delete branch: `Keep-Narrowing.md` inherits team, so
+// asking for team takes the delete. It must remove nothing.
+await call("priv-token", "set_visibility", {
+  path: exactDeleteTwin,
+  visibility: "team",
+  confirm_team_publish: true,
+});
+check(
+  "changing a case-variant's visibility does not clear the original's narrowing",
+  (await (await contextStore.get("privacy.md")).text()).includes(`${exactDeleteKeep}: private`) &&
+    (await call("team-token", "read_note", { path: exactDeleteKeep }))?.isError === true
+);
+// clearExactVisibility, through the source of a move.
+const keepMoveEtag = (await call("priv-token", "read_note", { path: exactDeleteTwin }))
+  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
+await call("priv-token", "move_note", {
+  source: exactDeleteTwin,
+  destination: "1-projects/portable/keep-moved.md",
+  expected_source_etag: keepMoveEtag,
+});
+check(
+  "moving a case-variant away does not clear the original's narrowing either",
+  (await (await contextStore.get("privacy.md")).text()).includes(`${exactDeleteKeep}: private`) &&
+    (await call("team-token", "read_note", { path: exactDeleteKeep }))?.isError === true
+);
+// Clear the override against what the note inherits, then drop the objects.
+await call("priv-token", "set_visibility", {
+  path: exactDeleteKeep,
+  visibility: "team",
+  confirm_team_publish: true,
+});
+await contextStore.delete(exactDeleteKeep);
+await contextStore.delete("1-projects/portable/keep-moved.md");
+
+/**
+ * **The fold's direction, checked in the gateway's own suite.**
+ *
+ * `overrideFor` folding a `team` override as well as a `private` one is the
+ * hole this whole change had in its first version, and it was caught only by
+ * `apps/convex/__tests__/privacyEngine.test.ts` — the gateway suite passed with
+ * the widening in place. CLAUDE.md calls this suite the fast, offline one a
+ * self-hoster runs, and self-hosting is a published commitment: somebody
+ * running only `pnpm test` here must be able to see a widening fold in the
+ * engine they deploy.
+ *
+ * It was deleted as collateral when the write-path refusals came out, which it
+ * had nothing to do with — it pins the narrowing rule, not a refusal.
+ *
+ * `2-areas/private` is a private folder. Publishing one note by exact override
+ * must not publish its case-variant, which on R2 and S3 is a different file the
+ * owner never named.
+ */
+const widenFoldPath = "2-areas/private/fold-widen.md";
+const widenFoldTwin = "2-areas/private/Fold-Widen.md";
+await contextStore.put(widenFoldPath, "# deliberately published\n");
+await contextStore.put(widenFoldTwin, "# a different file, never named\n");
+const widenFoldEtag = (await call("priv-token", "read_note", { path: widenFoldPath }))
+  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
+const widenFoldPublish = await call("priv-token", "set_visibility", {
+  path: widenFoldPath,
+  visibility: "team",
+  expected_etag: widenFoldEtag,
+  confirm_team_publish: true,
+});
+check(
+  "the positive control: the note the owner named IS readable by a team caller",
+  widenFoldPublish?.isError !== true &&
+    (await call("team-token", "read_note", { path: widenFoldPath }))?.isError !== true
+);
+check(
+  "a team override does not travel by re-casing, in the gateway's own suite",
+  (await call("team-token", "read_note", { path: widenFoldTwin }))?.isError === true
+);
+await call("priv-token", "set_visibility", { path: widenFoldPath, visibility: "private" });
+await contextStore.delete(widenFoldPath);
+await contextStore.delete(widenFoldTwin);
+
 // Put the manifest back too, not just the objects. The first version of this
 // block deleted the two notes and left `fold-folder: private`,
 // `Fold-Folder: team` and the note override standing in the shared bucket for

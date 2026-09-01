@@ -83,7 +83,7 @@ Zero npm dependencies — keep it that way. It runs on the Workers runtime, so
 use Web Crypto and `fetch`, not Node APIs.
 
 `pnpm test` in `apps/mcp` runs the suite against an in-memory store stub. It is
-fast, offline, and currently 989 checks. **Do not let it regress.** If you
+fast, offline, and currently 994 checks. **Do not let it regress.** If you
 change behavior, change the test in the same commit and say why.
 
 The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,
@@ -1576,13 +1576,30 @@ a torn write in the batch movers, an `archive_note` guard deleted on a premise
 that was false at team scope. The fold itself survived every one of those
 rounds untouched. So the engine lands on its own and the write-path apparatus
 comes back as its own change with its own review budget, rather than riding in
-on the back of a fix that was ready. The full diff of what was removed is kept
-rather than reconstructed.
+on the back of a fix that was ready. It is kept as
+`docs/deferred/folded-twin-refusals.patch` with its five-round defect record
+beside it — in the tree, because `main` is squash-merged and a branch is not an
+archive.
 
-Until it returns: publishing a note whose case-twin is private silently does
-nothing through the gateway and says it worked. That is fail-closed — nothing
-is disclosed, the note stays private — and it is dishonest, which is the whole
-reason it is written down here rather than left to be rediscovered.
+Until it returns, three things are true and none of them is disclosure:
+
+- **Publishing a note whose case-twin is private silently does nothing through
+  the gateway and says it worked.** The manifest comes back byte-identical, the
+  note stays unreadable at team scope, and `.audit/` records a change that did
+  not happen. The console does not lie — `setVisibility` re-derives its answer —
+  but the gateway tool does.
+- **A `move_note` onto a case-variant destination reports `visibility: team`
+  for a note that is unreadable at team scope.** It does something (the source
+  is gone) and reports the opposite of what happened, so it is not covered by
+  the sentence above.
+- **An ordinary `write_note` with no `visibility` argument persists a new
+  `private` override** onto a note whose case-twin is private, because
+  `desiredVisibility` defaults to the now-folded effective visibility. It
+  matches what the note already reads as, and it is a narrowing of a note the
+  owner never named, written into their manifest by an edit.
+
+All three fail closed and all three are worse than the refusals would be, which
+is the cost of holding those back.
 
 **One thing from that work did stay, because without it the fold is a
 regression rather than a fix.** `set_folder_visibility` compacts away note

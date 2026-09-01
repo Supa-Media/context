@@ -4304,8 +4304,10 @@ describe("a rule no survivor needs, told truthfully", () => {
  * nothing, the manifest comes back identical, and the console reported the
  * publish as done over a note no team member could read.
  *
- * Both halves were shipped unguarded: deleting the throw, and restoring
- * `visibility: options.visibility`, each passed the whole 1438-check suite.
+ * The re-derivation shipped unguarded for two rounds: restoring
+ * `visibility: options.visibility` passed the whole suite, because a throw in
+ * front of it made it a tautology. That throw is not in this change, so the
+ * re-derivation is the whole of the story and is pinned below.
  */
 describe("a set reports the manifest's answer", () => {
   /**
