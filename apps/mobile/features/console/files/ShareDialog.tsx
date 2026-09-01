@@ -37,6 +37,7 @@ import { fonts, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { baseName } from "./paths";
 import {
+  describeOpenLink,
   describePersonalShare,
   describePreviewTitle,
   describeShareRow,
@@ -70,7 +71,10 @@ export function ShareDialog({
    * it", is what made this button do nothing at all on iOS.
    */
   onCopyLink: (
-    target: { kind: "team"; path: string } | { kind: "share"; url: string },
+    target:
+      | { kind: "team"; path: string }
+      | { kind: "link"; path: string }
+      | { kind: "share"; url: string },
   ) => Promise<{ ok: boolean; message: string | null }>;
   onRevoke: (shareId: string) => void;
   onSetPreviewTitle: (share: NoteShare, titleInPreview: boolean) => void;
@@ -106,7 +110,10 @@ export function ShareDialog({
    * is in the baseline), so a `false` here means a browser said no.
    */
   const copyAndClose = (
-    target: { kind: "team"; path: string } | { kind: "share"; url: string },
+    target:
+      | { kind: "team"; path: string }
+      | { kind: "link"; path: string }
+      | { kind: "share"; url: string },
   ) => {
     setProblem(null);
     void onCopyLink(target).then(({ ok, message }) => {
@@ -126,6 +133,17 @@ export function ShareDialog({
   };
 
   const mine = sharesFor(shares, path);
+  /**
+   * The live unlisted link on this note, if there is one.
+   *
+   * `undefined` covers both "there is none" and "the list has not loaded",
+   * which are deliberately the same here: the button reads "Create link" in
+   * both, and pressing it on a note that already has one supersedes in place
+   * and returns the same token. A third state for "we do not know yet" would
+   * be a flicker on every open of a dialog somebody came to press one button
+   * in.
+   */
+  const openLink = mine?.find((share) => share.audience === "anyone");
   const ready = recipient.trim() !== "";
 
   const submit = () => {
@@ -175,6 +193,43 @@ export function ShareDialog({
                   copyAndClose({ kind: "team", path });
                 }}
               />
+            </View>
+
+            {/*
+              **The section this dialog was missing, and the bug it caused.**
+
+              The lock's third position mints an unlisted link, and the only
+              place it then appeared was a row in SHARED WITH below the fold —
+              while the button at the top of this dialog, the one anybody
+              presses, mints a *team* link and copies a `/console/@…` URL. So
+              "publish this, then copy it" handed people the wrong link: one
+              that shows nothing at all to the person they sent it to.
+
+              It is a section of its own rather than a row, because it is a
+              different audience from either of its neighbours — not the people
+              who already have access, and not one named person — and because
+              the press that copies it has to be the press that mints it, for
+              the iOS activation reason `copyShareLink` documents.
+            */}
+            <View style={styles.section}>
+              <Text variant="eyebrow">ANYONE WITH THE LINK</Text>
+              <Text variant="paneSub">{describeOpenLink(openLink !== undefined)}</Text>
+              <View style={styles.row}>
+                <Button
+                  label={openLink === undefined ? "Create link" : "Copy link"}
+                  variant="white"
+                  onPress={() => copyAndClose({ kind: "link", path })}
+                  testID="share-open-link"
+                />
+                {openLink === undefined ? null : (
+                  <Button
+                    label="Revoke"
+                    variant="danger"
+                    onPress={() => onRevoke(openLink.shareId)}
+                    testID="share-open-link-revoke"
+                  />
+                )}
+              </View>
             </View>
 
             <View style={styles.section}>

@@ -493,6 +493,53 @@ describe("what an unlisted link unfurls as", () => {
   });
 });
 
+describe("what the console needs to build the link", () => {
+  /**
+   * The mint returns the title it stored, so the slug in the copied URL and
+   * the name on the card are the same string. A console deriving its own would
+   * be a second copy of `titleFromPath` free to drift from the one that ran.
+   */
+  test("minting answers with the name the link is built from", async () => {
+    const f = await fixture();
+    const { token, title } = await asUser(f.t, f.owner).action(
+      api.functions.shares.createLinkShare,
+      { workspaceId: f.workspaceId, path: ENTRY },
+    );
+
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+    expect(title).toBe("Overview");
+  });
+
+  /**
+   * …and `null` when the owner has the preview title off. A URL survives more
+   * forwards than a card does, so a setting that hides the name has to hide it
+   * in the link too.
+   */
+  test("and with nothing, when the owner has the name switched off", async () => {
+    const f = await fixture();
+    const { title } = await asUser(f.t, f.owner).action(
+      api.functions.shares.createLinkShare,
+      { workspaceId: f.workspaceId, path: ENTRY, titleInPreview: false },
+    );
+
+    expect(title).toBeNull();
+  });
+
+  test("pressing it again returns the same token, so a link already sent stays live", async () => {
+    const f = await fixture();
+    const first = await asUser(f.t, f.owner).action(
+      api.functions.shares.createLinkShare,
+      { workspaceId: f.workspaceId, path: ENTRY },
+    );
+    const second = await asUser(f.t, f.owner).action(
+      api.functions.shares.createLinkShare,
+      { workspaceId: f.workspaceId, path: ENTRY },
+    );
+
+    expect(second).toEqual(first);
+  });
+});
+
 describe("how the owner sees it", () => {
   test("the audience names the rule, because there is nobody to name", async () => {
     const f = await fixture();

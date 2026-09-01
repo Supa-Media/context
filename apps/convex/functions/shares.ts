@@ -774,8 +774,21 @@ export const createLinkShare = action({
     path: v.string(),
     titleInPreview: v.optional(v.boolean()),
   },
-  returns: v.object({ token: v.string() }),
-  handler: async (ctx, args): Promise<{ token: string }> => {
+  returns: v.object({
+    token: v.string(),
+    /**
+     * The name the link's readable half is built from, or `null`.
+     *
+     * Returned rather than re-derived by the caller, and that is the point: the
+     * slug in the URL and the title on the card have to be the same string, and
+     * a console that computed its own would be a second copy of
+     * `titleFromPath` free to drift from the one that actually ran. `null` when
+     * the owner has the preview title off — the URL travels further than the
+     * card does, so a setting that hides the name has to hide it here too.
+     */
+    title: v.union(v.string(), v.null()),
+  }),
+  handler: async (ctx, args): Promise<{ token: string; title: string | null }> => {
     // An action has no `db`, so `requireAuthId` is unavailable here; the
     // clearance below is what refuses, and it refuses an absent caller for the
     // same reason it refuses an editor.
@@ -873,10 +886,17 @@ export const mintLinkShare = internalMutation({
     path: v.string(),
     titleInPreview: v.optional(v.boolean()),
   },
-  returns: v.object({ token: v.string() }),
+  returns: v.object({
+    token: v.string(),
+    title: v.union(v.string(), v.null()),
+  }),
   handler: async (ctx, args) => {
     const now = Date.now();
     const chosenTitle = titleFromPath(args.path);
+
+    /** The title as the row will carry it, which is what the URL may use. */
+    const shown = (titleInPreview: boolean, title: string | undefined) =>
+      titleInPreview ? (title ?? null) : null;
 
     const existing = await ctx.db
       .query("noteShares")
@@ -895,7 +915,13 @@ export const mintLinkShare = internalMutation({
         previewTitle: chosenTitle ?? existing.previewTitle,
       });
       await scheduleCardRender(ctx, existing._id);
-      return { token: existing.token };
+      return {
+        token: existing.token,
+        title: shown(
+          args.titleInPreview ?? existing.titleInPreview,
+          chosenTitle ?? existing.previewTitle,
+        ),
+      };
     }
 
     await assertShareCapacity(ctx, args.workspaceId);
@@ -939,7 +965,10 @@ export const mintLinkShare = internalMutation({
     });
 
     await scheduleCardRender(ctx, shareId);
-    return { token };
+    return {
+      token,
+      title: shown(args.titleInPreview ?? true, chosenTitle ?? undefined),
+    };
   },
 });
 
