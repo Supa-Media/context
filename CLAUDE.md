@@ -634,13 +634,25 @@ Four things hold the line, and each fails a test if removed:
   unlisted link is pasted into a channel, and one that silently resolves to "not
   available" for everybody is indistinguishable, from the owner's side, from
   having published something. Sabotage it and only its own test fails.
-- **The control cannot publish in one press.** `scope.ts` cycles private → team
-  → anyone → private, so reaching the internet is always at least two deliberate
-  presses from a state the icon has been showing; closing revokes the link
+- **The cycle is private → team → anyone → private.** Closing revokes the link
   *before* it narrows the manifest, because a failed revoke after a successful
-  narrowing leaves a private note with a live public link on it; and a private
-  note draws a padlock however many rows point at it, because a globe over a
-  note nobody can open is the control lying in the one direction that matters.
+  narrowing leaves a private note with a live public link on it; the sequence
+  stops at the first failure; and a private note draws a padlock however many
+  rows point at it, because a globe over a note nobody can open is the control
+  lying in the one direction that matters.
+
+  **This paragraph used to claim the control "cannot publish in one press", and
+  that was only ever true of a private note.** Measured on the real functions:
+  from `team`, one press runs `[{ openLink: true }]` — a note the whole team can
+  already read goes to the internet in a single tap on an unlabelled 20pt
+  target whose icon beforehand is an *open padlock*, which reads as "shared with
+  my team". There is no confirmation, and the undo overshoots: `nextScope`
+  from `anyone` is `private`, so recovering from a mis-tap also un-shares the
+  note from the team. Whether to put a confirmation on the `team → anyone` step,
+  or take `anyone` out of the lock cycle now that the unlisted link has its own
+  control in `ShareDialog`, is an open product decision — but the sentence
+  claiming it is already safe is not the answer, and a reassurance a reviewer
+  would trust is worse than none.
 
 The icon is a globe rather than a wider-open padlock. Shut and open are two
 states of one object and read as *degrees* of the same thing, which is right for
@@ -668,6 +680,17 @@ shape: `/s/Chapter-transition-<64 hex>`. Four things about that:
   the owner saying they do not want this note named to somebody who has not
   opened it, and the URL is seen by *more* people than the card is — it survives
   every forward. A slug there would undo the setting through a different door.
+
+**The card *image* still says the opposite, and fixing it has a trap.**
+`CARD_SUBTITLE` in `lib/cardArt.ts` is the constant "Shared with you — sign in
+to read it", and `cardElement` takes no `openToAnyone` — so the meta description
+was corrected and the picture beside it was not. Whoever makes the picture
+honest **must add `openToAnyone` to `cardSignature`, in the control plane's copy
+and the router's mirror both**, or every already-rendered unlisted card keeps
+serving the "sign in" image forever: the Workers cache is per-datacenter and a
+changed URL is the only invalidation there is. It is safe to omit *today* only
+because the flag changes nothing that is drawn, which is precisely the premise
+that fix removes.
 
 **And the card had to stop telling unlisted readers to sign in.** The
 description read "Sign in to read it", which was true of every share there was
