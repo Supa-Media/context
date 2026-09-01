@@ -288,21 +288,45 @@ export const SHARE_PREFIX = "/s/";
 /**
  * The share token in a path, or `null`.
  *
- * Shape-checked here, before anything is fetched, and the shape is exact: 64
- * lowercase hex characters, which is what `randomOpaqueToken()` produces in the
- * control plane. Three things follow from checking rather than forwarding:
+ * Shape-checked here, before anything is fetched, and the token half of the
+ * shape is exact: 64 lowercase hex characters, which is what
+ * `randomOpaqueToken()` produces in the control plane. Three things follow from
+ * checking rather than forwarding:
  *
  *  - Nothing an attacker types reaches an upstream. A path is either a
- *    well-formed token or it is not a share link at all.
+ *    well-formed link or it is not a share link at all.
  *  - `/s/`, `/s/x/y`, and `/s/../../etc` are not share links, so they fall
  *    through to GENERIC_PREVIEW like everything else.
  *  - A malformed token costs no round trip, so the obvious probe — hammer `/s/`
  *    with garbage and time the answers — never reaches the lookup.
+ *
+ * ## The readable half, and why it does not weaken any of that
+ *
+ * A link may carry the note's name in front of its token —
+ * `/s/Chapter-transition-<64 hex>`, Notion's shape — because a URL that says
+ * nothing is one people paste without knowing what they are sending. **The slug
+ * is decoration and the token is the capability.** Nothing here or upstream
+ * looks the slug up, so a renamed note does not break a link already sent, and
+ * two links with different slugs are the same link if their tokens match.
+ *
+ * The entropy is untouched: the token is still the whole 64 hex and is still
+ * matched exactly. It is read off the **end**, with a single hyphen in front of
+ * it, so a slug that happens to contain hex is still only ever a slug —
+ * anchoring rather than searching is what keeps the parse unambiguous.
+ *
+ * A bare 64-hex path stays valid, because every link minted before this existed
+ * is that shape and they are live in other people's messages.
+ *
+ * `apps/mobile/features/share/share.ts` holds the same rule for the app, and
+ * the two are held the way two copies are always held here — by running both
+ * over the same shapes, in `preview.test.ts`.
  */
 export function shareTokenFrom(pathname: string): string | null {
   if (!pathname.startsWith(SHARE_PREFIX)) return null;
   const rest = normalisePath(pathname).slice(SHARE_PREFIX.length);
-  return /^[0-9a-f]{64}$/.test(rest) ? rest : null;
+  if (/^[0-9a-f]{64}$/.test(rest)) return rest;
+  const match = /^([A-Za-z0-9][A-Za-z0-9-]*)-([0-9a-f]{64})$/.exec(rest);
+  return match === null ? null : (match[2] ?? null);
 }
 
 /**
@@ -563,6 +587,20 @@ function boundChildren(children: readonly unknown[] | null | undefined): string[
 export function previewForShare(
   title: string | null | undefined,
   token?: string,
+  /**
+   * Whether the link needs no account, which changes one sentence.
+   *
+   * "Sign in to read it" was true of every share there was and is false of an
+   * unlisted link. A card that tells somebody to sign in when they need no
+   * account is the product being wrong on the first surface a stranger sees —
+   * and it is the kind of wrong that stops a link being opened at all, which
+   * is the whole reason a share card carries a title in the first place.
+   *
+   * Defaulted `false`, so a caller that has not been taught about it asks for
+   * the sign-in wording rather than promising open access. Every absence still
+   * returns GENERIC_PREVIEW before this is read at all.
+   */
+  openToAnyone = false,
 ): PreviewMeta {
   const clean = title?.trim();
   if (!clean) return GENERIC_PREVIEW;
@@ -576,9 +614,11 @@ export function previewForShare(
   return {
     ...GENERIC_PREVIEW,
     title: `${bounded} — Context`,
-    description:
-      "Shared with you on Context. Sign in to read it — plain markdown in a " +
-      "bucket its owner controls.",
+    description: openToAnyone
+      ? "Shared with you on Context. Open it — no account needed — plain " +
+        "markdown in a bucket its owner controls."
+      : "Shared with you on Context. Sign in to read it — plain markdown in a " +
+        "bucket its owner controls.",
     /**
      * The title is drawn into the card image too, not only into the tags.
      *

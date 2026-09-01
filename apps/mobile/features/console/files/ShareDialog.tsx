@@ -41,7 +41,7 @@ import {
   describePreviewTitle,
   describeShareRow,
   describeTeamLink,
-  shareUrl,
+  shareUrlFor,
   sharesFor,
   type NoteShare,
 } from "./shares";
@@ -273,7 +273,7 @@ function SharedWith({
               <Button
                 label="Copy link"
                 onPress={() =>
-                  onCopyLink({ kind: "share", url: shareUrl(share.token, origin) })
+                  onCopyLink({ kind: "share", url: shareUrlFor(share, origin) })
                 }
               />
               <Button

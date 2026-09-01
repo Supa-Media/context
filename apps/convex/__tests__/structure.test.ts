@@ -1585,10 +1585,30 @@ describe("the gateway's HTTP routes", () => {
     expect(start, "sharePreview is enumerated but not defined").toBeGreaterThan(-1);
     const body = source.slice(start, source.indexOf("\n});", start));
 
-    // It may return the title and nothing else. A route with no secret in
-    // front of it is one field wide, or it is a different route.
+    /**
+     * **Two fields wide now, and the second one had to be argued for.**
+     *
+     * This said "one field wide, or it is a different route", which was the
+     * right bar and is not a bar against ever having two. The card's
+     * description read "Sign in to read it" — true of every share there was,
+     * false of an unlisted link, and a card that tells a stranger to sign in
+     * when they need no account is the product being wrong on the first
+     * surface they see.
+     *
+     * `openToAnyone` passes the test every field here has to pass: it
+     * discloses nothing a crawler could not learn by following the link it is
+     * already holding, and it is `false` for every absence, so the *tuple* is
+     * byte-identical for unknown, revoked, expired and title-less shares.
+     *
+     * The fields are pinned by name and a spread is refused, because the
+     * failure to expect on an unauthenticated route is a third field arriving
+     * from upstream that nobody looked at.
+     */
     expect(body).toContain("previewTitleForToken");
-    expect(body).toMatch(/json\(\{\s*title:/);
+    expect(body).toMatch(/json\(\{\s*title:\s*result\.title,\s*openToAnyone:\s*result\.openToAnyone\s*\}\)/);
+    expect(body, "sharePreview must not spread its upstream result").not.toMatch(
+      /\.\.\.result/,
+    );
     for (const forbidden of ["workspaceId", "slug", "entryPath", "recipient", "createdBy"]) {
       expect(body, `sharePreview must not return ${forbidden}`).not.toContain(forbidden);
     }

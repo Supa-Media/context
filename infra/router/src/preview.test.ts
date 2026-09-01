@@ -19,6 +19,7 @@ import {
   previewForNote,
 } from "./preview";
 import { route } from "./route";
+import shareSegmentCases from "./shareSegment.fixtures.json";
 
 /** Render whatever a crawler asking for `pathname` would be sent. */
 function previewHtml(pathname: string): string {
@@ -472,6 +473,23 @@ describe("share links: the one card that may say something", () => {
     expect(decision.kind).toBe("proxy");
   });
 
+  /**
+   * The router's half of one rule that lives in two deployments.
+   *
+   * `shareTokenFromSegment` in `apps/mobile/features/share/share.ts` reads the
+   * same URL shape and cannot be imported here, so both run over the corpus in
+   * `shareSegment.fixtures.json` and neither is trusted to match a comment.
+   * The one that matters most is `token` being read off the **end**: a slug is
+   * whatever the owner's note is called, so it can contain hex, and a search
+   * rather than an anchor would let a title decide which token was looked up.
+   */
+  it.each(shareSegmentCases.cases.map((c) => [c.why, c.segment, c.token] as const))(
+    "%s",
+    (_why, segment, token) => {
+      expect(shareTokenFrom(`/s/${segment}`)).toBe(token);
+    },
+  );
+
   it("a title reaches the card", () => {
     const meta = previewForShare("Chapter transition");
     expect(meta.title).toBe("Chapter transition — Context");
@@ -493,6 +511,53 @@ describe("share links: the one card that may say something", () => {
       );
     },
   );
+
+  /**
+   * …and openness cannot rescue an absence into a card. A crawler that could
+   * tell "revoked, and it used to be an open link" from "never existed" has
+   * learned something, so the frozen card has to win over the second argument
+   * as completely as it wins over the first.
+   */
+  it.each([[null], [undefined], [""], ["   "]])(
+    "an empty title (%p) is still the frozen card when the link is open",
+    (title) => {
+      expect(renderPreviewHtml(previewForShare(title, undefined, true))).toBe(
+        renderPreviewHtml(GENERIC_PREVIEW),
+      );
+    },
+  );
+
+  /**
+   * An unlisted link's reader needs no account, and a card that tells them to
+   * sign in is the product being wrong on the first surface a stranger sees —
+   * the kind of wrong that stops the link being opened at all, which is the
+   * whole reason a share card carries a title.
+   */
+  it("an open link's card does not ask for a sign-in", () => {
+    const open = previewForShare("Chapter transition", undefined, true);
+    expect(open.description).not.toMatch(/sign in/i);
+    expect(open.description).toMatch(/no account needed/i);
+  });
+
+  it("…and every other share's card still does", () => {
+    for (const meta of [
+      previewForShare("Chapter transition"),
+      previewForShare("Chapter transition", undefined, false),
+    ]) {
+      expect(meta.description).toMatch(/sign in to read it/i);
+    }
+  });
+
+  /**
+   * The default is the narrow one, so an upstream that has not been taught
+   * about this field — older, newer, or wrong — sends the reader to sign in
+   * rather than promising them access they may not have.
+   */
+  it("the sign-in wording is what you get without being told otherwise", () => {
+    expect(previewForShare("Chapter transition").description).toBe(
+      previewForShare("Chapter transition", undefined, false).description,
+    );
+  });
 
   it("a share card still refuses everything the frozen one refuses", () => {
     const html = renderPreviewHtml(previewForShare("Chapter transition"));

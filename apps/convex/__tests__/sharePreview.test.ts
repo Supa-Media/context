@@ -129,13 +129,19 @@ describe("normalising a title the owner typed", () => {
   });
 });
 
+/** The one absence, as the route now spells it. */
+const NOTHING = { title: null, openToAnyone: false };
+
 describe("what an unauthenticated crawler is told", () => {
   test("a live share with a title unfurls with it", async () => {
     const t = setupTest();
     const { ownerId, workspaceId } = await scenario(t);
     const token = await shareWith(t, ownerId, workspaceId);
 
-    expect(await preview(t, token)).toEqual({ title: "Implementation handoff" });
+    expect(await preview(t, token)).toEqual({
+      title: "Implementation handoff",
+      openToAnyone: false,
+    });
   });
 
   test("the owner's own title wins over the filename", async () => {
@@ -145,7 +151,10 @@ describe("what an unauthenticated crawler is told", () => {
       previewTitle: "Chapter transition — for LK",
     });
 
-    expect(await preview(t, token)).toEqual({ title: "Chapter transition — for LK" });
+    expect(await preview(t, token)).toEqual({
+      title: "Chapter transition — for LK",
+      openToAnyone: false,
+    });
   });
 
   test("a title that normalises to nothing falls back to the filename", async () => {
@@ -153,21 +162,29 @@ describe("what an unauthenticated crawler is told", () => {
     const { ownerId, workspaceId } = await scenario(t);
     const token = await shareWith(t, ownerId, workspaceId, { previewTitle: "   " });
 
-    expect(await preview(t, token)).toEqual({ title: "Implementation handoff" });
+    expect(await preview(t, token)).toEqual({
+      title: "Implementation handoff",
+      openToAnyone: false,
+    });
   });
 
   /**
-   * The response has exactly one key. The failure this guards is somebody
-   * adding "just the workspace name" for a nicer card and publishing it to
-   * every crawler on the internet.
+   * The response has exactly these two keys. The failure this guards is
+   * somebody adding "just the workspace name" for a nicer card and publishing
+   * it to every crawler on the internet.
+   *
+   * It was one key. The second says whether a reader has to sign in, which is
+   * a fact about the link the holder is already holding rather than about the
+   * context behind it — see `previewTitleForToken`. Widening this list again
+   * needs the same argument made again.
    */
-  test("nothing but the title is ever returned", async () => {
+  test("nothing but the title and whether a sign-in is needed", async () => {
     const t = setupTest();
     const { ownerId, workspaceId } = await scenario(t);
     const token = await shareWith(t, ownerId, workspaceId);
 
     const result = await preview(t, token);
-    expect(Object.keys(result)).toEqual(["title"]);
+    expect(Object.keys(result).sort()).toEqual(["openToAnyone", "title"]);
     const serialised = JSON.stringify(result);
     expect(serialised).not.toContain("owner-brain");
     expect(serialised).not.toContain("1-projects");
@@ -179,13 +196,13 @@ describe("every absence is the same absence", () => {
   test("an unknown token", async () => {
     const t = setupTest();
     await scenario(t);
-    expect(await preview(t, "a-token-that-was-never-issued")).toEqual({ title: null });
+    expect(await preview(t, "a-token-that-was-never-issued")).toEqual(NOTHING);
   });
 
   test("an empty token", async () => {
     const t = setupTest();
     await scenario(t);
-    expect(await preview(t, "")).toEqual({ title: null });
+    expect(await preview(t, "")).toEqual(NOTHING);
   });
 
   test("a revoked share is indistinguishable from one that never existed", async () => {
@@ -214,7 +231,7 @@ describe("every absence is the same absence", () => {
       await ctx.db.patch(row!._id, { expiresAt: Date.now() - 1 });
     });
 
-    expect(await preview(t, token)).toEqual({ title: null });
+    expect(await preview(t, token)).toEqual(NOTHING);
   });
 
   test("a share whose owner turned the title off", async () => {
@@ -222,7 +239,7 @@ describe("every absence is the same absence", () => {
     const { ownerId, workspaceId } = await scenario(t);
     const token = await shareWith(t, ownerId, workspaceId, { titleInPreview: false });
 
-    expect(await preview(t, token)).toEqual({ title: null });
+    expect(await preview(t, token)).toEqual(NOTHING);
   });
 
   test("a share over a note whose filename yields no title", async () => {
@@ -232,7 +249,7 @@ describe("every absence is the same absence", () => {
       path: "0-inbox/2026-08-29.md",
     });
 
-    expect(await preview(t, token)).toEqual({ title: null });
+    expect(await preview(t, token)).toEqual(NOTHING);
   });
 });
 
@@ -250,6 +267,9 @@ describe("the title never comes from the note", () => {
 
     const bindings = await t.run((ctx) => ctx.db.query("storageBindings").collect());
     expect(bindings).toHaveLength(0);
-    expect(await preview(t, token)).toEqual({ title: "Implementation handoff" });
+    expect(await preview(t, token)).toEqual({
+      title: "Implementation handoff",
+      openToAnyone: false,
+    });
   });
 });

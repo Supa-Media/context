@@ -14,6 +14,11 @@
  * control people cannot predict is a sharing control they cannot use safely.
  */
 
+// The link's shape is the viewer's, not a second copy of it: one function
+// builds a segment and one reads it, so the console cannot mint a URL the page
+// at the other end declines to parse.
+import { shareSegment } from "../../share/share";
+
 /**
  * One live share, as `listShares` returns it.
  *
@@ -63,8 +68,36 @@ export const SHARE_PATH_PREFIX = "/s/";
  * wrong — they would sign in to the wrong product to look for a note that is
  * not there.
  */
-export function shareUrl(token: string, origin: string): string {
-  return `${origin.replace(/\/+$/, "")}${SHARE_PATH_PREFIX}${token}`;
+export function shareUrl(
+  token: string,
+  origin: string,
+  /**
+   * The note's own name, when the owner has left it on the card.
+   *
+   * Omitted — or passed with `titleInPreview` off — gives a bare-token URL.
+   * That is not tidiness: switching the title off is the owner saying they do
+   * not want this note named to somebody who has not opened it, and a slug in
+   * the URL would put the name in front of every person the link is forwarded
+   * to, which is a larger audience than the card's.
+   */
+  title?: string | null,
+): string {
+  return `${origin.replace(/\/+$/, "")}${SHARE_PATH_PREFIX}${shareSegment(token, title)}`;
+}
+
+/**
+ * The link for one share row, with the readable half filled in from the row.
+ *
+ * The row is the authority on both halves — the token and whether the owner
+ * left the title on — so the two cannot be assembled inconsistently by a
+ * caller that has one and guesses the other.
+ */
+export function shareUrlFor(share: NoteShare, origin: string): string {
+  return shareUrl(
+    share.token,
+    origin,
+    share.titleInPreview ? share.previewTitle : undefined,
+  );
 }
 
 /**
