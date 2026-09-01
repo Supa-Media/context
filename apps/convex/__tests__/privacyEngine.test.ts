@@ -27,12 +27,14 @@ import {
   PRIVACY_RULES_BEGIN,
   PRIVACY_RULES_END,
   type Visibility,
+  PrivacyOverrides,
   canSee,
   clearedOverrides,
   effectiveVisibility,
   isPlumbing,
   movedOverrides,
   nextOverrides,
+  overrideFor,
   parsePrivacyManifest,
   renderPrivacyRulesBlock,
   replacePrivacyRulesBlock,
@@ -469,5 +471,270 @@ describe("frontmatter is description, the manifest is access control", () => {
     expect(canSee(key, "team", rules, overrides)).toBe(false);
     // And the gateway agrees, which is the only opinion that matters.
     expect(gateway.canSee(key, "team", rules, overrides as Map<string, string>)).toBe(false);
+  });
+});
+
+/**
+ * ONE OBJECT, ONE ANSWER — WHERE TWO STRINGS NAME ONE OBJECT.
+ *
+ * Every decision in both engines is keyed on an exact path. That is sound on a
+ * keyspace where one string is one object, which R2 and S3 are and Dropbox is
+ * not: `DropboxStore`'s own header records that Dropbox "treats `Foo.md` and
+ * `foo.md` as the same file and normalises Unicode", and that it deliberately
+ * does not re-case a caller's key, because a store that silently rewrote one
+ * would be worse than one that returns what Dropbox actually has.
+ *
+ * That is right for the adapter and it left the question here. Note paths reach
+ * both engines from outside — a connected AI client's tool call, a console
+ * request — so on a Dropbox-backed context the caller picks which of two
+ * strings to send, and therefore which of two answers to be scored by:
+ *
+ *  - `Privacy.md` is not `privacy.md`, so nothing reserved it, and Dropbox
+ *    wrote the access map anyway.
+ *  - a note re-cased inside a `team` folder misses its narrowing override while
+ *    the FOLDER rule still matches, because folder matching is a prefix compare
+ *    the re-casing leaves untouched. It scores `team`, and Dropbox returns the
+ *    private file.
+ *
+ * The direction is what makes the second one a hole. Re-casing a *folder* makes
+ * every rule miss and the `private` default takes over — closed. Re-casing a
+ * *note* drops only the narrowing, and that is open.
+ *
+ * Both engines therefore fold, on every backend, and the assertions below are
+ * doubled because a fold in one copy alone is the divergence this whole file
+ * exists to prevent — the console calling a note private while the gateway
+ * hands it to an AI client.
+ */
+describe("a privacy decision does not change when a path is re-cased", () => {
+  const rules: PrivacyRule[] = [{ prefix: "1-projects", vis: "team" }];
+
+  test("the manifest is reserved under any casing, in both engines", () => {
+    for (const key of ["Privacy.md", "PRIVACY.MD", "privacy.md"]) {
+      expect(isPlumbing(key), key).toBe(true);
+      expect(gateway.isPlumbing(key), `gateway ${key}`).toBe(true);
+      expect(canSee(key, "team", rules, new Map()), key).toBe(false);
+      expect(gateway.canSee(key, "team", rules, new Map()), `gateway ${key}`).toBe(false);
+    }
+  });
+
+  test("the legacy manifest is reserved under any casing, in both engines", () => {
+    // `scopes.yml` is not dot-prefixed, so it rested on exact equality too.
+    for (const key of ["Scopes.yml", "SCOPES.YML"]) {
+      expect(isPlumbing(key), key).toBe(true);
+      expect(gateway.isPlumbing(key), `gateway ${key}`).toBe(true);
+    }
+  });
+
+  test("a narrowing override survives re-casing the note, in both engines", () => {
+    const overrides = new Map<string, Visibility>([["1-projects/salary.md", "private"]]);
+    // The positive control: without it, a note that was never team-visible
+    // would satisfy the assertion below for the wrong reason.
+    expect(canSee("1-projects/public.md", "team", rules, overrides)).toBe(true);
+    expect(gateway.canSee("1-projects/public.md", "team", rules, overrides as Map<string, string>))
+      .toBe(true);
+
+    for (const key of ["1-projects/Salary.md", "1-projects/SALARY.MD", "1-projects/salary.md"]) {
+      expect(effectiveVisibility(key, rules, overrides), key).toBe("private");
+      expect(gateway.effectiveVisibility(key, rules, overrides), `gateway ${key}`).toBe("private");
+      expect(canSee(key, "team", rules, overrides), key).toBe(false);
+      expect(gateway.canSee(key, "team", rules, overrides as Map<string, string>), `gateway ${key}`)
+        .toBe(false);
+    }
+  });
+
+  /**
+   * THE DIRECTION THAT MUST NOT FOLD, AND THE TEST THAT DID NOT TEST IT.
+   *
+   * The first version of this check used `2-areas/Published-Other.md`, which is
+   * not a re-casing of `2-areas/published.md` at all — it folds to a different
+   * string, so the assertion held whether the engine folded or not. It was
+   * named for the one direction that matters and tested nothing, and the code
+   * it was passing over really did widen: `overrideFor` folded every override,
+   * `team` ones included, so a note the owner published by name lent its
+   * visibility to every case-variant of itself. On a case-sensitive store —
+   * R2, S3, every context deployed today — those are different files.
+   *
+   * So a fold may only ever NARROW. This is the same argument that keeps folder
+   * rules unfolded, applied to note overrides, and the fix was to apply it
+   * rather than to restate it.
+   */
+  test("a widening override does not travel by re-casing, in both engines", () => {
+    const privateRules: PrivacyRule[] = [{ prefix: "2-areas", vis: "private" }];
+    const overrides = new Map<string, Visibility>([["2-areas/published.md", "team"]]);
+
+    // The positive control: the note the owner actually named is readable.
+    expect(canSee("2-areas/published.md", "team", privateRules, overrides)).toBe(true);
+    expect(
+      gateway.canSee("2-areas/published.md", "team", privateRules, overrides as Map<string, string>),
+    ).toBe(true);
+
+    // Its case-variants are not, in either engine.
+    for (const key of ["2-areas/Published.md", "2-areas/PUBLISHED.MD"]) {
+      expect(effectiveVisibility(key, privateRules, overrides), key).toBe("private");
+      expect(gateway.effectiveVisibility(key, privateRules, overrides), `gateway ${key}`).toBe(
+        "private",
+      );
+      expect(canSee(key, "team", privateRules, overrides), key).toBe(false);
+      expect(
+        gateway.canSee(key, "team", privateRules, overrides as Map<string, string>),
+        `gateway ${key}`,
+      ).toBe(false);
+    }
+  });
+
+  test("two overrides that fold together resolve to private, whatever their order", () => {
+    // One file on Dropbox, two manifest lines, a contradiction the owner never
+    // resolved. Resolving it by which line came first is arbitrary, and one of
+    // the two orders fails open.
+    const teamRules: PrivacyRule[] = [{ prefix: "a", vis: "team" }];
+    const orders: [string, Visibility][][] = [
+      [["a/Foo.md", "team"], ["a/foo.md", "private"]],
+      [["a/foo.md", "private"], ["a/Foo.md", "team"]],
+    ];
+    for (const entries of orders) {
+      const overrides = new Map<string, Visibility>(entries);
+      const label = entries.map(([k]) => k).join(" then ");
+      expect(effectiveVisibility("a/FOO.MD", teamRules, overrides), label).toBe("private");
+      expect(gateway.effectiveVisibility("a/FOO.MD", teamRules, overrides), `gateway ${label}`).toBe(
+        "private",
+      );
+    }
+  });
+
+  /**
+   * A FOLD READS ACROSS CASE; IT MUST NEVER WRITE ACROSS IT.
+   *
+   * An earlier version of this change also folded the *deletion* of an
+   * override, so that setting a visibility dropped every entry folding onto the
+   * path. On a case-sensitive store that silently rewrote a different note:
+   * publishing `1-projects/Notes.md` stripped `1-projects/notes.md`'s narrowing
+   * — consent obtained for one file and spent on another — and creating
+   * `2-areas/Report.md` un-shared `2-areas/report.md` with no message anywhere.
+   * Nothing in either suite noticed, which is why these are here.
+   */
+  test("changing one note's visibility leaves a case-twin's override alone", () => {
+    const teamRules: PrivacyRule[] = [{ prefix: "1-projects", vis: "team" }];
+    const overrides = new Map<string, Visibility>([["1-projects/notes.md", "private"]]);
+
+    const published = nextOverrides("1-projects/Notes.md", "team", teamRules, overrides);
+    expect(published.get("1-projects/notes.md")).toBe("private");
+    expect(canSee("1-projects/notes.md", "team", teamRules, published)).toBe(false);
+
+    const cleared = clearedOverrides("1-projects/NOTES.MD", overrides);
+    expect(cleared.get("1-projects/notes.md")).toBe("private");
+
+    const moved = movedOverrides("1-projects/Notes.md", "1-projects/moved.md", teamRules, overrides);
+    expect(moved.get("1-projects/notes.md")).toBe("private");
+  });
+
+  test("re-casing a FOLDER stays closed rather than folding, in both engines", () => {
+    // Folder rules are deliberately not folded: the default is `private`, so a
+    // missed prefix already fails closed, and folding them would let a `team`
+    // rule match folders its author never named.
+    const key = "1-Projects/anything.md";
+    expect(visibilityOf(key, rules)).toBe("private");
+    expect(gateway.visibilityOf(key, rules)).toBe("private");
+    expect(canSee(key, "team", rules, new Map())).toBe(false);
+    expect(gateway.canSee(key, "team", rules, new Map())).toBe(false);
+  });
+
+  /**
+   * THE INDEX ACCELERATES AND MUST NEVER DECIDE.
+   *
+   * `PrivacyOverrides` precomputes the folded set so `canSee` is not a scan on
+   * the search path. The first version of this PR made the *container* decide
+   * the answer — a `Map` subclass that folded, beside plain maps that did not —
+   * which is how the two engines came to disagree about a live note. So the
+   * property is not "the index is fast", it is "the index and the scan cannot
+   * differ", and a plain `Map` is the scan.
+   */
+  test("the folded index and the plain-map scan give the same answer", () => {
+    const entries: [string, Visibility][] = [
+      ["1-projects/salary.md", "private"],
+      ["1-projects/published.md", "team"],
+      ["1-projects/reévaluation.md", "private"],
+    ];
+    const indexed = new PrivacyOverrides();
+    for (const [k, v] of entries) indexed.set(k, v);
+    const plain = new Map<string, Visibility>(entries);
+
+    for (const key of [
+      "1-projects/salary.md",
+      "1-projects/Salary.md",
+      "1-projects/SALARY.MD",
+      "1-projects/published.md",
+      "1-projects/Published.md",
+      "1-projects/reévaluation.md",
+      "1-projects/absent.md",
+    ]) {
+      expect(overrideFor(indexed, key), `indexed ${key}`).toBe(overrideFor(plain, key));
+      expect(effectiveVisibility(key, rules, indexed), `visibility ${key}`).toBe(
+        effectiveVisibility(key, rules, plain),
+      );
+    }
+  });
+
+  /**
+   * THE SAME RULE, DRIVEN THROUGH THE GATEWAY'S OWN CLASS.
+   *
+   * The check below imports `PrivacyOverrides` from `functions/lib/privacy`, so
+   * it never touches the gateway's copy — and removing `this.folds = null` from
+   * BOTH `set` and `delete` in `apps/mcp/src/index.js` passes all 989 gateway
+   * checks and all of these. Two copies of one rule with only one checked, in
+   * the repository whose own `no-ungated-native-import` section is about
+   * exactly that.
+   *
+   * `gatewayInternals` exposes the real `parsePrivacyManifest`, which returns
+   * the gateway's own `PrivacyOverrides`, so this drives the class rather than
+   * a description of it.
+   */
+  test("the gateway's own index is dropped on a write too", () => {
+    const parsed = gateway.parsePrivacyManifest(
+      manifest(
+        block([
+          "default_visibility: private",
+          "",
+          "folder_defaults:",
+          "  1-projects: team",
+          "",
+          "note_overrides:",
+          "  1-projects/a.md: private",
+        ]),
+      ),
+    );
+    const overrides = parsed.overrides;
+    // Read first, so an index exists to go stale.
+    expect(gateway.effectiveVisibility("1-projects/A.md", parsed.rules, overrides)).toBe("private");
+
+    overrides.set("1-projects/b.md", "private");
+    expect(gateway.effectiveVisibility("1-projects/B.md", parsed.rules, overrides)).toBe("private");
+
+    overrides.delete("1-projects/a.md");
+    expect(gateway.effectiveVisibility("1-projects/A.md", parsed.rules, overrides)).toBe("team");
+  });
+
+  test("a write drops the folded index rather than serving a stale one", () => {
+    const overrides = new PrivacyOverrides();
+    overrides.set("1-projects/a.md", "private");
+    // Read it, so an index exists to go stale.
+    expect(overrideFor(overrides, "1-projects/A.md")).toBe("private");
+
+    overrides.set("1-projects/b.md", "private");
+    expect(overrideFor(overrides, "1-projects/B.md")).toBe("private");
+
+    overrides.delete("1-projects/a.md");
+    expect(overrideFor(overrides, "1-projects/A.md")).toBeUndefined();
+    expect(canSee("1-projects/A.md", "team", rules, overrides)).toBe(true);
+  });
+
+  test("Unicode composition is folded too, in both engines", () => {
+    // Dropbox normalises Unicode as well as case. NFD "é" is two code points
+    // and NFC "é" is one; they are the same file there.
+    const nfc = "1-projects/reévaluation.md";
+    const nfd = "1-projects/reévaluation.md";
+    expect(nfc).not.toBe(nfd);
+    const overrides = new Map<string, Visibility>([[nfc, "private"]]);
+    expect(effectiveVisibility(nfd, rules, overrides)).toBe("private");
+    expect(gateway.effectiveVisibility(nfd, rules, overrides)).toBe("private");
   });
 });

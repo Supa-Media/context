@@ -1,0 +1,666 @@
+diff --git a/apps/convex/__tests__/fileOps.test.ts b/apps/convex/__tests__/fileOps.test.ts
+index 25254cd..6b68552 100644
+--- a/apps/convex/__tests__/fileOps.test.ts
++++ b/apps/convex/__tests__/fileOps.test.ts
+@@ -4304,41 +4304,45 @@ describe("a rule no survivor needs, told truthfully", () => {
+  * nothing, the manifest comes back identical, and the console reported the
+  * publish as done over a note no team member could read.
+  *
+- * The re-derivation shipped unguarded for two rounds: restoring
+- * `visibility: options.visibility` passed the whole suite, because a throw in
+- * front of it made it a tautology. That throw is not in this change, so the
+- * re-derivation is the whole of the story and is pinned below.
++ * Both halves were shipped unguarded: deleting the throw, and restoring
++ * `visibility: options.visibility`, each passed the whole 1438-check suite.
+  */
+-describe("a set reports the manifest's answer", () => {
+-  /**
+-   * With no throw ahead of it, this is the whole of the folded-twin story on
+-   * the console side: the write really does nothing (the delete is exact, and
+-   * the note reads private through its twin's narrowing), so the ONLY thing
+-   * standing between the owner and a false "published" is that the answer is
+-   * read back off the manifest instead of echoed from the request.
+-   *
+-   * Refusing the write outright is better and is deliberately not in this
+-   * change — see the residual in CLAUDE.md.
+-   */
+-  test("a publish blocked by a case-twin reports private, not the team that was asked for", async () => {
++describe("a note whose case-twin is private cannot be published by accident", () => {
++  test("publishing the case-variant is refused rather than silently ignored", async () => {
+     const store = bucket();
+     await shareProjects(store);
+     store.seed("1-projects/Pay.md", "# a different file, in a team folder\n");
+ 
+-    const result = await setVisibility(store, {
+-      path: "1-projects/Pay.md",
++    // The positive control: an ordinary publish in the same folder still works,
++    // so the refusal below is about the twin and not about the folder.
++    const ordinary = await setVisibility(store, {
++      path: "1-projects/context-lc.md",
+       visibility: "team",
+       scope: "private",
+     });
+-    // The request said team; the manifest still narrows it through pay.md.
+-    expect(result.visibility).toBe("private");
+-    // …and it really is unreadable at team scope, so the report is the truth.
+-    const refused = await capture(() =>
+-      readFile(store, { path: "1-projects/Pay.md", scope: "team" }),
++    expect(ordinary.visibility).toBe("team");
++
++    const refusal = await capture(() =>
++      setVisibility(store, { path: "1-projects/Pay.md", visibility: "team", scope: "private" }),
+     );
+-    expect(refused.code).toBe("FILE_NOT_FOUND");
++    expect(refusal.message).toMatch(/only by case/);
++
++    // And the original's narrowing is still in the manifest.
++    expect(store.snapshot()[PRIVACY_KEY]).toContain("1-projects/pay.md: private");
+   });
+ 
++  /**
++   * Named for what it can actually see. The version before this was called
++   * "the answer is re-derived from the manifest, never echoed back" and asked
++   * for `private` on a path that was already `private` — so `options.visibility`
++   * and the manifest's answer were the same string and the assertion could not
++   * tell them apart. Restoring `const visibility = options.visibility;` passed
++   * it, which is the regression it was added to catch.
++   *
++   * With the throw above it in place the re-derivation IS a tautology and
++   * cannot be tested apart from it; `fileOps.ts` says so at the line itself.
++   * What this pins instead is the reporting around it, which is not.
++   */
+   test("a no-op set reports the manifest's answer, not the request", async () => {
+     const store = bucket();
+     await shareProjects(store);
+diff --git a/apps/convex/functions/lib/fileOps.ts b/apps/convex/functions/lib/fileOps.ts
+index ff14585..00f0780 100644
+--- a/apps/convex/functions/lib/fileOps.ts
++++ b/apps/convex/functions/lib/fileOps.ts
+@@ -2072,6 +2072,11 @@ export interface VisibilityResult {
+   exception: boolean;
+ }
+ 
++export const FOLDED_TWIN_REFUSAL =
++  "Another note in this context differs from this path only by case and is private, " +
++  "and visibility is recorded per exact path: rename one of them, or change that note's " +
++  "visibility instead.";
++
+ /**
+  * Set one note's visibility, through the manifest.
+  *
+@@ -2110,14 +2115,22 @@ export async function setVisibility(
+   const state = await mutateManifest(store, (current) => {
+     if (!canSee(path, options.scope, current.rules, current.overrides)) throw notFound();
+     const overrides = nextOverrides(path, options.visibility, current.rules, current.overrides);
++    // The fold reads across case and the delete writes exactly, so a DIFFERENT
++    // note folding onto this path can hold a narrowing this write cannot reach.
++    // Without this the manifest is rewritten to something identical and the
++    // console reports the visibility it was ASKED for, over a note nobody can
++    // read. See "A privacy decision is folded" in CLAUDE.md.
++    if (effectiveVisibility(path, current.rules, overrides) !== options.visibility) {
++      throw new FileOpError("PATH_INVALID", FOLDED_TWIN_REFUSAL);
++    }
+     return { rules: current.rules, overrides };
+   });
+ 
+   const inherited = visibilityOf(path, state.rules);
+   // Re-derived, never echoed back: the request is what was asked for, and the
+-  // manifest is what happened. With the fold, those differ — a note whose
+-  // case-twin is private reads private however it was set — and reporting the
+-  // request would be the console saying a publish happened when it did not.
++  // manifest is what happened. Given the throw above this is a tautology today
++  // and cannot be tested apart from it — kept, and labelled rather than
++  // claimed, so that narrowing the throw later cannot make this start lying.
+   const visibility = effectiveVisibility(path, state.rules, state.overrides);
+   return {
+     path,
+diff --git a/apps/mcp/src/index.js b/apps/mcp/src/index.js
+index 577cb67..f7402ff 100644
+--- a/apps/mcp/src/index.js
++++ b/apps/mcp/src/index.js
+@@ -840,6 +840,30 @@ function effectiveVisibility(key, rules, overrides) {
+   return overrideFor(overrides, key) || visibilityOf(key, rules);
+ }
+ 
++/**
++ * Would writing this visibility leave the note reading as something else?
++ *
++ * The same write `persistExactVisibility` is about to make, made against a
++ * throwaway copy. It happens because the fold READS across case while the
++ * delete WRITES exactly, so a different note folding onto this path can hold a
++ * narrowing this write cannot reach — and the manifest then comes back
++ * unchanged while the caller is told the visibility moved.
++ *
++ * A plain `Map`, so `overrideFor` scans it: the accelerator is never the
++ * authority.
++ */
++function foldedTwinBlocks(path, visibility, rules, overrides) {
++  const probe = new Map(overrides);
++  if (visibility === visibilityOf(path, rules)) probe.delete(path);
++  else probe.set(path, visibility);
++  return effectiveVisibility(path, rules, probe) !== visibility;
++}
++
++const FOLDED_TWIN_REFUSAL =
++  "another note in this context differs from this path only by case and is private, " +
++  "and visibility is recorded per exact path: rename one of them, or change that note's " +
++  "visibility instead.";
++
+ async function persistExactVisibility(store, path, visibility, rules) {
+   for (let attempt = 0; attempt < 5; attempt++) {
+     const state = await loadPrivacyState(store);
+@@ -859,6 +883,15 @@ async function persistExactVisibility(store, path, visibility, rules) {
+     const inherited = visibilityOf(path, state.rules);
+     if (visibility === inherited) state.overrides.delete(path);
+     else state.overrides.set(path, visibility);
++    // The fold reads across case and the delete writes exactly, so a DIFFERENT
++    // note folding onto this path can hold a narrowing this write cannot reach.
++    // Without this the manifest comes back unchanged and the caller is told the
++    // visibility moved — over a note nobody can read. Refuse rather than report
++    // a change that did not happen; the backstop is here, at the one place
++    // every caller goes through, and `toolSetVisibility` says it more kindly.
++    if (effectiveVisibility(path, state.rules, state.overrides) !== visibility) {
++      throw new Error(FOLDED_TWIN_REFUSAL);
++    }
+     const next = replacePrivacyRulesBlock(state.text, state.rules, state.overrides);
+     const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
+     if (put) return;
+@@ -2761,6 +2794,13 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
+   if (scope === "team" && existing && existingVisibility !== "team") {
+     return writePermissionError("write destination");
+   }
++  // Refused here rather than left to the backstop in `persistExactVisibility`,
++  // which throws — and a throw reaches the client as a protocol error instead
++  // of a refusal it can read. Unreachable at team scope: a private fold was
++  // already refused above, with no path disclosed.
++  if (foldedTwinBlocks(path, desiredVisibility, rules, overrides)) {
++    return toolError(FOLDED_TWIN_REFUSAL);
++  }
+   const isPublishing =
+     scope === "private" && desiredVisibility === "team" && (!existing || existingVisibility === "private");
+   if (isPublishing && args.confirm_team_publish !== true) {
+@@ -2830,6 +2870,11 @@ async function toolSetVisibility(store, scope, rules, overrides, args) {
+     );
+   }
+   const current = effectiveVisibility(path, rules, overrides);
++  // Reachable only at owner scope: a team caller writing over a private fold is
++  // already refused by `toolWriteNote`, with no path disclosed.
++  if (foldedTwinBlocks(path, visibility, rules, overrides)) {
++    return toolError(FOLDED_TWIN_REFUSAL);
++  }
+   if (current === visibility) {
+     return toolText(`unchanged: ${path}\nvisibility: ${visibility}\netag: ${obj.etag}`);
+   }
+@@ -2906,9 +2951,9 @@ async function toolSetFolderVisibility(store, scope, args) {
+     // out-ranked for the note by the longer `private` rule this very call adds
+     // — widens the twin and passes the test. It needed no case-variant folder
+     // rule and no hand-edited manifest, and it shipped. Deciding who a
+-    // narrowing protects means simulating the write, not reasoning about rules;
+-    // a weaker copy of that reasoning is worth less than a redundant line of
+-    // manifest.
++    // narrowing protects is what `foldedTwinBlocks` does by simulating the
++    // write; a second, weaker copy of that reasoning is worth less than a
++    // redundant line of manifest.
+     if (visibility === "private") continue;
+     if (notePath.startsWith(`${path}/`) && visibility === visibilityOf(notePath, nextRules)) {
+       nextOverrides.delete(notePath);
+@@ -3769,6 +3814,24 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
+     return writePermissionError("archive destination");
+   }
+   if (await store.get(dest)) return toolError("conflict: archive destination already exists");
++  // Before any write, because this path has no rollback at all: a throw from
++  // the backstop leaves the destination written, the source undeleted, and a
++  // protocol error in the caller's hands.
++  //
++  // The comment that briefly replaced this said the guard could never fire,
++  // because "an archive's destination is always `private`" and
++  // `foldedTwinBlocks` is unconditionally false for `private`. The second half
++  // is true and the first is not: `destinationVisibility` above is `private`
++  // only at owner scope, and `team` for everybody else. So the guard is
++  // reachable, at exactly the scope where its message must not be — hence the
++  // split below. What actually bounds it is the millisecond timestamp in
++  // `dest`, which is what the ORIGINAL comment said, and which was deleted for
++  // being "the wrong reason for a true statement". It was the right reason.
++  if (foldedTwinBlocks(dest, destinationVisibility, rules, overrides)) {
++    return scope === "private"
++      ? toolError(FOLDED_TWIN_REFUSAL)
++      : writePermissionError("archive destination");
++  }
+   const body = await obj.arrayBuffer();
+   await store.put(`${HISTORY_PREFIX}${path}.${stamp}.archive.md`, body);
+   if (destinationVisibility === "private") {
+@@ -3818,6 +3881,13 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
+     sourceVisibility === "private" || visibilityOf(destination, rules) === "private"
+       ? "private"
+       : "team";
++  // Before anything is written. `persistExactVisibility`'s backstop would catch
++  // this too, but only after the body had already been copied to the
++  // destination — a torn move (fail-closed, since the fold makes the
++  // destination read private, but torn) instead of a refusal.
++  if (foldedTwinBlocks(destination, destinationVisibility, rules, overrides)) {
++    return toolError(FOLDED_TWIN_REFUSAL);
++  }
+   const stamp = timestampSlug();
+   await store.put(`${HISTORY_PREFIX}${source}.${stamp}.move.md`, body);
+   if (destinationVisibility === "private") {
+@@ -3892,6 +3962,13 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
+       sourceVisibility === "private" || destinationFolderVisibility === "private"
+         ? "private"
+         : "team";
++    // Refused in the preflight, which runs before a single write. The backstop
++    // in `persistExactVisibility` would catch it, but only from inside the
++    // apply loop — and a throw there is an abort that has already copied this
++    // destination. See "A privacy decision is folded" in CLAUDE.md.
++    if (foldedTwinBlocks(move.destination, destinationVisibility, rules, overrides)) {
++      return toolError(FOLDED_TWIN_REFUSAL);
++    }
+     const fastArchiveCandidate =
+       move.source.startsWith("4-archive/") &&
+       move.destination.startsWith("4-archive/") &&
+@@ -3965,10 +4042,8 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
+         // can throw. The other order makes the one destination whose persist
+         // failed the one destination the rollback below cannot see — so the
+         // abort message says "aborted before deleting sources" over a copy that
+-        // is still there. Only a CAS exhaustion reaches it — a folded-twin
+-        // backstop briefly made it caller-reachable, and that backstop is not
+-        // in this change. The ordering is kept anyway: it is correct either
+-        // way, and it is what the refusals will need when they return.
++        // is still there. Only a CAS exhaustion could reach that before the
++        // folded-twin backstop existed; it is caller-reachable now.
+         copied.push(move.destination);
+       }
+       if (!fastArchiveRelocation && move.visibility === "team") {
+@@ -4078,6 +4153,19 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
+   if (scope === "team" && moves.some(({ destination: path }) => hasOverride(overrides, path))) {
+     return writePermissionError("folder move destination");
+   }
++  // AFTER the two scope gates, which is the whole point of where this sits.
++  // Above them it answered a team caller — and `dry_run` costs nothing, the
++  // attacker picks the destination name, and the message distinguishes "a
++  // private note folds onto this" from an ordinary permission denial. That is
++  // the existence oracle the comment further up this function forbids, and it
++  // is the one tool that had it: every other refuses at team scope with
++  // `writePermissionError`, which discloses nothing.
++  //
++  // Still before any write, which is why it is not left to the backstop.
++  const foldBlocked = moves.find((move) =>
++    foldedTwinBlocks(move.destination, move.visibility, rules, overrides)
++  );
++  if (foldBlocked) return toolError(FOLDED_TWIN_REFUSAL);
+   for (const move of moves) {
+     if (await store.get(move.destination)) {
+       return toolError(`conflict: destination already exists: ${move.destination}`);
+diff --git a/apps/mcp/test/test.mjs b/apps/mcp/test/test.mjs
+index 669a526..b2a22ea 100644
+--- a/apps/mcp/test/test.mjs
++++ b/apps/mcp/test/test.mjs
+@@ -3117,18 +3117,208 @@ check(
+     (recasedOverrideRead.content?.[0]?.text ?? "") === "not found"
+ );
+ 
++/**
++ * **And the owner must not be told a publish worked when it did not.**
++ *
++ * The two halves above are each right and together they close a door. The fold
++ * READS across case, so `Override-Image.md` scores `private` from the twin's
++ * narrowing; the delete WRITES exactly, so publishing the twin removes nothing.
++ * `visibilityOf` says the folder is `team`, so `visibility === inherited` takes
++ * the delete branch, the manifest comes back byte-identical, and the tool used
++ * to answer "visibility changed: from private to team" — with a `.audit/` row
++ * saying so — over a note every team caller still could not read. Retrying
++ * never converged, because nothing about the second attempt differed.
++ *
++ * That is the "an absent capability is reported, never faked" rule broken on
++ * the publish path, and it is the direct cost of keeping the delete exact. The
++ * cost is worth paying and the silence was not: the write is refused, and the
++ * refusal says which two things collide so the owner can rename one.
++ */
++const twinPublish = await call("priv-token", "set_visibility", {
++  path: recasedOverridePath,
++  visibility: "team",
++  confirm_team_publish: true,
++});
++check(
++  "publishing a note whose case-twin is private is refused, not silently ignored",
++  twinPublish?.isError === true &&
++    /only by case/.test(twinPublish.content?.[0]?.text ?? "")
++);
+ check(
+   "and the note it could not publish is still refused to a team caller",
+   (await call("team-token", "read_note", { path: recasedOverridePath }))?.isError === true
+ );
+ 
+ /**
+- * **The tool nobody had counted.**
++ * **And the delete stays exact, proven on THIS side of the port.**
++ *
++ * The control plane's differential matrix pins the narrowing rule for both
++ * engines, but it extracts only the pure functions — `parsePrivacyManifest`,
++ * `visibilityOf`, `effectiveVisibility`, `isPlumbing`, `canSee` and the
++ * renderers. `persistExactVisibility` and `clearExactVisibility` are not among
++ * them, so re-folding the delete here — putting back the bug where publishing
++ * `Notes.md` strips `notes.md`'s narrowing, consent taken for one file and
++ * spent on another — passed all 983 of these checks. Measured, not assumed.
++ *
++ * The twin below is the live fixture's own override, so this asserts the thing
++ * the rule protects: changing one note must leave the other alone.
++ */
++const exactDeleteTwin = "1-projects/portable/exact-delete-twin.md";
++await contextStore.put(exactDeleteTwin, "# the note that must not be touched\n");
++const exactDeleteEtag = (await call("priv-token", "read_note", { path: exactDeleteTwin }))
++  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
++await call("priv-token", "set_visibility", {
++  path: exactDeleteTwin,
++  visibility: "private",
++  expected_etag: exactDeleteEtag,
++});
++const manifestAfterNarrowing = await (await contextStore.get("privacy.md")).text();
++check(
++  "the positive control: the twin is private, by a line in the manifest",
++  manifestAfterNarrowing.includes(`${exactDeleteTwin}: private`) &&
++    (await call("team-token", "read_note", { path: exactDeleteTwin }))?.isError === true
++);
++// Publishing its case-variant must not clear that line. The variant has to
++// EXIST first: `toolSetVisibility` does `store.get(path)` before it reaches the
++// twin probe, so without this the refusal below is an ordinary "not found" and
++// the check passes without the code under test ever running. Measured — that is
++// exactly what the first version of this did.
++await contextStore.put(
++  "1-projects/portable/Exact-Delete-Twin.md",
++  "# a different file that folds onto the private one\n"
++);
++const twinVariantPublish = await call("priv-token", "set_visibility", {
++  path: "1-projects/portable/Exact-Delete-Twin.md",
++  visibility: "team",
++  confirm_team_publish: true,
++});
++const manifestAfterVariant = await (await contextStore.get("privacy.md")).text();
++check(
++  "publishing a case-variant leaves the original's narrowing in the manifest",
++  twinVariantPublish?.isError === true &&
++    /only by case/.test(twinVariantPublish?.content?.[0]?.text ?? "") &&
++    manifestAfterVariant.includes(`${exactDeleteTwin}: private`) &&
++    (await call("team-token", "read_note", { path: exactDeleteTwin }))?.isError === true
++);
++// `set_visibility` refuses this up front, so it never reaches the delete. The
++// write path does: `write_note` with `visibility: "team"` runs
++// `persistExactVisibility`, whose delete branch is the one that must stay
++// exact. Re-folding that delete publishes the ORIGINAL, and the check below is
++// the only thing in this suite that sees it.
++const twinWrite = await call("priv-token", "write_note", {
++  path: "1-projects/portable/Exact-Delete-Twin.md",
++  content: "# a different file that folds onto the private one\n",
++  visibility: "team",
++  // Without this the write is refused for wanting confirmation and never
++  // reaches `persistExactVisibility` at all — which is how the first version of
++  // this check passed under the very sabotage it was written for.
++  confirm_team_publish: true,
++});
++const manifestAfterWrite = await (await contextStore.get("privacy.md")).text();
++check(
++  "writing a case-variant as team leaves the original's narrowing in the manifest",
++  manifestAfterWrite.includes(`${exactDeleteTwin}: private`) &&
++    (await call("team-token", "read_note", { path: exactDeleteTwin }))?.isError === true &&
++    twinWrite?.isError === true
++);
++await contextStore.delete("1-projects/portable/Exact-Delete-Twin.md");
++
++/**
++ * **And the move family, which is where the torn write lived.**
++ *
++ * An earlier version of this comment said the move paths "call
++ * `persistExactVisibility` directly, with no such refusal, so they are what the
++ * exact delete and the post-condition backstop actually protect" — and the same
++ * commit had just given `move_note` a refusal of its own, so the check below
++ * never reaches either guard. Stated, measured afterwards, and wrong: the
++ * sabotage table in the commit message records that re-folding the delete, and
++ * deleting the backstop, both still pass all of these checks. All six tools
++ * that can change a visibility now refuse up front (`write_note`,
++ * `set_visibility`, `archive_note`, `move_note`, `move_notes`, `move_folder`),
++ * across thirteen `persistExactVisibility` call sites, so the delete's
++ * exactness and the backstop are defence-in-depth with no path left that
++ * reaches them. That is recorded as a residual in CLAUDE.md rather than
++ * dressed up as coverage.
++ *
++ * What this check is actually for is the refusal in `move_note`, which has to
++ * come before the history snapshot and the body copy — the backstop alone would
++ * catch it only after the destination had been written.
++ */
++const moveSource = "1-projects/portable/move-into-a-fold.md";
++await contextStore.put(moveSource, "# a note that is about to be moved\n");
++const foldedMove = await call("priv-token", "move_note", {
++  source: moveSource,
++  destination: "1-projects/portable/Exact-Delete-Twin.md",
++});
++const manifestAfterMove = await (await contextStore.get("privacy.md")).text();
++check(
++  "a move onto a path whose case-twin is private is refused, and clears nothing",
++  foldedMove?.isError === true &&
++    manifestAfterMove.includes(`${exactDeleteTwin}: private`) &&
++    (await call("team-token", "read_note", { path: exactDeleteTwin }))?.isError === true
++);
++await contextStore.delete(moveSource);
++
++/**
++ * **The batch movers, where the backstop firing left a copy behind.**
++ *
++ * `copied.push(destination)` sat AFTER the visibility write, so the one
++ * destination whose `persistExactVisibility` threw was the one destination the
++ * rollback could not see — and the tool then answered "batch move aborted
++ * before deleting sources" over a copy that was still there. The ordering flaw
++ * predates the fold; only a CAS exhaustion could reach it. Refusing a folded
++ * twin from inside the apply loop made it caller-chosen, which is why both the
++ * ordering and a preflight refusal are here.
++ */
++const batchTwin = "1-projects/portable/batch-twin.md";
++await contextStore.put(batchTwin, "# the private one\n");
++const batchEtag = (await call("priv-token", "read_note", { path: batchTwin }))
++  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
++await call("priv-token", "set_visibility", {
++  path: batchTwin,
++  visibility: "private",
++  expected_etag: batchEtag,
++});
++const batchSource = "1-projects/portable/batch-source.md";
++await contextStore.put(batchSource, "# a note being moved\n");
++const batchSourceEtag = (await call("priv-token", "read_note", { path: batchSource }))
++  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
++const batchMove = await call("priv-token", "move_notes", {
++  // `move_notes` refuses an applied batch with no etags, and that refusal looks
++  // exactly like the one under test. Four checks in this PR passed for a reason
++  // their names did not claim; the `/only by case/` match below is what stops
++  // this being the fifth.
++  moves: [
++    {
++      source: batchSource,
++      destination: "1-projects/portable/Batch-Twin.md",
++      expected_source_etag: batchSourceEtag,
++    },
++  ],
++});
++check(
++  "a batch move onto a folded twin is refused, leaving no copy and no source deleted",
++  batchMove?.isError === true &&
++    /only by case/.test(batchMove?.content?.[0]?.text ?? "") &&
++    (await contextStore.get("1-projects/portable/Batch-Twin.md")) === null &&
++    (await contextStore.get(batchSource)) !== null
++);
++// Clean up: drop the override before the objects, so no manifest line is left
++// pointing at a note that no longer exists.
++await call("priv-token", "set_visibility", {
++  path: batchTwin,
++  visibility: "team",
++  confirm_team_publish: true,
++});
++await contextStore.delete(batchTwin);
++await contextStore.delete(batchSource);
++
++/**
++ * **The seventh tool, which nobody had counted.**
+  *
+- * Three reviews and four commits enumerated the tools that change a visibility
+- * and left this one out every time. It is also the only one that fails OPEN
+- * rather than closed, which is why its guard is the one piece of that work
+- * kept here: without it the fold is a regression rather than a fix.
++ * Three reviews and four commits said "six tools can change a visibility and
++ * all six refuse up front". `set_folder_visibility` is the seventh, and it is
++ * the one that fails OPEN rather than closed.
+  *
+  * Its compaction loop drops an override that has become redundant *for its own
+  * exact path* — correct before the fold, and wrong after it, because the same
+@@ -3202,9 +3392,9 @@ const narrowed = await setFolder(foldFolderA, "private");
+  * So no `private` override is compacted away, full stop. This loop cannot see
+  * who is relying on one, and a redundant line costs a line of manifest. The
+  * rule-shaped version of this was written, shipped, and found wrong within the
+- * hour; reasoning about who a narrowing protects means simulating the write,
+- * and a weaker copy of that reasoning is worth less than a redundant line of
+- * manifest.
++ * hour; reasoning about who a narrowing protects is what `foldedTwinBlocks`
++ * does by simulation, and a second, weaker copy of that reasoning is worth
++ * nothing.
+  */
+ const quietA = "1-projects/quiet/x.md";
+ const quietTwin = "1-projects/Quiet/x.md";
+@@ -3245,71 +3435,44 @@ check(
+     (await call("team-token", "read_note", { path: `${foldFolderB}/Note.md` }))?.isError === true
+ );
+ /**
+- * **The exact delete, which this change made reachable.**
++ * **And the refusal must never be the thing a team caller learns from.**
+  *
+- * `persistExactVisibility` and `clearExactVisibility` delete an override by its
+- * exact path — a fold reads across case, it never writes across it. That used
+- * to be documented as unreachable defence-in-depth, because six tools refused a
+- * folded twin before either could be called, and CLAUDE.md said so: "sabotaging
+- * either passes the whole gateway suite". Those refusals came out with the
+- * write-path apparatus, and the residual bullet came out with them — so the
+- * exact delete is now the only thing standing between `set_visibility` on
+- * `Notes.md` and `notes.md` losing the narrowing its owner wrote. Consent taken
+- * for one file and spent on another, and it fails OPEN.
+- *
+- * Both directions are here because they are separate functions: the persist
+- * path (a visibility change that lands on the delete branch) and the clear path
+- * (the source of a move).
++ * `FOLDED_TWIN_REFUSAL` says a private note differing only by case exists. For
++ * an owner that is the actionable message; for anybody else it is an existence
++ * oracle, and `dry_run` costs nothing to ask. `move_folder` answered it at team
++ * scope for one commit, because its fold check sat above the two scope gates
++ * where every other tool puts it below. The control is what makes this check
++ * mean something: the same call must come back with the generic permission
++ * error, which discloses nothing.
+  */
+-const exactDeleteKeep = "1-projects/portable/keep-narrowing.md";
+-const exactDeleteTwin = "1-projects/portable/Keep-Narrowing.md";
+-await contextStore.put(exactDeleteKeep, "# the narrowed original\n");
+-await contextStore.put(exactDeleteTwin, "# a different file that folds onto it\n");
+-const keepEtag = (await call("priv-token", "read_note", { path: exactDeleteKeep }))
+-  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
+-await call("priv-token", "set_visibility", {
+-  path: exactDeleteKeep,
+-  visibility: "private",
+-  expected_etag: keepEtag,
++// The source must actually collide: a file named `note.md`, so the destination
++// `Fold-Folder/note.md` folds onto the private `fold-folder/note.md`. Without
++// that the probe is refused by nothing and the check passes for no reason —
++// which is what its first version did.
++await contextStore.put("1-projects/probe-src/note.md", "# a team note to move\n");
++const teamFoldProbe = await call("team-token", "move_folder", {
++  source: "1-projects/probe-src",
++  destination: foldFolderB,
++  dry_run: true,
+ });
+-check(
+-  "the positive control: the original is narrowed and its twin reads private too",
+-  (await call("team-token", "read_note", { path: exactDeleteKeep }))?.isError === true &&
+-    (await call("team-token", "read_note", { path: exactDeleteTwin }))?.isError === true
+-);
+-// persistExactVisibility's delete branch: `Keep-Narrowing.md` inherits team, so
+-// asking for team takes the delete. It must remove nothing.
+-await call("priv-token", "set_visibility", {
+-  path: exactDeleteTwin,
+-  visibility: "team",
+-  confirm_team_publish: true,
++const ownerFoldProbe = await call("priv-token", "move_folder", {
++  source: "1-projects/probe-src",
++  destination: foldFolderB,
++  dry_run: true,
+ });
+ check(
+-  "changing a case-variant's visibility does not clear the original's narrowing",
+-  (await (await contextStore.get("privacy.md")).text()).includes(`${exactDeleteKeep}: private`) &&
+-    (await call("team-token", "read_note", { path: exactDeleteKeep }))?.isError === true
++  "the positive control: the owner IS told about the collision",
++  ownerFoldProbe?.isError === true &&
++    /only by case/.test(ownerFoldProbe?.content?.[0]?.text ?? "")
+ );
+-// clearExactVisibility, through the source of a move.
+-const keepMoveEtag = (await call("priv-token", "read_note", { path: exactDeleteTwin }))
+-  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
+-await call("priv-token", "move_note", {
+-  source: exactDeleteTwin,
+-  destination: "1-projects/portable/keep-moved.md",
+-  expected_source_etag: keepMoveEtag,
+-});
+ check(
+-  "moving a case-variant away does not clear the original's narrowing either",
+-  (await (await contextStore.get("privacy.md")).text()).includes(`${exactDeleteKeep}: private`) &&
+-    (await call("team-token", "read_note", { path: exactDeleteKeep }))?.isError === true
++  "a team caller learns nothing from a folded twin, in move_folder as anywhere else",
++  teamFoldProbe?.isError === true &&
++    !/only by case/.test(teamFoldProbe?.content?.[0]?.text ?? "") &&
++    /permission denied/.test(teamFoldProbe?.content?.[0]?.text ?? "")
+ );
+-// Clear the override against what the note inherits, then drop the objects.
+-await call("priv-token", "set_visibility", {
+-  path: exactDeleteKeep,
+-  visibility: "team",
+-  confirm_team_publish: true,
+-});
+-await contextStore.delete(exactDeleteKeep);
+-await contextStore.delete("1-projects/portable/keep-moved.md");
++
++await contextStore.delete("1-projects/probe-src/note.md");
+ 
+ /**
+  * **The fold's direction, checked in the gateway's own suite.**
+@@ -3318,12 +3481,8 @@ await contextStore.delete("1-projects/portable/keep-moved.md");
+  * hole this whole change had in its first version, and it was caught only by
+  * `apps/convex/__tests__/privacyEngine.test.ts` — the gateway suite passed with
+  * the widening in place. CLAUDE.md calls this suite the fast, offline one a
+- * self-hoster runs, and self-hosting is a published commitment: somebody
+- * running only `pnpm test` here must be able to see a widening fold in the
+- * engine they deploy.
+- *
+- * It was deleted as collateral when the write-path refusals came out, which it
+- * had nothing to do with — it pins the narrowing rule, not a refusal.
++ * self-hoster runs, and it could not see a widening fold in its own privacy
++ * engine.
+  *
+  * `2-areas/private` is a private folder. Publishing one note by exact override
+  * must not publish its case-variant, which on R2 and S3 is a different file the
+@@ -3353,7 +3512,6 @@ check(
+ await call("priv-token", "set_visibility", { path: widenFoldPath, visibility: "private" });
+ await contextStore.delete(widenFoldPath);
+ await contextStore.delete(widenFoldTwin);
+-
+ // Put the manifest back too, not just the objects. The first version of this
+ // block deleted the two notes and left `fold-folder: private`,
+ // `Fold-Folder: team` and the note override standing in the shared bucket for
+@@ -3375,6 +3533,17 @@ await setFolder(foldFolderA, "inherit");
+ for (const key of [`${foldFolderA}/note.md`, `${foldFolderB}/Note.md`]) {
+   await contextStore.delete(key);
+ }
++await contextStore.delete("1-projects/portable/Exact-Delete-Twin.md");
++
++// Put the fixture back: clear the override first, then the object, so no line
++// is left behind pointing at a note that no longer exists.
++await call("priv-token", "set_visibility", {
++  path: exactDeleteTwin,
++  visibility: "team",
++  confirm_team_publish: true,
++});
++await contextStore.delete(exactDeleteTwin);
++
+ await contextStore.delete(recasedOverridePath);
+ 
+ /**

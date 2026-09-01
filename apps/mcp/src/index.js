@@ -718,7 +718,7 @@ function parsePrivacyManifest(text) {
   if (begin < 0 || end < begin) throw new Error("privacy.md is missing its managed rules block");
   const block = text.slice(begin + PRIVACY_RULES_BEGIN.length, end);
   const rules = [];
-  const overrides = new Map();
+  const overrides = new PrivacyOverrides();
   let section = null;
   let sawDefault = false;
   for (const raw of block.split("\n")) {
@@ -745,7 +745,7 @@ function parsePrivacyManifest(text) {
     if (section === "folders") {
       rules.push({ prefix: path, vis: match[2] });
     } else {
-      if (!path.endsWith(".md") || path === PRIVACY_KEY) {
+      if (!path.endsWith(".md") || foldPath(path) === PRIVACY_KEY) {
         throw new Error(`invalid exact-note privacy path: ${path}`);
       }
       overrides.set(path, match[2]);
@@ -793,7 +793,7 @@ function replacePrivacyRulesBlock(text, rules, overrides) {
 async function loadLegacyPrivacyState(store) {
   const scopeObject = await store.get(LEGACY_SCOPES_KEY);
   const rules = scopeObject ? parseLegacyScopeRules(await scopeObject.text()) : [];
-  const overrides = new Map();
+  const overrides = new PrivacyOverrides();
   const keys = await listAllKeys(store, NOTE_ACL_PREFIX);
   for (const { key } of keys) {
     const path = key.slice(NOTE_ACL_PREFIX.length).replace(/\.json$/, "");
@@ -809,7 +809,7 @@ async function loadPrivacyState(store) {
     const text = await object.text();
     return { ...parsePrivacyManifest(text), text, object, legacy: false };
   } catch (error) {
-    return { rules: [], overrides: new Map(), text: "", object, legacy: false, error: error.message };
+    return { rules: [], overrides: new PrivacyOverrides(), text: "", object, legacy: false, error: error.message };
   }
 }
 
@@ -837,7 +837,7 @@ async function loadNoteVisibilityOverrides(store) {
 }
 
 function effectiveVisibility(key, rules, overrides) {
-  return overrides?.get(key) || visibilityOf(key, rules);
+  return overrideFor(overrides, key) || visibilityOf(key, rules);
 }
 
 async function persistExactVisibility(store, path, visibility, rules) {
@@ -874,8 +874,10 @@ async function clearExactVisibility(store, path) {
       await store.delete(noteAclKey(path));
       return;
     }
-    if (!state.overrides.has(path)) return;
-    state.overrides.delete(path);
+    // Exact on purpose, and asked through `delete`'s own answer so the two
+    // cannot drift apart: a fold reads across case, it never writes across it.
+    // Clearing `a/Foo.md` must not remove the override on `a/foo.md`.
+    if (!state.overrides.delete(path)) return;
     const next = replacePrivacyRulesBlock(state.text, state.rules, state.overrides);
     const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
     if (put) return;
@@ -883,13 +885,164 @@ async function clearExactVisibility(store, path) {
   throw new Error("privacy manifest changed concurrently; retry the operation");
 }
 
+/**
+ * One object, one privacy answer — even where two strings name one object.
+ *
+ * Every decision in this engine is keyed on an exact path: `isPlumbing` opens
+ * with `key === PRIVACY_KEY`, and `effectiveVisibility` is an exact `Map.get`
+ * against the exact-note overrides. That is sound on a keyspace where one
+ * string is one object, which is what R2 and S3 are — and `DropboxStore` is
+ * not. Its own header lists the difference: Dropbox "treats `Foo.md` and
+ * `foo.md` as the same file and normalises Unicode", and it deliberately does
+ * not re-case a caller's key, because a store that silently rewrote one would
+ * be worse than one that returns what Dropbox actually has.
+ *
+ * That is the right call for the adapter and it leaves the question here. Every
+ * note path in this gateway arrives from a connected AI client, so on a
+ * Dropbox-backed context an attacker picks which of two strings to send and
+ * therefore which of two answers to be scored by: `Privacy.md` is not
+ * `privacy.md`, so nothing reserved it, and Dropbox wrote the manifest anyway.
+ *
+ * So the fold happens where the decision is made rather than where the bytes
+ * are stored, and on **every** backend: a privacy answer that depends on which
+ * adapter is underneath is an answer nobody can check. What makes that safe
+ * everywhere is that the fold only ever NARROWS — a `private` override travels
+ * to every path folding onto it, a `team` one travels nowhere. Folding a
+ * widening was the first version of this and was a new hole on the majority
+ * backend, where `a/Foo.md` really is a different file from the `a/foo.md` its
+ * owner published. A fold reads across case; it never writes across one.
+ *
+ * `visibilityOf`'s folder rules are deliberately NOT folded. Re-casing a folder
+ * makes every prefix miss and the default `private` takes over, which already
+ * fails closed; folding them would make a `team` rule match folders its author
+ * did not name, which fails open. The two halves differ in direction, not in rigour.
+ */
+function foldPath(key) {
+  return key.normalize("NFC").toLowerCase();
+}
+
 /** Dot-prefixed segments (.history, .obsidian, …) are plumbing, never notes. */
 function isPlumbing(key) {
+  const folded = foldPath(key);
   return (
-    key === PRIVACY_KEY ||
-    key === LEGACY_SCOPES_KEY ||
+    folded === PRIVACY_KEY ||
+    folded === LEGACY_SCOPES_KEY ||
     key.split("/").some((s) => s.startsWith("."))
   );
+}
+
+/**
+ * The overrides map, with the folded lookup precomputed.
+ *
+ * `overrideFor` has to answer "is there a private override folding onto this
+ * key", and the honest way to do that with a plain `Map` is to scan it. That is
+ * per-note work on the search hot path: measured over 8,000 documents with 200
+ * private overrides, `canSee` went from 6.1ms to 214.1ms — which hands back a
+ * large slice of the 1,439ms → 670ms this project banked in "A search is paced".
+ *
+ * So the folded set is built once and thrown away on any write. Rebuilt on
+ * read rather than maintained incrementally, because an index kept in step by
+ * arithmetic is an index that can drift, and the direction it would drift is a
+ * narrowing that stops being found.
+ *
+ * It is an accelerator and never the authority: `overrideFor` falls back to the
+ * scan for a plain `Map`, so the ANSWER never depends on which container a
+ * caller happens to hold — the differential test passes plain maps, and the
+ * control plane's `new Map(overrides)` copies are plain by construction. A
+ * container that changed the answer is the bug that shipped in this PR's first
+ * version.
+ */
+class PrivacyOverrides extends Map {
+  set(key, value) {
+    this.folds = null;
+    return super.set(key, value);
+  }
+
+  delete(key) {
+    this.folds = null;
+    return super.delete(key);
+  }
+
+  // No caller today, and that is exactly why it is here: it is the one
+  // remaining mutation that would leave the index standing over an empty map.
+  clear() {
+    this.folds = null;
+    return super.clear();
+  }
+
+  /** The folded paths of every `private` override. */
+  privateFolds() {
+    if (!this.folds) {
+      // Built whole, then published — never filled in place. A throw partway
+      // through would otherwise cache a SHORT index, and a short index answers
+      // "no private fold" where there is one, which is the one direction this
+      // must never fail in. `foldPath` cannot throw on a string today; the
+      // control plane's copy is written the same way, and two copies of one
+      // rule are held here by being identical rather than by a comment.
+      const folds = new Set();
+      for (const [key, visibility] of this) {
+        if (visibility === "private") folds.add(foldPath(key));
+      }
+      this.folds = folds;
+    }
+    return this.folds;
+  }
+}
+
+/**
+ * The exact-note overrides, looked up so the fold cannot be left out.
+ *
+ * A `Map` subclass that folded inside `get`/`has` was the first shape of this
+ * and was wrong: it folds only for maps this module built, so a caller holding
+ * a plain `Map` — `__tests__/privacyEngine.test.ts` passes one, and the control
+ * plane's `nextOverrides` copies with `new Map(overrides)` — silently got the
+ * unfolded answer, and the two engines then disagreed about a live note. Which
+ * is the one failure that whole test file exists to prevent.
+ *
+ * So the fold lives in this helper, over any map, and `PrivacyOverrides` below
+ * only makes it fast. The container may change the speed; it may never change
+ * the answer.
+ */
+function overrideFor(overrides, key) {
+  if (!overrides) return undefined;
+  const exact = overrides.get(key);
+  if (exact === "private") return "private";
+  // Only a NARROWING travels by fold. A `team` override reaching a note the
+  // owner did not name is the same failure that keeps folder rules unfolded,
+  // and on a case-sensitive store — R2, S3, every context deployed today —
+  // `a/Foo.md` really is a different file from the `a/foo.md` that was
+  // published. Two entries that fold together are one file on Dropbox and a
+  // contradiction the owner never resolved; `private` is the answer that
+  // cannot leak. `foldPath` runs only over private entries for the same
+  // reason it runs at all.
+  const folded = foldPath(key);
+  if (typeof overrides.privateFolds === "function") {
+    return overrides.privateFolds().has(folded) ? "private" : exact;
+  }
+  for (const [existing, visibility] of overrides) {
+    if (visibility === "private" && foldPath(existing) === folded) return "private";
+  }
+  return exact;
+}
+
+/**
+ * Whether any override names this note, under any casing.
+ *
+ * Deliberately wider than `overrideFor`: it folds a `team` override too. Every
+ * caller either REFUSES when an override exists, or — at `fastArchiveCandidate`
+ * — takes a slower path that re-reads through `overrideFor`, so a folded twin
+ * of either visibility only ever refuses more or works harder. It is not a
+ * visibility answer and must not be used as one; that is what would put the
+ * widening back.
+ */
+function hasOverride(overrides, key) {
+  if (!overrides) return false;
+  if (overrides.has(key)) return true;
+  const folded = foldPath(key);
+  for (const existing of overrides.keys()) {
+    if (foldPath(existing) === folded) return true;
+  }
+  return false;
 }
 
 /**
@@ -1002,7 +1155,7 @@ function base64FromBytes(bytes) {
 }
 
 function canSee(key, scope, rules, overrides) {
-  if (key === PRIVACY_KEY) return scope === "private";
+  if (foldPath(key) === PRIVACY_KEY) return scope === "private";
   if (isPlumbing(key)) return false; // plumbing is not part of the note surface for any tool
   if (scope === "private") return true;
   return effectiveVisibility(key, rules, overrides) === "team";
@@ -2582,7 +2735,7 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
   if (!path || !path.endsWith(".md")) return toolError("invalid path (must end in .md)");
   if (typeof content !== "string") return toolError("content must be a string");
   if (isPlumbing(path)) return toolError("that path is reserved");
-  if (scope === "team" && overrides.get(path) === "private") {
+  if (scope === "team" && overrideFor(overrides, path) === "private") {
     return writePermissionError("write destination");
   }
 
@@ -2737,6 +2890,26 @@ async function toolSetFolderVisibility(store, scope, args) {
   const nextOverrides = new Map(state.overrides);
   const compacted = [];
   for (const [notePath, visibility] of nextOverrides) {
+    // No `private` override is ever compacted away, however redundant it looks
+    // for its own exact path. Since the fold, that one line is also the only
+    // thing narrowing every path that folds onto it, and this loop cannot see
+    // who those are: the impact report walks only `${path}/`, so a twin in a
+    // differently-cased sibling folder is never scanned. Compacting it away
+    // published a note the owner had marked private, said
+    // `newly_team_visible_notes: 0`, and asked for no confirmation — content,
+    // not existence, and the only place in this change that failed open.
+    //
+    // The first fix reasoned over folder rules instead: a twin is only widened,
+    // it said, by a `team` rule governing the folded path but not the exact
+    // one. That is false. `visibilityOf` is longest-prefix and the test was
+    // any-prefix, so one `team` rule governing both the note and its twin —
+    // out-ranked for the note by the longer `private` rule this very call adds
+    // — widens the twin and passes the test. It needed no case-variant folder
+    // rule and no hand-edited manifest, and it shipped. Deciding who a
+    // narrowing protects means simulating the write, not reasoning about rules;
+    // a weaker copy of that reasoning is worth less than a redundant line of
+    // manifest.
+    if (visibility === "private") continue;
     if (notePath.startsWith(`${path}/`) && visibility === visibilityOf(notePath, nextRules)) {
       nextOverrides.delete(notePath);
       compacted.push(notePath);
@@ -3626,7 +3799,7 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
   if (scope !== "private" && visibilityOf(destination, rules) !== "team") {
     return writePermissionError("move destination");
   }
-  if (scope === "team" && overrides.has(destination)) {
+  if (scope === "team" && hasOverride(overrides, destination)) {
     return writePermissionError("move destination");
   }
 
@@ -3703,7 +3876,7 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
     if (scope !== "private" && visibilityOf(move.destination, rules) !== "team") {
       return writePermissionError(`move destination ${move.destination}`);
     }
-    if (scope === "team" && overrides.has(move.destination)) {
+    if (scope === "team" && hasOverride(overrides, move.destination)) {
       return writePermissionError("move destination");
     }
     const sourceObject = await store.get(move.source);
@@ -3722,7 +3895,7 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
     const fastArchiveCandidate =
       move.source.startsWith("4-archive/") &&
       move.destination.startsWith("4-archive/") &&
-      !overrides.has(move.source) &&
+      !hasOverride(overrides, move.source) &&
       sourceVisibility === destinationFolderVisibility;
     const destinationObject = await store.get(move.destination);
     let preloadedBody = null;
@@ -3786,11 +3959,21 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
         await persistExactVisibility(store, move.destination, "private", rules);
         preparedAcls.push(move.destination);
       }
-      if (!move.destinationExists) await store.put(move.destination, move.body);
+      if (!move.destinationExists) {
+        await store.put(move.destination, move.body);
+        // Recorded the moment it exists, and BEFORE the visibility write that
+        // can throw. The other order makes the one destination whose persist
+        // failed the one destination the rollback below cannot see — so the
+        // abort message says "aborted before deleting sources" over a copy that
+        // is still there. Only a CAS exhaustion reaches it — a folded-twin
+        // backstop briefly made it caller-reachable, and that backstop is not
+        // in this change. The ordering is kept anyway: it is correct either
+        // way, and it is what the refusals will need when they return.
+        copied.push(move.destination);
+      }
       if (!fastArchiveRelocation && move.visibility === "team") {
         await persistExactVisibility(store, move.destination, "team", rules);
       }
-      if (!move.destinationExists) copied.push(move.destination);
     }
   } catch (error) {
     for (const key of copied) {
@@ -3809,6 +3992,11 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
       await store.delete(key).catch(() => {});
       await clearExactVisibility(store, key).catch(() => {});
     }
+    // `copied` holds only destinations this batch CREATED. A destination that
+    // already existed got a private ACL written for it and is not in that list,
+    // so without this loop a "rolled back" move leaves a pre-existing team note
+    // un-shared, silently. The catch above already did this; this one did not.
+    for (const key of preparedAcls) await clearExactVisibility(store, key).catch(() => {});
     return toolError(`batch move rolled back after a source-delete failure: ${error.message}`);
   }
 
@@ -3887,7 +4075,7 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
   ) {
     return writePermissionError("folder move destination");
   }
-  if (scope === "team" && moves.some(({ destination: path }) => overrides.has(path))) {
+  if (scope === "team" && moves.some(({ destination: path }) => hasOverride(overrides, path))) {
     return writePermissionError("folder move destination");
   }
   for (const move of moves) {
@@ -3919,10 +4107,11 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
         preparedAcls.push(move.destination);
       }
       await store.put(move.destination, body);
+      // Before the visibility write that can throw — see `move_notes` above.
+      copied.push(move.destination);
       if (move.visibility === "team") {
         await persistExactVisibility(store, move.destination, "team", rules);
       }
-      copied.push(move.destination);
     }
   } catch (error) {
     for (const key of copied) {

@@ -49,9 +49,12 @@ import {
   canSee,
   clearedOverrides,
   effectiveVisibility,
+  foldPath,
+  hasOverride,
   isPlumbing,
   movedOverrides,
   nextOverrides,
+  overrideFor,
   parsePrivacyManifest,
   renderPrivacyRulesBlock,
   replacePrivacyRulesBlock,
@@ -373,7 +376,7 @@ function describeFile(
     visibility,
     inherited,
     exception: visibility !== inherited,
-    readOnly: key === PRIVACY_KEY,
+    readOnly: foldPath(key) === PRIVACY_KEY,
     ...extra,
   };
 }
@@ -734,7 +737,9 @@ export async function writeFile(
 
 /** Refuse the paths that are not notes, before anything else happens. */
 function assertWritablePath(path: string): void {
-  if (path === PRIVACY_KEY) {
+  // Folded, so the manifest refusal is a decision rather than a side effect of
+  // `isPlumbing` two lines below answering PATH_INVALID for the wrong reason.
+  if (foldPath(path) === PRIVACY_KEY) {
     throw new FileOpError(
       "PRIVACY_MANIFEST_READ_ONLY",
       "privacy.md is generated from your visibility settings. Change a file or folder's visibility instead of editing it.",
@@ -1255,7 +1260,7 @@ function assertDestinationsVisible(
     // the walk kept, which filtered plumbing out. A dot segment cannot appear.
     // Instrumented before this was written, rather than after.
     if (visibilityOf(destination, rules) !== "team") throw notFound();
-    if (overrides.has(destination)) throw notFound();
+    if (hasOverride(overrides, destination)) throw notFound();
   }
 }
 
@@ -2104,18 +2109,21 @@ export async function setVisibility(
 
   const state = await mutateManifest(store, (current) => {
     if (!canSee(path, options.scope, current.rules, current.overrides)) throw notFound();
-    return {
-      rules: current.rules,
-      overrides: nextOverrides(path, options.visibility, current.rules, current.overrides),
-    };
+    const overrides = nextOverrides(path, options.visibility, current.rules, current.overrides);
+    return { rules: current.rules, overrides };
   });
 
   const inherited = visibilityOf(path, state.rules);
+  // Re-derived, never echoed back: the request is what was asked for, and the
+  // manifest is what happened. With the fold, those differ — a note whose
+  // case-twin is private reads private however it was set — and reporting the
+  // request would be the console saying a publish happened when it did not.
+  const visibility = effectiveVisibility(path, state.rules, state.overrides);
   return {
     path,
-    visibility: options.visibility,
+    visibility,
     inherited,
-    exception: options.visibility !== inherited,
+    exception: visibility !== inherited,
   };
 }
 
@@ -2233,7 +2241,7 @@ async function remapPrivacy(
   const state = await loadPrivacyState(store);
   if (state.text === null || state.invalid) return; // nothing to keep in sync
 
-  const touchesOverride = change.moves.some(({ from }) => state.overrides.has(from));
+  const touchesOverride = change.moves.some(({ from }) => hasOverride(state.overrides, from));
   const touchesRule =
     change.folderMove !== null &&
     state.rules.some(
@@ -2274,12 +2282,12 @@ async function copyPrivacy(
 ): Promise<void> {
   const state = await loadPrivacyState(store);
   if (state.text === null || state.invalid) return;
-  if (!pairs.some(({ from }) => state.overrides.has(from))) return;
+  if (!pairs.some(({ from }) => hasOverride(state.overrides, from))) return;
 
   await mutateManifest(store, (current) => {
     let overrides = current.overrides;
     for (const pair of pairs) {
-      const existing = current.overrides.get(pair.from);
+      const existing = overrideFor(current.overrides, pair.from);
       if (existing === undefined) continue;
       overrides = nextOverrides(pair.to, existing, current.rules, overrides);
     }
@@ -2298,13 +2306,13 @@ async function forgetPrivacy(
   const state = await loadPrivacyState(store);
   if (state.text === null || state.invalid) return;
 
-  const hasOverride = keys.some((key) => state.overrides.has(key));
+  const keyHasOverride = keys.some((key) => hasOverride(state.overrides, key));
   const hasRule =
     deletedFolder !== null &&
     state.rules.some(
       (rule) => rule.prefix === deletedFolder || rule.prefix.startsWith(`${deletedFolder}/`),
     );
-  if (!hasOverride && !hasRule) return;
+  if (!keyHasOverride && !hasRule) return;
 
   await mutateManifest(store, (current) => {
     let overrides = current.overrides;

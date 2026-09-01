@@ -4293,3 +4293,63 @@ describe("a rule no survivor needs, told truthfully", () => {
     ).toBe("FILE_NOT_FOUND");
   });
 });
+
+/**
+ * THE CONTROL PLANE'S HALF OF THE FOLDED-TWIN RULE.
+ *
+ * `setVisibility` used to answer with `options.visibility` — the value it was
+ * ASKED for, never re-derived — and the fold made that a lie. See "A privacy
+ * decision is folded" in CLAUDE.md: the fold reads across case while the delete
+ * writes exactly, so publishing a note whose case-twin is private removes
+ * nothing, the manifest comes back identical, and the console reported the
+ * publish as done over a note no team member could read.
+ *
+ * The re-derivation shipped unguarded for two rounds: restoring
+ * `visibility: options.visibility` passed the whole suite, because a throw in
+ * front of it made it a tautology. That throw is not in this change, so the
+ * re-derivation is the whole of the story and is pinned below.
+ */
+describe("a set reports the manifest's answer", () => {
+  /**
+   * With no throw ahead of it, this is the whole of the folded-twin story on
+   * the console side: the write really does nothing (the delete is exact, and
+   * the note reads private through its twin's narrowing), so the ONLY thing
+   * standing between the owner and a false "published" is that the answer is
+   * read back off the manifest instead of echoed from the request.
+   *
+   * Refusing the write outright is better and is deliberately not in this
+   * change — see the residual in CLAUDE.md.
+   */
+  test("a publish blocked by a case-twin reports private, not the team that was asked for", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/Pay.md", "# a different file, in a team folder\n");
+
+    const result = await setVisibility(store, {
+      path: "1-projects/Pay.md",
+      visibility: "team",
+      scope: "private",
+    });
+    // The request said team; the manifest still narrows it through pay.md.
+    expect(result.visibility).toBe("private");
+    // …and it really is unreadable at team scope, so the report is the truth.
+    const refused = await capture(() =>
+      readFile(store, { path: "1-projects/Pay.md", scope: "team" }),
+    );
+    expect(refused.code).toBe("FILE_NOT_FOUND");
+  });
+
+  test("a no-op set reports the manifest's answer, not the request", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    const result = await setVisibility(store, {
+      path: "1-projects/pay.md",
+      visibility: "private",
+      scope: "private",
+    });
+    expect(result.visibility).toBe("private");
+    // These two are what the request cannot supply: they come from the rules.
+    expect(result.inherited).toBe("team");
+    expect(result.exception).toBe(true);
+  });
+});
