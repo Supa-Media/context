@@ -1280,6 +1280,16 @@ export const authorizeShareRead = internalQuery({
       shareId: v.id("noteShares"),
       workspaceId: v.id("workspaces"),
       entryPath: v.string(),
+      /**
+       * Whether this share needs no session at all.
+       *
+       * Reported rather than inferred downstream, because the viewer has a
+       * decision that genuinely depends on it: a reader whose session drops
+       * while a note is on screen must stop being shown it, and a reader who
+       * never had one must not. Deriving that from "is there a session now"
+       * gets one of the two wrong whichever way it is written.
+       */
+      openToAnyone: v.boolean(),
     }),
   ),
   handler: async (ctx, args) => {
@@ -1304,6 +1314,7 @@ export const authorizeShareRead = internalQuery({
       shareId: share._id,
       workspaceId: share.workspaceId,
       entryPath: share.entryPath,
+      openToAnyone: share.recipientKind === "anyone",
     };
   },
 });
@@ -1360,6 +1371,17 @@ export const readSharedNote = action({
     entryPath: v.string(),
     /** Paths the viewer may follow from here — the entry note's links, resolved. */
     links: v.array(v.string()),
+    /**
+     * Whether whoever holds this link can read it without signing in.
+     *
+     * Not a disclosure: the caller has just been handed the note, so they know
+     * they got in, and that the owner made this link open is the owner's own
+     * choice about the link they sent. It is here because the viewer needs it
+     * — see `authorizeShareRead` — and because a screen that knows can say so,
+     * which is worth more to a reader than leaving them to assume a link is
+     * private when it is not.
+     */
+    openToAnyone: v.boolean(),
   }),
   // Annotated rather than inferred: this action calls another function in the
   // same deployment, which is the inference cycle `runFileOperation` has.
@@ -1373,6 +1395,7 @@ export const readSharedNote = action({
     text: string;
     entryPath: string;
     links: string[];
+    openToAnyone: boolean;
   }> => {
     // The session is read, not required, and the order is the whole change. A session
     // is *usually* required and is not always: an unlisted link's reader never
@@ -1422,6 +1445,7 @@ export const readSharedNote = action({
         text: target.text,
         entryPath: grant.entryPath,
         links,
+        openToAnyone: grant.openToAnyone,
       };
     }
 
@@ -1430,6 +1454,7 @@ export const readSharedNote = action({
       text: entry.text,
       entryPath: grant.entryPath,
       links,
+      openToAnyone: grant.openToAnyone,
     };
   },
 });

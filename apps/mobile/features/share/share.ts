@@ -22,7 +22,44 @@
  * `next` parameter carries the token through, because the token is in one
  * message and nowhere else: losing it loses the share, and no rail entry can
  * reproduce it.
+ *
+ * ## …and it is the SERVER that says so, not this screen
+ *
+ * This used to redirect a signed-out reader to sign-in before asking the server
+ * anything, which was right while every share required a session. One kind no
+ * longer does: an unlisted link (`recipientKind: "anyone"`) is opened by
+ * whoever holds it, and a screen that bounced them to sign-in would make the
+ * feature unreachable for exactly the person it exists for.
+ *
+ * So the read is attempted with whatever session there is — none included — and
+ * `NOT_AUTHENTICATED` coming back is what routes to sign-in. That is the ONE
+ * code this screen may read, and it is safe for the reason above: the server
+ * answers it for every anonymous caller whatever they presented, so an invented
+ * token, a personal share, a members-only link and a revoked unlisted link all
+ * arrive here identically. Reading any *other* code would reconstruct the
+ * difference the server went to trouble to remove.
+ *
+ * The one thing that must still be waited for is auth *settling*. Firing the
+ * read before a real session has attached would have a signed-in recipient's
+ * first request answered anonymously, and bounce them to a sign-in they had
+ * already done.
+ *
+ * ## Losing your session mid-read still takes the note away
+ *
+ * That property predates this and is *not* softened by it. `note` is component
+ * state and survives the auth flip, so a screen that only consulted the server
+ * once would leave somebody reading a note after they signed out — which is the
+ * bug the "signed out refuses with a note already on screen" cases were written
+ * for. What changed is only that "signed out" is no longer the same question as
+ * "may not read this": an unlisted link's reader is signed out and entitled.
+ *
+ * So the server says which it is (`openToAnyone`), and a note that needed a
+ * session is withdrawn the moment there is not one. Deriving that here from
+ * "is there a session right now" is the tidy-up to refuse: it answers one of
+ * the two cases wrong whichever way it is written.
  */
+
+import { ConvexError } from "convex/values";
 
 import { loginHref } from "../auth/redirect";
 
@@ -67,6 +104,8 @@ export interface SharedNote {
   text: string;
   entryPath: string;
   links: string[];
+  /** Whether this link needs no session. See the module comment. */
+  openToAnyone: boolean;
 }
 
 export type ShareResult = SharedNote | Error | undefined;
@@ -78,6 +117,22 @@ export interface ShareInputs {
   note: ShareResult;
   /** The note the reader asked for, or `null` for the share's entry note. */
   requestedPath: string | null;
+}
+
+/**
+ * Whether the server said the caller has no usable session.
+ *
+ * The `instanceof` and the shape check are both load-bearing, for
+ * `toFileError`'s reason: reading `.code` off anything would let any object
+ * carrying that property route a reader to sign-in, and trusting the wrapper
+ * without inspecting it would do the same for a `ConvexError` holding a bare
+ * string. Anything this does not recognise is a refusal, which is the
+ * direction that discloses less.
+ */
+export function isNotAuthenticated(error: unknown): boolean {
+  if (!(error instanceof ConvexError)) return false;
+  const data = error.data as { code?: unknown } | undefined;
+  return data?.code === "NOT_AUTHENTICATED";
 }
 
 export type ShareView =
@@ -99,19 +154,32 @@ export type ShareView =
 
 export function resolveShareView(inputs: ShareInputs): ShareView {
   if (inputs.auth.isLoading) return { kind: "wait" };
-  if (!inputs.auth.isAuthenticated) {
-    return {
-      kind: "signIn",
-      href: shareSignInHref(inputs.token, inputs.requestedPath ?? undefined),
-    };
-  }
 
   // Somebody opened `/s/` with nothing after it. The same screen a spent token
   // gets: this page never confirms that any particular token exists.
   if (inputs.token === null) return { kind: "unavailable" };
 
-  if (inputs.note instanceof Error) return { kind: "unavailable" };
+  if (inputs.note instanceof Error) {
+    // The one code this screen reads. See the module comment.
+    if (isNotAuthenticated(inputs.note)) {
+      return {
+        kind: "signIn",
+        href: shareSignInHref(inputs.token, inputs.requestedPath ?? undefined),
+      };
+    }
+    return { kind: "unavailable" };
+  }
   if (inputs.note === undefined) return { kind: "loading" };
+
+  // A note is on screen. If reading it needed a session and there is no longer
+  // one, it is withdrawn — see the module comment. An unlisted link never had
+  // one to lose.
+  if (!inputs.note.openToAnyone && !inputs.auth.isAuthenticated) {
+    return {
+      kind: "signIn",
+      href: shareSignInHref(inputs.token, inputs.requestedPath ?? undefined),
+    };
+  }
 
   return {
     kind: "ready",
