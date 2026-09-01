@@ -33,14 +33,12 @@ import { useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { writeClipboard } from "../../design/clipboard";
 import { fonts, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { baseName } from "./paths";
 import {
   describePersonalShare,
   describePreviewTitle,
-  describeShare,
   describeTeamLink,
   shareUrl,
   sharesFor,
@@ -52,7 +50,7 @@ export function ShareDialog({
   shares,
   origin,
   onShare,
-  onTeamLink,
+  onCopyLink,
   onRevoke,
   onSetPreviewTitle,
   onClose,
@@ -63,8 +61,16 @@ export function ShareDialog({
   /** Where this console is served from. See `shareUrl`. */
   origin: string;
   onShare: (recipient: string) => void;
-  /** Mint-or-reuse the team link and hand back its URL, or `null` on failure. */
-  onTeamLink: () => Promise<string | null>;
+  /**
+   * Put a link on the clipboard. Answers whether it landed.
+   *
+   * The mint and the write are one call rather than two — see
+   * `FileBrowser.copyShareLink`. Doing it here, as "await a URL, then write
+   * it", is what made this button do nothing at all on iOS.
+   */
+  onCopyLink: (
+    target: { kind: "team"; path: string } | { kind: "share"; url: string },
+  ) => Promise<boolean>;
   onRevoke: (shareId: string) => void;
   onSetPreviewTitle: (recipient: string, titleInPreview: boolean) => void;
   onClose: () => void;
@@ -72,8 +78,28 @@ export function ShareDialog({
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const [recipient, setRecipient] = useState("");
-  /** Which link was last copied: a share's id, or `TEAM_LINK`. */
-  const [copied, setCopied] = useState<string | null>(null);
+
+  /**
+   * Copy, and get out of the way.
+   *
+   * The dialog used to relabel its button "Copied" and stay open, which is two
+   * problems: the confirmation is inside a modal the person is now finished
+   * with, and it disappears with the dialog they then close. A copy is
+   * *invisible* — nothing on screen changes — so it has to be confirmed
+   * somewhere that outlives the moment, and the pane's notice line is where
+   * this console already says what just happened.
+   *
+   * Only on success. A failed copy keeps the dialog open, because the notice
+   * it raises carries the URL and closing the one surface that could show it
+   * again would be the unhelpful half of honesty.
+   */
+  const copyAndClose = (
+    target: { kind: "team"; path: string } | { kind: "share"; url: string },
+  ) => {
+    void onCopyLink(target).then((ok) => {
+      if (ok) onClose();
+    });
+  };
 
   const mine = sharesFor(shares, path);
   const ready = recipient.trim() !== "";
@@ -107,38 +133,33 @@ export function ShareDialog({
               <Text variant="eyebrow">PEOPLE WITH ACCESS</Text>
               <Text variant="paneSub">{describeTeamLink()}</Text>
               <Button
-                label={copied === TEAM_LINK ? "Copied" : "Copy link"}
+                label="Copy link"
                 variant="white"
                 onPress={() => {
                   /*
                     Minted on demand rather than up front: a token per note for
                     every note anybody opened would fill the share list with
-                    links nobody asked for. Pressing this is the ask.
-
-                    `/s/<token>` and not `/console/@slug?note=…`, and the two
-                    are not interchangeable. Both open the same note for the
-                    same people, but only the token is unguessable — which is
-                    what lets its card carry the note's title. A console URL is
-                    typeable by anyone who knows the handle, so a titled card
-                    there would answer "does this note exist?" to whoever asked.
+                    links nobody asked for. Pressing this is the ask — and the
+                    minting happens *inside* the copy rather than before it,
+                    which is what keeps the clipboard reachable on iOS.
                   */
-                  void onTeamLink().then((url) => {
-                    if (url === null) {
-                      setCopied(null);
-                      return;
-                    }
-                    void writeClipboard(url).then((ok) =>
-                      setCopied(ok ? TEAM_LINK : null),
-                    );
-                  });
+                  copyAndClose({ kind: "team", path });
                 }}
               />
             </View>
 
             <View style={styles.section}>
               <Text variant="eyebrow">SOMEBODY WITHOUT ACCESS</Text>
+              {/*
+                One sentence, not two. `describeShare` said "they sign in to
+                read it, and can open this note and the notes it links to —
+                nothing else in your context", directly under a line that had
+                just said "they get this note and the notes it links to —
+                nothing else". Two paragraphs making the same point read as two
+                points, and the screen was long enough that the controls were
+                below the fold on a phone.
+              */}
               <Text variant="paneSub">{describePersonalShare()}</Text>
-              <Text variant="meta">{describeShare()}</Text>
             </View>
 
             <View style={styles.row}>
@@ -160,8 +181,7 @@ export function ShareDialog({
             <SharedWith
               shares={mine}
               origin={origin}
-              copied={copied}
-              onCopied={setCopied}
+              onCopyLink={copyAndClose}
               onRevoke={onRevoke}
               onSetPreviewTitle={onSetPreviewTitle}
             />
@@ -187,15 +207,13 @@ export function ShareDialog({
 function SharedWith({
   shares,
   origin,
-  copied,
-  onCopied,
+  onCopyLink,
   onRevoke,
   onSetPreviewTitle,
 }: {
   shares: NoteShare[] | undefined;
   origin: string;
-  copied: string | null;
-  onCopied: (shareId: string | null) => void;
+  onCopyLink: (target: { kind: "share"; url: string }) => void;
   onRevoke: (shareId: string) => void;
   onSetPreviewTitle: (recipient: string, titleInPreview: boolean) => void;
 }) {
@@ -224,15 +242,10 @@ function SharedWith({
                 {share.recipient}
               </Text>
               <Button
-                label={copied === share.shareId ? "Copied" : "Copy link"}
-                onPress={() => {
-                  void writeClipboard(shareUrl(share.token, origin)).then((ok) => {
-                    // Only claim it on success. Native has no clipboard here and
-                    // says so by returning false; a label that reads "Copied"
-                    // over a no-op is the kind of small lie nobody forgives.
-                    onCopied(ok ? share.shareId : null);
-                  });
-                }}
+                label="Copy link"
+                onPress={() =>
+                  onCopyLink({ kind: "share", url: shareUrl(share.token, origin) })
+                }
               />
               <Button
                 label="Revoke"
@@ -261,8 +274,6 @@ function SharedWith({
   );
 }
 
-/** Sentinel for "the team link", which has no share id of its own. */
-const TEAM_LINK = "team-link";
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   scrim: {

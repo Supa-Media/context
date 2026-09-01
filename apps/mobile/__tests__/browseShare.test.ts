@@ -245,6 +245,22 @@ function press(testID: string): void {
   });
 }
 
+/**
+ * By its label, for the controls that carry no `testID`.
+ *
+ * The dialog's buttons are addressed the way a person addresses them, which is
+ * also what a screen reader announces — and it is the assertion that survives
+ * the label changing, because it fails loudly rather than silently matching
+ * nothing.
+ */
+function pressLabel(label: string): void {
+  const node = document.body.querySelector<HTMLElement>(`[aria-label="${label}"]`);
+  if (node === null) throw new Error(`no control labelled ${label}`);
+  for (const type of ["mousedown", "mouseup", "click"]) {
+    node.dispatchEvent(new MouseEvent(type, { bubbles: true }));
+  }
+}
+
 /** The dialog names the note it is about; that is what makes a stale one visible. */
 const shareDialogFor = (name: string) =>
   document.body.querySelector(`[aria-label="Share ${name}"]`);
@@ -274,6 +290,73 @@ describe("an owner reading a note can share it", () => {
  * unconditionally for every open note. The file's own read-only test is *about*
  * `privacy.md`, which is what makes the first of those worth naming.
  */
+/**
+ * **Copy link did nothing, said nothing, and left you in a modal.**
+ *
+ * Three complaints, one press. The copy itself is `copyShareLink.test.ts` —
+ * this is what the dialog does with the answer.
+ *
+ * The old shape relabelled its own button "Copied" and stayed open, which puts
+ * the confirmation inside a modal the person has just finished with and then
+ * throws it away when they close it. A copy is *invisible* — nothing on screen
+ * changes, and the clipboard cannot be inspected — so it has to be confirmed
+ * somewhere that outlives the moment.
+ */
+describe("copying a link finishes the job", () => {
+  test("a copy that landed closes the dialog", async () => {
+    const pane = paneRoot();
+    pane.render(dataWith({ copyShareLink: async () => true }));
+    press("browse-share");
+    expect(shareDialogFor("plan.md")).not.toBeNull();
+
+    await act(async () => {
+      pressLabel("Copy link");
+    });
+
+    expect(shareDialogFor("plan.md")).toBeNull();
+  });
+
+  test("…and a copy that did not stays open", async () => {
+    /*
+      The positive control, and a real state rather than a defensive one:
+      native has no clipboard and says so, and a browser can refuse. The notice
+      raised in that case carries the URL, and closing the one surface that
+      could show it again would be the unhelpful half of honesty.
+    */
+    const pane = paneRoot();
+    pane.render(dataWith({ copyShareLink: async () => false }));
+    press("browse-share");
+
+    await act(async () => {
+      pressLabel("Copy link");
+    });
+
+    expect(shareDialogFor("plan.md")).not.toBeNull();
+  });
+
+  test("the press mints and copies in one call, naming this note", async () => {
+    // One call, not "get a URL then write it" — see `copyShareLink.test.ts`
+    // for why that order is the whole bug. Asserted on the argument because
+    // the dialog is what decides *which* note is being copied.
+    const asked: unknown[] = [];
+    const pane = paneRoot();
+    pane.render(
+      dataWith({
+        copyShareLink: async (target: unknown) => {
+          asked.push(target);
+          return true;
+        },
+      } as never),
+    );
+    press("browse-share");
+    await act(async () => {
+      pressLabel("Copy link");
+    });
+
+    expect(asked).toEqual([{ kind: "team", path: NOTE }]);
+  });
+});
+
 describe("the dialog is about the note the reader is looking at", () => {
   test("pressing Share opens a dialog named after this note", () => {
     const pane = paneRoot();

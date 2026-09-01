@@ -2040,6 +2040,39 @@ It scrolls away with the document rather than being pinned: it answers a
 question people ask on arrival, and a permanent band costs a line of every note
 forever.
 
+### A copy is one press, and it is confirmed outside the modal
+
+Copy link on a share put nothing on the clipboard and said nothing about it,
+on iOS. The cause is a rule about *when*: Safari grants the clipboard to a call
+made inside the user activation a press starts, and the dialog awaited a round
+trip — minting the share row — before writing. That spends the activation, the
+write is refused, the caller correctly declines to claim a copy it did not make,
+and the button silently stays "Copy link".
+
+So **minting and copying are one call** (`FileBrowser.copyShareLink`), and
+`copyDeferred` is what makes that possible: `ClipboardItem` accepts a *Promise*
+for its data, so the write is issued inside the gesture and the round trip
+settles inside it. Browsers without that form throw on construction and fall
+back to awaiting and writing — which is safe, because they are the ones that do
+not enforce the window. Splitting it back into "await a URL, then write it" is
+the tidy-up that restores the bug, and it restores it **on one browser only**,
+which is why the test asserts the *order* rather than the clipboard's contents:
+both versions leave the same text on the same clipboard everywhere else.
+
+**A copy is invisible, so it is confirmed where the confirmation outlives it.**
+The dialog used to relabel its own button "Copied" and stay open, which puts the
+only evidence inside a modal the person has just finished with and then throws
+it away when they close it. A successful copy closes the dialog and raises the
+pane's notice; a failed one keeps the dialog open and the notice carries the
+URL, because the clipboard is the only part that did not work and the person
+still wants the link. On native there is no clipboard at all, so that is the
+whole feature there rather than an edge case.
+
+The `execCommand` fallback also had to be fixed to work on the platform it
+exists for: `readonly` plus `select()` is the recipe every snippet shows and the
+one iOS ignores — it refuses to select a read-only field, so the copy takes
+whatever was selected before, usually nothing.
+
 ### A copy on the device is bounded by who read it, when, and whether the server said no
 
 Three rules sit under the queue and the cache, and each of them was reachable

@@ -276,21 +276,29 @@ export interface FileBrowser {
   revokeShare: (shareId: string) => void;
 
   /**
-   * A link to this note for the people who already have access.
+   * Put a link to this note on the clipboard, and say whether it landed.
    *
-   * Resolves to the URL, because the caller's next act is to put it on the
-   * clipboard — unlike `share`, which is fire-and-forget because its result is
-   * a row in a list the dialog is already watching.
+   * **Minting and copying are one method because they are one press.** They
+   * were two — the dialog awaited a URL and then wrote it — and on iOS Safari
+   * that never worked: the clipboard is granted to a call made inside the user
+   * activation a press starts, and awaiting a round trip spends it. The write
+   * was refused, the caller correctly declined to claim a copy, and the button
+   * silently stayed "Copy link". See `copyDeferred`, which is what makes the
+   * team case possible at all.
    *
-   * Grants nothing: reading is authorised by membership on every request, so
-   * removing somebody from the context takes the link with them. The token is
-   * there to make the URL unguessable, which is what lets its card carry the
-   * note's title.
+   * `team` mints-or-reuses the link for people who already have access — it
+   * grants nothing, since reading is authorised by membership on every request,
+   * and its token exists to make the URL unguessable, which is what lets its
+   * card carry a title. `share` copies a link that already exists.
    *
-   * `null` on a browser that cannot share, and on failure — the caller then
-   * leaves the button's label alone rather than claiming a copy it did not make.
+   * Reports through `notice` either way, because a copy is exactly the kind of
+   * thing that has to be confirmed and cannot be seen: the clipboard is
+   * invisible. A failure says so and prints the URL, which is the only useful
+   * thing left to do with it.
    */
-  teamShareLink: (path: string) => Promise<string | null>;
+  copyShareLink: (
+    target: { kind: "team"; path: string } | { kind: "share"; url: string },
+  ) => Promise<boolean>;
 
   /**
    * Turn the link's preview title on or off for one share.
