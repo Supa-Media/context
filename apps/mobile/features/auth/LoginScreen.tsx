@@ -9,6 +9,7 @@ import { Text } from "../design/components/Text";
 import { clamp, fonts, layout, leading, radii, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { StageBackdrop } from "../design/components/StageBackdrop";
+import { landAfterSignIn } from "./landing";
 import { LANDING_ROUTE, safeNextRoute } from "./redirect";
 import { normalizeSignInEmail } from "./email";
 
@@ -62,7 +63,9 @@ export function LoginScreen() {
         email: normalizeSignInEmail(email),
         code: code.trim(),
       });
-      router.replace(next);
+      // A real navigation on the web, not a client-side replace — see
+      // `landAfterSignIn` for the URL that hop was measured losing.
+      landAfterSignIn(next, (href) => router.replace(href));
     } catch {
       setError("That code didn't work. Codes expire — ask for a new one if it's been a while.");
     } finally {

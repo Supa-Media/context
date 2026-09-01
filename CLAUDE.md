@@ -1837,6 +1837,37 @@ Two links in this product carry their meaning in the query and can be recovered
 by nothing else: `/authorize?request_id=…` and this one. A gate that reads a
 pathname — or a reconstruction — where a person followed an href strands both.
 
+**And the same defect a third time, from the other side: the app must not
+navigate back to that link either.** The gate's `next` was right; what lost the
+note was `router.replace(next)` from `/login`. Measured in Chromium against the
+real router, that hop lands in two stages:
+
+    t+1500ms   /console/@seyi?slug=%40seyi
+    t+3000ms   /console/@seyi?slug=%40seyi&note=3-resources%2F…md
+
+The first is the URL somebody reported being left on, and whether the second
+ever arrives depends on how the rest of the tree settles — which is not
+something a link's correctness may rest on. Same cause as above: the URL is
+re-serialized from a state that is still being built.
+
+`landAfterSignIn` therefore does a **real navigation** on the web —
+`window.location.replace(next)`, which sets the URL byte-for-byte, has no state
+to re-serialize, and cannot drop a parameter. The app then cold-loads at that
+address with a session already in storage, which is exactly the signed-in cold
+start `useLinkedNote` was built for and which is verified working: the
+signed-out case becomes the case that already works rather than a second one to
+keep correct. The same probe then lands in one hop with the note intact.
+
+Both places that navigate to `next` go through it — `LoginScreen.verifyCode`
+and the `(auth)` gate — because they race, and whichever wins decides whether
+the link survives. Native keeps the router's navigation: there is no page to
+reload, and the tree below the gate is already mounted after an in-app sign-in.
+
+The cost is one page load after entering a code, on the one navigation where a
+person is already waiting for a round trip. Set against a link that silently
+loses what it points at, it was not a close call — but it is a real cost, and
+"tidying" it back to `router.replace` restores a bug three fixes deep.
+
 ### A copy on the device is bounded by who read it, when, and whether the server said no
 
 Three rules sit under the queue and the cache, and each of them was reachable
