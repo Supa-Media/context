@@ -315,6 +315,16 @@ const schema = defineSchema({
      * `members` — **not a person at all**: anyone whose membership of this
      *   context already lets them read the note. `recipient` is `""`, because
      *   there is nobody to name.
+     * `anyone` — **an unlisted link**: nobody is addressed and nobody signs in.
+     *   `recipient` is `""` for the same reason. This is the one kind where
+     *   possession of the token IS the authorization, and it is deliberate —
+     *   see "An unlisted share is the third audience" in `CLAUDE.md`. What
+     *   keeps it from being the public tier non-negotiable #5 refuses is that
+     *   it is still one row, over one note, that the owner revokes, and the
+     *   read still runs at `team` scope through the live `privacy.md`: a note
+     *   made private is absent through an unlisted link exactly as it is
+     *   through a personal one. What it genuinely costs is that revocation
+     *   stops future reads and cannot retrieve a copy already taken.
      *
      * One field, not an `audience` beside a recipient. A share's audience
      * stored twice is a share whose two halves can disagree, and the direction
@@ -333,6 +343,7 @@ const schema = defineSchema({
       v.literal("name"),
       v.literal("email"),
       v.literal("members"),
+      v.literal("anyone"),
     ),
     recipient: v.string(),
     createdBy: v.id("users"),

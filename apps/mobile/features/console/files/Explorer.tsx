@@ -806,8 +806,8 @@ export function ExplorerDialogs({
           onShare={(recipient) => files.share(dialog.path, recipient)}
           onCopyLink={files.copyShareLink}
           onRevoke={(shareId) => files.revokeShare(shareId)}
-          onSetPreviewTitle={(recipient, on) =>
-            files.setSharePreviewTitle(dialog.path, recipient, on)
+          onSetPreviewTitle={(share, on) =>
+            files.setSharePreviewTitle(dialog.path, share, on)
           }
           // Deliberately does NOT close on share or revoke. Both are things an
           // owner does several of in a row, and a dialog that vanishes after

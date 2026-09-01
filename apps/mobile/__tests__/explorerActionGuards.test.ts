@@ -334,6 +334,8 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     archive: record("archive"),
     destroy: record("destroy"),
     setVisibility: record("setVisibility"),
+    setScope: record("setScope"),
+    openLinkPaths: new Set<string>(),
     resetPrivacy: noop,
     canResetPrivacy: false,
     // Both are `canEdit && isOwner` in the real hook, so an owner is the only

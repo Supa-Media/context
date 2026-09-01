@@ -62,7 +62,11 @@ export function ShareScreen() {
   const [note, setNote] = useState<ShareResult>(undefined);
 
   useEffect(() => {
-    if (!auth.isAuthenticated || token === null) return;
+    // Not gated on being *authenticated* — an unlisted link's reader never is,
+    // and `share.ts` records why the server is what decides that. Gated on auth
+    // having settled, so a signed-in recipient's first request is not sent
+    // anonymously and bounced to a sign-in they have already done.
+    if (auth.isLoading || token === null) return;
     let cancelled = false;
     // Reset to `undefined` so navigating between linked notes shows the loading
     // state rather than the previous note's text under the new one's heading.
@@ -72,15 +76,22 @@ export function ShareScreen() {
         if (!cancelled) setNote(result as SharedNote);
       })
       .catch((error: unknown) => {
-        // Every refusal is one screen. The error's own code is deliberately not
-        // read: the server made them indistinguishable and this must not
-        // reconstruct the difference.
+        // The error is carried through as it arrived, rather than flattened
+        // here, because `resolveShareView` reads exactly one code off it —
+        // `NOT_AUTHENTICATED`, which is a fact about the reader's own session.
+        // Every other refusal is one screen: the server made them
+        // indistinguishable and nothing downstream may reconstruct the
+        // difference. A non-`Error` throw becomes a bare one, which
+        // `isNotAuthenticated` correctly declines to recognise.
         if (!cancelled) setNote(error instanceof Error ? error : new Error("unavailable"));
       });
     return () => {
       cancelled = true;
     };
-  }, [auth.isAuthenticated, readSharedNote, requestedPath, token]);
+    // `isAuthenticated` is a dependency as well as `isLoading`: signing in
+    // mid-view must re-ask (the anonymous answer was the narrower one), and
+    // signing out must re-ask rather than leave a stale note in state.
+  }, [auth.isAuthenticated, auth.isLoading, readSharedNote, requestedPath, token]);
 
   const view = resolveShareView({ token, auth, note, requestedPath });
 

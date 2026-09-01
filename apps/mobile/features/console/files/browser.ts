@@ -27,6 +27,7 @@ import type { Clipboard } from "./clipboard";
 import type { EditorState } from "./editor";
 import { ConvexError } from "convex/values";
 import type { NoteShare } from "./shares";
+import type { NoteScope } from "./scope";
 import type { ToastSpec } from "../../design/components/Toast";
 import type { FileError, FolderListing, Visibility } from "./types";
 import type { SyncFacts } from "../../offline/copy";
@@ -211,6 +212,25 @@ export interface FileBrowser {
   destroy: (path: string) => void;
   setVisibility: (path: string, kind: "file" | "folder", visibility: Visibility) => void;
   /**
+   * Move an entry between the three positions of the visibility control —
+   * private, team, and a link anybody who has it can open.
+   *
+   * Beside `setVisibility` rather than replacing it, because they answer
+   * different questions: that one writes the manifest and is what the tree's
+   * markers use, this one composes a manifest write with a share row and is
+   * what the single lock control uses. Collapsing them would put the ordering
+   * rule `stepsTo` states inside a call site.
+   */
+  setScope: (path: string, kind: "file" | "folder", from: NoteScope, to: NoteScope) => void;
+  /**
+   * The notes that currently have a link anybody can open.
+   *
+   * Read together with an entry's `visibility` to get its position — see
+   * `scopeOf`, which is where the rule that a private note is private however
+   * many links point at it lives.
+   */
+  openLinkPaths: ReadonlySet<string>;
+  /**
    * Write a working `privacy.md` over one that is missing or unreadable.
    *
    * Present on every browser and inert on most of them, like every other
@@ -313,12 +333,16 @@ export interface FileBrowser {
    *
    * Routed through `createShare`, which supersedes an existing share in place
    * and returns the same token — so this changes what a crawler is told without
-   * breaking a link the owner has already sent. It needs the recipient because
-   * that, with the path, is what identifies the row.
+   * breaking a link the owner has already sent.
+   *
+   * It takes the **row**, not its recipient string, because which mutation
+   * supersedes it depends on which kind of share it is — and for two of the
+   * three the recipient is a display string that no mutation can parse. See
+   * the implementation for what passing the string alone was doing.
    */
   setSharePreviewTitle: (
     path: string,
-    recipient: string,
+    share: { audience: NoteShare["audience"]; recipient: string },
     titleInPreview: boolean,
   ) => void;
 }

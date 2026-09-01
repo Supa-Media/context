@@ -515,8 +515,8 @@ export function BrowsePane({
           onShare={(recipient) => files.share(sharing, recipient)}
           onCopyLink={files.copyShareLink}
           onRevoke={(shareId) => files.revokeShare(shareId)}
-          onSetPreviewTitle={(recipient, on) =>
-            files.setSharePreviewTitle(sharing, recipient, on)
+          onSetPreviewTitle={(share, on) =>
+            files.setSharePreviewTitle(sharing, share, on)
           }
           onClose={() => setSharing(null)}
         />

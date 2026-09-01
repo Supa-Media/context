@@ -23,9 +23,11 @@ import {
   safeHref,
   type Inline,
 } from "../features/share/markdown";
+import { ConvexError } from "convex/values";
 import {
   SHARE_ROUTE,
   firstParam,
+  isNotAuthenticated,
   linkLabel,
   onwardLinks,
   resolveShareView,
@@ -39,8 +41,21 @@ const note = (over: Partial<SharedNote> = {}): SharedNote => ({
   text: "# Overview\n\nBody.\n",
   entryPath: "1-projects/overview.md",
   links: [],
+  openToAnyone: false,
   ...over,
 });
+
+/** A note reached through an unlisted link — the reader has no session. */
+const openNote = (over: Partial<SharedNote> = {}): SharedNote =>
+  note({ openToAnyone: true, ...over });
+
+/** What the server sends a caller with no usable session. */
+const noSession = () =>
+  new ConvexError({ code: "NOT_AUTHENTICATED", message: "Not authenticated" });
+
+/** Every other refusal, which the server deliberately makes one answer. */
+const refused = () =>
+  new ConvexError({ code: "SHARE_UNAVAILABLE", message: "not available" });
 
 const TOKEN = "a".repeat(64);
 const SIGNED_IN = { isLoading: false, isAuthenticated: true };
@@ -62,17 +77,46 @@ describe("which screen a reader gets", () => {
     expect(view.kind).toBe("ready");
   });
 
-  test("signed out goes to sign-in, carrying the token back", () => {
+  /**
+   * The server is what says a session is needed, not this screen — an unlisted
+   * link's reader is signed out and entitled, so "signed out" on its own is no
+   * longer an answer. `NOT_AUTHENTICATED` is the one code read here, and the
+   * server hands it to every anonymous caller whatever they presented.
+   */
+  test("the server asking for a session goes to sign-in, carrying the token back", () => {
     const view = resolveShareView({
       token: TOKEN,
       auth: SIGNED_OUT,
-      note: undefined,
+      note: noSession(),
       requestedPath: null,
     });
     expect(view.kind).toBe("signIn");
     // The token is in one message and nowhere else — a rail has no entry that
     // could reproduce it, so losing it loses the share.
     expect(view.kind === "signIn" && view.href).toContain(encodeURIComponent(shareHref(TOKEN)));
+  });
+
+  test("a signed-out reader waits on the answer rather than being bounced", () => {
+    // The whole of what an unlisted link needed: no redirect before the server
+    // has been asked. Bouncing here made the feature unreachable for exactly
+    // the person it exists for.
+    const view = resolveShareView({
+      token: TOKEN,
+      auth: SIGNED_OUT,
+      note: undefined,
+      requestedPath: null,
+    });
+    expect(view.kind).toBe("loading");
+  });
+
+  test("an unlisted link renders for a reader with no session", () => {
+    const view = resolveShareView({
+      token: TOKEN,
+      auth: SIGNED_OUT,
+      note: openNote(),
+      requestedPath: null,
+    });
+    expect(view.kind).toBe("ready");
   });
 
   /**
@@ -87,25 +131,47 @@ describe("which screen a reader gets", () => {
    * `undefined` is included so the three cases sit together and the axis is
    * visible rather than implied.
    */
-  test.each([
-    ["nothing loaded yet", undefined],
-    ["a note already on screen", note()],
-    ["a refusal already on screen", new Error("nope")],
-  ])("signed out refuses with %s", (_label, loaded) => {
+  test("a note that needed a session is withdrawn when the session goes", () => {
     const view = resolveShareView({
       token: TOKEN,
       auth: SIGNED_OUT,
-      note: loaded as SharedNote | Error | undefined,
+      note: note(),
       requestedPath: null,
     });
     expect(view.kind).toBe("signIn");
+  });
+
+  /**
+   * The other half, and the reason the note carries the fact rather than the
+   * screen deriving it: an unlisted link's reader is permanently signed out,
+   * so a rule reading "no session, no note" would withdraw a note nobody ever
+   * needed a session for.
+   */
+  test("…and an unlisted one is not, because it never needed one", () => {
+    const view = resolveShareView({
+      token: TOKEN,
+      auth: SIGNED_OUT,
+      note: openNote(),
+      requestedPath: null,
+    });
+    expect(view.kind).toBe("ready");
+  });
+
+  test("a refusal on screen while signed out is still one refusal", () => {
+    const view = resolveShareView({
+      token: TOKEN,
+      auth: SIGNED_OUT,
+      note: refused(),
+      requestedPath: null,
+    });
+    expect(view.kind).toBe("unavailable");
   });
 
   test("signed out on a linked note comes back to that note, not the entry", () => {
     const view = resolveShareView({
       token: TOKEN,
       auth: SIGNED_OUT,
-      note: undefined,
+      note: noSession(),
       requestedPath: "1-projects/proposal.md",
     });
     expect(view.kind === "signIn" && view.href).toContain(
@@ -151,9 +217,14 @@ describe("which screen a reader gets", () => {
    */
   test("every refusal is the same screen", () => {
     const views = [
-      new Error("SHARE_UNAVAILABLE"),
+      refused(),
       new Error("revoked"),
       new Error("anything else at all"),
+      // A shaped payload whose code is not the one exemption, and a bare
+      // `ConvexError` string — both are refusals. Only `NOT_AUTHENTICATED`
+      // routes anywhere else, and only when it arrives shaped.
+      new ConvexError({ code: "STORAGE_FAILED", message: "later" }),
+      new ConvexError("NOT_AUTHENTICATED"),
     ].map((error) =>
       resolveShareView({
         token: TOKEN,
@@ -166,7 +237,22 @@ describe("which screen a reader gets", () => {
       "unavailable",
       "unavailable",
       "unavailable",
+      "unavailable",
+      "unavailable",
     ]);
+  });
+
+  /**
+   * The exemption, pinned on its own so widening it is a deliberate act. A
+   * plain object carrying the right code is not the server having answered —
+   * that is `toFileError`'s rule, and it holds here for the same reason.
+   */
+  test("only a shaped NOT_AUTHENTICATED is read as one", () => {
+    expect(isNotAuthenticated(noSession())).toBe(true);
+    expect(isNotAuthenticated({ data: { code: "NOT_AUTHENTICATED" } })).toBe(false);
+    expect(isNotAuthenticated(new Error("NOT_AUTHENTICATED"))).toBe(false);
+    expect(isNotAuthenticated(new ConvexError("NOT_AUTHENTICATED"))).toBe(false);
+    expect(isNotAuthenticated(refused())).toBe(false);
   });
 
   test("a missing token is the same screen as a spent one", () => {
