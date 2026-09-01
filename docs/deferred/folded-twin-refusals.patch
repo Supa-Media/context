@@ -291,7 +291,7 @@ index 577cb67..f7402ff 100644
      if (await store.get(move.destination)) {
        return toolError(`conflict: destination already exists: ${move.destination}`);
 diff --git a/apps/mcp/test/test.mjs b/apps/mcp/test/test.mjs
-index 669a526..b2a22ea 100644
+index 581bd65..b2a22ea 100644
 --- a/apps/mcp/test/test.mjs
 +++ b/apps/mcp/test/test.mjs
 @@ -3117,18 +3117,208 @@ check(
@@ -521,7 +521,7 @@ index 669a526..b2a22ea 100644
   */
  const quietA = "1-projects/quiet/x.md";
  const quietTwin = "1-projects/Quiet/x.md";
-@@ -3245,71 +3435,44 @@ check(
+@@ -3245,79 +3435,44 @@ check(
      (await call("team-token", "read_note", { path: `${foldFolderB}/Note.md` }))?.isError === true
  );
  /**
@@ -616,6 +616,14 @@ index 669a526..b2a22ea 100644
 -  visibility: "team",
 -  confirm_team_publish: true,
 -});
+-// The move wrote a `private` override at its destination — the folded read is
+-// what `move_note` persists — so the object is not the only thing to clean up.
+-// The block's own comment above says exactly this, and this block did it wrong.
+-await call("priv-token", "set_visibility", {
+-  path: "1-projects/portable/keep-moved.md",
+-  visibility: "team",
+-  confirm_team_publish: true,
+-});
 -await contextStore.delete(exactDeleteKeep);
 -await contextStore.delete("1-projects/portable/keep-moved.md");
 +
@@ -623,7 +631,7 @@ index 669a526..b2a22ea 100644
  
  /**
   * **The fold's direction, checked in the gateway's own suite.**
-@@ -3318,12 +3481,8 @@ await contextStore.delete("1-projects/portable/keep-moved.md");
+@@ -3326,12 +3481,8 @@ await contextStore.delete("1-projects/portable/keep-moved.md");
   * hole this whole change had in its first version, and it was caught only by
   * `apps/convex/__tests__/privacyEngine.test.ts` — the gateway suite passed with
   * the widening in place. CLAUDE.md calls this suite the fast, offline one a
@@ -638,7 +646,7 @@ index 669a526..b2a22ea 100644
   *
   * `2-areas/private` is a private folder. Publishing one note by exact override
   * must not publish its case-variant, which on R2 and S3 is a different file the
-@@ -3353,7 +3512,6 @@ check(
+@@ -3361,7 +3512,6 @@ check(
  await call("priv-token", "set_visibility", { path: widenFoldPath, visibility: "private" });
  await contextStore.delete(widenFoldPath);
  await contextStore.delete(widenFoldTwin);
@@ -646,7 +654,7 @@ index 669a526..b2a22ea 100644
  // Put the manifest back too, not just the objects. The first version of this
  // block deleted the two notes and left `fold-folder: private`,
  // `Fold-Folder: team` and the note override standing in the shared bucket for
-@@ -3375,6 +3533,17 @@ await setFolder(foldFolderA, "inherit");
+@@ -3383,6 +3533,17 @@ await setFolder(foldFolderA, "inherit");
  for (const key of [`${foldFolderA}/note.md`, `${foldFolderB}/Note.md`]) {
    await contextStore.delete(key);
  }
