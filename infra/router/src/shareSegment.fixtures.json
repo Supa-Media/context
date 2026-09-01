@@ -1,5 +1,5 @@
 {
-  "_comment": "One corpus, two implementations. `shareTokenFromSegment` in apps/mobile/features/share/share.ts and `shareTokenFrom` in infra/router/src/preview.ts read the same URL shape in two deployments that cannot import each other, so they are held the way two copies of a rule are always held here: by running both over these shapes rather than by trusting the comment between them. Add a case here and both suites pick it up.",
+  "_comment": "One corpus, two implementations. `shareTokenFromSegment` in apps/mobile/features/share/share.ts and `shareTokenFrom` in infra/router/src/preview.ts read the same URL shape in two deployments that cannot import each other, so they are held the way two copies of a rule are always held here: by running both over these shapes rather than by trusting the comment between them. Add a case here and both suites pick it up. ONE ASYMMETRY IS KNOWN AND NOT FIXED HERE: the router reads a raw `URL.pathname` while the app receives a segment expo-router has already percent-decoded, so the `%` cases below are refused by the router because `%` is outside its charset and by the app because the raw fixture string still contains one — production would hand the app `a-b-<64hex>`, which it would resolve. The direction is fail-closed for disclosure (the note opens, the card stays generic), so it is a broken unfurl rather than a leak; it is stated here because a case that passes for two different reasons reads as coverage and is not. AND CI ONLY RUNS ONE SIDE ON A CHANGE TO THIS FILE: it lives under `infra/router/**`, which triggers the router suite, while the mobile job is gated on `apps/mobile/**` and is skipped. Run `npx jest __tests__/shareViewer.test.ts` in `apps/mobile` by hand when you edit this — see the note in `preview.test.ts` for why importing the app's parser here does not work.",
   "cases": [
     {
       "why": "a bare token, the shape every link minted before slugs was",
@@ -27,7 +27,7 @@
       "token": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"
     },
     {
-      "why": "a slug that is itself hex \u2014 only the tail is ever read as a token",
+      "why": "a slug that is itself hex — only the tail is ever read as a token",
       "segment": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
       "token": "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4"
     },
@@ -94,6 +94,36 @@
     {
       "why": "the empty segment",
       "segment": "",
+      "token": null
+    },
+    {
+      "why": "a doubled leading hyphen is not slug material either — the charset starts alphanumeric, and relaxing it to [A-Za-z0-9-]+ passed every check before this case existed",
+      "segment": "--a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
+      "token": null
+    },
+    {
+      "why": "a percent-escaped hyphen stays escaped — the router reads a raw pathname and its charset has no %, so this must not resolve",
+      "segment": "a%2Db-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
+      "token": null
+    },
+    {
+      "why": "lowercase too, because a case-insensitive decode would be a difference between the two copies",
+      "segment": "a%2db-a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
+      "token": null
+    },
+    {
+      "why": "a percent-escaped hex digit inside the token is not the token",
+      "segment": "plan-%61a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d",
+      "token": null
+    },
+    {
+      "why": "a Unicode hyphen lookalike (U+2010) is not the separator",
+      "segment": "plan‐a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
+      "token": null
+    },
+    {
+      "why": "nor a fullwidth one (U+FF0D)",
+      "segment": "plan－a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
       "token": null
     }
   ]

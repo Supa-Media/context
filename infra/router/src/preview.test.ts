@@ -490,6 +490,77 @@ describe("share links: the one card that may say something", () => {
     },
   );
 
+  /**
+   * AND THE CORPUS ITSELF IS PINNED, BECAUSE IT IS THE ONLY THING HOLDING THE
+   * TWO COPIES TOGETHER.
+   *
+   * Both suites run it — sabotage either parser from an anchor to a search and
+   * six checks fail on each side — but nothing was checking its *size*.
+   * Deleting all twelve negative cases left both suites green at their previous
+   * counts, and the concrete hole that leaves is measurable: relaxing
+   * `^([A-Za-z0-9][A-Za-z0-9-]*)` to `^([A-Za-z0-9-]+)` in one copy passed
+   * every check, because the corpus had `-<64hex>` and not `--<64hex>`.
+   *
+   * An enumeration nobody checks the size of is a list that shrinks, which is
+   * the discipline `UNAUTHENTICATED_HTTP_ROUTES` and `CREDENTIAL_BARRIERS`
+   * already follow one repository over. The floor is asserted rather than the
+   * exact count, so adding a case is free and removing one is not.
+   */
+  /**
+   * A CI GAP THIS SUITE CANNOT CLOSE, RECORDED WHERE THE CORPUS IS EDITED.
+   *
+   * The corpus exists to hold `shareTokenFrom` here and
+   * `shareTokenFromSegment` in `apps/mobile` together, and both suites do run
+   * it — but only one of them runs in CI when the corpus changes. The file
+   * lives under `infra/router/src/`, so editing it triggers `router.yml`
+   * (`paths: infra/router/**`) while the reusable workflow's change detection
+   * skips `ci / Test Mobile App`, which is gated on `apps/mobile/**`. Measured
+   * on the commit that added six cases: `Test Edge Router` ran, `Test Mobile
+   * App` was skipped. So the edit the corpus is *designed* to receive is
+   * checked against one of the two implementations it exists to compare.
+   *
+   * Running the app's parser from this suite was tried and reverted: esbuild
+   * resolves the nearest tsconfig for an imported file, which for anything
+   * under `apps/mobile/` is one that extends `expo/tsconfig.base`, and the
+   * router's CI job installs only its own workspace deps. It passes locally
+   * with the whole workspace installed and fails in CI, which is the worst
+   * shape a guard can have.
+   *
+   * The two real fixes are both larger than a test: make the two copies one
+   * module that both import, or get the mobile job to trigger on this path.
+   * Until then, **run `npx jest __tests__/shareViewer.test.ts` in `apps/mobile`
+   * by hand when you touch this file** — CI will not do it for you.
+   */
+  it("the shared corpus keeps its negative cases", () => {
+    const cases = shareSegmentCases.cases;
+    const refused = cases.filter((c) => c.token === null);
+    expect(cases.length, "cases were removed from the corpus").toBeGreaterThanOrEqual(25);
+    expect(refused.length, "the refusals are the half that guards the charset").toBeGreaterThanOrEqual(18);
+
+    // Each hazard by name, because a count alone is satisfied by twenty copies
+    // of one shape. These are the classes a divergence would hide in.
+    for (const [hazard, matches] of [
+      // Scoped to the tail. `/[A-F]/` alone is satisfied by `Chapter-transition`
+      // — a slug case, not the hazard — so replacing the one genuine
+      // uppercase-hex case with a lowercase near-duplicate kept this green.
+      // The failure the corpus's own comment names: a case that passes for two
+      // different reasons reads as coverage and is not.
+      ["uppercase hex", (c: string) => /(?:^|-)[0-9a-fA-F]{64}$/.test(c) && /[A-F]/.test(c)],
+      // A hex run of the wrong length, wherever in the segment it sits — the
+      // corpus spells these with a slug in front.
+      ["a wrong length", (c: string) => /(?:^|-)[0-9a-f]{63}$|(?:^|-)[0-9a-f]{65}$/.test(c)],
+      ["a leading separator", (c: string) => c.startsWith("-")],
+      ["a percent escape", (c: string) => c.includes("%")],
+      ["a non-ASCII separator", (c: string) => /[^\x00-\x7F]/.test(c)],
+      ["a path separator", (c: string) => c.includes("/") || c.includes(".")],
+    ] as const) {
+      expect(
+        refused.some((c) => matches(c.segment)),
+        `the corpus lost its case for ${hazard}`,
+      ).toBe(true);
+    }
+  });
+
   it("a title reaches the card", () => {
     const meta = previewForShare("Chapter transition");
     expect(meta.title).toBe("Chapter transition — Context");
@@ -949,5 +1020,56 @@ describe("previewForNote: a folder link names what is inside it", () => {
     expect(previewForNote("Transition", TOKEN, []).imageUrl).toBe(
       previewForNote("Transition", TOKEN).imageUrl,
     );
+  });
+});
+
+/**
+ * THE EDGE STRIPS THE TITLE THE WAY IT ALREADY STRIPS THE NAMES UNDER IT.
+ *
+ * `boundChildren` removes `Cc`/`Cf` from every child name and says why. The
+ * title -- the more prominent field, and the one an unlisted card is built
+ * entirely from -- was bounded for *length* here and not cleaned, so the rule
+ * this file states in its own words ("an edge that trusts its upstream to have
+ * been careful has no bound at all") was applied to one field of the response
+ * and not the other.
+ *
+ * The control plane strips it at the source now too. Both, because that is how
+ * two copies of a rule are held here -- by running both against the same
+ * shapes, not by a comment saying they agree.
+ */
+describe("a title from upstream is stripped, not only shortened", () => {
+  const RLO = "\u202E";
+  const NEL = "\u0085";
+  const ZWSP = "\u200B";
+
+  it("keeps a bidi override out of og:title on a share card", () => {
+    const meta = previewForShare(`Salary${RLO}gnp.exe`);
+    expect(meta.title).toContain("gnp.exe");
+    for (const hostile of [RLO, NEL, ZWSP]) expect(meta.title).not.toContain(hostile);
+  });
+
+  it("and out of a note card's title", () => {
+    const meta = previewForNote(`Report${RLO}fdp`, null, []);
+    expect(meta.title).not.toContain(RLO);
+  });
+
+  it("a title that is only format characters renders the generic card", () => {
+    expect(previewForShare(`${RLO}${ZWSP}${NEL}`)).toEqual(GENERIC_PREVIEW);
+  });
+
+  it("an ordinary title is untouched", () => {
+    expect(previewForShare("Chapter transition").title).toBe("Chapter transition — Context");
+  });
+
+  /**
+   * ...and cleaned BEFORE it is bounded, which is the ordering `boundTitle`'s
+   * comment claims and nothing was checking: swapping to clean-after-bound left
+   * all 291 green. Sixty format characters in front of a real title push every
+   * readable byte past the cut, so the card falls back to generic — fail-closed
+   * rather than a leak, and still the title the owner chose, gone.
+   */
+  it("cleans before it bounds, so padding cannot push the title past the cut", () => {
+    const padded = `${ZWSP.repeat(60)}Chapter transition`;
+    expect(previewForShare(padded).title).toBe("Chapter transition — Context");
   });
 });

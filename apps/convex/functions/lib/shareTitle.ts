@@ -49,10 +49,25 @@ export const MAX_PREVIEW_TITLE = 60;
  * `q3-budget-for-lk` into something nobody wrote. Returns `null` when nothing
  * legible survives, because a card with no title is honest and a card titled
  * `2026 08 29` is noise.
+ *
+ * **Control and format characters are stripped here too**, and that is not
+ * symmetry for its own sake. The strip was added to `normalizePreviewTitle`
+ * below and not to this function, which is the wrong half: an owner-typed title
+ * is the input least likely to be hostile, while this one is taken straight off
+ * a key out of a bucket we do not own — Obsidian's sync plugin, rclone and the
+ * provider's console all write keys directly, and on a shared workspace an
+ * editor creates the file while the owner mints the link.
+ *
+ * It also lands on the card with the widest audience. `mintLinkShare` takes no
+ * `previewTitle`, so for an **unlisted** link this is the only title source
+ * there is: a bidi override in a filename reaches `og:title` and the card PNG
+ * in front of strangers who never sign in, and a card already unfurled cannot
+ * be retracted from anybody's CDN.
  */
 export function titleFromPath(path: string): string | null {
   const base = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/i, "");
   const words = base
+    .replace(CONTROL_CHARACTERS, " ")
     .replace(/^\d+[-_.\s]+/, "")
     .replace(/[-_]+/g, " ")
     .replace(/\s+/g, " ")

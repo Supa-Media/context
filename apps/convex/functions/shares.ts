@@ -1148,6 +1148,22 @@ export const resolveShare = query({
     if (share === null) return null;
     if ((await shareStillStands(ctx, share, userId, now)) === null) return null;
 
+    // **An unlisted link was sent to nobody, so there is nobody this answers
+    // for.** `shareStillStands` says the link is live and, for an `anyone` row,
+    // says it for every caller — which is right for the *read* and wrong here.
+    // Every other kind required identity or membership before it, so a signed-in
+    // stranger holding a token got `null`; without this they would get the
+    // workspace id, the sharer and the mint time, which correlates two unrelated
+    // unlisted links to one context and one sharer without opening either note.
+    //
+    // The reader loses nothing: `readSharedNote` still hands them the note, and
+    // `entryPath` with it. This withholds the handle, not the thing the link is
+    // for.
+    if (share.recipientKind === "anyone") {
+      const membership = await getMembership(ctx, share.workspaceId, userId);
+      if (membership === null) return null;
+    }
+
     return {
       shareId: share._id,
       workspaceId: share.workspaceId,
@@ -1496,21 +1512,26 @@ export const readSharedNote = action({
 
     const requested =
       args.path === undefined ? grant.entryPath : normalizePath(args.path);
-    if (requested === null) throw shareUnavailable();
+    if (requested === null) throw anonymousSafe(actorUserId, shareUnavailable());
 
     // The entry note is read on every request. It is what step 3 is checked
     // against, and — for a linked target — it is the only thing that authorizes
     // the hop. Reading it twice when it is itself the target is one extra bucket
     // GET on the cheapest possible read, and the alternative is a branch that
     // decides when authorization can be skipped.
-    const entry = await readThroughShare(ctx, grant.workspaceId, grant.entryPath);
+    const entry = await readThroughShare(
+      ctx,
+      grant.workspaceId,
+      grant.entryPath,
+      actorUserId,
+    );
     const links = linkedNotePaths(entry.text, grant.entryPath);
 
     if (requested !== grant.entryPath) {
       // `SHARE_TRAVERSAL_DEPTH` is 1: the entry note's own links and nothing
       // further. See the constant.
-      if (!links.includes(requested)) throw shareUnavailable();
-      const target = await readThroughShare(ctx, grant.workspaceId, requested);
+      if (!links.includes(requested)) throw anonymousSafe(actorUserId, shareUnavailable());
+      const target = await readThroughShare(ctx, grant.workspaceId, requested, actorUserId);
       return {
         path: requested,
         text: target.text,
@@ -1549,6 +1570,63 @@ function notAuthenticated(): ConvexError<{ code: string; message: string }> {
 }
 
 /**
+ * The refusal an anonymous caller may be shown, given the one we would raise.
+ *
+ * `shareUnavailable()` promises in its own doc comment that revoked, expired,
+ * never issued, deleted and no-longer-`team`-visible are "all of it ... one
+ * sentence". On the anonymous path they were two: the five that fail in
+ * `authorizeShareRead` answered `NOT_AUTHENTICATED`, and the two that fail
+ * *after* it — the note made private, the note gone from the bucket — answered
+ * `SHARE_UNAVAILABLE`, because they are raised further down.
+ *
+ * That told a holder with no session which of the two kinds of withdrawal had
+ * happened: revoking is invisible, making the note private was visible, and a
+ * `SHARE_UNAVAILABLE` meant the row was still live and worth polling for the
+ * moment the owner published again.
+ *
+ * A **signed-in** caller keeps `SHARE_UNAVAILABLE`. They have a name, so the
+ * refusal is genuinely about the share rather than about their session, and
+ * "sign in" is not something they can act on. This is the same split
+ * `readSharedNote` already draws where the grant fails to resolve, applied to
+ * the refusals raised after it.
+ *
+ * Infrastructure failure is deliberately NOT laundered through here — an
+ * unreachable bucket is not an authorization answer, and reporting it as one
+ * would tell a viewer their access was withdrawn when it was not. Only a
+ * refusal this module raised is passed in, and `shareAnyone.test.ts` drives an
+ * anonymous caller through both outage shapes so that boundary is a guard
+ * rather than a sentence.
+ *
+ * ## Two residuals, stated rather than left to be rediscovered
+ *
+ * **The body is uniform; the latency is not.** Measured, for an anonymous
+ * caller, all answering `NOT_AUTHENTICATED`: an invented or revoked token costs
+ * **0** bucket round trips, a live row whose note was made private costs
+ * **1**, and a live row whose note is gone costs **2**. So the distinction this
+ * function removes from the response survives as timing, and a determined
+ * holder can still learn that a row is live. Closing it means spending the same
+ * reads on a token nobody minted, which is an unauthenticated caller choosing
+ * how much of the customer's bucket quota to spend — the trade is not obviously
+ * worth making, and it is not made here. Do not claim byte-indistinguishability
+ * without this paragraph beside it.
+ *
+ * **The reader is sent to sign in for a note that will not be there.**
+ * `NOT_AUTHENTICATED` routes the viewer to the sign-in screen, so a stranger
+ * following an unlisted link whose note has since been made private is now
+ * asked to create an account and *then* told it is unavailable — where before
+ * they were told at once, and while the card they clicked may still say "no
+ * account needed". That is the price of one uniform refusal, paid by the person
+ * least able to understand it, and it is the right trade only because the
+ * alternative tells them which kind of withdrawal happened.
+ */
+function anonymousSafe(
+  actorUserId: Id<"users"> | null,
+  refusal: ConvexError<{ code: string; message: string }>,
+): ConvexError<{ code: string; message: string }> {
+  return actorUserId === null ? notAuthenticated() : refusal;
+}
+
+/**
  * One note, at `team` scope, through the existing credential barrier.
  *
  * `runFileOperation` is the one function in this codebase that opens a bucket
@@ -1565,6 +1643,7 @@ async function readThroughShare(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   path: string,
+  actorUserId: Id<"users"> | null,
 ): Promise<{ text: string }> {
   try {
     const result = await ctx.runAction(internal.functions.files.runFileOperation, {
@@ -1572,14 +1651,18 @@ async function readThroughShare(
       scope: "team",
       operation: { kind: "read", path },
     });
-    if (result.kind !== "file") throw shareUnavailable();
+    if (result.kind !== "file") throw anonymousSafe(actorUserId, shareUnavailable());
     return { text: result.text };
   } catch (error) {
     const code =
       error instanceof ConvexError
         ? (error.data as { code?: string } | undefined)?.code
         : undefined;
-    if (code === "FILE_NOT_FOUND" || code === "PATH_INVALID") throw shareUnavailable();
+    if (code === "FILE_NOT_FOUND" || code === "PATH_INVALID") {
+      throw anonymousSafe(actorUserId, shareUnavailable());
+    }
+    // Anything else is infrastructure and travels unchanged, for both kinds of
+    // caller. See `anonymousSafe`.
     throw error;
   }
 }

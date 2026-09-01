@@ -469,6 +469,24 @@ function decodeSafely(segment: string): string {
 }
 
 /**
+ * A title from upstream, cleaned and bounded — or `null` if nothing survives.
+ *
+ * The strip is the one `boundChildren` applies to every child name, and the
+ * reason is the stronger here: the title is the more prominent field, and for
+ * an unlisted link it is the whole card. Bounding without cleaning was the rule
+ * this file states in its own words — "an edge that trusts its upstream to have
+ * been careful is an edge with no bound at all" — applied to length only.
+ *
+ * Cleaned BEFORE the length bound, so a title padded with format characters
+ * cannot push real text past the cut.
+ */
+function boundTitle(title: string | null | undefined): string | null {
+  if (typeof title !== "string") return null;
+  const clean = title.replace(/[\p{Cc}\p{Cf}]/gu, " ").replace(/\s+/g, " ").trim();
+  return clean === "" ? null : clean.slice(0, 60);
+}
+
+/**
  * The card a readable team link unfurls with.
  *
  * `previewForShare`'s reasoning applies unchanged — title only, canonical still
@@ -481,10 +499,9 @@ export function previewForNote(
   cardToken?: string | null,
   children?: readonly unknown[] | null,
 ): PreviewMeta {
-  const clean = title?.trim();
-  if (!clean) return GENERIC_PREVIEW;
+  const bounded = boundTitle(title);
+  if (bounded === null) return GENERIC_PREVIEW;
 
-  const bounded = clean.slice(0, 60);
   const inside = boundChildren(children);
   return {
     ...GENERIC_PREVIEW,
@@ -602,14 +619,12 @@ export function previewForShare(
    */
   openToAnyone = false,
 ): PreviewMeta {
-  const clean = title?.trim();
-  if (!clean) return GENERIC_PREVIEW;
-
-  // Bounded before it is escaped, mirroring MAX_PREVIEW_TITLE in the control
-  // plane. Bounded in both places on purpose: this one is what protects the
-  // response when the upstream is wrong, and an edge that trusts its upstream
-  // to have been careful is an edge with no bound at all.
-  const bounded = clean.slice(0, 60);
+  // Cleaned and bounded, mirroring MAX_PREVIEW_TITLE and the control character
+  // strip in the control plane. Done in both places on purpose: this one is
+  // what protects the response when the upstream is wrong, and an edge that
+  // trusts its upstream to have been careful is an edge with no bound at all.
+  const bounded = boundTitle(title);
+  if (bounded === null) return GENERIC_PREVIEW;
 
   return {
     ...GENERIC_PREVIEW,
