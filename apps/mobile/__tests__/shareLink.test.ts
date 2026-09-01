@@ -15,9 +15,9 @@
 import { describe, expect, test } from "@jest/globals";
 import { capabilitiesForRole, canSetVisibility, canShare } from "../features/console/capabilities";
 import {
+  describePersonalShare,
   SHARE_PATH_PREFIX,
   describePreviewTitle,
-  describeShare,
   shareEligibility,
   shareUrl,
   sharesBreakingWarning,
@@ -160,9 +160,16 @@ describe("what the owner is told", () => {
    * matters — the linked notes come with it.
    */
   test("the description names the linked notes, not just this one", () => {
-    expect(describeShare()).toMatch(/notes it links to/i);
-    expect(describeShare()).toMatch(/sign in/i);
-    expect(describeShare()).toMatch(/nothing else/i);
+    /*
+      One sentence carries all of it now — `describeShare` said the same three
+      things directly beneath this one and is gone. The assertions did not
+      move: what the owner must not guess wrong is unchanged, only how many
+      paragraphs it takes to say.
+    */
+    expect(describePersonalShare()).toMatch(/notes it links to/i);
+    expect(describePersonalShare()).toMatch(/sign in/i);
+    expect(describePersonalShare()).toMatch(/nothing else/i);
+    expect(describePersonalShare()).toMatch(/take it back/i);
   });
 
   /** Named after the title that will actually appear, not "may expose metadata". */

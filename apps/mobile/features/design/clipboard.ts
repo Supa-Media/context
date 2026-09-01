@@ -9,3 +9,19 @@
 export async function writeClipboard(_text: string): Promise<boolean> {
   return false;
 }
+
+/**
+ * The native half of `copyDeferred` — see the web file for what it is for.
+ *
+ * There is no user-activation window to preserve here and no clipboard to
+ * write to, so this is the plain shape: run the round trip, report honestly
+ * that nothing was copied. The text still comes back, because a caller that
+ * cannot copy has something worth showing.
+ */
+export async function copyDeferred(
+  produce: () => Promise<string | null>,
+): Promise<{ ok: boolean; text: string | null }> {
+  const value = await produce();
+  if (value === null) return { ok: false, text: null };
+  return { ok: await writeClipboard(value), text: value };
+}

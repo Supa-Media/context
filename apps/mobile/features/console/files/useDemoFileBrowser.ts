@@ -159,7 +159,12 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       shares: undefined,
       share: noop,
       revokeShare: noop,
-      teamShareLink: async () => null,
+      /*
+        The landing page's console has no bucket and no clipboard promise to
+        make. `false` is the honest answer and the one the dialog reads: it
+        stays open and says nothing was copied, rather than claiming a link.
+      */
+      copyShareLink: async () => false,
       setSharePreviewTitle: noop,
     }),
     [collapseAll, contextId, editor, expanded, select, selectedPath, toggleFolder, tree],
