@@ -245,7 +245,7 @@ describe("what shipped is a script and nothing else", () => {
     // From the line after the job's own key, so the search below does not
     // match `editor-bundle:` itself and cut the block to nothing.
     const rest = code.slice(start + 1);
-    const next = rest.search(/\n  [a-z][a-z-]*:\n/);
+    const next = rest.search(/\n {2}[a-z][a-z-]*:\n/);
     const job = next === -1 ? rest : rest.slice(0, next);
     expect(job).toMatch(/^\s+run: node scripts\/build-editor-bundle\.mjs\s*$/m);
     /*
