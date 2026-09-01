@@ -483,10 +483,47 @@ check(
 // client a way to publish, this fails instead of reassuring a model that it
 // cannot do what it just did.
 check(
-  "server contract says this connection cannot publish past the named people",
+  "server contract says visibility here is private or team",
   /team/i.test(init.result?.instructions) &&
-    /private or team/i.test(init.result?.instructions) &&
-    /(?:no|not|never|cannot|can't)[^\n.]{0,60}publish/i.test(init.result?.instructions)
+    /private or team/i.test(init.result?.instructions)
+);
+
+/**
+ * ...AND IT DOES NOT CLAIM THIS CONNECTION CANNOT PUBLISH, BECAUSE IT CAN.
+ *
+ * The check above used to also require the instructions to say no tool here can
+ * publish past the people the owner named, and its own comment said it existed
+ * so that "the day somebody gives an AI client a way to publish, this fails
+ * instead of reassuring a model that it cannot do what it just did".
+ *
+ * That day was the same commit. An unlisted share serves the entry note **and
+ * the notes the entry note links to**, resolved from its live body on every
+ * read (`functions/lib/noteLinks.ts`, an authorization input by its own
+ * header), with `/x.md` resolving from the bucket root. Nothing in the write
+ * path or in this gateway knows a share exists. So `write_note` adding one
+ * markdown link to a note somebody already handed an unlisted link to publishes
+ * any team-visible note in that bucket to anyone holding the link -- which is
+ * the ordinary shape of "add a reference to the salaries note in the plan".
+ *
+ * The reasoning that missed it stopped at "no tool here is named publish".
+ * Publishing is not a tool, it is a consequence of an edit.
+ *
+ * So the instructions state what is true and say what an agent can actually act
+ * on, and this pins BOTH halves: the absolute must not come back, and the
+ * warning that replaces it must not quietly go away.
+ */
+check(
+  "and does not claim this connection cannot publish, because an edit can",
+  // Word-anchored. Unanchored, `not` matches inside "note", and the warning
+  // this check exists to protect trips its own assertion.
+  !/\b(?:no|not|never|cannot|can't)\b[^\n.]{0,60}publish/i.test(init.result?.instructions)
+);
+check(
+  "instead it warns that a link added to a note can widen a link already sent",
+  /widen/i.test(init.result?.instructions) &&
+    /\blinks?\b[^\n]{0,80}\bwiden|\bwiden[^\n]{0,80}\blinks?\b/i.test(
+      init.result?.instructions
+    )
 );
 
 // -- Origin validation on the Streamable HTTP transport (DNS rebinding)

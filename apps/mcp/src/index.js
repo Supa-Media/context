@@ -316,10 +316,15 @@ stop paying.
    land in — the folder decides who else can read it. Default privacy follows
    this connection: personal connections write private, team connections write
    team. Publishing something private to team needs their explicit yes. Visibility
-   here is private or team and nothing else — "team" means people they named,
-   and no tool on this connection can publish anything beyond them. The owner
-   can separately hand out a link to one note from their console; you cannot,
-   and you are not told which notes those are.
+   here is private or team and nothing else — "team" means people they named.
+   The owner can separately hand out an unlisted link to one note from their
+   console; you cannot mint one, and you are not told which notes have one.
+   **A link you add to a note can widen one the owner already sent.** Such a
+   link serves the note it names *and* the notes that note links to, read live,
+   so adding a cross-reference to a shared note publishes what it points at to
+   whoever holds that link. Since you cannot tell which notes are shared, say
+   what you are linking to when you add a cross-reference, rather than treating
+   it as a change inside the note.
 4. **Many tools read these notes, not just you.** Keep them concise and factual.
    No transient chatter, and when you save a conversation, save the user-visible
    messages only — never system or developer prompts, internal reasoning,
@@ -2585,7 +2590,8 @@ function scopeInfoText(scope, rules) {
       overrideList +
       "\n\nExact private or team notes may override a folder default through privacy.md. " +
       "Frontmatter is never access control. Publishing private content to team requires explicit confirmation. " +
-      "Visibility is private or team; nothing on this connection can publish beyond the people the owner named. " +
+      "Visibility is private or team. The owner may separately have handed out an unlisted link to a note; you are not told which. " +
+      "A link you add to a note can widen one already sent, because such a link also serves what the note links to. " +
       "Personal reviewers can process queued proposals."
     );
   }
@@ -2602,7 +2608,8 @@ function scopeInfoText(scope, rules) {
     "Write and move destinations outside the surface return permission denied without confirming whether anything exists there.\n\n" +
     "If the PARA-correct destination is not writable, use propose_note. A personal connection must approve it before the note is filed. " +
     "Archive paths never encode visibility. Exact archive visibility is enforced through privacy.md. " +
-    "Visibility is private or team; nothing on this connection can publish beyond the people the owner named."
+    "Visibility is private or team. The owner may separately have handed out an unlisted link to a note; you are not told which. " +
+    "A link you add to a note can widen one already sent, because such a link also serves what the note links to."
   );
 }
 
