@@ -291,15 +291,22 @@ export interface FileBrowser {
    * and its token exists to make the URL unguessable, which is what lets its
    * card carry a title. `share` copies a link that already exists.
    *
-   * Reports through `notice` either way, because a copy is exactly the kind of
-   * thing that has to be confirmed and cannot be seen: the clipboard is
-   * invisible. A failure says so and prints the URL, which is the only useful
-   * thing left to do with it — a real refusal on either platform, since native
-   * copies through `expo-clipboard` rather than reporting a permanent no.
+   * A copy has to be confirmed and cannot be seen — the clipboard is invisible
+   * — so this answers with the words as well as the outcome, and the **caller
+   * decides where they go**. That is not ceremony: a success is reported by the
+   * pane, after the dialog closes, and a failure has to be reported *inside*
+   * the dialog, because the dialog stays open and a notice raised behind a
+   * modal is a message nobody can read. Raising it here for both was the
+   * version that looked finished and left a person tapping a button that did
+   * nothing at all.
+   *
+   * `message` is `null` when the link could not be made: the server has
+   * already said why, and saying "couldn't copy" over the top of a real
+   * refusal replaces it with a symptom.
    */
   copyShareLink: (
     target: { kind: "team"; path: string } | { kind: "share"; url: string },
-  ) => Promise<boolean>;
+  ) => Promise<{ ok: boolean; message: string | null }>;
 
   /**
    * Turn the link's preview title on or off for one share.

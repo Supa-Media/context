@@ -70,7 +70,7 @@ export function ShareDialog({
    */
   onCopyLink: (
     target: { kind: "team"; path: string } | { kind: "share"; url: string },
-  ) => Promise<boolean>;
+  ) => Promise<{ ok: boolean; message: string | null }>;
   onRevoke: (shareId: string) => void;
   onSetPreviewTitle: (recipient: string, titleInPreview: boolean) => void;
   onClose: () => void;
@@ -78,6 +78,15 @@ export function ShareDialog({
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const [recipient, setRecipient] = useState("");
+  /**
+   * What went wrong with the last copy, or `null`.
+   *
+   * Carries the URL when the clipboard refused, because the clipboard is the
+   * only part that failed and the person still wants the link. `null` when the
+   * *link* could not be made: the server has already said why, in the pane,
+   * and repeating a symptom over a real refusal is worse than saying nothing.
+   */
+  const [problem, setProblem] = useState<string | null>(null);
 
   /**
    * Copy, and get out of the way.
@@ -98,8 +107,20 @@ export function ShareDialog({
   const copyAndClose = (
     target: { kind: "team"; path: string } | { kind: "share"; url: string },
   ) => {
-    void onCopyLink(target).then((ok) => {
-      if (ok) onClose();
+    setProblem(null);
+    void onCopyLink(target).then(({ ok, message }) => {
+      if (ok) {
+        onClose();
+        return;
+      }
+      /*
+        **Shown here, not behind here.** The pane's notice line sits under this
+        modal, so a failure raised there is a message nobody can read — and on
+        a platform where every copy failed, that made Copy link a button that
+        did nothing at all. The dialog is the surface the press happened on, so
+        it is the surface that answers.
+      */
+      setProblem(message);
     });
   };
 
@@ -134,6 +155,11 @@ export function ShareDialog({
             <View style={styles.section}>
               <Text variant="eyebrow">PEOPLE WITH ACCESS</Text>
               <Text variant="paneSub">{describeTeamLink()}</Text>
+              {problem === null ? null : (
+                <Text variant="meta" testID="share-copy-problem" selectable>
+                  {problem}
+                </Text>
+              )}
               <Button
                 label="Copy link"
                 variant="white"
