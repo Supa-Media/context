@@ -30,3 +30,83 @@ jobs:
       # reported as a pass. It must block.
       lint-continue-on-error: false
     secrets: inherit
+
+  # ── THE COMMITTED EDITOR BUNDLE IS CHECKED HERE AND NOWHERE ELSE ──────────
+  #
+  # `apps/mobile/features/console/files/webview/bundle.generated.ts` is ~500kb
+  # of minified CodeMirror that ships to a phone and runs against somebody's
+  # private note. `__tests__/editorBundle.test.ts` opens with "THE COMMITTED
+  # BUNDLE IS THE CODE IN THIS REPOSITORY" and does not check that: it hashes
+  # the bundle's *inputs* — the six repo sources and the twenty package versions
+  # — and asserts a handful of shapes about the output (it starts `"use
+  # strict";(()=>{`, it is over 100kb, it contains no `eval(`). Measured: a
+  # `navigator.sendBeacon` snippet appended to the `EDITOR_BUNDLE` string passed
+  # that suite, `webviewHost.test.ts`, and all 2,459 mobile tests, because no
+  # source file was touched and nothing in the payload needs `eval`.
+  #
+  # The only guard that closes it is rebuilding and comparing, and that belongs
+  # here rather than in Jest for the reason the generator's own header gives:
+  # esbuild is deliberately not a dependency of `apps/mobile`, and adding a
+  # bundler to a React Native app's dependency tree to run one assertion is a
+  # worse trade than a job. It is also a fact about this job that it can only be
+  # written because the build IS reproducible — verified byte-identical on a
+  # clean tree before this was added. If that ever stops being true, this job
+  # goes red and says so, which is the right direction to fail in.
+  editor-bundle:
+    name: The committed editor bundle is what its sources build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # The whole workspace: esbuild reaches this script through the repo root,
+      # where `convex` already installs it, and the generator records the
+      # resolved version of every package it bundles — so a partial install
+      # would rebuild against different code than the commit was built from.
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Rebuild the bundle from its sources
+        run: node scripts/build-editor-bundle.mjs
+
+      - name: It must be byte-for-byte what is committed
+        run: |
+          set -euo pipefail
+          file=apps/mobile/features/console/files/webview/bundle.generated.ts
+          if git diff --quiet -- "$file"; then
+            echo "OK — the committed bundle is exactly what its sources build."
+            exit 0
+          fi
+          echo "ERROR: $file is not what its sources build."
+          echo ""
+          echo "Either somebody edited a source and did not re-run the generator"
+          echo "— in which case run \`node scripts/build-editor-bundle.mjs\` and"
+          echo "commit the result — or the committed bundle contains code that"
+          echo "is not in this repository, which is the case this job exists for."
+          echo ""
+          # The bundle is one enormous line, so a real diff is unreadable and
+          # would print the injected code into a public log as the only record
+          # of it. The stat says the file moved; the artifact below is what a
+          # reviewer actually reads.
+          git diff --stat -- "$file"
+          exit 1
+
+      # Uploaded only on failure, and only the rebuilt file: a reviewer needs to
+      # compare it against the commit to see what was added, and scrolling a
+      # 500kb single-line diff in a job log is not that.
+      - name: What the sources actually build
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-rebuilt
+          path: apps/mobile/features/console/files/webview/bundle.generated.ts
+          if-no-files-found: error
