@@ -183,6 +183,18 @@ export const ICON_NAMES = [
    */
   "lock",
   "lockOpen",
+  /**
+   * The third position of that same control: a link anybody who has it can
+   * open, with no sign-in.
+   *
+   * A globe rather than a wider-open padlock, because the axis changes at that
+   * step and the mark should change with it. Shut and open are two states of
+   * one object and read as *degrees* of the same thing — which is right for
+   * "me" versus "my team", and wrong for "and now people I have never met".
+   * A padlock at its third setting is the picture of a lock that is merely
+   * looser; the world is the picture of who is on the other side.
+   */
+  "globe",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -779,6 +791,28 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
       return [
         rect("body", u, w, c, { x0: 0.14, y0: 0.46, x1: 0.72, y1: 0.86, radius: 0.1 }),
         shackle("shackle", u, w, c, { x0: 0.5, y0: 0.12, x1: 0.86, y1: 0.46 }),
+      ];
+
+    case "globe":
+      /*
+        A ring with an equator and an axis, and no meridian ellipse.
+
+        Feather's globe draws that third stroke as an ellipse, and this set has
+        no way to: React Native's border radii do not make a reliable ellipse
+        across both platforms, so it would have to be a stadium pretending to
+        be one. The reasoning `filter` gives applies — at 20pt the difference
+        between an ellipse and a straight axis is a smudge, and two crossed
+        strokes inside a ring is unmistakably a globe where a fourth stroke is
+        a scribble.
+
+        The equator sits just above centre, where a globe's is when you are
+        looking slightly down at one, which is the whole of what stops the two
+        strokes reading as a crosshair.
+      */
+      return [
+        ring("edge", u, w, c, { cx: 0.5, cy: 0.5, r: 0.38 }),
+        bar("equator", u, w, c, { cx: 0.5, cy: 0.44, length: 0.72 }),
+        bar("axis", u, w, c, { cx: 0.5, cy: 0.5, length: 0.72, angle: 90 }),
       ];
 
     case "collapse":

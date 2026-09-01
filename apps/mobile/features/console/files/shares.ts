@@ -27,6 +27,16 @@ export interface NoteShare {
   token: string;
   /** Decorated for display: `@lk`, or a bare address. */
   recipient: string;
+  /**
+   * Which kind of audience `recipient` names.
+   *
+   * The discriminator rather than the sentence, because one of these rows is
+   * not like the others: an `anyone` share's reader never signs in, so it is
+   * what the lock control reads to know a note is published, and a list that
+   * drew it like a person would be omitting the one thing about it that
+   * matters.
+   */
+  audience: "name" | "email" | "members" | "anyone";
   entryPath: string;
   titleInPreview: boolean;
   previewTitle?: string;
@@ -72,10 +82,37 @@ export function shareUrl(token: string, origin: string): string {
  * metadata" is a sentence nobody weighs. `previewTitle` is what the card will
  * say; if there is none, the honest version says so.
  */
-export function describePreviewTitle(previewTitle: string | undefined): string {
+export function describePreviewTitle(
+  previewTitle: string | undefined,
+  audience: NoteShare["audience"],
+): string {
+  // "Before signing in" is the cost for every link whose reader signs in
+  // *afterwards*. An unlisted link's reader never does, so the sentence would
+  // be describing a step that does not happen — and the thing actually worth
+  // saying about that row is not the title at all, it is that the note itself
+  // is readable by whoever holds the URL.
+  const when = audience === "anyone" ? "even without opening it" : "before signing in";
   return previewTitle === undefined
-    ? "Anyone with the link sees the note's name before signing in."
-    : `Anyone with the link sees “${previewTitle}” before signing in.`;
+    ? `Anyone with the link sees the note's name ${when}.`
+    : `Anyone with the link sees “${previewTitle}” ${when}.`;
+}
+
+/**
+ * What a row in SHARED WITH grants, said in one line under its name.
+ *
+ * The list holds three different things that look alike — a person, a link for
+ * people who already have access, and a link that needs no account at all — and
+ * "Copy link / Revoke" beside each of them says nothing about which is which.
+ * The third is the one somebody must not mistake for the second.
+ */
+export function describeShareRow(audience: NoteShare["audience"]): string {
+  if (audience === "anyone") {
+    return "Anyone who has this link can read the note. No sign-in, no account.";
+  }
+  if (audience === "members") {
+    return "Only people you have already given access to. It grants nothing on its own.";
+  }
+  return "They sign in as themselves, and can read this note and the notes it links to.";
 }
 
 /**

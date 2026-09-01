@@ -18,6 +18,7 @@ import {
   describePersonalShare,
   SHARE_PATH_PREFIX,
   describePreviewTitle,
+  describeShareRow,
   shareEligibility,
   shareUrl,
   sharesBreakingWarning,
@@ -29,6 +30,7 @@ const share = (over: Partial<NoteShare> = {}): NoteShare => ({
   shareId: "s1",
   token: "a".repeat(64),
   recipient: "@lk",
+  audience: "name",
   entryPath: "1-projects/plan.md",
   titleInPreview: true,
   previewTitle: "Plan",
@@ -174,14 +176,39 @@ describe("what the owner is told", () => {
 
   /** Named after the title that will actually appear, not "may expose metadata". */
   test("the preview warning quotes the title it will show", () => {
-    expect(describePreviewTitle("Chapter transition")).toContain("Chapter transition");
-    expect(describePreviewTitle("Chapter transition")).toMatch(/before signing in/i);
+    expect(describePreviewTitle("Chapter transition", "name")).toContain(
+      "Chapter transition",
+    );
+    expect(describePreviewTitle("Chapter transition", "name")).toMatch(
+      /before signing in/i,
+    );
   });
 
   test("with no title it says so rather than quoting an empty string", () => {
-    const text = describePreviewTitle(undefined);
+    const text = describePreviewTitle(undefined, "name");
     expect(text).toMatch(/note's name/i);
     expect(text).not.toContain("“”");
+  });
+
+  /**
+   * "Before signing in" is the cost for a link whose reader signs in
+   * afterwards. An unlisted link's reader never does, so that sentence would
+   * be naming a step that does not happen — and would read as reassurance.
+   */
+  test("an unlisted link does not promise a sign-in that never comes", () => {
+    const text = describePreviewTitle("Chapter transition", "anyone");
+    expect(text).not.toMatch(/signing in/i);
+    expect(text).toContain("Chapter transition");
+  });
+
+  test("each kind of row says what it actually grants", () => {
+    expect(describeShareRow("anyone")).toMatch(/no sign-in/i);
+    expect(describeShareRow("anyone")).toMatch(/anyone who has this link/i);
+    expect(describeShareRow("members")).toMatch(/already given access/i);
+    expect(describeShareRow("name")).toMatch(/notes it links to/i);
+    // The one a reader must not mistake for another: the members link grants
+    // nothing, the unlisted one grants everything it points at.
+    expect(describeShareRow("anyone")).not.toBe(describeShareRow("members"));
   });
 });
 

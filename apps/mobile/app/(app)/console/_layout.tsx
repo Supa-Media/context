@@ -64,6 +64,12 @@ import { storagePillLabel } from "../../../features/console/storage/pill";
 import { selectedContext, type ConsoleData } from "../../../features/console/types";
 import { useKeymap } from "../../../features/design/useKeymap";
 import type { FileBrowser } from "../../../features/console/files/browser";
+import {
+  SCOPE_ICON,
+  nextScope,
+  scopeActionLabel,
+  scopeOf,
+} from "../../../features/console/files/scope";
 import { useLiveConsoleData } from "../../../features/console/useLiveConsoleData";
 import { WELCOME_ROUTE } from "../../../features/onboarding/route";
 
@@ -331,6 +337,24 @@ export default function ConsoleLayout() {
       ? selectedEntry
       : null;
 
+  /**
+   * Where the control is and where a press takes it.
+   *
+   * Computed unconditionally so the two never disagree about which entry they
+   * describe — a `scope` read from the selection and a `next` read from
+   * somewhere else is how a control ends up publishing the wrong note. The
+   * button is not drawn when there is no target, so the fallbacks are never
+   * rendered.
+   *
+   * A folder has two positions, not three: `createLinkShare` is note-only, so
+   * offering a third would be a press that always fails. `scope.ts` states it.
+   */
+  const visibilityScope = scopeOf(
+    visibilityTarget?.visibility ?? "private",
+    visibilityTarget !== null && data.files.openLinkPaths.has(visibilityTarget.path),
+  );
+  const visibilityNext = nextScope(visibilityScope, visibilityTarget?.kind === "file");
+
   return (
     <ConsoleDataProvider value={data}>
       <AppFrame
@@ -419,19 +443,25 @@ export default function ConsoleLayout() {
                       icon is the current state — see `ICON_NAMES`. The two
                       disagreeing is the point rather than a slip: one is read
                       aloud before the press and the other is looked at.
+
+                      Three positions rather than two now, and every decision
+                      about which is which is in `files/scope.ts` — a pure
+                      module, for the reason `shareViewer.test.ts` records: in a
+                      sabotage sweep of this codebase, every guard written as a
+                      pure module held and every guard written inside a
+                      component did not. This one composes the privacy manifest
+                      with a share row, which is exactly the sort of thing that
+                      rots into "is it team? then it must be public".
                     */
-                    label={
-                      visibilityTarget.visibility === "team"
-                        ? "Make this private"
-                        : "Share this with your team"
-                    }
-                    icon={visibilityTarget.visibility === "team" ? "lockOpen" : "lock"}
+                    label={scopeActionLabel(visibilityNext)}
+                    icon={SCOPE_ICON[visibilityScope]}
                     grouped
                     onPress={() =>
-                      data.files.setVisibility(
+                      data.files.setScope(
                         visibilityTarget.path,
                         visibilityTarget.kind,
-                        visibilityTarget.visibility === "team" ? "private" : "team",
+                        visibilityScope,
+                        visibilityNext,
                       )
                     }
                     testID="note-visibility"

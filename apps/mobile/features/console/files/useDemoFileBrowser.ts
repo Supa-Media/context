@@ -149,6 +149,8 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       archive: noop,
       destroy: noop,
       setVisibility: noop,
+      setScope: noop,
+      openLinkPaths: new Set<string>(),
       resetPrivacy: noop,
       canResetPrivacy: false,
       canSetVisibility: false,
