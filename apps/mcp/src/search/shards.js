@@ -44,6 +44,7 @@
  *   owner-only to prevent.
  */
 
+import { buildTermFilter } from "./filter.js";
 import { addDoc, emptyIndex, removeDoc } from "./indexer.js";
 import {
   NOTE_INDEX_CHAR_CAP,
@@ -53,8 +54,29 @@ import {
   inWaves,
 } from "./maintain.js";
 
-/** The diff surface and the bookkeeping. One object per bucket. */
+/**
+ * What a **query** needs to know about the index, and nothing else: how many
+ * shards there are, which of them hold documents, how to skip the ones that
+ * cannot answer, and how far behind the index is. One object per bucket, and
+ * the pass's single commit point.
+ *
+ * It used to carry the diff surface too — a `[path, version]` pair per note in
+ * the bucket, which is ~900KB at eight thousand notes — and every search
+ * downloaded all of it to learn a shard count. That surface moved to
+ * `DOCMAP_KEY`, which only maintenance reads. See `serializeManifest`.
+ */
 export const MANIFEST_KEY = ".index/v2/manifest.json";
+/**
+ * The diff surface: what the last pass believes each shard holds, by version
+ * token. Read by the sync and by nothing else.
+ *
+ * Written **after** the manifest has landed, so the two can only disagree in
+ * the direction that costs work rather than correctness — a docmap behind the
+ * manifest re-fetches notes that were already indexed, where a docmap ahead of
+ * it would leave a note whose shard nothing ever revisits and whose terms the
+ * routing filter never learns.
+ */
+export const DOCMAP_KEY = ".index/v2/docmap.json";
 /** v1's single object, deleted once a v2 manifest exists — dead weight. */
 export const LEGACY_V1_KEY = ".index/search-v1.json";
 
@@ -72,11 +94,15 @@ export const LEGACY_V1_KEY = ".index/search-v1.json";
  */
 export const SHARD_PARSE_BYTE_CAP = 2_000_000;
 /**
- * The manifest's own cap. Larger than a shard's because the manifest carries a
- * `[path, version]` pair for every doc in the bucket and nothing else; at ~60
- * bytes a pair this is tens of thousands of notes. An unreadable or oversized
- * manifest is a full rebuild, which is affordable precisely because everything
- * under it is disposable.
+ * The manifest's own cap, and the docmap's.
+ *
+ * Larger than a shard's because the docmap carries a `[path, version]` pair for
+ * every doc in the bucket and nothing else; at ~60 bytes a pair this is tens of
+ * thousands of notes. The manifest is now much smaller than that — stats, a
+ * routing filter per shard and a freshness record — and shares the cap because
+ * a single number is one thing to reason about and neither object is anywhere
+ * near it. An unreadable or oversized manifest is a full rebuild, which is
+ * affordable precisely because everything under it is disposable.
  */
 export const MANIFEST_PARSE_BYTE_CAP = 4_000_000;
 
@@ -97,8 +123,19 @@ const NOTES_PER_SHARD = 300;
 
 const FIELD_ORDER = ["title", "headings", "tags", "body"];
 const LIST_PAGE_LIMIT = 1000;
-/** Never spend the last op on listing, fetching or a shard: the manifest write needs one. */
-const MANIFEST_WRITE_RESERVE = 1;
+/**
+ * Ops never spent on listing, fetching or a shard, because the pass's own
+ * commit needs them: the manifest, and the diff written under it.
+ *
+ * **Two, not one.** It was one while the manifest carried the diff inline, and
+ * leaving it at one after the split is a plateau rather than a tight budget:
+ * measured on 1,500 notes at a budget of 600, every pass spent its last op on
+ * the manifest, had none left for `DOCMAP_KEY`, and so re-diffed against an
+ * empty map next time — 591 documents indexed on pass one and 591 on pass
+ * eight, with `pending` stuck at 909 forever. The shards were written. Nothing
+ * remembered that they had been.
+ */
+const MANIFEST_WRITE_RESERVE = 2;
 /** Nor spend a shard's last op on a fetch whose result that shard cannot store. */
 const SHARD_WRITE_RESERVE = 1;
 /** Nor let the listing consume everything a backfill would have used. */
@@ -179,6 +216,17 @@ export const SHARD_READ_CONCURRENCY = 6;
  * argument and its own measurements.
  */
 const AUDIT_SHARDS_PER_SYNC = 1;
+/**
+ * Shards per pass that may be opened purely to give them a routing filter.
+ *
+ * Higher than the audit's one because this is a migration with an end: every
+ * index that existed before filters did needs each of its occupied shards read
+ * once, after which this list is permanently empty. At eight per pass a
+ * 64-shard index is fully routed inside eight background passes, and until then
+ * the unrouted shards are simply read — the behaviour that was correct before
+ * this field existed.
+ */
+const FILTER_BACKFILL_PER_SYNC = 8;
 /**
  * What the *look* costs: a GET, and the PUT that follows if what arrives has to
  * be rebuilt. Held apart from the threshold below so the arithmetic says what
@@ -316,22 +364,51 @@ function emptyStats() {
 }
 
 /**
+ * What the last completed pass knew about how far behind the index is.
+ *
+ * This exists because a search stopped listing the bucket. Every honest thing
+ * the answer says about its own completeness used to be a by-product of the
+ * listing a search did on its way in — `pending`, `listingTruncated` — and a
+ * search that reads a ready index has no listing to learn any of it from. So
+ * the pass that *does* list records what it found, and the query reads it back.
+ *
+ * `listedAt` is `null` for an index no pass has recorded this for, which
+ * includes every manifest written before this field existed. That is "unknown"
+ * and never "complete": an unrecorded index reports itself as still catching
+ * up, which costs a converged bucket one banner until its next background pass
+ * and cannot tell anybody their note is not written down.
+ */
+function emptyFreshness() {
+  return { listedAt: null, pending: 0, truncated: false };
+}
+
+/**
  * A manifest describing `shardCount` empty shards.
  *
  * @param {number} shardCount clamped to [1, MAX_SHARD_COUNT]
  * @returns {{version: number, shardCount: number, generatedAt: string|null,
- *   docsByShard: Map<string, string>[], stats: {docCount: number, lenTotals: object}[]}}
+ *   docsByShard: Map<string, string>[], stats: {docCount: number, lenTotals: object}[],
+ *   filters: (string|null)[],
+ *   freshness: {listedAt: string|null, pending: number, truncated: boolean}}}
  */
 export function emptyManifest(shardCount) {
   const count = Number.isInteger(shardCount)
     ? Math.min(MAX_SHARD_COUNT, Math.max(1, shardCount))
     : 1;
   return {
-    version: 2,
+    version: 3,
     shardCount: count,
     generatedAt: null,
     docsByShard: Array.from({ length: count }, () => new Map()),
     stats: Array.from({ length: count }, emptyStats),
+    // `null` is "no filter for this shard", which every reader must treat as
+    // "read it" — see `filter.js` on why the other reading is the false miss.
+    filters: Array.from({ length: count }, () => null),
+    freshness: emptyFreshness(),
+    // Nothing to load: a manifest minted here describes an index with no
+    // documents in it, so its empty diff is the whole truth rather than a
+    // placeholder waiting for `DOCMAP_KEY`.
+    docmapLoaded: true,
   };
 }
 
@@ -350,21 +427,43 @@ function isFiniteNumber(value) {
 }
 
 /**
- * The stored manifest: arrays of pairs throughout, never keyed objects — a note
- * path is attacker-chosen text and `"__proto__"` as a property name is
- * prototype pollution waiting for whoever reads the object next. Entries are
- * sorted so what differs between two serializations is only what actually
- * changed.
+ * The stored manifest, **version 3: the query surface, without the diff**.
+ *
+ * Arrays of pairs throughout wherever a key could be attacker-chosen text —
+ * `"__proto__"` as a property name is prototype pollution waiting for whoever
+ * reads the object next — and entries sorted so what differs between two
+ * serializations is only what actually changed.
+ *
+ * ## What moved, and why it had to
+ *
+ * Version 2 carried `docsByShard` here: one `[path, version]` pair per note in
+ * the bucket, ~900KB at eight thousand notes. Every search downloaded it, and
+ * every search needed exactly none of it — the diff is maintenance's question.
+ * It lives in `DOCMAP_KEY` now, and what took its place is the two things a
+ * query genuinely cannot answer without: a routing filter per shard, so the
+ * walk opens the shards that can hold the query's terms rather than all of
+ * them, and a freshness record, so an answer can still say honestly that the
+ * index is behind without listing the bucket to find out.
+ *
+ * ## The cost, stated
+ *
+ * A gateway rolled back to a version that only reads v2 finds no `docsByShard`,
+ * refuses the manifest like any other invalid shape, and **rebuilds the index
+ * from the notes**. That is expensive and it is not wrong: everything under
+ * this is a disposable derivative, and the contract already says a re-shard is
+ * "delete the manifest". It is stated here rather than discovered, because the
+ * cheaper-looking alternative — writing `docsByShard` into both objects to keep
+ * an old reader happy — is one list authored twice, and the direction it fails
+ * is two copies of the diff disagreeing about what a shard holds.
  *
  * @param {ReturnType<typeof emptyManifest>} manifest
  * @returns {string}
  */
 export function serializeManifest(manifest) {
   return JSON.stringify({
-    version: 2,
+    version: 3,
     shardCount: manifest.shardCount,
     generatedAt: new Date().toISOString(),
-    docsByShard: manifest.docsByShard.map((docs) => [...docs.entries()].sort(byFirst)),
     stats: manifest.stats.map((entry) => ({
       docCount: entry.docCount,
       lenTotals: {
@@ -374,7 +473,80 @@ export function serializeManifest(manifest) {
         body: entry.lenTotals.body,
       },
     })),
+    filters: manifest.filters.map((filter) => (typeof filter === "string" ? filter : null)),
+    freshness: {
+      listedAt: manifest.freshness.listedAt,
+      pending: manifest.freshness.pending,
+      truncated: manifest.freshness.truncated,
+    },
   });
+}
+
+/**
+ * The diff surface, as its own object.
+ *
+ * Written before the manifest and read only by the sync. It carries the shard
+ * count as well so a docmap can be matched to the manifest that claims it —
+ * a re-shard changes the count, and applying the old docmap to the new layout
+ * would tell the diff that every note is already indexed where it is not.
+ *
+ * @param {ReturnType<typeof emptyManifest>} manifest
+ * @returns {string}
+ */
+export function serializeDocmap(manifest) {
+  return JSON.stringify({
+    version: 3,
+    shardCount: manifest.shardCount,
+    docsByShard: manifest.docsByShard.map((docs) => [...docs.entries()].sort(byFirst)),
+  });
+}
+
+/**
+ * `docsByShard` out of a stored docmap, or `null` for anything that does not
+ * fully validate — including a docmap for a different shard count, which is a
+ * docmap for a different index.
+ *
+ * A `null` here is not a failure: the sync proceeds with an empty diff, which
+ * makes every listed note look stale and re-indexes the bucket. Slow, correct,
+ * and self-healing, which is the direction every unknown in this file falls.
+ *
+ * @param {string} text
+ * @param {number} shardCount
+ * @param {number} [byteCap]
+ * @returns {Map<string, string>[]|null}
+ */
+export function parseDocmap(text, shardCount, byteCap = MANIFEST_PARSE_BYTE_CAP) {
+  const cap = Number.isFinite(byteCap) ? byteCap : MANIFEST_PARSE_BYTE_CAP;
+  if (typeof text !== "string") return null;
+  if (exceedsUtf8Bytes(text, cap)) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!isPlainObject(parsed)) return null;
+  if (parsed.version !== 3) return null;
+  if (parsed.shardCount !== shardCount) return null;
+  return readDocsByShard(parsed.docsByShard, shardCount);
+}
+
+/** `docsByShard` as `Map`s, or `null`. Shared by both stored dialects. */
+function readDocsByShard(value, shardCount) {
+  if (!Array.isArray(value) || value.length !== shardCount) return null;
+  const docsByShard = [];
+  for (const shardDocs of value) {
+    if (!Array.isArray(shardDocs)) return null;
+    const docs = new Map();
+    for (const entry of shardDocs) {
+      if (!Array.isArray(entry) || entry.length !== 2) return null;
+      const [path, version] = entry;
+      if (typeof path !== "string" || typeof version !== "string") return null;
+      docs.set(path, version);
+    }
+    docsByShard.push(docs);
+  }
+  return docsByShard;
 }
 
 /**
@@ -400,24 +572,51 @@ export function parseManifest(text, byteCap = MANIFEST_PARSE_BYTE_CAP) {
     return null;
   }
   if (!isPlainObject(parsed)) return null;
-  if (parsed.version !== 2) return null;
+  // Both dialects, and the older one is not deprecated bookkeeping: refusing a
+  // v2 manifest would rebuild a working index from the notes on the day this
+  // deploys, for every customer at once, to learn what it already knew. It is
+  // read whole — `docsByShard` inline, no filters, no freshness — and the first
+  // pass that writes anything migrates it.
+  if (parsed.version !== 2 && parsed.version !== 3) return null;
+  const legacy = parsed.version === 2;
   const shardCount = parsed.shardCount;
   if (!Number.isInteger(shardCount) || shardCount < 1 || shardCount > MAX_SHARD_COUNT) return null;
   if (typeof parsed.generatedAt !== "string" && parsed.generatedAt !== null) return null;
-  if (!Array.isArray(parsed.docsByShard) || parsed.docsByShard.length !== shardCount) return null;
   if (!Array.isArray(parsed.stats) || parsed.stats.length !== shardCount) return null;
 
-  const docsByShard = [];
-  for (const shardDocs of parsed.docsByShard) {
-    if (!Array.isArray(shardDocs)) return null;
-    const docs = new Map();
-    for (const entry of shardDocs) {
-      if (!Array.isArray(entry) || entry.length !== 2) return null;
-      const [path, version] = entry;
-      if (typeof path !== "string" || typeof version !== "string") return null;
-      docs.set(path, version);
-    }
-    docsByShard.push(docs);
+  // A v3 manifest does not carry the diff at all; the sync reads it separately
+  // and merges it in. Empty maps here are "nothing is indexed as far as this
+  // object knows", which is the safe reading for a caller that never loads the
+  // docmap: a query does not consult `docsByShard`, and a sync that skipped it
+  // re-indexes rather than skipping notes.
+  const docsByShard = legacy
+    ? readDocsByShard(parsed.docsByShard, shardCount)
+    : Array.from({ length: shardCount }, () => new Map());
+  if (docsByShard === null) return null;
+
+  // Absent, foreign or the wrong length: no filters, which every reader treats
+  // as "read every shard". A partially-valid filter array is refused as a whole
+  // rather than repaired entry by entry — a repaired one is a guess about which
+  // entries line up with which shard.
+  let filters = Array.from({ length: shardCount }, () => null);
+  if (!legacy && parsed.filters !== undefined) {
+    if (!Array.isArray(parsed.filters) || parsed.filters.length !== shardCount) return null;
+    if (!parsed.filters.every((entry) => typeof entry === "string" || entry === null)) return null;
+    filters = parsed.filters.slice();
+  }
+
+  let freshness = emptyFreshness();
+  if (!legacy && parsed.freshness !== undefined) {
+    const stored = parsed.freshness;
+    if (!isPlainObject(stored)) return null;
+    if (typeof stored.listedAt !== "string" && stored.listedAt !== null) return null;
+    if (!isFiniteNumber(stored.pending) || stored.pending < 0) return null;
+    if (typeof stored.truncated !== "boolean") return null;
+    freshness = {
+      listedAt: stored.listedAt,
+      pending: Math.floor(stored.pending),
+      truncated: stored.truncated,
+    };
   }
 
   const stats = [];
@@ -436,7 +635,19 @@ export function parseManifest(text, byteCap = MANIFEST_PARSE_BYTE_CAP) {
     });
   }
 
-  return { version: 2, shardCount, generatedAt: parsed.generatedAt, docsByShard, stats };
+  return {
+    version: 3,
+    shardCount,
+    generatedAt: parsed.generatedAt,
+    docsByShard,
+    stats,
+    filters,
+    freshness,
+    // Whether the diff came in with this object. A v2 manifest carries it; a v3
+    // one needs `DOCMAP_KEY`, and the sync must not mistake "not loaded yet" for
+    // "this index holds nothing".
+    docmapLoaded: legacy,
+  };
 }
 
 /**
@@ -613,6 +824,39 @@ export function parseShard(text, byteCap = SHARD_PARSE_BYTE_CAP) {
 }
 
 // -- reading one shard -----------------------------------------------------
+
+/**
+ * Read the manifest, and nothing else. The query path's whole view of the
+ * index.
+ *
+ * A search used to reach the manifest through `syncShardedIndex`, which meant
+ * every search also listed the customer's bucket and indexed whatever it found
+ * stale before answering. That is the 20-to-60-second search this whole
+ * direction is about: the subrequest budget bounded what a search could
+ * **spend** and nothing bounded what a person **waited for**. A search reads a
+ * ready index now, and the maintenance that makes it ready runs behind the
+ * response.
+ *
+ * One op. `null` for every way the manifest can fail to arrive — absent,
+ * refused, oversized, corrupt, no budget — because to this caller they mean the
+ * same thing: there is nothing here to answer from, say so and let the surface
+ * decide what to do about it.
+ *
+ * @param {import("../store/index.js").ContextStore} store
+ * @param {ReturnType<typeof createSearchBudget>} budget
+ * @param {number} reserve store ops kept back for the caller's later work
+ * @param {number} [byteCap]
+ * @returns {Promise<ReturnType<typeof emptyManifest>|null>}
+ */
+export async function loadIndexManifest(store, budget, reserve, byteCap = MANIFEST_PARSE_BYTE_CAP) {
+  const cap = Number.isFinite(byteCap) ? byteCap : MANIFEST_PARSE_BYTE_CAP;
+  if (!budget.take(reserve)) return null;
+  const stored = await store.get(MANIFEST_KEY);
+  if (!stored) return null;
+  const bytes = await stored.arrayBuffer();
+  if (bytes.byteLength > cap) return null;
+  return parseManifest(new TextDecoder().decode(bytes), cap);
+}
 
 /**
  * Read and parse one shard, for one budget op.
@@ -1064,6 +1308,33 @@ export async function syncShardedIndex(
       null;
   }
 
+  // A stored manifest that arrived with its diff inline is a v2 one, and this
+  // pass is its migration: the diff has to be written out to `DOCMAP_KEY` even
+  // if nothing about the index changes, or the v3 manifest this pass writes
+  // would point at a docmap that does not exist and the next pass would
+  // re-index the whole bucket.
+  const migratingFromV2 = Boolean(manifest && manifest.docmapLoaded);
+
+  // The diff, where the manifest is v3 and did not bring it. One op, spent
+  // before the listing rather than after it, because everything the listing
+  // decides — which notes are stale, which are gone — is decided *against* this
+  // map. A docmap that cannot be read or does not match the shard count leaves
+  // the maps empty, which makes every listed note look stale: the whole bucket
+  // is re-indexed into the shards it already lives in. Slow and correct, and it
+  // converges, which is the direction an unknown falls everywhere in this file.
+  if (manifest && !manifest.docmapLoaded && ops.take(reserve)) {
+    const storedDocmap = await store.get(DOCMAP_KEY);
+    if (storedDocmap) {
+      const bytes = await storedDocmap.arrayBuffer();
+      const docsByShard =
+        (bytes.byteLength <= manifestCap &&
+          parseDocmap(new TextDecoder().decode(bytes), manifest.shardCount, manifestCap)) ||
+        null;
+      if (docsByShard) manifest.docsByShard = docsByShard;
+    }
+    manifest.docmapLoaded = true;
+  }
+
   // What the caller still owes after this returns, settled before this pass
   // spends anything on maintenance. `reserve` is its snippet reads;
   // `walkReserve` is one op per shard it will have to open, counted over the
@@ -1091,6 +1362,13 @@ export async function syncShardedIndex(
   );
 
   let manifestChanged = false;
+  // Tracked apart from `manifestChanged` because the two objects change for
+  // different reasons and at wildly different sizes. The manifest moves on
+  // every pass (its freshness record carries the time of the listing); the
+  // diff moves only when a shard's documents do, and rewriting a megabyte of
+  // it to record that nothing happened is a standing cost on a converged
+  // bucket.
+  let docmapChanged = migratingFromV2;
   if (!manifest) {
     manifest = emptyManifest(chooseShardCount(entries.size));
     manifestChanged = true;
@@ -1130,9 +1408,26 @@ export async function syncShardedIndex(
   // for goes first and spends first, and an audit gets only what that leaves.
   // The shard-id order the contract states is the order of the real work.
   const auditing = new Set(auditCandidates(manifest, new Set(ids), nowMsOf(now)));
+
+  /**
+   * Shards that hold documents and have no routing filter.
+   *
+   * Every index that exists today is one: filters arrived after them, and a
+   * converged bucket's sync touches no shard, so without this the migration
+   * would complete only as each shard happened to be edited — which for a shard
+   * nobody edits is never. A few per pass, appended behind the real work and
+   * the audit, and each costs one read and no write of its own.
+   */
+  const filtering = new Set();
+  for (let id = 0; id < shardCount && filtering.size < FILTER_BACKFILL_PER_SYNC; id += 1) {
+    if (ids.includes(id) || auditing.has(id)) continue;
+    if (manifest.filters[id] !== null) continue;
+    if ((manifest.stats[id]?.docCount || 0) === 0) continue;
+    filtering.add(id);
+  }
   let pending = 0;
 
-  for (const id of [...ids, ...auditing]) {
+  for (const id of [...ids, ...auditing, ...filtering]) {
     const stale = staleByShard.get(id) || [];
     const removals = removalsByShard.get(id) || [];
     // An audit is spare-budget work, so "spare" is measured where it would be
@@ -1147,8 +1442,11 @@ export async function syncShardedIndex(
     // In steady state the read is not even lost work: a shard this loop loaded
     // is handed back in `shards`, and the query walk in `searchVisibleNotes`
     // reuses what the sync already read rather than fetching it again.
+    // A filter backfill is the same kind of spare-budget work as an audit and
+    // is gated on the same line, for the same reason: it reads a shard the diff
+    // asked nothing of, and an op taken here is an op the answer does not get.
     if (
-      auditing.has(id) &&
+      (auditing.has(id) || filtering.has(id)) &&
       ops.remaining <= callerReserve + MANIFEST_WRITE_RESERVE + AUDIT_OPS + shardCount
     ) {
       continue;
@@ -1302,6 +1600,22 @@ export async function syncShardedIndex(
     if (persisted && touched) {
       manifest.docsByShard[id] = nextVersions;
       manifest.stats[id] = nextStats;
+      docmapChanged = true;
+      // Rebuilt from the shard that was just stored, in the same step that
+      // records its documents — never from the shard the manifest used to
+      // describe. A filter is only allowed to be wrong in the direction that
+      // costs a shard read (see `filter.js`), and the one way to make it wrong
+      // in the other direction is to let it describe an older shard than the
+      // object a query will open.
+      manifest.filters[id] = buildTermFilter(shard.terms.keys());
+      manifestChanged = true;
+    }
+    // A shard this pass loaded and left alone still gets a filter where it had
+    // none: an index written before filters existed would otherwise be routed
+    // by nothing until every one of its shards happened to be edited, and a
+    // walk that reads every shard is the cost this whole field removes.
+    if (!touched && loaded && manifest.filters[id] === null && shard.terms.size > 0) {
+      manifest.filters[id] = buildTermFilter(shard.terms.keys());
       manifestChanged = true;
     }
     // What this shard did not land: the notes it never reached, plus — if the
@@ -1309,8 +1623,33 @@ export async function syncShardedIndex(
     pending += work.length - applied + (persisted ? 0 : applied);
   }
 
+  // What this pass learned about how far behind the index is, recorded so a
+  // search that does no listing of its own can still say it honestly. Written
+  // whenever the pass reached the point of having listed, which is every pass
+  // that got past the budget floor at the top — including one that changed
+  // nothing, because "nothing was stale" is exactly the fact a converged bucket
+  // needs recorded to stop showing a catching-up banner.
+  const freshness = {
+    listedAt: new Date(nowMsOf(now)).toISOString(),
+    pending,
+    truncated,
+  };
+  if (
+    manifest.freshness.listedAt !== freshness.listedAt ||
+    manifest.freshness.pending !== freshness.pending ||
+    manifest.freshness.truncated !== freshness.truncated
+  ) {
+    manifest.freshness = freshness;
+    manifestChanged = true;
+  }
+
   let manifestOverflow = false;
   if (manifestChanged) {
+    // The diff first, and unconditionally: it is the object whose staleness
+    // costs work rather than correctness (see `DOCMAP_KEY`), and writing it
+    // before the manifest is what makes that the only direction the two can
+    // disagree in. It is skipped where there is no op for it, which leaves the
+    // next pass re-fetching what this one indexed — expensive and correct.
     const body = serializeManifest(manifest);
     if (exceedsUtf8Bytes(body, manifestCap)) {
       // The same both-directions rule as a shard. Nothing is lost — the shards
@@ -1329,6 +1668,28 @@ export async function syncShardedIndex(
       const written = await (manifestEtag
         ? store.put(MANIFEST_KEY, body, { onlyIf: { etagMatches: manifestEtag } })
         : store.put(MANIFEST_KEY, body));
+      // The diff, and only once the manifest that vouches for it has landed.
+      //
+      // The order is the whole safety argument and it is the opposite of the
+      // obvious one. A docmap **ahead** of the manifest tells the next pass
+      // that a note is already indexed while the manifest's stats and routing
+      // filter still describe the shard before it — so the note is never
+      // re-indexed, the filter never learns its terms, and the query that would
+      // have found it skips its shard. Permanently. A docmap **behind** the
+      // manifest costs the next pass a re-fetch of notes that were already
+      // indexed: slow, self-correcting, and the direction every unknown in this
+      // file falls.
+      //
+      // Never out of the caller's reserve, either. The manifest write above may
+      // spend the last op there is — it is the pass's whole point — but this is
+      // bookkeeping for the *next* pass, and a caller that lost a snippet read
+      // to it would have paid for that pass out of its own answer.
+      if (written !== null && docmapChanged && ops.remaining > callerReserve) {
+        const docmap = serializeDocmap(manifest);
+        if (!exceedsUtf8Bytes(docmap, manifestCap) && ops.take(callerReserve)) {
+          await store.put(DOCMAP_KEY, docmap);
+        }
+      }
       // `take(reserve)` rather than the manifest write's `take(0)`: that write
       // is the pass's whole point and may spend the last op there is, but this
       // is housekeeping on an object nothing reads any more, and a caller that
@@ -1359,6 +1720,11 @@ export async function syncShardedIndex(
     pending,
     listingTruncated: truncated,
     manifestOverflow,
+    // Whether any shard's documents moved. Not "did anything get written" — the
+    // freshness stamp writes the manifest on every pass — but "is the index a
+    // different index than it was", which is the only question a caller
+    // deciding whether to re-ask a query needs answered.
+    changed: docmapChanged,
     spent: ops.spent,
   };
 }

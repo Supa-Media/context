@@ -805,23 +805,29 @@ export async function runSearchIntegrationChecks(check) {
       "and it answers rather than failing on the notes it did reach",
       typeof bigFirst === "string" && bigFirst.includes("1-projects/bulk/note-")
     );
-    check(
-      "a backfill that ran out of budget says so, in the floor language the census uses",
-      bigFirst.includes("still catching up")
-    );
-    check(
-      "and the floor carries no count, which would be a fact about notes the caller may not see",
-      !/still catching up[^\]]*\d/.test(bigFirst)
-    );
 
+    // The floor language belongs to the *indexed* answer, and the first search
+    // over a bucket with no index is the literal scan — which has its own
+    // honest sentence and a different one. What the deferred pass built by then
+    // is what the second search reads, and it is genuinely partial: 65 notes do
+    // not fit in one invocation's budget.
     big.resetCounts();
     const bigSecond = await searchText(env, BIG_TOKEN, { query: "widget" });
     check(
+      "a backfill that ran out of budget says so, in the floor language the census uses",
+      bigSecond.includes("still catching up")
+    );
+    check(
+      "and the floor carries no count, which would be a fact about notes the caller may not see",
+      !/still catching up[^\]]*\d/.test(bigSecond)
+    );
+    check(
       "the second search on that context is bounded too, and continues the backfill",
-      // Two writes rather than v1's one, and which two is the point: the shard
-      // the backfill landed in, then the manifest over it. A pass that wrote
-      // only the manifest would be vouching for docs no shard holds.
-      big.ops - PRIVACY_MANIFEST_READ <= SEARCH_SUBREQUEST_BUDGET && big.counts.put === 2
+      // Every write is behind the response now, and which ones they are is the
+      // point: a shard the backfill landed in, the manifest over it, and the
+      // diff under it. A pass that wrote only the manifest would be vouching
+      // for docs no shard holds.
+      big.ops - PRIVACY_MANIFEST_READ <= SEARCH_SUBREQUEST_BUDGET && big.counts.put >= 2
     );
     check(
       "results stay bounded at the result limit however many notes match",
@@ -1255,6 +1261,12 @@ export async function runSearchIntegrationChecks(check) {
         "1-projects/session.md",
         `# Session\n\nopening prose\n${"filler words here ".repeat(600)}\nThe PLATYPUS is 10KB in.\n`
       );
+      // Indexed first, deliberately. A search reads a ready index and there is
+      // none here yet, and the bounded literal scan that answers instead reads
+      // whole notes — so it *finds* a term the index cannot, which is the right
+      // behaviour and the wrong fixture for a check about the index's own
+      // recall limit.
+      await convergeV2(new R2Store(deep));
       const missed = await searchText(env, DEEP_TOKEN, { query: "platypus" });
       check(
         "a term past the per-note cap misses, and the advice says a long note is indexed by its head",
@@ -1286,18 +1298,17 @@ export async function runSearchIntegrationChecks(check) {
       BIG_TOKEN,
       { query: "widget" }
     );
-    // One *request*, not one interactive pass, and the difference is the point.
-    // An interactive search spends `INTERACTIVE_BACKFILL_OPS` note reads and no
-    // more, because the raised budget authorizes ~580 of them and that is 40-60
-    // seconds of somebody waiting; the rest of the budget is spent on the same
-    // sync after the response has gone out. So the answer this call returns is
-    // honest about being drawn from a partial index, and the index is whole by
-    // the time the invocation ends — which the next search reads.
+    // One *request*, not one answer, and the difference is the point. The
+    // search itself reads a ready index and there was none, so it answered from
+    // the bounded scan — and the whole of the raised budget went on the pass
+    // behind the response, which is where every note read in this system now
+    // happens. The index is whole by the time the invocation ends, which is
+    // what the next search reads.
     check(
       "a raised deployment budget indexes a 65-note context in one request",
       typeof bigBudget === "string" &&
-        bigBudget.includes("still catching up") &&
-        big.ops > SEARCH_SUBREQUEST_BUDGET
+        big.ops > SEARCH_SUBREQUEST_BUDGET &&
+        indexedPaths(big)?.length === 65
     );
     const bigSettled = await searchText(
       { ...env, SEARCH_SUBREQUEST_BUDGET: "200" },
@@ -1315,10 +1326,21 @@ export async function runSearchIntegrationChecks(check) {
       BIG_TOKEN,
       { query: "widget" }
     );
+    const bigGarbageOps = big.ops;
+    big.resetCounts();
+    // The second one, because the first faced no index and answered from the
+    // scan: what a garbage budget must not do is take search down or run
+    // unbounded, and both requests are held to the default here.
+    const bigGarbageAgain = await searchText(
+      { ...env, SEARCH_SUBREQUEST_BUDGET: "not-a-number" },
+      BIG_TOKEN,
+      { query: "widget" }
+    );
     check(
       "an unparseable budget var is the default, never a throw and never unbounded",
       typeof bigGarbage === "string" &&
-        bigGarbage.includes("still catching up") &&
+        bigGarbageAgain.includes("still catching up") &&
+        bigGarbageOps - PRIVACY_MANIFEST_READ <= SEARCH_SUBREQUEST_BUDGET &&
         big.ops - PRIVACY_MANIFEST_READ <= SEARCH_SUBREQUEST_BUDGET
     );
 

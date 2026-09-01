@@ -387,6 +387,11 @@ export async function runSearchV2IntegrationChecks(check) {
     );
 
     main.resetCounts();
+    // The first search over a bucket with no index answers from the bounded
+    // literal scan and builds `.index/v2/` **behind the response**. A search no
+    // longer indexes on its way in — that is the 40-to-60-second search this
+    // whole shape removed — so the ranked answer is the *second* one, and the
+    // index it reads was built by the first one's deferred pass.
     const firstOwner = await searchText(env, MAIN_OWNER_TOKEN, { query: "narwhal" });
     const firstManifest = storedManifest(main);
     const firstPaths = indexedPaths(main);
@@ -399,9 +404,14 @@ export async function runSearchV2IntegrationChecks(check) {
         firstPaths.length > 0
     );
     check(
+      "and the scan that answered while it was building still found the note",
+      firstOwner.includes("1-projects/atlas/protocol.md")
+    );
+    const indexedOwner = await searchText(env, MAIN_OWNER_TOKEN, { query: "narwhal" });
+    check(
       "and answers from them, best match first, with no plumbing key anywhere in the index",
-      pathsIn(firstOwner)[0] === "1-projects/atlas/protocol.md" &&
-        firstOwner.includes("1-projects/vault/secret.md") &&
+      pathsIn(indexedOwner)[0] === "1-projects/atlas/protocol.md" &&
+        indexedOwner.includes("1-projects/vault/secret.md") &&
         firstPaths.every(
           (key) =>
             key.endsWith(".md") &&

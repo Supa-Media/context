@@ -47,6 +47,7 @@
  * still being indexed rather than that the thing is not written down.
  */
 
+import { readTermFilter, termFilterMayHold } from "./filter.js";
 import { createSearchBudget, inWaves } from "./maintain.js";
 import { MAX_RESULTS, parseQuery, rankedVisibleTo } from "./query.js";
 import { collectShardCandidates, scoreCollected } from "./shardQuery.js";
@@ -54,6 +55,7 @@ import {
   SHARD_READ_CONCURRENCY,
   decodeShard,
   fetchShardBytes,
+  loadIndexManifest,
   syncShardedIndex,
 } from "./shards.js";
 import { termsOf } from "./text.js";
@@ -85,6 +87,37 @@ export const SEARCH_SUBREQUEST_BUDGET = 40;
  */
 const SNIPPET_READ_CONCURRENCY = 6;
 
+/**
+ * Note reads the one maintenance pass a search may run is allowed to spend.
+ *
+ * It runs only on a miss over an index that believes it is converged (see
+ * `searchIndexedNotes`), where the expected work is a listing and nothing else.
+ * The cap is what stops a bucket that turns out to be far behind from turning
+ * that one honest re-check into the forty-second search this whole direction
+ * removed.
+ */
+export const INTERACTIVE_BACKFILL_OPS = 60;
+
+/**
+ * Ops that must remain **on top of the caller's own reserve** before a miss may
+ * buy a refresh: a manifest, a docmap, a listing that will not finish in fewer,
+ * a shard read, its write and the manifest's, and the second answer's own
+ * manifest and shard reads. Below it the pass lands nothing and the re-ask is
+ * the same answer at twice the price.
+ */
+const MISS_REFRESH_FLOOR = 12;
+
+/**
+ * Shards sampled for expansion vocabulary when a query term is in none of them.
+ *
+ * See `routeShards`: there is provably no exact match to find in those shards,
+ * so what is bought here is prefix and fuzzy candidates for a word nobody
+ * wrote. Eight is two waves at `SHARD_READ_CONCURRENCY` — enough vocabulary
+ * that a plausible near-spelling surfaces, bounded so a misspelling does not
+ * cost the widest bucket in the system its whole index on every keystroke.
+ */
+const EXPANSION_SHARD_SAMPLE = 8;
+
 /** A note's own `#` heading, or its filename when it has none. */
 export function noteTitle(path, text) {
   const heading = String(text).split("\n").find((line) => /^#{1,6}\s+\S/.test(line));
@@ -107,139 +140,208 @@ export function snippetLinesFor(text, matchedTerms) {
 }
 
 /**
- * Sync the sharded index a pass further, then answer `query` from it.
+ * Answer `query` from the index that is already there.
  *
- * The index is the sharded one (CONTRACT.md § v2). v1's single object had to
- * be parsed whole, so its byte cap was a ceiling a real brain reached and then
- * plateaued under forever; v2 streams shards, so the peak is one shard rather
- * than the corpus. What that costs here is the two-step shape below — sync,
- * then walk every shard the manifest names — and one honesty obligation v1 did
- * not have: a shard this call could not open is docs missing from the answer,
- * and it is reported as such rather than read as an empty shard.
+ * ## What this no longer does, and why that is the whole point
  *
- * `prefix` narrows the results and does not make the call cheaper: the sync
- * maintains one index for the whole bucket, because a per-prefix index would
- * be a second derivative to keep honest and would make the first search in an
- * unvisited folder as expensive as the scan this replaces.
+ * It used to call `syncShardedIndex` first: every search listed the customer's
+ * bucket, diffed it against the manifest, and indexed as many stale notes as it
+ * could afford before saying a word. Measured live on 2026-08-31 against a
+ * 7,961-note context, that was a **20-to-60-second search** — and on a cold
+ * index it was worse than slow, because the maintenance in front of the answer
+ * spent the operations the answer needed and the search returned nothing for a
+ * note that was certainly there.
+ *
+ * The subrequest budget bounded what a search could *spend*. Nothing bounded
+ * what a person *waited for*. So the two halves are separated: this reads a
+ * ready index and never writes, never lists, and never fetches a note it is not
+ * quoting, and the maintenance that makes the index ready runs behind the
+ * response — `deferIndexSync` in the gateway, a scheduled action in the control
+ * plane. A search is an interactive request; finishing somebody's index is not.
+ *
+ * What that costs is freshness, and it is bought back rather than waved away:
+ * the pass that *does* list records what it found in the manifest
+ * (`freshness`), so an answer can still say honestly that the index is behind
+ * without listing anything to find out.
+ *
+ * ## And it opens the shards that can answer, not all of them
+ *
+ * v2 partitions by document, so a term can be in any shard and the walk used to
+ * read every one — 27 objects and ~5.2MB on that same fixture, to return a
+ * single hit. Each shard now carries a routing filter in the manifest
+ * (`filter.js`), and a shard whose filter holds none of the query's terms is
+ * skipped. The filter has no false negatives, so skipping cannot lose a hit;
+ * everything it can get wrong costs one extra shard read.
+ *
+ * Two deliberate consequences:
+ *
+ * - **A query term no shard claims is a term that needs expanding**, and
+ *   expansion is a walk of the vocabulary. That case reads every shard, exactly
+ *   as before, because a misspelling is precisely when the whole vocabulary is
+ *   the answer.
+ * - **The corpus statistics are computed over the shards that were opened**,
+ *   not over the whole index. `N`, `avglen` and every `df` shift together and
+ *   the ordering they produce is what a caller sees, so this is a change to
+ *   scores rather than to results — `searchPacing.test.mjs` pins the routed and
+ *   unrouted orderings equal on a fixture rather than leaving that to
+ *   confidence. What has not changed is *whose* corpus: every statistic is
+ *   still computed over docs `isVisible` accepts, which is the inference
+ *   channel `visibleIndex` exists to close.
  *
  * @param {object} store the caller's per-request store
  * @param {object} options
  * @param {(path: string) => boolean} options.isVisible the caller's own
  *   `canSee`, bound to the caller's own scope
  * @param {(key: string) => boolean} options.isIndexable which keys the index
- *   may learn about — the caller's plumbing rule, so the index cannot hold a
- *   key no tool on that surface can read back
+ *   may learn about. Unused by the query and taken anyway, so a caller cannot
+ *   pass one rule to the search and a different one to the maintenance it
+ *   schedules — the two must agree about what a note is.
  * @param {string} options.query
  * @param {string} [options.prefix]
  * @param {object} [options.budget] a `createSearchBudget` counter to share
  *   with the caller's other storage work; one is made if absent
  * @param {number} [options.limit]
- * @param {number} [options.backfillOps] note reads this call may spend on
- *   index maintenance before answering — see `backfillOps` in `shards.js`.
- *   Unbounded by default; a caller a person is waiting on passes a small
- *   number and continues the sync after its response has gone out.
  * @returns {Promise<{indexed: boolean,
  *   hits?: {key: string, title: string, snippets: string[]}[],
  *   matchCount?: number, matchCountIsFloor?: boolean,
  *   indexIncomplete?: boolean,
- *   index?: {shardCount: number, occupiedShards: number, docs: number,
- *     pending: number, shardsUnread: boolean, listingTruncated: boolean,
- *     manifestOverflow: boolean}}>} `index` is operator-facing bookkeeping for
- *   the trace: counts over the *whole* index, private notes included, so it is
- *   the one thing in this return that must never reach a caller's answer.
+ *   index?: {shardCount: number, occupiedShards: number, shardsRead: number,
+ *     docs: number, pending: number, shardsUnread: boolean,
+ *     listedAt: string|null, routed: boolean}}>} `index` is operator-facing
+ *   bookkeeping for the trace: counts over the *whole* index, private notes
+ *   included, so it is the one thing in this return that must never reach a
+ *   caller's answer.
  */
 export async function searchIndexedNotes(store, options) {
   const {
-    isVisible,
     isIndexable,
-    query,
-    prefix = "",
+    refreshOnMiss = false,
     budget = createSearchBudget(store.searchSubrequestBudget ?? SEARCH_SUBREQUEST_BUDGET),
-    limit = SEARCH_RESULT_LIMIT,
-    backfillOps = Infinity,
+    backfillOps = INTERACTIVE_BACKFILL_OPS,
   } = options;
 
-  let synced = null;
+  const limit = options.limit ?? SEARCH_RESULT_LIMIT;
+  const first = await answerFromIndex(store, { ...options, budget });
+  if (!refreshOnMiss || !missWorthARefresh(first, budget, limit)) return first;
+
+  // The one exception to "a search does no maintenance", and it is deliberately
+  // the narrowest one there is: **a miss may pay for a listing; a hit never
+  // does.**
+  //
+  // A search reads a ready index, which means it is as fresh as the last pass
+  // that listed the bucket — up to `INDEX_RECONCILE_INTERVAL_MS` behind, and
+  // this bucket is also written by Obsidian, rclone and the provider's own
+  // console. For an answer with hits in it that is a fine trade. For an empty
+  // one it is not: a miss is the answer an agent acts on by concluding the
+  // thing was never written down, and `toolSearchNotes`'s miss copy exists to
+  // argue it out of exactly that.
+  //
+  // So an empty answer over an index that believes it is **converged** buys one
+  // listing and asks again. Over an index that already knows it is behind it
+  // does not: that answer is honestly qualified as incomplete by every surface,
+  // one more capped pass out of the dozen it still needs would not change it,
+  // and the cost would land on precisely the buckets least able to afford it.
+  let pass;
   try {
-    synced = await syncShardedIndex(store, {
+    pass = await syncShardedIndex(store, {
       budget,
-      reserve: limit,
       isIndexable,
-      // The walk below opens one shard per occupied shard before it can read a
-      // snippet, so those ops are the caller's too and the sync may not spend
-      // them. Without this the maintenance in front of the answer starved the
-      // answer — measured as `0 matching notes` over a bucket where every note
-      // matched; see `walkReserve` in `shards.js`.
-      walkReserve: 1,
       backfillOps,
+      // The second answer's own work, kept back before the pass may spend a
+      // thing on maintenance. This is the one place `walkReserve` still bites,
+      // and it is the same failure it was written for: a sync that spends down
+      // to zero hands the walk a budget with nothing in it, and an answer
+      // assembled from no shards reports `0 matching notes` over a bucket where
+      // every note matches. The refresh exists to make a miss less likely; a
+      // refresh that starves its own re-ask would make one certain.
+      reserve: limit,
+      walkReserve: 1,
     });
   } catch {
-    synced = null;
+    // A refresh that could not run leaves the first answer standing, which is
+    // the same answer this call would have given a moment ago.
+    return first;
   }
+  // A pass that moved no document leaves an index byte-identical to the one the
+  // first answer read, so re-asking would spend the walk again to arrive at the
+  // same miss. The listing was the point; the re-ask only earns its cost when
+  // the listing found something.
+  if (!pass.changed) return first;
+  const second = await answerFromIndex(store, { ...options, budget });
+  // Never the empty one over the one that has hits: a refresh that lost a race
+  // with another writer must not turn an answer into a miss.
+  return second.indexed && second.hits && second.hits.length > 0 ? second : first;
+}
 
-  // Whether there is an index to answer from at all. v1 asked
-  // `index.docs.size > 0`; the sharded equivalent is "some shard holds a doc",
-  // which is the manifest's own bookkeeping plus whatever this pass built but
-  // has not persisted yet.
-  const indexHasDocs = Boolean(
-    synced &&
-      (synced.manifest.stats.some((entry) => entry.docCount > 0) ||
-        [...synced.shards.values()].some((shard) => shard.docs.size > 0))
-  );
+/**
+ * Whether an empty answer is worth one listing.
+ *
+ * Three conditions, and each rules out a case where the listing would be spent
+ * for nothing: there must be hits missing rather than none asked for, the index
+ * must believe it is current (a behind index is already saying so and needs a
+ * dozen passes rather than one), and there must be budget left for a pass plus
+ * the answer it feeds.
+ */
+function missWorthARefresh(found, budget, limit) {
+  if (!found.indexed) return false;
+  if (found.hits.length > 0) return false;
+  if (found.indexIncomplete) return false;
+  return budget.remaining >= limit + MISS_REFRESH_FLOOR;
+}
+
+async function answerFromIndex(store, options) {
+  const {
+    isVisible,
+    query,
+    prefix = "",
+    budget,
+    limit = SEARCH_RESULT_LIMIT,
+  } = options;
+
+  // One op, and the only thing between a caller and an answer. `null` is every
+  // way the manifest can fail to arrive; the surface decides what to say about
+  // it, and both surfaces say something other than "no matches".
+  let manifest = null;
+  try {
+    manifest = await loadIndexManifest(store, budget, limit);
+  } catch {
+    manifest = null;
+  }
+  const indexHasDocs = Boolean(manifest && manifest.stats.some((entry) => entry.docCount > 0));
   if (!indexHasDocs) return { indexed: false };
 
-  // Streamed one shard at a time — the memory bound v2 exists for — and every
-  // shard's contribution is restricted to docs this caller can see as it is
-  // collected. `rankedVisibleTo` is what keeps index data out of the response;
-  // this is what keeps the corpus *statistics* — every term's df, N, avglen —
-  // from being a function of notes the caller cannot read. Without it, whether
-  // a query term expanded at all was one bit about the private half of the
-  // bucket, readable off the caller's own hits.
-  //
   // Parsed once and asked of every shard, so no two shards can be asked a
   // different question — and never re-tokenized per shard.
   const { phrases, terms } = parseQuery(query);
   const queryTerms = [...new Set([...terms, ...phrases.flat()])];
   const collections = [];
-  // A shard this answer could not look inside. Not the same as an empty one:
-  // docs exist that these results cannot include, which is the floor language
+  // A shard this answer could not look inside. Not the same as one the routing
+  // filter ruled out: that shard cannot hold a query term at all, while this is
+  // docs that exist and these results could not include — the floor language
   // `pending` already carries for the notes a sync did not reach.
   let shardsUnread = false;
 
-  const collect = (shard) => {
-    // Collected and then dropped: nothing outside this call holds a reference
-    // to `shard`, so the parsed shard is collectable before the next one is
-    // decoded. Accumulating parsed shards into an array instead would be the
-    // whole-corpus heap v2 exists to remove, wearing a loop — `collections`
-    // holds one small summary each.
-    collections.push(collectShardCandidates(shard, queryTerms, isVisible));
-  };
-
-  // Two lists, because they cost different things. What the sync already
-  // loaded or built costs nothing to re-read and is fresher than the object in
-  // the bucket when a write was refused; everything else is a GET.
-  //
-  // A shard the manifest says holds nothing is in neither: the sync skips those
-  // on the same authority ("a GET to prove it is a subrequest spent on a 404"),
-  // and an over-sharded small bucket would otherwise pay one 404 per empty
-  // shard on every query.
-  const toRead = [];
-  for (let id = 0; id < synced.manifest.shardCount; id += 1) {
-    const held = synced.shards.get(id);
-    if (held) collect(held);
-    else if ((synced.manifest.stats[id]?.docCount || 0) > 0) toRead.push(id);
+  const occupied = [];
+  for (let id = 0; id < manifest.shardCount; id += 1) {
+    if ((manifest.stats[id]?.docCount || 0) > 0) occupied.push(id);
   }
 
-  // Read in waves, decoded one at a time. The walk was `shardCount` awaited
-  // GETs in a row, which is the sequential cost CONTRACT.md § Query names —
-  // measured at 27 shards it is 27 round trips inside one search, and a warm
-  // search over a 7,961-note fixture spent 1,439ms at a simulated 20ms per op
-  // with 55 of its 57 ops serialized. What a wave holds is **bytes**, and the
-  // decode stays one at a time, so the peak parsed shard is still one: the
-  // memory bound v2 exists for is a property of the parse, not of the fetch.
-  for (let start = 0; start < toRead.length && !shardsUnread; start += SHARD_READ_CONCURRENCY) {
+  // Which shards can hold something this query is asking about.
+  //
+  // A term that no filter claims has nowhere to be a direct hit, and the
+  // scorer's answer for a term with global df 0 is to expand it against the
+  // vocabulary — which lives in the shards. So one unclaimed term puts every
+  // shard back in the list, and that is the honest shape rather than a
+  // shortcut: skipping shards for a misspelled query is skipping the only
+  // thing that could have answered it.
+  const { shardsToRead, routed } = routeShards(manifest, occupied, queryTerms);
+
+  // Read in waves, decoded one at a time. What a wave holds is **bytes**, and
+  // the decode stays one at a time, so the peak parsed shard is one: the memory
+  // bound v2 exists for is a property of the parse, not of the fetch.
+  for (let start = 0; start < shardsToRead.length && !shardsUnread; start += SHARD_READ_CONCURRENCY) {
     const wave = [];
-    for (const id of toRead.slice(start, start + SHARD_READ_CONCURRENCY)) {
+    for (const id of shardsToRead.slice(start, start + SHARD_READ_CONCURRENCY)) {
       // Checked before the call, never inferred from it: `fetchShardBytes`
       // answers `null` for a budget refusal and for an absent object alike, and
       // the two mean opposite things here. **Counted for the whole wave**, not
@@ -272,10 +374,14 @@ export async function searchIndexedNotes(store, options) {
         shardsUnread = true;
         continue;
       }
-      collect(shard);
+      // Collected and then dropped: nothing outside this call holds a reference
+      // to `shard`, so the parsed shard is collectable before the next one is
+      // decoded. Accumulating parsed shards into an array instead would be the
+      // whole-corpus heap v2 exists to remove, wearing a loop — `collections`
+      // holds one small summary each.
+      collections.push(collectShardCandidates(shard, queryTerms, isVisible));
     }
   }
-
   const ranked = scoreCollected(collections, query);
   const visible = rankedVisibleTo(ranked, isVisible, prefix);
   // Every op is taken before any read starts, so a wave can never overspend the
@@ -342,20 +448,99 @@ export async function searchIndexedNotes(store, options) {
     // miss copy exists to prevent. So it is a floor, in the census's own
     // language: "A floor is never printed as a total."
     matchCountIsFloor: visible.length >= MAX_RESULTS || shardsUnread,
+    // Read off the manifest rather than off a listing this call did not make.
+    // `listedAt: null` is an index no pass has recorded freshness for — every
+    // manifest written before the field existed — and it counts as behind: an
+    // unknown reported as complete is the one direction that tells somebody
+    // their note is not written down.
     indexIncomplete:
-      synced.pending > 0 || synced.listingTruncated || synced.manifestOverflow || shardsUnread,
+      manifest.freshness.listedAt === null ||
+      manifest.freshness.pending > 0 ||
+      manifest.freshness.truncated ||
+      shardsUnread,
     // For the trace, and for a caller deciding whether finishing this index is
-    // worth a deferred pass. Never rendered: these count every doc in the
+    // worth a background pass. Never rendered: these count every doc in the
     // bucket, so printing one beside a team connection's visible hits is the
     // subtraction the console's census is owner-only to prevent.
     index: {
-      shardCount: synced.manifest.shardCount,
-      occupiedShards: synced.manifest.stats.filter((entry) => entry.docCount > 0).length,
-      docs: synced.manifest.stats.reduce((total, entry) => total + entry.docCount, 0),
-      pending: synced.pending,
+      shardCount: manifest.shardCount,
+      occupiedShards: occupied.length,
+      shardsRead: shardsToRead.length,
+      routed,
+      docs: manifest.stats.reduce((total, entry) => total + entry.docCount, 0),
+      pending: manifest.freshness.pending,
+      listedAt: manifest.freshness.listedAt,
       shardsUnread,
-      listingTruncated: synced.listingTruncated,
-      manifestOverflow: synced.manifestOverflow,
+      listingTruncated: manifest.freshness.truncated,
     },
   };
+}
+
+/**
+ * Which of the occupied shards this query has to open.
+ *
+ * `routed` is whether the filters actually narrowed anything, which is what
+ * the trace needs to tell "this index is routed and the query was broad" from
+ * "this index has no filters yet" — the second is a migration in progress and
+ * the first is not.
+ *
+ * The rule is one line and the reasoning is in `filter.js`: a filter may only
+ * be wrong in the direction that costs a read, so an absent, unreadable or
+ * unconvinced filter always means *read the shard*. And a query term that no
+ * shard claims is one the scorer will expand against the vocabulary, which
+ * lives inside the shards — so it puts all of them back.
+ */
+function routeShards(manifest, occupied, queryTerms) {
+  if (queryTerms.length === 0) return { shardsToRead: occupied, routed: false };
+
+  const filters = new Map();
+  let anyFilter = false;
+  for (const id of occupied) {
+    const filter = readTermFilter(manifest.filters[id]);
+    if (filter) anyFilter = true;
+    filters.set(id, filter);
+  }
+  if (!anyFilter) return { shardsToRead: occupied, routed: false };
+
+  const keep = new Set();
+  let expanding = false;
+  for (const term of queryTerms) {
+    let claimed = false;
+    for (const id of occupied) {
+      const filter = filters.get(id);
+      // No filter for this shard is not "no", it is "unknown", and unknown
+      // reads the shard. It also does not count as claiming the term: a shard
+      // nobody has filtered yet cannot stand in for the whole vocabulary an
+      // expansion would need.
+      if (filter === null) {
+        keep.add(id);
+        continue;
+      }
+      if (!termFilterMayHold(filter, term)) continue;
+      keep.add(id);
+      claimed = true;
+    }
+    if (!claimed) expanding = true;
+  }
+
+  // A term nothing claims has **provably** no exact match anywhere — the filter
+  // has no false negatives, which is the property the whole of `filter.js` is
+  // built around. So the shards read for it are read for one reason only: the
+  // scorer expands a term with df 0 against the vocabulary, and the vocabulary
+  // lives inside the shards.
+  //
+  // That is worth paying for — a miss is usually the wrong word rather than the
+  // wrong assumption, which is what `toolSearchNotes`'s miss copy says — and it
+  // is not worth paying in full. Reading every shard in the bucket to widen a
+  // misspelling costs, measured on a 7,961-note fixture at 60ms an operation,
+  // 27 reads and 5MB per miss, and misses are the slowest answers here already.
+  // So the expansion vocabulary is a **sample**, spread across the id space
+  // rather than taken from the front, and it is an approximation in the same
+  // way `SHARD_FUZZY_RETAIN` already is: an expansion the sample missed costs a
+  // suggestion, never a hit.
+  if (expanding) {
+    const stride = Math.max(1, Math.ceil(occupied.length / EXPANSION_SHARD_SAMPLE));
+    for (let at = 0; at < occupied.length; at += stride) keep.add(occupied[at]);
+  }
+  return { shardsToRead: occupied.filter((id) => keep.has(id)), routed: !expanding };
 }

@@ -71,6 +71,7 @@ import {
   SEARCH_RESULT_LIMIT,
   SEARCH_SUBREQUEST_BUDGET,
   noteTitle,
+  INTERACTIVE_BACKFILL_OPS,
   searchIndexedNotes,
   snippetLinesFor,
 } from "./search/visible.js";
@@ -147,37 +148,23 @@ function searchBudgetFor(env) {
   return Math.min(SEARCH_BUDGET_MAX, Math.max(SEARCH_BUDGET_MIN, Math.floor(parsed)));
 }
 /**
- * Note reads one **interactive** search may spend finishing the index.
- *
- * The subrequest budget bounds what a search may spend; it does not bound what
- * the person in front of the client waits for, and on this deployment's budget
- * of 600 those are different numbers by two orders of magnitude. Measured: a
- * cold pass over a 7,961-note bucket spends 577 note reads, which is the 40-60
- * second search that opened this work — and the same shape, once the index was
- * warm enough that maintenance and answering could not both fit, spent the
- * whole budget on maintenance and answered thirteen searches running with
- * `0 matching notes` over a term every note carried.
- *
- * 60 is five waves at `BACKFILL_CONCURRENCY`, so it is five round trips of
- * waiting rather than forty-eight. What it costs is convergence per
- * *interactive* pass, and that cost is given back immediately below: the same
- * sync continues with the rest of the budget once the response has been sent,
- * so a search still finishes as much of the index as its invocation can afford
- * — the person just is not held while it does.
- *
- * The listing is deliberately not capped with it. The listing is what tells
- * the diff which notes are stale, and a pass that cannot finish listing reports
- * `listingTruncated`, which renders as "the index is still catching up" over a
- * bucket that has converged. A banner that is permanently on is a banner
- * nobody reads.
- */
-const INTERACTIVE_BACKFILL_OPS = 60;
-/**
  * Ops that must remain before the deferred pass is worth starting: the
  * manifest, a listing that will not finish in fewer, a shard, and a write.
  * Below it the pass would spend a request on a round trip that lands nothing.
  */
 const DEFERRED_SYNC_FLOOR = 8;
+/**
+ * How stale the index's own listing may be before a search starts a pass
+ * behind itself.
+ *
+ * A search no longer lists the bucket, so this is the only clock on which a
+ * note somebody wrote in Obsidian becomes searchable. Short enough that "I
+ * saved it a minute ago" holds; long enough that a person typing through a
+ * palette does not start a full listing on every keystroke's worth of query.
+ * Writes made *through* Context do not wait for it — they start a pass of their
+ * own — so what this bounds is out-of-band editing.
+ */
+const INDEX_RECONCILE_INTERVAL_MS = 60_000;
 
 /**
  * The fallback scan's ceiling, for the calls where the index is unusable. Well
@@ -3202,9 +3189,9 @@ const BUDGET_EXHAUSTED = Symbol("search budget exhausted");
  * survive: a bucket with enough top-level folders spends two pages on each of
  * them before the first note is read.
  */
-function budgetedStore(store, budget) {
+function budgetedStore(store, budget, reserve = 0) {
   const spend = () => {
-    if (budget.take()) return;
+    if (budget.take(reserve)) return;
     const error = new Error("search budget exhausted");
     error[BUDGET_EXHAUSTED] = true;
     throw error;
@@ -3230,9 +3217,9 @@ function budgetedStore(store, budget) {
  * per-invocation subrequest limit, which is why it never truncated in testing
  * and always failed in production.
  */
-async function scanVisibleNotes(store, scope, rules, overrides, query, prefix, budget) {
+async function scanVisibleNotes(store, scope, rules, overrides, query, prefix, budget, reserve = 0) {
   const needle = query.toLowerCase();
-  const bounded = budget ? budgetedStore(store, budget) : store;
+  const bounded = budget ? budgetedStore(store, budget, reserve) : store;
   const listed = await listScannableNoteKeys(bounded, prefix);
   // `isPlumbing` explicitly, not as a side effect of which lister ran.
   // `canSee` answers *true* for `privacy.md` at private scope — deliberately,
@@ -3243,7 +3230,10 @@ async function scanVisibleNotes(store, scope, rules, overrides, query, prefix, b
   const keys = listed.keys.filter(
     ({ key }) => key.endsWith(".md") && !isPlumbing(key) && canSee(key, scope, rules, overrides)
   );
-  const cap = Math.max(0, Math.min(budget ? budget.remaining : FALLBACK_SCAN_CAP, FALLBACK_SCAN_CAP));
+  const cap = Math.max(
+    0,
+    Math.min(budget ? budget.remaining - reserve : FALLBACK_SCAN_CAP, FALLBACK_SCAN_CAP)
+  );
   const scanned = keys.slice(0, cap);
   const hits = [];
   // Reads the budget refused, so `scannedCount` counts notes actually read —
@@ -3325,10 +3315,11 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
     query,
     prefix,
     budget,
-    // A person is waiting on this one. The console, which is not a Worker and
-    // has no such deadline, passes nothing and keeps finishing cold buckets in
-    // one call.
-    backfillOps: INTERACTIVE_BACKFILL_OPS,
+    // A person asking a question is the one caller allowed to buy a listing,
+    // and only when the answer came back empty over an index that believes it
+    // is current. See `searchIndexedNotes`: a miss may pay for a listing, a hit
+    // never does.
+    refreshOnMiss: true,
   });
   answered();
 
@@ -3338,20 +3329,12 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
     trace.set("matches", found.matchCount);
     trace.set("matchesIsFloor", Boolean(found.matchCountIsFloor));
     trace.set("index", found.index);
-    // Only where this answer said the index is behind. A converged bucket must
-    // pay nothing for this: a manifest GET and a full listing on every search,
-    // against a request quota the customer is billed for, to discover there was
-    // no work — which is the kind of standing cost that gets a feature reverted
-    // rather than tuned.
-    // Read before the deferred pass is started, because starting it spends its
-    // first op synchronously — this number is what the caller waited for, and
-    // folding the background half into it would make the trace unable to say
-    // which is which.
+    // Read before the maintenance pass is started, because starting it spends
+    // its first op synchronously — this number is what the caller waited for,
+    // and folding the background half into it would make the trace unable to
+    // say which is which.
     trace.set("spent", budget.spent);
-    trace.set(
-      "deferred",
-      found.indexIncomplete ? deferIndexSync(store, budget, isIndexable) : false
-    );
+    trace.set("maintain", await maintainIndexAfter(store, budget, isIndexable, found));
     logSearchTrace(trace);
     return {
       hits: found.hits,
@@ -3373,7 +3356,15 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
     overrides,
     query,
     prefix,
-    budget
+    budget,
+    // The pass that follows is what stops this path from being permanent, and
+    // it has to be paid for **before** the scan spends rather than out of what
+    // the scan happens to leave. Measured: on the free tier's budget of 40 a
+    // 65-note bucket spent 33 ops proving the index was missing and had seven
+    // left, one under `DEFERRED_SYNC_FLOOR` — so no pass ran, and the next
+    // search scanned again, forever. A recovery path that cannot afford to end
+    // itself is not a recovery path.
+    DEFERRED_SYNC_FLOOR
   );
   scanned();
   trace.set("indexed", false);
@@ -3381,10 +3372,10 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
   trace.set("scannedCount", scan.scannedCount);
   trace.set("totalCount", scan.totalCount);
   // The scan runs because there was no index to answer from, so building one is
-  // exactly the work worth deferring — and it is the only way a bucket whose
-  // first pass could not finish ever stops paying for this path.
+  // exactly the work worth doing behind this response — and it is the only way
+  // a bucket whose first pass could not finish ever stops paying for this path.
   trace.set("spent", budget.spent);
-  trace.set("deferred", deferIndexSync(store, budget, isIndexable));
+  trace.set("maintain", await maintainIndexAfter(store, budget, isIndexable, null));
   logSearchTrace(trace);
   return {
     hits: scan.hits,
@@ -3399,16 +3390,15 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
 }
 
 /**
- * Finish as much of the index as this invocation can still afford — **after**
- * the response has been sent.
+ * Bring the index a pass further — **after** the response has been sent.
  *
- * This is the other half of `INTERACTIVE_BACKFILL_OPS` and the reason capping
- * the interactive share costs nothing. `ctx.waitUntil` keeps the invocation
- * alive past the response, so the ops the answer did not need are spent on the
- * backfill with nobody waiting: one search still does as much indexing work as
- * it ever did, and the client is no longer held while it happens.
+ * A search reads a ready index and does no maintenance of its own
+ * (`searchIndexedNotes`), so this is where every listing, diff, note read and
+ * shard write in the system now happens for a gateway caller. That is the
+ * change: the person asking a question waits for a manifest, the shards their
+ * terms could be in, and the notes being quoted, and for nothing else.
  *
- * Three properties are deliberate:
+ * Four properties are deliberate:
  *
  * - **It is the same sync, not a second maintenance path.** A background
  *   indexer with its own diff would be a second place for the index to be
@@ -3417,33 +3407,65 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
  * - **It never throws into the request.** A rejected `waitUntil` promise is a
  *   logged exception on an invocation whose response has already gone; a throw
  *   on the way *in* would be a failed search over a successful one.
- * - **It is best-effort by construction.** No `store.defer` (a host with no
- *   `ctx`, a self-host shim) means no deferred pass and no behaviour change:
- *   the next search does the same work interactively, as it does today.
+ * - **A host that cannot defer still indexes**, and pays for it in latency
+ *   rather than in coverage. `store.defer` is absent on a self-hosted shim that
+ *   passes no `ctx`, and "no deferral" used to mean "the next search does the
+ *   work interactively" — which it no longer does, so absent deferral would
+ *   mean an index nothing ever builds. It runs inline instead, after the answer
+ *   is assembled, capped at `INTERACTIVE_BACKFILL_OPS` note reads. Deferral is
+ *   still an accelerator; what it accelerates is now the whole of the work.
+ * - **A converged index is not re-listed on every search.** The manifest
+ *   records when it was last listed, so a pass is worth starting only when the
+ *   index says it is behind or when that record is older than
+ *   `INDEX_RECONCILE_INTERVAL_MS` — a bucket also written by Obsidian and
+ *   rclone has to be re-read on some clock, and a full listing per search
+ *   against a request quota the customer is billed for is not it.
  *
- * It costs the pass one manifest read and one listing it has already done this
- * request, which is real and is the price of not threading a half-finished
- * sync out of the answer. `walkReserve` is 0 here on purpose: nothing follows
- * this pass, so there is no walk to keep ops back for.
- *
- * @returns {boolean} whether a pass was scheduled — for the trace, so an
- *   operator can tell "no work left" from "this host cannot defer".
+ * @param {object} found the answer's own report, or `null` where there was no
+ *   index to answer from — which is always work worth doing.
+ * @returns {Promise<"deferred"|"inline"|"none">} for the trace, so an operator
+ *   can tell "no work left" from "this host cannot defer".
  */
-function deferIndexSync(store, budget, isIndexable) {
-  if (typeof store.defer !== "function") return false;
-  if (budget.remaining < DEFERRED_SYNC_FLOOR) return false;
-  try {
-    store.defer(
-      syncShardedIndex(store, { budget, isIndexable }).catch(() => {
-        // A storage failure after the answer is already out changes nothing
-        // about the answer. The next search re-diffs from the manifest.
-      })
-    );
-  } catch {
-    // A host whose `waitUntil` refuses the work is a host that does not defer.
-    return false;
+async function maintainIndexAfter(store, budget, isIndexable, found) {
+  if (!indexNeedsAPass(found)) return "none";
+  if (budget.remaining < DEFERRED_SYNC_FLOOR) return "none";
+  const run = (options) =>
+    syncShardedIndex(store, { budget, isIndexable, ...options }).catch(() => {
+      // A storage failure after the answer is already out changes nothing about
+      // the answer. The next search re-diffs from the manifest.
+    });
+  if (typeof store.defer === "function") {
+    try {
+      store.defer(run({}));
+      return "deferred";
+    } catch {
+      // A host whose `waitUntil` refuses the work is a host that does not
+      // defer, and falls through to doing it in front of the caller.
+    }
   }
-  return true;
+  // Awaited, which is the whole difference between this branch and the one
+  // above. A host with no `waitUntil` has nothing keeping the invocation alive
+  // past the response, so a promise left running there is a promise that may
+  // simply be discarded — and an index nothing ever finishes building. The cap
+  // is what keeps the resulting delay bounded.
+  await run({ backfillOps: INTERACTIVE_BACKFILL_OPS });
+  return "inline";
+}
+
+/**
+ * Whether the index is behind enough to be worth a pass.
+ *
+ * `null` — no index at all — always is. Otherwise the answer's own freshness
+ * report decides: anything incomplete, or a listing older than the reconcile
+ * interval, because notes arrive in this bucket through Obsidian and rclone as
+ * well as through us and nothing tells the gateway when they do.
+ */
+function indexNeedsAPass(found) {
+  if (!found || !found.index) return true;
+  if (found.indexIncomplete) return true;
+  const listedAt = Date.parse(found.index.listedAt ?? "");
+  if (!Number.isFinite(listedAt)) return true;
+  return Date.now() - listedAt >= INDEX_RECONCILE_INTERVAL_MS;
 }
 
 async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg) {
