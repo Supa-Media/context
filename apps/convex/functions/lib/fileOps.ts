@@ -66,6 +66,7 @@ import { renderPrivacyManifestForFolders, type ScaffoldStore } from "./scaffold"
 // these run here unmodified over the same store `provisioning.ts` already
 // builds from a binding.
 import { createSearchBudget } from "../../../mcp/src/search/maintain.js";
+import { syncShardedIndex } from "../../../mcp/src/search/shards.js";
 import { searchIndexedNotes } from "../../../mcp/src/search/visible.js";
 
 /* -------------------------------------------------------------------------- */
@@ -123,13 +124,28 @@ type SearchStore = Parameters<typeof searchIndexedNotes>[0];
 /**
  * Store operations one console search may spend.
  *
- * Larger than the gateway's default because the constraint that sets that one
- * does not exist here: Cloudflare caps subrequests per Worker invocation, and
- * a Convex action has no such cap. So a console search on a bucket whose index
- * is still cold makes real progress on the backfill rather than nibbling at
- * it, and both surfaces read the index that results.
+ * It no longer buys a backfill. A search reads a ready index — the change that
+ * took a console search over a real brain from twenty-odd seconds to a
+ * fraction of one — so what this covers is a manifest, the shards the query's
+ * terms can be in, ten snippet reads, and the one listing a **miss** over a
+ * converged index is allowed to buy before it says "nothing". Generous rather
+ * than tight because a Convex action has no subrequest ceiling and the cost of
+ * being one op short is an answer that understates itself.
  */
 const CONSOLE_SEARCH_BUDGET = 300;
+
+/**
+ * Store operations one background maintenance pass may spend.
+ *
+ * This is where every listing, note read and shard write in the console's half
+ * of the system now happens, and nobody is waiting on it: it runs in a
+ * scheduled action, after the search that noticed the index was behind has
+ * already answered. Cloudflare's per-invocation subrequest cap is what bounds
+ * the gateway's equivalent and there is no such cap here, so the number is
+ * chosen against the customer's request quota instead — large enough that a
+ * cold brain converges in a handful of passes rather than dozens.
+ */
+const INDEX_SYNC_BUDGET = 600;
 
 /* -------------------------------------------------------------------------- */
 /*                                   errors                                   */
@@ -2566,14 +2582,20 @@ export interface SearchResults {
  * the backfill instead of nibbling at it, and the same index serves both
  * surfaces afterwards.
  *
- * **A search writes**, under `.index/`, whatever the caller's role — which is
- * worth saying out loud beside a module whose every other write is gated on
- * `canEdit`. It is not an escalation and it is not new: an AI client on a
- * team-tier grant already maintains this index on every `search_notes`, the
- * keys are plumbing rather than note content, and the whole thing is a
- * disposable derivative that a person's own notes can rebuild. What a member
- * must not be able to do is *read* more than their scope, and that is
- * `isVisible`, below.
+ * **A search does not maintain the index**, and that is the change that took a
+ * console search over a real brain from twenty-odd seconds to a fraction of
+ * one. It reads a manifest, the shards this query's terms can be in, and the
+ * notes it is quoting. `searchContext` schedules `maintainSearchIndex` behind
+ * the answer when the answer says the index is behind.
+ *
+ * The one exception is `refreshOnMiss`, and it is the reason a member's search
+ * can still cause a write under `.index/` whatever their role — worth saying
+ * out loud beside a module whose every other write is gated on `canEdit`. It is
+ * not an escalation and it is not new: an AI client on a team-tier grant
+ * maintains this index too, the keys are plumbing rather than note content, and
+ * the whole thing is a disposable derivative a person's own notes can rebuild.
+ * What a member must not be able to do is *read* more than their scope, and
+ * that is `isVisible`, below.
  */
 export async function searchNotes(
   store: FileStore,
@@ -2605,6 +2627,13 @@ export async function searchNotes(
     query,
     prefix: folder,
     budget: createSearchBudget(options.budget ?? CONSOLE_SEARCH_BUDGET),
+    // A person typed this and is watching a spinner, which is exactly who the
+    // rule is for: a miss over an index that believes it is converged buys one
+    // listing and asks again, and an answer with hits in it buys nothing. The
+    // console is where somebody writes a note and then looks for it, so the
+    // case this covers — the index is current as of a minute ago and the note
+    // is newer than that — is the console's own most likely miss.
+    refreshOnMiss: true,
   });
 
   if (!found.indexed) {
@@ -2627,5 +2656,55 @@ export async function searchNotes(
     matchCountIsFloor: Boolean(found.matchCountIsFloor),
     indexIncomplete: Boolean(found.indexIncomplete),
     indexMissing: false,
+  };
+}
+
+/**
+ * Bring the search index a pass further. Nobody is waiting on this.
+ *
+ * A console search reads a ready index and maintains nothing, so this is the
+ * whole of the console's half of index maintenance — a full listing of the
+ * bucket, an etag diff, the notes that changed re-read, the shards they belong
+ * to rewritten. It used to happen in front of the person asking the question,
+ * which is what made a search over a real brain take twenty seconds and
+ * sometimes fail on a ten-second fetch deadline partway through.
+ *
+ * It is reached through the same credential barrier every other file operation
+ * goes through, and **scheduled** rather than called: `searchContext` enqueues
+ * it after answering, which propagates no taint (CLAUDE.md, "Scheduling is not
+ * calling") and hands the caller nothing to wait for.
+ *
+ * It is the same `syncShardedIndex` the gateway runs, not a second maintenance
+ * path. A background indexer with its own diff would be a second place for the
+ * index to be wrong, in the way a second search path would be a second place
+ * for a visibility bug.
+ *
+ * **It reads every note in the bucket, private ones included, and answers
+ * nothing about them.** The return carries counts of the index's own progress
+ * and no path, no title and no term — an indexing pass is scope-blind by
+ * construction (`isIndexable`, never `isVisible`), and the moment one could
+ * report *which* notes it touched it would be an existence oracle for the
+ * private half of somebody's bucket.
+ */
+export async function maintainSearchIndex(
+  store: FileStore,
+  options: { budget?: number } = {},
+): Promise<{ pending: number; changed: boolean; complete: boolean }> {
+  const pass = await syncShardedIndex(store as unknown as Parameters<typeof syncShardedIndex>[0], {
+    budget: createSearchBudget(options.budget ?? INDEX_SYNC_BUDGET),
+    isIndexable: (key: string) => key.endsWith(".md") && !isPlumbing(key),
+  });
+  return {
+    pending: pass.pending,
+    // `committed`, not `changed`: a pass whose manifest write lost a race to a
+    // concurrent one did work the winner is about to re-derive, and the chain
+    // below must not treat that as progress. Otherwise every search in a burst
+    // schedules twelve more passes over the same notes.
+    changed: Boolean(pass.committed),
+    // "Nothing left to do", which is what decides whether another pass is
+    // scheduled behind this one. A truncated listing counts as incomplete for
+    // the same reason it does everywhere else here: a walk that was cut short
+    // is not evidence that there was nothing more to find.
+    complete: pass.pending === 0 && !pass.listingTruncated && !pass.manifestOverflow,
   };
 }

@@ -103,6 +103,7 @@ import {
   SHARD_READ_CONCURRENCY,
   parseManifest,
   shardKey,
+  syncShardedIndex,
 } from "../src/search/shards.js";
 import { createSearchTrace } from "../src/search/trace.js";
 import { searchIndexedNotes } from "../src/search/visible.js";
@@ -288,14 +289,36 @@ function seedNotes(bucket, count, term, roots = 2) {
   }
 }
 
+/** One answer, from whatever index is already there. No maintenance at all. */
 function search(bucket, options = {}) {
   return searchIndexedNotes(bucket, {
     isVisible: alwaysVisible,
     isIndexable: indexable,
     query: options.query ?? "rhubarb",
-    budget: createSearchBudget(options.budget ?? 120),
+    budget: options.counter ?? createSearchBudget(options.budget ?? 120),
     ...options.pass,
   });
+}
+
+/**
+ * One whole **request**: the answer, then the maintenance behind it, on one
+ * shared subrequest counter.
+ *
+ * This is the shape the gateway has now — `searchIndexedNotes` reads a ready
+ * index and `maintainIndexAfter` spends what is left once the response has gone
+ * — and modelling it here rather than calling the two separately is the point:
+ * they share a budget, so what maintenance takes is what the *next* answer does
+ * not have.
+ */
+async function request(bucket, options = {}) {
+  const counter = createSearchBudget(options.budget ?? 120);
+  const found = await search(bucket, { ...options, counter });
+  await syncShardedIndex(bucket, {
+    budget: counter,
+    isIndexable: indexable,
+    ...(options.sync ?? {}),
+  });
+  return found;
 }
 
 async function callTool(env, token, name, args, { defer = true } = {}) {
@@ -344,8 +367,16 @@ async function captureLogs(run) {
 export async function runSearchPacingChecks(check) {
   /* -- (a) the false miss: maintenance may not starve the answer ----------- */
   //
-  // 1,500 notes at a budget of 120 is the smallest fixture that reproduces it:
-  // the bucket needs more shards than one pass can both maintain and walk.
+  // 1,500 notes at a budget of 120 is the smallest fixture that reproduced it:
+  // the bucket needs more shards than one pass could both maintain and walk.
+  //
+  // The mechanism is gone — a search does no maintenance, so there is nothing
+  // left to take the walk's operations — and the fixture stays, because what it
+  // asserts is the *outcome* rather than the mechanism: over a bucket far too
+  // wide to index in one request, no request may ever answer "nothing" for a
+  // term every note carries. Written against `request`, so each answer is read
+  // from the index the previous request's maintenance built, on a budget the
+  // two shared.
   {
     const bucket = createBucket();
     seedNotes(bucket, 1500, "rhubarb");
@@ -353,33 +384,36 @@ export async function runSearchPacingChecks(check) {
     const answers = [];
     for (let pass = 0; pass < 8; pass += 1) {
       bucket.resetCounts();
-      const found = await search(bucket, { budget: 120 });
-      answers.push(found);
+      answers.push(await request(bucket, { budget: 120 }));
     }
     check(
-      "every pass over a bucket too wide to index in one answers with hits",
-      answers.every((found) => found.indexed && found.hits.length > 0)
+      "every request after the first over a bucket too wide to index in one answers with hits",
+      // The first faces no index at all and says so — `indexed: false`, which
+      // the gateway answers with its bounded literal scan rather than with a
+      // count. Every one after it reads what the request before it built.
+      answers[0].indexed === false &&
+        answers.slice(1).every((found) => found.indexed && found.hits.length > 0)
     );
     check(
       "and none of them reports zero matches over a term every note carries",
-      answers.every((found) => found.matchCount > 0)
+      answers.slice(1).every((found) => found.matchCount > 0)
     );
   }
 
-  /* -- (a2) …and the reserve is what holds it, not the order of the walk --- */
+  /* -- (a2) …and the one path where the reserve still bites ---------------- */
   //
-  // Two separate things stop the sync starving the answer, and only one of them
-  // is visible in the fixture above. The walk collects every shard the sync
-  // already loaded for free **before** it spends on a read, which covers a pass
-  // whose maintenance touched the shards the query needs. It does nothing at
-  // all for the other shape: a **converged** index the sync has a little work
-  // in, where it spends the budget inside one shard and the walk still has to
-  // open the four it never went near.
+  // `walkReserve` was written for a search that synced on its way in: the pass
+  // spent every operation down to the snippet reads, and the walk that followed
+  // it had nothing left to open a shard with — measured as `0 matching notes`
+  // over a bucket where every note matched. No search does that any more.
   //
-  // That shape is this block, and it is the one `walkReserve` is for. Written
-  // after the sabotage run found that removing `walkReserve` broke nothing —
-  // a guard nobody has checked is not a guard, and this one had a test that
-  // passed for the other fix's reasons.
+  // One caller still puts a pass in front of an answer, and it is the one that
+  // must not get this wrong: a **miss** over an index that believes it is
+  // converged buys one listing and asks again (`refreshOnMiss`). If that pass
+  // spends the budget, the re-ask is assembled from no shards — and the answer
+  // it replaces was already a miss, so the failure would be invisible and
+  // permanent. Same guard, same fixture shape, at the only place it is still
+  // reachable.
   {
     const bucket = createBucket();
     seedNotes(bucket, 1500, "rhubarb");
@@ -393,8 +427,8 @@ export async function runSearchPacingChecks(check) {
       rare.push(path);
     }
     for (let pass = 0; pass < 40; pass += 1) {
-      const found = await search(bucket, { budget: 600 });
-      if (!found.indexIncomplete) break;
+      const found = await request(bucket, { budget: 600 });
+      if (found.indexed && !found.indexIncomplete) break;
     }
     const manifest = parseManifest(bucket.objects.get(MANIFEST_KEY).body);
     const occupied = manifest.stats.filter((entry) => entry.docCount > 0).length;
@@ -403,9 +437,60 @@ export async function runSearchPacingChecks(check) {
       occupied > 1 && manifest.stats.reduce((n, entry) => n + entry.docCount, 0) === 1500
     );
 
-    // A handful of edits, so the sync has real work and will spend on it, and a
-    // budget tight enough that spending it all is the difference between an
+    // The miss this converged index is about to be asked for, on a budget tight
+    // enough that a refresh spending all of it is the difference between an
     // answer and a lie.
+    //
+    // The note is seeded *after* convergence, so the refresh has real work: it
+    // lists, finds one stale key, indexes it, and the re-ask has to find it.
+    // A pass that keeps nothing back for that re-ask hands it a spent counter,
+    // the walk opens no shard, and the answer is the miss it started as — with
+    // the note now sitting in the index, which is the worst version of this
+    // failure because nothing about it looks wrong afterwards.
+    bucket.seed(`${ROOTS[0]}/p0/wombat.md`, "# Wombat\n\nA wombat, newly written.\n");
+    // Measured rather than chosen: the first walk spends six here, and
+    // `missWorthARefresh` wants the caller's ten snippet reads plus a pass's
+    // worth on top of that before it will buy anything — so under about
+    // thirty-six the refresh correctly declines and this fixture would be
+    // asserting nothing.
+    const missBudget = createSearchBudget(40);
+    const missed = await searchIndexedNotes(bucket, {
+      isVisible: alwaysVisible,
+      isIndexable: indexable,
+      query: "wombat",
+      budget: missBudget,
+      refreshOnMiss: true,
+    });
+    check(
+      "a miss buys one listing and finds the note written since the last pass",
+      missed.indexed &&
+        missed.index.shardsUnread === false &&
+        missed.hits.length === 1 &&
+        missed.hits[0].key.endsWith("wombat.md")
+    );
+
+    // …and a miss whose listing finds nothing does not walk the index twice to
+    // arrive at the same answer. The pass is the point; the re-ask only earns
+    // its cost when the pass moved a document.
+    bucket.resetCounts();
+    const stillMissing = await searchIndexedNotes(bucket, {
+      isVisible: alwaysVisible,
+      isIndexable: indexable,
+      query: "aardvark",
+      budget: createSearchBudget(40),
+      refreshOnMiss: true,
+    });
+    // One manifest read per walk, one for the pass between them. A third means
+    // the index was walked twice to arrive at the same miss — and shard reads
+    // cannot say this, because the pass reads shards of its own.
+    const manifestReads = bucket.counts.getKeys.filter((key) => key === MANIFEST_KEY).length;
+    check(
+      "and a refresh that moved nothing answers from the walk it already did",
+      stillMissing.indexed && stillMissing.hits.length === 0 && manifestReads === 2
+    );
+
+    // And the ordinary tight read, with a few hundred notes edited under it, so
+    // the walk has to open shards on a budget somebody else could have spent.
     for (let i = 0; i < 300; i += 1) {
       bucket.seed(`${ROOTS[i % 2]}/p${i % 6}/note-${i}.md`, `# Note ${i}\n\nrhubarb again, ${i}.\n`);
     }
@@ -417,7 +502,7 @@ export async function runSearchPacingChecks(check) {
       budget,
     });
     check(
-      "a tight pass over a stale converged index still opens every occupied shard",
+      "a tight read over a stale converged index still opens every shard its term is in",
       tight.indexed && tight.index.shardsUnread === false
     );
     check(
@@ -428,31 +513,40 @@ export async function runSearchPacingChecks(check) {
     );
   }
 
-  /* -- (b) the interactive share of the backfill --------------------------- */
+  /* -- (b) a maintenance pass's backfill cap ------------------------------- */
+  //
+  // The cap used to bound what a person waited for, because the pass ran in
+  // front of the answer. It runs behind it now, and the cap survives for the
+  // one place a pass is still in front of somebody: the refresh a miss buys,
+  // and a host with no `waitUntil` to defer to.
   {
     const bucket = createBucket();
     seedNotes(bucket, 400, "cuttlefish");
 
     bucket.resetCounts();
-    const capped = await search(bucket, {
+    const capped = await request(bucket, {
       query: "cuttlefish",
       budget: 600,
-      pass: { backfillOps: 25 },
+      sync: { backfillOps: 25 },
     });
     check(
       "a capped pass reads no more notes than its cap",
       bucket.noteGets() <= 25 + SEARCH_RESULT_LIMIT
     );
     check(
-      "and still answers from the index, saying it is incomplete",
-      capped.indexed && capped.indexIncomplete && capped.index.pending > 0
+      "and the answer it built is read by the next request, which says it is incomplete",
+      capped.indexed === false &&
+        (await (async () => {
+          const next = await search(bucket, { query: "cuttlefish", budget: 600 });
+          return next.indexed && next.indexIncomplete && next.index.pending > 0;
+        })())
     );
 
     bucket.resetCounts();
-    const uncapped = await search(bucket, { query: "cuttlefish", budget: 600 });
+    await request(bucket, { query: "cuttlefish", budget: 600 });
     check(
       "an uncapped pass on the same budget reads far more",
-      bucket.noteGets() > 25 + SEARCH_RESULT_LIMIT && uncapped.indexed
+      bucket.noteGets() > 25 + SEARCH_RESULT_LIMIT
     );
   }
 
@@ -464,13 +558,13 @@ export async function runSearchPacingChecks(check) {
   {
     const bucket = createBucket();
     seedNotes(bucket, 120, "porpoise");
-    for (let pass = 0; pass < 6; pass += 1) await search(bucket, { query: "porpoise", budget: 600 });
+    for (let pass = 0; pass < 6; pass += 1) await request(bucket, { query: "porpoise", budget: 600 });
 
     bucket.resetCounts();
-    const warm = await search(bucket, {
+    const warm = await request(bucket, {
       query: "porpoise",
       budget: 600,
-      pass: { backfillOps: 1 },
+      sync: { backfillOps: 1 },
     });
     check(
       "a converged bucket reports nothing incomplete even under a cap of one",
@@ -490,10 +584,10 @@ export async function runSearchPacingChecks(check) {
   {
     const bucket = createBucket();
     seedNotes(bucket, 900, "narwhal", 6);
-    for (let pass = 0; pass < 12; pass += 1) await search(bucket, { query: "narwhal", budget: 600 });
+    for (let pass = 0; pass < 12; pass += 1) await request(bucket, { query: "narwhal", budget: 600 });
 
     bucket.resetCounts();
-    const warm = await search(bucket, { query: "narwhal", budget: 600 });
+    const warm = await request(bucket, { query: "narwhal", budget: 600 });
     check(
       "folder listings overlap rather than running one folder at a time",
       bucket.peak.list > 1
@@ -578,7 +672,10 @@ export async function runSearchPacingChecks(check) {
       typeof traced[0]?.ms?.total === "number" &&
         typeof traced[0]?.ms?.answer === "number" &&
         typeof traced[0]?.spent === "number" &&
-        typeof traced[0]?.index?.shardCount === "number"
+        // The first search over a bucket with no index answers from the scan,
+        // so what it reports is the scan's own counts. The `index` block
+        // belongs to an indexed answer and is asserted on the warm one below.
+        typeof traced[0]?.scannedCount === "number"
     );
     // A log line is not a tool result, but it is still somewhere customer data
     // can end up — and this one describes a search over private notes.
@@ -607,11 +704,11 @@ export async function runSearchPacingChecks(check) {
     const TRACE_KEYS = new Set([
       "event", "workspace", "grant", "client", "provider", "budget", "prefixed",
       "indexed", "hits", "matches", "matchesIsFloor", "index", "spent",
-      "deferred", "scannedCount", "totalCount", "ms",
+      "maintain", "scannedCount", "totalCount", "ms",
     ]);
     const INDEX_KEYS = new Set([
-      "shardCount", "occupiedShards", "docs", "pending", "shardsUnread",
-      "listingTruncated", "manifestOverflow",
+      "shardCount", "occupiedShards", "shardsRead", "routed", "docs", "pending",
+      "listedAt", "shardsUnread", "listingTruncated",
     ]);
     // `ms` is a third level and was missed on the first pass, which is the
     // same mistake one layer down: `trace.span(name)` writes into it, so its
@@ -627,8 +724,8 @@ export async function runSearchPacingChecks(check) {
       strayTop.length === 0 && strayIndex.length === 0 && strayMs.length === 0
     );
     check(
-      "the interactive pass read no more notes than the interactive cap",
-      bucket.noteGets() > 0 && traced[0]?.deferred === true
+      "the whole of the indexing happened behind the response",
+      bucket.noteGets() > 0 && traced[0]?.maintain === "deferred"
     );
     check(
       "one whole invocation stays inside the deployment budget it was given",
@@ -655,8 +752,10 @@ export async function runSearchPacingChecks(check) {
     });
     const warmTrace = warmLogs.find((line) => line.event === "search");
     check(
-      "a converged bucket defers nothing",
-      warmTrace?.deferred === false && warmTrace?.index?.pending === 0
+      "a converged bucket, freshly listed, starts no pass at all",
+      warmTrace?.maintain === "none" &&
+        warmTrace?.index?.pending === 0 &&
+        typeof warmTrace?.index?.shardCount === "number"
     );
 
     // And a host that offers no `waitUntil` still gets a correct answer. The
@@ -692,10 +791,10 @@ export async function runSearchPacingChecks(check) {
       { defer: false }
     );
     check(
-      "a host with no waitUntil still answers, and says the index is catching up",
+      "a host with no waitUntil still answers, and still builds the index",
       typeof bareText === "string" &&
-        bareText.includes("1-projects/") &&
-        bareText.includes("still catching up")
+        /^\S+\/note-\d+\.md$/m.test(bareText) &&
+        bare.objects.has(MANIFEST_KEY)
     );
     check(
       "and nothing was deferred on it",

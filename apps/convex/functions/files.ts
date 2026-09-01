@@ -90,6 +90,7 @@ import {
   listFolder,
   movePath,
   readFile,
+  maintainSearchIndex,
   searchNotes,
   type SearchResults,
   resetPrivacyManifest,
@@ -109,6 +110,23 @@ import type { GatewayCredential } from "./storage";
 
 /** Same deadline `functions/provisioning.ts` puts on the customer's endpoint. */
 const REQUEST_TIMEOUT_MS = 10_000;
+
+/**
+ * Maintenance passes that may chain behind one search's worth of work.
+ *
+ * A brain of a few thousand notes does not index in one pass, and the
+ * alternative to chaining is what the project note calls out as still open:
+ * "the complete backfill finishes without requiring repeated user searches".
+ * Making somebody search eight times to finish their own index is making them
+ * do the system's work.
+ *
+ * Each link is scheduled only by a pass that **made progress and did not
+ * finish**, so a converged bucket stops at one and a bucket that cannot
+ * converge — an unreadable folder, a shard that will not fit — stops as soon
+ * as it stops changing rather than looping on the customer's request quota.
+ * The bound is the backstop for the case both of those miss.
+ */
+const INDEX_SYNC_CHAIN = 12;
 
 export { DELETE_CONFIRMATION };
 
@@ -226,6 +244,19 @@ const searchResultsValidator = v.object({
   indexMissing: v.boolean(),
 });
 
+/**
+ * What one maintenance pass got through. Counts about the index's own
+ * progress, and deliberately nothing about the notes it read: an indexing pass
+ * is scope-blind, so a field naming a path or a term here would be an
+ * existence oracle for the private half of somebody's bucket.
+ */
+const indexMaintainedValidator = v.object({
+  kind: v.literal("indexMaintained"),
+  pending: v.number(),
+  changed: v.boolean(),
+  complete: v.boolean(),
+});
+
 const operationResultValidator = v.union(
   listingValidator,
   fileValidator,
@@ -238,6 +269,7 @@ const operationResultValidator = v.union(
   imageWrittenValidator,
   imageValidator,
   searchResultsValidator,
+  indexMaintainedValidator,
 );
 
 const operationValidator = v.union(
@@ -248,6 +280,17 @@ const operationValidator = v.union(
     query: v.string(),
     prefix: v.optional(v.string()),
   }),
+  /**
+   * Bring the search index a pass further. Scheduled, never called by a client
+   * — there is no public action that reaches this variant.
+   *
+   * `passes` is how many *more* passes may be chained behind this one when it
+   * makes progress and does not finish. A cold brain needs several, and
+   * requiring a person to search repeatedly to finish their own backfill is
+   * the acceptance criterion this closes; the bound is what stops a bucket
+   * that never converges from scheduling itself forever.
+   */
+  v.object({ kind: v.literal("maintainIndex"), passes: v.optional(v.number()) }),
   v.object({
     kind: v.literal("write"),
     path: v.string(),
@@ -297,6 +340,7 @@ type FileOperation =
   | { kind: "list"; path: string }
   | { kind: "read"; path: string }
   | { kind: "search"; query: string; prefix?: string }
+  | { kind: "maintainIndex"; passes?: number }
   | { kind: "write"; path: string; text: string; expectedEtag?: string }
   | { kind: "createFolder"; path: string }
   | { kind: "move"; from: string; to: string }
@@ -312,6 +356,7 @@ type FileOperation =
 
 type OperationResult =
   | ({ kind: "searchResults" } & SearchResults)
+  | { kind: "indexMaintained"; pending: number; changed: boolean; complete: boolean }
   | {
       kind: "listing";
       path: string;
@@ -487,7 +532,30 @@ export const runFileOperation = internalAction({
       });
     }
 
-    return await executeOperation(store, args.scope, args.operation as FileOperation);
+    const result = await executeOperation(store, args.scope, args.operation as FileOperation);
+
+    // A maintenance pass that got somewhere and is not finished schedules the
+    // next one. Here rather than in a job of its own because a second internal
+    // action that opens a bucket credential is a second credential barrier,
+    // and `CREDENTIAL_BARRIERS` holding one entry with a long warning attached
+    // is the point of it — see CLAUDE.md, "Credential barriers are enumerated,
+    // never inferred". Scheduling from inside the barrier propagates no taint.
+    if (
+      args.operation.kind === "maintainIndex" &&
+      result.kind === "indexMaintained" &&
+      result.changed &&
+      !result.complete
+    ) {
+      const passes = Math.floor(args.operation.passes ?? 0);
+      if (passes > 0) {
+        await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+          workspaceId: args.workspaceId,
+          scope: args.scope,
+          operation: { kind: "maintainIndex", passes: passes - 1 },
+        });
+      }
+    }
+    return result;
   },
 });
 
@@ -540,6 +608,14 @@ export async function executeOperation(
           scope,
         });
         return { kind: "searchResults", ...results };
+      }
+      case "maintainIndex": {
+        // Scope-blind on purpose: an index describes the bucket, and building
+        // it per caller would mean one index per membership. What is scoped is
+        // every path, snippet and count that leaves a *search* — `isVisible`
+        // in `searchNotes`, never here.
+        const pass = await maintainSearchIndex(store);
+        return { kind: "indexMaintained", ...pass };
       }
       case "write": {
         const written = await writeFile(store, {
@@ -743,12 +819,37 @@ export const searchContext = action({
       workspaceId: args.workspaceId,
       minimum: "member",
     });
-    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
       operation: { kind: "search", query: args.query, prefix: args.prefix },
-    });
-    return result as Extract<OperationResult, { kind: "searchResults" }>;
+    })) as Extract<OperationResult, { kind: "searchResults" }>;
+
+    // The index this answer read is the index some earlier pass built, and a
+    // search does no maintenance of its own — that is what took a console
+    // search over a real brain from twenty-odd seconds to a fraction of one.
+    // So the answer's own report of how far behind the index is decides
+    // whether a pass runs behind it.
+    //
+    // **Scheduled, never called.** `ctx.runAction` would put a full listing of
+    // the customer's bucket back in front of the person waiting, which is the
+    // whole defect; `ctx.scheduler.runAfter` enqueues a job in a separate
+    // transaction whose return value is discarded, so this action returns as
+    // soon as it has an answer (CLAUDE.md, "Scheduling is not calling"). The
+    // target is a statically resolvable `internal.` reference, as that rule
+    // requires.
+    //
+    // Nothing is scheduled for a converged index. A pass per search over a
+    // bucket with no work in it is a full listing per search, billed to the
+    // customer, to discover there was nothing to do.
+    if (result.indexMissing || result.indexIncomplete) {
+      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+        workspaceId: args.workspaceId,
+        scope,
+        operation: { kind: "maintainIndex", passes: INDEX_SYNC_CHAIN },
+      });
+    }
+    return result;
   },
 });
 
