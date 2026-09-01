@@ -32,5 +32,22 @@ previous round had declared finished:
 The fold engine itself survived all five rounds untouched, which is why it
 landed alone.
 
+## How to apply it
+
+`git apply docs/deferred/folded-twin-refusals.patch` — checked with
+`git apply --check` against the tree it ships in, because a patch that cannot be
+applied is worse than none: the sentence next to it is what gets trusted. The
+first version of this file could not be applied at all, and the commit that
+wrote it had invalidated it in the same breath by rewriting the comments it
+takes as context.
+
+It restores four files to the last commit where the write-path apparatus was
+complete, so it also reverts what those files gained afterwards — most notably
+the two exact-delete checks in `apps/mcp/test/test.mjs`, which pin
+`persistExactVisibility` and `clearExactVisibility` and which exist *because*
+the apparatus is absent. Re-add them; with the refusals back in front of them
+they become defence-in-depth again rather than the load-bearing guards they are
+today, and that transition is the thing to get right.
+
 Apply it as a starting point, not as a finished change, and give it its own
 review budget.

@@ -3308,6 +3308,14 @@ await call("priv-token", "set_visibility", {
   visibility: "team",
   confirm_team_publish: true,
 });
+// The move wrote a `private` override at its destination — the folded read is
+// what `move_note` persists — so the object is not the only thing to clean up.
+// The block's own comment above says exactly this, and this block did it wrong.
+await call("priv-token", "set_visibility", {
+  path: "1-projects/portable/keep-moved.md",
+  visibility: "team",
+  confirm_team_publish: true,
+});
 await contextStore.delete(exactDeleteKeep);
 await contextStore.delete("1-projects/portable/keep-moved.md");
 

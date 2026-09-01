@@ -1,10 +1,17 @@
 diff --git a/apps/convex/__tests__/fileOps.test.ts b/apps/convex/__tests__/fileOps.test.ts
-index 2f5aff4..6b68552 100644
+index 25254cd..6b68552 100644
 --- a/apps/convex/__tests__/fileOps.test.ts
 +++ b/apps/convex/__tests__/fileOps.test.ts
-@@ -4307,36 +4307,42 @@ describe("a rule no survivor needs, told truthfully", () => {
-  * Both halves were shipped unguarded: deleting the throw, and restoring
-  * `visibility: options.visibility`, each passed the whole 1438-check suite.
+@@ -4304,41 +4304,45 @@ describe("a rule no survivor needs, told truthfully", () => {
+  * nothing, the manifest comes back identical, and the console reported the
+  * publish as done over a note no team member could read.
+  *
+- * The re-derivation shipped unguarded for two rounds: restoring
+- * `visibility: options.visibility` passed the whole suite, because a throw in
+- * front of it made it a tautology. That throw is not in this change, so the
+- * re-derivation is the whole of the story and is pinned below.
++ * Both halves were shipped unguarded: deleting the throw, and restoring
++ * `visibility: options.visibility`, each passed the whole 1438-check suite.
   */
 -describe("a set reports the manifest's answer", () => {
 -  /**
@@ -108,7 +115,7 @@ index ff14585..00f0780 100644
    return {
      path,
 diff --git a/apps/mcp/src/index.js b/apps/mcp/src/index.js
-index ebec38f..f7402ff 100644
+index 577cb67..f7402ff 100644
 --- a/apps/mcp/src/index.js
 +++ b/apps/mcp/src/index.js
 @@ -840,6 +840,30 @@ function effectiveVisibility(key, rules, overrides) {
@@ -188,9 +195,9 @@ index ebec38f..f7402ff 100644
      // out-ranked for the note by the longer `private` rule this very call adds
      // — widens the twin and passes the test. It needed no case-variant folder
      // rule and no hand-edited manifest, and it shipped. Deciding who a
--    // Deciding who a narrowing protects means simulating the write, not
--    // reasoning about rules; a weaker copy of that reasoning is worth less than
--    // a redundant line of manifest.
+-    // narrowing protects means simulating the write, not reasoning about rules;
+-    // a weaker copy of that reasoning is worth less than a redundant line of
+-    // manifest.
 +    // narrowing protects is what `foldedTwinBlocks` does by simulating the
 +    // write; a second, weaker copy of that reasoning is worth less than a
 +    // redundant line of manifest.
@@ -250,7 +257,20 @@ index ebec38f..f7402ff 100644
      const fastArchiveCandidate =
        move.source.startsWith("4-archive/") &&
        move.destination.startsWith("4-archive/") &&
-@@ -4076,6 +4153,19 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
+@@ -3965,10 +4042,8 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
+         // can throw. The other order makes the one destination whose persist
+         // failed the one destination the rollback below cannot see — so the
+         // abort message says "aborted before deleting sources" over a copy that
+-        // is still there. Only a CAS exhaustion reaches it — a folded-twin
+-        // backstop briefly made it caller-reachable, and that backstop is not
+-        // in this change. The ordering is kept anyway: it is correct either
+-        // way, and it is what the refusals will need when they return.
++        // is still there. Only a CAS exhaustion could reach that before the
++        // folded-twin backstop existed; it is caller-reachable now.
+         copied.push(move.destination);
+       }
+       if (!fastArchiveRelocation && move.visibility === "team") {
+@@ -4078,6 +4153,19 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
    if (scope === "team" && moves.some(({ destination: path }) => hasOverride(overrides, path))) {
      return writePermissionError("folder move destination");
    }
@@ -271,10 +291,10 @@ index ebec38f..f7402ff 100644
      if (await store.get(move.destination)) {
        return toolError(`conflict: destination already exists: ${move.destination}`);
 diff --git a/apps/mcp/test/test.mjs b/apps/mcp/test/test.mjs
-index 3e473d2..b2a22ea 100644
+index 669a526..b2a22ea 100644
 --- a/apps/mcp/test/test.mjs
 +++ b/apps/mcp/test/test.mjs
-@@ -3117,11 +3117,202 @@ check(
+@@ -3117,18 +3117,208 @@ check(
      (recasedOverrideRead.content?.[0]?.text ?? "") === "not found"
  );
  
@@ -310,7 +330,8 @@ index 3e473d2..b2a22ea 100644
    (await call("team-token", "read_note", { path: recasedOverridePath }))?.isError === true
  );
  
-+/**
+ /**
+- * **The tool nobody had counted.**
 + * **And the delete stays exact, proven on THIS side of the port.**
 + *
 + * The control plane's differential matrix pins the narrowing rule for both
@@ -474,10 +495,20 @@ index 3e473d2..b2a22ea 100644
 +await contextStore.delete(batchTwin);
 +await contextStore.delete(batchSource);
 +
- /**
-  * **The seventh tool, which nobody had counted.**
++/**
++ * **The seventh tool, which nobody had counted.**
   *
-@@ -3201,9 +3392,9 @@ const narrowed = await setFolder(foldFolderA, "private");
+- * Three reviews and four commits enumerated the tools that change a visibility
+- * and left this one out every time. It is also the only one that fails OPEN
+- * rather than closed, which is why its guard is the one piece of that work
+- * kept here: without it the fold is a regression rather than a fix.
++ * Three reviews and four commits said "six tools can change a visibility and
++ * all six refuse up front". `set_folder_visibility` is the seventh, and it is
++ * the one that fails OPEN rather than closed.
+  *
+  * Its compaction loop drops an override that has become redundant *for its own
+  * exact path* — correct before the fold, and wrong after it, because the same
+@@ -3202,9 +3392,9 @@ const narrowed = await setFolder(foldFolderA, "private");
   * So no `private` override is compacted away, full stop. This loop cannot see
   * who is relying on one, and a redundant line costs a line of manifest. The
   * rule-shaped version of this was written, shipped, and found wrong within the
@@ -490,13 +521,26 @@ index 3e473d2..b2a22ea 100644
   */
  const quietA = "1-projects/quiet/x.md";
  const quietTwin = "1-projects/Quiet/x.md";
-@@ -3243,6 +3434,84 @@ check(
-   narrowed?.isError !== true &&
+@@ -3245,71 +3435,44 @@ check(
      (await call("team-token", "read_note", { path: `${foldFolderB}/Note.md` }))?.isError === true
  );
-+/**
+ /**
+- * **The exact delete, which this change made reachable.**
 + * **And the refusal must never be the thing a team caller learns from.**
-+ *
+  *
+- * `persistExactVisibility` and `clearExactVisibility` delete an override by its
+- * exact path — a fold reads across case, it never writes across it. That used
+- * to be documented as unreachable defence-in-depth, because six tools refused a
+- * folded twin before either could be called, and CLAUDE.md said so: "sabotaging
+- * either passes the whole gateway suite". Those refusals came out with the
+- * write-path apparatus, and the residual bullet came out with them — so the
+- * exact delete is now the only thing standing between `set_visibility` on
+- * `Notes.md` and `notes.md` losing the narrowing its owner wrote. Consent taken
+- * for one file and spent on another, and it fails OPEN.
+- *
+- * Both directions are here because they are separate functions: the persist
+- * path (a visibility change that lands on the delete branch) and the clear path
+- * (the source of a move).
 + * `FOLDED_TWIN_REFUSAL` says a private note differing only by case exists. For
 + * an owner that is the actionable message; for anybody else it is an existence
 + * oracle, and `dry_run` costs nothing to ask. `move_folder` answered it at team
@@ -504,7 +548,17 @@ index 3e473d2..b2a22ea 100644
 + * where every other tool puts it below. The control is what makes this check
 + * mean something: the same call must come back with the generic permission
 + * error, which discloses nothing.
-+ */
+  */
+-const exactDeleteKeep = "1-projects/portable/keep-narrowing.md";
+-const exactDeleteTwin = "1-projects/portable/Keep-Narrowing.md";
+-await contextStore.put(exactDeleteKeep, "# the narrowed original\n");
+-await contextStore.put(exactDeleteTwin, "# a different file that folds onto it\n");
+-const keepEtag = (await call("priv-token", "read_note", { path: exactDeleteKeep }))
+-  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
+-await call("priv-token", "set_visibility", {
+-  path: exactDeleteKeep,
+-  visibility: "private",
+-  expected_etag: keepEtag,
 +// The source must actually collide: a file named `note.md`, so the destination
 +// `Fold-Folder/note.md` folds onto the private `fold-folder/note.md`. Without
 +// that the probe is refused by nothing and the check passes for no reason —
@@ -514,68 +568,85 @@ index 3e473d2..b2a22ea 100644
 +  source: "1-projects/probe-src",
 +  destination: foldFolderB,
 +  dry_run: true,
-+});
+ });
+-check(
+-  "the positive control: the original is narrowed and its twin reads private too",
+-  (await call("team-token", "read_note", { path: exactDeleteKeep }))?.isError === true &&
+-    (await call("team-token", "read_note", { path: exactDeleteTwin }))?.isError === true
+-);
+-// persistExactVisibility's delete branch: `Keep-Narrowing.md` inherits team, so
+-// asking for team takes the delete. It must remove nothing.
+-await call("priv-token", "set_visibility", {
+-  path: exactDeleteTwin,
+-  visibility: "team",
+-  confirm_team_publish: true,
 +const ownerFoldProbe = await call("priv-token", "move_folder", {
 +  source: "1-projects/probe-src",
 +  destination: foldFolderB,
 +  dry_run: true,
-+});
-+check(
+ });
+ check(
+-  "changing a case-variant's visibility does not clear the original's narrowing",
+-  (await (await contextStore.get("privacy.md")).text()).includes(`${exactDeleteKeep}: private`) &&
+-    (await call("team-token", "read_note", { path: exactDeleteKeep }))?.isError === true
 +  "the positive control: the owner IS told about the collision",
 +  ownerFoldProbe?.isError === true &&
 +    /only by case/.test(ownerFoldProbe?.content?.[0]?.text ?? "")
-+);
-+check(
+ );
+-// clearExactVisibility, through the source of a move.
+-const keepMoveEtag = (await call("priv-token", "read_note", { path: exactDeleteTwin }))
+-  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
+-await call("priv-token", "move_note", {
+-  source: exactDeleteTwin,
+-  destination: "1-projects/portable/keep-moved.md",
+-  expected_source_etag: keepMoveEtag,
+-});
+ check(
+-  "moving a case-variant away does not clear the original's narrowing either",
+-  (await (await contextStore.get("privacy.md")).text()).includes(`${exactDeleteKeep}: private`) &&
+-    (await call("team-token", "read_note", { path: exactDeleteKeep }))?.isError === true
 +  "a team caller learns nothing from a folded twin, in move_folder as anywhere else",
 +  teamFoldProbe?.isError === true &&
 +    !/only by case/.test(teamFoldProbe?.content?.[0]?.text ?? "") &&
 +    /permission denied/.test(teamFoldProbe?.content?.[0]?.text ?? "")
-+);
+ );
+-// Clear the override against what the note inherits, then drop the objects.
+-await call("priv-token", "set_visibility", {
+-  path: exactDeleteKeep,
+-  visibility: "team",
+-  confirm_team_publish: true,
+-});
+-await contextStore.delete(exactDeleteKeep);
+-await contextStore.delete("1-projects/portable/keep-moved.md");
 +
 +await contextStore.delete("1-projects/probe-src/note.md");
-+
-+/**
-+ * **The fold's direction, checked in the gateway's own suite.**
-+ *
-+ * `overrideFor` folding a `team` override as well as a `private` one is the
-+ * hole this whole change had in its first version, and it was caught only by
-+ * `apps/convex/__tests__/privacyEngine.test.ts` — the gateway suite passed with
-+ * the widening in place. CLAUDE.md calls this suite the fast, offline one a
+ 
+ /**
+  * **The fold's direction, checked in the gateway's own suite.**
+@@ -3318,12 +3481,8 @@ await contextStore.delete("1-projects/portable/keep-moved.md");
+  * hole this whole change had in its first version, and it was caught only by
+  * `apps/convex/__tests__/privacyEngine.test.ts` — the gateway suite passed with
+  * the widening in place. CLAUDE.md calls this suite the fast, offline one a
+- * self-hoster runs, and self-hosting is a published commitment: somebody
+- * running only `pnpm test` here must be able to see a widening fold in the
+- * engine they deploy.
+- *
+- * It was deleted as collateral when the write-path refusals came out, which it
+- * had nothing to do with — it pins the narrowing rule, not a refusal.
 + * self-hoster runs, and it could not see a widening fold in its own privacy
 + * engine.
-+ *
-+ * `2-areas/private` is a private folder. Publishing one note by exact override
-+ * must not publish its case-variant, which on R2 and S3 is a different file the
-+ * owner never named.
-+ */
-+const widenFoldPath = "2-areas/private/fold-widen.md";
-+const widenFoldTwin = "2-areas/private/Fold-Widen.md";
-+await contextStore.put(widenFoldPath, "# deliberately published\n");
-+await contextStore.put(widenFoldTwin, "# a different file, never named\n");
-+const widenFoldEtag = (await call("priv-token", "read_note", { path: widenFoldPath }))
-+  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
-+const widenFoldPublish = await call("priv-token", "set_visibility", {
-+  path: widenFoldPath,
-+  visibility: "team",
-+  expected_etag: widenFoldEtag,
-+  confirm_team_publish: true,
-+});
-+check(
-+  "the positive control: the note the owner named IS readable by a team caller",
-+  widenFoldPublish?.isError !== true &&
-+    (await call("team-token", "read_note", { path: widenFoldPath }))?.isError !== true
-+);
-+check(
-+  "a team override does not travel by re-casing, in the gateway's own suite",
-+  (await call("team-token", "read_note", { path: widenFoldTwin }))?.isError === true
-+);
-+await call("priv-token", "set_visibility", { path: widenFoldPath, visibility: "private" });
-+await contextStore.delete(widenFoldPath);
-+await contextStore.delete(widenFoldTwin);
+  *
+  * `2-areas/private` is a private folder. Publishing one note by exact override
+  * must not publish its case-variant, which on R2 and S3 is a different file the
+@@ -3353,7 +3512,6 @@ check(
+ await call("priv-token", "set_visibility", { path: widenFoldPath, visibility: "private" });
+ await contextStore.delete(widenFoldPath);
+ await contextStore.delete(widenFoldTwin);
+-
  // Put the manifest back too, not just the objects. The first version of this
  // block deleted the two notes and left `fold-folder: private`,
  // `Fold-Folder: team` and the note override standing in the shared bucket for
-@@ -3264,6 +3533,17 @@ await setFolder(foldFolderA, "inherit");
+@@ -3375,6 +3533,17 @@ await setFolder(foldFolderA, "inherit");
  for (const key of [`${foldFolderA}/note.md`, `${foldFolderB}/Note.md`]) {
    await contextStore.delete(key);
  }
