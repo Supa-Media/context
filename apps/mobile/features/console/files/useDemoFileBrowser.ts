@@ -164,7 +164,7 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
         make. `false` is the honest answer and the one the dialog reads: it
         stays open and says nothing was copied, rather than claiming a link.
       */
-      copyShareLink: async () => false,
+      copyShareLink: async () => ({ ok: false, message: null }),
       setSharePreviewTitle: noop,
     }),
     [collapseAll, contextId, editor, expanded, select, selectedPath, toggleFolder, tree],
