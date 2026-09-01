@@ -3086,8 +3086,11 @@ const recasedOverrideWrite = await call("team-token", "write_note", {
   content: "# written past an override\n",
 });
 check(
+  // Matched on the text, not merely on isError: "some error" is one refactor
+  // away from passing because the path stopped existing.
   "a team caller cannot write past an exact-note override by re-casing it",
-  recasedOverrideWrite.isError === true
+  recasedOverrideWrite.isError === true &&
+    /permission denied: write destination/.test(recasedOverrideWrite.content?.[0]?.text ?? "")
 );
 
 await contextStore.put(recasedOverridePath, "# the same file, on a folding backend\n");
@@ -3096,7 +3099,8 @@ const recasedOverrideRead = await call("team-token", "read_note", {
 });
 check(
   "a team caller cannot read past an exact-note override by re-casing it",
-  recasedOverrideRead.isError === true
+  recasedOverrideRead.isError === true &&
+    (recasedOverrideRead.content?.[0]?.text ?? "") === "not found"
 );
 await contextStore.delete(recasedOverridePath);
 

@@ -718,7 +718,7 @@ function parsePrivacyManifest(text) {
   if (begin < 0 || end < begin) throw new Error("privacy.md is missing its managed rules block");
   const block = text.slice(begin + PRIVACY_RULES_BEGIN.length, end);
   const rules = [];
-  const overrides = new Map();
+  const overrides = new PrivacyOverrides();
   let section = null;
   let sawDefault = false;
   for (const raw of block.split("\n")) {
@@ -745,7 +745,7 @@ function parsePrivacyManifest(text) {
     if (section === "folders") {
       rules.push({ prefix: path, vis: match[2] });
     } else {
-      if (!path.endsWith(".md") || path === PRIVACY_KEY) {
+      if (!path.endsWith(".md") || foldPath(path) === PRIVACY_KEY) {
         throw new Error(`invalid exact-note privacy path: ${path}`);
       }
       overrides.set(path, match[2]);
@@ -793,7 +793,7 @@ function replacePrivacyRulesBlock(text, rules, overrides) {
 async function loadLegacyPrivacyState(store) {
   const scopeObject = await store.get(LEGACY_SCOPES_KEY);
   const rules = scopeObject ? parseLegacyScopeRules(await scopeObject.text()) : [];
-  const overrides = new Map();
+  const overrides = new PrivacyOverrides();
   const keys = await listAllKeys(store, NOTE_ACL_PREFIX);
   for (const { key } of keys) {
     const path = key.slice(NOTE_ACL_PREFIX.length).replace(/\.json$/, "");
@@ -809,7 +809,7 @@ async function loadPrivacyState(store) {
     const text = await object.text();
     return { ...parsePrivacyManifest(text), text, object, legacy: false };
   } catch (error) {
-    return { rules: [], overrides: new Map(), text: "", object, legacy: false, error: error.message };
+    return { rules: [], overrides: new PrivacyOverrides(), text: "", object, legacy: false, error: error.message };
   }
 }
 
@@ -857,8 +857,8 @@ async function persistExactVisibility(store, path, visibility, rules) {
       return;
     }
     const inherited = visibilityOf(path, state.rules);
-    deleteOverride(state.overrides, path);
-    if (visibility !== inherited) state.overrides.set(path, visibility);
+    if (visibility === inherited) state.overrides.delete(path);
+    else state.overrides.set(path, visibility);
     const next = replacePrivacyRulesBlock(state.text, state.rules, state.overrides);
     const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
     if (put) return;
@@ -874,8 +874,10 @@ async function clearExactVisibility(store, path) {
       await store.delete(noteAclKey(path));
       return;
     }
-    if (!hasOverride(state.overrides, path)) return;
-    deleteOverride(state.overrides, path);
+    // Exact on purpose, and asked through `delete`'s own answer so the two
+    // cannot drift apart: a fold reads across case, it never writes across it.
+    // Clearing `a/Foo.md` must not remove the override on `a/foo.md`.
+    if (!state.overrides.delete(path)) return;
     const next = replacePrivacyRulesBlock(state.text, state.rules, state.overrides);
     const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
     if (put) return;
@@ -902,11 +904,13 @@ async function clearExactVisibility(store, path) {
  * `privacy.md`, so nothing reserved it, and Dropbox wrote the manifest anyway.
  *
  * So the fold happens where the decision is made rather than where the bytes
- * are stored, and it happens on **every** backend. A privacy answer that
- * depends on which adapter is underneath is an answer nobody can check, and the
- * cost of folding on a case-sensitive store is only ever restrictive: a note
- * whose name differs from a reserved key or a narrowing override by case alone
- * is refused rather than served.
+ * are stored, and on **every** backend: a privacy answer that depends on which
+ * adapter is underneath is an answer nobody can check. What makes that safe
+ * everywhere is that the fold only ever NARROWS — a `private` override travels
+ * to every path folding onto it, a `team` one travels nowhere. Folding a
+ * widening was the first version of this and was a new hole on the majority
+ * backend, where `a/Foo.md` really is a different file from the `a/foo.md` its
+ * owner published. A fold reads across case; it never writes across one.
  *
  * `visibilityOf`'s folder rules are deliberately NOT folded. Re-casing a folder
  * makes every prefix miss and the default `private` takes over, which already
@@ -941,29 +945,88 @@ function isPlumbing(key) {
  * So both copies fold in a helper over any map, and the helper is the only way
  * either of them reads an override.
  */
+/**
+ * The overrides map, with the folded lookup precomputed.
+ *
+ * `overrideFor` has to answer "is there a private override folding onto this
+ * key", and the honest way to do that with a plain `Map` is to scan it. That is
+ * per-note work on the search hot path: measured over 8,000 documents with 200
+ * private overrides, `canSee` went from 6.1ms to 214.1ms — which hands back a
+ * large slice of the 1,439ms → 670ms this project banked in "A search is paced".
+ *
+ * So the folded set is built once and thrown away on any write. Rebuilt on
+ * read rather than maintained incrementally, because an index kept in step by
+ * arithmetic is an index that can drift, and the direction it would drift is a
+ * narrowing that stops being found.
+ *
+ * It is an accelerator and never the authority: `overrideFor` falls back to the
+ * scan for a plain `Map`, so the ANSWER never depends on which container a
+ * caller happens to hold — the differential test passes plain maps, and the
+ * control plane's `new Map(overrides)` copies are plain by construction. A
+ * container that changed the answer is the bug that shipped in this PR's first
+ * version.
+ */
+class PrivacyOverrides extends Map {
+  set(key, value) {
+    this.folds = null;
+    return super.set(key, value);
+  }
+
+  delete(key) {
+    this.folds = null;
+    return super.delete(key);
+  }
+
+  /** The folded paths of every `private` override. */
+  privateFolds() {
+    if (!this.folds) {
+      this.folds = new Set();
+      for (const [key, visibility] of this) {
+        if (visibility === "private") this.folds.add(foldPath(key));
+      }
+    }
+    return this.folds;
+  }
+}
+
 function overrideFor(overrides, key) {
   if (!overrides) return undefined;
   const exact = overrides.get(key);
-  if (exact !== undefined) return exact;
+  if (exact === "private") return "private";
+  // Only a NARROWING travels by fold. A `team` override reaching a note the
+  // owner did not name is the same failure that keeps folder rules unfolded,
+  // and on a case-sensitive store — R2, S3, every context deployed today —
+  // `a/Foo.md` really is a different file from the `a/foo.md` that was
+  // published. Two entries that fold together are one file on Dropbox and a
+  // contradiction the owner never resolved; `private` is the answer that
+  // cannot leak. `foldPath` runs only over private entries for the same
+  // reason it runs at all.
   const folded = foldPath(key);
+  if (typeof overrides.privateFolds === "function") {
+    return overrides.privateFolds().has(folded) ? "private" : exact;
+  }
   for (const [existing, visibility] of overrides) {
-    if (foldPath(existing) === folded) return visibility;
+    if (visibility === "private" && foldPath(existing) === folded) return "private";
   }
-  return undefined;
+  return exact;
 }
 
-/** Whether any override names this note, under any casing. */
+/**
+ * Whether any override names this note, under any casing.
+ *
+ * Deliberately wider than `overrideFor`: its callers are the move and write
+ * guards, which REFUSE when an override exists, so seeing a folded twin of
+ * either visibility only ever refuses more. It is not a visibility answer and
+ * must not be used as one.
+ */
 function hasOverride(overrides, key) {
-  return overrideFor(overrides, key) !== undefined;
-}
-
-/** Drop this note's override, and any that folds onto it. */
-function deleteOverride(overrides, key) {
-  overrides.delete(key);
+  if (!overrides) return false;
+  if (overrides.has(key)) return true;
   const folded = foldPath(key);
-  for (const existing of [...overrides.keys()]) {
-    if (foldPath(existing) === folded) overrides.delete(existing);
+  for (const existing of overrides.keys()) {
+    if (foldPath(existing) === folded) return true;
   }
+  return false;
 }
 
 /**

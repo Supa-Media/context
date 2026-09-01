@@ -1516,7 +1516,7 @@ Three things about it are decisions rather than implementation:
   That annotation is also what stops *opening* a note reporting itself as an
   edit of it.
 
-### A privacy decision is folded, because one backend folds the keyspace
+### A privacy decision is folded, and the fold only ever narrows
 
 Every decision in both privacy engines is keyed on an exact path — `isPlumbing`
 opens `key === PRIVACY_KEY`, `effectiveVisibility` is a `Map` lookup on the
@@ -1527,40 +1527,61 @@ deliberately does not re-case a caller's key, because a store that silently
 rewrote one would be worse than one that returns what Dropbox actually has.
 
 That is the right call for the adapter, and it left the question one layer up.
-Note paths arrive from outside both engines — a connected AI client's tool call,
-a console request — so on a Dropbox-backed context the caller chose which of two
-strings to send and therefore which of two answers to be scored by. Two were
-reachable: `Privacy.md` was not `privacy.md`, so nothing reserved it and
-`write_note` rewrote the access map through the one path it answers "that path
-is reserved" for; and a note re-cased inside a `team` folder missed its narrowing
-override while the folder rule still matched, so it scored `team` and Dropbox
-returned the private file. `scopes.yml` is not dot-prefixed either and rested on
-the same equality.
+Paths reach both engines from outside — a connected AI client's tool call, a
+console request, and the bucket's own listing, where the file's real name may
+differ in case from the manifest line that governs it. So the answer could be
+chosen by whoever picked the string. Two were reachable: `Privacy.md` was not
+`privacy.md`, so nothing reserved it and `write_note` rewrote the access map
+through the one path that answers "that path is reserved"; and a note re-cased
+inside a `team` folder missed its narrowing override while the folder rule still
+matched, so it scored `team` and Dropbox returned the private file. `scopes.yml`
+is not dot-prefixed either and rested on the same equality.
 
-Four things hold the fix:
+**The fold only ever narrows, and that is the whole safety argument.** A
+`private` override travels to every path folding onto it; a `team` override
+travels nowhere. Folding a widening was the first version of this fix and was a
+*new* hole on the majority backend: on R2 and S3 `a/Foo.md` really is a
+different file from the `a/foo.md` the owner published, so a folded `team`
+override published notes nobody had named. It is the same argument that keeps
+folder rules unfolded — re-casing a folder makes every prefix miss and the
+`private` default takes over, while folding them would let a `team` rule match
+folders its author never named — and the mistake was failing to apply it to
+overrides. Two entries that fold together are one file on Dropbox and a
+contradiction the owner never resolved; `private` wins, rather than whichever
+line came first.
 
-- **The fold is where the decision is, not where the bytes are, and it applies
-  on every backend.** A privacy answer that depends on which adapter is
-  underneath is an answer nobody can check. On a case-sensitive store the cost
-  is only ever restrictive — a note differing from a reserved key or a narrowing
-  override by case alone is refused, never served — and that direction is the
-  whole reason it is safe to apply everywhere.
-- **Folder rules are deliberately NOT folded**, and this is the half a tidy-up
-  will want to "finish". Re-casing a folder makes every prefix miss and the
-  `private` default takes over, which already fails closed; folding them would
-  let a `team` rule match folders its author never named, which fails open. The
-  two halves differ in direction, not in rigour.
-- **Both engines fold through a helper over any map, never a `Map` subclass.**
-  The subclass was the first shape and is wrong twice: it folds only for maps
-  its own module built, so a caller holding a plain `Map` silently gets the
-  unfolded answer, and the control plane cannot use one at all because
-  `nextOverrides` copies with `new Map(overrides)`. Either way the two engines
-  would disagree about a live note, which is the one failure
-  `__tests__/privacyEngine.test.ts` exists to prevent.
-- **That differential test is what pins it.** Its matrix runs the gateway's
-  *actual* functions beside the port, so sabotaging `foldPath` in **either**
-  copy fails the same four checks. The gateway suite additionally proves the
-  end-to-end refusals through `write_note` and `read_note`.
+**A fold reads across case; it never writes across it.** Deleting an override
+stays exact. The first version folded the delete too, so publishing
+`1-projects/Notes.md` stripped `1-projects/notes.md`'s narrowing — consent taken
+for one file and spent on another — and creating `2-areas/Report.md` silently
+un-shared `2-areas/report.md`. Nothing in either suite noticed.
+
+Four things hold it, and each fails a test if removed:
+
+- **Both copies changed together.** A fix in one is the divergence, not the
+  repair. `__tests__/privacyEngine.test.ts` runs the gateway's *actual*
+  functions beside the port, so sabotaging `foldPath` in either copy fails the
+  same checks.
+- **The helpers are the only way an override is read**, and that is enforced by
+  reading the files rather than by discipline. Reverting all five `fileOps.ts`
+  call sites to raw `Map` access passes 1430 behavioural checks and 167 fileOps
+  checks — the twin only differs on a Dropbox-backed context, which no suite
+  stands up — so `__tests__/privacyAccessors.test.ts` is structural, strips
+  comments before matching, and carries its own self-test.
+- **`PrivacyOverrides` accelerates and never decides.** The scan it replaces was
+  per-note on the search path: measured over 8,000 documents with 200 private
+  overrides, `canSee` went 6.1ms → 214.1ms, handing back a large slice of the
+  1,439ms → 670ms banked in "A search is paced". The folded set is built once
+  and dropped on any write — rebuilt on read rather than maintained by
+  arithmetic, since an index kept in step by counting can drift, and it would
+  drift towards a narrowing that stops being found. `overrideFor` falls back to
+  the scan for a plain `Map`, so the answer never depends on the container; a
+  container that changed the answer is exactly what shipped in this fix's first
+  version and had to be taken back out.
+- **`hasOverride` is not a visibility answer.** It folds both directions
+  because its callers are move and write *guards* that refuse when an override
+  exists, so a folded twin only ever refuses more. Using it to decide what a
+  caller may see would reintroduce the widening.
 
 ### A guard nobody has checked is not a guard
 

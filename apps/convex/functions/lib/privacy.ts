@@ -97,7 +97,7 @@ export function parsePrivacyManifest(text: string): PrivacyManifest {
   }
   const block = text.slice(begin + PRIVACY_RULES_BEGIN.length, end);
   const rules: PrivacyRule[] = [];
-  const overrides = new Map<string, Visibility>();
+  const overrides = new PrivacyOverrides();
   let section: "folders" | "notes" | null = null;
   let sawDefault = false;
 
@@ -125,7 +125,7 @@ export function parsePrivacyManifest(text: string): PrivacyManifest {
     if (section === "folders") {
       rules.push({ prefix: path, vis: match[2] as Visibility });
     } else {
-      if (!path.endsWith(".md") || path === PRIVACY_KEY) {
+      if (!path.endsWith(".md") || foldPath(path) === PRIVACY_KEY) {
         throw new Error(`invalid exact-note privacy path: ${path}`);
       }
       overrides.set(path, match[2] as Visibility);
@@ -208,13 +208,6 @@ export function replacePrivacyRulesBlock(
 /* -------------------------------------------------------------------------- */
 
 /**
- * The folder default that applies to a key. Longest matching prefix wins; no
- * rule at all means private.
- *
- * Segment-aware: a rule for `2-areas` covers `2-areas/x.md` but not
- * `2-areas-public/x.md`.
- */
-/**
  * One object, one privacy answer — even where two strings name one object.
  *
  * Every decision below is keyed on an exact path, which is sound on a keyspace
@@ -226,11 +219,14 @@ export function replacePrivacyRulesBlock(
  * context the caller chooses which of two strings to send and therefore which
  * of two answers to be scored by.
  *
- * The fold is applied where the decision is made rather than where the bytes
- * are stored, and on every backend: a privacy answer that depends on which
- * adapter is underneath is an answer nobody can check. On a case-sensitive
- * store the cost is only ever restrictive — a note whose name differs from a
- * reserved key or a narrowing override by case alone is refused, never served.
+ * So the fold happens where the decision is made rather than where the bytes
+ * are stored, and on **every** backend: a privacy answer that depends on which
+ * adapter is underneath is an answer nobody can check. What makes that safe
+ * everywhere is that the fold only ever NARROWS — a `private` override travels
+ * to every path folding onto it, a `team` one travels nowhere. Folding a
+ * widening was the first version of this and was a new hole on the majority
+ * backend, where `a/Foo.md` really is a different file from the `a/foo.md` its
+ * owner published. A fold reads across case; it never writes across one.
  *
  * `visibilityOf`'s folder rules are deliberately NOT folded. Re-casing a folder
  * makes every prefix miss and the default `private` takes over, which already
@@ -245,44 +241,106 @@ export function foldPath(key: string): string {
   return key.normalize("NFC").toLowerCase();
 }
 
-/** The override for this note, or for any note whose path folds onto it. */
+/**
+ * The overrides map, with the folded lookup precomputed.
+ *
+ * `overrideFor` has to answer "is there a private override folding onto this
+ * key", and with a plain `Map` that means scanning it — per note, on the search
+ * path. Measured in the gateway over 8,000 documents with 200 private
+ * overrides, `canSee` went from 6.1ms to 214.1ms.
+ *
+ * The folded set is therefore built once and dropped on any write; rebuilt on
+ * read rather than maintained incrementally, because an index kept in step by
+ * arithmetic can drift, and the direction it drifts is a narrowing that stops
+ * being found.
+ *
+ * It accelerates and never decides. `overrideFor` falls back to the scan for a
+ * plain `Map` — which is what `nextOverrides` and friends return, since
+ * `new Map(overrides)` copies entries and not the class — so the ANSWER never
+ * depends on which container a caller holds. A container that changed the
+ * answer is the defect this PR shipped in its first version.
+ */
+export class PrivacyOverrides extends Map<string, Visibility> {
+  private folds: Set<string> | null = null;
+
+  override set(key: string, value: Visibility): this {
+    this.folds = null;
+    return super.set(key, value);
+  }
+
+  override delete(key: string): boolean {
+    this.folds = null;
+    return super.delete(key);
+  }
+
+  /** The folded paths of every `private` override. */
+  privateFolds(): Set<string> {
+    if (!this.folds) {
+      const folds = new Set<string>();
+      for (const [key, visibility] of this) {
+        if (visibility === "private") folds.add(foldPath(key));
+      }
+      this.folds = folds;
+    }
+    return this.folds;
+  }
+}
+
+/**
+ * The override for this note, narrowed by any note whose path folds onto it.
+ *
+ * Only a NARROWING travels by fold. A `team` override reaching a note the owner
+ * did not name is the same failure that keeps folder rules unfolded, and on a
+ * case-sensitive store — R2, S3, every context deployed today — `a/Foo.md`
+ * really is a different file from the `a/foo.md` that was published. Two
+ * entries that fold together are one file on Dropbox and a contradiction the
+ * owner never resolved; `private` is the answer that cannot leak.
+ */
 export function overrideFor(
   overrides: ReadonlyMap<string, Visibility> | undefined,
   key: string,
 ): Visibility | undefined {
   if (!overrides) return undefined;
   const exact = overrides.get(key);
-  if (exact !== undefined) return exact;
+  if (exact === "private") return "private";
   const folded = foldPath(key);
-  for (const [existing, visibility] of overrides) {
-    if (foldPath(existing) === folded) return visibility;
+  if (overrides instanceof PrivacyOverrides) {
+    return overrides.privateFolds().has(folded) ? "private" : exact;
   }
-  return undefined;
+  for (const [existing, visibility] of overrides) {
+    if (visibility === "private" && foldPath(existing) === folded) return "private";
+  }
+  return exact;
 }
 
-/** Whether any override names this note, under any casing. */
+/**
+ * Whether any override names this note, under any casing.
+ *
+ * Deliberately wider than `overrideFor`: its callers are the move and write
+ * guards, which REFUSE when an override exists, so seeing a folded twin of
+ * either visibility only ever refuses more. It is not a visibility answer and
+ * must not be used as one.
+ */
 export function hasOverride(
   overrides: ReadonlyMap<string, Visibility> | undefined,
   key: string,
 ): boolean {
-  return overrideFor(overrides, key) !== undefined;
+  if (!overrides) return false;
+  if (overrides.has(key)) return true;
+  const folded = foldPath(key);
+  for (const existing of overrides.keys()) {
+    if (foldPath(existing) === folded) return true;
+  }
+  return false;
 }
 
 /**
- * Drop this note's override, and any that folds onto it.
+ * The folder default that applies to a key. Longest matching prefix wins; no
+ * rule at all means private.
  *
- * The copies below are built with `new Map(overrides)`, so a folding Map
- * subclass would be silently downgraded to a plain one on every copy. Deleting
- * through a helper is what survives that idiom.
+ * Segment-aware: a rule for `2-areas` covers `2-areas/x.md` but not
+ * `2-areas-public/x.md`.
  */
-export function deleteOverride(next: Map<string, Visibility>, key: string): void {
-  next.delete(key);
-  const folded = foldPath(key);
-  for (const existing of [...next.keys()]) {
-    if (foldPath(existing) === folded) next.delete(existing);
-  }
-}
-
 export function visibilityOf(
   key: string,
   rules: readonly PrivacyRule[],
@@ -358,11 +416,8 @@ export function nextOverrides(
   overrides: ReadonlyMap<string, Visibility>,
 ): Map<string, Visibility> {
   const next = new Map(overrides);
-  if (visibility === visibilityOf(path, rules)) deleteOverride(next, path);
-  else {
-    deleteOverride(next, path);
-    next.set(path, visibility);
-  }
+  if (visibility === visibilityOf(path, rules)) next.delete(path);
+  else next.set(path, visibility);
   return next;
 }
 
@@ -383,7 +438,7 @@ export function movedOverrides(
 ): Map<string, Visibility> {
   const existing = overrideFor(overrides, from);
   const next = new Map(overrides);
-  deleteOverride(next, from);
+  next.delete(from);
   if (existing === undefined) return next;
   // The note kept its *effective* visibility, so re-derive whether that is
   // still an exception at the destination.
@@ -396,6 +451,6 @@ export function clearedOverrides(
   overrides: ReadonlyMap<string, Visibility>,
 ): Map<string, Visibility> {
   const next = new Map(overrides);
-  deleteOverride(next, path);
+  next.delete(path);
   return next;
 }

@@ -49,6 +49,7 @@ import {
   canSee,
   clearedOverrides,
   effectiveVisibility,
+  foldPath,
   hasOverride,
   isPlumbing,
   movedOverrides,
@@ -375,7 +376,7 @@ function describeFile(
     visibility,
     inherited,
     exception: visibility !== inherited,
-    readOnly: key === PRIVACY_KEY,
+    readOnly: foldPath(key) === PRIVACY_KEY,
     ...extra,
   };
 }
@@ -736,7 +737,9 @@ export async function writeFile(
 
 /** Refuse the paths that are not notes, before anything else happens. */
 function assertWritablePath(path: string): void {
-  if (path === PRIVACY_KEY) {
+  // Folded, so the manifest refusal is a decision rather than a side effect of
+  // `isPlumbing` two lines below answering PATH_INVALID for the wrong reason.
+  if (foldPath(path) === PRIVACY_KEY) {
     throw new FileOpError(
       "PRIVACY_MANIFEST_READ_ONLY",
       "privacy.md is generated from your visibility settings. Change a file or folder's visibility instead of editing it.",
