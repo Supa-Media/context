@@ -828,6 +828,28 @@ describe("previewForNote: a folder link names what is inside it", () => {
     expect(meta.description).not.toMatch(/\p{Cc}/u);
   });
 
+  /**
+   * `Cf` beside `Cc`, and it needs its own check because the categories are
+   * disjoint: U+202E RIGHT-TO-LEFT OVERRIDE, the U+2066 isolates and U+200B
+   * ZERO WIDTH SPACE are all `Cf` and none of them is `Cc`. A bidi override
+   * reverses the rendering of the text after it in most unfurlers, under this
+   * product's own branding, on a card that cannot be retracted once cached.
+   *
+   * This exists because the line it covers carried a comment saying "the two
+   * copies are held by running both, not by this comment" while nothing here
+   * ran the router's copy at all — narrowing it back to `\p{Cc}` passed all 221
+   * of these tests. The control plane strips first, so this layer is defence in
+   * depth; a guard nobody has checked is not a guard either way.
+   */
+  it("strips format characters, which are a different category", () => {
+    const hostile = `a\u202Egnp.exe\u202D\u2066x\u2069\u200Bb.md`;
+    const meta = previewForNote("Transition", TOKEN, [hostile]);
+    for (const format of ["\u202E", "\u202D", "\u2066", "\u2069", "\u200B"]) {
+      expect(meta.description).not.toContain(format);
+    }
+    expect(meta.description).toContain("gnp.exe");
+  });
+
   it("a hostile name cannot break out of the markup either", () => {
     const html = renderPreviewHtml(
       previewForNote("Transition", TOKEN, ["</title><script>alert(1)</script>"]),

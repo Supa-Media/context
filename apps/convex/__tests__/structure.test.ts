@@ -1628,6 +1628,24 @@ describe("the gateway's HTTP routes", () => {
     expect(body, "shareNotePreview must name its fields, never spread them").not.toMatch(
       /json\(\s*\{?\s*\.\.\.|json\(result\)/,
     );
+
+    // …and THREE, not "at least three". Asserting the names are present and
+    // denying four literals by name is not the same as bounding the object:
+    // adding `noteCount: 42,` to the returned literal passed this test and all
+    // 1482 checks beside it, and shipped a count on an unauthenticated route —
+    // which is the one addition CLAUDE.md says must never be made from anything
+    // but the visible names themselves. The keys are read out of the literal
+    // rather than listed here, so a rename fails loudly instead of silently
+    // widening the exemption.
+    const literalStart = body.lastIndexOf("return json({");
+    expect(literalStart, "shareNotePreview must return a named object literal").toBeGreaterThan(-1);
+    const literal = body.slice(literalStart, body.indexOf("});", literalStart));
+    const keys = [...literal.matchAll(/^\s+([a-zA-Z_$][\w$]*):/gm)].map((m) => m[1]);
+    expect(keys.sort(), "the route returns exactly these fields").toEqual([
+      "cardToken",
+      "children",
+      "title",
+    ]);
     for (const forbidden of ["workspaceId", "recipient", "createdBy", "entryPath"]) {
       expect(body, `shareNotePreview must not return ${forbidden}`).not.toContain(
         forbidden,

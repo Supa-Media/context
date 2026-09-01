@@ -348,7 +348,46 @@ async function answerFromIndex(store, options) {
   // shard back in the list, and that is the honest shape rather than a
   // shortcut: skipping shards for a misspelled query is skipping the only
   // thing that could have answered it.
-  const { shardsToRead, routed } = routeShards(manifest, occupied, queryTerms);
+  const { shardsToRead, routed, expansionShards } = routeShards(manifest, occupied, queryTerms);
+  let shardsRead = 0;
+
+  // **The floor is a fact about this index and this budget, never about this
+  // query.** `shardsUnread` below is set when the budget runs out partway
+  // through `shardsToRead` — and since #185 that list is chosen from
+  // `manifest.filters`, which is built from every doc in a shard, private ones
+  // included. So the number of shards a query opens is a function of content
+  // the caller may not see, and it surfaces: unread shards become
+  // `matchCountIsFloor` and `indexIncomplete`, which `toolSearchNotes` prints
+  // as "the search index is still catching up".
+  //
+  // Measured at the gateway's default budget, 12,000 notes in 40 shards, a team
+  // caller: a word occurring only in the owner's private notes came back with
+  // the banner on and 29 shard reads; a word occurring nowhere at all came back
+  // with the banner off and 2 reads. Both answer "(no matches)". That
+  // difference is the subtraction the console's census is owner-only to
+  // prevent, asked one word at a time.
+  //
+  // So the flag starts from whether this budget could have covered the WHOLE
+  // index, which no query influences. It over-reports — a routed query that
+  // really did read everything it needed still says "catching up" on a context
+  // too big for one call — and that is the direction this file already prefers:
+  // "an unknown reported as complete is the one direction that tells somebody
+  // their note is not written down." The residual is stated rather than closed:
+  // the *number of store reads* still varies with the routed set, so a caller
+  // who can time the call retains a coarser version of the same channel, and
+  // closing that means routing that cannot see private vocabulary at all. And
+  // one query-dependent path to `shardsUnread` survives this: a shard inside
+  // the routed set that is absent, oversized or corrupt. It is not a channel an
+  // attacker can aim — they do not choose which shards are broken — but it is
+  // the reason this flag is an OR rather than a replacement.
+  //
+  // On the deployed budget (600) this trips only past 589 occupied shards, so
+  // the oracle it closes is a free-tier and console-budget shape. That is not a
+  // gap: the oracle could only ever fire where the budget cannot cover the
+  // occupied set, which is the same condition.
+  // A separate flag, because `shardsUnread` also *controls the read loop* —
+  // setting it here would stop the walk before it started.
+  const budgetCannotCoverIndex = occupied.length > Math.max(0, budget.remaining - limit);
 
   // Read in waves, decoded one at a time. What a wave holds is **bytes**, and
   // the decode stays one at a time, so the peak parsed shard is one: the memory
@@ -397,7 +436,56 @@ async function answerFromIndex(store, options) {
       // decoded. Accumulating parsed shards into an array instead would be the
       // whole-corpus heap v2 exists to remove, wearing a loop — `collections`
       // holds one small summary each.
+      shardsRead += 1;
       collections.push(collectShardCandidates(shard, queryTerms, isVisible));
+    }
+  }
+  // **A claim is a maybe, and this is where the walk learns which.**
+  //
+  // `routeShards` skips the expansion sample when a filter claims every query
+  // term. `termFilterMayHold` answers *maybe* by construction — `filter.js`
+  // says the asymmetry is the whole design, "no way it can be wrong costs a
+  // hit" — and consuming it as certainty breaks exactly that. Two ways it is
+  // wrong, and only the first is probabilistic:
+  //
+  //   - a Bloom false positive claims a term no shard actually holds;
+  //   - the filters are built over EVERY doc in a shard, so a word the owner
+  //     uses only in private notes claims the shard for a team caller whose
+  //     visible `df` for it is zero. True of the index, false of the caller.
+  //
+  // Either way the sample is skipped, and the sample is the only thing that
+  // widens a query whose exact term has no visible hits — so every note the
+  // caller may read that would have matched by prefix is dropped, while the
+  // answer reports `matchCountIsFloor: false` and asserts it is exact.
+  //
+  // So the claim is verified rather than trusted: after reading, a query term
+  // whose visible df is still zero needed the sample after all, and the shards
+  // it names are read now. This costs nothing on a query that hit — which is
+  // the case routing exists to make fast — and only pays on the miss it was
+  // wrong about — though "nothing" is per-QUERY-TERM, not per query: a
+  // two-word search where one word hits and the other has no visible df still
+  // pays, bounded by the sample.
+  if (routed && !shardsUnread) {
+    const alreadyRead = new Set(shardsToRead);
+    const missing = expansionShards.filter((id) => !alreadyRead.has(id));
+    const anyTermUnfound = queryTerms.some(
+      (term) => !collections.some((c) => (Number(c.dfByTerm?.get(term)) || 0) > 0)
+    );
+    if (anyTermUnfound && missing.length > 0) {
+      for (const id of missing) {
+        if (budget.remaining <= limit + 1) {
+          shardsUnread = true;
+          break;
+        }
+        const bytes = await fetchShardBytes(store, budget, limit, id);
+        const shard = bytes && decodeShard(bytes);
+        if (!shard) {
+          shardsUnread = true;
+          continue;
+        }
+        shardsRead += 1;
+        collections.push(collectShardCandidates(shard, queryTerms, isVisible));
+      }
     }
   }
   const ranked = scoreCollected(collections, query);
@@ -466,7 +554,7 @@ async function answerFromIndex(store, options) {
     // thing is not written down, which is the failure `toolSearchNotes`'s
     // miss copy exists to prevent. So it is a floor, in the census's own
     // language: "A floor is never printed as a total."
-    matchCountIsFloor: visible.length >= MAX_RESULTS || shardsUnread,
+    matchCountIsFloor: visible.length >= MAX_RESULTS || shardsUnread || budgetCannotCoverIndex,
     // Read off the manifest rather than off a listing this call did not make.
     // `listedAt: null` is an index no pass has recorded freshness for — every
     // manifest written before the field existed — and it counts as behind: an
@@ -476,7 +564,8 @@ async function answerFromIndex(store, options) {
       manifest.freshness.listedAt === null ||
       manifest.freshness.pending > 0 ||
       manifest.freshness.truncated ||
-      shardsUnread,
+      shardsUnread ||
+      budgetCannotCoverIndex,
     // For the trace, and for a caller deciding whether finishing this index is
     // worth a background pass. Never rendered: these count every doc in the
     // bucket, so printing one beside a team connection's visible hits is the
@@ -484,7 +573,10 @@ async function answerFromIndex(store, options) {
     index: {
       shardCount: manifest.shardCount,
       occupiedShards: occupied.length,
-      shardsRead: shardsToRead.length,
+      // Counted, not assumed: the verification wave below reads shards this
+    // list does not name, and this is the operator's number for what a search
+    // cost. Reporting the planned set understated it by up to the sample.
+    shardsRead: shardsRead,
       routed,
       docs: manifest.stats.reduce((total, entry) => total + entry.docCount, 0),
       pending: manifest.freshness.pending,
@@ -557,9 +649,15 @@ function routeShards(manifest, occupied, queryTerms) {
   // rather than taken from the front, and it is an approximation in the same
   // way `SHARD_FUZZY_RETAIN` already is: an expansion the sample missed costs a
   // suggestion, never a hit.
-  if (expanding) {
-    const stride = Math.max(1, Math.ceil(occupied.length / EXPANSION_SHARD_SAMPLE));
-    for (let at = 0; at < occupied.length; at += stride) keep.add(occupied[at]);
-  }
-  return { shardsToRead: occupied.filter((id) => keep.has(id)), routed: !expanding };
+  const stride = Math.max(1, Math.ceil(occupied.length / EXPANSION_SHARD_SAMPLE));
+  const expansionShards = [];
+  for (let at = 0; at < occupied.length; at += stride) expansionShards.push(occupied[at]);
+  if (expanding) for (const id of expansionShards) keep.add(id);
+  return {
+    shardsToRead: occupied.filter((id) => keep.has(id)),
+    routed: !expanding,
+    // Handed back rather than discarded, because a claim is a MAYBE and the
+    // walk only finds out after reading. See the second wave in the caller.
+    expansionShards,
+  };
 }

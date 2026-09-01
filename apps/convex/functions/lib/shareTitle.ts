@@ -27,6 +27,7 @@
  * words: a path that yields nothing usable yields nothing, and the card falls
  * back to plain product branding.
  */
+import type { Visibility } from "./privacy";
 
 /**
  * The longest title that reaches a card.
@@ -77,7 +78,13 @@ export function titleFromPath(path: string): string | null {
  */
 export function normalizePreviewTitle(raw: string): string | null {
   const clean = raw
-    .replace(/[\u0000-\u001F\u007F]/g, " ")
+    // The same categories the child names get, and for the same reason: this is
+    // the MORE prominent field. The hand-written range here covered C0 and DEL
+    // and missed C1 (U+0085) and every format character — so a bidi override
+    // survived into `og:title` while the names underneath it were being
+    // cleaned, which is the wrong way round. Named by category rather than by
+    // range so the two cannot drift apart again.
+    .replace(CONTROL_CHARACTERS, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (clean === "") return null;
@@ -120,12 +127,20 @@ export const MAX_PREVIEW_CHILD_NAME = 40;
 /**
  * Every control character, as one class.
  *
+ * `\p{Cf}` is here beside `\p{Cc}` because the categories are disjoint and only
+ * one of them was being stripped. U+202E RIGHT-TO-LEFT OVERRIDE, the U+2066
+ * isolates and U+200B ZERO WIDTH SPACE are all `Cf`, and a bidi override in an
+ * `og:description` reverses the rendering of everything after it in most
+ * unfurlers — under this product's own branding, on a card CLAUDE.md says
+ * cannot be retracted once cached. The writer need not be the owner: on a
+ * shared workspace an editor creates the file and the owner links the folder.
+ *
  * `\p{Cc}` rather than an explicit range: it is the Unicode category itself,
  * so it covers C1 (U+0080–U+009F) as well as C0 and DEL. `normalizePreviewTitle`
  * above predates this and names the range by hand; the two agree on everything
  * a title can contain, and this is the wider of the two.
  */
-const CONTROL_CHARACTERS = /\p{Cc}/gu;
+const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}]/gu;
 
 /**
  * Normalise one child's display name, or `null` if nothing usable survives.
@@ -169,13 +184,20 @@ export function boundPreviewChildren(raw: readonly string[]): string[] {
  * The names a folder's card may carry, from a listing the privacy engine has
  * already filtered.
  *
- * **The filtering is not done here and must not be.** The argument is a
- * `listFolder` result taken at `team` scope, so `canSee` and
- * `folderVisibleAtScope` have already dropped every private note and every
- * private subfolder — one privacy engine, the same one the console and the
- * gateway read through, rather than a second predicate in the preview path
- * that could disagree with it. A second filter is a second place for a
- * visibility bug, which is the rule the two search dialects already follow.
+ * **Almost no filtering is done here, and the exception is exact.** The
+ * argument is a `listFolder` result taken at `team` scope, so `canSee` has
+ * already dropped every private note — one privacy engine, the same one the
+ * console and the gateway read through, rather than a second predicate that
+ * could disagree with it. A second filter is a second place for a visibility
+ * bug, which is the rule the two search dialects follow.
+ *
+ * This comment used to say "and every private subfolder", and that was false:
+ * `folderVisibleAtScope` admits a private folder whose nested content is team,
+ * deliberately, so a member can navigate to something shared inside a folder
+ * that is not. A card is read by an anonymous crawler instead, so the one
+ * filter below drops those — by reading `visibility`, the field the engine
+ * already computed and put on the entry, rather than deciding anything itself.
+ * The sentence mattered: it read as an instruction to delete that line.
  *
  * A folder child keeps a trailing `/`, so a card can say which of the three
  * names is a folder without a second field travelling beside them to disagree
@@ -187,9 +209,30 @@ export function boundPreviewChildren(raw: readonly string[]): string[] {
  * and re-publish an identical picture to every unfurler that had cached it.
  */
 export function previewChildrenFrom(
-  entries: ReadonlyArray<{ kind: "file" | "folder"; name: string }>,
+  entries: ReadonlyArray<{
+    kind: "file" | "folder";
+    name: string;
+    visibility?: Visibility;
+  }>,
 ): string[] {
-  const ordered = [...entries].sort((a, b) => {
+  // A folder reaches a `team` listing two ways: its own rule says `team`, or
+  // `folderVisibleAtScope` let it through because something NESTED under it is
+  // team. The second is deliberate — an owner who shares `2-areas/shared` out
+  // of a private `2-areas` needs the ancestor to appear, or the thing they just
+  // shared is reachable only by somebody who already knows its name — and the
+  // disclosure it accepts is "an ancestor's name, in exchange for the shared
+  // folder being reachable", to a signed-in MEMBER navigating a tree.
+  //
+  // A card is read by an anonymous crawler at an address anybody can type, and
+  // cannot be retracted once unfurled. So a preview names a subfolder only when
+  // it is team-visible in its own right. The entry already carries
+  // `visibility: visibilityOf(child, rules)` — this reads the engine's answer
+  // to that question rather than adding a predicate of its own, which is the
+  // rule the two search dialects follow for the same reason.
+  const visible = entries.filter(
+    (entry) => entry.kind !== "folder" || entry.visibility !== "private",
+  );
+  const ordered = [...visible].sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
     return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
   });

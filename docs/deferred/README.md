@@ -34,12 +34,16 @@ landed alone.
 
 ## How to apply it
 
-`git apply docs/deferred/folded-twin-refusals.patch` — checked with
-`git apply --check` against the tree it ships in, because a patch that cannot be
-applied is worse than none: the sentence next to it is what gets trusted. The
-first version of this file could not be applied at all, and the commit that
-wrote it had invalidated it in the same breath by rewriting the comments it
-takes as context.
+`git apply docs/deferred/folded-twin-refusals.patch`, and
+`apps/convex/__tests__/deferredPatches.test.ts` keeps that true — a patch that
+cannot be applied is worse than none, because the sentence next to it is what
+gets trusted.
+
+It is a test rather than a habit because the habit failed twice, the second time
+inside the commit that fixed the first: one commit wrote the patch and then
+rewrote the comments it takes as context, and the next regenerated it and then
+edited one of its files again, further down the same command. Both commit
+messages said it had been checked. The check has to run after the tree settles.
 
 It restores four files to the last commit where the write-path apparatus was
 complete, so it also reverts what those files gained afterwards — most notably

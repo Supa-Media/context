@@ -364,7 +364,146 @@ async function captureLogs(run) {
   });
 }
 
+/**
+ * **A QUERY MUST NOT BE A PROBE OF WHAT THE CALLER CANNOT READ.**
+ *
+ * Shard routing picks which shards to open from `manifest.filters`, and those
+ * filters are built from every doc in a shard — private ones included, by
+ * construction, since a shard mixes them. So the NUMBER of shards a query opens
+ * is a function of content the caller may not see, and it used to surface: a
+ * budget exhausted partway through the routed list set `shardsUnread`, which
+ * became `matchCountIsFloor` and `indexIncomplete`, which `toolSearchNotes`
+ * prints as "the search index is still catching up on this context".
+ *
+ * Measured at the gateway's default budget over 12,000 notes in 40 shards: a
+ * word occurring only in the owner's private notes answered with the banner on
+ * and 29 shard reads; a word occurring nowhere answered with the banner off and
+ * 2 reads. Both print "(no matches)". A team-scope grant could therefore ask
+ * "does this word occur in something I may not read" one word at a time — the
+ * subtraction the console's census is owner-only to prevent.
+ *
+ * The reported floor is now a fact about the index and the budget, which no
+ * query influences. What this check holds is the equality itself, so the fix
+ * cannot be undone by reintroducing any query-dependent term.
+ */
+function visibleOnly(prefix) {
+  return (key) => !key.startsWith(prefix);
+}
+
+async function runFloorIsNotAQueryProbe(check) {
+  const bucket = createBucket();
+  // Enough shards that a tight budget cannot cover them all — which is the
+  // precondition, and the reason the numbers here are what they are. Most of
+  // the corpus is unreadable to the caller and carries a word found nowhere
+  // else, so a filter built over the whole shard claims it and a filter built
+  // over what the caller may read would not.
+  seedNotes(bucket, 600, "rhubarb", 2);
+  for (let i = 0; i < 2400; i += 1) {
+    bucket.seed(`9-private/p${i % 6}/secret-${i}.md`, `# Secret ${i}\n\nThe zarquon appears here.\n`);
+  }
+  for (let pass = 0; pass < 14; pass += 1) {
+    await syncShardedIndex(bucket, { budget: createSearchBudget(4000), isIndexable: indexable });
+  }
+
+  const ask = (query) =>
+    searchIndexedNotes(bucket, {
+      isVisible: visibleOnly("9-private/"),
+      isIndexable: indexable,
+      query,
+      // 20 is measured, not chosen: at this budget the routed query reads all
+      // ten shards and runs out, while the unrouted one reads the five-shard
+      // expansion sample and does not. Below it both run out and above it
+      // neither does, so this is the window where the difference was visible —
+      // and the window a caller would look for.
+      budget: createSearchBudget(20),
+    });
+
+  const inPrivateOnly = await ask("zarquon");
+  const nowhereAtAll = await ask("wtnpqxz");
+
+  check(
+    "the positive control: neither query returns a visible note",
+    inPrivateOnly.hits.length === 0 && nowhereAtAll.hits.length === 0
+  );
+  check(
+    "a word living only in unreadable notes is indistinguishable from a word living nowhere",
+    inPrivateOnly.matchCountIsFloor === nowhereAtAll.matchCountIsFloor &&
+      inPrivateOnly.indexIncomplete === nowhereAtAll.indexIncomplete
+  );
+}
+
+/**
+ * **A FILTER CLAIM IS A MAYBE, AND IT MUST NOT SUPPRESS THE EXPANSION SAMPLE.**
+ *
+ * `routeShards` sets `claimed` from `termFilterMayHold`, which by construction
+ * answers *maybe* — `filter.js`'s own header is explicit that the asymmetry is
+ * the whole design: "every way this can be wrong costs latency, and no way it
+ * can be wrong costs a hit." Consuming that maybe as certainty breaks exactly
+ * that promise: a claimed term skips the expansion sample, and the sample is
+ * the only thing that widens a query whose exact term has no visible hits.
+ *
+ * The Bloom false positive is the probabilistic half (measured at 13% of terms
+ * nobody wrote, on twelve shards). This is the systematic half, and it needs no
+ * false positive at all: the filters are built over EVERY doc in a shard, so a
+ * word the owner uses only in private notes claims the shard for a team caller
+ * whose visible `df` for it is zero. The claim is true of the index and false of
+ * the caller, the sample is skipped, and every note the caller may read that
+ * would have matched by prefix is dropped — while the answer reports
+ * `matchCountIsFloor: false`, asserting it is exact.
+ */
+async function runAClaimIsNotCertainty(check) {
+  const bucket = createBucket();
+  // Bulk, so the corpus needs several shards. None of it matches.
+  seedNotes(bucket, 1500, "rhubarb", 2);
+  // Thirty visible notes reachable only by EXPANSION — they carry
+  // `zarquonics`, never the query term — spread across the whole id space.
+  for (let i = 0; i < 30; i += 1) {
+    bucket.seed(`1-projects/open/expand-${i}.md`, `# Expand ${i}\n\nThe zarquonics appear here.\n`);
+  }
+  // …and the bare term lives only where this caller cannot look, in few enough
+  // notes to occupy a SUBSET of the shards. That subset is what routing keeps;
+  // every other shard — holding most of the visible expansion hits — is dropped.
+  for (let i = 0; i < 8; i += 1) {
+    bucket.seed(`9-private/secret-${i}.md`, `# Secret ${i}\n\nThe zarquon appears here.\n`);
+  }
+  for (let pass = 0; pass < 12; pass += 1) {
+    await syncShardedIndex(bucket, { budget: createSearchBudget(4000), isIndexable: indexable });
+  }
+
+  const ask = () =>
+    searchIndexedNotes(bucket, {
+      isVisible: visibleOnly("9-private/"),
+      isIndexable: indexable,
+      query: "zarquon",
+      budget: createSearchBudget(400),
+    });
+
+  const routed = await ask();
+
+  // The same corpus with the routing input removed, which is what this walk did
+  // before shard filters existed. Any hit it finds and the routed walk does not
+  // is a visible, matching note that routing dropped.
+  const manifestKey = ".index/v2/manifest.json";
+  const stored = JSON.parse(await (await bucket.get(manifestKey)).text());
+  const withFilters = JSON.stringify(stored);
+  delete stored.filters;
+  await bucket.put(manifestKey, JSON.stringify(stored));
+  const unrouted = await ask();
+  await bucket.put(manifestKey, withFilters);
+
+  check(
+    "the fixture is honest: the unrouted walk finds notes, and under the result cap",
+    unrouted.matchCount > 0 && unrouted.matchCountIsFloor === false
+  );
+  check(
+    "a filter claim does not cost the caller a visible, matching note",
+    routed.matchCount === unrouted.matchCount
+  );
+}
+
 export async function runSearchPacingChecks(check) {
+  await runFloorIsNotAQueryProbe(check);
+  await runAClaimIsNotCertainty(check);
   /* -- (a) the false miss: maintenance may not starve the answer ----------- */
   //
   // 1,500 notes at a budget of 120 is the smallest fixture that reproduced it:
