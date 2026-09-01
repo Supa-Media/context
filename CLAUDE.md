@@ -1120,6 +1120,74 @@ fields from anybody whose role is not `owner`, and the console's total treats a
 context it cannot count as an unknown, which makes the sum a floor rather than
 silently dropping it.
 
+### The audit trail's `details` are allow-listed, and its `paths` are not gated at all
+
+`listEvents` is readable by every member, deliberately: the trail exists so the
+people whose notes are involved can see what touched them. That makes the shape
+of the gate over `details` the whole security question, and the first two
+versions of it got it wrong in the two available directions.
+
+**The gate is an allow-list. An action nobody has classified is withheld.** The
+first version withheld `details` for actions named `ingestion.*`, which is a
+deny-list and publishes by default — the shape `OVERRIDABLE_STORAGE_CODES` in
+the console is written inside-out to avoid, so that a code added next year is
+closed rather than open. It had already missed one that existed: `share.created`
+records the address or handle the owner shared a note with, somebody who need
+not be a member of anything and who is owner-only through `listShares`.
+
+Three criteria keep an action off `MEMBER_VISIBLE_DETAIL_ACTIONS`, and the
+second version of the list broke two of them **with its own entries**, which is
+the argument for the shape rather than against it — an entry has to be defended
+on the details it actually carries, and adding one is where that happens:
+
+- **A third party's identity.** `share.created`, `share.revoked`,
+  `member.invited`, `invitation.revoked`, and the `targetUserId` on
+  `member.removed` / `member.role_changed`.
+- **Owner-only configuration.** `ingestion.*` and `storage.*` are owner-only
+  through their own APIs; a trail that republished them would be the hole
+  rather than a second copy of the rule.
+- **A count taken over what a member cannot see.** `privacy.reset` reports the
+  bucket's real top-level folder count, and `file.move` / `file.copy` /
+  `file.duplicate` / `file.archive` report `{ files: result.paths.length }`,
+  which `keysUnder` expands at the **actor's** clearance. An owner archiving a
+  `team` folder holding three team notes and three private ones wrote
+  `files: 6` where the member could list three: the exact subtraction the note
+  census is owner-only to prevent.
+- **Anything another API answers only at a higher role.** `listGrants` is
+  `editor`+, so `grant.created`'s `{ scopes, tier }` on the trail republished it
+  a rung lower. `grant.revoked` stays — its details name no scope, no client and
+  no third party.
+
+The count is withheld rather than dropped at the call site, so the owner's
+record keeps it. `workspace.structure_applied` is on the list only because its
+`folderCount` equals `paths.length` exactly today; it carries a note to be
+revisited in the same commit that ever withholds `paths`.
+
+**And `paths` is an open leak that this gate does not touch.** Stated here
+rather than left to be rediscovered, because a draft of the code comment
+*defended* it — "the folder is one a member can list" — which is false in
+general and was the most dangerous line in that change. Measured through the
+real actions and the real privacy engine: a read-only member whose `listFiles`
+on `1-projects` correctly returns **zero entries** gets a hidden note's full
+path out of `listEvents` three times over — from `file.create`, from
+`visibility.note` (labelled `visibility: "private"`, so they learn it was
+withheld from them), and from `file.delete`, which records `keysUnder(...)`
+expanded at the owner's clearance and therefore names every private sibling.
+That is `audit.ts`'s own module-header example handed to a member.
+
+The fix is a design decision rather than a line, which is why it is open.
+`canSee` needs the privacy manifest, which lives in the customer's bucket, and
+a Convex `query` structurally cannot reach storage — `runFileOperation` is the
+sole member of `CREDENTIAL_BARRIERS`, and this is the same constraint that makes
+`previewForNote` snapshot a folder's children at link time. So the candidates
+are: make `listEvents` an action (losing reactivity, and spending a bucket read
+per trail load); stamp each row's visibility at write time (which a later
+visibility change makes wrong); record the actor's *scope* and withhold `paths`
+on rows written at `private` (same staleness, failing towards over-withholding);
+or withhold `paths` from non-owners outright, which takes the trail's subject
+away from it. Whoever picks one revisits `workspace.structure_applied` in the
+same commit.
+
 ### There is no get-invitation-by-token query, and there must not be one
 
 `acceptInvitation` throws one `INVITATION_NOT_FOUND` for never-issued,
