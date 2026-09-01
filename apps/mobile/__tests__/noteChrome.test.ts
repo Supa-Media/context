@@ -249,9 +249,14 @@ function mountConsole(data: ConsoleData, width = 390) {
   const find = (testId: string) =>
     container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
 
+  /** By accessible name — what a press target is addressed by here. */
+  const find2 = (label: string) =>
+    container.querySelector<HTMLElement>(`[aria-label="${label}"]`);
+
   return {
     container,
     find,
+    find2,
     press: (node: HTMLElement | null) => {
       if (node === null) throw new Error("nothing to press");
       act(() => {
@@ -267,9 +272,18 @@ function mountConsole(data: ConsoleData, width = 390) {
 
 describe("the note names itself, inside itself", () => {
   /**
-   * THE assertion for this branch. Put the breadcrumb back and this fails.
+   * THE assertion for this branch, and it is **narrower than it was**.
+   *
+   * It used to end by asserting that no breadcrumb segment existed on a phone
+   * at all, because the whole row had been deleted here. The path half is back
+   * (see `the path bar` below) and the naming half is not, which is the line
+   * this test now holds: the note is named *inside itself*, once.
+   *
+   * So "put the breadcrumb back and this fails" is no longer the rule. What
+   * fails it is putting the breadcrumb's *leaf* back — a trailing segment
+   * saying what the title one line down already says.
    */
-  test("an inline title replaces the breadcrumb row", () => {
+  test("an inline title, and no second name above it", () => {
     const app = mountConsole(dataWith());
 
     const title = app.find("note-inline-title");
@@ -278,10 +292,12 @@ describe("the note names itself, inside itself", () => {
     // filename is a content hash, which is why `noteHeading` exists at all.
     expect(title!.textContent).toBe("The storage binding");
 
-    // And the row it replaced is gone — the whole complaint. `Open 1-projects`
-    // is the accessible name a breadcrumb segment carries; the tree still has
-    // its own row for that folder, so this looks for the crumb's own label.
-    expect(app.container.querySelector('[aria-label="Open 1-projects"]')).toBeNull();
+    // The leaf a full breadcrumb would carry. Its absence is what makes the
+    // line above a position rather than a title drawn twice.
+    expect(app.container.querySelector(`[aria-label="Open ${NOTE}"]`)).toBeNull();
+    // …and the visibility chip stayed gone too: a note carries it as a
+    // Properties row, which is fuller than the crumb's brief version.
+    expect(app.container.textContent).not.toContain("follows its folder");
   });
 
   test("the title scrolls with the note rather than sitting above it", () => {
@@ -357,6 +373,68 @@ describe("visibility survives into Properties", () => {
     const add = app.find("note-properties-add");
     expect(add).not.toBeNull();
     expect(add!.getAttribute("aria-disabled")).toBe("true");
+  });
+});
+
+/**
+ * **The phone's path bar**, which is the reversal of a stated decision.
+ *
+ * The breadcrumb was dropped on a phone because the note names itself inside
+ * the document — right about *naming*, wrong about *navigation*. A folder page
+ * reached by a link had no route to its parent at all, and the only way to
+ * another folder was the drawer, which is the surface a phone makes hardest to
+ * get at. `pathOnly` is the half that navigates and none of the half that
+ * labelled: no leaf, no visibility chip, and the context segment back as the
+ * way up rather than as a caption.
+ *
+ * Every assertion here is about *pressing* rather than about text. A path you
+ * can only read is a label, and a label would satisfy a test that looked for
+ * the words.
+ */
+describe("the path bar", () => {
+  const DEEP = "3-resources/books/the-lean-startup.md";
+
+  test("every ancestor is a target, and the note itself is not repeated", () => {
+    const app = mountConsole(dataWith({}, { path: DEEP, name: "the-lean-startup.md" }));
+
+    expect(app.find2("Open 3-resources")).not.toBeNull();
+    expect(app.find2("Open 3-resources/books")).not.toBeNull();
+    // The leaf is the inline title one line below; a crumb ending in it would
+    // say the same words twice.
+    expect(app.find2(`Open ${DEEP}`)).toBeNull();
+  });
+
+  test("the context is the first segment and it is pressable", () => {
+    // Without it the bar bottoms out one level short of home: a top-level
+    // folder has no ancestors, so there would be nothing to press at all.
+    const app = mountConsole(dataWith({}, { kind: "folder", path: "3-resources", name: "3-resources" }));
+    expect(app.find2("Open @seyi")).not.toBeNull();
+  });
+
+  test("pressing a segment selects that folder", () => {
+    const chosen: string[] = [];
+    const app = mountConsole(
+      dataWith({ select: (path: string) => chosen.push(path) } as never, {
+        path: DEEP,
+        name: "the-lean-startup.md",
+      }),
+    );
+
+    app.press(app.find2("Open 3-resources/books"));
+    app.press(app.find2("Open @seyi"));
+    // The root is `""`, which is what `FolderView` needs a `contextLabel` for:
+    // it is the one folder with no name of its own.
+    expect(chosen).toEqual(["3-resources/books", ""]);
+  });
+
+  test("a pointer layout keeps the full line instead, chip and all", () => {
+    // The positive control for the whole shape: `pathOnly` must not be what a
+    // desktop gets, or the visibility chip and the leaf disappear from the one
+    // density that has room for them.
+    const app = mountConsole(dataWith({}, { path: DEEP, name: "the-lean-startup.md" }), 1200);
+    expect(app.find2(`Open ${DEEP}`)).toBeNull();
+    expect(app.find2("Open 3-resources")).not.toBeNull();
+    expect(app.container.textContent).toContain("the-lean-startup");
   });
 });
 

@@ -47,6 +47,27 @@ import type { Visibility } from "./types";
  * The folders are still there and still pressable; what is gone is the segment
  * the chrome above already states. A pointer layout has the width for both and
  * keeps it.
+ *
+ * ## `pathOnly`: the phone's version, which is a path and nothing else
+ *
+ * The compact styling above was written and then never drawn — `BrowsePane`
+ * gated the whole line on a pointer layout, so on a phone the only way into a
+ * folder was the drawer. `pathOnly` is what the phone renders instead, and it
+ * is subtractive rather than a second design: the same segments, the same press
+ * targets, with the two things a phone already says elsewhere removed.
+ *
+ * - **No leaf.** A phone names what is open inside the document — the note's
+ *   inline title, the folder's own heading — so a trailing segment repeats the
+ *   next line down. That duplication is the thing `ShareScreen` had to fix once
+ *   already ("the page says the same words twice, one above the other").
+ * - **No visibility chip.** A note carries it as a Properties row and a folder
+ *   states it in a sentence directly beneath. Both are fuller than the brief
+ *   chip, and both are already on screen.
+ * - **And the context segment comes back, pressable.** It is dropped in the
+ *   full line because the switcher above says it — but here it is not a label,
+ *   it is the way *up* from a top-level folder, and without it a path bar
+ *   bottoms out one level short of home. The duplication that argument was
+ *   about is paid for by the leaf and the chip, which are gone.
  */
 export function Breadcrumb({
   path,
@@ -57,6 +78,7 @@ export function Breadcrumb({
   exception,
   readOnly,
   onSelectFolder,
+  pathOnly,
 }: {
   path: string;
   /**
@@ -84,11 +106,58 @@ export function Breadcrumb({
   exception: boolean;
   readOnly: boolean;
   onSelectFolder?: (folder: string) => void;
+  /**
+   * Draw the path and nothing else — see the header. The phone's shape.
+   *
+   * The **ancestors** of `path`, never `path` itself, whichever kind it names:
+   * a folder page's own folder is its heading, so a crumb ending in it would
+   * say the same word twice. That means the segments are the same for
+   * `3-resources/books` and for a note inside it, which is what makes this a
+   * position rather than a title.
+   */
+  pathOnly?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const segments = path.split("/").filter((segment) => segment !== "");
   const folders = segments.slice(0, -1);
   const compact = densityFor(useWindowDimensions().width) === "compact";
+
+  if (pathOnly === true) {
+    return (
+      <View style={[styles.bar, styles.barCompact, styles.barPath]}>
+        <PressRow
+          accessibilityLabel={`Open ${contextLabel}`}
+          onPress={() => onSelectFolder?.("")}
+          radius={radii.xs}
+          style={styles.segment}
+          hoverStyle={styles.segmentHover}
+        >
+          <Text variant="mono" style={styles.folder} numberOfLines={1}>
+            {contextLabel}
+          </Text>
+        </PressRow>
+        {folders.map((segment, index) => {
+          const folder = segments.slice(0, index + 1).join("/");
+          return (
+            <Fragment key={folder}>
+              <Separator />
+              <PressRow
+                accessibilityLabel={`Open ${folder}`}
+                onPress={() => onSelectFolder?.(folder)}
+                radius={radii.xs}
+                style={styles.segment}
+                hoverStyle={styles.segmentHover}
+              >
+                <Text variant="mono" style={styles.folder} numberOfLines={1}>
+                  {segment}
+                </Text>
+              </PressRow>
+            </Fragment>
+          );
+        })}
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.bar, compact && styles.barCompact]}>
@@ -245,6 +314,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderBottomWidth: 0,
     backgroundColor: "transparent",
   },
+  /**
+   * The `pathOnly` line, which carries nothing that can overflow it.
+   *
+   * `barCompact` reserves height for a `Button` because the full line used to
+   * hold Share; there is no button here — the phone's actions are in the top
+   * bar's group — so the row is type on both counts and the floor comes off.
+   * The touch targets are the segments' own, widened by `segment`.
+   */
+  barPath: { paddingTop: 0, paddingBottom: space.x2, minHeight: 0 },
   context: { color: colors.text2, fontSize: 11 },
   separator: { color: colors.heroDim, fontSize: 11 },
   segment: { paddingHorizontal: 3, paddingVertical: 1, borderRadius: radii.xs },

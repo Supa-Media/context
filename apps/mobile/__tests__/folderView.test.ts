@@ -92,7 +92,10 @@ function mount(props: {
         entry: props.entry ?? entry(),
         listing: props.listing,
         canSetVisibility: props.canSetVisibility ?? true,
-        onSelect: (path: string) => selected.push(path),
+        contextLabel: "@seyi",
+        onSelect: (path: string) => {
+          selected.push(path);
+        },
       }),
     );
   });

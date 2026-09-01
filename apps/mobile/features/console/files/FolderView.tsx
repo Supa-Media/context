@@ -65,6 +65,7 @@ export function FolderView({
   entry,
   listing,
   canSetVisibility,
+  contextLabel,
   onSelect,
 }: {
   entry: FileEntry;
@@ -78,6 +79,14 @@ export function FolderView({
    * out this file guessed.
    */
   canSetVisibility: boolean;
+  /**
+   * What the context is called, for the one folder that has no name of its own.
+   *
+   * The root is `""`, so `baseName` gives nothing and the heading was blank —
+   * which nothing reached until the phone's path bar made the root pressable.
+   * A context's root folder *is* the context, so it says so.
+   */
+  contextLabel: string;
   onSelect: (path: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -102,7 +111,7 @@ export function FolderView({
       */}
       <View style={styles.head}>
         <Text variant="noteTitle" role="heading" aria-level={2} style={styles.title}>
-          {baseName(entry.path) || entry.path}
+          {baseName(entry.path) || contextLabel}
         </Text>
       </View>
 
