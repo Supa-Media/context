@@ -103,10 +103,14 @@ describe("landing call to action", () => {
 });
 
 /**
- * `?next=` exists for exactly one screen. The OAuth consent screen is reached
- * by an AI client redirecting a browser to `/authorize?request_id=…`; sending a
- * signed-out visitor to a bare `/login` drops the request id, and the client's
- * OAuth attempt then fails with nothing to retry.
+ * `?next=` exists for the links whose meaning is in the query.
+ *
+ * The OAuth consent screen was the first: an AI client redirects a browser to
+ * `/authorize?request_id=…`, and sending a signed-out visitor to a bare
+ * `/login` drops the request id, so the client's attempt fails with nothing to
+ * retry. A **team link** is the second, and it is the one people actually send
+ * each other — `teamShareLink` builds `/console/@seyi?note=…`, and the note is
+ * the whole reason that URL exists rather than `/console/@seyi`.
  */
 describe("coming back after signing in", () => {
   test("a plain login link when there is nowhere in particular to return to", () => {
@@ -143,6 +147,24 @@ describe("coming back after signing in", () => {
       action: "redirect",
       href: CONSOLE_ROUTE,
     });
+  });
+
+  test("a team link's note survives both narrowings, out and back", () => {
+    /*
+      The round trip a colleague makes: they are sent a note link, they have no
+      session on that device, they sign in, and they must arrive at the note
+      rather than at the context's empty "choose a note" screen.
+
+      Both halves are asserted together because each is narrowed by
+      `safeNextRoute` independently, and losing the query at either end
+      produces the same symptom. The gate that *supplies* this value is the
+      other half of the bug and is pinned in `appLayoutGate.test.ts` — that is
+      where the pathname was being passed instead of the href.
+    */
+    const link = "/console/@seyi?note=3-resources/engineering/note.md";
+    const href = loginHref(link);
+    expect(href).toBe(`/login?next=${encodeURIComponent(link)}`);
+    expect(resolveAuthRoute(signedIn, link)).toEqual({ action: "redirect", href: link });
   });
 
   test("authorizeHref encodes the request id rather than concatenating it", () => {

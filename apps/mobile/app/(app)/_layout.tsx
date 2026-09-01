@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Redirect, Stack, usePathname } from "expo-router";
+import { Redirect, Stack, usePathname, useUnstableGlobalHref } from "expo-router";
 import { useConvexAuth, useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { useColors } from "../../features/design/theme";
@@ -63,10 +63,28 @@ import {
 export default function AppLayout() {
   const colors = useColors();
   const pathname = usePathname();
-  // The attempted path is carried into `/login?next=…` so an emailed
-  // invitation link survives the sign-in it triggers. `safeNextRoute` narrows
-  // it on the way out and again on the way back.
-  const decision = resolveProtectedRoute(useConvexAuth(), pathname);
+  /**
+   * The attempted URL is carried into `/login?next=…` so a link somebody was
+   * sent survives the sign-in it triggers. `safeNextRoute` narrows it on the
+   * way out and again on the way back.
+   *
+   * **The whole href, not the pathname.** `usePathname` documents itself as
+   * returning the location *without search parameters*, and the two links in
+   * this product that cannot be recovered by clicking around both carry their
+   * payload in the query: `/authorize?request_id=…` and, since team links
+   * became readable URLs, `/console/@seyi?note=…`. Passing the pathname sent
+   * somebody who followed a note link into a context's empty "choose a note"
+   * screen, with no way of knowing which note they had been sent — the link
+   * worked, and it landed nowhere.
+   *
+   * `useUnstableGlobalHref` is expo-router's own private hook and its comment
+   * warns it "may change in the future to include the hostname". If it does,
+   * `safeNextRoute` refuses the value for not being a rooted path and this
+   * gate falls back to a bare `/login`, which is what it did before any of
+   * this — so the direction it can fail in is the one that was already the
+   * status quo. `appLayoutGate.test.ts` asserts both halves.
+   */
+  const decision = resolveProtectedRoute(useConvexAuth(), useUnstableGlobalHref());
   const authed = decision.action === "render";
 
   const spec = useMemo<RequestForQueries>(() => {

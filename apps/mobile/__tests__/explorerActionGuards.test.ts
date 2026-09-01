@@ -297,6 +297,7 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     };
   return {
     canEdit,
+    contextId: "w1",
     loading: false,
     busy: false,
     listings: { "": ROOT_LISTING, "1-projects": PROJECTS_LISTING },

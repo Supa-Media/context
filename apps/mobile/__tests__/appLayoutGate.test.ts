@@ -46,6 +46,12 @@ import { ConvexError } from "convex/values";
 // can see are deliberate.
 let mockAuthState = { isLoading: true, isAuthenticated: false };
 let mockPathname = "/console";
+/**
+ * The href including the query, which is what expo-router's own
+ * `usePathname` deliberately throws away (`/acme?foo=bar` -> `/acme`).
+ * Defaulted to the pathname so a test that does not care sets one thing.
+ */
+let mockHref: string | null = null;
 
 jest.mock("expo-router", () => {
   const { createElement: h } = require("react") as typeof import("react");
@@ -54,6 +60,7 @@ jest.mock("expo-router", () => {
       h("div", { "data-testid": "redirect", "data-href": href }),
     Stack: () => h("div", { "data-testid": "stack" }),
     usePathname: () => mockPathname,
+    useUnstableGlobalHref: () => mockHref ?? mockPathname,
   };
 });
 
@@ -173,6 +180,60 @@ describe("the (app) gate on a cold start", () => {
     expect(error).toBeNull();
     expect(html).toContain('data-href="/login"');
     expect(subscriptions()).toBe(0);
+  });
+
+  test("carries the whole link, query included, into the sign-in it triggers", () => {
+    /**
+     * **A team link survived sign-in as the context and not the note.**
+     *
+     * `teamShareLink` hands somebody
+     * `/console/@seyi?note=3-resources/…md`, and the note is the entire
+     * reason that URL exists rather than `/console/@seyi`. Following one
+     * without a session on that device — a link sent to a colleague, opened
+     * on a phone — went to `/login?next=/console/@seyi`, and they arrived
+     * after signing in at the context's empty "choose a note" screen with no
+     * way of knowing which note they had been sent.
+     *
+     * The cause was one hook: this gate passed `usePathname()`, and expo-router
+     * documents that as returning the location **without search parameters**.
+     * `safeNextRoute` was never the problem — it passes a query through
+     * untouched — so nothing about the redirect rule was wrong, and no test of
+     * it could have seen this.
+     */
+    mockAuthState = { isLoading: false, isAuthenticated: false };
+    mockPathname = "/console/@seyi";
+    mockHref = "/console/@seyi?note=3-resources/engineering/note.md";
+    const { client } = unauthenticatedClient();
+
+    const { html, error } = render(client);
+
+    expect(error).toBeNull();
+    expect(html).toContain(
+      `data-href="/login?next=${encodeURIComponent(mockHref)}"`,
+    );
+
+    mockHref = null;
+  });
+
+  test("an href that is not a rooted path is refused, not followed", () => {
+    // `useUnstableGlobalHref` is expo-router's own private hook and its doc
+    // comment says it "may change in the future to include the hostname". If
+    // it ever does, `safeNextRoute` refuses it for not being rooted and this
+    // gate falls back to a bare `/login` — which is exactly what it did before
+    // the query was carried at all. The failure direction is the safe one, and
+    // it is asserted rather than assumed.
+    mockAuthState = { isLoading: false, isAuthenticated: false };
+    mockPathname = "/console/@seyi";
+    mockHref = "https://context.lc/console/@seyi?note=a.md";
+    const { client } = unauthenticatedClient();
+
+    const { html, error } = render(client);
+
+    expect(error).toBeNull();
+    expect(html).toContain('data-href="/login"');
+    expect(html).not.toContain("context.lc");
+
+    mockHref = null;
   });
 
   test("still reads the context list once there is a session", () => {

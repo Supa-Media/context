@@ -97,6 +97,13 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
     () => ({
       canEdit: false,
       readOnlyReason: tree.readOnlyReason,
+      /*
+        The demo tree is built synchronously from literals, so this browser is
+        never one commit behind the context it is showing — there is no async
+        reset to wait for. Answering with the id it was given is therefore the
+        truth here, not a stub.
+      */
+      contextId,
       loading: false,
       busy: false,
       listings: tree.listings,
@@ -155,6 +162,6 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       teamShareLink: async () => null,
       setSharePreviewTitle: noop,
     }),
-    [collapseAll, editor, expanded, select, selectedPath, toggleFolder, tree],
+    [collapseAll, contextId, editor, expanded, select, selectedPath, toggleFolder, tree],
   );
 }
