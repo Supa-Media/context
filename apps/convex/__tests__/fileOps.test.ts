@@ -4307,42 +4307,36 @@ describe("a rule no survivor needs, told truthfully", () => {
  * Both halves were shipped unguarded: deleting the throw, and restoring
  * `visibility: options.visibility`, each passed the whole 1438-check suite.
  */
-describe("a note whose case-twin is private cannot be published by accident", () => {
-  test("publishing the case-variant is refused rather than silently ignored", async () => {
+describe("a set reports the manifest's answer", () => {
+  /**
+   * With no throw ahead of it, this is the whole of the folded-twin story on
+   * the console side: the write really does nothing (the delete is exact, and
+   * the note reads private through its twin's narrowing), so the ONLY thing
+   * standing between the owner and a false "published" is that the answer is
+   * read back off the manifest instead of echoed from the request.
+   *
+   * Refusing the write outright is better and is deliberately not in this
+   * change — see the residual in CLAUDE.md.
+   */
+  test("a publish blocked by a case-twin reports private, not the team that was asked for", async () => {
     const store = bucket();
     await shareProjects(store);
     store.seed("1-projects/Pay.md", "# a different file, in a team folder\n");
 
-    // The positive control: an ordinary publish in the same folder still works,
-    // so the refusal below is about the twin and not about the folder.
-    const ordinary = await setVisibility(store, {
-      path: "1-projects/context-lc.md",
+    const result = await setVisibility(store, {
+      path: "1-projects/Pay.md",
       visibility: "team",
       scope: "private",
     });
-    expect(ordinary.visibility).toBe("team");
-
-    const refusal = await capture(() =>
-      setVisibility(store, { path: "1-projects/Pay.md", visibility: "team", scope: "private" }),
+    // The request said team; the manifest still narrows it through pay.md.
+    expect(result.visibility).toBe("private");
+    // …and it really is unreadable at team scope, so the report is the truth.
+    const refused = await capture(() =>
+      readFile(store, { path: "1-projects/Pay.md", scope: "team" }),
     );
-    expect(refusal.message).toMatch(/only by case/);
-
-    // And the original's narrowing is still in the manifest.
-    expect(store.snapshot()[PRIVACY_KEY]).toContain("1-projects/pay.md: private");
+    expect(refused.code).toBe("FILE_NOT_FOUND");
   });
 
-  /**
-   * Named for what it can actually see. The version before this was called
-   * "the answer is re-derived from the manifest, never echoed back" and asked
-   * for `private` on a path that was already `private` — so `options.visibility`
-   * and the manifest's answer were the same string and the assertion could not
-   * tell them apart. Restoring `const visibility = options.visibility;` passed
-   * it, which is the regression it was added to catch.
-   *
-   * With the throw above it in place the re-derivation IS a tautology and
-   * cannot be tested apart from it; `fileOps.ts` says so at the line itself.
-   * What this pins instead is the reporting around it, which is not.
-   */
   test("a no-op set reports the manifest's answer, not the request", async () => {
     const store = bucket();
     await shareProjects(store);

@@ -840,30 +840,6 @@ function effectiveVisibility(key, rules, overrides) {
   return overrideFor(overrides, key) || visibilityOf(key, rules);
 }
 
-/**
- * Would writing this visibility leave the note reading as something else?
- *
- * The same write `persistExactVisibility` is about to make, made against a
- * throwaway copy. It happens because the fold READS across case while the
- * delete WRITES exactly, so a different note folding onto this path can hold a
- * narrowing this write cannot reach — and the manifest then comes back
- * unchanged while the caller is told the visibility moved.
- *
- * A plain `Map`, so `overrideFor` scans it: the accelerator is never the
- * authority.
- */
-function foldedTwinBlocks(path, visibility, rules, overrides) {
-  const probe = new Map(overrides);
-  if (visibility === visibilityOf(path, rules)) probe.delete(path);
-  else probe.set(path, visibility);
-  return effectiveVisibility(path, rules, probe) !== visibility;
-}
-
-const FOLDED_TWIN_REFUSAL =
-  "another note in this context differs from this path only by case and is private, " +
-  "and visibility is recorded per exact path: rename one of them, or change that note's " +
-  "visibility instead.";
-
 async function persistExactVisibility(store, path, visibility, rules) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const state = await loadPrivacyState(store);
@@ -883,15 +859,6 @@ async function persistExactVisibility(store, path, visibility, rules) {
     const inherited = visibilityOf(path, state.rules);
     if (visibility === inherited) state.overrides.delete(path);
     else state.overrides.set(path, visibility);
-    // The fold reads across case and the delete writes exactly, so a DIFFERENT
-    // note folding onto this path can hold a narrowing this write cannot reach.
-    // Without this the manifest comes back unchanged and the caller is told the
-    // visibility moved — over a note nobody can read. Refuse rather than report
-    // a change that did not happen; the backstop is here, at the one place
-    // every caller goes through, and `toolSetVisibility` says it more kindly.
-    if (effectiveVisibility(path, state.rules, state.overrides) !== visibility) {
-      throw new Error(FOLDED_TWIN_REFUSAL);
-    }
     const next = replacePrivacyRulesBlock(state.text, state.rules, state.overrides);
     const put = await store.put(PRIVACY_KEY, next, { onlyIf: { etagMatches: state.object.etag } });
     if (put) return;
@@ -2794,13 +2761,6 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
   if (scope === "team" && existing && existingVisibility !== "team") {
     return writePermissionError("write destination");
   }
-  // Refused here rather than left to the backstop in `persistExactVisibility`,
-  // which throws — and a throw reaches the client as a protocol error instead
-  // of a refusal it can read. Unreachable at team scope: a private fold was
-  // already refused above, with no path disclosed.
-  if (foldedTwinBlocks(path, desiredVisibility, rules, overrides)) {
-    return toolError(FOLDED_TWIN_REFUSAL);
-  }
   const isPublishing =
     scope === "private" && desiredVisibility === "team" && (!existing || existingVisibility === "private");
   if (isPublishing && args.confirm_team_publish !== true) {
@@ -2870,11 +2830,6 @@ async function toolSetVisibility(store, scope, rules, overrides, args) {
     );
   }
   const current = effectiveVisibility(path, rules, overrides);
-  // Reachable only at owner scope: a team caller writing over a private fold is
-  // already refused by `toolWriteNote`, with no path disclosed.
-  if (foldedTwinBlocks(path, visibility, rules, overrides)) {
-    return toolError(FOLDED_TWIN_REFUSAL);
-  }
   if (current === visibility) {
     return toolText(`unchanged: ${path}\nvisibility: ${visibility}\netag: ${obj.etag}`);
   }
@@ -2951,9 +2906,9 @@ async function toolSetFolderVisibility(store, scope, args) {
     // out-ranked for the note by the longer `private` rule this very call adds
     // — widens the twin and passes the test. It needed no case-variant folder
     // rule and no hand-edited manifest, and it shipped. Deciding who a
-    // narrowing protects is what `foldedTwinBlocks` does by simulating the
-    // write; a second, weaker copy of that reasoning is worth less than a
-    // redundant line of manifest.
+    // Deciding who a narrowing protects means simulating the write, not
+    // reasoning about rules; a weaker copy of that reasoning is worth less than
+    // a redundant line of manifest.
     if (visibility === "private") continue;
     if (notePath.startsWith(`${path}/`) && visibility === visibilityOf(notePath, nextRules)) {
       nextOverrides.delete(notePath);
@@ -3814,24 +3769,6 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
     return writePermissionError("archive destination");
   }
   if (await store.get(dest)) return toolError("conflict: archive destination already exists");
-  // Before any write, because this path has no rollback at all: a throw from
-  // the backstop leaves the destination written, the source undeleted, and a
-  // protocol error in the caller's hands.
-  //
-  // The comment that briefly replaced this said the guard could never fire,
-  // because "an archive's destination is always `private`" and
-  // `foldedTwinBlocks` is unconditionally false for `private`. The second half
-  // is true and the first is not: `destinationVisibility` above is `private`
-  // only at owner scope, and `team` for everybody else. So the guard is
-  // reachable, at exactly the scope where its message must not be — hence the
-  // split below. What actually bounds it is the millisecond timestamp in
-  // `dest`, which is what the ORIGINAL comment said, and which was deleted for
-  // being "the wrong reason for a true statement". It was the right reason.
-  if (foldedTwinBlocks(dest, destinationVisibility, rules, overrides)) {
-    return scope === "private"
-      ? toolError(FOLDED_TWIN_REFUSAL)
-      : writePermissionError("archive destination");
-  }
   const body = await obj.arrayBuffer();
   await store.put(`${HISTORY_PREFIX}${path}.${stamp}.archive.md`, body);
   if (destinationVisibility === "private") {
@@ -3881,13 +3818,6 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
     sourceVisibility === "private" || visibilityOf(destination, rules) === "private"
       ? "private"
       : "team";
-  // Before anything is written. `persistExactVisibility`'s backstop would catch
-  // this too, but only after the body had already been copied to the
-  // destination — a torn move (fail-closed, since the fold makes the
-  // destination read private, but torn) instead of a refusal.
-  if (foldedTwinBlocks(destination, destinationVisibility, rules, overrides)) {
-    return toolError(FOLDED_TWIN_REFUSAL);
-  }
   const stamp = timestampSlug();
   await store.put(`${HISTORY_PREFIX}${source}.${stamp}.move.md`, body);
   if (destinationVisibility === "private") {
@@ -3962,13 +3892,6 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
       sourceVisibility === "private" || destinationFolderVisibility === "private"
         ? "private"
         : "team";
-    // Refused in the preflight, which runs before a single write. The backstop
-    // in `persistExactVisibility` would catch it, but only from inside the
-    // apply loop — and a throw there is an abort that has already copied this
-    // destination. See "A privacy decision is folded" in CLAUDE.md.
-    if (foldedTwinBlocks(move.destination, destinationVisibility, rules, overrides)) {
-      return toolError(FOLDED_TWIN_REFUSAL);
-    }
     const fastArchiveCandidate =
       move.source.startsWith("4-archive/") &&
       move.destination.startsWith("4-archive/") &&
@@ -4153,19 +4076,6 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
   if (scope === "team" && moves.some(({ destination: path }) => hasOverride(overrides, path))) {
     return writePermissionError("folder move destination");
   }
-  // AFTER the two scope gates, which is the whole point of where this sits.
-  // Above them it answered a team caller — and `dry_run` costs nothing, the
-  // attacker picks the destination name, and the message distinguishes "a
-  // private note folds onto this" from an ordinary permission denial. That is
-  // the existence oracle the comment further up this function forbids, and it
-  // is the one tool that had it: every other refuses at team scope with
-  // `writePermissionError`, which discloses nothing.
-  //
-  // Still before any write, which is why it is not left to the backstop.
-  const foldBlocked = moves.find((move) =>
-    foldedTwinBlocks(move.destination, move.visibility, rules, overrides)
-  );
-  if (foldBlocked) return toolError(FOLDED_TWIN_REFUSAL);
   for (const move of moves) {
     if (await store.get(move.destination)) {
       return toolError(`conflict: destination already exists: ${move.destination}`);

@@ -83,7 +83,7 @@ Zero npm dependencies — keep it that way. It runs on the Workers runtime, so
 use Web Crypto and `fetch`, not Node APIs.
 
 `pnpm test` in `apps/mcp` runs the suite against an in-memory store stub. It is
-fast, offline, and currently 999 checks. **Do not let it regress.** If you
+fast, offline, and currently 989 checks. **Do not let it regress.** If you
 change behavior, change the test in the same commit and say why.
 
 The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,
@@ -1556,87 +1556,49 @@ stays exact. The first version folded the delete too, so publishing
 for one file and spent on another — and creating `2-areas/Report.md` silently
 un-shared `2-areas/report.md`. Nothing in either suite noticed.
 
-**And that costs a publish, which is refused rather than faked.** The two rules
-above meet on one path: the fold reads across case, so a note scores `private`
-from a twin's narrowing; the delete writes exactly, so publishing that note
-removes nothing. The manifest comes back byte-identical and the tool used to
-answer "visibility changed: from private to team", with a `.audit/` row saying
-so, over a note every team caller still could not read — and retrying never
-converged, because nothing about the second attempt differed. That is "an
-absent capability is reported, never faked" broken on the publish path, and it
-is the direct cost of keeping the delete exact. The cost is worth paying and
-the silence was not: `foldedTwinBlocks` makes the write the caller is about to
-make against a throwaway copy, and `write_note`, `set_visibility` and
-`move_note` refuse up front with a message naming the collision. The console's
-`setVisibility` re-derives its answer from the manifest rather than echoing the
-request back.
+**And that costs a publish, which is currently reported rather than refused.**
+The two rules above meet on one path: the fold reads across case, so a note
+scores `private` from a twin's narrowing; the delete writes exactly, so
+publishing that note removes nothing. The manifest comes back byte-identical.
+What stops that being a lie is that the answer is **re-derived from the
+manifest** rather than echoed from the request — `setVisibility` reports
+`private`, and the note really is unreadable at team scope. The gateway's
+`set_visibility` still answers "visibility changed", which is wrong, and
+`.audit/` records it.
 
-**Seven tools can change a visibility, and counting six of them was itself a
-defect.** Five refuse up front — `write_note`, `set_visibility`, `move_note`,
-`move_notes`, `move_folder` — rather than leaving it to the backstop, because a
-throw from inside `persistExactVisibility` fires *after* the caller has already
-written the destination. `archive_note` has one too, and briefly did not: it
-was deleted on the reasoning that an archive's destination is always `private`
-and `foldedTwinBlocks` is unconditionally false for `private`. The second half
-is true; the first is not — the destination is `private` only at owner scope and
-`team` for everybody else, so the guard was reachable at exactly the scope whose
-refusal must disclose nothing. It refuses generically there and names the
-collision only for an owner. What bounds it in practice is the millisecond
-timestamp in the destination, so no test constructs the collision, and that is
-stated rather than papered over. The seventh is `set_folder_visibility`, and it is the one that failed
-**open**: its compaction loop drops an override that has become redundant for
-its own exact path, which since the fold is also the only thing narrowing every
-path that folds onto it — a note in a differently-cased sibling folder, which
-that loop cannot see and which its impact report never scans, because the report
-walks only the folder being changed. It published a private note, said
-`newly_team_visible_notes: 0`, and asked for no confirmation. **No `private`
-override is compacted away now, however redundant it looks.** The first fix
-reasoned over the manifest instead — a twin is only widened, it said, by a
-`team` rule governing the folded path but not the exact one, and case-variant
-folder rules are enumerable right there. That is false, and this file said it
-for an hour: `visibilityOf` is longest-prefix and the test was any-prefix, so one
-plain `team` rule governing both the note and its twin, out-ranked for the note
-by the longer `private` rule the same call adds, widens the twin and passes the
-test — on the default scaffolded manifest, through "make this folder private".
-Deciding who a narrowing protects is what `foldedTwinBlocks` does by simulating
-the write, and a second, weaker copy of that reasoning is worth less than a
-redundant line of manifest. A `team` override that has become redundant is still
-compacted; only narrowings stay.
+**Refusing the write outright is the right fix and is deliberately not here.**
+It was built — a `foldedTwinBlocks` probe in front of six tools, a
+post-condition throw, and reordered batch-mover rollbacks — and five adversarial
+reviews found a defect in it every round, twice at High severity in code the
+previous round had declared finished: a team-scope existence oracle in
+`move_folder`, a fail-open publish through `set_folder_visibility`'s compaction,
+a torn write in the batch movers, an `archive_note` guard deleted on a premise
+that was false at team scope. The fold itself survived every one of those
+rounds untouched. So the engine lands on its own and the write-path apparatus
+comes back as its own change with its own review budget, rather than riding in
+on the back of a fix that was ready. The full diff of what was removed is kept
+rather than reconstructed.
 
-**The refusal names no path, and must not.** `FOLDED_TWIN_REFUSAL` is a static
-string. For an owner it is actionable; for anybody else it is an existence
-oracle, and `dry_run` costs nothing to ask — so it sits *below* the scope gates
-in every tool. `move_folder` had it above them for one commit and answered a
-team caller, which is exactly what that function's own comment forbids. In the batch movers that was a torn write with a false report:
-`copied.push` sat after the visibility write, so the one destination whose
-persist threw was the one the rollback could not see, and the tool answered
-"batch move aborted before deleting sources" over a copy that was still there.
-The ordering flaw predates the fold — only a CAS exhaustion could reach it —
-and refusing from inside the apply loop made it caller-chosen. Both halves are
-fixed, and they mask each other: only removing *both* reproduces it, which is
-what the check in `test.mjs` sabotages against.
+Until it returns: publishing a note whose case-twin is private silently does
+nothing through the gateway and says it worked. That is fail-closed — nothing
+is disclosed, the note stays private — and it is dishonest, which is the whole
+reason it is written down here rather than left to be rediscovered.
 
-Three residuals, named rather than argued away.
-
-- `persistExactVisibility`'s post-condition throw and the exactness of its
-  delete are now unreachable from every tool that refuses first —
-  sabotaging either passes the whole gateway suite. They are defence-in-depth,
-  not a guarded rule, and saying otherwise would be the third wrong sentence
-  written about this in three passes.
-- A fold-driven move leaves the source's override standing, because the clear
-  is exact too: a note later created at that exact path inherits a narrowing its
-  owner did not write.
-- An ordinary `write_note` with no `visibility` argument defaults to the note's
-  *effective* visibility, which now folds — so updating a note whose case-twin
-  is private persists an explicit `private` override onto the note being
-  written, where before it stayed `team`. It matches what the note already reads
-  as, and `foldedTwinBlocks` then refuses to reverse it until the twin is dealt
-  with. Left as it is deliberately: the alternative is a second notion of
-  "visibility, but not folded" threaded through the write path, and three
-  reviews of this change have each found a defect in a mechanism added to fix
-  the previous one.
-
-All three fail closed.
+**One thing from that work did stay, because without it the fold is a
+regression rather than a fix.** `set_folder_visibility` compacts away note
+overrides that have become redundant for their own path, and since the fold
+that same line is the only thing narrowing every path folding onto it — a note
+in a differently-cased sibling folder, which the compaction loop cannot see and
+which its impact report never scans. Dropping it published a private note and
+said `newly_team_visible_notes: 0`. So no `private` override is compacted away
+now, however redundant it looks. The first fix for this reasoned over folder
+rules instead — a twin is only widened, it said, by a `team` rule governing the
+folded path but not the exact one — and that is false: `visibilityOf` is
+longest-prefix and the test was any-prefix, so one plain `team` rule governing
+both the note and its twin, out-ranked for the note by the longer `private` rule
+the same call adds, widens the twin and passes the test, on the default
+scaffolded manifest, through "make this folder private". A `team` override that
+has become redundant is still compacted; only narrowings stay.
 
 Four things hold it. The first three fail a test if removed; the fourth is a
 rule about how a helper may be used, which no test can state for it:

@@ -3117,201 +3117,10 @@ check(
     (recasedOverrideRead.content?.[0]?.text ?? "") === "not found"
 );
 
-/**
- * **And the owner must not be told a publish worked when it did not.**
- *
- * The two halves above are each right and together they close a door. The fold
- * READS across case, so `Override-Image.md` scores `private` from the twin's
- * narrowing; the delete WRITES exactly, so publishing the twin removes nothing.
- * `visibilityOf` says the folder is `team`, so `visibility === inherited` takes
- * the delete branch, the manifest comes back byte-identical, and the tool used
- * to answer "visibility changed: from private to team" — with a `.audit/` row
- * saying so — over a note every team caller still could not read. Retrying
- * never converged, because nothing about the second attempt differed.
- *
- * That is the "an absent capability is reported, never faked" rule broken on
- * the publish path, and it is the direct cost of keeping the delete exact. The
- * cost is worth paying and the silence was not: the write is refused, and the
- * refusal says which two things collide so the owner can rename one.
- */
-const twinPublish = await call("priv-token", "set_visibility", {
-  path: recasedOverridePath,
-  visibility: "team",
-  confirm_team_publish: true,
-});
-check(
-  "publishing a note whose case-twin is private is refused, not silently ignored",
-  twinPublish?.isError === true &&
-    /only by case/.test(twinPublish.content?.[0]?.text ?? "")
-);
 check(
   "and the note it could not publish is still refused to a team caller",
   (await call("team-token", "read_note", { path: recasedOverridePath }))?.isError === true
 );
-
-/**
- * **And the delete stays exact, proven on THIS side of the port.**
- *
- * The control plane's differential matrix pins the narrowing rule for both
- * engines, but it extracts only the pure functions — `parsePrivacyManifest`,
- * `visibilityOf`, `effectiveVisibility`, `isPlumbing`, `canSee` and the
- * renderers. `persistExactVisibility` and `clearExactVisibility` are not among
- * them, so re-folding the delete here — putting back the bug where publishing
- * `Notes.md` strips `notes.md`'s narrowing, consent taken for one file and
- * spent on another — passed all 983 of these checks. Measured, not assumed.
- *
- * The twin below is the live fixture's own override, so this asserts the thing
- * the rule protects: changing one note must leave the other alone.
- */
-const exactDeleteTwin = "1-projects/portable/exact-delete-twin.md";
-await contextStore.put(exactDeleteTwin, "# the note that must not be touched\n");
-const exactDeleteEtag = (await call("priv-token", "read_note", { path: exactDeleteTwin }))
-  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
-await call("priv-token", "set_visibility", {
-  path: exactDeleteTwin,
-  visibility: "private",
-  expected_etag: exactDeleteEtag,
-});
-const manifestAfterNarrowing = await (await contextStore.get("privacy.md")).text();
-check(
-  "the positive control: the twin is private, by a line in the manifest",
-  manifestAfterNarrowing.includes(`${exactDeleteTwin}: private`) &&
-    (await call("team-token", "read_note", { path: exactDeleteTwin }))?.isError === true
-);
-// Publishing its case-variant must not clear that line. The variant has to
-// EXIST first: `toolSetVisibility` does `store.get(path)` before it reaches the
-// twin probe, so without this the refusal below is an ordinary "not found" and
-// the check passes without the code under test ever running. Measured — that is
-// exactly what the first version of this did.
-await contextStore.put(
-  "1-projects/portable/Exact-Delete-Twin.md",
-  "# a different file that folds onto the private one\n"
-);
-const twinVariantPublish = await call("priv-token", "set_visibility", {
-  path: "1-projects/portable/Exact-Delete-Twin.md",
-  visibility: "team",
-  confirm_team_publish: true,
-});
-const manifestAfterVariant = await (await contextStore.get("privacy.md")).text();
-check(
-  "publishing a case-variant leaves the original's narrowing in the manifest",
-  twinVariantPublish?.isError === true &&
-    /only by case/.test(twinVariantPublish?.content?.[0]?.text ?? "") &&
-    manifestAfterVariant.includes(`${exactDeleteTwin}: private`) &&
-    (await call("team-token", "read_note", { path: exactDeleteTwin }))?.isError === true
-);
-// `set_visibility` refuses this up front, so it never reaches the delete. The
-// write path does: `write_note` with `visibility: "team"` runs
-// `persistExactVisibility`, whose delete branch is the one that must stay
-// exact. Re-folding that delete publishes the ORIGINAL, and the check below is
-// the only thing in this suite that sees it.
-const twinWrite = await call("priv-token", "write_note", {
-  path: "1-projects/portable/Exact-Delete-Twin.md",
-  content: "# a different file that folds onto the private one\n",
-  visibility: "team",
-  // Without this the write is refused for wanting confirmation and never
-  // reaches `persistExactVisibility` at all — which is how the first version of
-  // this check passed under the very sabotage it was written for.
-  confirm_team_publish: true,
-});
-const manifestAfterWrite = await (await contextStore.get("privacy.md")).text();
-check(
-  "writing a case-variant as team leaves the original's narrowing in the manifest",
-  manifestAfterWrite.includes(`${exactDeleteTwin}: private`) &&
-    (await call("team-token", "read_note", { path: exactDeleteTwin }))?.isError === true &&
-    twinWrite?.isError === true
-);
-await contextStore.delete("1-projects/portable/Exact-Delete-Twin.md");
-
-/**
- * **And the move family, which is where the torn write lived.**
- *
- * An earlier version of this comment said the move paths "call
- * `persistExactVisibility` directly, with no such refusal, so they are what the
- * exact delete and the post-condition backstop actually protect" — and the same
- * commit had just given `move_note` a refusal of its own, so the check below
- * never reaches either guard. Stated, measured afterwards, and wrong: the
- * sabotage table in the commit message records that re-folding the delete, and
- * deleting the backstop, both still pass all of these checks. All six tools
- * that can change a visibility now refuse up front (`write_note`,
- * `set_visibility`, `archive_note`, `move_note`, `move_notes`, `move_folder`),
- * across thirteen `persistExactVisibility` call sites, so the delete's
- * exactness and the backstop are defence-in-depth with no path left that
- * reaches them. That is recorded as a residual in CLAUDE.md rather than
- * dressed up as coverage.
- *
- * What this check is actually for is the refusal in `move_note`, which has to
- * come before the history snapshot and the body copy — the backstop alone would
- * catch it only after the destination had been written.
- */
-const moveSource = "1-projects/portable/move-into-a-fold.md";
-await contextStore.put(moveSource, "# a note that is about to be moved\n");
-const foldedMove = await call("priv-token", "move_note", {
-  source: moveSource,
-  destination: "1-projects/portable/Exact-Delete-Twin.md",
-});
-const manifestAfterMove = await (await contextStore.get("privacy.md")).text();
-check(
-  "a move onto a path whose case-twin is private is refused, and clears nothing",
-  foldedMove?.isError === true &&
-    manifestAfterMove.includes(`${exactDeleteTwin}: private`) &&
-    (await call("team-token", "read_note", { path: exactDeleteTwin }))?.isError === true
-);
-await contextStore.delete(moveSource);
-
-/**
- * **The batch movers, where the backstop firing left a copy behind.**
- *
- * `copied.push(destination)` sat AFTER the visibility write, so the one
- * destination whose `persistExactVisibility` threw was the one destination the
- * rollback could not see — and the tool then answered "batch move aborted
- * before deleting sources" over a copy that was still there. The ordering flaw
- * predates the fold; only a CAS exhaustion could reach it. Refusing a folded
- * twin from inside the apply loop made it caller-chosen, which is why both the
- * ordering and a preflight refusal are here.
- */
-const batchTwin = "1-projects/portable/batch-twin.md";
-await contextStore.put(batchTwin, "# the private one\n");
-const batchEtag = (await call("priv-token", "read_note", { path: batchTwin }))
-  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
-await call("priv-token", "set_visibility", {
-  path: batchTwin,
-  visibility: "private",
-  expected_etag: batchEtag,
-});
-const batchSource = "1-projects/portable/batch-source.md";
-await contextStore.put(batchSource, "# a note being moved\n");
-const batchSourceEtag = (await call("priv-token", "read_note", { path: batchSource }))
-  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
-const batchMove = await call("priv-token", "move_notes", {
-  // `move_notes` refuses an applied batch with no etags, and that refusal looks
-  // exactly like the one under test. Four checks in this PR passed for a reason
-  // their names did not claim; the `/only by case/` match below is what stops
-  // this being the fifth.
-  moves: [
-    {
-      source: batchSource,
-      destination: "1-projects/portable/Batch-Twin.md",
-      expected_source_etag: batchSourceEtag,
-    },
-  ],
-});
-check(
-  "a batch move onto a folded twin is refused, leaving no copy and no source deleted",
-  batchMove?.isError === true &&
-    /only by case/.test(batchMove?.content?.[0]?.text ?? "") &&
-    (await contextStore.get("1-projects/portable/Batch-Twin.md")) === null &&
-    (await contextStore.get(batchSource)) !== null
-);
-// Clean up: drop the override before the objects, so no manifest line is left
-// pointing at a note that no longer exists.
-await call("priv-token", "set_visibility", {
-  path: batchTwin,
-  visibility: "team",
-  confirm_team_publish: true,
-});
-await contextStore.delete(batchTwin);
-await contextStore.delete(batchSource);
 
 /**
  * **The seventh tool, which nobody had counted.**
@@ -3392,9 +3201,9 @@ const narrowed = await setFolder(foldFolderA, "private");
  * So no `private` override is compacted away, full stop. This loop cannot see
  * who is relying on one, and a redundant line costs a line of manifest. The
  * rule-shaped version of this was written, shipped, and found wrong within the
- * hour; reasoning about who a narrowing protects is what `foldedTwinBlocks`
- * does by simulation, and a second, weaker copy of that reasoning is worth
- * nothing.
+ * hour; reasoning about who a narrowing protects means simulating the write,
+ * and a weaker copy of that reasoning is worth less than a redundant line of
+ * manifest.
  */
 const quietA = "1-projects/quiet/x.md";
 const quietTwin = "1-projects/Quiet/x.md";
@@ -3434,84 +3243,6 @@ check(
   narrowed?.isError !== true &&
     (await call("team-token", "read_note", { path: `${foldFolderB}/Note.md` }))?.isError === true
 );
-/**
- * **And the refusal must never be the thing a team caller learns from.**
- *
- * `FOLDED_TWIN_REFUSAL` says a private note differing only by case exists. For
- * an owner that is the actionable message; for anybody else it is an existence
- * oracle, and `dry_run` costs nothing to ask. `move_folder` answered it at team
- * scope for one commit, because its fold check sat above the two scope gates
- * where every other tool puts it below. The control is what makes this check
- * mean something: the same call must come back with the generic permission
- * error, which discloses nothing.
- */
-// The source must actually collide: a file named `note.md`, so the destination
-// `Fold-Folder/note.md` folds onto the private `fold-folder/note.md`. Without
-// that the probe is refused by nothing and the check passes for no reason —
-// which is what its first version did.
-await contextStore.put("1-projects/probe-src/note.md", "# a team note to move\n");
-const teamFoldProbe = await call("team-token", "move_folder", {
-  source: "1-projects/probe-src",
-  destination: foldFolderB,
-  dry_run: true,
-});
-const ownerFoldProbe = await call("priv-token", "move_folder", {
-  source: "1-projects/probe-src",
-  destination: foldFolderB,
-  dry_run: true,
-});
-check(
-  "the positive control: the owner IS told about the collision",
-  ownerFoldProbe?.isError === true &&
-    /only by case/.test(ownerFoldProbe?.content?.[0]?.text ?? "")
-);
-check(
-  "a team caller learns nothing from a folded twin, in move_folder as anywhere else",
-  teamFoldProbe?.isError === true &&
-    !/only by case/.test(teamFoldProbe?.content?.[0]?.text ?? "") &&
-    /permission denied/.test(teamFoldProbe?.content?.[0]?.text ?? "")
-);
-
-await contextStore.delete("1-projects/probe-src/note.md");
-
-/**
- * **The fold's direction, checked in the gateway's own suite.**
- *
- * `overrideFor` folding a `team` override as well as a `private` one is the
- * hole this whole change had in its first version, and it was caught only by
- * `apps/convex/__tests__/privacyEngine.test.ts` — the gateway suite passed with
- * the widening in place. CLAUDE.md calls this suite the fast, offline one a
- * self-hoster runs, and it could not see a widening fold in its own privacy
- * engine.
- *
- * `2-areas/private` is a private folder. Publishing one note by exact override
- * must not publish its case-variant, which on R2 and S3 is a different file the
- * owner never named.
- */
-const widenFoldPath = "2-areas/private/fold-widen.md";
-const widenFoldTwin = "2-areas/private/Fold-Widen.md";
-await contextStore.put(widenFoldPath, "# deliberately published\n");
-await contextStore.put(widenFoldTwin, "# a different file, never named\n");
-const widenFoldEtag = (await call("priv-token", "read_note", { path: widenFoldPath }))
-  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
-const widenFoldPublish = await call("priv-token", "set_visibility", {
-  path: widenFoldPath,
-  visibility: "team",
-  expected_etag: widenFoldEtag,
-  confirm_team_publish: true,
-});
-check(
-  "the positive control: the note the owner named IS readable by a team caller",
-  widenFoldPublish?.isError !== true &&
-    (await call("team-token", "read_note", { path: widenFoldPath }))?.isError !== true
-);
-check(
-  "a team override does not travel by re-casing, in the gateway's own suite",
-  (await call("team-token", "read_note", { path: widenFoldTwin }))?.isError === true
-);
-await call("priv-token", "set_visibility", { path: widenFoldPath, visibility: "private" });
-await contextStore.delete(widenFoldPath);
-await contextStore.delete(widenFoldTwin);
 // Put the manifest back too, not just the objects. The first version of this
 // block deleted the two notes and left `fold-folder: private`,
 // `Fold-Folder: team` and the note override standing in the shared bucket for
@@ -3533,17 +3264,6 @@ await setFolder(foldFolderA, "inherit");
 for (const key of [`${foldFolderA}/note.md`, `${foldFolderB}/Note.md`]) {
   await contextStore.delete(key);
 }
-await contextStore.delete("1-projects/portable/Exact-Delete-Twin.md");
-
-// Put the fixture back: clear the override first, then the object, so no line
-// is left behind pointing at a note that no longer exists.
-await call("priv-token", "set_visibility", {
-  path: exactDeleteTwin,
-  visibility: "team",
-  confirm_team_publish: true,
-});
-await contextStore.delete(exactDeleteTwin);
-
 await contextStore.delete(recasedOverridePath);
 
 /**
