@@ -223,3 +223,61 @@ describe("machine routes are unaffected by the crawler branch", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * WHAT THE EDGE MAKES OF `openToAnyone`, WHICH NOTHING WAS CHECKING.
+ *
+ * `shareTitle` reads the field strictly — `=== true` — and its comment says
+ * why: an upstream older than this deployment, newer than it, or compromised
+ * must send the reader to sign in rather than promise them an open door. That
+ * is the direction the whole file falls in.
+ *
+ * Nothing tested it. Relaxing that one expression to `!== false` passed all 252
+ * checks, and would have made every share card — including the ones for links
+ * that genuinely need an account — tell strangers "Open it — no account
+ * needed". The `previewForShare` default is caught incidentally by two
+ * description assertions; the *parsing* was not guarded at all, which is the
+ * half an upstream change actually moves.
+ *
+ * Driven through the real worker with a stubbed upstream, so it covers the
+ * wiring as well as the expression.
+ */
+describe("the edge only promises an open link when upstream says so", () => {
+  const OPEN = /no account needed/i;
+  const SIGN_IN = /sign in to read it/i;
+  const TOKEN = "a".repeat(64);
+
+  function upstreamReturns(payload: unknown): void {
+    fetchSpy.mockImplementation(
+      () =>
+        new Response(JSON.stringify(payload), {
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+  }
+
+  it("says no account is needed when upstream says exactly true", async () => {
+    upstreamReturns({ title: "Chapter transition", openToAnyone: true });
+    const html = await (await get(`/s/${TOKEN}`, CRAWLER_UAS.Slackbot)).text();
+    expect(html).toMatch(OPEN);
+  });
+
+  it.each([
+    ["the field is absent", { title: "Chapter transition" }],
+    ["it is false", { title: "Chapter transition", openToAnyone: false }],
+    ["it is a truthy non-boolean", { title: "Chapter transition", openToAnyone: "yes" }],
+    ["it is 1", { title: "Chapter transition", openToAnyone: 1 }],
+    ["it is null", { title: "Chapter transition", openToAnyone: null }],
+  ])("asks for a sign-in when %s", async (_why, payload) => {
+    upstreamReturns(payload);
+    const html = await (await get(`/s/${TOKEN}`, CRAWLER_UAS.Slackbot)).text();
+    expect(html, "an unknown must not become a promise of access").not.toMatch(OPEN);
+    expect(html).toMatch(SIGN_IN);
+  });
+
+  it("a title-less share is the generic card whatever the flag says", async () => {
+    upstreamReturns({ title: null, openToAnyone: true });
+    const html = await (await get(`/s/${TOKEN}`, CRAWLER_UAS.Slackbot)).text();
+    expect(html).not.toMatch(OPEN);
+  });
+});

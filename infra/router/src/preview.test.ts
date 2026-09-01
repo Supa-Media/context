@@ -490,6 +490,47 @@ describe("share links: the one card that may say something", () => {
     },
   );
 
+  /**
+   * AND THE CORPUS ITSELF IS PINNED, BECAUSE IT IS THE ONLY THING HOLDING THE
+   * TWO COPIES TOGETHER.
+   *
+   * Both suites run it — sabotage either parser from an anchor to a search and
+   * six checks fail on each side — but nothing was checking its *size*.
+   * Deleting all twelve negative cases left both suites green at their previous
+   * counts, and the concrete hole that leaves is measurable: relaxing
+   * `^([A-Za-z0-9][A-Za-z0-9-]*)` to `^([A-Za-z0-9-]+)` in one copy passed
+   * every check, because the corpus had `-<64hex>` and not `--<64hex>`.
+   *
+   * An enumeration nobody checks the size of is a list that shrinks, which is
+   * the discipline `UNAUTHENTICATED_HTTP_ROUTES` and `CREDENTIAL_BARRIERS`
+   * already follow one repository over. The floor is asserted rather than the
+   * exact count, so adding a case is free and removing one is not.
+   */
+  it("the shared corpus keeps its negative cases", () => {
+    const cases = shareSegmentCases.cases;
+    const refused = cases.filter((c) => c.token === null);
+    expect(cases.length, "cases were removed from the corpus").toBeGreaterThanOrEqual(25);
+    expect(refused.length, "the refusals are the half that guards the charset").toBeGreaterThanOrEqual(18);
+
+    // Each hazard by name, because a count alone is satisfied by twenty copies
+    // of one shape. These are the classes a divergence would hide in.
+    for (const [hazard, matches] of [
+      ["uppercase hex", (c: string) => /[A-F]/.test(c)],
+      // A hex run of the wrong length, wherever in the segment it sits — the
+      // corpus spells these with a slug in front.
+      ["a wrong length", (c: string) => /(?:^|-)[0-9a-f]{63}$|(?:^|-)[0-9a-f]{65}$/.test(c)],
+      ["a leading separator", (c: string) => c.startsWith("-")],
+      ["a percent escape", (c: string) => c.includes("%")],
+      ["a non-ASCII separator", (c: string) => /[^\x00-\x7F]/.test(c)],
+      ["a path separator", (c: string) => c.includes("/") || c.includes(".")],
+    ] as const) {
+      expect(
+        refused.some((c) => matches(c.segment)),
+        `the corpus lost its case for ${hazard}`,
+      ).toBe(true);
+    }
+  });
+
   it("a title reaches the card", () => {
     const meta = previewForShare("Chapter transition");
     expect(meta.title).toBe("Chapter transition — Context");
