@@ -266,6 +266,28 @@ describe("addresses", () => {
     expect(addrSpec('"a\\"b, c" <q@x.test>')).toBe("q@x.test");
     expect(addrSpec("Doe, Jane <jane@x.test>")).toBe("");
   });
+
+  /**
+   * …and a backslash OUTSIDE the quotes escapes nothing.
+   *
+   * The first version of the quote-aware scan honoured `\\` everywhere, which
+   * RFC 5322 does not: a quoted-pair is only meaningful inside a
+   * quoted-string (or a comment). So one character defeated the list refusal
+   * entirely --
+   *
+   *     <attacker@evil.test>\, <alice@allowed.test>   ->  alice@allowed.test
+   *
+   * -- a genuine two-mailbox `From:` whose comma the scan skipped, resolving
+   * to the last pair, which the sender chose. Not an escalation while `From:`
+   * is attacker-typed and the allow-list is a filter rather than a gate, and
+   * still a one-character bypass of a control this file documents as holding.
+   */
+  it("does not let a backslash outside the quotes hide the comma", () => {
+    expect(addrSpec("<attacker@evil.test>\\, <alice@allowed.test>")).toBe("");
+    expect(addrSpec("alice@allowed.test\\, attacker@evil.test")).toBe("");
+    // Still an escape where RFC 5322 says it is one.
+    expect(addrSpec('"a\\", b" <q@x.test>')).toBe("q@x.test");
+  });
 });
 
 describe("malformed and hostile structures fail closed", () => {

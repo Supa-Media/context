@@ -829,6 +829,30 @@ export function parseContentType(value: string): ContentType {
  * is a legal header anyone may send, and rendering the display name as the
  * sender is how a capture ends up looking like it came from someone the owner
  * trusts. Callers get the address; ./note.ts renders only the address.
+ *
+ * **This does not implement RFC 5322 CFWS, and two consequences are known and
+ * open.** A comment is `(...)` and may appear after an addr-spec; the scan
+ * below does not skip one, so:
+ *
+ *     alice@allowed.test (note <mallory@evil.test>)  ->  mallory@evil.test
+ *     alice@allowed.test (Jane Doe)                  ->  ""
+ *
+ * The first is a part of the header that means nothing influencing the
+ * decision, which is exactly what `parseEmailAddress`'s docstring says must
+ * never happen. It is not an escalation today for the reason recorded in
+ * ../policy.ts -- `From:` is attacker-typed and the allow-list is a filter
+ * rather than a boundary, so the attacker already has free choice of what goes
+ * there -- and `auth.ts`'s DMARC alignment fails closed in both directions if
+ * this parser and Cloudflare's disagree about the domain. The second is a
+ * plain deliverability loss: `user@host (Real Name)` is what mailx, cron and a
+ * good deal of system mail emit, and `senderIsAllowed` refuses an unparseable
+ * address before it consults `allowAnySender`, so those are dropped even under
+ * "anyone".
+ *
+ * Both want the same fix -- strip comments before the bracket search, honouring
+ * nesting and quoting -- and that is parser surgery in the one function whose
+ * output is the allow-list's input, so it belongs in its own change with its
+ * own review rather than riding along with a fix that was ready.
  */
 export function addrSpec(value: string): string {
   // **Not decoded, and the last pair rather than the first.** Both halves were
@@ -857,10 +881,16 @@ export function addrSpec(value: string): string {
   // `ingestionPolicy.test.ts` and lists under Accepted in `parseEmailAddress`'s
   // docstring. An unquoted `Doe, Jane <j@x.test>` stays refused: it genuinely
   // parses as two mailboxes.
+  //
+  // A backslash escapes only INSIDE the quotes, because that is the only place
+  // RFC 5322 has a quoted-pair. Honouring it everywhere -- which the first
+  // version did -- let one character defeat the refusal outright:
+  // `<attacker@evil.test>\, <alice@allowed.test>` is two mailboxes whose comma
+  // the scan skipped, resolving to the last pair, which the sender chose.
   let quoted = false;
   for (let at = 0; at < raw.length; at += 1) {
     const ch = raw[at];
-    if (ch === "\\") {
+    if (quoted && ch === "\\") {
       at += 1;
       continue;
     }
