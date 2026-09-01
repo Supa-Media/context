@@ -57,6 +57,8 @@ export const SCOPE_CAPTURE = "context:capture";
  * a person is asked about separately and the one a client's request cannot
  * decide.
  */
+export const SCOPE_PRIVATE = "context:private";
+
 /**
  * The longest an access token a gateway asks us to record may live.
  *
@@ -89,8 +91,6 @@ export function clampAccessTokenExpiry(requested: number | undefined, now: numbe
   if (!Number.isFinite(requested)) return now + MAX_ACCESS_TOKEN_TTL_MS;
   return Math.min(requested, now + MAX_ACCESS_TOKEN_TTL_MS);
 }
-
-export const SCOPE_PRIVATE = "context:private";
 
 /**
  * Everything `/oauth/authorize` will accept and both discovery documents
