@@ -731,3 +731,136 @@ describe("a readable team link", () => {
     expect(html).toContain("&lt;script&gt;");
   });
 });
+
+/**
+ * WHAT A FOLDER LINK SAYS IS INSIDE IT, AT THE EDGE.
+ *
+ * The control plane decides *which* names may be published — only what a `team`
+ * reader may see, only for a folder the owner explicitly linked — and bounds
+ * them twice on the way out. This file bounds them a third time, for the reason
+ * `previewForShare`'s title bound is applied here as well: **an edge that
+ * trusts its upstream to have been careful has no bound at all.**
+ *
+ * What must not change: an absent title is still the frozen card byte for byte,
+ * whatever else the upstream sent; the canonical URL is still the site root;
+ * `noindex` still survives.
+ */
+describe("previewForNote: a folder link names what is inside it", () => {
+  const TOKEN = "a".repeat(64);
+
+  it("puts the contents in the description", () => {
+    const meta = previewForNote("Transition", TOKEN, [
+      "interviews/",
+      "overview.md",
+    ]);
+    expect(meta.description).toContain("interviews/");
+    expect(meta.description).toContain("overview.md");
+    expect(meta.description).toMatch(/sign in/i);
+  });
+
+  it("a note's card is unchanged, word for word", () => {
+    expect(previewForNote("Chapter transition", TOKEN, [])).toEqual(
+      previewForNote("Chapter transition", TOKEN),
+    );
+  });
+
+  /**
+   * **THE test, and the one the whole feature has to survive.** Unlinked,
+   * revoked, expired, title switched off, control plane unreachable — every one
+   * arrives as a falsy title, and every one renders the frozen card. Contents
+   * arriving without a title publish nothing: a title is what licenses a card
+   * to say anything at all, and this is the shape a compromised or
+   * newer-than-this-deployment upstream would take.
+   */
+  it.each([[null], [undefined], [""], ["   "]])(
+    "contents with no title (%p) are still the frozen card, byte for byte",
+    (title) => {
+      expect(
+        renderPreviewHtml(previewForNote(title, TOKEN, ["overview.md", "notes/"])),
+      ).toBe(renderPreviewHtml(GENERIC_PREVIEW));
+    },
+  );
+
+  it("never names more than three, whatever the upstream sent", () => {
+    const meta = previewForNote("Transition", TOKEN, [
+      "one.md",
+      "two.md",
+      "three.md",
+      "four.md",
+      "five.md",
+    ]);
+    expect(meta.description).not.toContain("four.md");
+    expect(meta.description).not.toContain("five.md");
+  });
+
+  it("truncates a name rather than dropping it", () => {
+    const meta = previewForNote("Transition", TOKEN, [`${"x".repeat(200)}.md`]);
+    expect(meta.description).toContain("x".repeat(40));
+    expect(meta.description).not.toContain("x".repeat(41));
+  });
+
+  /**
+   * This is parsed JSON off the wire, so "an array of strings" is a claim and
+   * not a fact. An object that reached `join` would be `[object Object]` on
+   * somebody's card.
+   */
+  it.each([
+    [[1, 2, 3]],
+    [[{ name: "overview.md" }]],
+    [[null, undefined]],
+    ["not an array" as unknown as unknown[]],
+    [[""]],
+  ])("ignores an upstream that answered with %p", (children) => {
+    const meta = previewForNote("Transition", TOKEN, children as unknown[]);
+    expect(meta).toEqual(previewForNote("Transition", TOKEN));
+  });
+
+  /**
+   * A filename comes out of a bucket we do not own. A newline inside an
+   * `og:description` renders differently in every unfurler and escaping has
+   * nothing to escape it *to*, so it is stripped rather than encoded — the same
+   * treatment the control plane gives it, applied again here.
+   */
+  it("strips control characters out of a name", () => {
+    const hostile = `over${String.fromCharCode(10)}view${String.fromCharCode(27)}.md`;
+    const meta = previewForNote("Transition", TOKEN, [hostile]);
+    expect(meta.description).toContain("over view .md");
+    expect(meta.description).not.toMatch(/\p{Cc}/u);
+  });
+
+  it("a hostile name cannot break out of the markup either", () => {
+    const html = renderPreviewHtml(
+      previewForNote("Transition", TOKEN, ["</title><script>alert(1)</script>"]),
+    );
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("still refuses everything the frozen card refuses", () => {
+    const html = renderPreviewHtml(
+      previewForNote("Transition", "b".repeat(64), ["overview.md"]),
+    );
+    expect(html).toContain('<link rel="canonical" href="https://context.lc/">');
+    expect(meta(html, "name", "robots")).toEqual(["noindex, nofollow"]);
+    expect(html).not.toContain("seyi");
+    expect(html).not.toContain("1-projects");
+  });
+
+  /**
+   * The card image's URL carries a hash of everything drawn on it, because the
+   * Workers cache is per-datacenter with no global purge — a changed URL is the
+   * only invalidation there is. A folder whose contents changed must ask for a
+   * different one.
+   */
+  it("changing the contents changes the card URL", () => {
+    const before = previewForNote("Transition", TOKEN, ["overview.md"]).imageUrl;
+    expect(previewForNote("Transition", TOKEN, ["timeline.md"]).imageUrl).not.toBe(
+      before,
+    );
+    expect(previewForNote("Transition", TOKEN, ["overview.md"]).imageUrl).toBe(before);
+    // …and a note's URL is exactly what it was before folders had contents.
+    expect(previewForNote("Transition", TOKEN, []).imageUrl).toBe(
+      previewForNote("Transition", TOKEN).imageUrl,
+    );
+  });
+});

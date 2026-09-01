@@ -74,7 +74,11 @@ import {
   type Invitee,
 } from "./lib/invitees";
 import { isPlumbing } from "./lib/privacy";
-import { normalizePreviewTitle, titleFromPath } from "./lib/shareTitle";
+import {
+  boundPreviewChildren,
+  normalizePreviewTitle,
+  titleFromPath,
+} from "./lib/shareTitle";
 import { scheduleCardRender } from "./shareCard";
 import { getMembership, requireWorkspaceRole } from "./lib/workspaceAuth";
 
@@ -1213,15 +1217,50 @@ async function readThroughShare(
  * capability. This must never return a *personal* share's token, which is a
  * locator whose holder the owner chose; the query below only ever looks at
  * `members` rows.
+ *
+ * ## The folder's contents, and why they are on the row rather than in a bucket
+ *
+ * A link to a folder that unfurls as one word is barely better than the bare
+ * branding it replaced, so a folder link also carries two or three of the
+ * things inside it. Four properties hold that, and each is somewhere else:
+ *
+ *  - **They were filtered at `team` scope by the privacy engine**, in
+ *    `snapshotChildren`, so a private note and a private subfolder never
+ *    reached this row. Nothing counts what was dropped — a total over the
+ *    folder rather than over the visible set is an existence oracle by
+ *    subtraction.
+ *  - **This query still reads no bucket.** It is a `query`; it cannot. The
+ *    listing was taken once, when the owner made or refreshed the link, for the
+ *    reason `lib/shareTitle.ts` refuses to read a title from a note: an unfurl
+ *    is an anonymous, uncontrolled, endlessly-retried request, and making one
+ *    spend a LIST against the customer's own bucket is not a cost they agreed
+ *    to. `__tests__/sharePreview.test.ts` proves a preview resolves with no
+ *    storage connected at all, which is what keeps this from regressing
+ *    quietly.
+ *  - **It is a listing, never a body.** Keys are metadata, the way a path is;
+ *    a body would be the thing non-negotiable #1 keeps out of the control
+ *    plane.
+ *  - **Empty is the same answer as every other absence.** A note, an empty
+ *    folder, a folder whose contents are all private, and a revoked link all
+ *    return `[]`.
  */
 export const previewForNote = query({
   args: { slug: v.string(), path: v.string() },
   returns: v.object({
     title: v.union(v.string(), v.null()),
     cardToken: v.union(v.string(), v.null()),
+    /**
+     * Two or three team-visible things inside a linked **folder**, or empty.
+     *
+     * Empty for every absence this query has, and for every folder with nothing
+     * a `team` reader may see — so one absence still has one shape, and a
+     * crawler cannot tell "revoked" from "never linked" from "all private" from
+     * "a note rather than a folder".
+     */
+    children: v.array(v.string()),
   }),
   handler: async (ctx, args) => {
-    const nothing = { title: null, cardToken: null };
+    const nothing = { title: null, cardToken: null, children: [] };
 
     const name = await findName(ctx, args.slug.replace(/^@/, "").toLowerCase());
     if (name?.workspaceId === undefined) return nothing;
@@ -1290,7 +1329,17 @@ export const previewForNote = query({
     if (!share.titleInPreview) return nothing;
     if (share.previewTitle === undefined) return nothing;
 
-    return { title: share.previewTitle, cardToken: share.token };
+    return {
+      title: share.previewTitle,
+      cardToken: share.token,
+      // **Bounded again on the way out, over a value this deployment wrote.**
+      // Not paranoia about the row: the names in it came out of a bucket we do
+      // not own, through a listing that may have run under an older bound, and
+      // this is the last code that touches them before they are served to an
+      // anonymous reader. The title is bounded twice for the same reason, and
+      // the router bounds both a third time.
+      children: boundPreviewChildren(share.previewChildren ?? []),
+    };
   },
 });
 

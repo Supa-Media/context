@@ -124,6 +124,83 @@ describe("the card's shape", () => {
     walk(cardElement("Chapter transition"), "root");
     expect(seen).toEqual([]);
   });
+
+  /** …and the same walk over the folder card, which adds three elements. */
+  test("the folder card lays out under the same rule", () => {
+    const seen: string[] = [];
+    const walk = (node: unknown, path: string): void => {
+      if (node === null || typeof node !== "object") return;
+      const props = (node as { props?: Record<string, unknown> }).props;
+      if (props === undefined) return;
+      const children = props.children;
+      const style = (props.style ?? {}) as Record<string, unknown>;
+
+      if (children !== undefined && typeof children !== "string") {
+        if (style.display !== "flex") seen.push(path);
+        const list = Array.isArray(children) ? children : [children];
+        list.forEach((child, index) => walk(child, `${path}/${index}`));
+      }
+    };
+    walk(cardElement("Transition", ["interviews/", "overview.md"]), "root");
+    expect(seen).toEqual([]);
+  });
+});
+
+/**
+ * WHAT A FOLDER'S CARD DRAWS.
+ *
+ * The mark and the contents appear **together or not at all**, and that is a
+ * decision rather than a convenience: a folder with nothing team-visible inside
+ * it draws exactly what a note draws, so a card never says "this is a folder,
+ * and there is nothing in it for you". One absence, the same rule the query
+ * behind it follows.
+ */
+describe("the folder card", () => {
+  test("no contents is the ordinary card, element for element", () => {
+    expect(JSON.stringify(cardElement("Transition", []))).toBe(
+      JSON.stringify(cardElement("Transition")),
+    );
+  });
+
+  test("contents bring a folder mark and the names", () => {
+    const plain = JSON.stringify(cardElement("Transition"));
+    const folder = JSON.stringify(
+      cardElement("Transition", ["interviews/", "overview.md"]),
+    );
+
+    expect(folder).not.toBe(plain);
+    // One text node, joined exactly as the `og:description` joins it, so the
+    // picture and the text cannot say different things about one folder.
+    expect(folder).toContain("interviews/ · overview.md");
+    // The mark is two boxes rather than a glyph, so it needs no font coverage —
+    // an icon drawn from the bundled font would be tofu for the same titles
+    // `isRenderableTitle` already refuses, written permanently onto a CDN.
+    expect(folder).not.toContain("\u25a1");
+    expect(folder).toMatch(/borderTopLeftRadius/);
+  });
+
+  /**
+   * This module draws what it is handed and derives no bound of its own. The
+   * bounds live in `lib/shareTitle.ts`, are re-applied in `previewForNote`, and
+   * are applied a third time at the edge — a drawing function that re-decided a
+   * security question would be a fourth place for it to be answered wrong.
+   */
+  test("it draws what it is given, and invents nothing", () => {
+    const drawn = JSON.stringify(cardElement("Transition", ["a", "b", "c"]));
+    expect(drawn).toContain("a · b · c");
+    // No count, no "and 4 more". A total is the addition this card must not
+    // grow: over the folder rather than over the visible set it is an existence
+    // oracle by subtraction.
+    expect(drawn).not.toMatch(/more/i);
+    expect(drawn).not.toMatch(/\+\d/);
+  });
+
+  /** A child's own text reaches the tree untouched, exactly as the title does. */
+  test("a name reaches the tree exactly as given", () => {
+    expect(JSON.stringify(cardElement("T", ["Café — it’s.md"]))).toContain(
+      "Café — it’s.md",
+    );
+  });
 });
 
 describe("type size", () => {

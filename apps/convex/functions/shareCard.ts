@@ -32,9 +32,10 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction, internalMutation, internalQuery } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
-import type { MutationCtx } from "../_generated/server";
+import type { ActionCtx, MutationCtx } from "../_generated/server";
 import { cardImageLeaf } from "./lib/cardKey";
 import { isRenderableTitle } from "./lib/cardCoverage";
+import { boundPreviewChildren, previewChildrenFrom } from "./lib/shareTitle";
 
 /**
  * Draw a share's card and put it in the owner's bucket.
@@ -55,6 +56,12 @@ export const renderShareCard = internalAction({
     // Revoked, deleted, or the title switched off between scheduling and now.
     if (share === null) return null;
 
+    // **The listing happens here, before the renderability check, and that
+    // order is deliberate.** These names go into the link's *description* as
+    // well as into the picture, so a title the bundled font cannot draw must
+    // not silently cost the folder its listing as well as its card.
+    const children = await snapshotChildren(ctx, args.shareId, share);
+
     // Checked before spending a render, and before writing bytes nobody should
     // see: satori draws an uncovered glyph as tofu rather than failing, so a
     // card for a title the bundled font cannot draw is a broken image that
@@ -65,6 +72,13 @@ export const renderShareCard = internalAction({
     try {
       bytes = await ctx.runAction(internal.functions.cardRender.renderCard, {
         title: share.title,
+        // **Filtered for the picture only, never for the stored list.** A child
+        // the font cannot draw is dropped from the image — the same refusal the
+        // title gets, for the same tofu — while the description keeps naming
+        // it, because text has no coverage problem. The two are allowed to
+        // differ here and nowhere else: the object's name is computed from the
+        // stored list on both sides, so the cache key cannot drift.
+        children: children.filter((name) => isRenderableTitle(name)),
       });
     } catch {
       // A missing wasm install, or a renderer that threw. The share keeps
@@ -72,7 +86,7 @@ export const renderShareCard = internalAction({
       return null;
     }
 
-    const leaf = cardImageLeaf(share.token, share.title);
+    const leaf = cardImageLeaf(share.token, share.title, children);
 
     try {
       await ctx.runAction(internal.functions.files.runFileOperation, {
@@ -112,6 +126,19 @@ export const cardSubject = internalQuery({
       workspaceId: v.id("workspaces"),
       token: v.string(),
       title: v.string(),
+      /** What to list, for a folder link. Never returned to anybody but the action. */
+      entryPath: v.string(),
+      /**
+       * Whether this is a **team** link.
+       *
+       * Only a team link is reachable by `previewForNote`, which is the one
+       * place a child listing is ever published — so a personal share must not
+       * spend a listing on the customer's bucket to store names nothing will
+       * ever read.
+       */
+      teamLink: v.boolean(),
+      /** What is stored now, so a listing that fails leaves it standing. */
+      children: v.array(v.string()),
     }),
   ),
   handler: async (ctx, args) => {
@@ -125,7 +152,98 @@ export const cardSubject = internalQuery({
       workspaceId: share.workspaceId,
       token: share.token,
       title: share.previewTitle,
+      entryPath: share.entryPath,
+      teamLink: share.recipientKind === "members",
+      children: boundPreviewChildren(share.previewChildren ?? []),
     };
+  },
+});
+
+/**
+ * Take the folder's listing, store it, and answer with what a card should draw.
+ *
+ * ## Absent is not empty, and the difference is the whole function
+ *
+ * A listing that **succeeds with nothing visible** is an answer: the owner made
+ * everything in there private, and the stored list must be cleared or the card
+ * keeps naming notes they took back. A listing that **fails** — no bucket, a
+ * revoked key, a store that is down — knows nothing, and clearing on it would
+ * let a flaky afternoon quietly strip the cards off every folder link in the
+ * context. So the first records `[]` and the second leaves what stands, which
+ * is the rule `recordVerification` follows for the note census one layer up.
+ *
+ * ## What it does not spend
+ *
+ * Nothing at all for a personal share, whose card is never reached by the
+ * guessable address this list is published to. That one is a guard, and it is
+ * tested: `checkSharePath` already refuses a personal share over anything but a
+ * `.md` path, so it cannot be reached through the API — the test patches the
+ * row, because the version that created one through `createShare` stayed green
+ * when the line was deleted.
+ *
+ * And nothing for a `.md` path, which cannot have children. **That one is a
+ * cost and not a guard, and is labelled so rather than left to read as one:**
+ * deleting it leaves the whole suite green — measured — because a listing of a
+ * note returns nothing anyway. What it buys is that the common case, a team
+ * link to a note, is exactly as cheap as it was before this feature existed. A
+ * folder somebody named `notes.md` gets no contents, which is the same answer
+ * an empty folder gets.
+ */
+async function snapshotChildren(
+  ctx: ActionCtx,
+  shareId: Id<"noteShares">,
+  share: {
+    workspaceId: Id<"workspaces">;
+    entryPath: string;
+    teamLink: boolean;
+    children: string[];
+  },
+): Promise<string[]> {
+  if (!share.teamLink) return [];
+  if (share.entryPath.toLowerCase().endsWith(".md")) return [];
+
+  let children: string[];
+  try {
+    const listing = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: share.workspaceId,
+      // **`team`, and it is the security boundary rather than a formality.**
+      // `listFolder` runs `canSee` and `folderVisibleAtScope` at this scope, so
+      // a private note and a private subfolder are gone before anything here
+      // sees them. `private` would put the owner's own hidden notes on a card
+      // served to an anonymous crawler.
+      scope: "team",
+      operation: { kind: "list", path: share.entryPath },
+    });
+    if (listing.kind !== "listing") return share.children;
+    children = previewChildrenFrom(listing.entries);
+  } catch {
+    // Knows nothing. Leave whatever is stored standing.
+    return share.children;
+  }
+
+  await ctx.runMutation(internal.functions.shareCard.recordPreviewChildren, {
+    shareId,
+    children,
+  });
+  return children;
+}
+
+/** Store what a folder link's card names. Bounded again on the way in. */
+export const recordPreviewChildren = internalMutation({
+  args: { shareId: v.id("noteShares"), children: v.array(v.string()) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const share = await ctx.db.get(args.shareId);
+    // Revoked while the listing was in flight.
+    if (share === null || share.status !== "active") return null;
+    const bounded = boundPreviewChildren(args.children);
+    await ctx.db.patch(args.shareId, {
+      // `undefined` rather than `[]` for "nothing", so one absence has one
+      // representation on the row the way it has one in every answer built
+      // from it.
+      previewChildren: bounded.length === 0 ? undefined : bounded,
+    });
+    return null;
   },
 });
 
@@ -229,7 +347,16 @@ export const cardLocation = internalQuery({
      * handed.
      */
     if (share.previewTitle === undefined || share.previewTitle.trim() === "") return null;
-    if (share.cardImageLeaf !== cardImageLeaf(share.token, share.previewTitle)) return null;
+    if (
+      share.cardImageLeaf !==
+      cardImageLeaf(
+        share.token,
+        share.previewTitle,
+        boundPreviewChildren(share.previewChildren ?? []),
+      )
+    ) {
+      return null;
+    }
 
     return { workspaceId: share.workspaceId, leaf: share.cardImageLeaf };
   },

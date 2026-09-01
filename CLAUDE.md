@@ -470,6 +470,106 @@ and restated in `infra/router/src/preview.ts` (which only saves the round trip).
 Two copies of a rule are held here the way two copies are always held: by
 running both against the same shapes, not by trusting the comment between them.
 
+### A folder link may also name two or three things inside it
+
+The section above is unchanged, including the sentence that costs
+`shareNotePreview` the folder: a name the product wrote is refused, contents and
+all. This is a third rule beside it, and it is about a different field.
+
+`/console/@seyi?note=1-projects/transition` unfurled with one word — the
+folder's own name — and a card that says one word is barely better than the bare
+branding it replaced. A folder link now carries a folder mark and up to three of
+the **team-visible** notes and subfolders inside it. That is the most sensitive
+string this product publishes: the names of somebody's notes, to an anonymous
+crawler, at an address anybody can type. Seven things hold it, and each fails a
+test if removed.
+
+- **Only a folder the owner explicitly team-linked carries anything.** This is
+  not a new bound, it is the one `previewForNote` already ran on: a live
+  `members` row is required, so a folder nobody linked is byte-identical to one
+  that does not exist. Pressing Copy link is what writes the row.
+- **The names come from the privacy engine, not from a predicate written here.**
+  `snapshotChildren` calls `listFolder` at **`team`** scope — the same engine
+  the console and the gateway read through — so `canSee` and
+  `folderVisibleAtScope` have dropped every private note and every private
+  subfolder before `previewChildrenFrom` is called at all. A second filter would
+  be a second place for a visibility bug, which is the rule the two search
+  dialects already follow. Sabotage that one word to `private` and the wiring
+  test fails; the derivation tests do not, because they name the scope
+  themselves, and that gap is why the wiring test drives a real bucket end to
+  end.
+- **Nothing counts what was dropped.** Three names and no `+N more`. A total
+  over the *visible* set is safe; a total over the folder is an existence oracle
+  by subtraction — exactly what the console's note census is owner-only to
+  prevent, and what search computes its own totals from the visible list to
+  avoid. The temptation here is obvious and the answer is no: if a count is ever
+  wanted it comes from the same filtered array the names come from and from
+  nowhere else.
+- **An unfurl still reads no bucket.** The listing is taken once, when the owner
+  makes or refreshes the link, and stored on the row beside the title.
+  `previewForNote` is a `query` and therefore *cannot* reach storage, which is
+  the structural version of the argument `lib/shareTitle.ts` makes for the
+  title: a crawler is anonymous, uncontrolled and endlessly retrying, and making
+  one spend a request against the customer's own bucket on their quota is not a
+  cost they agreed to. `sharePreview.test.ts` proves a preview resolves with no
+  storage connected at all, so this cannot regress quietly.
+- **It is a listing and never a body.** Keys are metadata the way a path is;
+  note content in the control plane is what non-negotiable #1 forbids.
+- **Every absence is one absence.** Unknown, revoked, expired, title switched
+  off, never linked, a note, an empty folder, and a folder whose contents are
+  all private are the same `{ title: null, cardToken: null, children: [] }`, and
+  `previewForNote(null, null, [...])` at the edge renders GENERIC_PREVIEW byte
+  for byte. Contents arriving without a title publish nothing: the title is what
+  licenses a card to say anything, and that is the shape a compromised or
+  newer-than-this-deployment upstream would take.
+- **Bounded three times, and `noindex` survives.** Bounded where the list is
+  written, again where the row is read, and again at the edge — because an edge
+  that trusts its upstream to have been careful has no bound at all. A filename
+  is a key out of a bucket we do not own (Obsidian, rclone and the provider's
+  console all write keys directly), so control characters are stripped where the
+  value is taken rather than escaped where it is read: `escapeHtml` handles `<`
+  correctly and has nothing to escape a newline in an `og:description` *to*.
+
+**What this costs, stated rather than left to be rediscovered.** The contents
+are frozen at link time exactly as the title is, so a child that was `team` when
+the owner pressed Copy link stays on the card after they make it private.
+Re-linking re-takes the snapshot and revoking takes the card back — for *future*
+crawls only, because a card already unfurled cannot be retracted at all. Live
+re-checking would mean an anonymous crawler triggering a LIST against the
+customer's bucket on every unfurl, which is the cost the previous point refuses;
+that trade was made in that direction deliberately.
+
+**And the half of what was asked that was not built.** The link that started
+this was `/console/@seyi?note=3-resources`, and `3-resources` still unfurls as
+the generic card, contents and all. It is one of the five names `applyStructure`
+writes into every brain this product creates, so `isProductMandatedPath` refuses
+it — and the argument for that refusal gets *stronger* here rather than weaker.
+Naming what is inside a guessable address turns a handful of guesses per handle
+into a listing of somebody's notes, which is a categorically worse leak than the
+existence bit the refusal was written for. A folder the **owner** named is not
+guessable and carries its contents, which is the whole feature; the fix for the
+link he actually pasted is to link a folder he named, not to relax the list.
+Relaxing it "just for the title, not the contents" is the compromise to expect
+and it is worse than either end: it re-opens the oracle the list closes and
+delivers a card that says one word.
+
+`UNAUTHENTICATED_HTTP_ROUTES` is **still three**. The contents are a field on
+the route that already answers this address rather than a fourth route, so the
+argument that had to be made three times has not had to be made a fourth — and
+`structure.test.ts` now reads that handler back and pins its three fields by
+name, refusing a spread, because the failure to expect on an unauthenticated
+route is a field added upstream arriving here by a spread nobody looked at.
+
+One implementation detail is load-bearing enough to name. The card image's key
+is a hash of **everything drawn on it** (`cardSignature`), not of the title
+alone, in the control plane's copy and the router's mirror alike — otherwise a
+re-linked folder keeps serving a picture of the contents it used to have, since
+the Workers cache is per-datacenter and a changed URL is the only invalidation
+there is. An empty child list hashes *exactly* as the bare title did, so no
+existing note share renames its card and re-publishes an identical picture. The
+two copies are held the way two copies are always held here: by running both
+against the same shapes.
+
 ### Two MCP eras, two lists, and they must never be merged
 
 `2026-07-28` is not an increment on `2025-11-25`. It deletes the `initialize`

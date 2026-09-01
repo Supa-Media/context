@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { cardImageLeaf, hashTitle } from "../functions/lib/cardKey";
+import { cardImageLeaf, cardSignature, hashTitle } from "../functions/lib/cardKey";
 import { isRenderableTitle } from "../functions/lib/cardCoverage";
 import {
   addMember,
@@ -113,6 +113,61 @@ describe("where a card is stored", () => {
     for (const title of ["", "a", "Chapter transition", "Café — it’s…", "x".repeat(60)]) {
       expect(hashTitle(title)).toBe(routerModule.hashTitle(title));
     }
+  });
+
+  /**
+   * And so does the *signature*, which is what a folder card is hashed from.
+   *
+   * The two are mirrored rather than shared because `infra/router` is a
+   * dependency-free Worker that cannot import `apps/convex`. A disagreement
+   * would be a card the control plane writes at one key and the edge asks for
+   * at another — written once and never found — so the mirror is run rather
+   * than trusted, exactly as `hashTitle`'s is.
+   */
+  test("the card signature matches the router's, for the shapes a folder produces", async () => {
+    const routerModule = await import("../../../infra/router/src/preview");
+    const cases: Array<[string, string[]]> = [
+      ["Transition", []],
+      ["Transition", ["interviews/"]],
+      ["Transition", ["interviews/", "overview.md", "salaries.md"]],
+      ["", ["a"]],
+      ["Café — it’s…", ["naïve.md"]],
+    ];
+    for (const [title, children] of cases) {
+      expect(cardSignature(title, children)).toBe(
+        routerModule.cardSignature(title, children),
+      );
+    }
+  });
+
+  /**
+   * **No children must hash exactly as the bare title did.**
+   *
+   * Every note share in existence has an empty list, and a signature that
+   * folded an empty array in differently would rename all of their cards on the
+   * next render — a new URL for a picture that has not changed, fetched again
+   * by every unfurler that had already cached it.
+   */
+  test("no children is byte-identical to the title alone", () => {
+    const token = "f".repeat(64);
+    expect(cardSignature("Chapter transition")).toBe("Chapter transition");
+    expect(cardImageLeaf(token, "Chapter transition", [])).toBe(
+      cardImageLeaf(token, "Chapter transition"),
+    );
+  });
+
+  /**
+   * The other direction, and the one this signature exists for: a folder whose
+   * contents changed must name a *different* object, or the card keeps showing
+   * the notes it used to hold. The Workers cache is per-datacenter with no
+   * global purge, so a changed URL is the only invalidation there is.
+   */
+  test("changing what is inside names a different object", () => {
+    const token = "g".repeat(64);
+    const before = cardImageLeaf(token, "Transition", ["overview.md"]);
+    expect(cardImageLeaf(token, "Transition", ["timeline.md"])).not.toBe(before);
+    expect(cardImageLeaf(token, "Transition", [])).not.toBe(before);
+    expect(cardImageLeaf(token, "Transition", ["overview.md"])).toBe(before);
   });
 });
 
@@ -398,6 +453,48 @@ describe("serving a card", () => {
       "the stored leaf changed, so this test is no longer about a stale one",
     ).toBe(cardImageLeaf(token, "Q3 layoffs plan"));
 
+    expect(await locationFor(t, token)).toBeNull();
+  });
+
+  /**
+   * **The third half of the same comparison, and the one this feature added.**
+   *
+   * A folder card draws its contents as well as its name, so the title alone no
+   * longer identifies the picture. `cardLocation` recomputes the leaf from the
+   * title *and* the stored contents, and a stale one — written before the owner
+   * moved a note out of the folder — must answer `null` rather than keep
+   * serving a card that names notes the folder no longer holds.
+   *
+   * Sabotaging `cardImageLeaf`'s third argument away leaves every other test in
+   * this file green, because every other one is about a note share with no
+   * contents at all.
+   */
+  test("a folder whose contents changed stops serving the old card", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await scenario(t);
+    const token = await share(t, ownerId, workspaceId);
+    const row = await t.run(async (ctx) =>
+      ctx.db
+        .query("noteShares")
+        .withIndex("by_token", (q) => q.eq("token", token))
+        .unique(),
+    );
+    await t.run(async (ctx) =>
+      ctx.db.patch(row!._id, { previewChildren: ["overview.md"] }),
+    );
+    await t.mutation(internal.functions.shareCard.recordCardLeaf, {
+      shareId: row!._id,
+      leaf: cardImageLeaf(token, "Chapter transition", ["overview.md"]),
+    });
+
+    // The positive control, without which "resolves nothing" proves nothing.
+    expect((await locationFor(t, token))?.leaf).toBe(
+      cardImageLeaf(token, "Chapter transition", ["overview.md"]),
+    );
+
+    await t.run(async (ctx) =>
+      ctx.db.patch(row!._id, { previewChildren: ["timeline.md"] }),
+    );
     expect(await locationFor(t, token)).toBeNull();
   });
 

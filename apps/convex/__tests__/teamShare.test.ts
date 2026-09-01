@@ -349,7 +349,13 @@ describe("it is not a way around anything", () => {
  * differing the probe learns something.
  */
 describe("the readable link's preview", () => {
-  const NOTHING = { title: null, cardToken: null };
+  /**
+   * **One absence, and it has to stay one object.** `children` joined it when a
+   * folder link learned to name what is inside — and an empty array is what an
+   * unlinked path, a revoked link, a note, an empty folder and a folder whose
+   * contents are all private every one of them answer with.
+   */
+  const NOTHING = { title: null, cardToken: null, children: [] as string[] };
 
   async function preview(t: TestConvex, slug: string, path: string) {
     return await t.query(api.functions.shares.previewForNote, { slug, path });
@@ -362,6 +368,7 @@ describe("the readable link's preview", () => {
 
     expect(await preview(t, "owner-brain", NOTE)).toEqual({
       title: "Overview",
+      children: [],
       cardToken: token,
     });
   });
@@ -468,14 +475,26 @@ describe("the readable link's preview", () => {
     );
   });
 
-  /** One field, and it is the title. Nothing about the owner or the context. */
-  test("it returns the title and a card locator, and nothing else", async () => {
+  /**
+   * Three fields, and every one of them had to be argued for separately.
+   *
+   * `title` is the note's own name; `cardToken` is a locator that grants
+   * nothing; `children` is empty for a note and is two or three team-visible
+   * names for a folder. Nothing about the owner, the context, or the path.
+   *
+   * The exact key set is asserted rather than a subset, because the failure
+   * this guards against is somebody adding "just the workspace name" and
+   * publishing it to the internet.
+   */
+  test("it returns the title, a card locator and what is inside — nothing else", async () => {
     const t = setupTest();
     const { ownerId, workspaceId } = await scenario(t);
     await teamLink(t, ownerId, workspaceId);
 
     const answer = await preview(t, "owner-brain", NOTE);
-    expect(Object.keys(answer).sort()).toEqual(["cardToken", "title"]);
+    expect(Object.keys(answer).sort()).toEqual(["cardToken", "children", "title"]);
+    // A note has no children, and nothing had to read a bucket to say so.
+    expect(answer.children).toEqual([]);
     expect(JSON.stringify(answer)).not.toContain("owner@example.invalid");
     expect(JSON.stringify(answer)).not.toContain("1-projects");
   });
@@ -560,7 +579,7 @@ describe("a folder gets a link too", () => {
 
       expect(
         await t.query(api.functions.shares.previewForNote, { slug: "owner-brain", path }),
-      ).toEqual({ title: null, cardToken: null });
+      ).toEqual({ title: null, cardToken: null, children: [] });
     },
   );
 
@@ -639,7 +658,7 @@ describe("a folder gets a link too", () => {
 
     expect(
       await t.query(api.functions.shares.previewForNote, { slug: "owner-brain", path }),
-    ).toEqual({ title: null, cardToken: null });
+    ).toEqual({ title: null, cardToken: null, children: [] });
   });
 
   /**
@@ -673,7 +692,7 @@ describe("a folder gets a link too", () => {
 
     expect(
       await t.query(api.functions.shares.previewForNote, { slug: "owner-brain", path }),
-    ).toEqual({ title: null, cardToken: null });
+    ).toEqual({ title: null, cardToken: null, children: [] });
   });
 
   /**

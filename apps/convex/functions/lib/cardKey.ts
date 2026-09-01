@@ -43,6 +43,37 @@ export function hashTitle(title: string): string {
  *    filename. Sixteen hex characters is 64 bits: enough that two shares in one
  *    bucket will not collide, and not enough to be a credential.
  */
-export function cardImageLeaf(token: string, title: string): string {
-  return `card-${token.slice(0, 16)}-${hashTitle(title)}.png`;
+export function cardImageLeaf(
+  token: string,
+  title: string,
+  children: readonly string[] = [],
+): string {
+  return `card-${token.slice(0, 16)}-${hashTitle(cardSignature(title, children))}.png`;
+}
+
+/**
+ * Everything the card draws, as one string to hash.
+ *
+ * A folder link's card carries its name **and** two or three of the things
+ * inside it, so the title alone no longer identifies the picture. Two
+ * invalidations ride on this and both are silent when they are wrong:
+ *
+ *  - **The object name.** `cardImageLeaf` writes to the same key for the same
+ *    signature, and `cardLocation` recomputes it and refuses a mismatch. A
+ *    signature that ignored the children would leave a re-linked folder
+ *    pointing at a picture of the children it used to have.
+ *  - **The edge cache.** The Workers Cache API is per-datacenter and
+ *    `cache.delete` purges one colo, so a changed URL is the only invalidation
+ *    there is — and the router builds that URL from this same signature.
+ *
+ * An empty child list must hash **exactly as the bare title did**, or every
+ * note share in existence renames its card on the next render and re-publishes
+ * an identical image. That is asserted rather than assumed.
+ *
+ * Mirrored in `infra/router/src/preview.ts`, which cannot import this module,
+ * and pinned against it in `__tests__/shareCard.test.ts` — the same way
+ * `hashTitle` is.
+ */
+export function cardSignature(title: string, children: readonly string[] = []): string {
+  return children.length === 0 ? title : `${title}\n${children.join("\n")}`;
 }
