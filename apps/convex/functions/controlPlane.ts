@@ -34,6 +34,7 @@
  * an oracle for who is on the platform and which contexts exist.
  */
 
+import { clampAccessTokenExpiry } from "./lib/consentScopes";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import {
@@ -397,7 +398,9 @@ export const rotateGrant = internalMutation({
       previousHashedRefreshToken: grant.hashedRefreshToken,
       hashedRefreshToken: args.newHashedRefreshToken,
       hashedAccessToken: args.newHashedAccessToken,
-      accessTokenExpiresAt: args.accessTokenExpiresAt,
+      // Clamped on the way in, as `createGrant` does: a refresh is the same
+      // actor asking for the same thing a second time.
+      accessTokenExpiresAt: clampAccessTokenExpiry(args.accessTokenExpiresAt, Date.now()),
       scopes,
       lastUsedAt: Date.now(),
     });

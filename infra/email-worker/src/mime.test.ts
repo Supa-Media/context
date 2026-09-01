@@ -198,6 +198,109 @@ describe("addresses", () => {
   it("decodes an encoded display name without letting it become the address", () => {
     expect(addrSpec("=?utf-8?B?U2V5aQ==?= <m@evil.test>")).toBe("m@evil.test");
   });
+
+  /**
+   * The display name may not supply the brackets either.
+   *
+   * The checks above are each one character short of the attack. A quoted
+   * display name may legally contain `<` and `>`, and encoded words were
+   * decoded BEFORE the bracket search — so a base64 payload of
+   * `<alice@example.com>` became the first angle-addr in the string, and the
+   * first one won. `senderIsAllowed` is evaluated against whatever comes back
+   * here, and `lib/ingestion.ts`'s parser — the one whose docstring says "the
+   * display name cannot influence the decision at all" — never sees the raw
+   * header, only this result.
+   *
+   * RFC 5322's `name-addr` puts the angle-addr at the END, so the last pair is
+   * the address and the earlier ones are display text.
+   */
+  it("does not let a bracketed display name become the address", () => {
+    expect(addrSpec('"<alice@example.com>" <attacker@evil.test>')).toBe("attacker@evil.test");
+    expect(addrSpec("=?utf-8?B?PGFsaWNlQGV4YW1wbGUuY29tPg==?= <attacker@evil.test>")).toBe(
+      "attacker@evil.test"
+    );
+  });
+
+  /**
+   * `From:` may carry several mailboxes, and there is no honest way to
+   * attribute one capture to one of them — taking the first let an attacker put
+   * an allow-listed address in front of their own.
+   */
+  /**
+   * And the encoded word may not supply the LAST pair either.
+   *
+   * Taking the last bracketed pair defeats the ordinary attack, where the
+   * encoded display name comes first — which is why removing the decode is not
+   * independently visible in the check above. It becomes visible here: decode
+   * an encoded word that TRAILS a real angle-addr and its payload's brackets
+   * are the last pair in the string. An addr-spec is ASCII and can never be an
+   * encoded word, so nothing legitimate is lost by never decoding.
+   */
+  it("does not let a trailing encoded word become the address", () => {
+    expect(addrSpec("<real@ok.test> =?utf-8?B?PGV2aWxAZXZpbC50ZXN0Pg==?=")).toBe("real@ok.test");
+  });
+
+  it("refuses a From that names more than one mailbox", () => {
+    expect(addrSpec("alice@example.com, attacker@evil.test")).toBe("");
+    expect(addrSpec("Alice <alice@example.com>, Bob <bob@example.com>")).toBe("");
+  });
+
+  /**
+   * …and a comma inside a QUOTED display name is not a list.
+   *
+   * `"Doe, Jane" <jane@x.test>` is legal RFC 5322 and is what Exchange and
+   * Outlook emit for a directory entry, so refusing every comma silently drops
+   * mail from an allow-listed corporate sender. This repository already
+   * asserted the form it was about to break: `ingestionPolicy.test.ts` requires
+   * `senderIsAllowed('"Olujide, Seyi" <seyi@example.test>')`, and
+   * `parseEmailAddress`'s docstring lists that shape under Accepted.
+   *
+   * The list refusal exists for a genuine mailbox list, so it looks for a comma
+   * outside the quotes. An UNQUOTED `Doe, Jane <j@x.test>` stays refused: it
+   * really does parse as two mailboxes, and guessing which one the sender meant
+   * is the guessing this function exists to avoid.
+   */
+  it("keeps a comma that is inside a quoted display name", () => {
+    expect(addrSpec('"Doe, Jane" <jane@x.test>')).toBe("jane@x.test");
+    expect(addrSpec('"Olujide, Seyi" <seyi@example.test>')).toBe("seyi@example.test");
+    expect(addrSpec('"a\\"b, c" <q@x.test>')).toBe("q@x.test");
+    expect(addrSpec("Doe, Jane <jane@x.test>")).toBe("");
+  });
+
+  /**
+   * …and a backslash OUTSIDE the quotes escapes nothing.
+   *
+   * The first version of the quote-aware scan honoured `\\` everywhere, which
+   * RFC 5322 does not: a quoted-pair is only meaningful inside a
+   * quoted-string (or a comment). So one character defeated the list refusal
+   * entirely --
+   *
+   *     <attacker@evil.test>\, <alice@allowed.test>   ->  alice@allowed.test
+   *
+   * -- a genuine two-mailbox `From:` whose comma the scan skipped, resolving
+   * to the last pair, which the sender chose. Not an escalation while `From:`
+   * is attacker-typed and the allow-list is a filter rather than a gate.
+   *
+   * **This closes the backslash and does not make the refusal a control that
+   * holds.** A review of the fix found the same outcome one character further
+   * along: `attacker@evil.test (x") , <alice@allowed.test>` is a legal
+   * two-mailbox header whose comment contains a legal `"`, which opens a
+   * phantom quoted-string and hides the top-level comma. `addrSpec`'s
+   * docstring records it as the third open CFWS consequence, and the same
+   * comment-stripping fix closes all three. Asserted below so the day that
+   * lands, the assertion is here to be flipped.
+   */
+  it("does not let a backslash outside the quotes hide the comma", () => {
+    expect(addrSpec("<attacker@evil.test>\\, <alice@allowed.test>")).toBe("");
+    expect(addrSpec("alice@allowed.test\\, attacker@evil.test")).toBe("");
+    // Still an escape where RFC 5322 says it is one.
+    expect(addrSpec('"a\\", b" <q@x.test>')).toBe("q@x.test");
+    // Known open, per the docstring: a `"` inside a comment still hides a
+    // top-level comma. Pinned so the CFWS change has to come here and say so.
+    expect(addrSpec('attacker@evil.test (x") , <alice@allowed.test>')).toBe(
+      "alice@allowed.test"
+    );
+  });
 });
 
 describe("malformed and hostile structures fail closed", () => {

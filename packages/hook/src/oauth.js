@@ -247,7 +247,10 @@ export async function discover(endpoint, { fetchImpl = fetch } = {}) {
  * `redirectUriMatches` implements exactly that exception — because the port is
  * whatever the OS hands us at login time and cannot be known now.
  */
-export async function registerClient(discovery, { clientName, fetchImpl = fetch } = {}) {
+export async function registerClient(
+  discovery,
+  { clientName, scope = HOOK_SCOPE, fetchImpl = fetch } = {}
+) {
   if (!discovery.registrationEndpoint) {
     throw new Error(
       "this server does not support dynamic client registration, so the hook cannot register itself"
@@ -262,7 +265,14 @@ export async function registerClient(discovery, { clientName, fetchImpl = fetch 
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       token_endpoint_auth_method: "none",
-      scope: HOOK_SCOPE,
+      // The scope this client is ABOUT to ask for, not the narrowest one it
+      // could. `install` refuses to reuse a client registered for a different
+      // scope, on the grounds that doing so "would ask for something it never
+      // declared" — and the re-registration it does instead used to declare
+      // `context:capture` regardless, so an `--orient` install did exactly
+      // that. The default stays narrow: a caller that names nothing gets
+      // capture, never the whole menu.
+      scope,
     }),
   });
   if (!response.ok) {

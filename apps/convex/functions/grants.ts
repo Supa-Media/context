@@ -28,7 +28,11 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { TOKEN_HASH_PATTERN } from "./lib/crypto";
 import { recordAudit } from "./lib/audit";
 import { getMembership, roleAtLeast, workspaceNotFound } from "./lib/workspaceAuth";
-import { clampScopes, visibilityTierOf } from "./lib/consentScopes";
+import {
+  clampAccessTokenExpiry,
+  clampScopes,
+  visibilityTierOf,
+} from "./lib/consentScopes";
 
 /**
  * The most grants one response carries.
@@ -407,7 +411,7 @@ export const createGrant = internalMutation({
       scopes,
       hashedRefreshToken: args.hashedRefreshToken,
       hashedAccessToken: args.hashedAccessToken,
-      accessTokenExpiresAt: args.accessTokenExpiresAt,
+      accessTokenExpiresAt: clampAccessTokenExpiry(args.accessTokenExpiresAt, Date.now()),
       status: "active",
       createdAt: Date.now(),
     });

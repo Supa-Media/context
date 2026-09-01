@@ -60,6 +60,39 @@ export const SCOPE_CAPTURE = "context:capture";
 export const SCOPE_PRIVATE = "context:private";
 
 /**
+ * The longest an access token a gateway asks us to record may live.
+ *
+ * `createGrant` clamps `scopes` because "a gateway that is compromised,
+ * confused, or simply newer than this deployment must not be able to write
+ * `context:private` onto a member's grant by sending it" — and the access
+ * token's lifetime arrives from exactly the same place. It was written
+ * verbatim: `resolveLiveGrant` only asks whether the stored expiry is past, no
+ * cron sweeps `oauthGrants`, and the real TTL is a constant on the gateway
+ * side. So the same actor that clamp distrusts could mint a token good for a
+ * hundred thousand years.
+ *
+ * A day rather than the gateway's hour: this is a ceiling on somebody else's
+ * policy, not a restatement of it, and a ceiling that tracks the current TTL
+ * would break the deployment that legitimately lengthens it before this file
+ * hears about it.
+ */
+export const MAX_ACCESS_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Clamp an access-token expiry a gateway sent to the ceiling above. */
+export function clampAccessTokenExpiry(requested: number | undefined, now: number): number | undefined {
+  if (typeof requested !== "number") return requested;
+  // A non-finite value is the one the ceiling exists to stop, and handing it
+  // back was the first version of this: `Infinity` and `NaN` both make
+  // `accessTokenExpiresAt <= Date.now()` false at the resolve, which is an
+  // access token that never expires. What made it unreachable was a validator
+  // in another file on the HTTP edge; these are internal mutations whose
+  // `v.number()` accepts both. Clamped rather than refused, because the caller
+  // this distrusts should not get to choose between a token and an error.
+  if (!Number.isFinite(requested)) return now + MAX_ACCESS_TOKEN_TTL_MS;
+  return Math.min(requested, now + MAX_ACCESS_TOKEN_TTL_MS);
+}
+
+/**
  * Everything `/oauth/authorize` will accept and both discovery documents
  * advertise. The gateway holds the same list; they must change together or a
  * client discovers a scope the authorization endpoint then rejects.
