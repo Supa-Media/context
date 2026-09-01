@@ -113,7 +113,7 @@ function browser(
     shares: undefined,
     share: () => {},
     revokeShare: () => {},
-    copyShareLink: async () => false,
+    copyShareLink: async () => ({ ok: false, message: null }),
     setSharePreviewTitle: () => {},
   };
 }

@@ -305,7 +305,7 @@ describe("an owner reading a note can share it", () => {
 describe("copying a link finishes the job", () => {
   test("a copy that landed closes the dialog", async () => {
     const pane = paneRoot();
-    pane.render(dataWith({ copyShareLink: async () => true }));
+    pane.render(dataWith({ copyShareLink: async () => ({ ok: true, message: "Link copied." }) }));
     press("browse-share");
     expect(shareDialogFor("plan.md")).not.toBeNull();
 
@@ -318,13 +318,21 @@ describe("copying a link finishes the job", () => {
 
   test("…and a copy that did not stays open", async () => {
     /*
-      The positive control, and a real state rather than a defensive one:
-      native has no clipboard and says so, and a browser can refuse. The notice
-      raised in that case carries the URL, and closing the one surface that
-      could show it again would be the unhelpful half of honesty.
+      The positive control, and a real state rather than a defensive one: a
+      browser can refuse the clipboard, and a private window or blocked site
+      data can take it away entirely. The notice raised in that case carries
+      the URL, and closing the one surface that could show it again would be
+      the unhelpful half of honesty.
     */
     const pane = paneRoot();
-    pane.render(dataWith({ copyShareLink: async () => false }));
+    pane.render(
+      dataWith({
+        copyShareLink: async () => ({
+          ok: false,
+          message: "Couldn't reach the clipboard. The link is https://context.lc/x",
+        }),
+      } as never),
+    );
     press("browse-share");
 
     await act(async () => {
@@ -332,6 +340,33 @@ describe("copying a link finishes the job", () => {
     });
 
     expect(shareDialogFor("plan.md")).not.toBeNull();
+    /*
+      **And it says so inside the dialog.** The pane's notice line is *behind*
+      this modal, so raising the failure there is a message nobody can read —
+      which, on a platform where every copy failed, made Copy link a button
+      that did nothing at all. The URL rides along because the clipboard is the
+      only part that failed and the person still wants the link.
+    */
+    const problem = document.body.querySelector('[data-testid="share-copy-problem"]');
+    expect(problem).not.toBeNull();
+    expect(problem!.textContent).toContain("https://context.lc/x");
+  });
+
+  test("a link that could not be made says nothing here, because the server did", async () => {
+    // `message: null` means `createTeamShare` refused and its own sentence is
+    // already in the pane. Repeating a symptom over a real refusal is worse
+    // than saying nothing.
+    const pane = paneRoot();
+    pane.render(
+      dataWith({ copyShareLink: async () => ({ ok: false, message: null }) } as never),
+    );
+    press("browse-share");
+    await act(async () => {
+      pressLabel("Copy link");
+    });
+
+    expect(shareDialogFor("plan.md")).not.toBeNull();
+    expect(document.body.querySelector('[data-testid="share-copy-problem"]')).toBeNull();
   });
 
   test("the press mints and copies in one call, naming this note", async () => {
@@ -344,7 +379,7 @@ describe("copying a link finishes the job", () => {
       dataWith({
         copyShareLink: async (target: unknown) => {
           asked.push(target);
-          return true;
+          return { ok: true, message: "Link copied." };
         },
       } as never),
     );

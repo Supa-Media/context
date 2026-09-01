@@ -1420,7 +1420,7 @@ export function useFileBrowser(options: {
   const copyShareLink = useCallback(
     async (
       target: { kind: "team"; path: string } | { kind: "share"; url: string },
-    ): Promise<boolean> => {
+    ): Promise<{ ok: boolean; message: string | null }> => {
       /**
        * Started inside the press, finished whenever the round trip is.
        *
@@ -1459,19 +1459,26 @@ export function useFileBrowser(options: {
         server's own sentence. Saying "couldn't copy" over the top of it would
         replace a real refusal with a symptom of it.
       */
-      if (text === null) return false;
-      setNotice(
-        ok
-          ? "Link copied."
-          : /*
-              Not "copy failed". The clipboard is the only part that did not
-              work, and the person still wants the link — on native there is no
-              clipboard at all, so this is the whole feature there rather than
-              an edge case. Printing it is the one useful thing left.
-            */
-            `Couldn't reach the clipboard. The link is ${text}`,
-      );
-      return ok;
+      if (text === null) return { ok: false, message: null };
+
+      const message = ok
+        ? "Link copied."
+        : /*
+            Not "copy failed". The clipboard is the only part that did not
+            work, and the person still wants the link, so printing it is the
+            one useful thing left.
+          */
+          `Couldn't reach the clipboard. The link is ${text}`;
+
+      /*
+        **Only a success is raised here.** The pane's notice sits *behind* the
+        share dialog, and the dialog stays open when a copy fails — so putting
+        the failure here made it unreadable, and on a platform where every copy
+        failed the button appeared to do nothing at all. The caller shows that
+        one where the press happened; see `copyShareLink` in `browser.ts`.
+      */
+      if (ok) setNotice(message);
+      return { ok, message };
     },
     [createTeamShareMutation, mayShare, slug, workspaceId],
   );

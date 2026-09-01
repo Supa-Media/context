@@ -354,7 +354,7 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     // no-op, and it has to keep returning a promise to satisfy the contract.
     copyShareLink: async (...args: unknown[]) => {
       calls.entries.push({ name: "copyShareLink", args });
-      return false;
+      return { ok: false, message: null };
     },
   };
 }
