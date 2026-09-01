@@ -3794,6 +3794,15 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
     return writePermissionError("archive destination");
   }
   if (await store.get(dest)) return toolError("conflict: archive destination already exists");
+  // Before any write. This path has no rollback at all, so the backstop firing
+  // mid-way would leave the destination written and the source undeleted, and
+  // report it as a protocol error. Contrived to reach — it needs a private
+  // override at a case-variant of a second-resolution archive stamp — but it is
+  // the same shape as the move tools and gets the same guard rather than a
+  // sentence explaining why it is fine.
+  if (foldedTwinBlocks(dest, destinationVisibility, rules, overrides)) {
+    return toolError(FOLDED_TWIN_REFUSAL);
+  }
   const body = await obj.arrayBuffer();
   await store.put(`${HISTORY_PREFIX}${path}.${stamp}.archive.md`, body);
   if (destinationVisibility === "private") {
@@ -3924,6 +3933,13 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
       sourceVisibility === "private" || destinationFolderVisibility === "private"
         ? "private"
         : "team";
+    // Refused in the preflight, which runs before a single write. The backstop
+    // in `persistExactVisibility` would catch it, but only from inside the
+    // apply loop — and a throw there is an abort that has already copied this
+    // destination. See "A privacy decision is folded" in CLAUDE.md.
+    if (foldedTwinBlocks(move.destination, destinationVisibility, rules, overrides)) {
+      return toolError(FOLDED_TWIN_REFUSAL);
+    }
     const fastArchiveCandidate =
       move.source.startsWith("4-archive/") &&
       move.destination.startsWith("4-archive/") &&
@@ -3991,11 +4007,19 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
         await persistExactVisibility(store, move.destination, "private", rules);
         preparedAcls.push(move.destination);
       }
-      if (!move.destinationExists) await store.put(move.destination, move.body);
+      if (!move.destinationExists) {
+        await store.put(move.destination, move.body);
+        // Recorded the moment it exists, and BEFORE the visibility write that
+        // can throw. The other order makes the one destination whose persist
+        // failed the one destination the rollback below cannot see — so the
+        // abort message says "aborted before deleting sources" over a copy that
+        // is still there. Only a CAS exhaustion could reach that before the
+        // folded-twin backstop existed; it is caller-reachable now.
+        copied.push(move.destination);
+      }
       if (!fastArchiveRelocation && move.visibility === "team") {
         await persistExactVisibility(store, move.destination, "team", rules);
       }
-      if (!move.destinationExists) copied.push(move.destination);
     }
   } catch (error) {
     for (const key of copied) {
@@ -4086,6 +4110,12 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
         : "team";
     return { source: key, destination: destinationPath, visibility: destinationVisibility };
   });
+  // Same reason as `move_notes`: before any write, not from inside the apply
+  // loop where an abort has already copied the file it is aborting over.
+  const foldBlocked = moves.find((move) =>
+    foldedTwinBlocks(move.destination, move.visibility, rules, overrides)
+  );
+  if (foldBlocked) return toolError(FOLDED_TWIN_REFUSAL);
   if (
     scope !== "private" &&
     moves.some(({ destination: path }) => visibilityOf(path, rules) !== "team")
@@ -4124,10 +4154,11 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
         preparedAcls.push(move.destination);
       }
       await store.put(move.destination, body);
+      // Before the visibility write that can throw — see `move_notes` above.
+      copied.push(move.destination);
       if (move.visibility === "team") {
         await persistExactVisibility(store, move.destination, "team", rules);
       }
-      copied.push(move.destination);
     }
   } catch (error) {
     for (const key of copied) {

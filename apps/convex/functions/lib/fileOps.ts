@@ -2072,6 +2072,11 @@ export interface VisibilityResult {
   exception: boolean;
 }
 
+export const FOLDED_TWIN_REFUSAL =
+  "Another note in this context differs from this path only by case and is private, " +
+  "and visibility is recorded per exact path: rename one of them, or change that note's " +
+  "visibility instead.";
+
 /**
  * Set one note's visibility, through the manifest.
  *
@@ -2084,11 +2089,6 @@ export interface VisibilityResult {
  * writing a redundant line, so the exception list stays a statement of what is
  * unusual. See `nextOverrides`.
  */
-export const FOLDED_TWIN_REFUSAL =
-  "Another note in this context differs from this path only by case and is private, " +
-  "and visibility is recorded per exact path: rename one of them, or change that note's " +
-  "visibility instead.";
-
 export async function setVisibility(
   store: FileStore,
   options: { path: string; visibility: Visibility; scope: Scope },
@@ -2128,7 +2128,9 @@ export async function setVisibility(
 
   const inherited = visibilityOf(path, state.rules);
   // Re-derived, never echoed back: the request is what was asked for, and the
-  // manifest is what happened.
+  // manifest is what happened. Given the throw above this is a tautology today
+  // and cannot be tested apart from it — kept, and labelled rather than
+  // claimed, so that narrowing the throw later cannot make this start lying.
   const visibility = effectiveVisibility(path, state.rules, state.overrides);
   return {
     path,

@@ -4293,3 +4293,56 @@ describe("a rule no survivor needs, told truthfully", () => {
     ).toBe("FILE_NOT_FOUND");
   });
 });
+
+/**
+ * THE CONTROL PLANE'S HALF OF THE FOLDED-TWIN RULE.
+ *
+ * `setVisibility` used to answer with `options.visibility` — the value it was
+ * ASKED for, never re-derived — and the fold made that a lie. See "A privacy
+ * decision is folded" in CLAUDE.md: the fold reads across case while the delete
+ * writes exactly, so publishing a note whose case-twin is private removes
+ * nothing, the manifest comes back identical, and the console reported the
+ * publish as done over a note no team member could read.
+ *
+ * Both halves were shipped unguarded: deleting the throw, and restoring
+ * `visibility: options.visibility`, each passed the whole 1438-check suite.
+ */
+describe("a note whose case-twin is private cannot be published by accident", () => {
+  test("publishing the case-variant is refused rather than silently ignored", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("1-projects/Pay.md", "# a different file, in a team folder\n");
+
+    // The positive control: an ordinary publish in the same folder still works,
+    // so the refusal below is about the twin and not about the folder.
+    const ordinary = await setVisibility(store, {
+      path: "1-projects/context-lc.md",
+      visibility: "team",
+      scope: "private",
+    });
+    expect(ordinary.visibility).toBe("team");
+
+    const refusal = await capture(() =>
+      setVisibility(store, { path: "1-projects/Pay.md", visibility: "team", scope: "private" }),
+    );
+    expect(refusal.message).toMatch(/only by case/);
+
+    // And the original's narrowing is still in the manifest.
+    expect(store.snapshot()[PRIVACY_KEY]).toContain("1-projects/pay.md: private");
+  });
+
+  test("the answer is re-derived from the manifest, never echoed back", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    // `pay.md` is private by exact override; asking for private again is a
+    // no-op that must still report what the manifest says.
+    const result = await setVisibility(store, {
+      path: "1-projects/pay.md",
+      visibility: "private",
+      scope: "private",
+    });
+    expect(result.visibility).toBe("private");
+    expect(result.inherited).toBe("team");
+    expect(result.exception).toBe(true);
+  });
+});

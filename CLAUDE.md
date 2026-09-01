@@ -1571,15 +1571,40 @@ make against a throwaway copy, and `write_note`, `set_visibility` and
 `setVisibility` re-derives its answer from the manifest rather than echoing the
 request back.
 
-Two residuals, named rather than argued away. `persistExactVisibility`'s
-post-condition throw and the exactness of its delete are now unreachable from
-all three tools that refuse first — sabotaging either passes the whole gateway
-suite — so what they actually protect is the **batch** move paths
-(`move_notes`, `move_folder`, the proposal appliers), which reach
-`persistExactVisibility` directly and which no test exercises. And a fold-driven
-move leaves the source's override standing, because the clear is exact too: a
-note later created at that exact path inherits a narrowing its owner did not
-write. Both fail closed.
+**Six tools can change a visibility and all six refuse up front** — `write_note`,
+`set_visibility`, `archive_note`, `move_note`, `move_notes`, `move_folder` —
+rather than leaving it to the backstop, because a throw from inside
+`persistExactVisibility` fires *after* the caller has already written the
+destination. In the batch movers that was a torn write with a false report:
+`copied.push` sat after the visibility write, so the one destination whose
+persist threw was the one the rollback could not see, and the tool answered
+"batch move aborted before deleting sources" over a copy that was still there.
+The ordering flaw predates the fold — only a CAS exhaustion could reach it —
+and refusing from inside the apply loop made it caller-chosen. Both halves are
+fixed, and they mask each other: only removing *both* reproduces it, which is
+what the check in `test.mjs` sabotages against.
+
+Three residuals, named rather than argued away.
+
+- `persistExactVisibility`'s post-condition throw and the exactness of its
+  delete are now unreachable from every tool, since all six refuse first —
+  sabotaging either passes the whole gateway suite. They are defence-in-depth,
+  not a guarded rule, and saying otherwise would be the third wrong sentence
+  written about this in three passes.
+- A fold-driven move leaves the source's override standing, because the clear
+  is exact too: a note later created at that exact path inherits a narrowing its
+  owner did not write.
+- An ordinary `write_note` with no `visibility` argument defaults to the note's
+  *effective* visibility, which now folds — so updating a note whose case-twin
+  is private persists an explicit `private` override onto the note being
+  written, where before it stayed `team`. It matches what the note already reads
+  as, and `foldedTwinBlocks` then refuses to reverse it until the twin is dealt
+  with. Left as it is deliberately: the alternative is a second notion of
+  "visibility, but not folded" threaded through the write path, and three
+  reviews of this change have each found a defect in a mechanism added to fix
+  the previous one.
+
+All three fail closed.
 
 Four things hold it. The first three fail a test if removed; the fourth is a
 rule about how a helper may be used, which no test can state for it:

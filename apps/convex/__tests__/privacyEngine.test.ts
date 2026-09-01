@@ -674,6 +674,45 @@ describe("a privacy decision does not change when a path is re-cased", () => {
     }
   });
 
+  /**
+   * THE SAME RULE, DRIVEN THROUGH THE GATEWAY'S OWN CLASS.
+   *
+   * The check below imports `PrivacyOverrides` from `functions/lib/privacy`, so
+   * it never touches the gateway's copy — and removing `this.folds = null` from
+   * BOTH `set` and `delete` in `apps/mcp/src/index.js` passes all 989 gateway
+   * checks and all of these. Two copies of one rule with only one checked, in
+   * the repository whose own `no-ungated-native-import` section is about
+   * exactly that.
+   *
+   * `gatewayInternals` exposes the real `parsePrivacyManifest`, which returns
+   * the gateway's own `PrivacyOverrides`, so this drives the class rather than
+   * a description of it.
+   */
+  test("the gateway's own index is dropped on a write too", () => {
+    const parsed = gateway.parsePrivacyManifest(
+      manifest(
+        block([
+          "default_visibility: private",
+          "",
+          "folder_defaults:",
+          "  1-projects: team",
+          "",
+          "note_overrides:",
+          "  1-projects/a.md: private",
+        ]),
+      ),
+    );
+    const overrides = parsed.overrides;
+    // Read first, so an index exists to go stale.
+    expect(gateway.effectiveVisibility("1-projects/A.md", parsed.rules, overrides)).toBe("private");
+
+    overrides.set("1-projects/b.md", "private");
+    expect(gateway.effectiveVisibility("1-projects/B.md", parsed.rules, overrides)).toBe("private");
+
+    overrides.delete("1-projects/a.md");
+    expect(gateway.effectiveVisibility("1-projects/A.md", parsed.rules, overrides)).toBe("team");
+  });
+
   test("a write drops the folded index rather than serving a stale one", () => {
     const overrides = new PrivacyOverrides();
     overrides.set("1-projects/a.md", "private");

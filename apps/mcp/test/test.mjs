@@ -3164,7 +3164,15 @@ check(
   manifestAfterNarrowing.includes(`${exactDeleteTwin}: private`) &&
     (await call("team-token", "read_note", { path: exactDeleteTwin }))?.isError === true
 );
-// Publishing its case-variant must not clear that line.
+// Publishing its case-variant must not clear that line. The variant has to
+// EXIST first: `toolSetVisibility` does `store.get(path)` before it reaches the
+// twin probe, so without this the refusal below is an ordinary "not found" and
+// the check passes without the code under test ever running. Measured — that is
+// exactly what the first version of this did.
+await contextStore.put(
+  "1-projects/portable/Exact-Delete-Twin.md",
+  "# a different file that folds onto the private one\n"
+);
 const twinVariantPublish = await call("priv-token", "set_visibility", {
   path: "1-projects/portable/Exact-Delete-Twin.md",
   visibility: "team",
@@ -3174,6 +3182,7 @@ const manifestAfterVariant = await (await contextStore.get("privacy.md")).text()
 check(
   "publishing a case-variant leaves the original's narrowing in the manifest",
   twinVariantPublish?.isError === true &&
+    /only by case/.test(twinVariantPublish?.content?.[0]?.text ?? "") &&
     manifestAfterVariant.includes(`${exactDeleteTwin}: private`) &&
     (await call("team-token", "read_note", { path: exactDeleteTwin }))?.isError === true
 );
@@ -3201,15 +3210,25 @@ check(
 await contextStore.delete("1-projects/portable/Exact-Delete-Twin.md");
 
 /**
- * **And the move family, which is ten of the thirteen callers.**
+ * **And the move family, which is where the torn write lived.**
  *
- * `write_note` and `set_visibility` refuse a folded twin up front, so neither
- * of them can reach `persistExactVisibility`'s delete branch any more —
- * measured: re-folding that delete passes every check above. The move and copy
- * paths call it directly, with no such refusal, so they are what the exact
- * delete and the post-condition backstop actually protect. Without this the two
- * of them are unreachable-by-test, which is the state "a guard nobody has
- * checked is not a guard" is about.
+ * An earlier version of this comment said the move paths "call
+ * `persistExactVisibility` directly, with no such refusal, so they are what the
+ * exact delete and the post-condition backstop actually protect" — and the same
+ * commit had just given `move_note` a refusal of its own, so the check below
+ * never reaches either guard. Stated, measured afterwards, and wrong: the
+ * sabotage table in the commit message records that re-folding the delete, and
+ * deleting the backstop, both still pass all of these checks. All six tools
+ * that can change a visibility now refuse up front (`write_note`,
+ * `set_visibility`, `archive_note`, `move_note`, `move_notes`, `move_folder`),
+ * across thirteen `persistExactVisibility` call sites, so the delete's
+ * exactness and the backstop are defence-in-depth with no path left that
+ * reaches them. That is recorded as a residual in CLAUDE.md rather than
+ * dressed up as coverage.
+ *
+ * What this check is actually for is the refusal in `move_note`, which has to
+ * come before the history snapshot and the body copy — the backstop alone would
+ * catch it only after the destination had been written.
  */
 const moveSource = "1-projects/portable/move-into-a-fold.md";
 await contextStore.put(moveSource, "# a note that is about to be moved\n");
@@ -3225,6 +3244,60 @@ check(
     (await call("team-token", "read_note", { path: exactDeleteTwin }))?.isError === true
 );
 await contextStore.delete(moveSource);
+
+/**
+ * **The batch movers, where the backstop firing left a copy behind.**
+ *
+ * `copied.push(destination)` sat AFTER the visibility write, so the one
+ * destination whose `persistExactVisibility` threw was the one destination the
+ * rollback could not see — and the tool then answered "batch move aborted
+ * before deleting sources" over a copy that was still there. The ordering flaw
+ * predates the fold; only a CAS exhaustion could reach it. Refusing a folded
+ * twin from inside the apply loop made it caller-chosen, which is why both the
+ * ordering and a preflight refusal are here.
+ */
+const batchTwin = "1-projects/portable/batch-twin.md";
+await contextStore.put(batchTwin, "# the private one\n");
+const batchEtag = (await call("priv-token", "read_note", { path: batchTwin }))
+  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
+await call("priv-token", "set_visibility", {
+  path: batchTwin,
+  visibility: "private",
+  expected_etag: batchEtag,
+});
+const batchSource = "1-projects/portable/batch-source.md";
+await contextStore.put(batchSource, "# a note being moved\n");
+const batchSourceEtag = (await call("priv-token", "read_note", { path: batchSource }))
+  ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
+const batchMove = await call("priv-token", "move_notes", {
+  // `move_notes` refuses an applied batch with no etags, and that refusal looks
+  // exactly like the one under test. Four checks in this PR passed for a reason
+  // their names did not claim; the `/only by case/` match below is what stops
+  // this being the fifth.
+  moves: [
+    {
+      source: batchSource,
+      destination: "1-projects/portable/Batch-Twin.md",
+      expected_source_etag: batchSourceEtag,
+    },
+  ],
+});
+check(
+  "a batch move onto a folded twin is refused, leaving no copy and no source deleted",
+  batchMove?.isError === true &&
+    /only by case/.test(batchMove?.content?.[0]?.text ?? "") &&
+    (await contextStore.get("1-projects/portable/Batch-Twin.md")) === null &&
+    (await contextStore.get(batchSource)) !== null
+);
+// Clean up: drop the override before the objects, so no manifest line is left
+// pointing at a note that no longer exists.
+await call("priv-token", "set_visibility", {
+  path: batchTwin,
+  visibility: "team",
+  confirm_team_publish: true,
+});
+await contextStore.delete(batchTwin);
+await contextStore.delete(batchSource);
 await contextStore.delete("1-projects/portable/Exact-Delete-Twin.md");
 
 // Put the fixture back: clear the override first, then the object, so no line
