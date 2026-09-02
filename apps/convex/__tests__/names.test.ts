@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { gatewayReservedFirstSegments } from "./gatewayRoutes.helpers";
 import { api } from "../_generated/api";
 import {
   NAME_MAX_LENGTH,
@@ -98,6 +99,51 @@ describe("validateName (pure rules)", () => {
     for (const name of ["api", "mcp", "www", "oauth", "app"]) {
       expect(RESERVED_NAMES.has(name)).toBe(true);
     }
+  });
+
+  /**
+   * ...AND THE LIST IS DERIVED FROM THE GATEWAY, NOT RESTATED BESIDE IT.
+   *
+   * The check above is five strings somebody typed. It cannot notice a route
+   * the gateway adds, and it did not notice one the gateway already had:
+   * `granola-webhook` is in `RESERVED_FIRST_SEGMENTS` in `apps/mcp/src/
+   * session.js` and `validateName("granola-webhook")` returned `{ok: true}`,
+   * so anybody could claim it as a username or a workspace slug.
+   *
+   * Three things were relying on that not being so. The console's
+   * `endpoints.ts` keeps a third copy of the gateway's list and defends it in
+   * as many words -- "no context can be called any of these --
+   * `functions/lib/names.ts` reserves them" -- which was simply false. The
+   * gateway reads `/@granola-webhook/mcp`'s first segment as a route, so that
+   * context is unaddressable by name and the console silently drops it from
+   * the endpoint list it presents as complete. And this file's own neighbour
+   * sixty lines down records the same mistake being made once already, with
+   * `@inbox` reserved while `@0-inbox` claimed cleanly.
+   *
+   * The reserved list is not cosmetic here: CLAUDE.md's "Ingestion is on the
+   * apex" makes it a mail-interception control, so a product route that is
+   * also a claimable handle is a product route that is also somebody's
+   * mailbox.
+   *
+   * So the gateway's set is read out of its own source. A segment it reserves
+   * that this namespace would nonetheless hand out is a failure here, and a
+   * fifth route added next year fails on the day it is added rather than on
+   * the day somebody claims it.
+   */
+  test("reserves every gateway route a name could otherwise be", () => {
+    const reservedByGateway = gatewayReservedFirstSegments();
+    expect(
+      reservedByGateway.size,
+      "the gateway's RESERVED_FIRST_SEGMENTS could not be read",
+    ).toBeGreaterThanOrEqual(6);
+
+    const claimable = [...reservedByGateway].filter(
+      (segment) => validateName(segment).ok,
+    );
+    expect(
+      claimable,
+      "these name a gateway route and can still be claimed",
+    ).toEqual([]);
   });
 
   test("reserves the product vocabulary — brain, workspace, context", () => {
