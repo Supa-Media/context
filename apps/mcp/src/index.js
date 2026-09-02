@@ -62,8 +62,10 @@ import {
   decodePathSegment,
   hasScope,
   resolveSession,
+  sessionForContext,
   splitWorkspacePath,
   storeForSession,
+  writesAnywhere,
 } from "./session.js";
 import { enforceOrigin, isTransportPath } from "./origin.js";
 import { createSearchBudget, NOTE_INDEX_CHAR_CAP } from "./search/maintain.js";
@@ -412,7 +414,24 @@ async function instructionsForSession(store, session) {
       .map(({ key }) => key)
       .sort();
     const layout = [...folders, ...rootNotes];
-    if (!layout.length && !frontPage) return SERVER_INSTRUCTIONS;
+    /*
+      The other contexts this connection reaches, named at connect time.
+
+      This payload is read once and sits in the system prompt for every
+      conversation, which makes it the only surface that reaches a model before
+      it has decided anything — and "there is a second context and you can
+      address it" is precisely the kind of fact an agent will never go looking
+      for. It costs nothing to say: these are names and roles the session
+      already carried, and no bucket is opened to list them.
+    */
+    const others = (store.contexts || []).filter((entry) => !entry.current);
+    const reach = others.length
+      ? "\n\nThis person can also reach " +
+        others.map((entry) => entry.name).join(", ") +
+        ". Every tool takes an optional `context` argument naming one of those; " +
+        "what you may do there is decided by their role there, not by this connection."
+      : "";
+    if (!layout.length && !frontPage) return SERVER_INSTRUCTIONS + reach;
 
     const sketch = [
       "\n\nWHAT IS IN HERE (a snapshot taken when this connection opened; call " +
@@ -427,7 +446,7 @@ async function instructionsForSession(store, session) {
           "writing one with them is a good early contribution."
       );
     }
-    return SERVER_INSTRUCTIONS + sketch.join("\n\n");
+    return SERVER_INSTRUCTIONS + sketch.join("\n\n") + reach;
   } catch {
     return SERVER_INSTRUCTIONS;
   }
@@ -598,9 +617,44 @@ async function route(request, env, ctx) {
       // where the work happens.
       store.defer = ctx && typeof ctx.waitUntil === "function" ? (work) => ctx.waitUntil(work) : null;
 
-      return path === "/inbox"
-        ? handleInbox(request, env, store, session)
-        : handleMcp(request, store, session);
+      // Capture is anchored to the context its grant was approved for, so the
+      // inbox store is built without the opener at all rather than with one
+      // nothing calls. That makes "a capture-only credential reaches exactly
+      // one context" structural instead of a sentence someone has to keep true.
+      if (path === "/inbox") return handleInbox(request, env, store, session);
+
+      /**
+       * Open one of the *other* contexts this connection covers.
+       *
+       * A grant covers every context its person is a live member of, so a tool
+       * call may name one — and this is the only thing in the worker that acts
+       * on that name. It rides on the per-request store for the same reason
+       * `store.actor` and the search budget do: the tool layer never sees `env`
+       * or the control plane, and everything it hands back dies with the
+       * request, so a reused isolate carries no other tenant's credential.
+       *
+       * Two properties it must keep:
+       *
+       *  - **A second store, never a second grant.** `sessionForContext` clamps
+       *    the grant's scopes and the visibility tier to the caller's role in
+       *    the addressed context, and `storeForSession` spends the same
+       *    two-factor proof — the same user token, for a context the control
+       *    plane independently agrees they are a member of.
+       *  - **No chaining.** The store it returns has no `openContext` of its
+       *    own, so one tool call resolves one context and cannot walk.
+       */
+      store.openContext = async (name) => {
+        const target = sessionForContext(session, name);
+        if (target === session) return { session, store };
+        const targetStore = await storeForSession(target, env, controlPlane);
+        targetStore.searchSubrequestBudget = searchBudgetFor(env);
+        targetStore.defer = store.defer;
+        targetStore.actor = actorFor(target);
+        targetStore.contexts = contextsFor(target);
+        return { session: target, store: targetStore };
+      };
+
+      return handleMcp(request, store, session);
     }
 
     if (path === "/granola-webhook" && request.method === "POST") {
@@ -1183,6 +1237,44 @@ function visiblePrivateOverrides(rules) {
 
 /* --------------------------------- MCP ---------------------------------- */
 
+/**
+ * Who a write in this context is recorded as.
+ *
+ * One function rather than two literals, because a cross-context call builds a
+ * second store and the audit line on it must name the context it was written
+ * in. Two copies of this object is how a note filed into somebody's brain ends
+ * up stamped with the workspace the client happened to connect to.
+ */
+function actorFor(session) {
+  return {
+    workspaceId: session.workspaceId,
+    userId: session.actorUserId,
+    clientId: session.actorClientId,
+    grantId: session.grantId,
+  };
+}
+
+/**
+ * The contexts this connection can address, as `orient` needs to name them.
+ *
+ * Request-scoped metadata on the store, like `store.actor`, because the tool
+ * layer takes a store and a scope and nothing else — and a reach an agent is
+ * never told about is a reach nobody uses.
+ *
+ * A covered context with no slug is dropped rather than listed: the name is how
+ * a tool call addresses one, so an entry nothing can be passed as would be an
+ * offer that refuses.
+ */
+function contextsFor(session) {
+  return (session.workspaces || [])
+    .filter((entry) => typeof entry.slug === "string" && entry.slug !== "")
+    .map((entry) => ({
+      name: `@${entry.slug}`,
+      role: entry.role,
+      current: entry.workspaceId === session.workspaceId,
+    }));
+}
+
 async function handleMcp(request, store, session) {
   /**
    * The acting identity, carried on the per-request store instance so that
@@ -1197,12 +1289,8 @@ async function handleMcp(request, store, session) {
    * `actor_scope: "team"` stops meaning anything the moment "team" is four
    * people, so the record names the human and the client too.
    */
-  store.actor = {
-    workspaceId: session.workspaceId,
-    userId: session.actorUserId,
-    clientId: session.actorClientId,
-    grantId: session.grantId,
-  };
+  store.actor = actorFor(session);
+  store.contexts = contextsFor(session);
 
   let body;
   try {
@@ -1394,23 +1482,104 @@ function modernErrorResponse(id, code, message, status, data) {
  * copy of either.
  */
 function toolsForSession(session) {
-  return hasScope(session, SCOPE_WRITE)
+  return writesAnywhere(session)
     ? toolDefinitions()
     : toolDefinitions().filter((tool) => tool.annotations?.readOnlyHint === true);
 }
 
+
 /** Run one tool call for this session, enforcing scope. Shared by both eras. */
 async function callToolForSession(params, store, session) {
+  const supplied = params?.arguments;
+  const args =
+    supplied && typeof supplied === "object" && !Array.isArray(supplied) ? { ...supplied } : {};
+
+  /**
+   * The addressed context, if the call named one.
+   *
+   * **Everything below this point runs against the addressed context, and
+   * nothing above it decided anything.** That is why the routing is here: this
+   * function and `toolsForSession` are the only two places authority is
+   * decided, and a call into somebody else's brain has to be clamped by *their*
+   * membership rather than by the one the client happens to be connected to.
+   * Resolving a context anywhere else — in a tool, in a path parser — is a
+   * second authority decision, and the second one is the one that drifts.
+   *
+   * `context` is dropped from the arguments before the tool sees them: it
+   * addresses the call, it is not an input to any tool, and a tool that ever
+   * grew an argument of that name would otherwise be handed a routing token.
+   */
+  const requested = args.context;
+  delete args.context;
+
+  let target = session;
+  let targetStore = store;
+  /*
+    Present but unusable is a refusal, never a fall-through to the default.
+    A `context` of `123`, of `""`, or of an object is a client that meant to
+    address somewhere else and failed to say where — and quietly serving the
+    context it did not ask for is how a note gets written into the wrong brain.
+    Absent is the only thing that means "here".
+  */
+  if (requested !== undefined && requested !== null && !isUsableContextName(requested)) {
+    return toolError("this connection has no access to that context");
+  }
+  if (isUsableContextName(requested)) {
+    // A deployment that never installed the opener — a self-host shim, a test
+    // harness — refuses rather than silently serving the default context. The
+    // failure a person can act on is "that did not happen"; the one they cannot
+    // is a note filed in the wrong brain.
+    if (typeof store.openContext !== "function") {
+      return toolError("this connection cannot address another context");
+    }
+    try {
+      ({ session: target, store: targetStore } = await store.openContext(requested));
+    } catch (error) {
+      // One answer for a name that is not covered, a name that is not a name,
+      // and a name nobody has ever registered — the refusal `selectWorkspace`
+      // gives the URL form, for the reason it gives: a distinguishable answer
+      // is an existence oracle over a global namespace.
+      if (error instanceof SessionRefusal) {
+        return toolError("this connection has no access to that context");
+      }
+      // Reachable, and its bucket is not. Said plainly, because it is the one
+      // failure here the person can fix.
+      if (error instanceof StorageUnavailable) {
+        return toolError(`that context has no reachable storage: ${error.message}`);
+      }
+      throw error;
+    }
+  }
+
   // Enforced here as well as filtered in `toolsForSession`: the listing is a
   // courtesy, this is the control. A client that remembers a tool name from a
   // wider grant, or simply guesses one, gets refused.
-  if (toolIsWriting(params?.name) && !hasScope(session, SCOPE_WRITE)) {
+  //
+  // Read off `target`, never `session`: the grant's write scope survives only
+  // where the caller's role in *that* context can back it up, so a `member` in
+  // somebody's brain is refused here even holding a full-access grant.
+  if (toolIsWriting(params?.name) && !hasScope(target, SCOPE_WRITE)) {
+    /*
+      Two refusals, because there are two causes and the fix differs. A grant
+      that was never given write is a reconnection; a role that cannot back one
+      up is not — telling somebody to reconnect for write they can never hold
+      in that context sends them round a loop that cannot end. The second case
+      only became reachable when one connection started covering several
+      contexts, and it names the context because that is now the part in doubt.
+    */
     return toolError(
-      "permission denied: this connection holds a read-only grant. " +
-        "Reconnect the client with write access from the Context dashboard."
+      writesAnywhere(session)
+        ? `permission denied: you have read-only access to @${target.workspaceSlug}.`
+        : "permission denied: this connection holds a read-only grant. " +
+            "Reconnect the client with write access from the Context dashboard."
     );
   }
-  return callTool(params?.name, params?.arguments || {}, store, session.scope);
+  return callTool(params?.name, args, targetStore, target.scope);
+}
+
+/** Something that could name a context: a non-empty string, and nothing else. */
+function isUsableContextName(value) {
+  return typeof value === "string" && value.trim() !== "";
 }
 
 /** Tools that change something, derived from the definitions so it cannot drift. */
@@ -1482,7 +1651,50 @@ async function handleRpc(msg, store, session) {
   }
 }
 
+/**
+ * The `context` argument, declared once and added to every tool.
+ *
+ * Added centrally rather than written into each schema, because the failure to
+ * design against is a tool added next year that quietly cannot be addressed:
+ * `additionalProperties: false` means a client's `context` on that one tool is
+ * rejected by its own schema, and the agent has no way to tell that from "you
+ * may not reach that context".
+ */
+const CONTEXT_ARGUMENT = {
+  type: "string",
+  description:
+    'Optional. Another context to act in, as "@name" — a brain someone shared with you, or a ' +
+    "workspace you belong to. Omit it to act in your own. Call orient with the same argument " +
+    "first: every folder map, search and listing is per context.",
+};
+
+/**
+ * The two tools whose schema is somebody else's contract.
+ *
+ * `search` and `fetch` exist in OpenAI's deep-research shape so ordinary
+ * ChatGPT chats can call something at all; those chats pass what that contract
+ * defines and nothing else, so an extra property buys them nothing and risks
+ * being read as a violation of it. Cross-context reach is available to them
+ * through the ordinary tools when a client can see the ordinary tools.
+ */
+const FOREIGN_CONTRACT_TOOLS = new Set(["search", "fetch"]);
+
+/** Every tool, with the addressing argument folded in. */
 function toolDefinitions() {
+  return baseToolDefinitions().map((tool) => {
+    if (FOREIGN_CONTRACT_TOOLS.has(tool.name)) return tool;
+    const schema = tool.inputSchema || { type: "object" };
+    return {
+      ...tool,
+      inputSchema: {
+        ...schema,
+        properties: { ...(schema.properties || {}), context: CONTEXT_ARGUMENT },
+      },
+    };
+  });
+}
+
+function baseToolDefinitions() {
   return [
     {
       name: "orient",
@@ -2544,6 +2756,27 @@ async function toolOrient(store, scope, rules, overrides) {
       "name you did not guess."
   );
 
+  /*
+    The other contexts this connection reaches, named so an agent knows they
+    exist. Nothing about them is read — no bucket is opened, no note counted —
+    because this is a list of names and roles the session already carried, and
+    surveying three contexts to answer a question about one is the cost that
+    would make orientation not worth calling.
+  */
+  const otherContexts = (store.contexts || []).filter((entry) => !entry.current);
+  if (otherContexts.length) {
+    parts.push(
+      "## Other contexts you can reach\n" +
+        otherContexts
+          .map((entry) => `- ${entry.name} — ${accessSentence(entry.role)}`)
+          .join("\n") +
+        "\n\nEvery tool here takes an optional `context` argument: pass one of these names to " +
+        "read or write there instead of this one. Orient again with that argument before " +
+        "working in it — the map above, and every search and listing, is for this context only. " +
+        "What you may do in another is decided by your role there, not by this connection."
+    );
+  }
+
   if (scope === "private" && pendingProposals.length) {
     parts.push(
       `## Pending note proposals\n${pendingProposals.length} waiting for you. ` +
@@ -2567,6 +2800,20 @@ async function toolOrient(store, scope, rules, overrides) {
   parts.push(ORIENT_OPERATING_CONTRACT);
   parts.push(scopeInfoText(scope, rules));
   return toolText(parts.join("\n\n---\n\n"));
+}
+
+/**
+ * What a role means where an agent will read it, rather than the word itself.
+ *
+ * `member` and `editor` are this codebase's vocabulary; what an agent needs to
+ * know before it tries to write somewhere is whether it can. An unknown role is
+ * described as read-only — the direction that costs a refused write rather than
+ * a confident attempt that fails.
+ */
+function accessSentence(role) {
+  if (role === "owner") return "yours, and you see private notes there";
+  if (role === "editor") return "you can read and write team notes there";
+  return "you can read team notes there";
 }
 
 function scopeInfoText(scope, rules) {
@@ -4187,12 +4434,11 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
 /* -------------------------------- inbox ---------------------------------- */
 
 async function handleInbox(request, env, store, session) {
-  store.actor = {
-    workspaceId: session.workspaceId,
-    userId: session.actorUserId,
-    clientId: session.actorClientId,
-    grantId: session.grantId,
-  };
+  // The grant's own context, and no other. This path takes no `context`
+  // argument, and the store it is handed was built without an opener at all —
+  // so the credential that sits unattended on a laptop reaches exactly one
+  // context, which is the whole of what makes a capture-only grant cheap.
+  store.actor = actorFor(session);
 
   const contentLength = Number(request.headers.get("Content-Length") || 0);
   if (contentLength > INBOX_CONTENT_BYTE_CAP) {

@@ -116,12 +116,91 @@ async function resolveLiveGrant(
 }
 
 /**
+ * The most contexts one session carries.
+ *
+ * An unbounded `.collect()` here is a read whose cost is set by however many
+ * contexts a person has joined, on the hottest path in the system — every MCP
+ * request resolves a session. Nobody is in fifty; if somebody ever is, this
+ * wants paging rather than a bigger number, and the guarantee that must survive
+ * either way is the one below: the grant's own context is in the set, whatever
+ * else is dropped.
+ */
+const MAX_SESSION_CONTEXTS = 50;
+
+/**
+ * Every context this grant's person can reach right now.
+ *
+ * **Live membership, re-read on every request, never a list frozen at consent
+ * time.** A brain shared with somebody after they connected a client is
+ * reachable from that client, and one they are removed from stops being
+ * reachable the moment the row goes — the same immediacy rule 5 of
+ * `resolveLiveGrant` already gives the grant's own context.
+ *
+ * The grant's own context is first and is present even when the cap truncates,
+ * because the gateway reads it as the session's default and refuses a default
+ * that is not in the covered set. A person in fifty-one contexts must lose
+ * reach into the fifty-first, never the ability to open the one they actually
+ * authorized.
+ */
+async function contextsForGrant(
+  ctx: QueryCtx,
+  live: LiveGrant,
+): Promise<Array<{ workspaceId: Id<"workspaces">; slug: string; role: string }>> {
+  const own = {
+    workspaceId: live.workspace._id,
+    slug: live.workspace.slug,
+    role: live.role,
+  };
+  const memberships = await ctx.db
+    .query("workspaceMembers")
+    .withIndex("by_user", (q) => q.eq("userId", live.grant.userId))
+    .take(MAX_SESSION_CONTEXTS);
+
+  // Oldest first, tie-broken on the id: arbitrary, but *stable*, so two
+  // requests a second apart do not hand a client the same set in a different
+  // order and make it look like something changed.
+  memberships.sort(
+    (a, b) =>
+      a.joinedAt - b.joinedAt ||
+      (a.workspaceId < b.workspaceId ? -1 : a.workspaceId > b.workspaceId ? 1 : 0),
+  );
+
+  const rows = [own];
+  for (const membership of memberships) {
+    if (membership.workspaceId === own.workspaceId) continue;
+    const workspace = await ctx.db.get(membership.workspaceId);
+    // A membership row pointing at a workspace that is gone is skipped rather
+    // than reported: the reach it would name does not exist.
+    if (workspace === null) continue;
+    rows.push({
+      workspaceId: workspace._id,
+      slug: workspace.slug,
+      role: membership.role,
+    });
+  }
+  return rows;
+}
+
+/**
  * Resolve an access token to the session that serves one MCP request.
  *
- * `workspaces` is a *set* even though it has one member today, because the
- * workspace model says a session resolves to a set and the `/@slug/mcp` path
- * form selects within it. It must never contain a workspace the grant does not
- * cover.
+ * `workspaces` is every context this connection may address — each one its
+ * person is a live member of, not only the one the grant was approved against.
+ * That widening was the owner's instruction (2026-09-02): *"if I have access to
+ * someone's brain, my MCP should be able to connect to it"*, against one
+ * connection, one approval and one endpoint per context.
+ *
+ * **Reach is not permission, and nothing about permission moved.** The gateway
+ * still clamps the grant's scopes to the caller's role in whichever context the
+ * call addressed (`effectiveScopes`), and still reads the visibility tier as
+ * `team` for anybody who is not that context's owner (`visibilityTierForGrant`).
+ * A `member` in somebody's brain reaches it read-only and sees no private note,
+ * from any client, however wide the grant that reached it.
+ *
+ * `workspaceId`/`slug`/`role` stay the grant's *own* context, which the gateway
+ * uses as the default — what a bare `/mcp` and an unaddressed tool call resolve
+ * to. Two fields for two questions: which context did this person approve, and
+ * which may this connection reach.
  */
 export const resolveGrantByAccessToken = internalQuery({
   args: { hashedAccessToken: v.string() },
@@ -136,6 +215,13 @@ export const resolveGrantByAccessToken = internalQuery({
       workspaceId: v.id("workspaces"),
       slug: v.string(),
       role: v.string(),
+      workspaces: v.array(
+        v.object({
+          workspaceId: v.id("workspaces"),
+          slug: v.string(),
+          role: v.string(),
+        }),
+      ),
     }),
   ),
   handler: async (ctx, args) => {
@@ -150,6 +236,7 @@ export const resolveGrantByAccessToken = internalQuery({
       workspaceId: live.grant.workspaceId,
       slug: live.workspace.slug,
       role: live.role,
+      workspaces: await contextsForGrant(ctx, live),
     };
   },
 });
@@ -530,15 +617,27 @@ export type GatewayBinding = S3GatewayBinding | DropboxGatewayBinding;
  * resolved to a live grant, independently of anything the gateway concluded a
  * moment ago, and the workspace comes from **that grant**.
  *
- * `expectedWorkspaceId` is the gateway's own independent conclusion. It can
- * only cause a refusal. Note what it is compared against and what it is never
- * passed to: there is no `ctx.db.get(expectedWorkspaceId)`, no
- * `normalizeId(expectedWorkspaceId)`, and no index lookup keyed by it. If a
- * future refactor makes it select the row, the two-factor property is gone and
- * a compromised gateway can walk the customer list one id at a time.
+ * `expectedWorkspaceId` is the gateway's own independent conclusion, and it
+ * **selects within the token's own set, never outside it**. The set comes from
+ * the query above — the contexts this token's person is a live member of right
+ * now — and the id is only ever *compared* against its members: there is no
+ * `ctx.db.get(expectedWorkspaceId)`, no `normalizeId(expectedWorkspaceId)`, and
+ * no index lookup keyed by it. What is handed downstream is the id off the
+ * resolved row, not the argument. That distinction is the whole two-factor
+ * property, and `structure.test.ts` enforces it mechanically because a comment
+ * saying "compared, never looked up" cannot fail.
  *
- * Everything that is not a credentialed, connected binding for the grant's own
- * workspace comes back as `null`, including the decrypt failing — the caller
+ * It used to be a pure veto, because a grant covered exactly one context and
+ * there was nothing to select between. What changed is the size of the set, not
+ * who decides it: a compromised gateway holding a valid token can now reach the
+ * contexts *that token's person is a member of*, and still cannot name a
+ * context outside it or walk the customer list. That cost was accepted with the
+ * widening (see `resolveGrantByAccessToken`), and the shape to never allow back
+ * is the one the old comment warned about — an id used as a lookup key, which
+ * needs no membership at all.
+ *
+ * Everything that is not a credentialed, connected binding for a context this
+ * token covers comes back as `null`, including the decrypt failing — the caller
  * must not be able to tell "that workspace isn't yours" from "that workspace
  * doesn't exist" from "that credential can't be opened".
  */
@@ -576,26 +675,36 @@ export const openStorageBinding = internalAction({
   handler: async (ctx, args): Promise<GatewayBinding | null> => {
     const session: {
       workspaceId: Id<"workspaces">;
+      workspaces: Array<{ workspaceId: Id<"workspaces"> }>;
     } | null = await ctx.runQuery(
       internal.functions.controlPlane.resolveGrantByAccessToken,
       { hashedAccessToken: args.hashedAccessToken },
     );
     if (session === null) return null;
 
-    // A veto, never a selection. The workspace was already chosen, above, by
-    // the grant.
-    if (
-      args.expectedWorkspaceId !== null &&
-      args.expectedWorkspaceId !== (session.workspaceId as string)
-    ) {
-      return null;
-    }
+    /*
+      Selection inside the token's own set, and the set is what the token
+      resolved to a line ago. With no id named, the grant's own context — the
+      same answer this returned before there was a set. With one named, the
+      member of the set that matches it, or nothing.
+
+      What is passed on is `covered.workspaceId`, read off the row this query
+      returned. The argument is compared and then dropped, which is why no id
+      the caller invents can reach a binding: an id that is not in the set has
+      no row to be read off.
+    */
+    const covered =
+      args.expectedWorkspaceId === null
+        ? session.workspaces.find((w) => w.workspaceId === session.workspaceId)
+        : session.workspaces.find((w) => w.workspaceId === args.expectedWorkspaceId);
+    if (covered === undefined) return null;
+    const workspaceId = covered.workspaceId;
 
     let credential;
     try {
       credential = await ctx.runAction(
         internal.functions.storage.getBindingForGateway,
-        { workspaceId: session.workspaceId },
+        { workspaceId },
       );
     } catch {
       // `CREDENTIAL_UNAVAILABLE` and anything else alike. The operator sees it
@@ -615,7 +724,12 @@ export const openStorageBinding = internalAction({
     // silent, but the payload should never have carried it.
     if (credential.provider === "dropbox") {
       return {
-        workspaceId: session.workspaceId,
+        // The context this credential was opened for, which is the selected one
+        // and not the session's default. The gateway compares it against what
+        // *it* resolved and refuses a mismatch, so answering with the default
+        // here would make every cross-context call fail as a disagreement about
+        // which tenant it is — fail-closed, and completely.
+        workspaceId,
         provider: credential.provider,
         accessToken: credential.accessToken,
         rootPrefix: credential.rootPrefix,
@@ -625,7 +739,7 @@ export const openStorageBinding = internalAction({
     }
 
     return {
-      workspaceId: session.workspaceId,
+      workspaceId,
       provider: credential.provider,
       endpoint: credential.endpoint,
       region: credential.region,
