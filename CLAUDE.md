@@ -161,7 +161,8 @@ it is reversed. Every section title is listed by area in
 [privacy & sharing](./docs/decisions/privacy-and-sharing.md),
 [gateway protocol](./docs/decisions/gateway-protocol.md),
 [search](./docs/decisions/search.md),
-[app & console](./docs/decisions/app-and-console.md), and
+[app & console](./docs/decisions/app-and-console.md),
+[obsidian plugins](./docs/decisions/obsidian-plugins.md), and
 [testing](./docs/decisions/testing.md), which is one rule: **a guard nobody has
 checked is not a guard.**
 
