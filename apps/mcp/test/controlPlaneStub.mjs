@@ -15,7 +15,11 @@
  *  - the gateway secret is checked on every call;
  *  - a binding is resolved **from the access token**, never from a workspace id
  *    the caller supplied;
- *  - `expectedWorkspaceId` can only cause a refusal, never a selection;
+ *  - `expectedWorkspaceId` selects only *within the set that token resolves
+ *    to* — the contexts its person is a member of — and can otherwise only
+ *    cause a refusal. An id outside the set reaches nothing, which is the whole
+ *    of what stops a caller holding the gateway secret naming its way through
+ *    the customer list;
  *  - a revoked or expired grant resolves to nothing, immediately;
  *  - refusals are byte-identical whether or not the workspace exists.
  *
@@ -65,6 +69,12 @@ export function createControlPlaneStub(options = {}) {
     bindings.set(workspaceId, binding);
   }
 
+  /**
+   * @param alsoMemberOf other contexts this grant's *person* belongs to, as
+   *   `[{ workspaceId, role }]`. The real control plane reads these off
+   *   `workspaceMembers` on every request; the stub is told them, because the
+   *   contract this file executes is the HTTP one and not Convex's schema.
+   */
   async function addGrant({
     accessToken,
     refreshToken,
@@ -73,6 +83,7 @@ export function createControlPlaneStub(options = {}) {
     scopes = ["context:read", "context:write"],
     clientId = "mcp_test_client",
     userId = "user_test",
+    alsoMemberOf = [],
     expiresAt,
   }) {
     const grantId = `grant_${++grantCounter}`;
@@ -83,6 +94,7 @@ export function createControlPlaneStub(options = {}) {
       scopes,
       clientId,
       userId,
+      alsoMemberOf,
       status: "active",
       expiresAt: expiresAt ?? Date.now() + 3_600_000,
     });
@@ -105,6 +117,31 @@ export function createControlPlaneStub(options = {}) {
     if (!grant || grant.status !== "active") return null;
     if (typeof grant.expiresAt === "number" && grant.expiresAt <= Date.now()) return null;
     return grant;
+  }
+
+  /**
+   * The contexts a grant covers: its own first, then its person's other
+   * memberships. The grant's own context is guaranteed present exactly as
+   * `contextsForGrant` guarantees it, because the gateway refuses a default
+   * that is not in the set.
+   */
+  function coveredContexts(grant) {
+    const rows = [
+      {
+        workspaceId: grant.workspaceId,
+        slug: workspaces.get(grant.workspaceId)?.slug ?? null,
+        role: grant.role,
+      },
+    ];
+    for (const membership of grant.alsoMemberOf || []) {
+      if (membership.workspaceId === grant.workspaceId) continue;
+      rows.push({
+        workspaceId: membership.workspaceId,
+        slug: workspaces.get(membership.workspaceId)?.slug ?? null,
+        role: membership.role ?? "member",
+      });
+    }
+    return rows;
   }
 
   function ok(body) {
@@ -130,7 +167,6 @@ export function createControlPlaneStub(options = {}) {
       case "/gateway/session": {
         const grant = await grantForAccessToken(body.accessToken);
         if (!grant) return ok({ session: null });
-        const workspace = workspaces.get(grant.workspaceId);
         return ok({
           session: {
             grantId: grant.grantId,
@@ -139,34 +175,30 @@ export function createControlPlaneStub(options = {}) {
             scopes: grant.scopes,
             expiresAt: grant.expiresAt,
             defaultWorkspaceId: grant.workspaceId,
-            workspaces: [
-              {
-                workspaceId: grant.workspaceId,
-                slug: workspace?.slug ?? null,
-                role: grant.role,
-              },
-            ],
+            workspaces: coveredContexts(grant),
           },
         });
       }
 
       case "/gateway/binding": {
-        // Proof #2: a live user grant. The workspace comes from THAT, never
-        // from the caller. `expectedWorkspaceId` is only ever a veto.
+        // Proof #2: a live user grant. The *set* of contexts comes from THAT,
+        // never from the caller. `expectedWorkspaceId` picks one of them, and
+        // an id outside the set reaches nothing.
         const grant = await grantForAccessToken(body.accessToken);
         if (!grant) return ok({ binding: null });
-        if (
-          body.expectedWorkspaceId !== null &&
-          body.expectedWorkspaceId !== undefined &&
-          body.expectedWorkspaceId !== grant.workspaceId
-        ) {
+        const covered = coveredContexts(grant);
+        const named =
+          body.expectedWorkspaceId === null || body.expectedWorkspaceId === undefined
+            ? covered.find((entry) => entry.workspaceId === grant.workspaceId)
+            : covered.find((entry) => entry.workspaceId === body.expectedWorkspaceId);
+        if (!named) {
           // Identical to "no such workspace". Distinguishing the two would make
           // this a customer-list oracle for anyone holding the gateway secret.
           return ok({ binding: null });
         }
-        const binding = bindings.get(grant.workspaceId);
+        const binding = bindings.get(named.workspaceId);
         if (!binding) return ok({ binding: null });
-        return ok({ binding: { workspaceId: grant.workspaceId, ...binding } });
+        return ok({ binding: { workspaceId: named.workspaceId, ...binding } });
       }
 
       case "/gateway/clients/register": {

@@ -3,23 +3,20 @@
  */
 
 /**
- * A person can reach three contexts and a connection reaches one.
+ * The URL that says where a client starts.
  *
- * The question that produced this: somebody invited into a brain asked whether
- * their agents were supposed to see it automatically, because they could not.
- * They were right to expect an answer and wrong about which one — a grant
- * covers exactly one context (`http.ts` hands the gateway a `workspaces` set
- * with one member; `selectWorkspace` refuses every other slug), and connecting
- * again at that context's own `/@name/mcp` is the step. The gateway has taken
- * that URL since it was written. The console had never mentioned it, and said
- * instead that one URL reached "everything you can reach".
+ * A connection reaches every context its person belongs to, so the bare
+ * endpoint is the headline and these named URLs are the narrower thing: the
+ * context an unaddressed call lands in. The question that produced the file was
+ * "are my agents supposed to see your brain automatically" — the answer is now
+ * yes, and this is what remains of the first answer to it.
  *
  * Two properties, and they fail in opposite directions:
  *
  *  1. **A named URL is built only when the gateway would read it back.** A slug
  *     it refuses falls back to "no slug", which is the grant's *default*
- *     context — so a wrong named URL does not error, it quietly connects
- *     somewhere else, which is the confusion this feature exists to end.
+ *     context — so a wrong named URL does not error, it quietly starts the
+ *     client somewhere else.
  *  2. **The single-context account is untouched.** One bare field, no choice to
  *     make. A list of one URL under a heading about picking between contexts is
  *     a decision manufactured for somebody who has none.
@@ -138,21 +135,22 @@ function paneWith(
 }
 
 describe("the Connections pane offers the URL that reaches each context", () => {
-  test("two contexts get two named endpoints, and the ambiguous bare one is not offered", () => {
+  test("two contexts get the bare endpoint first and a named one each", () => {
     const html = paneWith(CONTEXTS, "seyi");
+    // The bare URL leads, because it is the one that reaches everything.
+    expect(html).toContain(ENDPOINT);
     expect(html).toContain("https://mcp.context.test/@seyi/mcp");
     expect(html).toContain("https://mcp.context.test/@lk/mcp");
-    // The bare URL resolves to a default this screen cannot compute, so it is
-    // not one of the choices offered to somebody who has a choice.
-    expect(html).not.toContain(">https://mcp.context.test/mcp<");
-    expect(html).toContain("A connection reaches one context");
+    expect(html).toContain("One connection reaches every context you belong to");
+    // And the named ones are offered as a starting point, never as the way in.
+    expect(html).toContain("start it in a particular context");
   });
 
   test("one context is left exactly as it was", () => {
     const html = paneWith(CONTEXTS.slice(0, 1), "seyi");
     expect(html).toContain(ENDPOINT);
     expect(html).not.toContain("@seyi/mcp");
-    expect(html).not.toContain("A connection reaches one context");
+    expect(html).not.toContain("start it in a particular context");
   });
 
   /**
@@ -165,7 +163,5 @@ describe("the Connections pane offers the URL that reaches each context", () => 
     const panel = paneWith(CONTEXTS, "lk", "claude");
     expect(panel).toContain("https://mcp.context.test/@lk/mcp");
     expect(panel).not.toContain("https://mcp.context.test/@seyi/mcp");
-    // And never the bare URL, which is the ambiguous one this replaced.
-    expect(panel).not.toContain(">https://mcp.context.test/mcp<");
   });
 });

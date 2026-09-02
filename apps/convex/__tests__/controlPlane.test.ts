@@ -37,6 +37,7 @@ import { hashToken } from "../functions/lib/crypto";
 import {
   FAKE_STORAGE,
   TEST_GATEWAY_SECRET,
+  addMember,
   asUser,
   captureError,
   createUser,
@@ -388,7 +389,7 @@ describe("/gateway/session", () => {
     ]);
   });
 
-  test("a session covers exactly one workspace, and never another tenant's", async () => {
+  test("a session covers what its person is a member of, and never another tenant's", async () => {
     const { t, bobWs } = await twoConnectedTenants();
     const body = await bodyOf(
       await gatewayPost(t, "/gateway/session", { accessToken: ACCESS_A }),
@@ -398,6 +399,38 @@ describe("/gateway/session", () => {
     expect(workspaces).toHaveLength(1);
     expect(workspaces.map((w) => w.workspaceId)).not.toContain(bobWs);
     expect(JSON.stringify(body)).not.toContain("alphabet");
+  });
+
+  /**
+   * The widening, and the two things that did not widen with it.
+   *
+   * A grant covers every context its person is a live member of, so a client
+   * connected once can address a brain shared with its owner. What travels with
+   * each entry is the **role in that context**, which is what the gateway
+   * clamps scopes and the visibility tier to — reach is not permission — and
+   * the grant's own context stays separately identified as the default, because
+   * "which one did this person approve" and "which may this connection reach"
+   * are two questions and one field cannot answer both.
+   */
+  test("a context shared with this person afterwards is in the set, with the role they hold there", async () => {
+    const { t, alice, aliceWs, bobWs } = await twoConnectedTenants();
+    await addMember(t, bobWs, alice, "member");
+
+    const body = await bodyOf(
+      await gatewayPost(t, "/gateway/session", { accessToken: ACCESS_A }),
+    );
+    const session = body.session as {
+      defaultWorkspaceId: string;
+      workspaces: { workspaceId: string; slug: string; role: string }[];
+    };
+
+    // No re-approval, no new grant: the membership row is the whole of it.
+    expect(session.workspaces).toEqual([
+      { workspaceId: aliceWs, slug: "alpha", role: "owner" },
+      { workspaceId: bobWs, slug: "alphabet", role: "member" },
+    ]);
+    // And the context she approved is still the one an unaddressed call means.
+    expect(session.defaultWorkspaceId).toBe(aliceWs);
   });
 
   test("stamps lastUsedAt, which is how a person spots a client they do not recognise", async () => {
@@ -597,6 +630,59 @@ describe("/gateway/binding", () => {
       }),
     );
     expect((body.binding as { rootPrefix: string }).rootPrefix).toBe("context/");
+  });
+
+  /**
+   * A context the caller was invited into opens; one they were not does not.
+   *
+   * These two are one test in two halves and must stay together. A grant covers
+   * every context its person is a live member of, so the id the gateway names
+   * *selects* now instead of only vetoing — and a selection that stopped being
+   * bounded by membership is the catastrophe `openStorageBinding`'s own header
+   * describes: a compromised gateway holding one valid token walking the
+   * customer list one id at a time. The negative half is what says the bound is
+   * still there.
+   */
+  test("a workspace the caller is a member of opens when the gateway names it", async () => {
+    const { t, alice, bobWs } = await twoConnectedTenants();
+    await addMember(t, bobWs, alice, "member");
+
+    const body = await bodyOf(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: bobWs,
+      }),
+    );
+    const binding = body.binding as Record<string, unknown>;
+    // The context that was asked for, and its own bucket — not the default's.
+    // Answering with the grant's own id here makes the gateway refuse every
+    // cross-context call as a disagreement about which tenant it is.
+    expect(binding.workspaceId).toBe(bobWs);
+    expect(binding.bucket).toBe("tenant-ab");
+  });
+
+  test("and stops opening the moment that membership is gone", async () => {
+    const { t, alice, bobWs } = await twoConnectedTenants();
+    await addMember(t, bobWs, alice, "member");
+    const membership = await t.run((ctx) =>
+      ctx.db
+        .query("workspaceMembers")
+        .withIndex("by_workspace_user", (q) =>
+          q.eq("workspaceId", bobWs).eq("userId", alice),
+        )
+        .unique(),
+    );
+    await t.run((ctx) => ctx.db.delete(membership!._id));
+
+    const body = await bodyOf(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: bobWs,
+      }),
+    );
+    // Not "on the next token refresh": the set is re-read on every request, so
+    // removing somebody cuts off the clients they already had.
+    expect(body).toEqual({ binding: null });
   });
 
   test("naming another tenant's workspace returns nothing, never that tenant's binding", async () => {

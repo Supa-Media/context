@@ -88,51 +88,118 @@ Adding a scope means adding it to `SUPPORTED_SCOPES` in `session.js` — which
 about it separately. A client that follows discovery to a scope the
 authorization endpoint then rejects is a client that concludes the server lied.
 
-### One endpoint per context, because a grant covers one context
+### One connection reaches every context its person belongs to
 
-The pitch is "one MCP endpoint you add everywhere", and that is true of the
-*URL shape*: it carries no token, it is the same for everybody, and every client
-takes it. It is not true of what a connection reaches. `gatewaySession` hands
-the worker a `workspaces` **set with one member in it** — the grant's own — and
-`selectWorkspace` refuses every other slug with a 403 that says nothing, on
-purpose, so the path cannot be used to enumerate names.
+Asked for by the owner (2026-09-02) after somebody invited into a brain found
+their agents could not open it: *"If I have access to someone's brain, my MCP
+should be able to connect to it."* This **reverses** the section that stood here
+a day earlier, which recorded the opposite as deliberate — that a grant covers
+one context, and that widening it "is not a cleanup, it is a change to what a
+consent means". That objection was right about what it costs and was overruled
+with the cost stated, which is the only way it should ever have been settled.
 
-So somebody invited into a brain connected their agents, found they could not
-open it, and asked whether they were supposed to be able to. The answer is that
-the step exists and has since the gateway was written: connect *again* at that
-context's own `/@<slug>/mcp`, which `resolveConsentWorkspace` reads as a
-selection among the contexts the person already belongs to. `session.js` even
-says "people see this URL in their MCP client settings". Nothing in the product
-ever showed it to them, and the Connections pane said the opposite — one URL,
-"across everything you can reach".
+`resolveGrantByAccessToken` returns every context its person is a **live
+member** of, and `sessionForContext` in the gateway addresses one of them from a
+tool call's `context: "@name"`. Read live rather than frozen at consent: a brain
+shared with you afterwards is reachable from the client you already connected,
+and one you are removed from stops being reachable on the very next call —
+`resolveLiveGrant`'s rule 5, applied to the whole set.
 
-The console now offers one named URL per context to anybody who has more than
-one, and leaves the single-context account exactly as it was. Three things
-about that are the reasons rather than the implementation:
+**Reach is not permission, and only reach widened.** Every clamp that applied to
+the connection's own context applies to the addressed one, from the grant's
+scopes and the *target's* role: `effectiveScopes` makes a `member` read-only
+wherever they are a member, and `visibilityTierForGrant` reads `team` for
+anybody who is not that context's owner, so no private note of somebody else's
+is reachable by any client, ever. What a connected client can do in your brain
+is exactly what you can do in it yourself.
 
-- **The bare URL stops being offered once there is a choice**, because it is
-  the ambiguous one: it resolves to the caller's *oldest membership*, and a
-  screen that displayed which context that is would be a second copy of a
-  control-plane tie-break, drifting from the real one silently.
-- **A URL the gateway would not read back is never printed** (`endpoints.ts`).
-  `splitWorkspacePath` answers a segment it rejects by ignoring it, so a wrong
-  named URL does not fail — it connects to the default context and looks like
-  it worked, which is the confusion this fixes, restaged. Every rule that file
-  applies is applied again here, including its reserved-route list, for the
-  reason it gives for keeping its own copy.
-- **The one-click installs follow the selected context**, since they build a
-  deep link out of whatever endpoint they are handed.
+Five things hold it, and each fails a test if removed:
 
-**What was deliberately not done is the interesting half.** The obvious
-"simplification" is to make one grant cover every context its person belongs
-to — the gateway is already built for it, `workspaces` is a set, and CLAUDE.md
-has said since the workspace model landed that a session resolves to a *set*.
-It is not a cleanup, it is a change to what a consent means: the screen names
-one context, and a grant that silently widened to every context the person
-joins *later* would be authority nobody was asked about, on the machine an
-unattended hook credential lives on. If it is ever wanted, it wants a picker on
-the consent screen and a `workspaces` set built from what was ticked — not a
-one-line change to what `gatewaySession` returns.
+- **The clamp reads the grant's scopes, never the connection's clamped set.**
+  `session.grantScopes` exists for this. Re-clamping an already-clamped set
+  intersects two roles, so somebody who connected to a brain they are a `member`
+  of would lose write in a context they *own* — fails closed, and reads as a
+  permission bug in the wrong place. The fixture that catches it is a person
+  whose home context is somebody else's brain.
+- **The tier is re-read for the target role**, not carried across. Carried, an
+  owner's `private` connection reads private notes in a context they are only a
+  member of, which is the leak this whole section has to not be.
+- **Routing happens in `callToolForSession` and nowhere else.** That is the rule
+  "authority is decided once" applied to a second dimension: a tool, or a path
+  parser, resolving its own context is a second authority decision, and the
+  second one is the one that drifts. `context` is stripped from the arguments
+  there, so no tool can ever read it as an input.
+- **`openStorageBinding` selects inside the token's own set.** The id the
+  gateway sends is compared against the contexts that token resolves to and is
+  then dropped; what reaches storage is the id off the row. The shape that must
+  never come back is the one `structure.test.ts` still pins — an id used as a
+  *lookup key*, which needs no membership at all. **This is a real widening of
+  what a compromised gateway plus one valid token can reach**: from that
+  person's one context to that person's contexts. It cannot walk to anybody
+  else's, and that bound is the whole of what is left, so nothing may weaken it.
+- **The refusal is uniform.** A context you are not in, a name nobody has
+  registered, and a malformed name are one answer — the refusal
+  `selectWorkspace` already gave the URL form, because a distinguishable one is
+  an existence oracle over a global namespace.
+
+**What it costs, stated rather than left to be rediscovered.** The consent
+screen names one context and the grant covers all of them, so the screen had to
+say so — it now reads "It can reach every context you belong to, with the access
+you have in each — including ones shared with you later", and the picker chooses
+where a client *starts* rather than what it may touch. That sentence is the
+whole mitigation for the objection this reverses, and it is why the copy is not
+a detail: an unattended credential on an old laptop reaches contexts joined
+after it was approved.
+
+The hook is the exception, and by construction rather than by care: it holds
+`context:capture` alone, which cannot reach `/mcp` at all, and `/inbox` takes no
+`context` argument and opens no second store. So the credential this product
+leaves lying around is the one that still reaches exactly one context. Adding
+routing to `/inbox` would spend that for nothing — a capture lands in
+`0-inbox/`, which is what that folder is for.
+
+Whoever wants the rest narrowed again should add a picker to
+the consent screen and build the set from what was ticked, rather than making
+`resolveGrantByAccessToken` narrow: the gateway would then hold reach the
+control plane disagrees with.
+
+**The named `/@<slug>/mcp` URL survives with a smaller job.** It is no longer
+how you get *at* a context — it decides which one a client starts in, since the
+grant's own context is what an unaddressed call resolves to. `endpoints.ts`
+still refuses to print a URL the gateway would not read back, for the reason it
+gave when it was the only way in: `splitWorkspacePath` answers a segment it
+rejects by ignoring it, so a wrong named URL does not fail, it quietly connects
+somewhere else.
+
+**And the discovery half is the feature.** An agent will never go looking for a
+context nobody told it about, so both surfaces that reach a model before it
+decides anything name them: the connect-time `instructions` and `orient`.
+
+`instructions` lists names and roles only. It is built during a handshake that
+must never fail, on every connection, so it opens no bucket at all.
+
+**`orient` reads each of their front pages**, which was the owner's next
+correction (2026-09-02) and is right: a name an agent cannot judge is a name it
+never follows, and `index.md` is the one file that says what a context is for.
+Four rules hold that, and each fails a test:
+
+- **Each page is read at that context's own clearance**, from the session
+  `openContext` clamps and that context's own `privacy.md` — so a front page its
+  owner has not shared is absent, and the line says "no front page visible to
+  you there yet" rather than pretending the context is empty. Note what that
+  means in practice: the scaffolded manifest starts everything private,
+  `index.md` included, so a member sees nothing until the owner shares it. The
+  common useful case is somebody's own several contexts.
+- **It is bounded at six, and a short list says so.** Each context costs a
+  control-plane round trip and two reads against a Worker with a subrequest
+  ceiling, so an unbounded fan-out is how orientation starts failing outright
+  for the people who have the most of it. Past the cap the rest are still named,
+  because a name is free.
+- **One context that will not open cannot take the others down.** A revoked
+  binding or a broken manifest is a line on its own row; the answer stands.
+- **An `orient` already addressed into another context reads none of them.**
+  It is handed a store with no opener, so it names the rest: one tool call opens
+  one context beyond its own, never a chain.
 
 ### A grant is one person's tooling, and the refusal follows the listing
 

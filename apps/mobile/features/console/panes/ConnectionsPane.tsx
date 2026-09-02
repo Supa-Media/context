@@ -23,11 +23,11 @@ import { selectedContext, type ConsoleClient, type ConsoleData } from "../types"
  * what a grant hangs off — see `ConsoleClient.context`. It is the same
  * placement the constellation draws.
  *
- * The endpoint is app level in the sense that matters — it is the same URL for
- * everyone and carries no token — and **not** in the sense this file used to
- * claim. A grant covers one context, so the person who can reach three has
- * three endpoints and connects the ones they want; see `../endpoints.ts` for
- * what that fixed and why a named URL is refused rather than guessed at.
+ * The endpoint is app level in every sense now: the same URL for everyone, no
+ * token in it, and one connection reaches every context its person belongs to.
+ * The named `/@name/mcp` URLs are a starting point rather than a boundary — see
+ * `../endpoints.ts` for what they are for and why one is refused rather than
+ * guessed at.
  *
  * The endpoint and the grant list are both real: grants come from
  * `functions/grants.listGrants` and Revoke calls `revokeGrant`, which is why
@@ -58,23 +58,23 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
   const viewerRole = selectedContext(data)?.role;
 
   /*
-    One URL per context, because a connection reaches exactly one.
+    One URL reaches everything; the named ones only choose where a client
+    starts.
 
-    The head used to say "one URL for every AI tool, across everything you can
-    reach", and the first half of that is true: the endpoint carries no token
-    and every client takes the same one. The second half was not. A grant covers
-    a single context — the gateway is handed a `workspaces` set with one member
-    in it and refuses any other slug — so somebody invited into a brain found
-    their agents could not open it, with nothing on this screen to suggest a
-    next step. The step existed the whole time: connect again at the context's
-    own `/@name/mcp`.
+    This card twice described a rule that had changed under it. It first said
+    "one URL for every AI tool, across everything you can reach" while a grant
+    covered exactly one context — false, and it stranded somebody invited into a
+    brain whose agents could not open it. It was then rewritten to offer one URL
+    per context and say a client wanted in two takes two, which was true for
+    about a day: a grant now covers every context its person is a live member
+    of, and a tool call addresses one by name.
 
-    Below one context there is nothing to choose between, so the bare endpoint
-    stays exactly as it was rather than growing a decision nobody has. Above
-    one, the bare URL is the ambiguous one — it resolves to a default this
-    screen cannot compute without keeping a second copy of the control plane's
-    tie-break — so what is offered is the named URLs, which resolve to what they
-    say.
+    So the bare endpoint leads again, and it is the honest headline this time
+    rather than the aspirational one. The named URLs stay, demoted to what they
+    genuinely still do: pick the context a client works in when a call does not
+    say. Somebody who spends their days in a brain shared with them connects
+    there and never types a context name; the bare URL starts in the one they
+    approved.
   */
   const perContext = contextEndpoints(data.endpoint, data.contexts);
   const named = perContext.length > 1 ? perContext : null;
@@ -96,33 +96,18 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
     <View>
       <PaneHead
         title="Connections"
-        description="One URL for every AI tool, and one connection per context. Each client gets its own grant — revoking one leaves the others working."
+        description="One URL for every AI tool, across everything you can reach. Each client gets its own grant — revoking one leaves the others working."
       />
 
       <Card>
         <Text variant="eyebrow" style={styles.eyebrow}>
-          {named === null ? "Your endpoint" : "Your endpoints"}
+          Your endpoint
         </Text>
-        {named === null ? (
-          <CopyField
-            value={data.endpoint}
-            label="Copy your MCP endpoint"
-            testID="mcp-endpoint"
-          />
-        ) : (
-          named.map((row) => (
-            <View key={row.id} style={styles.endpointRow}>
-              <Text variant="rowSub" style={styles.endpointName}>
-                {row.label}
-              </Text>
-              <CopyField
-                value={row.url}
-                label={`Copy the MCP endpoint for ${row.label}`}
-                testID={`mcp-endpoint-${row.id}`}
-              />
-            </View>
-          ))
-        )}
+        <CopyField
+          value={data.endpoint}
+          label="Copy your MCP endpoint"
+          testID="mcp-endpoint"
+        />
         <Hint>
           <Text variant="hint">
             Paste this into any client&apos;s MCP settings and sign in.{" "}
@@ -132,9 +117,35 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
             and can be revoked on its own, without disturbing the others.
             {named === null
               ? ""
-              : " A connection reaches one context, so a client you want in two takes both URLs — added as two servers, approved separately."}
+              : " One connection reaches every context you belong to, with the access you have in each."}
           </Text>
         </Hint>
+
+        {named === null ? null : (
+          <View style={styles.startIn}>
+            <Text variant="eyebrow" style={styles.eyebrow}>
+              Or start it in a particular context
+            </Text>
+            {named.map((row) => (
+              <View key={row.id} style={styles.endpointRow}>
+                <Text variant="rowSub" style={styles.endpointName}>
+                  {row.label}
+                </Text>
+                <CopyField
+                  value={row.url}
+                  label={`Copy the MCP endpoint for ${row.label}`}
+                  testID={`mcp-endpoint-${row.id}`}
+                />
+              </View>
+            ))}
+            <Hint>
+              <Text variant="hint">
+                Same reach, different starting point: a client connected here works in that
+                context when a request does not name another one.
+              </Text>
+            </Hint>
+          </View>
+        )}
       </Card>
 
       <View style={styles.spaced}>
@@ -309,6 +320,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   accountHead: { marginBottom: 8 },
   accountSub: { maxWidth: 520 },
   eyebrow: { marginBottom: 10 },
+  startIn: { marginTop: 17 },
   endpointRow: { marginBottom: 9 },
   endpointName: { marginBottom: 4, color: colors.text2, fontWeight: "600" },
   spaced: { marginTop: 11 },

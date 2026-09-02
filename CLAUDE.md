@@ -106,17 +106,20 @@ different membership — never modelled separately, and in particular:
 
 - **A storage binding belongs to a `workspaceId`, never a `userId`.**
 - **A user belongs to many workspaces**, and a session resolves to a *set* of
-  accessible contexts, even while that set has one member today.
+  accessible contexts — a set that really has several members: one connection
+  reaches every context its person is a live member of.
 - **Membership carries an explicit role** (`owner` | `editor` | `member`).
   Write access to someone else's context is never implied by read.
 - **Usernames and workspace slugs share one global namespace**, unique and
   stable, with a reserved-word list. Sharing is addressed by name.
 - **Audit records the acting identity, not just the scope.**
 
-Cross-context paths are `@name/1-projects/foo.md`; a bare path means the
-caller's own context. Mounts, federation UI, cross-context search ranking,
-discovery and org administration are deliberately **not** built — do not
-foreclose them.
+Cross-context work is addressed by a `context: "@name"` argument on the tool
+call; a call with none means the caller's own context. The
+`@name/1-projects/foo.md` path prefix planned here can still arrive as sugar
+over the same routing, but routing is decided in exactly one place. Mounts,
+federation UI, cross-context search ranking, discovery and org administration
+are deliberately **not** built — do not foreclose them.
 
 ## This repository is public and MIT licensed
 

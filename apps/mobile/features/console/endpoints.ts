@@ -1,20 +1,19 @@
 /**
  * The MCP endpoint for one context.
  *
- * ## Why this exists at all
+ * ## What it is for, which is not what it was for
  *
- * A grant covers exactly one context — `http.ts`'s gateway session hands the
- * worker a `workspaces` *set* with one member in it, and `selectWorkspace`
- * refuses any slug outside that set with a 403 that says nothing. So a person
- * invited into somebody else's brain, whose client is connected on the bare
- * `/mcp`, cannot reach it: their agent is authorized for their own context and
- * asking for another one is refused. That is correct, and it read as broken,
- * because nothing anywhere told them the other half — the gateway has taken
- * `/@<slug>/mcp` since it was written, `session.js` says in as many words that
- * "people see this URL in their MCP client settings", and the console showed
- * one bare URL and called it "one URL for every AI tool, across everything you
- * can reach". Connecting a second time at the named URL is the step, and it was
- * unguessable.
+ * A connection reaches every context its person is a live member of, and a tool
+ * call addresses one by name — so a named URL is no longer how somebody invited
+ * into a brain gets at it. What it still decides is where a client *starts*:
+ * the grant's own context is what an unaddressed call resolves to, and the URL
+ * the client was connected at is what chose it. Somebody who works mostly in a
+ * context shared with them connects at its name and never types one again.
+ *
+ * This file was written a day earlier, when a grant covered exactly one context
+ * and the named URL was the only way to reach a second. The reason it refuses
+ * rather than guesses has not changed with the feature, because the failure
+ * mode has not: see below.
  *
  * ## Why it can answer `null`
  *

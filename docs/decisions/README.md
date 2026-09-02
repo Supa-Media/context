@@ -28,7 +28,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Ingestion is on the apex, which makes the reserved-name list a security control
 - Mail lands in a personal context and nowhere else
 - The privacy tier is a scope on the grant, never an inference from a role
-- One endpoint per context, because a grant covers one context
+- One connection reaches every context its person belongs to
 - A grant is one person's tooling, and the refusal follows the listing
 - An invitation is addressed to a string, and its token is stored in the clear
 - An invitation is delivered, and the delivery is scheduled rather than sent
@@ -74,6 +74,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - One runtime version, pinned, and native deps gated behind it
 - The native baseline was chosen once, before the first build
 - The iOS editor is the web editor, in a WebView, from a committed bundle
+- Every react-native-web `View` is a stacking context, so a `zIndex` is local
 - There are two palettes, and a screen may not hold either one
 - Offline is a queue and a cache, and a conflict is parked rather than resolved
 - A team link's note survives the console's own cold start, and the login gate
