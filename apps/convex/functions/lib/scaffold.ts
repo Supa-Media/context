@@ -457,9 +457,12 @@ export function renderPrivacyManifestForFolders(
     "# Access map",
     "",
     "This file decides what a connected AI client is allowed to see. It lives in",
+    // Wrapped to the same width as everything else in this file: it is Markdown
+    // somebody reads in Obsidian, and one long line among short ones is visible.
     shared
-      ? "this workspace's bucket, it is readable in Obsidian, and you can edit it by hand."
+      ? "this workspace's bucket, it is readable in Obsidian, and anyone with"
       : "your bucket, it is readable in Obsidian, and you can edit it by hand.",
+    ...(shared ? ["access to the bucket can edit it by hand."] : []),
     "",
     shared
       ? "- `private` — this workspace's owners, and nothing else. An editor or a"
