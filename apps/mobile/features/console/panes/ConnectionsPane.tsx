@@ -190,13 +190,33 @@ export function DeleteAccountCard({ deleteAccount }: { deleteAccount: () => Prom
   );
 }
 
-function ClientRow({ client }: { client: ConsoleClient }) {
+/**
+ * One connected client, and whose it is.
+ *
+ * A row that is not yours says so. Only a context's `owner` is shown anybody
+ * else's grants at all — `functions/grants.listGrants` narrowed to that after
+ * somebody invited into a personal brain found the owner's clients in their
+ * own Settings — and what is left is the other half of the same confusion: in
+ * a shared context the owner's list holds their colleagues' clients too, under
+ * a heading that says every client *you* add appears below, on a card under
+ * *your* endpoint. Unmarked, a colleague's Claude is indistinguishable from
+ * one of your own, and Revoke beside it is a button that disconnects somebody
+ * else's laptop without saying so.
+ *
+ * It does not name the person. `listGrants` returns a `userId` and no more, and
+ * resolving it here would put "who uses which AI client" on a row that only
+ * has to answer "is this mine".
+ */
+export function ClientRow({ client }: { client: ConsoleClient }) {
   const styles = useThemedStyles(makeStyles);
   return (
     <Row divided>
       <Dot tone={client.status} />
       <Grow>
-        <Text variant="rowTitle">{client.name}</Text>
+        <Row style={styles.rowTitle}>
+          <Text variant="rowTitle">{client.name}</Text>
+          {client.mine ? null : <Pill tone="neutral">another member&apos;s</Pill>}
+        </Row>
         <Text variant="rowSub" style={styles.rowSub}>
           {/* Which context, then what it can do there. */}
           <Text variant="rowSub" style={styles.rowContext}>
@@ -213,7 +233,11 @@ function ClientRow({ client }: { client: ConsoleClient }) {
       <Button
         label="Revoke"
         variant="danger"
-        accessibilityLabel={`Revoke ${client.name}'s access to ${client.context}`}
+        accessibilityLabel={
+          client.mine
+            ? `Revoke ${client.name}'s access to ${client.context}`
+            : `Revoke another member's ${client.name} access to ${client.context}`
+        }
         disabled={client.revoke === undefined}
         onPress={client.revoke}
       />
@@ -228,6 +252,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   eyebrow: { marginBottom: 10 },
   spaced: { marginTop: 11 },
   clientsHead: { marginBottom: 13 },
+  rowTitle: { gap: 8 },
   rowSub: { marginTop: 2 },
   rowContext: { color: colors.text2, fontWeight: "600" },
   hintStrong: { color: colors.hintStrong, fontWeight: "600" },

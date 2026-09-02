@@ -118,8 +118,8 @@ export const recordEvent = internalMutation({
  *    is withheld rather than dropped at the call site, so the owner's record
  *    keeps it.
  *  - **Anything another API answers at a higher role.** `listGrants` shows
- *    every grant only to `editor` and above -- a plain member sees their own
- *    and nothing else. `grant.created` records `{ scopes, tier }` and
+ *    every grant only to a workspace `owner` -- an editor and a member alike
+ *    see their own and nothing else. `grant.created` records `{ scopes, tier }` and
  *    `oauth.authorized` records `{ scope, grantedScope, tier }`, so leaving
  *    them on would let a read-only member read with what reach everybody
  *    else's AI clients connected: the same shape as the `ingestion.*` hole
@@ -130,7 +130,7 @@ export const recordEvent = internalMutation({
  *    gate, so a member still reads who connected a client, when, and -- by
  *    joining `grant.created` to `grant.revoked` on the client id -- whose was
  *    revoked and whether it was involuntary. Four of the six fields
- *    `listGrants` gates at `editor`. Closing that means gating those columns
+ *    `listGrants` gates at `owner`. Closing that means gating those columns
  *    too, which is the same shape as the `paths` decision below and belongs
  *    with it.
  *

@@ -305,6 +305,10 @@ export function useLiveConsoleData(): ConsoleData {
     name: grant.clientName ?? grant.clientId,
     context: slugOf.get(grant.workspaceId) ?? "a context",
     detail: `${describeScopes(grant.scopes)} · ${lastUsedLabel(grant.lastUsedAt, now)}`,
+    // Straight from the server's own answer, never derived here: `isMine` is
+    // what `listGrants` compared the row against the caller, and the console
+    // has no business re-deciding it from a user id it would have to be told.
+    mine: grant.isMine,
     status: grantTone(grant.status, grant.lastUsedAt),
     revoke: () => {
       void revoke({ grantId: grant.grantId });

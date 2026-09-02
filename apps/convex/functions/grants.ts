@@ -27,7 +27,7 @@ import {
 import type { Doc, Id } from "../_generated/dataModel";
 import { TOKEN_HASH_PATTERN } from "./lib/crypto";
 import { recordAudit } from "./lib/audit";
-import { getMembership, roleAtLeast, workspaceNotFound } from "./lib/workspaceAuth";
+import { getMembership, workspaceNotFound } from "./lib/workspaceAuth";
 import {
   clampAccessTokenExpiry,
   clampScopes,
@@ -74,14 +74,26 @@ const grantSummary = v.object({
 /**
  * The AI clients connected to a workspace.
  *
- * Visibility follows role:
- *  - `owner` and `editor` see every grant in the workspace, because they can
- *    act on them (an owner can revoke any of them) and because in a shared
- *    context "which robots can read our notes" is a question the people
- *    responsible for the context need answered.
- *  - `member` — read-only — sees only their own grants. A read-only member has
- *    no lever to pull on anyone else's client, so listing them would be pure
- *    disclosure of other people's tooling.
+ * **A grant is one person's tooling.** Only its own user and the context's
+ * `owner` ever see it; an `editor` and a `member` alike get their own rows and
+ * nothing else.
+ *
+ * The line is `revokeGrant`'s, and that is the point of where it is drawn:
+ * an owner may cut off any client in their context, anybody may unplug their
+ * own, and those are the only two levers there are. An `editor` has neither,
+ * so listing a colleague's clients to them is pure disclosure of other
+ * people's tooling — which is the sentence this file already used to withhold
+ * them from a `member`, and it is no less true a rung up. Reading was the sole
+ * authority an editor had here, over rows they could never act on.
+ *
+ * It said `editor` and above until somebody invited into a personal brain
+ * opened Settings and found nine of the owner's clients sitting there: every
+ * AI tool that person uses, how much of the context each can read, and when it
+ * last read it. The old line was argued for a *shared* context, where "which
+ * robots can read our notes" is a question the people responsible for the
+ * place need answered. A personal brain has exactly one such person, and being
+ * invited to write notes in somebody's context is not an appointment to
+ * administer their clients.
  *
  * `hashedRefreshToken` is never in the response under any role.
  */
@@ -96,7 +108,7 @@ export const listGrants = query({
     // construction* — the error comes from the one helper that builds it.
     if (membership === null) throw workspaceNotFound();
 
-    const seesAll = roleAtLeast(membership.role, "editor");
+    const seesAll = membership.role === "owner";
     const rows: Doc<"oauthGrants">[] = seesAll
       ? await ctx.db
           .query("oauthGrants")
@@ -155,14 +167,19 @@ export const listGrants = query({
  *
  *  - Not a member of the grant's workspace → `GRANT_NOT_FOUND`, identical to a
  *    grant id that never existed.
- *  - A read-only `member` aiming at somebody else's grant → also
- *    `GRANT_NOT_FOUND`. `listGrants` shows a `member` only their own grants,
- *    so an `INSUFFICIENT_ROLE` here would confirm that a guessed id is real
- *    and belongs to a colleague — precisely the disclosure the listing rule
- *    exists to prevent, reached by a different door.
- *  - An `editor` → `INSUFFICIENT_ROLE`. An editor already sees every grant in
- *    the workspace, so naming the missing role leaks nothing and is the only
- *    form of the refusal they can act on.
+ *  - Anybody who is not the grant's own user and not the workspace `owner` →
+ *    also `GRANT_NOT_FOUND`. `listGrants` shows them only their own grants, so
+ *    an `INSUFFICIENT_ROLE` here would confirm that a guessed id is real and
+ *    belongs to a colleague — precisely the disclosure the listing rule exists
+ *    to prevent, reached by a different door.
+ *
+ * An `editor` used to get `INSUFFICIENT_ROLE` here, on the ground that they
+ * could already enumerate every grant in the workspace and so learned nothing
+ * from being told the role they lacked. That premise is gone: an editor now
+ * sees their own grants and no others, so the named refusal became exactly the
+ * oracle the rule above forbids. **The rule did not move; its premise did** —
+ * which is what makes this the kind of line to re-derive rather than preserve
+ * whenever the listing changes.
  *
  * The grant row is read before any of this, because the grant is what says
  * which workspace to authorize against — there is no index from a grant id to
@@ -184,15 +201,11 @@ export const revokeGrant = mutation({
     if (membership === null) throw grantNotFound();
 
     const isOwnGrant = grant.userId === userId;
-    if (!isOwnGrant && membership.role !== "owner") {
-      if (!roleAtLeast(membership.role, "editor")) throw grantNotFound();
-      throw new ConvexError({
-        code: "INSUFFICIENT_ROLE",
-        message: "Only a workspace owner can revoke someone else's client.",
-        requiredRole: "owner",
-        actualRole: membership.role,
-      });
-    }
+    // Somebody else's grant, and not our context to administer: identical to a
+    // grant id that never existed, whatever the role. See the note above — no
+    // role below `owner` can list this row, so naming what they lack would
+    // confirm it is real.
+    if (!isOwnGrant && membership.role !== "owner") throw grantNotFound();
 
     if (grant.status === "revoked") return { revoked: false };
 

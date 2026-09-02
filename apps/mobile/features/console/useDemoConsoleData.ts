@@ -55,6 +55,7 @@ const DEMO_CLIENTS: ConsoleClient[] = [
     name: "Claude Desktop",
     context: "@seyi",
     detail: "Full access · last used 4 minutes ago",
+    mine: true,
     status: "ok",
   },
   {
@@ -62,6 +63,7 @@ const DEMO_CLIENTS: ConsoleClient[] = [
     name: "ChatGPT",
     context: "@seyi",
     detail: "Full access · last used 2 hours ago",
+    mine: true,
     status: "ok",
   },
   {
@@ -69,6 +71,7 @@ const DEMO_CLIENTS: ConsoleClient[] = [
     name: "Codex CLI",
     context: "@seyi",
     detail: "Full access · last used yesterday",
+    mine: true,
     status: "ok",
   },
   {
@@ -76,6 +79,7 @@ const DEMO_CLIENTS: ConsoleClient[] = [
     name: "Notion AI",
     context: "@lk",
     detail: "Team access only · never used",
+    mine: true,
     status: "warn",
   },
 ];

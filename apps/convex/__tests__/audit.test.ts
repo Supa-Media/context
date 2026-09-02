@@ -338,7 +338,8 @@ describe("audit details are allow-listed, not deny-listed", () => {
  * nothing is lost from the record itself.
  *
  * **A scope another API will not show.** `listGrants` shows every grant only
- * to `editor` and above; a plain member sees their own and nothing else.
+ * to a workspace `owner`; an editor and a member alike see their own and
+ * nothing else.
  * `grant.created` records `{ scopes, tier }` and `oauth.authorized` records
  * `{ scope, grantedScope, tier }`, so a read-only member could read which AI
  * clients everybody else connected, with what reach -- the same shape as the
@@ -392,7 +393,7 @@ describe("the allow-list's own criteria are applied to the allow-list", () => {
       tier: "private",
     });
     expect(row?.action).toBe("grant.created");
-    expect(row?.details, "listGrants shows this to editors and above only").toBeUndefined();
+    expect(row?.details, "listGrants shows this to the owner only").toBeUndefined();
   });
 
   test("nor what an authorization was granted", async () => {
