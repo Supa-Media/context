@@ -474,6 +474,31 @@ export async function runCrossContextChecks(check) {
   );
 
   /*
+    THE TAIL NAMES WHAT WAS CAPPED, AND NOTHING ELSE.
+
+    Its documented job is "past the cap they are still named". An orient that
+    was itself addressed into another context gets no `openContext` — the
+    no-chaining rule — so `readable` is empty, and `others.slice(0)` made the
+    tail every sibling while the body was already listing every sibling as
+    bullets. Both halves of the section, over the same names.
+
+    Nothing was capped there, so the tail has nothing to add and should be
+    absent. Measured before the fix: `@home`, `@broken-manifest` and
+    `@no-storage` each appeared twice in one section.
+  */
+  const addressed = textOf(
+    await callTool(env, TOKEN_OWNER, "orient", { context: "@theirs" })
+  );
+  check(
+    "an addressed orient still names the siblings it cannot open",
+    addressed.includes("@mine")
+  );
+  check(
+    "and does not also list them under the capped tail",
+    !addressed.includes("Also reachable, not read here")
+  );
+
+  /*
     Connect time, which is the surface that reaches a model before it has
     decided anything. An agent will not go looking for a second context, so the
     handshake says there is one — and says it without opening a bucket, since

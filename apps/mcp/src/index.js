@@ -2788,7 +2788,13 @@ async function surveyOtherContexts(store) {
   if (!others.length) return null;
 
   const readable = typeof store.openContext === "function" ? others.slice(0, ORIENT_SIBLING_LIMIT) : [];
-  const named = others.slice(readable.length);
+  // The tail names what the CAP left out, so it is empty when nothing was
+  // capped. `others.slice(0)` is every sibling, and when `readable` is empty —
+  // an orient already addressed into another context gets no `openContext`, by
+  // the no-chaining rule — the body below is already listing all of them as
+  // bullets. That printed the whole section twice, and made a list that was
+  // complete read as truncated.
+  const named = readable.length ? others.slice(readable.length) : [];
 
   const pages = await Promise.all(
     readable.map(async (entry) => {
