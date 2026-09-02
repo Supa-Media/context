@@ -27,6 +27,7 @@ import {
   hasExistingContext,
   hasForeignContent,
   renderPrivacyManifest,
+  renderPrivacyManifestForFolders,
   scaffoldContext,
   validateCustomFolders,
 } from "../functions/lib/scaffold";
@@ -1045,5 +1046,156 @@ describe("through the real S3 adapter", () => {
     expect([...backend.objects.keys()].sort()).toEqual(
       ["notes/brain/index.md", "notes/brain/privacy.md"].sort(),
     );
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                          a shared workspace                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The one thing `kind` changes, and the reason it had to change something.
+ *
+ * A workspace exists because several people are in it. Scaffolded all-private —
+ * which is what happened before this — every folder is unreachable to everybody
+ * but an owner, because `clampScopes` lets only an `owner` hand a client the
+ * `context:private` scope. So an `editor` invited into a brand-new workspace
+ * could not read one note in it by any grant they were able to issue, and the
+ * fix was a file they had to know existed.
+ *
+ * These are written against the **gateway's own** parser and `canSee`, for the
+ * reason `gatewayFormat.helpers.ts` gives: an assertion about the bytes we
+ * wrote would be both halves of our own expectation.
+ */
+describe("a shared workspace's starting manifest", () => {
+  test("opens the scaffolded folders to the workspace, and only those", async () => {
+    const store = memoryStore();
+    await scaffoldContext(store, { structureTemplate: "para", kind: "shared" });
+
+    const { parsePrivacyManifest, canSee } = gatewayInternals();
+    const { rules, overrides } = parsePrivacyManifest(
+      store.objects.get(PRIVACY_KEY)!.body,
+    );
+
+    expect(rules.map((rule) => rule.prefix).sort()).toEqual([...PARA_FOLDERS].sort());
+    expect(rules.every((rule) => rule.vis === "team")).toBe(true);
+    expect(overrides.size).toBe(0);
+
+    for (const key of [
+      "0-inbox/README.md",
+      "1-projects/README.md",
+      "1-projects/anything.md",
+      "4-archive/deep/nested/note.md",
+    ]) {
+      expect(canSee(key, "team", rules, overrides), `${key} is not readable`).toBe(
+        true,
+      );
+    }
+  });
+
+  /**
+   * `default_visibility` stays `private` — it is fixed in
+   * `renderPrivacyRulesBlock` — so opening the five folders the scaffolder made
+   * is not the same as opening the bucket. A folder somebody adds later is
+   * still private until a line names it, which is the property that keeps this
+   * a starting layout rather than a switch.
+   */
+  test("a path outside the declared folders still fails closed", async () => {
+    const store = memoryStore();
+    await scaffoldContext(store, { structureTemplate: "para", kind: "shared" });
+
+    const { parsePrivacyManifest, canSee } = gatewayInternals();
+    const { rules, overrides } = parsePrivacyManifest(
+      store.objects.get(PRIVACY_KEY)!.body,
+    );
+
+    expect(canSee("payroll/salaries.md", "team", rules, overrides)).toBe(false);
+    expect(canSee("root-level-note.md", "team", rules, overrides)).toBe(false);
+  });
+
+  /** `privacy.md` is the access map. Reading it is an owner's business either way. */
+  test("the access map itself is never team-readable", async () => {
+    const store = memoryStore();
+    await scaffoldContext(store, { structureTemplate: "para", kind: "shared" });
+
+    const { parsePrivacyManifest, canSee } = gatewayInternals();
+    const { rules, overrides } = parsePrivacyManifest(
+      store.objects.get(PRIVACY_KEY)!.body,
+    );
+    expect(canSee(PRIVACY_KEY, "team", rules, overrides)).toBe(false);
+  });
+
+  test("a custom layout opens the owner's own folders, not PARA's", async () => {
+    const store = memoryStore();
+    await scaffoldContext(store, {
+      structureTemplate: "custom",
+      kind: "shared",
+      customFolders: [
+        { folder: "handbook", description: "How we work." },
+        { folder: "customers", description: "One folder per account." },
+      ],
+    });
+
+    const { parsePrivacyManifest, canSee } = gatewayInternals();
+    const { rules, overrides } = parsePrivacyManifest(
+      store.objects.get(PRIVACY_KEY)!.body,
+    );
+
+    expect(rules.map((rule) => rule.prefix).sort()).toEqual(["customers", "handbook"]);
+    expect(canSee("handbook/onboarding.md", "team", rules, overrides)).toBe(true);
+    expect(canSee("1-projects/anything.md", "team", rules, overrides)).toBe(false);
+  });
+
+  /**
+   * The regression that matters most. A personal brain is the majority case and
+   * the one where a `team` default would hand somebody's notes to whoever they
+   * later invite, without being asked. Sabotage `startingVisibility`'s
+   * `personal` branch and this is what fails.
+   */
+  test("a personal brain is untouched by any of this", async () => {
+    const shared = memoryStore();
+    const personal = memoryStore();
+    const omitted = memoryStore();
+    await scaffoldContext(shared, { structureTemplate: "para", kind: "shared" });
+    await scaffoldContext(personal, { structureTemplate: "para", kind: "personal" });
+    // No `kind` at all: the conservative branch, for a job scheduled by an
+    // older mutation during a rollout.
+    await scaffoldContext(omitted, { structureTemplate: "para" });
+
+    const personalManifest = personal.objects.get(PRIVACY_KEY)!.body;
+    expect(omitted.objects.get(PRIVACY_KEY)!.body).toBe(personalManifest);
+    expect(shared.objects.get(PRIVACY_KEY)!.body).not.toBe(personalManifest);
+
+    const { parsePrivacyManifest, canSee } = gatewayInternals();
+    const { rules, overrides } = parsePrivacyManifest(personalManifest);
+    expect(rules.every((rule) => rule.vis === "private")).toBe(true);
+    expect(canSee("1-projects/anything.md", "team", rules, overrides)).toBe(false);
+  });
+
+  /**
+   * `resetPrivacyManifest` repairs a manifest that was failing closed, against
+   * a bucket that already has members and content — neither property a fresh
+   * workspace has. All-private is the only rewrite there under which nothing
+   * changes hands, so the repair renderer must keep defaulting to it.
+   */
+  test("the repair renderer still writes an all-private manifest", () => {
+    const { parsePrivacyManifest } = gatewayInternals();
+    const { rules } = parsePrivacyManifest(
+      renderPrivacyManifestForFolders(["1-projects", "handbook"]),
+    );
+    expect(rules.length).toBe(2);
+    expect(rules.every((rule) => rule.vis === "private")).toBe(true);
+  });
+
+  test("the manifest tells a member what the two words mean here", async () => {
+    const store = memoryStore();
+    await scaffoldContext(store, { structureTemplate: "para", kind: "shared" });
+    const manifest = store.objects.get(PRIVACY_KEY)!.body;
+
+    // The one thing a member cannot discover by reading the rules: `private`
+    // in a workspace is not "the person who wrote it", it is "owners".
+    expect(manifest).toContain("owners");
+    expect(manifest).toContain("every member of this workspace");
+    expect(manifest).not.toContain("only you");
   });
 });

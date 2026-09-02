@@ -199,11 +199,33 @@ export interface StructureChoice {
   template: "para" | "custom";
   /** Validated by `applyStructure` before it gets here. Empty for `para`. */
   folders: CustomFolder[];
+  /**
+   * Personal brain or shared workspace, read off the workspace row by
+   * `applyStructure`.
+   *
+   * It travels with the request for the same reason `template` does — one
+   * value, decided by the caller that has the authority to decide it, rather
+   * than re-read here where a later reader could disagree — but it is **not**
+   * the same kind of value, and the distinction is worth keeping straight.
+   * `template` must not be read off the row because the row's copy is stale by
+   * construction (set at creation, before anybody was asked). `kind` is set at
+   * creation and never changes, so reading it off the row would have been
+   * *correct*; it travels anyway so that this action has exactly one source for
+   * what it is about to write, and so a test can hand it either branch.
+   *
+   * Optional, and absent means `personal`. A deployment mid-rollout can have an
+   * older mutation scheduling a job this newer action runs, and the argument it
+   * did not send must resolve to the conservative branch — an all-private
+   * scaffold is thin, and the alternative default would open a personal brain's
+   * folders to a `team` scope its owner never asked for.
+   */
+  kind?: "personal" | "shared";
 }
 
 const structureChoiceValidator = v.object({
   template: v.union(v.literal("para"), v.literal("custom")),
   folders: v.array(v.object({ folder: v.string(), description: v.string() })),
+  kind: v.optional(v.union(v.literal("personal"), v.literal("shared"))),
 });
 
 /**
@@ -424,6 +446,7 @@ export const verifyStorageBinding = internalAction({
       const result = await scaffoldContext(store, {
         structureTemplate: args.structure.template,
         customFolders: args.structure.folders,
+        kind: args.structure.kind ?? "personal",
         resume: args.resume === true,
       });
       scaffolded = result.scaffolded;
