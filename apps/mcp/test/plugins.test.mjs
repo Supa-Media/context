@@ -17,6 +17,7 @@
 
 import { R2Store } from "../src/store/r2.js";
 import {
+  MAX_REPORTED_HOSTS,
   MAX_SCAN_BYTES,
   VERDICTS,
   parseManifest,
@@ -191,6 +192,23 @@ export async function runPluginChecks(check) {
     "and so is one with single quotes and no semicolon",
     scanBundle(`import 'fs'\n`).blocked.some((b) => b.id === "fs")
   );
+
+  /*
+    THE HOST BOUND, WHICH NOTHING WAS CHECKING.
+
+    `hosts` is the content of the approval screen, so its length is what a
+    person is asked to read. Deleting the `break` left the whole suite green,
+    and a minified bundle naming every CDN it ever touched would have put all
+    of them in front of somebody deciding whether to enable one plugin.
+  */
+  const manyHosts = scanBundle(
+    Array.from({ length: 40 }, (_, i) => `requestUrl("https://host-${i}.example.com/x")`).join("\n")
+  ).hosts;
+  check(
+    "at most twelve hosts travel with a verdict",
+    manyHosts.length === MAX_REPORTED_HOSTS
+  );
+  check("and they are real hosts, not a truncated list of junk", manyHosts.every((h) => h.endsWith(".example.com")));
 
   /*
     `id` WAS THE ONE FIELD WITH NO BOUND, IN A FILE THAT BOUNDS EVERYTHING ELSE.

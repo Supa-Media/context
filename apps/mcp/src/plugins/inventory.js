@@ -141,6 +141,16 @@ async function readPlugin(store, folder) {
   } catch {
     // Nothing from the error reaches the caller: its message would carry an
     // object key, and keys are the customer's own paths.
+    //
+    // **Not individually pinned, and stated so rather than left to be
+    // rediscovered.** `readText` has its own inner `try`, so removing either
+    // one alone leaves the suite green and only removing both fails. What this
+    // one adds is the case the inner cannot reach — `scanPlugin` itself
+    // throwing on some input nothing has thought of — and testing that would
+    // mean injecting a throwing scanner into a module that takes no
+    // dependencies. So the property is covered and the structure is not; a
+    // reader deleting this as redundant gets a green run, which is exactly why
+    // this paragraph is here.
     return scanPlugin({ id: folder, manifestText: null, source: null });
   }
 }
