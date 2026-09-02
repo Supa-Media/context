@@ -2703,6 +2703,101 @@ function renderStructure(survey) {
   return lines.length ? lines.join("\n") : "- (nothing visible to this connection yet)";
 }
 
+/**
+ * The other contexts this connection reaches — and each one's front page.
+ *
+ * Naming them was not enough. An agent given a list of names has been told a
+ * fact it cannot act on: it does not know whether `@lk` is a colleague's design
+ * notes or a dormant workspace from last year, so it never looks, which is the
+ * same failure as not being told at all. The front page is the one file that
+ * answers "what is this place", it is the one the whole orientation contract is
+ * built on, and it is small.
+ *
+ * Four properties, and each is a rule rather than a tuning:
+ *
+ *  - **Every page is read at that context's own clearance.** `openContext`
+ *    hands back a session clamped to the caller's role there, and the privacy
+ *    manifest is that context's own — so a `private` connection reading a
+ *    context it is a `member` of gets `team`, and an `index.md` marked private
+ *    there is absent here exactly as it is everywhere else.
+ *  - **It is bounded, and a short list says so.** Each context costs a control
+ *    plane round trip and two reads, against a Worker with a subrequest
+ *    ceiling; an unbounded fan-out is how orientation starts failing outright
+ *    for the people who have the most of it. Past the cap the rest are still
+ *    *named*, because a name is free — and the sentence says the list is short
+ *    rather than letting it read as complete.
+ *  - **One context that will not open cannot take the others down.** A revoked
+ *    binding, a bucket that is down, a `privacy.md` somebody broke in Obsidian:
+ *    each is reported on its own line and the rest of the answer stands. This
+ *    is the survey's own fail-soft rule, one level out.
+ *  - **It reads nothing when there is no opener.** An `orient` already
+ *    addressed into another context is handed a store that cannot route again,
+ *    so it names the rest and reads none of them — one tool call opens one
+ *    context beyond its own, and never a chain.
+ */
+const ORIENT_SIBLING_LIMIT = 6;
+const ORIENT_SIBLING_INDEX_CHAR_CAP = 1_200;
+
+async function surveyOtherContexts(store) {
+  const others = (store.contexts || []).filter((entry) => !entry.current);
+  if (!others.length) return null;
+
+  const readable = typeof store.openContext === "function" ? others.slice(0, ORIENT_SIBLING_LIMIT) : [];
+  const named = others.slice(readable.length);
+
+  const pages = await Promise.all(
+    readable.map(async (entry) => {
+      try {
+        const opened = await store.openContext(entry.name);
+        const privacy = await loadPrivacyState(opened.store);
+        if (privacy.error) {
+          return `### ${entry.name} — ${accessSentence(entry.role)}\nIts privacy manifest could not be read, so nothing there is readable until its owner repairs it.`;
+        }
+        const page = await readFrontPage(
+          opened.store,
+          opened.session.scope,
+          privacy.rules,
+          privacy.overrides,
+          ORIENT_SIBLING_INDEX_CHAR_CAP
+        );
+        return (
+          `### ${entry.name} — ${accessSentence(entry.role)}\n` +
+          (page ||
+            "No front page visible to you there yet. `list_notes` with " +
+              `\`context: "${entry.name}"\` is the way in.`)
+        );
+      } catch {
+        // Named, and honest about why it is thin. Dropping the row would make
+        // a context that exists look like one that does not.
+        return `### ${entry.name} — ${accessSentence(entry.role)}\nCould not be opened just now; its storage may be disconnected.`;
+      }
+    })
+  );
+
+  const tail = named.length
+    ? "\n\nAlso reachable, not read here: " +
+      named.map((entry) => entry.name).join(", ") +
+      ". Orient with one of those names to see it."
+    : "";
+
+  const heading = readable.length
+    ? "## Other contexts you can reach, and their front pages\n\n"
+    : "## Other contexts you can reach\n\n";
+  const body = readable.length
+    ? pages.join("\n\n")
+    : others.map((entry) => `- ${entry.name} — ${accessSentence(entry.role)}`).join("\n");
+
+  return (
+    heading +
+    body +
+    tail +
+    "\n\nEvery tool here takes an optional `context` argument: pass one of these names to " +
+    "read or write there instead of this one. Orient again with that argument before working " +
+    "in it — the map above, and every search and listing, is for this context only. What you " +
+    "may do in another is decided by your role there, not by this connection."
+  );
+}
+
 async function toolOrient(store, scope, rules, overrides) {
   const [frontPage, procedure, privateIndex, pendingProposals, survey] = await Promise.all([
     readFrontPage(store, scope, rules, overrides, ORIENT_INDEX_CHAR_CAP),
@@ -2756,26 +2851,8 @@ async function toolOrient(store, scope, rules, overrides) {
       "name you did not guess."
   );
 
-  /*
-    The other contexts this connection reaches, named so an agent knows they
-    exist. Nothing about them is read — no bucket is opened, no note counted —
-    because this is a list of names and roles the session already carried, and
-    surveying three contexts to answer a question about one is the cost that
-    would make orientation not worth calling.
-  */
-  const otherContexts = (store.contexts || []).filter((entry) => !entry.current);
-  if (otherContexts.length) {
-    parts.push(
-      "## Other contexts you can reach\n" +
-        otherContexts
-          .map((entry) => `- ${entry.name} — ${accessSentence(entry.role)}`)
-          .join("\n") +
-        "\n\nEvery tool here takes an optional `context` argument: pass one of these names to " +
-        "read or write there instead of this one. Orient again with that argument before " +
-        "working in it — the map above, and every search and listing, is for this context only. " +
-        "What you may do in another is decided by your role there, not by this connection."
-    );
-  }
+  const otherContexts = await surveyOtherContexts(store);
+  if (otherContexts) parts.push(otherContexts);
 
   if (scope === "private" && pendingProposals.length) {
     parts.push(

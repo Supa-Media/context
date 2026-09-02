@@ -36,6 +36,17 @@
  *    not a usable name falls through to the default — 6 checks failed, one per
  *    shape. That is the quiet version of writing into the wrong brain.
  *
+ * 6. **`surveyOtherContexts` reads each front page at the caller's own
+ *    clearance** rather than at the one the addressed context's role earns —
+ *    1 check failed, and it is the one that matters: a note its owner kept
+ *    private appeared in somebody else's orientation. (The first attempt at
+ *    this sabotage passed a `scope` that is not in that function's scope at
+ *    all, so it threw and both checks failed for the wrong reason. Worth
+ *    recording: a sabotage that breaks the code rather than the invariant
+ *    proves nothing.)
+ * 7. **The fan-out bound is raised to 50** — 2 checks failed: seven contexts
+ *    were opened and the tail that says the list is short went missing.
+ *
  * One thing is asserted structurally rather than behaviourally, and the reason
  * is that sabotaging it changes nothing observable: **the `context` argument is
  * stripped before the tool sees the arguments.** No tool reads it today, so a
@@ -70,11 +81,27 @@ const TOKEN_EDITOR = `cat_cross_editor_${"0".repeat(24)}`;
 const TOKEN_GUEST = `cat_cross_guest_${"0".repeat(24)}`;
 /** A grant that was never given write, anywhere. */
 const TOKEN_READ_ONLY = `cat_cross_readonly_${"0".repeat(22)}`;
+/** Somebody in more contexts than one orientation is willing to open. */
+const TOKEN_MANY = `cat_cross_many_${"0".repeat(26)}`;
 
 const PRIVACY_MANIFEST =
   "---\nrole: privacy-manifest\n---\n\n" +
   "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
   "folder_defaults:\n  1-projects: team\n\nnote_overrides:\n  # none\n```\n\n" +
+  "<!-- END BRAIN PRIVACY RULES -->\n";
+
+/**
+ * The same, with the front page published to the team.
+ *
+ * The scaffolded manifest starts everything private, `index.md` included — so a
+ * context whose owner has not shared it shows a member no front page at all,
+ * which is the correct answer and the boring one. This is the manifest of a
+ * context whose owner did share it.
+ */
+const PRIVACY_MANIFEST_SHARED_INDEX =
+  "---\nrole: privacy-manifest\n---\n\n" +
+  "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
+  "folder_defaults:\n  1-projects: team\n\nnote_overrides:\n  index.md: team\n```\n\n" +
   "<!-- END BRAIN PRIVACY RULES -->\n";
 
 function s3Binding(bucket, key) {
@@ -152,6 +179,14 @@ export async function runCrossContextChecks(check) {
   controlPlane.addWorkspace("ws_own", "mine", s3Binding("cross-mine", "AA"));
   controlPlane.addWorkspace("ws_shared", "theirs", s3Binding("cross-theirs", "BB"));
   controlPlane.addWorkspace("ws_stranger", "stranger", s3Binding("cross-stranger", "CC"));
+  // A context this person is a member of whose owner never shared its front
+  // page — the common case for a freshly scaffolded brain.
+  controlPlane.addWorkspace("ws_quiet", "quiet", s3Binding("cross-quiet", "DD"));
+  // Seven more, all pointing at one bucket: this test is about how many
+  // contexts orientation opens, not about what is in them.
+  for (let n = 1; n <= 7; n += 1) {
+    controlPlane.addWorkspace(`ws_extra_${n}`, `extra-${n}`, s3Binding("cross-extra", "EE"));
+  }
 
   // One person, two memberships: owner of their own brain, plain `member` of
   // somebody else's. The third context exists and is nothing to do with them.
@@ -162,7 +197,10 @@ export async function runCrossContextChecks(check) {
     scopes: ["context:read", "context:write", "context:private"],
     clientId: "mcp_client_cross",
     userId: "user_cross",
-    alsoMemberOf: [{ workspaceId: "ws_shared", role: "member" }],
+    alsoMemberOf: [
+      { workspaceId: "ws_shared", role: "member" },
+      { workspaceId: "ws_quiet", role: "member" },
+    ],
   });
   // The same shape one rung up, for the write half.
   await controlPlane.addGrant({
@@ -195,14 +233,37 @@ export async function runCrossContextChecks(check) {
     alsoMemberOf: [{ workspaceId: "ws_shared", role: "member" }],
   });
 
+  // Somebody in more contexts than one orientation opens.
+  const EXTRA = Array.from({ length: 7 }, (_, n) => ({
+    workspaceId: `ws_extra_${n + 1}`,
+    role: "member",
+  }));
+  await controlPlane.addGrant({
+    accessToken: TOKEN_MANY,
+    workspaceId: "ws_own",
+    role: "owner",
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: "mcp_client_cross_many",
+    userId: "user_cross_many",
+    alsoMemberOf: EXTRA,
+  });
+
   const mine = s3.bucketFor("cross-mine");
   const theirs = s3.bucketFor("cross-theirs");
   const stranger = s3.bucketFor("cross-stranger");
   mine.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "m0" });
+  mine.set("index.md", { body: "MINE-INDEX-MARKER", etag: "mi" });
   mine.set("1-projects/shared-name.md", { body: "MINE-MARKER", etag: "m1" });
-  theirs.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "t0" });
+  theirs.set("privacy.md", { body: PRIVACY_MANIFEST_SHARED_INDEX, etag: "t0" });
+  theirs.set("index.md", { body: "THEIRS-INDEX-MARKER", etag: "ti" });
   theirs.set("1-projects/shared-name.md", { body: "THEIRS-MARKER", etag: "t1" });
   theirs.set("2-areas/kept-private.md", { body: "THEIRS-PRIVATE-MARKER", etag: "t2" });
+  const quiet = s3.bucketFor("cross-quiet");
+  quiet.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "q0" });
+  quiet.set("index.md", { body: "QUIET-PRIVATE-INDEX-MARKER", etag: "q1" });
+  const extra = s3.bucketFor("cross-extra");
+  extra.set("privacy.md", { body: PRIVACY_MANIFEST_SHARED_INDEX, etag: "e0" });
+  extra.set("index.md", { body: "EXTRA-INDEX-MARKER", etag: "e1" });
   stranger.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "s0" });
   stranger.set("1-projects/shared-name.md", { body: "STRANGER-MARKER", etag: "s1" });
 
@@ -377,7 +438,39 @@ export async function runCrossContextChecks(check) {
   check("and does not name a context this person is not in", !orientation.includes("@stranger"));
   check(
     "and does not list the context it is orienting in as somewhere else to go",
-    !orientation.includes("- @mine")
+    !orientation.includes("### @mine")
+  );
+
+  /*
+    The front page of each of them, which is what makes the list worth having.
+    A name an agent cannot judge is a name it never follows; `index.md` is the
+    one file that says what a context is for.
+  */
+  check("orientation reads the other context's front page", orientation.includes("THEIRS-INDEX-MARKER"));
+  check(
+    "a front page its owner has not shared is absent, and said to be",
+    !orientation.includes("QUIET-PRIVATE-INDEX-MARKER") &&
+      orientation.includes("@quiet") &&
+      orientation.includes("No front page visible to you there yet")
+  );
+
+  /*
+    And the bound. Each context costs a control-plane round trip and two reads,
+    so a person in a dozen would otherwise turn orientation into the subrequest
+    failure it exists to answer. Past the cap they are still named — a name is
+    free — and the sentence says the list is short rather than letting it read
+    as complete.
+  */
+  const manyOrientation = textOf(await callTool(env, TOKEN_MANY, "orient"));
+  const headingCount = manyOrientation.split("### @extra-").length - 1;
+  check(
+    `orientation opens at most six other contexts (opened ${headingCount})`,
+    headingCount === 6
+  );
+  check(
+    "and names the seventh rather than dropping it",
+    manyOrientation.includes("Also reachable, not read here") &&
+      /@extra-[1-7]/.test(manyOrientation.split("Also reachable, not read here")[1] || "")
   );
 
   /*
@@ -414,6 +507,10 @@ export async function runCrossContextChecks(check) {
   check(
     "orienting into another context surveys that one",
     orientedThere.includes("1-projects") && !orientedThere.includes("MINE-MARKER")
+  );
+  check(
+    "and names the rest without opening them — one call opens one context, never a chain",
+    orientedThere.includes("@mine") && !orientedThere.includes("MINE-INDEX-MARKER")
   );
 
   /* --------------------- the same answer in the modern era ----------------- */

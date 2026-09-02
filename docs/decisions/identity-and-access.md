@@ -173,10 +173,33 @@ somewhere else.
 
 **And the discovery half is the feature.** An agent will never go looking for a
 context nobody told it about, so both surfaces that reach a model before it
-decides anything name them: the connect-time `instructions` and `orient`. Both
-list names and roles only — no bucket is opened to build either — because
-surveying three contexts to answer a question about one is the cost that makes
-orientation not worth calling.
+decides anything name them: the connect-time `instructions` and `orient`.
+
+`instructions` lists names and roles only. It is built during a handshake that
+must never fail, on every connection, so it opens no bucket at all.
+
+**`orient` reads each of their front pages**, which was the owner's next
+correction (2026-09-02) and is right: a name an agent cannot judge is a name it
+never follows, and `index.md` is the one file that says what a context is for.
+Four rules hold that, and each fails a test:
+
+- **Each page is read at that context's own clearance**, from the session
+  `openContext` clamps and that context's own `privacy.md` — so a front page its
+  owner has not shared is absent, and the line says "no front page visible to
+  you there yet" rather than pretending the context is empty. Note what that
+  means in practice: the scaffolded manifest starts everything private,
+  `index.md` included, so a member sees nothing until the owner shares it. The
+  common useful case is somebody's own several contexts.
+- **It is bounded at six, and a short list says so.** Each context costs a
+  control-plane round trip and two reads against a Worker with a subrequest
+  ceiling, so an unbounded fan-out is how orientation starts failing outright
+  for the people who have the most of it. Past the cap the rest are still named,
+  because a name is free.
+- **One context that will not open cannot take the others down.** A revoked
+  binding or a broken manifest is a line on its own row; the answer stands.
+- **An `orient` already addressed into another context reads none of them.**
+  It is handed a store with no opener, so it names the rest: one tool call opens
+  one context beyond its own, never a chain.
 
 ### A grant is one person's tooling, and the refusal follows the listing
 
