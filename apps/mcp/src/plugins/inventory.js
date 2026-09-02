@@ -57,6 +57,7 @@ const LIST_PAGE_CAP = 20;
 export async function listPluginFolders(store) {
   const folders = new Set();
   const seenCursors = new Set();
+  let listingTruncated = false;
   let cursor;
   do {
     const page = await store.list({ prefix: PLUGIN_PREFIX, delimiter: "/", cursor, limit: 1000 });
@@ -79,10 +80,20 @@ export async function listPluginFolders(store) {
       throw new Error("storage listing repeated a pagination cursor; refusing to loop");
     }
     seenCursors.add(page.cursor);
-    if (seenCursors.size >= LIST_PAGE_CAP) break;
+    if (seenCursors.size >= LIST_PAGE_CAP) {
+      // Cut by the page cap, not by the scan cap. Reported, because the caller
+      // computes `truncated` from `folders.length > selected.length` and this
+      // cut happens UPSTREAM of the length it measures — so a listing stopped
+      // here came back looking complete. Folders are sorted, so the ones lost
+      // are the last alphabetically: a `wont-run` plugin late in the alphabet
+      // vanishing from a report that reads as whole. That is the trap this
+      // module's own header says the report exists to avoid.
+      listingTruncated = true;
+      break;
+    }
     cursor = page.cursor;
   } while (cursor);
-  return [...folders].sort();
+  return { folders: [...folders].sort(), listingTruncated };
 }
 
 /**
@@ -160,8 +171,9 @@ async function readText(store, key) {
  */
 export async function inventoryPlugins(store, { cap = PLUGIN_SCAN_CAP } = {}) {
   let folders;
+  let listingTruncated = false;
   try {
-    folders = await listPluginFolders(store);
+    ({ folders, listingTruncated } = await listPluginFolders(store));
   } catch (error) {
     return {
       available: false,
@@ -188,7 +200,7 @@ export async function inventoryPlugins(store, { cap = PLUGIN_SCAN_CAP } = {}) {
     counts: summarize(plugins),
     found: folders.length,
     scanned: plugins.length,
-    truncated: folders.length > selected.length,
+    truncated: listingTruncated || folders.length > selected.length,
     checkedAt: new Date().toISOString(),
   };
 }
