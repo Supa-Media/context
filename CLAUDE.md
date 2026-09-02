@@ -836,6 +836,45 @@ Adding a scope means adding it to `SUPPORTED_SCOPES` in `session.js` — which
 about it separately. A client that follows discovery to a scope the
 authorization endpoint then rejects is a client that concludes the server lied.
 
+### A grant is one person's tooling, and the refusal follows the listing
+
+`listGrants` showed every grant in a context to `owner` and `editor` alike. The
+argument for that was written about a *shared* context — "which robots can read
+our notes" is a question the people responsible for the place need answered —
+and then applied to every context there is. What it meant in a personal brain is
+that somebody invited in to write notes opened Settings and found the owner's
+nine connected clients sitting there: every AI tool that person uses, how much
+of the context each one can read, and when it last read it. That is how it was
+found, by the guest, who asked whether it was intended.
+
+It is `owner`-only now, and the line is drawn there because it is
+`revokeGrant`'s: an owner may cut off any client in their context, anybody may
+unplug their own, and there are no other levers. An `editor` had neither, so
+reading was the whole of their authority over rows they could never act on —
+which is the sentence this codebase already used to withhold a `member`'s view
+of somebody else's clients, and it is no less true a rung up.
+
+**The refusal moved with it, and that is the half to re-derive rather than
+preserve.** `revokeGrant` answered an editor `INSUFFICIENT_ROLE` and a member
+`GRANT_NOT_FOUND`, on the stated ground that an editor could already enumerate
+every grant and so learned nothing from being told which role they lacked.
+Narrowing the listing turned that same sentence into an existence oracle: a
+named refusal for a colleague's real grant and a not-found for an invented id
+tells an editor which guessed ids are real. The rule — *the error may never tell
+you something `listGrants` would have refused to tell you* — did not move; its
+premise did, and a guard whose premise has been removed is worse than no guard,
+because it still reads like one.
+
+The console's half is smaller and is not disclosure: an owner of a shared
+context is shown their colleagues' clients deliberately, but in a list headed
+"Your endpoint", one card below a sentence promising that every client *you* add
+appears below. Unmarked, a colleague's Claude is indistinguishable from one of
+your own with a Revoke button beside it, so a row that is not yours says so —
+from `isMine`, which the server already returned and the console dropped on the
+floor, and never re-derived here from a user id. It does not name the person:
+the row has to answer "is this mine", and who uses which AI client is more than
+that question needs.
+
 ### An invitation is addressed to a string, and its token is stored in the clear
 
 Two things about `functions/invitations.ts` look like oversights and are not.
@@ -1177,9 +1216,10 @@ on the details it actually carries, and adding one is where that happens:
   `files: 6` where the member could list three: the exact subtraction the note
   census is owner-only to prevent.
 - **Anything another API answers only at a higher role.** `listGrants` is
-  `editor`+, so `grant.created`'s `{ scopes, tier }` on the trail republished it
-  a rung lower. `grant.revoked` stays — its details name no scope, no client and
-  no third party.
+  owner-only (it was `editor`+ when this was written, and the entry held for
+  the same reason at both), so `grant.created`'s `{ scopes, tier }` on the trail
+  republished it a rung lower. `grant.revoked` stays — its details name no
+  scope, no client and no third party.
 
 The count is withheld rather than dropped at the call site, so the owner's
 record keeps it. `workspace.structure_applied` is on the list only because its

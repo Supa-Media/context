@@ -43,6 +43,16 @@ export interface ConsoleClient {
   context: string;
   /** "Full access · last used 4 minutes ago" */
   detail: string;
+  /**
+   * Whether this is the viewer's own client, from `listGrants`' `isMine`.
+   *
+   * Required rather than optional, and never defaulted: only a context's
+   * `owner` is shown anybody else's grants, and in a list headed by "your
+   * endpoint" an unmarked row for a colleague's client reads as one of your
+   * own. An absent field would default to exactly that reading, which is the
+   * direction this must not fail in — so a producer has to say.
+   */
+  mine: boolean;
   status: StatusTone;
   /** Absent in the demo — a demo console must not offer a Revoke that lies. */
   revoke?: () => void;

@@ -117,6 +117,15 @@ interface GrantSummary {
   clientName?: string;
   scopes: string[];
   status: string;
+  /**
+   * Whether the row is the caller's own client, decided by the server.
+   *
+   * A context's `owner` is the only role shown anybody else's grants, so this
+   * is `true` on every row for everybody else — and it is the server's answer
+   * rather than a comparison made here, because the alternative is this file
+   * being told a user id in order to re-derive something it was already sent.
+   */
+  isMine: boolean;
   lastUsedAt?: number;
 }
 
@@ -305,6 +314,10 @@ export function useLiveConsoleData(): ConsoleData {
     name: grant.clientName ?? grant.clientId,
     context: slugOf.get(grant.workspaceId) ?? "a context",
     detail: `${describeScopes(grant.scopes)} · ${lastUsedLabel(grant.lastUsedAt, now)}`,
+    // Straight from the server's own answer, never derived here: `isMine` is
+    // what `listGrants` compared the row against the caller, and the console
+    // has no business re-deciding it from a user id it would have to be told.
+    mine: grant.isMine,
     status: grantTone(grant.status, grant.lastUsedAt),
     revoke: () => {
       void revoke({ grantId: grant.grantId });
