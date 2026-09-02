@@ -233,17 +233,17 @@ export const gatewaySession = gatewayRoute(async (ctx, body) => {
       actorUserId: session.actorUserId,
       scopes: session.scopes,
       expiresAt: session.expiresAt,
+      // The context this grant was approved against: what a bare `/mcp` and an
+      // unaddressed tool call resolve to.
       defaultWorkspaceId: session.workspaceId,
-      // A *set*, with one member today. The `/@slug/mcp` path form selects
-      // within it, and it must never contain a workspace this grant does not
-      // cover.
-      workspaces: [
-        {
-          workspaceId: session.workspaceId,
-          slug: session.slug,
-          role: session.role,
-        },
-      ],
+      // Every context this connection may address — the `/@slug/mcp` path form
+      // and a tool call's `context` argument both select within it, and it may
+      // never hold one its person is not a live member of. Built in
+      // `resolveGrantByAccessToken` from memberships read on this request, so
+      // access given or taken away between two calls takes effect on the second
+      // one. Reach, not permission: the role on each entry is what the gateway
+      // clamps that context's scopes and visibility tier to.
+      workspaces: session.workspaces,
     },
   });
 });
