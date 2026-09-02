@@ -56,7 +56,7 @@
  * about what a *starting* manifest says.
  */
 
-import { PRIVACY_KEY, renderPrivacyRulesBlock } from "./privacy";
+import { PRIVACY_KEY, renderPrivacyRulesBlock, type Visibility } from "./privacy";
 
 /**
  * The bit of `ContextStore` (`apps/mcp/src/store/index.js`) scaffolding needs.
@@ -94,6 +94,16 @@ export interface ScaffoldStore {
 
 /** Which starting layout to lay down. Mirrors `workspaces.structureTemplate`. */
 export type StructureTemplate = "para" | "custom";
+
+/**
+ * Which shape of context is being laid down. Mirrors `workspaces.kind`.
+ *
+ * It decides exactly one thing here — what `privacy.md` says the folders
+ * default to — and it is threaded through rather than defaulted at each layer
+ * so that a caller who forgets it fails to compile rather than quietly
+ * scaffolding the wrong one. See `renderPrivacyManifest`.
+ */
+export type ContextKind = "personal" | "shared";
 
 /**
  * One root folder the owner named, with the one-line description that becomes
@@ -343,34 +353,73 @@ export function validateCustomFolders(
  * folder. The markers moved there with it; they are on-bucket format, so the
  * legacy "BRAIN" wording stays even though the product noun is "context".
  */
-function renderStartingRulesBlock(folderDefaults: readonly string[]): string {
+function renderStartingRulesBlock(
+  folderDefaults: readonly string[],
+  vis: Visibility,
+): string {
   return renderPrivacyRulesBlock(
-    folderDefaults.map((folder) => ({ prefix: folder, vis: "private" as const })),
+    folderDefaults.map((folder) => ({ prefix: folder, vis })),
     new Map(),
   );
 }
 
 /**
+ * What a fresh context's folders default to, which depends on what kind of
+ * context it is.
+ *
+ * ## A personal brain starts `private`, and that is the sensible default
+ *
+ * `team` does not mean public — it means named people the owner has granted
+ * access to — but a brain that has just been created has granted nobody
+ * anything, so there is no correct set of folders to open up.
+ *
+ * ## A shared workspace starts `team`, and all-private would have been a bug
+ *
+ * A workspace exists *because* several people are in it; a workspace whose
+ * every folder is private is a context its members connect to and find empty.
+ * And not merely thin: `clampScopes` lets only an `owner` hand a client the
+ * `context:private` scope, so an `editor` or a `member` cannot reach a private
+ * note **at all**, by any grant they are able to issue. Scaffolding a shared
+ * workspace all-private therefore ships it broken — every invitation the owner
+ * sends lands somebody in an empty context, and the fix is a file they have to
+ * know to edit.
+ *
+ * This is not a third tier and it does not widen anything. `team` is still
+ * exactly "the named people in this workspace": at the moment the layout is
+ * written the workspace has one member — the owner who just created it — so a
+ * `team` default discloses nothing to anybody. What it does is make the next
+ * invitation mean what the person sending it thinks it means.
+ *
+ * `default_visibility` stays `private` in both files (it is fixed in
+ * `renderPrivacyRulesBlock`), so a path **outside** the declared folders still
+ * fails closed on a shared workspace. Only the folders the scaffolder itself
+ * created are opened, and only to that workspace's members.
+ */
+function startingVisibility(kind: ContextKind): Visibility {
+  return kind === "shared" ? "team" : "private";
+}
+
+/**
  * The access manifest for a brand-new context.
  *
- * **Every folder starts `private`**, and that is the sensible default rather
- * than a placeholder. `team` does not mean public — it means named people the
- * owner has granted access to — but a context that has just been created has
- * granted nobody anything, so there is no correct set of folders to open up.
  * Declaring each folder explicitly (rather than leaving `folder_defaults`
  * empty and relying on `default_visibility`) is what makes the file editable:
- * a person who wants to share their projects changes one word on one line,
- * instead of having to know the syntax for adding a rule.
+ * a person who wants to change what one folder does changes one word on one
+ * line, instead of having to know the syntax for adding a rule.
+ *
+ * What that one word starts as is `startingVisibility`'s decision — read it
+ * before changing either branch.
  */
 export function renderPrivacyManifest(
   template: StructureTemplate,
   customFolders: readonly CustomFolder[] = [],
+  kind: ContextKind = "personal",
 ): string {
   const folders =
     template === "para"
       ? [...PARA_FOLDERS]
       : customFolders.map((entry) => entry.folder);
-  return renderPrivacyManifestForFolders(folders);
+  return renderPrivacyManifestForFolders(folders, kind);
 }
 
 /**
@@ -383,14 +432,22 @@ export function renderPrivacyManifest(
  * and a scaffolded one are the same file — the reason `renderStartingRulesBlock`
  * was shared with the console's visibility controls in the first place.
  *
- * **Every folder is `private`, and that is not a parameter.** The caller is
- * always replacing a manifest that was failing closed, so all-private is the
- * only rewrite under which nothing changes hands. A repair that took a
- * visibility argument would be a way to publish a whole bucket by fixing a typo.
+ * **The repair path never passes `kind`, and must not start.** `kind` defaults
+ * to `personal`, so `resetPrivacyManifest` renders every folder `private` — the
+ * caller is always replacing a manifest that was failing closed, and all-private
+ * is the only rewrite under which nothing changes hands. Passing `"shared"` here
+ * would make repairing a typo a way to publish a whole bucket to every member,
+ * which is why the argument is the *scaffolder's* and not the repairer's: a
+ * fresh workspace has one member and nothing in it, and a workspace being
+ * repaired has neither of those properties. The default is what keeps the two
+ * apart, so a call site that adds a `kind` argument here is the bug.
  */
 export function renderPrivacyManifestForFolders(
   folders: readonly string[],
+  kind: ContextKind = "personal",
 ): string {
+  const vis = startingVisibility(kind);
+  const shared = kind === "shared";
   return [
     "---",
     "role: privacy-manifest",
@@ -400,20 +457,46 @@ export function renderPrivacyManifestForFolders(
     "# Access map",
     "",
     "This file decides what a connected AI client is allowed to see. It lives in",
-    "your bucket, it is readable in Obsidian, and you can edit it by hand.",
+    // Wrapped to the same width as everything else in this file: it is Markdown
+    // somebody reads in Obsidian, and one long line among short ones is visible.
+    shared
+      ? "this workspace's bucket, it is readable in Obsidian, and anyone with"
+      : "your bucket, it is readable in Obsidian, and you can edit it by hand.",
+    ...(shared ? ["access to the bucket can edit it by hand."] : []),
     "",
-    "- `private` — only you. This is the default for everything.",
-    "- `team` — you, plus the specific people you have granted access to. It is",
-    "  never public: there is no anonymous tier.",
+    shared
+      ? "- `private` — this workspace's owners, and nothing else. An editor or a"
+      : "- `private` — only you. This is the default for everything.",
+    ...(shared
+      ? [
+          "  member cannot reach a private note at all, however they connect.",
+          "- `team` — every member of this workspace. This is the default for",
+          "  everything below. It is never public: there is no anonymous tier.",
+        ]
+      : [
+          "- `team` — you, plus the specific people you have granted access to. It is",
+          "  never public: there is no anonymous tier.",
+        ]),
     "",
     "A rule under `folder_defaults` applies to that folder and everything under",
     "it; the longest matching rule wins. A rule under `note_overrides` names one",
     "exact `.md` file and beats its folder.",
     "",
-    "Everything below starts private. To share a folder, change its `private` to",
-    "`team`.",
+    shared
+      ? "Everything below starts team, because a workspace exists to be read by the"
+      : "Everything below starts private. To share a folder, change its `private` to",
+    shared
+      ? "people in it. To hold a folder back to owners, change its `team` to `private`."
+      : "`team`.",
+    ...(shared
+      ? [
+          "",
+          "Anything **not** listed below is private, including a folder somebody adds",
+          "later. Add a line for it here when it should be readable by the workspace.",
+        ]
+      : []),
     "",
-    renderStartingRulesBlock(folders),
+    renderStartingRulesBlock(folders, vis),
     "",
   ].join("\n");
 }
@@ -434,25 +517,46 @@ export function renderPrivacyManifestForFolders(
 export function renderIndex(
   template: StructureTemplate,
   customFolders: readonly CustomFolder[] = [],
+  kind: ContextKind = "personal",
 ): string {
+  const shared = kind === "shared";
   const lines = [
     "---",
     "role: context-manifest",
     "version: 1",
     "---",
     "",
-    "# Context",
+    shared ? "# Workspace" : "# Context",
     "",
-    "This bucket is a context: plain Markdown files you own, readable by any AI",
-    "client you connect. Nothing here is a database export — every file is a",
-    "file, editable in Obsidian, in a text editor, or over rclone.",
+    shared
+      ? "This bucket is a shared workspace: plain Markdown files the workspace owns,"
+      : "This bucket is a context: plain Markdown files you own, readable by any AI",
+    shared
+      ? "readable by any AI client its members connect. Nothing here is a database"
+      : "client you connect. Nothing here is a database export — every file is a",
+    shared
+      ? "export — every file is a file, editable in Obsidian, in a text editor, or"
+      : "file, editable in Obsidian, in a text editor, or over rclone.",
+    ...(shared ? ["over rclone."] : []),
     "",
     "## Conventions",
     "",
     "- One idea per note. Notes are shared between many tools, so keep them",
     "  concise and factual.",
+    ...(shared
+      ? [
+          "- Write for the next person, not for yourself. A note nobody else can",
+          "  follow is why the workspace exists and why it stops being used.",
+        ]
+      : []),
     "- `privacy.md` decides what a connected client can see. Folder rules are",
     "  defaults; an exact note can override its folder.",
+    ...(shared
+      ? [
+          "- Every folder listed below is readable by every member. A folder held",
+          "  back to owners says `private` in `privacy.md`, and says so there only.",
+        ]
+      : []),
     "- Paths starting with a dot (`.history/`, `.audit/`) are plumbing, never",
     "  notes, and are not shown to any client.",
     "",
@@ -475,9 +579,15 @@ export function renderIndex(
     lines.push(
       "## Structure",
       "",
-      "These are the folders you named when you set this context up. They are a",
-      "starting point, not a schema — rename them, nest inside them, add more, or",
-      "delete them. The tools address whatever paths exist.",
+      shared
+        ? "These are the folders this workspace was set up with. They are a starting"
+        : "These are the folders you named when you set this context up. They are a",
+      shared
+        ? "point, not a schema — rename them, nest inside them, add more, or delete"
+        : "starting point, not a schema — rename them, nest inside them, add more, or",
+      shared
+        ? "them. The tools address whatever paths exist."
+        : "delete them. The tools address whatever paths exist.",
       "",
     );
     for (const entry of customFolders) {
@@ -716,10 +826,11 @@ export function isProductMandatedPath(path: string): boolean {
 export function scaffoldFiles(
   template: StructureTemplate,
   customFolders: readonly CustomFolder[] = [],
+  kind: ContextKind = "personal",
 ): { key: string; body: string }[] {
   const files = [
-    { key: PRIVACY_KEY, body: renderPrivacyManifest(template, customFolders) },
-    { key: INDEX_KEY, body: renderIndex(template, customFolders) },
+    { key: PRIVACY_KEY, body: renderPrivacyManifest(template, customFolders, kind) },
+    { key: INDEX_KEY, body: renderIndex(template, customFolders, kind) },
   ];
   if (template === "para") {
     for (const folder of PARA_FOLDERS) {
@@ -1007,11 +1118,21 @@ export async function scaffoldContext(
      * does can overwrite a byte.
      */
     resume?: boolean;
+    /**
+     * Personal brain or shared workspace. Decides what `privacy.md` says the
+     * folders default to, and nothing else — see `startingVisibility`.
+     *
+     * Defaults to `personal`, which is the conservative branch: a caller that
+     * forgets it scaffolds an all-private context, which is thin rather than
+     * disclosing. The control plane always passes it; see `StructureChoice`.
+     */
+    kind?: ContextKind;
   },
 ): Promise<ScaffoldResult> {
   const files = scaffoldFiles(
     options.structureTemplate,
     options.customFolders ?? [],
+    options.kind ?? "personal",
   );
 
   const occupied =

@@ -27,6 +27,7 @@ import {
   getMembership,
   requireWorkspaceAccess,
   requireWorkspaceRole,
+  workspaceNotFound,
 } from "./lib/workspaceAuth";
 
 const MAX_DISPLAY_NAME_LENGTH = 80;
@@ -319,6 +320,19 @@ export const applyStructure = mutation({
     const userId = (await requireAuthId(ctx)) as Id<"users">;
     await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
 
+    // Read here, and handed to the scaffolder below, because it decides what
+    // `privacy.md` says the new folders default to: a personal brain starts
+    // all-private, a shared workspace starts team-visible to its members. See
+    // `startingVisibility` in `lib/scaffold.ts` for why that is not a widening.
+    // Loaded from the row rather than taken as an argument — `kind` is fixed at
+    // creation, and a client that could name it could scaffold somebody's brain
+    // open.
+    // `requireWorkspaceRole` already proved the membership, so this can only be
+    // null if the row was deleted between the two reads. Same error either way,
+    // from the one helper that constructs it — see `lib/workspaceAuth.ts`.
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (workspace === null) throw workspaceNotFound();
+
     const binding = await ctx.db
       .query("storageBindings")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
@@ -416,7 +430,7 @@ export const applyStructure = mutation({
       {
         workspaceId: args.workspaceId,
         actorUserId: userId,
-        structure: { template: args.template, folders },
+        structure: { template: args.template, folders, kind: workspace.kind },
         // Only ever true for a bucket we half-wrote ourselves. The scaffolder
         // still refuses anything it did not write, byte for byte, and still
         // `get`s every key before it `put`s it.

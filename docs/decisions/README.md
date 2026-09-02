@@ -48,6 +48,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The visibility tier is displayed, never stored
 - The audit trail's `details` are allow-listed, and its `paths` are not gated at all
 - A privacy decision is folded, and the fold only ever narrows
+- A shared workspace scaffolds `team`, and that is not a widening
+- Restricting a folder to *some* of a workspace is not built, and the shape it would take
+- Domain-based membership is not built, and would be an invitation, never a grant
 
 ## [The MCP gateway: protocol, transport, orientation](./gateway-protocol.md)
 
@@ -79,6 +82,11 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A phone gets a path bar, which is half of the line that was deleted
 - A copy is one press, and it is confirmed outside the modal
 - A copy on the device is bounded by who read it, when, and whether the server said no
+- Making a workspace is its own flow, not onboarding with a flag
+- Two name fields for a workspace, one for a brain
+- The layout presets are company-shaped, and PARA is not the default
+- Invitations are queued, and a partial send keeps its successes
+- The rail's "New workspace" entry is a verb, and the claim entry is a gap
 
 ## [Testing and guards](./testing.md)
 

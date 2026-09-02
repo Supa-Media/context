@@ -72,6 +72,7 @@ import {
 } from "../../../features/console/files/scope";
 import { useLiveConsoleData } from "../../../features/console/useLiveConsoleData";
 import { WELCOME_ROUTE } from "../../../features/onboarding/route";
+import { NEW_WORKSPACE_ROUTE } from "../../../features/workspace/create";
 
 /**
  * The console, as an application rather than a page.
@@ -883,6 +884,27 @@ function Rail({
         // one before it is the only one there can be.
         router.push(WELCOME_ROUTE);
       }}
+      /*
+        Offered to everybody, and only in the live console.
+
+        `data.demo` is the condition rather than a role or a count: the landing
+        page renders this same rail as a picture, and an entry there would open
+        a flow that immediately refuses for want of a session. How many
+        workspaces one account may own is the control plane's rule, enforced in
+        `createWorkspace`'s transaction, and it is not restated here — see
+        `onCreateWorkspace` on `ConsoleRail`.
+      */
+      onCreateWorkspace={
+        data.demo
+          ? undefined
+          : () => {
+              frame.closeNav();
+              // `push` for `onClaimContext`'s reason, and one more: this flow
+              // is genuinely abandonable up to the moment the name is claimed,
+              // so Back has somewhere real to return to.
+              router.push(NEW_WORKSPACE_ROUTE);
+            }
+      }
       onLeaveContext={(id) => {
         frame.closeNav();
         // Fire-and-watch: the membership row deleting is what removes the

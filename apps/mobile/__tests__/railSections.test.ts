@@ -68,3 +68,53 @@ describe("railSections", () => {
     expect(sections[0]!.contexts).toEqual([]);
   });
 });
+
+/**
+ * The "New workspace" entry.
+ *
+ * A permanent verb rather than a one-time prompt, which is why it is a second
+ * flag rather than a widening of `claim` — and why it can be the *only* reason
+ * the "Yours" group exists, for somebody who has been invited into other
+ * people's contexts and owns none of their own.
+ */
+describe("the create-workspace entry", () => {
+  test("is absent unless it is offered", () => {
+    const sections = railSections({ contexts: [own], claimable: false });
+    expect(sections[0]!.create).toBe(false);
+  });
+
+  test("rides in the own group, alongside what you already own", () => {
+    const sections = railSections({
+      contexts: [own, guestShared],
+      claimable: false,
+      creatable: true,
+    });
+    expect(sections.map((s) => s.heading)).toEqual(["Yours", "Shared with you"]);
+    expect(sections[0]!.create).toBe(true);
+    // Never in the shared group: a workspace you make is one you own.
+    expect(sections[1]!.create).toBe(false);
+  });
+
+  test("keeps the own group alive when it is the only thing in it", () => {
+    // An invitee who owns nothing and has already claimed a name is the case
+    // that has neither contexts nor a claim entry to hold the group open.
+    const sections = railSections({
+      contexts: [guestShared],
+      claimable: false,
+      creatable: true,
+    });
+    expect(sections.map((s) => s.heading)).toEqual(["Yours", "Shared with you"]);
+    expect(sections[0]!.contexts).toEqual([]);
+    expect(sections[0]!.create).toBe(true);
+  });
+
+  test("coexists with the claim entry rather than replacing it", () => {
+    const sections = railSections({
+      contexts: [guestShared],
+      claimable: true,
+      creatable: true,
+    });
+    expect(sections[0]!.claim).toBe(true);
+    expect(sections[0]!.create).toBe(true);
+  });
+});
