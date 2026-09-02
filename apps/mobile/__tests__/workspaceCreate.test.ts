@@ -9,6 +9,7 @@ import {
   removeInvite,
   setInviteRole,
   slugSuggestion,
+  SLUG_COPY,
   workspaceNameConsequences,
   workspaceStepProgress,
   workspaceStepsFor,
@@ -350,5 +351,30 @@ describe("how the last screen reports the sending", () => {
     for (const count of [1, 4]) {
       expect(describeInvitesSent(count)).not.toMatch(/have access|members now|joined/i);
     }
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                       the copy that names a workspace                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The bug this pins is invisible in a diff, in a typecheck and in a lint run.
+ *
+ * JSX collapses whitespace across the lines of a text child. It does **not**
+ * touch the contents of a template literal in an expression container — and any
+ * sentence that interpolates the handle has to be one. React Native does not
+ * collapse whitespace either, so a wrapped template literal renders as a hard
+ * newline plus the source file's own indentation, mid-sentence, on screen.
+ * Every one of these ledes shipped that way in the first draft.
+ */
+describe("a sentence that names the workspace is one line", () => {
+  test.each(SLUG_COPY)("%p", (copy) => {
+    const rendered = copy("acme-eng");
+    expect(rendered).not.toContain("\n");
+    expect(rendered).not.toMatch(/ {2}/);
+    // …and the interpolation actually happened, rather than the handle being
+    // dropped by a refactor that made these constants.
+    expect(rendered).toContain("acme-eng");
   });
 });

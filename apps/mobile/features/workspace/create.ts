@@ -382,3 +382,70 @@ export const WORKSPACE_PRIVACY_NOTE =
 /** What a workspace's layout is worth, said once. Reversible, like everything else. */
 export const WORKSPACE_LAYOUT_NOTE =
   "A layout is a leg-up on an empty bucket, not a schema. Rename these, nest inside them, add more, or delete them — in the console, in Obsidian, or by asking a connected AI client. Nothing below the tools cares what they are called.";
+
+/* -------------------------------------------------------------------------- */
+/*                          the copy that names a slug                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The sentences that have to interpolate the workspace's handle.
+ *
+ * They live here rather than inline in the step components for a reason that
+ * looks like housekeeping and is not. JSX collapses whitespace across the lines
+ * of a **text child**; it does not touch the contents of a template literal in
+ * an expression container, and any sentence carrying `${slug}` has to be one.
+ * React Native does not collapse whitespace either, so a wrapped template
+ * literal renders as a hard newline followed by the source file's own
+ * indentation, mid-sentence, on screen. Every one of these shipped that way in
+ * the first draft: invisible in a diff, in a typecheck, and in a lint run.
+ *
+ * Written as single-line concatenations here, where `SLUG_COPY` lets one test
+ * assert it over all of them at once, rather than as five long lines in three
+ * components where the next person to reformat reintroduces it.
+ */
+export function storageLede(slug: string): string {
+  return (
+    `@${slug} is claimed. It needs a bucket of its own — not the one behind your brain. ` +
+    "A workspace's storage binding, credential and audit trail are its own, so revoking " +
+    "one never touches the other, and handing the workspace over does not hand over " +
+    "anything personal."
+  );
+}
+
+export function peopleLede(slug: string): string {
+  return (
+    `Invite the people @${slug} is for. An invitation is an offer addressed to a @name ` +
+    "or an email address — it is not access until they accept it, and it expires in a week."
+  );
+}
+
+export function doneLede(slug: string): string {
+  return (
+    `@${slug} exists, with you as its owner. Here is what is true right now, and what ` +
+    "each person still has to do."
+  );
+}
+
+export function doneAddressedCheck(slug: string): string {
+  return (
+    `The workspace is addressed @${slug}. A note in it is ` +
+    `@${slug}/1-projects/kickoff.md, from any context you can reach.`
+  );
+}
+
+export function doneEndpointNote(slug: string): string {
+  return (
+    "Every member pastes this into their own AI client and signs in; the grant they get " +
+    `covers @${slug} and nothing else, and either of you can revoke it. Pasting it into ` +
+    "a channel connects nobody — a grant is one person's tooling."
+  );
+}
+
+/** Every sentence above, so the test that pins them cannot miss one. */
+export const SLUG_COPY = [
+  storageLede,
+  peopleLede,
+  doneLede,
+  doneAddressedCheck,
+  doneEndpointNote,
+] as const;

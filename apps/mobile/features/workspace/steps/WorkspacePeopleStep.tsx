@@ -12,7 +12,7 @@ import {
   describeRole,
   type AssignableRole,
 } from "../../console/members/members";
-import { describeInviteDraftRejection, peopleCaveat } from "../create";
+import { describeInviteDraftRejection, peopleCaveat, peopleLede } from "../create";
 import type { CreateWorkspaceController } from "../useCreateWorkspace";
 
 /**
@@ -56,8 +56,7 @@ export function WorkspacePeopleStep({
   return (
     <View>
       <Text variant="rowSub" style={styles.lede}>
-        {`Invite the people @${slug} is for. An invitation is an offer addressed to a @name or an
-        email address — it is not access until they accept it, and it expires in a week.`}
+        {peopleLede(slug)}
       </Text>
 
       {caveat ? (

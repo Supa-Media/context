@@ -6,6 +6,7 @@ import { leading } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { StorageChoice } from "../../console/storage/StorageChoice";
 import { connectProgressLabel } from "../../onboarding/verify";
+import { storageLede } from "../create";
 import type { CreateWorkspaceController } from "../useCreateWorkspace";
 
 /**
@@ -51,10 +52,7 @@ export function WorkspaceStorageStep({
   return (
     <View>
       <Text variant="rowSub" style={styles.lede}>
-        {`@${slug} is claimed. It needs a bucket of its own — not the one behind your brain. A
-        workspace's storage binding, credential and audit trail are its own, so revoking one
-        never touches the other, and handing the workspace over does not hand over anything
-        personal.`}
+        {storageLede(slug)}
       </Text>
 
       {connectState.kind === "connected" ? (

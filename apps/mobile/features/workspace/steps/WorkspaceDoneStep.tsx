@@ -9,7 +9,13 @@ import { leading } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { endpointForContext } from "../../console/endpoints";
 import { MCP_ENDPOINT } from "../../console/placeholderData";
-import { describeInvitesSent, peopleCaveat } from "../create";
+import {
+  describeInvitesSent,
+  doneAddressedCheck,
+  doneEndpointNote,
+  doneLede,
+  peopleCaveat,
+} from "../create";
 import type { CreateWorkspaceController } from "../useCreateWorkspace";
 
 /**
@@ -50,8 +56,7 @@ export function WorkspaceDoneStep({
   return (
     <View>
       <Text variant="rowSub" style={styles.lede}>
-        {`@${slug} exists, with you as its owner. Here is what is true right now, and what each
-        person still has to do.`}
+        {doneLede(slug)}
       </Text>
 
       {caveat ? (
@@ -65,7 +70,7 @@ export function WorkspaceDoneStep({
       <Card>
         <View style={styles.checks}>
           <Check tone="ok">
-            {`The workspace is addressed @${slug}. A note in it is @${slug}/1-projects/kickoff.md, from any context you can reach.`}
+            {doneAddressedCheck(slug)}
           </Check>
           <Check tone="ok">
             Its bucket, its access map and its audit trail are its own. Revoking its credential
@@ -98,7 +103,7 @@ export function WorkspaceDoneStep({
         testID="workspace-done-endpoint"
       />
       <Text variant="foot" style={styles.under}>
-        {`Every member pastes this into their own AI client and signs in; the grant they get covers @${slug} and nothing else, and either of you can revoke it. Pasting it into a channel connects nobody — a grant is one person's tooling.`}
+        {doneEndpointNote(slug)}
       </Text>
 
       <View style={styles.actions}>
