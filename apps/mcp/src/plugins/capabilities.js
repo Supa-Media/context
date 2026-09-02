@@ -208,7 +208,20 @@ function hasComputedModuleName(source) {
     const window = source.slice(from, from + MODULE_ARGUMENT_WINDOW);
     // One quoted literal, then the closing parenthesis. Anything else —
     // concatenation included — is a name this check cannot resolve.
-    if (!/^\s*(["'`])[^"'`\n]*\1\s*\)/.test(window)) return true;
+    const literal = /^\s*(["'`])([^"'`\n]*)\1\s*\)/.exec(window);
+    if (!literal) return true;
+    // **A literal whose text is not its value is one this method cannot
+    // resolve either.** `require("child_\x70rocess")` satisfies the rule above
+    // honestly — it is precisely one quoted string — and loads
+    // `child_process`, because the escape is decoded by the engine and not by
+    // us. Reading the source text and looking that text up in
+    // `BLOCKED_MODULE_NAMES` therefore produced `runs` with nothing blocked:
+    // the strongest reading of the strongest evasion, and the documented
+    // `"child_" + "process"` case one door over. Decoding it here would mean
+    // implementing JavaScript string escapes to answer a yes/no question, so
+    // it reads as computed instead — `unknown`, never `runs`, which is the
+    // direction this whole family falls in.
+    if (literal[2].includes("\\")) return true;
   }
   return false;
 }

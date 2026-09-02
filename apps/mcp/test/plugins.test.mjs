@@ -176,6 +176,23 @@ export async function runPluginChecks(check) {
   );
 
   /*
+    THE FOURTH IMPORT FORM.
+
+    `literalModules` models `require(x)`, `import(x)` and `from "x"`. A bare
+    side-effect `import "child_process";` is none of those, so it matched no
+    pattern, tripped no dynamic gate, and produced `runs` with nothing blocked.
+    Three forms were modelled and there are four.
+  */
+  check(
+    "a bare side-effect import is read like every other import",
+    scanBundle(`import "child_process";`).blocked.some((b) => b.id === "child_process")
+  );
+  check(
+    "and so is one with single quotes and no semicolon",
+    scanBundle(`import 'fs'\n`).blocked.some((b) => b.id === "fs")
+  );
+
+  /*
     `id` WAS THE ONE FIELD WITH NO BOUND, IN A FILE THAT BOUNDS EVERYTHING ELSE.
 
     Folder ≤200, `str` ≤300, `reason` ≤200, hosts ≤12, plugins ≤20, list pages
@@ -292,6 +309,20 @@ export async function runPluginChecks(check) {
     ["new Function", `${CLEAN_BUNDLE}\nconst f = new Function("return process")();`],
     ["a computed require", `${CLEAN_BUNDLE}\nconst mod = require("child_" + "process");`],
     ["a computed import", `${CLEAN_BUNDLE}\nconst mod = await import(name);`],
+    /*
+      AN ESCAPE IS A LITERAL WHOSE TEXT IS NOT ITS VALUE.
+
+      `"child_\\x70rocess"` satisfies the closing-paren rule honestly — it IS
+      precisely one quoted string — and its runtime value is `child_process`.
+      `hasComputedModuleName` tests the source text and `BLOCKED_MODULE_NAMES`
+      looks up the source text, and neither decodes the literal, so this landed
+      on `runs` with an empty blocked list: the strongest possible reading of
+      the strongest possible evasion. It is the documented `"child_" +
+      "process"` case one door over, and it must answer the same way.
+    */
+    ["a hex-escaped require", `${CLEAN_BUNDLE}\nconst mod = require("child_\\x70rocess");`],
+    ["a unicode-escaped require", `${CLEAN_BUNDLE}\nconst mod = require("child_\\u0070rocess");`],
+    ["an escaped builtin", `${CLEAN_BUNDLE}\nconst mod = require("f\\x73");`],
   ]) {
     const result = scanPlugin({ id: "ob", manifestText: manifestFor("ob"), source });
     check(`a bundle using ${label} is never reported as running`, result.verdict === "unknown");

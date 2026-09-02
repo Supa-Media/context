@@ -149,16 +149,23 @@ function str(value) {
 /**
  * Every module specifier the bundle names as a literal.
  *
- * Covers the three forms a bundler emits — `require("x")`, `import("x")` and
- * `from "x"` — and normalizes Node's `node:` prefix, because `require("node:fs")`
- * and `require("fs")` are the same reach and only one of them would be caught
- * by a naive set lookup.
+ * Covers the four forms a bundler emits — `require("x")`, `import("x")`,
+ * `from "x"` and the bare side-effect `import "x"` — and normalizes Node's
+ * `node:` prefix, because `require("node:fs")` and `require("fs")` are the same
+ * reach and only one of them would be caught by a naive set lookup.
+ *
+ * It said three, and there were four: `import "child_process";` matched none of
+ * the patterns, tripped no dynamic gate, and came out `runs` with nothing
+ * blocked.
  */
 function literalModules(source) {
   const found = new Set();
   const patterns = [
     /\b(?:require|import)\s*\(\s*["'`]([^"'`\n]{1,200})["'`]\s*\)/g,
     /\bfrom\s*["'`]([^"'`\n]{1,200})["'`]/g,
+    // The bare side-effect form. `import(` is already covered above, and a `(`
+    // is not a quote, so these two cannot both match the same call.
+    /\bimport\s*["'`]([^"'`\n]{1,200})["'`]/g,
   ];
   for (const pattern of patterns) {
     for (const match of source.matchAll(pattern)) {
