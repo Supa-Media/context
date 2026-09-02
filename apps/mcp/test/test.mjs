@@ -13,6 +13,7 @@ import { runSearchPacingChecks } from "./searchPacing.test.mjs";
 import { runSearchV2IntegrationChecks } from "./searchV2Integration.test.mjs";
 import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
+import { runPluginChecks } from "./plugins.test.mjs";
 import { runCrossContextChecks } from "./crossContext.test.mjs";
 import {
   CONTROL_PLANE_ORIGIN,
@@ -400,7 +401,43 @@ const tools = await rpc("priv-token", "tools/list");
 // invoke only those two names on a custom connector, so they are the same
 // read capabilities wearing OpenAI's deep-research contract. 21 with
 // `read_image`, which is a read capability over the same access map.
-check("21 tools listed", tools.result?.tools.length === 21);
+check("22 tools listed", tools.result?.tools.length === 22);
+
+// -- list_plugins through the worker
+//
+// The unit checks in `plugins.test.mjs` cover the scan, the inventory and the
+// wording. These three cover the wiring, which nothing else would: the tool is
+// reachable, it is classified read-only so a read-only grant is offered it, and
+// a capture-only grant — which may POST to /inbox and read nothing — cannot use
+// it to read `.obsidian/`, a prefix the privacy manifest has no say over.
+await contextStore.put(
+  ".obsidian/plugins/obsidian-git/manifest.json",
+  JSON.stringify({ id: "obsidian-git", name: "Obsidian Git", version: "2.33.0" })
+);
+await contextStore.put(
+  ".obsidian/plugins/obsidian-git/main.js",
+  'const cp = require("child_process");'
+);
+const pluginReport = await call("priv-token", "list_plugins");
+check(
+  "list_plugins reads .obsidian/plugins and names the call that refuses one",
+  pluginReport?.content?.[0]?.text?.includes("Obsidian Git") &&
+    pluginReport.content[0].text.includes("child_process")
+);
+check(
+  "and it is offered to a read-only grant, because it writes nothing",
+  (await rpc("readonly-token", "tools/list"))?.result?.tools.some((t) => t.name === "list_plugins")
+);
+check(
+  "a capture-only grant cannot read the vault's plugins",
+  (await call("inbox-token", "list_plugins")) === undefined ||
+    (await call("inbox-token", "list_plugins")).isError === true
+);
+check(
+  "a plugin bundle is never reachable as a note",
+  (await call("priv-token", "read_note", { path: ".obsidian/plugins/obsidian-git/main.js" }))
+    .isError === true
+);
 check("set_visibility tool is discoverable", tools.result?.tools.some((tool) => tool.name === "set_visibility"));
 check(
   "set_folder_visibility tool is discoverable",
@@ -1113,7 +1150,7 @@ check(
 );
 
 const modernList = await modernFetch({ method: "tools/list" });
-check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 21);
+check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 22);
 check(
   "modern tools/list carries the required freshness hints",
   typeof modernList.body.result?.ttlMs === "number" &&
@@ -1339,7 +1376,7 @@ for (const verb of ["GET", "DELETE"]) {
 // --- and now the half that must not have moved: legacy clients ---
 check(
   "a legacy client sending no version header still works",
-  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 21
+  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 22
 );
 async function legacyWithVersionHeader(version) {
   return worker.fetch(
@@ -3790,6 +3827,11 @@ await runSearchV2IntegrationChecks(check);
 // the backfill it does while somebody waits, and the round trips it no longer
 // serializes.
 await runSearchPacingChecks(check);
+
+// The Obsidian plugin compatibility check: the scan as pure functions, the
+// inventory against its own bucket stubs, and the phrasing of the report. No
+// control plane and no shared fixture, so it runs anywhere in this file.
+await runPluginChecks(check);
 
 await runTenancyChecks(check);
 await runCrossContextChecks(check);

@@ -79,6 +79,8 @@ import {
 } from "./search/visible.js";
 import { syncShardedIndex } from "./search/shards.js";
 import { createSearchTrace, logSearchTrace } from "./search/trace.js";
+import { inventoryPlugins } from "./plugins/inventory.js";
+import { renderPluginReport } from "./plugins/report.js";
 import {
   ERROR_HEADER_MISMATCH,
   ERROR_METHOD_NOT_FOUND,
@@ -1870,6 +1872,17 @@ function baseToolDefinitions() {
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     {
+      name: "list_plugins",
+      description:
+        "Check the Obsidian plugins already in this context's bucket and report, for each one, "
+        + "whether Context can run it, whether it needs the owner to approve a host it calls, "
+        + "whether it stays in Obsidian while Context reads the files it writes, or whether it "
+        + "cannot run here — with the specific call that decides it. Reads .obsidian/plugins/ and "
+        + "writes nothing; the Obsidian setup is left exactly as it is.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    {
       name: "propose_note",
       description:
         "Queue a new markdown note for a correct destination that this connection cannot currently write. The proposal is hidden from team listings and must be approved by a personal connection; it never overwrites an existing note.",
@@ -2164,6 +2177,8 @@ async function callTool(name, args, store, scope) {
       return toolSaveContext(store, scope, rules, overrides, args);
     case "list_changes":
       return toolListChanges(store, scope, rules, overrides, args.limit);
+    case "list_plugins":
+      return toolListPlugins(store);
     default:
       return toolError(`unknown tool: ${name}`);
   }
@@ -2545,6 +2560,26 @@ async function toolListChanges(store, scope, rules, overrides, limitArg) {
       })
       .join("\n")
   );
+}
+
+/**
+ * What the Obsidian plugins in this bucket would do here.
+ *
+ * Deliberately takes nothing but the store. `.obsidian/` sits outside the
+ * privacy manifest's reach — it is not notes, so `canSee` has nothing to say
+ * about it — and the safe shape for a read there is one that cannot be aimed:
+ * every key comes from a listing of a fixed prefix, never from an argument. A
+ * variant of this tool that accepted a path would be a way to read around the
+ * privacy engine wearing a helpful name.
+ *
+ * Read-only in the strong sense: nothing here writes, and `.obsidian/` is never
+ * written by the gateway at all. It belongs to the client the customer actually
+ * uses, and tidying somebody else's program's state is how a "compatible"
+ * gateway breaks the thing it was compatible with.
+ */
+async function toolListPlugins(store) {
+  const report = await inventoryPlugins(store);
+  return toolText(renderPluginReport(report));
 }
 
 /**
