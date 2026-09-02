@@ -61,7 +61,12 @@ export function gatewayReservedFirstSegments(): ReadonlySet<string> {
   );
   if (declaration === null) return new Set();
 
-  const segments = [...declaration[1]!.matchAll(/"([^"]*)"|'([^']*)'/g)].map(
+  // Comments first. Every quoted string in the block was being read as an
+  // entry, so an ordinary `// see "seyi" in the docs` inside the declaration
+  // reported `seyi` as an unreserved gateway route — a wrong diagnosis from a
+  // guard whose whole job is to fail informatively.
+  const body = declaration[1]!.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const segments = [...body.matchAll(/"([^"]*)"|'([^']*)'/g)].map(
     (match) => match[1] ?? match[2]!,
   );
   return new Set(segments);

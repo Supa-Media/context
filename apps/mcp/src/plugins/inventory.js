@@ -112,9 +112,14 @@ function isSafeFolder(folder) {
     folder.length <= 200 &&
     !folder.startsWith(".") &&
     // Control characters and a backslash — the two shapes `assertSafeKey`
-    // refuses — screened here before it can throw.
-    // eslint-disable-next-line no-control-regex
-    !/[\u0000-\u001F\u007F\\]/.test(folder)
+    // refuses — screened here before it can throw, plus every other character
+    // that can move a cursor or reverse a run of text in the report this name
+    // ends up in. The hand-written range covered C0 and DEL and missed U+2028,
+    // U+2029, U+0085 and the whole bidi block, so a folder could draw its own
+    // lines into the report the way a manifest could before `str()` — the same
+    // actor, the same page, the adjacent path. Named by category so the two
+    // strips cannot drift apart again.
+    !/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\\]/u.test(folder)
   );
 }
 

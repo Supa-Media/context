@@ -381,8 +381,11 @@ export function scanPlugin({ id, manifestText, source }) {
   const verdict = verdictFor({ manifest: parsed.manifest || null, scan });
   return {
     folder: id,
-    id: parsed.manifest?.id || id,
-    name: parsed.manifest?.name || id,
+    // Stripped again on the fallback. `isSafeFolder` screens the listing, and a
+    // folder reaching here from anywhere else must not depend on that having
+    // been the path it took — the manifest half of this is `str()` already.
+    id: parsed.manifest?.id || str(id),
+    name: parsed.manifest?.name || str(id),
     version: parsed.manifest?.version || "",
     author: parsed.manifest?.author || "",
     description: parsed.manifest?.description || "",

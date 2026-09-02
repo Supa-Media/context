@@ -81,6 +81,15 @@ const TOKEN_EDITOR = `cat_cross_editor_${"0".repeat(24)}`;
 const TOKEN_GUEST = `cat_cross_guest_${"0".repeat(24)}`;
 /** A grant that was never given write, anywhere. */
 const TOKEN_READ_ONLY = `cat_cross_readonly_${"0".repeat(22)}`;
+/**
+ * Connected at a context they are only a `member` of, while owning another.
+ *
+ * The one shape `readsPrivateAnywhere`'s cross-context arm exists for: the
+ * default session reads at `team`, so `hasScope` alone answers no, and the
+ * scan over `workspaces` is the only thing that can offer an owner-only tool
+ * to somebody who owns one of the contexts they reach.
+ */
+const TOKEN_VISITOR = `cat_cross_visitor_${"0".repeat(23)}`;
 /** Somebody in more contexts than one orientation is willing to open. */
 const TOKEN_MANY = `cat_cross_many_${"0".repeat(26)}`;
 
@@ -224,6 +233,15 @@ export async function runCrossContextChecks(check) {
     alsoMemberOf: [{ workspaceId: "ws_stranger", role: "editor" }],
   });
   await controlPlane.addGrant({
+    accessToken: TOKEN_VISITOR,
+    workspaceId: "ws_shared",
+    role: "member",
+    scopes: ["context:read", "context:private"],
+    clientId: "mcp_client_cross_visitor",
+    userId: "user_cross",
+    alsoMemberOf: [{ workspaceId: "ws_own", role: "owner" }],
+  });
+  await controlPlane.addGrant({
     accessToken: TOKEN_READ_ONLY,
     workspaceId: "ws_own",
     role: "owner",
@@ -272,6 +290,19 @@ export async function runCrossContextChecks(check) {
         author: "their-owner",
       }),
       etag: "tp0",
+    }
+  );
+
+  mine.set(
+    ".obsidian/plugins/mine-only/manifest.json",
+    {
+      body: JSON.stringify({
+        id: "mine-only",
+        name: "MINE-PLUGIN-MARKER",
+        version: "1.0.0",
+        author: "me",
+      }),
+      etag: "mp0",
     }
   );
 
@@ -731,10 +762,50 @@ export async function runCrossContextChecks(check) {
     !readOnlyTools.includes("list_plugins")
   );
 
+  /*
+    THE OWNER STILL READS THEIR OWN — asserted on the marker, not on the absence
+    of two strings that the refusal never contains.
+
+    This check used to read `!includes("no access") && !includes("unknown
+    tool")`, and the refusal it exists to catch says "reading this context's
+    Obsidian plugins is the context owner's." Measured: gating the tool against
+    *everyone* left this passing.
+  */
   const ownerPlugins = textOf(await callTool(env, TOKEN_OWNER, "list_plugins", {}));
   check(
     "while the owner of a context still reads its own",
-    !ownerPlugins.includes("no access") && !ownerPlugins.includes("unknown tool")
+    ownerPlugins.includes("MINE-PLUGIN-MARKER")
+  );
+
+  /*
+    AND THE `Anywhere` HALF OF `readsPrivateAnywhere` IS THE PART THAT NEEDED
+    PINNING.
+
+    `writesAnywhere`'s cross-context arm is asserted; this one's was not —
+    deleting the whole `workspaces` scan and leaving `hasScope` left the suite
+    green, so the half that makes it `…Anywhere` was free.
+
+    It is not dead code. `TOKEN_GUEST` is a `member` where it connected and an
+    owner elsewhere, so only that arm can offer it the tool at all: without it,
+    somebody connected at a colleague's context could never call `list_plugins`
+    for their own brain over that connection.
+  */
+  const visitorOffered = await toolNamesFor(env, TOKEN_VISITOR);
+  check(
+    "a connection that owns a context it did not connect at is still offered the tool",
+    visitorOffered.includes("list_plugins")
+  );
+  check(
+    "and is still refused in the context it only visits",
+    !textOf(
+      await callTool(env, TOKEN_VISITOR, "list_plugins", { context: "@theirs" })
+    ).includes("THEIRS-PLUGIN-MARKER")
+  );
+  check(
+    "while reading its own",
+    textOf(
+      await callTool(env, TOKEN_VISITOR, "list_plugins", { context: "@mine" })
+    ).includes("MINE-PLUGIN-MARKER")
   );
 
   /*

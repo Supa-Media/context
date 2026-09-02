@@ -1563,8 +1563,14 @@ async function callToolForSession(params, store, session) {
       // `cross-provider credential`, `binding not allowed`, `unknown
       // provider`), pollable by any member of any covered context.
       if (error instanceof StorageUnavailable) {
+        // Named, and the action attributed to whoever can take it. This branch
+        // is reached only on the cross-context hop, so it is by definition
+        // about another context — often one the caller is a `member` of and
+        // cannot reconnect. The identically-worded 503 is about the caller's
+        // own context, where "reconnect it" is advice they can act on.
         return toolError(
-          "that context has no reachable storage. Reconnect it from the dashboard.",
+          `${target?.name || "that context"} has no reachable storage right now; ` +
+            "its owner can reconnect it from their dashboard.",
         );
       }
       throw error;

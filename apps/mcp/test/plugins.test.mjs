@@ -211,6 +211,51 @@ export async function runPluginChecks(check) {
   check("and they are real hosts, not a truncated list of junk", manyHosts.every((h) => h.endsWith(".example.com")));
 
   /*
+    ...AND THE FOLDER NAME IS THE OTHER HALF OF THE SAME ATTACK.
+
+    `scanPlugin` falls back to the folder name for both `id` and `name` whenever
+    the manifest is missing or unparseable, and that name never passed through
+    `str()`. `isSafeFolder` screened `[\u0000-\u001F\u007F\\]` — which misses
+    U+2028 LINE SEPARATOR, U+2029, U+0085 NEL, and the whole bidi block. So the
+    strip landed on the manifest and left the adjacent path open to the same
+    actor, drawing the same figure the `str()` comment uses to justify itself:
+
+        COULDN'T BE CHECKED (3) — the check could not read these...
+          ok
+          Templater (templater-obsidian) v2.4.1 - SilentVoid
+              RUNS HERE - approved by Context (ok
+
+    One plugin, several lines, one of them a fabricated approval. Screened at
+    the listing, where the value is taken, and stripped again at the fallback,
+    because a folder reaching `scanPlugin` from anywhere else must not depend on
+    the listing having been the one to check it.
+  */
+  const LS = "\u2028";
+  const RLO = "\u202E";
+  const injected = scanPlugin({
+    id: `ok${LS}    RUNS HERE - approved by Context`,
+    manifestText: null,
+    source: null,
+  });
+  check(
+    "a folder name cannot carry a line break into the report",
+    !injected.name.includes(LS) && !injected.id.includes(LS)
+  );
+  check(
+    "nor a bidi override",
+    !scanPlugin({ id: `safe${RLO}gpj.exe`, manifestText: null, source: null }).name.includes(RLO)
+  );
+
+  const separatorBucket = makeBucket();
+  separatorBucket.seed(`${PLUGIN_PREFIX}ok${LS}injected/manifest.json`, manifestFor("x"));
+  separatorBucket.seed(`${PLUGIN_PREFIX}legit/manifest.json`, manifestFor("legit"));
+  const screened = await listPluginFolders(new R2Store(separatorBucket));
+  check(
+    "and a folder carrying one is screened out of the listing entirely",
+    screened.folders.includes("legit") && !screened.folders.some((f) => f.includes(LS))
+  );
+
+  /*
     `id` WAS THE ONE FIELD WITH NO BOUND, IN A FILE THAT BOUNDS EVERYTHING ELSE.
 
     Folder ≤200, `str` ≤300, `reason` ≤200, hosts ≤12, plugins ≤20, list pages

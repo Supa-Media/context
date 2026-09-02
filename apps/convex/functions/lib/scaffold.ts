@@ -844,6 +844,11 @@ const PRESET_FOLDERS = [
  * The test for this drives `scaffoldFiles` rather than restating its output, so
  * an eighth scaffolded file cannot quietly become an eighth guess.
  *
+ * **The `custom` template was deliberately out of scope, and half of it no
+ * longer is** — see `PRESET_FOLDERS` above. A layout somebody typed is still
+ * theirs; one this product ships through the same code path is ours, and the
+ * list below spreads those. What follows argues the original half.
+ *
  * **The `custom` template is deliberately out of scope.** It also writes a
  * `README.md` per folder, but those folder names are the owner's — `Journal/`,
  * `Clients/` — so the guessability premise that makes this list a security
