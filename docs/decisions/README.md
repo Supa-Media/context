@@ -71,6 +71,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - One runtime version, pinned, and native deps gated behind it
 - The native baseline was chosen once, before the first build
 - The iOS editor is the web editor, in a WebView, from a committed bundle
+- Every react-native-web `View` is a stacking context, so a `zIndex` is local
 - There are two palettes, and a screen may not hold either one
 - Offline is a queue and a cache, and a conflict is parked rather than resolved
 - A team link's note survives the console's own cold start, and the login gate

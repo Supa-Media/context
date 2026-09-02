@@ -95,6 +95,7 @@ export function ConsoleRail({
   // Which context's right-click menu is open, if any. One at a time: opening
   // a second closes the first, which is what every menu bar does.
   const [menuSlug, setMenuSlug] = useState<string | null>(null);
+  const menuOpenOn = (slug: string) => slug === menuSlug;
   const claimable = onClaimContext !== undefined && offerOwnContext({
     contexts: data.contexts,
     loading: data.loading,
@@ -136,7 +137,7 @@ export function ConsoleRail({
             icons={icons}
             // Derived from the one piece of state that already knows, rather
             // than a second answer to the same question.
-            raised={section.contexts.some((context) => context.slug === menuSlug)}
+            raised={section.contexts.some((context) => menuOpenOn(context.slug))}
           >
             {section.key === "own" && data.contexts.length === 0 && !data.loading ? (
               icons ? null : (
@@ -152,7 +153,7 @@ export function ConsoleRail({
               // by people who already knew it was there.
               <RightClickTarget
                 key={context.id}
-                open={menuSlug === context.slug}
+                open={menuOpenOn(context.slug)}
                 onOpenMenu={() => setMenuSlug(context.slug)}
               >
                 <RailEntry
@@ -173,7 +174,7 @@ export function ConsoleRail({
                   onPress={() => onNavigate(selectContextRoute(context.slug))}
                   leading={<Dot tone={context.status} />}
                 />
-                {menuSlug === context.slug ? (
+                {menuOpenOn(context.slug) ? (
                   <ContextRowMenu
                     slug={context.slug}
                     shared={section.key === "shared"}
@@ -247,13 +248,17 @@ export function ConsoleRail({
 function Group({
   heading,
   icons,
-  raised = false,
+  raised,
   children,
 }: {
   heading: string;
   icons: boolean;
-  /** True while a context menu is open on one of this group's rows. */
-  raised?: boolean;
+  /**
+   * True while a context menu is open on one of this group's rows. Required,
+   * like `RightClickTarget`'s `open`, so that forgetting it is a compile error
+   * rather than a menu that silently paints under the group below.
+   */
+  raised: boolean;
   children: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);

@@ -242,6 +242,47 @@ Three things about it are decisions rather than implementation:
   That annotation is also what stops *opening* a note reporting itself as an
   edit of it.
 
+### Every react-native-web `View` is a stacking context, so a `zIndex` is local
+
+`react-native-web/dist/exports/View/index.js` puts `position: relative` and
+**`z-index: 0`** in the base style of every `View`. So each one opens a stacking
+context, and a `zIndex` set anywhere inside it is an ordering *among that
+element's own descendants* — it says nothing about the rest of the screen. What
+decides whether a thing paints over a thing somewhere else is the z-index of
+their nearest common ancestors, all of which sit at `0` and therefore fall back
+to "later sibling wins".
+
+This has now cost two features, in the two available directions. `AppFrame.tsx`
+records the first in its own words: the accessory bar "cannot simply paint over"
+the bottom toolbar because "their `zIndex`es are compared in different stacking
+contexts and the toolbar wins whatever either of them asks for" — so the panels
+are *ordered in the tree* instead, and the one place that needs the opposite
+pays for it with an explicit `zIndex` and a comment saying why. The second is
+issue #197: the rail's context menu asked for `zIndex: 30`, got it, and still
+drew under the next rail group, because the 30 was spent inside its own anchor.
+
+Two consequences worth having in hand before reaching for a number:
+
+- **Raising the element you can see is almost never the fix.** The fix is to
+  find the level at which the two things are actually siblings, and raise the
+  ancestor on the winning side. Raising anything lower is a no-op that looks
+  like a change.
+- **Paint order and hit-testing are one mechanism, not two.** The browser
+  hit-tests in paint order, so the element drawn on top is the element that
+  takes the click — measured, not assumed (`__tests__/contextMenu.test.ts`
+  records the `elementFromPoint` runs). That is why a z-index fix cannot leave
+  the visual half right and the pointer half wrong; it is also why a fix that
+  reorders the *tree* instead has to be checked against reading order and tab
+  order, which is the trade `AppFrame.tsx` took.
+
+Neither of these can be seen by a test that renders to a string, and jsdom lays
+nothing out and hit-tests nothing. What is assertable in CI is the declaration:
+walk from the raised element to the nearest clipping ancestor and check that at
+every level it out-ranks its later siblings. A checker of that shape asserts it
+found *nothing*, so it needs a self-test, per "A guard nobody has checked is not
+a guard" — the first version of the one in `contextMenu.test.ts` stopped its
+walk at the first element and went green against the bug it was written for.
+
 ### There are two palettes, and a screen may not hold either one
 
 `app.config.js` says `userInterfaceStyle: "automatic"`, and that is now true:

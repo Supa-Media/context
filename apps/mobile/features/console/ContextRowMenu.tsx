@@ -41,14 +41,18 @@ import type { ConsoleRoute } from "./nav";
  * `ConsoleRail` already holds "which context's menu is open"; passing it in
  * keeps that one answer rather than deriving a second copy from the children.
  * The group's half of the lift is `ConsoleRail`'s, since it owns the group.
+ *
+ * `open` is required and not defaulted. A caller who forgets it is a menu
+ * trapped under the rows below it again — silent on screen until somebody
+ * clicks the wrong row — and a compile error is a cheaper way to be told.
  */
 export function RightClickTarget({
-  open = false,
+  open,
   onOpenMenu,
   children,
 }: {
   /** True while this row's menu is open. Lifts the anchor above later rows. */
-  open?: boolean;
+  open: boolean;
   onOpenMenu: () => void;
   children: ReactNode;
 }) {

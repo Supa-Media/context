@@ -249,6 +249,23 @@ describe("the menu, mounted for real", () => {
  *
  * So one z-index change moves the paint and the pointer at once, and there is
  * no state in which the menu looks right while the wrong element is clickable.
+ * **Nothing in CI holds that measurement** — it was taken by hand, and this
+ * repo has no browser harness to keep it in. What CI holds is the declaration
+ * the browser then acts on, which is where the defect actually was; the step
+ * from "the menu out-ranks that row" to "the menu takes the click" is argued
+ * from the CSS rule rather than re-run on every commit, and is worth
+ * re-measuring if either element ever gains a `pointer-events` override.
+ *
+ * One thing this deliberately does not check, because it is a different bug:
+ * the menu is `position: absolute`, so it adds no height to the scroll content
+ * and a menu opened on the rail's last visible row is still **clipped** by the
+ * `ScrollView`. That is unchanged by this fix and unrelated to it — the fix is
+ * about which of two overlapping elements wins, not about the viewport.
+ *
+ * The checker carries a self-test, because its assertion is that it found
+ * *nothing* — so anything that shortens the walk turns every case below green
+ * without looking at the rail at all. That is not hypothetical here: it is how
+ * the first version of this file passed against the broken code.
  */
 
 /** `auto` orders as 0 among positioned siblings; it just makes no context. */
@@ -293,6 +310,46 @@ function stackingFaults(menu: Element, host: Element): string[] {
 }
 
 describe("an open menu paints above the rows that follow it", () => {
+  test("the checker itself catches an inversion", () => {
+    // `stackingFaults` asserts an *empty* list, so anything that shortens the
+    // walk makes all four tests below pass by finding nothing — which is
+    // exactly how the first version of this file went green against the broken
+    // code. So the checker is run against a DOM built to be wrong: a menu
+    // inside an anchor inside a group, every level at the base `z-index: 0`
+    // that react-native-web gives a View, with a later sibling at each of the
+    // two levels the real defect lived at.
+    const host = document.createElement("div");
+    host.innerHTML = `
+      <div style="position:relative;z-index:0;overflow-y:auto">
+        <div style="position:relative;z-index:0">
+          <div style="position:relative;z-index:0">
+            <div style="position:relative;z-index:0">
+              <div style="position:absolute;z-index:30">menu</div>
+            </div>
+            <div style="position:relative;z-index:0">later row</div>
+          </div>
+          <div style="position:relative;z-index:0">later group</div>
+        </div>
+      </div>`;
+    document.body.appendChild(host);
+    try {
+      const faults = stackingFaults(host.querySelector("div[style*='absolute']")!, host);
+      expect(faults).toHaveLength(2);
+      expect(faults.join(" ")).toContain("later row");
+      expect(faults.join(" ")).toContain("later group");
+
+      // ...and stays quiet once those two levels out-rank their siblings,
+      // which is the shape the rail is in after the fix.
+      for (const node of host.querySelectorAll("div[style*='absolute']")) {
+        (node.parentElement as HTMLElement).style.zIndex = "1";
+        ((node.parentElement as HTMLElement).parentElement as HTMLElement).style.zIndex = "1";
+      }
+      expect(stackingFaults(host.querySelector("div[style*='absolute']")!, host)).toEqual([]);
+    } finally {
+      host.remove();
+    }
+  });
+
   /** Two of each, so both the group and the row level have later siblings. */
   const crowded = railData([
     context("ctx-1", "agent", "owner"),
