@@ -13,6 +13,7 @@ import { runSearchPacingChecks } from "./searchPacing.test.mjs";
 import { runSearchV2IntegrationChecks } from "./searchV2Integration.test.mjs";
 import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
+import { runCrossContextChecks } from "./crossContext.test.mjs";
 import {
   CONTROL_PLANE_ORIGIN,
   GATEWAY_SECRET,
@@ -3791,6 +3792,7 @@ await runSearchV2IntegrationChecks(check);
 await runSearchPacingChecks(check);
 
 await runTenancyChecks(check);
+await runCrossContextChecks(check);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");
 process.exit(failures ? 1 : 0);

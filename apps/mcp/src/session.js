@@ -276,6 +276,19 @@ export async function resolveSession(token, slug, controlPlane) {
     actorUserId: session.actorUserId,
     actorClientId: session.clientId,
     scopes,
+    /**
+     * The grant's own scopes, before this workspace's role clamped them, and
+     * the set of contexts this connection may address.
+     *
+     * Both are here so `sessionForContext` can answer for a *different* covered
+     * context without a second round trip. `grantScopes` is deliberately not
+     * `scopes`: re-clamping an already-clamped set intersects two roles, so a
+     * `member` in the context they connected to would lose write in a context
+     * they own — a quiet under-grant that reads as a bug in the wrong place.
+     * Neither is a credential; both are ids, slugs and roles.
+     */
+    grantScopes: session.scopes,
+    workspaces: session.workspaces,
     expiresAt: session.expiresAt,
   };
 
@@ -297,6 +310,76 @@ export async function resolveSession(token, slug, controlPlane) {
     writable: false,
   });
   return resolvedSession;
+}
+
+/**
+ * The same connection, addressed at another context it covers.
+ *
+ * **This is the whole of cross-context reach, and it is one function on
+ * purpose.** A grant now covers every context its person is a live member of
+ * (see `resolveGrantByAccessToken`), so a client connected once can act in a
+ * brain shared with its owner — which is what was asked for. What must not
+ * follow is authority travelling with it, so every clamp `resolveSession`
+ * applies to the default context is applied here to the addressed one, from the
+ * grant's own scopes and the *target's* role:
+ *
+ *  - `effectiveScopes` intersects the grant with what that role can back up, so
+ *    a `member` reaches somebody's brain read-only however wide the grant;
+ *  - `visibilityTierForGrant` reads the tier off the clamped set, so anybody
+ *    who is not that context's owner sees `team` and no private note.
+ *
+ * A name outside the covered set is refused with a 403 that says nothing —
+ * the same refusal `selectWorkspace` gives the URL form, for the same reason:
+ * "you cannot reach that" and "there is no such name" must be one answer, or
+ * the argument becomes an existence oracle over a global namespace.
+ *
+ * The access token is re-attached rather than spread: it is non-enumerable on
+ * the session it came from, so `{ ...session }` silently drops it and every
+ * cross-context call would fail at `storeForSession` with "no proof of
+ * authorization" — fail-closed, and completely.
+ */
+export function sessionForContext(session, name) {
+  const wanted = normalizeContextName(name);
+  const refuse = () =>
+    new SessionRefusal(403, "insufficient_scope", "This connection has no access to that context.");
+  if (wanted === null) throw refuse();
+
+  const covered = (session?.workspaces || []).find((entry) => entry.slug === wanted);
+  if (!covered) throw refuse();
+  if (covered.workspaceId === session.workspaceId) return session;
+
+  const scopes = effectiveScopes(session.grantScopes, covered.role);
+  const sibling = {
+    ...session,
+    workspaceId: covered.workspaceId,
+    workspaceSlug: covered.slug,
+    role: covered.role,
+    scope: visibilityTierForGrant(scopes, covered.role),
+    scopes,
+  };
+  Object.defineProperty(sibling, "accessToken", {
+    value: session.accessToken,
+    enumerable: false,
+    writable: false,
+  });
+  return sibling;
+}
+
+/**
+ * `@seyi`, `seyi` and `Seyi` are one name; anything the gateway would not read
+ * out of a URL is not a name at all.
+ *
+ * The same shape rules `splitWorkspacePath` applies, because a context is
+ * addressed by one namespace whichever door it arrives through — and applying
+ * them here means a hostile argument is a refusal rather than a control-plane
+ * round trip.
+ */
+function normalizeContextName(name) {
+  if (typeof name !== "string") return null;
+  const trimmed = name.trim().replace(/^@/, "").toLowerCase();
+  if (!SLUG_PATTERN.test(trimmed)) return null;
+  if (RESERVED_FIRST_SEGMENTS.has(trimmed)) return null;
+  return trimmed;
 }
 
 /**
@@ -407,6 +490,33 @@ function effectiveScopes(grantScopes, role) {
 
 export function hasScope(session, scope) {
   return Array.isArray(session?.scopes) && session.scopes.includes(scope);
+}
+
+/**
+ * Whether this connection can write in *any* context it reaches.
+ *
+ * `tools/list` is a courtesy and `callToolForSession`'s gate is the control, so
+ * this may only ever be too generous — and being too *mean* is the failure that
+ * actually turns up. Somebody whose client is connected to a brain they are
+ * only a `member` of would otherwise be shown no write tools at all, in a
+ * session where they own another context and can write there; an agent cannot
+ * ask for a tool it was never told about, so a listing filtered by the current
+ * context quietly removes a capability the connection has.
+ *
+ * The per-call gate still decides *where*, from the addressed context's own
+ * role, and says which context refused. Offer what the connection can do;
+ * refuse where it cannot.
+ *
+ * It lives here rather than in `index.js` because it is a scope question, and
+ * the clamp that answers it is this module's. A second copy of `effectiveScopes`
+ * reasoning anywhere else is the drift this file exists to prevent.
+ */
+export function writesAnywhere(session) {
+  if (hasScope(session, SCOPE_WRITE)) return true;
+  const granted = session?.grantScopes || session?.scopes || [];
+  return (session?.workspaces || []).some((entry) =>
+    effectiveScopes(granted, entry.role).includes(SCOPE_WRITE)
+  );
 }
 
 /* -------------------------------- the store ------------------------------- */

@@ -36,6 +36,7 @@ import {
 } from "./fixtures.helpers";
 import { type MemoryS3Options, memoryS3 } from "./storeStub.helpers";
 import { gatewayInternals } from "./gatewayFormat.helpers";
+import { clampScopes, visibilityTierOf } from "../functions/lib/consentScopes";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -46,11 +47,17 @@ afterEach(() => {
  * credential pasted through the real `bindStorage`, and the scheduled
  * verification drained.
  */
-async function connected(options: MemoryS3Options & { seed?: Record<string, string> } = {}) {
-  const { seed, ...bucketOptions } = options;
+async function connected(
+  options: MemoryS3Options & {
+    seed?: Record<string, string>;
+    /** Defaults to a personal brain, which is what this file is mostly about. */
+    kind?: "personal" | "shared";
+  } = {},
+) {
+  const { seed, kind, ...bucketOptions } = options;
   const t: TestConvex = setupTest();
   const owner = await createUser(t, "owner@example.invalid");
-  const workspaceId = await createWorkspace(t, owner, "atlas");
+  const workspaceId = await createWorkspace(t, owner, "atlas", { kind });
 
   const backend = memoryS3(FAKE_STORAGE.bucket, bucketOptions);
   for (const [key, body] of Object.entries(seed ?? {})) backend.seed(key, body);
@@ -802,4 +809,74 @@ describe("choosing a layout never brings a credential near the caller", () => {
     );
   });
 
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Setting up a **workspace** rather than a brain, end to end through the real
+ * mutation.
+ *
+ * `applyStructure` reads `kind` off the workspace row and hands it to the
+ * scheduled job. That it is read there rather than taken as an argument is the
+ * point: a client that could name it could scaffold somebody's personal brain
+ * open to everyone they later invite.
+ */
+describe("a shared workspace is laid down for the people in it", () => {
+  test("the folders come out readable by the workspace, through the gateway's parser", async () => {
+    const { t, owner, workspaceId, backend } = await connected({ kind: "shared" });
+
+    await apply(t, owner, workspaceId, { template: "para" });
+    await drainScheduled(t);
+
+    const { parsePrivacyManifest, canSee } = gatewayInternals();
+    const { rules, overrides } = parsePrivacyManifest(
+      backend.objects.get(PRIVACY_KEY)!.body,
+    );
+
+    expect(rules.map((rule) => rule.prefix).sort()).toEqual([...PARA_FOLDERS].sort());
+    expect(canSee("1-projects/kickoff.md", "team", rules, overrides)).toBe(true);
+    // …and the access map is still an owner's business.
+    expect(canSee(PRIVACY_KEY, "team", rules, overrides)).toBe(false);
+  });
+
+  test("a brain in the same deployment still starts all-private", async () => {
+    const { t, owner, workspaceId, backend } = await connected();
+
+    await apply(t, owner, workspaceId, { template: "para" });
+    await drainScheduled(t);
+
+    const { parsePrivacyManifest, canSee } = gatewayInternals();
+    const { rules, overrides } = parsePrivacyManifest(
+      backend.objects.get(PRIVACY_KEY)!.body,
+    );
+    expect(rules.every((rule) => rule.vis === "private")).toBe(true);
+    expect(canSee("1-projects/kickoff.md", "team", rules, overrides)).toBe(false);
+  });
+
+  /**
+   * The whole reason this exists. Scaffolded all-private, an editor invited
+   * into a brand-new workspace can reach nothing: `clampScopes` strips
+   * `context:private` from anybody who is not an `owner`, so there is no grant
+   * they can issue that would let a client read one note.
+   */
+  test("an editor's widest possible grant can read the workspace", async () => {
+    const { t, owner, workspaceId, backend } = await connected({ kind: "shared" });
+    await apply(t, owner, workspaceId, { template: "para" });
+    await drainScheduled(t);
+
+    const editorScopes = clampScopes(
+      ["context:read", "context:write", "context:private"],
+      "editor",
+    );
+    expect(visibilityTierOf(editorScopes)).toBe("team");
+
+    const { parsePrivacyManifest, canSee } = gatewayInternals();
+    const { rules, overrides } = parsePrivacyManifest(
+      backend.objects.get(PRIVACY_KEY)!.body,
+    );
+    expect(
+      canSee("1-projects/kickoff.md", visibilityTierOf(editorScopes), rules, overrides),
+    ).toBe(true);
+  });
 });

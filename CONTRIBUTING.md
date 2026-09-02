@@ -8,7 +8,8 @@ and this file is mostly about which opinions are load-bearing.
 - Read `CLAUDE.md`. It holds the non-negotiables — customer-owned storage,
   bucket-level tenancy, plain-file portability, per-workspace isolation, and
   `team` never meaning public. Those aren't implementation details; they're the
-  reason the project exists.
+  reason the project exists. The reasoning behind each rule, and every decision
+  that should not be silently reversed, lives in `docs/decisions/`.
 - Work on a branch, open a pull request. Nobody pushes to `main`.
 - Write the failing test first.
 - If a change touches auth, isolation, path handling, or credentials, expect a

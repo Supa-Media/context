@@ -412,8 +412,22 @@ function ReadyBody({
       <Card style={styles.card}>
         {view.contextIsAChoice ? (
           <ChoiceGroup
-            label="Which context"
-            hint="Only the one you pick becomes reachable. The others stay invisible to this client."
+            label="Which context it starts in"
+            /*
+              This hint used to read "Only the one you pick becomes reachable.
+              The others stay invisible to this client", and that stopped being
+              true the day a grant started covering every context its person is
+              a member of. A consent screen that describes an authority narrower
+              than the one it hands over is worse than one that says nothing —
+              so it says the whole of it, including the part nobody would guess:
+              a context shared with you *later* is reachable too, because the
+              set is membership read live rather than a list frozen here.
+
+              What each context is worth to the client is still its own answer,
+              which is why the roles are on the rows: reach is not permission,
+              and a `member` row is a read-only one however this is approved.
+            */
+            hint="It can reach every context you belong to, with the access you have in each — including ones shared with you later. This is the one it works in when nothing says otherwise."
             options={view.contexts.map((context) => ({
               value: context.id,
               label: atName(context.slug),

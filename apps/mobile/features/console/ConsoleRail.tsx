@@ -64,6 +64,7 @@ export function ConsoleRail({
   onNavigate,
   account,
   onClaimContext,
+  onCreateWorkspace,
   onLeaveContext,
 }: {
   data: ConsoleData;
@@ -84,6 +85,23 @@ export function ConsoleRail({
    */
   onClaimContext?: () => void;
   /**
+   * Start the flow that makes a new shared workspace.
+   *
+   * Absent on the landing page's copy of the rail, which is a picture, and in
+   * the read-only demo — the same rule as `onClaimContext`, and the same
+   * reason it is a prop rather than a `ConsoleRoute`: `/workspace/new` is
+   * outside the console, so putting it in that union would mean `routeForPath`
+   * pretending it could parse a URL it never sees.
+   *
+   * Unlike the claim entry there is **no client-side condition** on offering
+   * it. How many workspaces one account may own is the control plane's rule
+   * (`MAX_WORKSPACES_PER_USER`), enforced in `createWorkspace`'s transaction,
+   * and a second copy here would be the copy that is wrong after a deploy —
+   * hiding the entry from somebody who is under the limit, or showing a screen
+   * that refuses. The refusal is rendered where the person can act on it.
+   */
+  onCreateWorkspace?: () => void;
+  /**
    * Leave a context somebody shared. Receives the workspace id. Absent on
    * the landing page's picture of the rail, where there is nothing to leave.
    */
@@ -95,6 +113,7 @@ export function ConsoleRail({
   // Which context's right-click menu is open, if any. One at a time: opening
   // a second closes the first, which is what every menu bar does.
   const [menuSlug, setMenuSlug] = useState<string | null>(null);
+  const menuOpenOn = (slug: string) => slug === menuSlug;
   const claimable = onClaimContext !== undefined && offerOwnContext({
     contexts: data.contexts,
     loading: data.loading,
@@ -129,8 +148,19 @@ export function ConsoleRail({
           everything you were let into under "Shared with you". A section with
           nothing to show is omitted, header and all — see `rail.ts`.
         */}
-        {railSections({ contexts: data.contexts, claimable }).map((section) => (
-          <Group key={section.key} heading={section.heading} icons={icons}>
+        {railSections({
+          contexts: data.contexts,
+          claimable,
+          creatable: onCreateWorkspace !== undefined,
+        }).map((section) => (
+          <Group
+            key={section.key}
+            heading={section.heading}
+            icons={icons}
+            // Derived from the one piece of state that already knows, rather
+            // than a second answer to the same question.
+            raised={section.contexts.some((context) => menuOpenOn(context.slug))}
+          >
             {section.key === "own" && data.contexts.length === 0 && !data.loading ? (
               icons ? null : (
                 <Text variant="rowSub" style={styles.empty}>
@@ -145,6 +175,7 @@ export function ConsoleRail({
               // by people who already knew it was there.
               <RightClickTarget
                 key={context.id}
+                open={menuOpenOn(context.slug)}
                 onOpenMenu={() => setMenuSlug(context.slug)}
               >
                 <RailEntry
@@ -165,7 +196,7 @@ export function ConsoleRail({
                   onPress={() => onNavigate(selectContextRoute(context.slug))}
                   leading={<Dot tone={context.status} />}
                 />
-                {menuSlug === context.slug ? (
+                {menuOpenOn(context.slug) ? (
                   <ContextRowMenu
                     slug={context.slug}
                     shared={section.key === "shared"}
@@ -215,6 +246,27 @@ export function ConsoleRail({
                 testID="rail-claim-context"
               />
             ) : null}
+            {/*
+              The other thing this group can gain, and the one that stays.
+
+              Quiet rather than accented: the claim entry above is drawn loudly
+              because it is for somebody who has no reason to suspect the
+              product does anything else, and it disappears the moment it is
+              used. This one is permanent, so an accent on it would be an
+              advertisement on every screen of every session. It reads as what
+              it is — a verb at the foot of the list of things it adds to.
+            */}
+            {section.create ? (
+              <RailEntry
+                label="New workspace"
+                icon="plus"
+                icons={icons}
+                touch={touch}
+                accessibilityLabel="Create a new shared workspace"
+                onPress={onCreateWorkspace!}
+                testID="rail-create-workspace"
+              />
+            ) : null}
           </Group>
         ))}
       </ScrollView>
@@ -224,18 +276,37 @@ export function ConsoleRail({
   );
 }
 
+/**
+ * One labelled block of the rail.
+ *
+ * `raised` is the group's half of the fix for issue #197. A group is an
+ * ordinary react-native-web `View`, which means `position: relative;
+ * z-index: 0` and therefore a stacking context of its own — so an open context
+ * menu, however high its own `zIndex`, is ordered against the other groups by
+ * *this* element's `0`, and the group that follows paints over it and takes the
+ * click. The group holding the open menu is lifted while it is open; every
+ * other group stays where it is, because lifting them all would leave the rail
+ * in exactly the same order it is in now.
+ */
 function Group({
   heading,
   icons,
+  raised,
   children,
 }: {
   heading: string;
   icons: boolean;
+  /**
+   * True while a context menu is open on one of this group's rows. Required,
+   * like `RightClickTarget`'s `open`, so that forgetting it is a compile error
+   * rather than a menu that silently paints under the group below.
+   */
+  raised: boolean;
   children: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
-    <View style={styles.group}>
+    <View style={[styles.group, raised && styles.groupRaised]}>
       {icons ? (
         // A hairline instead of a word. The grouping is still visible, which is
         // what the heading was for; the label would not fit and truncating it
@@ -427,6 +498,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   contentIcons: { paddingHorizontal: space.x2, alignItems: "center" },
 
   group: { marginBottom: space.x5, gap: 2, alignSelf: "stretch" },
+  /** Above the groups that follow it, while one of its rows has a menu open. */
+  groupRaised: { zIndex: 1 },
   heading: { marginBottom: space.x2, paddingHorizontal: space.x2 },
   groupRule: {
     height: 1,
