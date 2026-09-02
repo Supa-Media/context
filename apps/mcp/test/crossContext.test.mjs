@@ -710,6 +710,35 @@ export async function runCrossContextChecks(check) {
     !wrongWithoutId.includes("MINE-MARKER")
   );
 
+  /*
+    AND THE REFUSAL DOES NOT NAME THE GATEWAY'S OWN REASON.
+
+    `StorageUnavailable`'s doc comment says `reason` "is for this gateway's own
+    structured logs. It never reaches a caller: `index.js` answers every one of
+    these with the same 503." The cross-context tool path interpolated
+    `error.message`, which is `storage unavailable: ${reason}` — the doubled
+    phrase in the output was the tell.
+
+    `workspace mismatch` is the reason that matters: it is the two-party
+    disagreement signal, exactly what somebody probing for a tenancy bug would
+    poll for. The others are plumbing state a member has no business reading —
+    `no proof of authorization`, `refresh token in binding`,
+    `cross-provider credential`, `binding not allowed`, `unknown provider`.
+  */
+  // Field back, wrong workspace still served: the refusal now happens on the
+  // cross-context hop, where `callToolForSession` catches it, rather than at
+  // session setup, where the whole request 503s before any tool runs.
+  controlPlane.flags.omitBindingWorkspaceId = false;
+  const mismatched = await readTheirs();
+  check(
+    "a storage refusal does not name the gateway's internal reason",
+    !mismatched.includes("workspace mismatch") && !mismatched.includes("storage unavailable")
+  );
+  check(
+    "and still says the one thing the person can act on",
+    /no reachable storage/i.test(mismatched)
+  );
+
   controlPlane.flags.bindingWorkspaceId = null;
   controlPlane.flags.omitBindingWorkspaceId = false;
   check("and the right binding still serves its own context", (await readTheirs()).includes("THEIRS-MARKER"));

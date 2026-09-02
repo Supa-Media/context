@@ -1543,9 +1543,19 @@ async function callToolForSession(params, store, session) {
         return toolError("this connection has no access to that context");
       }
       // Reachable, and its bucket is not. Said plainly, because it is the one
-      // failure here the person can fix.
+      // failure here the person can fix — and said WITHOUT the reason, because
+      // `StorageUnavailable`'s own doc comment reserves that for this gateway's
+      // structured logs: "It never reaches a caller: `index.js` answers every
+      // one of these with the same 503." Interpolating `error.message` here
+      // made that false, and the reasons it published are plumbing state
+      // (`workspace mismatch` — the two-party disagreement signal — plus
+      // `no proof of authorization`, `refresh token in binding`,
+      // `cross-provider credential`, `binding not allowed`, `unknown
+      // provider`), pollable by any member of any covered context.
       if (error instanceof StorageUnavailable) {
-        return toolError(`that context has no reachable storage: ${error.message}`);
+        return toolError(
+          "that context has no reachable storage. Reconnect it from the dashboard.",
+        );
       }
       throw error;
     }
