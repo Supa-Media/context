@@ -745,6 +745,34 @@ export const CAPTURE_SOURCE_FOLDERS = [
 export const CALENDAR_PATHS = ["2-areas/calendar", "2-areas/calendar/next-14-days.md"] as const;
 
 /**
+ * The root folders every workspace **preset** writes.
+ *
+ * `apps/mobile/features/workspace/presets.ts` ships two fixed layouts and sends
+ * them down the `custom` template path, and `DEFAULT_PRESET` is `company` — so
+ * these are what a shared context gets when nobody chooses. That makes them
+ * ours, at addresses anybody who knows a handle can type, which is the whole
+ * test `isProductMandatedPath` applies.
+ *
+ * The list below said `custom` was out of scope "because those folder names are
+ * the owner's". That is still true of a layout somebody typed and false of one
+ * we ship, and #203 is what made the difference matter: a shared context's
+ * scaffold starts these `team`, so a folder card on one actually names its
+ * contents.
+ *
+ * Kept in step with the preset file by `teamShare.test.ts`, which reads that
+ * file rather than restating it here.
+ */
+const PRESET_FOLDERS = [
+  "1-clients",
+  "2-pipeline",
+  "2-teams",
+  "3-handbook",
+  "3-practice",
+  "4-customers",
+  "5-archive",
+] as const;
+
+/**
  * A path this product itself puts into every brain, and therefore one anybody
  * can guess without knowing a thing about the owner.
  *
@@ -788,6 +816,11 @@ export const PRODUCT_MANDATED_PATHS: readonly string[] = [
   ...CAPTURE_SOURCE_FOLDERS,
   ...CALENDAR_PATHS,
   ...PARA_FOLDERS.map((folder) => `${folder}/README.md`),
+  // The preset layouts, for the reason `PRESET_FOLDERS` gives. `0-inbox`,
+  // `1-projects` and their READMEs are already above via `PARA_FOLDERS`; a
+  // duplicate would be harmless but this list is read by two tests as a set.
+  ...PRESET_FOLDERS,
+  ...PRESET_FOLDERS.map((folder) => `${folder}/README.md`),
 ];
 
 /**

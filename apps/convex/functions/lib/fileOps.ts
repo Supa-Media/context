@@ -1903,8 +1903,17 @@ export interface PrivacyResetResult {
  *     `text === null || invalid`.
  *  2. **Every folder is written `private`.** The bucket was already failing
  *     closed, so an all-private manifest is the one rewrite under which no note
- *     changes hands. Repairing cannot publish anything, which is why
- *     `renderPrivacyManifestForFolders` takes no visibility argument.
+ *     changes hands.
+ *
+ *     This used to read "which is why `renderPrivacyManifestForFolders` takes
+ *     no visibility argument", and that stopped being true when a shared
+ *     context's scaffold learned to start its folders `team`: the function now
+ *     takes a `ContextKind`, which is a visibility argument wearing a different
+ *     noun. **The guarantee moved from the signature to this call site**, which
+ *     passes no kind and so gets the `personal` default. Two tests fail the
+ *     moment it passes `"shared"`, and `scaffold.ts` says beside the parameter
+ *     that a call site adding one here is the bug — but nothing in the type
+ *     stops it any more, so the reader of this paragraph is the guard.
  *  3. **Owner clearance only.** `scope` is `private` for an owner and `team`
  *     for everybody else (`scopeForRole`), and rewriting a context's whole
  *     access map is not an editor's to do — it is the same boundary that keeps
