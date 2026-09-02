@@ -77,14 +77,14 @@ export function RightClickTarget({
 
 export function ContextRowMenu({
   slug,
-  shared = false,
+  canLeave = false,
   onSelect,
   onLeave,
   onDismiss,
 }: {
   slug: string;
-  /** True under "Shared with you" — the only place Leave is offered. */
-  shared?: boolean;
+  /** True when the viewer is not this context's owner — see `contextMenuItems`. */
+  canLeave?: boolean;
   /** Receives the chosen destination; closing is the caller's move. */
   onSelect: (route: ConsoleRoute) => void;
   /**
@@ -119,7 +119,7 @@ export function ContextRowMenu({
 
   return (
     <View ref={ref} style={styles.menu} accessibilityRole="menu" testID="context-menu">
-      {contextMenuItems(slug, { shared }).map((item) => {
+      {contextMenuItems(slug, { canLeave }).map((item) => {
         if (item.key === "leave") {
           const label = confirmingLeave ? "Press again to leave" : item.label;
           return (

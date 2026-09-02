@@ -454,9 +454,9 @@ export function useLiveConsoleData(): ConsoleData {
     selectedContextId,
     selectContext,
     graph,
-    // Walking out of a shared context is the member's own move — the server
-    // refuses it for owners (`OWNER_CANNOT_LEAVE`), so the rail only offers
-    // it under "Shared with you". The subscription drops the context from
+    // Walking out of somebody else's context is the member's own move — the
+    // server refuses it for owners (`OWNER_CANNOT_LEAVE`), so the rail only
+    // offers it on a row whose role is not `owner`. The subscription drops it from
     // `contexts` on its own once the membership row is gone.
     // What is cached for a context you have left is a copy of somewhere you can
     // no longer reach — notes somebody shared with you, held on your machine
