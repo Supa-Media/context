@@ -90,6 +90,16 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The rail's "New workspace" entry is a verb, and the claim entry is a gap
 - The rail splits on kind, and ownership is a mark on one row
 
+## [Obsidian plugins](./obsidian-plugins.md)
+
+- The bucket is the vault, so compatibility starts as a duty not to break things
+- A compatibility verdict is a floor, and the code is shaped to keep it one
+- Curation changes the label and never the sandbox
+- The refusal is the product, so its wording is a rule and not a preference
+- One unreadable plugin costs one verdict, never the report
+- The read path cannot be aimed
+- What is deliberately not built
+
 ## [Testing and guards](./testing.md)
 
 - A guard nobody has checked is not a guard
