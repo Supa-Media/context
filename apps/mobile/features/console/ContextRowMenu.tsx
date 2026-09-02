@@ -24,11 +24,31 @@ import type { ConsoleRoute } from "./nav";
  *
  * Dismissal is the standard pair: any pointer-down outside, or Escape. Both
  * listeners live on `document` only while the menu is open.
+ *
+ * ## Why `open` is a prop rather than something this component works out
+ *
+ * The menu's own `zIndex` decides nothing about the rest of the rail. Every
+ * react-native-web `View` carries `position: relative; z-index: 0` in its base
+ * style, so **every one of them is a stacking context** and the menu's order is
+ * confined to this anchor; what settles it against the rows below is this
+ * anchor's `0` among its own siblings, and its group's `0` among the groups.
+ * A later sibling at the same z-index paints last and therefore takes the
+ * pointer too, which is issue #197: the menu drew under the next group and the
+ * click landed on a row behind it.
+ *
+ * So the anchor is lifted while its menu is open — and only then, because a
+ * row lifted unconditionally would silently invert the rail's normal order.
+ * `ConsoleRail` already holds "which context's menu is open"; passing it in
+ * keeps that one answer rather than deriving a second copy from the children.
+ * The group's half of the lift is `ConsoleRail`'s, since it owns the group.
  */
 export function RightClickTarget({
+  open = false,
   onOpenMenu,
   children,
 }: {
+  /** True while this row's menu is open. Lifts the anchor above later rows. */
+  open?: boolean;
   onOpenMenu: () => void;
   children: ReactNode;
 }) {
@@ -45,7 +65,7 @@ export function RightClickTarget({
     return () => node.removeEventListener("contextmenu", listener);
   }, [onOpenMenu]);
   return (
-    <View ref={ref} collapsable={false} style={styles.target}>
+    <View ref={ref} collapsable={false} style={[styles.target, open && styles.targetOpen]}>
       {children}
     </View>
   );
@@ -143,6 +163,14 @@ export function ContextRowMenu({
 const makeStyles = (colors: Colors) => StyleSheet.create({
   /** The anchor. `position: relative` is what `top: 100%` below measures from. */
   target: { position: "relative", alignSelf: "stretch" },
+  /**
+   * Above the rows that follow it, while this row's menu is open.
+   *
+   * `1` and not `30`: this is an ordering among the anchor's siblings, all of
+   * which sit at react-native-web's base `0`, and a big number here would read
+   * as a layer above the application rather than one row above another.
+   */
+  targetOpen: { zIndex: 1 },
   menu: {
     position: "absolute",
     top: "100%",
