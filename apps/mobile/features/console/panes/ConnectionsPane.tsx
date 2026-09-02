@@ -12,16 +12,22 @@ import { MembersSection } from "../members/MembersSection";
 import { useArming } from "../useArming";
 import { shareBackSuggestions } from "../members/members";
 import { PaneHead } from "../ConsoleShell";
+import { contextEndpoints } from "../endpoints";
 import { selectedContext, type ConsoleClient, type ConsoleData } from "../types";
 
 /**
  * Who and what can reach this context — the people, and the robots.
  *
- * App level, not per context: there is a single endpoint for the whole
- * account, and the list below spans every context you can reach. Each row says
- * which context let that client in, because that is what a grant hangs off —
- * see `ConsoleClient.context`. It is the same placement the constellation
- * draws.
+ * App level, not per context: the list below spans every context you can
+ * reach, and each row says which context let that client in, because that is
+ * what a grant hangs off — see `ConsoleClient.context`. It is the same
+ * placement the constellation draws.
+ *
+ * The endpoint is app level in the sense that matters — it is the same URL for
+ * everyone and carries no token — and **not** in the sense this file used to
+ * claim. A grant covers one context, so the person who can reach three has
+ * three endpoints and connects the ones they want; see `../endpoints.ts` for
+ * what that fixed and why a named URL is refused rather than guessed at.
  *
  * The endpoint and the grant list are both real: grants come from
  * `functions/grants.listGrants` and Revoke calls `revokeGrant`, which is why
@@ -51,22 +57,72 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
   */
   const viewerRole = selectedContext(data)?.role;
 
+  /*
+    One URL per context, because a connection reaches exactly one.
+
+    The head used to say "one URL for every AI tool, across everything you can
+    reach", and the first half of that is true: the endpoint carries no token
+    and every client takes the same one. The second half was not. A grant covers
+    a single context — the gateway is handed a `workspaces` set with one member
+    in it and refuses any other slug — so somebody invited into a brain found
+    their agents could not open it, with nothing on this screen to suggest a
+    next step. The step existed the whole time: connect again at the context's
+    own `/@name/mcp`.
+
+    Below one context there is nothing to choose between, so the bare endpoint
+    stays exactly as it was rather than growing a decision nobody has. Above
+    one, the bare URL is the ambiguous one — it resolves to a default this
+    screen cannot compute without keeping a second copy of the control plane's
+    tie-break — so what is offered is the named URLs, which resolve to what they
+    say.
+  */
+  const perContext = contextEndpoints(data.endpoint, data.contexts);
+  const named = perContext.length > 1 ? perContext : null;
+  const selected = selectedContext(data);
+  /*
+    The connect rows build a deep link out of whatever endpoint they are given,
+    so on a multi-context account they follow the context the console is
+    showing — a one-click install that lands somewhere other than the context
+    the person is looking at is the same surprise in a different place. It falls
+    back to the bare endpoint, which is right for the account that has one
+    context and honest for the deployment whose URL cannot carry a name.
+  */
+  const connectEndpoint =
+    (selected === null
+      ? null
+      : perContext.find((row) => row.id === selected.id)?.url ?? null) ?? data.endpoint;
+
   return (
     <View>
       <PaneHead
         title="Connections"
-        description="One URL for every AI tool, across everything you can reach. Each client gets its own grant — revoking one leaves the others working."
+        description="One URL for every AI tool, and one connection per context. Each client gets its own grant — revoking one leaves the others working."
       />
 
       <Card>
         <Text variant="eyebrow" style={styles.eyebrow}>
-          Your endpoint
+          {named === null ? "Your endpoint" : "Your endpoints"}
         </Text>
-        <CopyField
-          value={data.endpoint}
-          label="Copy your MCP endpoint"
-          testID="mcp-endpoint"
-        />
+        {named === null ? (
+          <CopyField
+            value={data.endpoint}
+            label="Copy your MCP endpoint"
+            testID="mcp-endpoint"
+          />
+        ) : (
+          named.map((row) => (
+            <View key={row.id} style={styles.endpointRow}>
+              <Text variant="rowSub" style={styles.endpointName}>
+                {row.label}
+              </Text>
+              <CopyField
+                value={row.url}
+                label={`Copy the MCP endpoint for ${row.label}`}
+                testID={`mcp-endpoint-${row.id}`}
+              />
+            </View>
+          ))
+        )}
         <Hint>
           <Text variant="hint">
             Paste this into any client&apos;s MCP settings and sign in.{" "}
@@ -74,12 +130,15 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
               Every client you add appears below
             </Text>{" "}
             and can be revoked on its own, without disturbing the others.
+            {named === null
+              ? ""
+              : " A connection reaches one context, so a client you want in two takes both URLs — added as two servers, approved separately."}
           </Text>
         </Hint>
       </Card>
 
       <View style={styles.spaced}>
-        <ConnectClients endpoint={data.endpoint} clients={data.clients} />
+        <ConnectClients endpoint={connectEndpoint} clients={data.clients} />
       </View>
 
       <Card style={styles.spaced}>
@@ -250,6 +309,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   accountHead: { marginBottom: 8 },
   accountSub: { maxWidth: 520 },
   eyebrow: { marginBottom: 10 },
+  endpointRow: { marginBottom: 9 },
+  endpointName: { marginBottom: 4, color: colors.text2, fontWeight: "600" },
   spaced: { marginTop: 11 },
   clientsHead: { marginBottom: 13 },
   rowTitle: { gap: 8 },

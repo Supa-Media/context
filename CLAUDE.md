@@ -836,6 +836,52 @@ Adding a scope means adding it to `SUPPORTED_SCOPES` in `session.js` — which
 about it separately. A client that follows discovery to a scope the
 authorization endpoint then rejects is a client that concludes the server lied.
 
+### One endpoint per context, because a grant covers one context
+
+The pitch is "one MCP endpoint you add everywhere", and that is true of the
+*URL shape*: it carries no token, it is the same for everybody, and every client
+takes it. It is not true of what a connection reaches. `gatewaySession` hands
+the worker a `workspaces` **set with one member in it** — the grant's own — and
+`selectWorkspace` refuses every other slug with a 403 that says nothing, on
+purpose, so the path cannot be used to enumerate names.
+
+So somebody invited into a brain connected their agents, found they could not
+open it, and asked whether they were supposed to be able to. The answer is that
+the step exists and has since the gateway was written: connect *again* at that
+context's own `/@<slug>/mcp`, which `resolveConsentWorkspace` reads as a
+selection among the contexts the person already belongs to. `session.js` even
+says "people see this URL in their MCP client settings". Nothing in the product
+ever showed it to them, and the Connections pane said the opposite — one URL,
+"across everything you can reach".
+
+The console now offers one named URL per context to anybody who has more than
+one, and leaves the single-context account exactly as it was. Three things
+about that are the reasons rather than the implementation:
+
+- **The bare URL stops being offered once there is a choice**, because it is
+  the ambiguous one: it resolves to the caller's *oldest membership*, and a
+  screen that displayed which context that is would be a second copy of a
+  control-plane tie-break, drifting from the real one silently.
+- **A URL the gateway would not read back is never printed** (`endpoints.ts`).
+  `splitWorkspacePath` answers a segment it rejects by ignoring it, so a wrong
+  named URL does not fail — it connects to the default context and looks like
+  it worked, which is the confusion this fixes, restaged. Every rule that file
+  applies is applied again here, including its reserved-route list, for the
+  reason it gives for keeping its own copy.
+- **The one-click installs follow the selected context**, since they build a
+  deep link out of whatever endpoint they are handed.
+
+**What was deliberately not done is the interesting half.** The obvious
+"simplification" is to make one grant cover every context its person belongs
+to — the gateway is already built for it, `workspaces` is a set, and CLAUDE.md
+has said since the workspace model landed that a session resolves to a *set*.
+It is not a cleanup, it is a change to what a consent means: the screen names
+one context, and a grant that silently widened to every context the person
+joins *later* would be authority nobody was asked about, on the machine an
+unattended hook credential lives on. If it is ever wanted, it wants a picker on
+the consent screen and a `workspaces` set built from what was ticked — not a
+one-line change to what `gatewaySession` returns.
+
 ### A grant is one person's tooling, and the refusal follows the listing
 
 `listGrants` showed every grant in a context to `owner` and `editor` alike. The
