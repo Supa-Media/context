@@ -655,6 +655,65 @@ export async function runCrossContextChecks(check) {
     !readOnlyTools.includes("write_note") && readOnlyTools.includes("read_note")
   );
 
+  /*
+    THE STORE-IDENTITY CHECK FAILS CLOSED ON A MISSING FIELD.
+
+    `storeForSession` compares the binding's own `workspaceId` against the one
+    this request resolved to, and its comment calls a disagreement about which
+    tenant this is "the one bug that must never be papered over". The comparison
+    was guarded by `typeof binding.workspaceId === "string"`, so a control plane
+    that stopped sending the field skipped the check rather than failing it.
+
+    That was defensible while a grant covered one context: the field confirmed
+    something the grant had already fixed. It is not defensible now. This is the
+    gateway's only local confirmation of *which of N* covered contexts the store
+    it just built belongs to, and a check that a missing field turns off is a
+    check an upstream change can remove without touching this file.
+
+    Measured before the fix, with the stub handing back the wrong context's
+    binding: with the field present, 13 checks fail and every cross-context call
+    is refused; with it omitted, 9 fail and all nine are *content* assertions —
+    "it is that context's file", "it landed in that bucket rather than this one".
+    The guard never fired.
+  */
+  /*
+    `1-projects/shared-name.md` exists in both buckets with different bodies,
+    which is what makes this readable as a cross-wiring probe rather than as a
+    refusal that could have come from anywhere: MINE-MARKER coming back for
+    `@theirs` is the store belonging to the wrong tenant.
+  */
+  const readTheirs = async () =>
+    textOf(
+      await callTool(env, TOKEN_OWNER, "read_note", {
+        context: "@theirs",
+        path: "1-projects/shared-name.md",
+      })
+    );
+
+  // The control plane has resolved the WRONG tenant. This is the only shape in
+  // which the identity check does any work; a test of that check that does not
+  // set this watches a correct binding go past and calls it a pass. (It did:
+  // the first version of this test passed against the fail-open guard.)
+  controlPlane.flags.bindingWorkspaceId = "ws_own";
+
+  controlPlane.flags.omitBindingWorkspaceId = false;
+  const wrongWithId = await readTheirs();
+  check(
+    "a binding for the wrong workspace is refused when it names itself",
+    !wrongWithId.includes("MINE-MARKER")
+  );
+
+  controlPlane.flags.omitBindingWorkspaceId = true;
+  const wrongWithoutId = await readTheirs();
+  check(
+    "and refused just the same when it names nothing at all",
+    !wrongWithoutId.includes("MINE-MARKER")
+  );
+
+  controlPlane.flags.bindingWorkspaceId = null;
+  controlPlane.flags.omitBindingWorkspaceId = false;
+  check("and the right binding still serves its own context", (await readTheirs()).includes("THEIRS-MARKER"));
+
   restoreControlPlane();
   restoreS3();
 }

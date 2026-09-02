@@ -571,8 +571,18 @@ export async function storeForSession(session, env, controlPlane) {
    * resolutions disagree — and a disagreement about *which tenant this is* is
    * the one bug that must never be papered over. Refuse; do not serve whichever
    * one happens to be in hand.
+   *
+   * **A missing field is a disagreement too.** This was
+   * `typeof binding.workspaceId === "string" && …`, so a control plane that
+   * stopped sending it skipped the check rather than failing it. That was
+   * defensible while a grant covered one context and the field merely confirmed
+   * what the grant had already fixed. Now that one connection covers many, this
+   * is the gateway's only local confirmation of *which of them* the store it
+   * just built belongs to, and a check an upstream omission can switch off is
+   * not a check. `/gateway/binding` sets it on both provider branches;
+   * `gatewayIngestBinding` is the email worker's route and never reaches here.
    */
-  if (typeof binding.workspaceId === "string" && binding.workspaceId !== session.workspaceId) {
+  if (typeof binding.workspaceId !== "string" || binding.workspaceId !== session.workspaceId) {
     throw new StorageUnavailable("workspace mismatch");
   }
 
