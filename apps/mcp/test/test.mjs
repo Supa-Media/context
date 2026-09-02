@@ -424,9 +424,39 @@ check(
   pluginReport?.content?.[0]?.text?.includes("Obsidian Git") &&
     pluginReport.content[0].text.includes("child_process")
 );
+/*
+  THIS ASSERTED THE OPPOSITE, AND ITS REASON IS WHAT WAS WRONG.
+
+  It read: "and it is offered to a read-only grant, because it writes nothing."
+  Writing nothing is true and is not the question. `.obsidian/` sits outside the
+  privacy manifest entirely — `isPlumbing` hides every dot-segment from
+  `read_note`, `list_notes` and search, for every role — so `list_plugins` is
+  the only read path into that prefix, and the tier that governs it had never
+  been decided.
+
+  `readonly-token` owns this context and holds `context:read` alone, so it reads
+  at `team`: an owner who deliberately did not hand this client private reach.
+  It was being handed every plugin's id, name, version and author, the blocked
+  internals each bundle names, and up to twelve hostnames pulled out of bundle
+  text. A count over what the grant cannot see, and then the list — which is the
+  reasoning that already makes the note census owner-only.
+
+  Corrected rather than deleted, so the next reader sees which of the two
+  questions this check used to answer.
+*/
 check(
-  "and it is offered to a read-only grant, because it writes nothing",
-  (await rpc("readonly-token", "tools/list"))?.result?.tools.some((t) => t.name === "list_plugins")
+  "and it is NOT offered to a grant that reads at team tier, whatever it writes",
+  !(await rpc("readonly-token", "tools/list"))?.result?.tools.some(
+    (t) => t.name === "list_plugins"
+  )
+);
+check(
+  "while a grant that reads private somewhere is offered it",
+  (await rpc("priv-token", "tools/list"))?.result?.tools.some((t) => t.name === "list_plugins")
+);
+check(
+  "and a team-tier grant that calls it anyway is refused",
+  (await call("readonly-token", "list_plugins"))?.isError === true
 );
 check(
   "a capture-only grant cannot read the vault's plugins",

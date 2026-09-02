@@ -65,6 +65,7 @@ import {
   sessionForContext,
   splitWorkspacePath,
   storeForSession,
+  readsPrivateAnywhere,
   writesAnywhere,
 } from "./session.js";
 import { enforceOrigin, isTransportPath } from "./origin.js";
@@ -1484,9 +1485,16 @@ function modernErrorResponse(id, code, message, status, data) {
  * copy of either.
  */
 function toolsForSession(session) {
-  return writesAnywhere(session)
+  const offered = writesAnywhere(session)
     ? toolDefinitions()
     : toolDefinitions().filter((tool) => tool.annotations?.readOnlyHint === true);
+  // `readOnlyHint` is not the whole of the question. `list_plugins` reads a
+  // prefix the privacy manifest does not reach, so it is the context owner's
+  // however harmless the read is — offered to a connection that owns one of the
+  // contexts it covers, and refused per call in the ones it does not.
+  return readsPrivateAnywhere(session)
+    ? offered
+    : offered.filter((tool) => tool.name !== "list_plugins");
 }
 
 
@@ -2188,6 +2196,24 @@ async function callTool(name, args, store, scope) {
     case "list_changes":
       return toolListChanges(store, scope, rules, overrides, args.limit);
     case "list_plugins":
+      // **The owner's, like the note census.** `.obsidian/` sits outside the
+      // privacy manifest's reach, and `isPlumbing` hides every dot-segment from
+      // `read_note`, `list_notes` and search for every role — so this is the
+      // only read path into that prefix, and it was open at the lowest read
+      // tier because this line passed the store and not the scope.
+      //
+      // What that handed a plain `member` of somebody else's context: every
+      // plugin's id, name, version and author, which blocked internals each
+      // bundle names, and up to twelve hostnames pulled out of the bundle text.
+      // A count over what they cannot see, and then the list. That is the
+      // reasoning `getStorageBinding` already applies to the note census, and
+      // #201 widened who can ask by making one connection reach every context
+      // its person belongs to.
+      if (scope !== "private") {
+        return toolError(
+          "reading this context's Obsidian plugins is the context owner's.",
+        );
+      }
       return toolListPlugins(store);
     default:
       return toolError(`unknown tool: ${name}`);

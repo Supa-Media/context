@@ -258,6 +258,23 @@ export async function runCrossContextChecks(check) {
   theirs.set("index.md", { body: "THEIRS-INDEX-MARKER", etag: "ti" });
   theirs.set("1-projects/shared-name.md", { body: "THEIRS-MARKER", etag: "t1" });
   theirs.set("2-areas/kept-private.md", { body: "THEIRS-PRIVATE-MARKER", etag: "t2" });
+  // A plugin in somebody else's brain. `.obsidian/` sits outside the privacy
+  // manifest's reach entirely — `isPlumbing` hides it from `read_note`,
+  // `list_notes` and search for every role — so `list_plugins` is the only read
+  // path into it, and the question is who may take it.
+  theirs.set(
+    ".obsidian/plugins/theirs-only/manifest.json",
+    {
+      body: JSON.stringify({
+        id: "theirs-only",
+        name: "THEIRS-PLUGIN-MARKER",
+        version: "1.0.0",
+        author: "their-owner",
+      }),
+      etag: "tp0",
+    }
+  );
+
   const quiet = s3.bucketFor("cross-quiet");
   quiet.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "q0" });
   quiet.set("index.md", { body: "QUIET-PRIVATE-INDEX-MARKER", etag: "q1" });
@@ -678,6 +695,46 @@ export async function runCrossContextChecks(check) {
   check(
     "a connection whose grant holds no write scope is not",
     !readOnlyTools.includes("write_note") && readOnlyTools.includes("read_note")
+  );
+
+  /*
+    `.obsidian/` IS THE OWNER'S, AND `list_plugins` WAS THE ONE DOOR WITHOUT A
+    LOCK ON IT.
+
+    `isPlumbing` hides every dot-segment from `read_note`, `list_notes` and
+    search — for every role, including the owner's. So this prefix has exactly
+    one read path, and it was offered to any grant holding `context:read`,
+    because `toolListPlugins` took the store and not the scope.
+
+    `TOKEN_READ_ONLY` is the owner of `@mine` and a plain `member` of `@theirs`.
+    Addressing `@theirs`, the same call that returns `not found` from
+    `read_note` on any `.obsidian/` key was returning that owner's whole plugin
+    inventory: every plugin's id, name, version and author, which blocked
+    internals each bundle names, and up to twelve hostnames pulled out of the
+    bundle text — internal endpoints included.
+
+    The repo decided this class once already and in the other direction: the
+    note census is owner-only precisely because it is a count taken over what a
+    member cannot see, and this both counts and then enumerates. #201 widened
+    who can ask, by making one connection reach every context its person
+    belongs to.
+  */
+  const memberPlugins = textOf(
+    await callTool(env, TOKEN_READ_ONLY, "list_plugins", { context: "@theirs" })
+  );
+  check(
+    "a member cannot read the plugin inventory of somebody else's context",
+    !memberPlugins.includes("THEIRS-PLUGIN-MARKER")
+  );
+  check(
+    "and is not offered the tool at all",
+    !readOnlyTools.includes("list_plugins")
+  );
+
+  const ownerPlugins = textOf(await callTool(env, TOKEN_OWNER, "list_plugins", {}));
+  check(
+    "while the owner of a context still reads its own",
+    !ownerPlugins.includes("no access") && !ownerPlugins.includes("unknown tool")
   );
 
   /*

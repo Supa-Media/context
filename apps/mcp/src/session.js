@@ -519,6 +519,27 @@ export function writesAnywhere(session) {
   );
 }
 
+/**
+ * Whether this connection reads at the private tier in ANY context it covers.
+ *
+ * `writesAnywhere`'s argument, for the other tier. A tool that only an owner
+ * may use is still worth advertising to somebody who owns one of the contexts
+ * they reach — hiding it would take the capability away rather than refuse it
+ * in the places it does not apply — and the per-call gate decides *where*, from
+ * the addressed context's own scope.
+ *
+ * The tier is `private` for exactly one role: the owner of that context,
+ * holding `context:private`. `effectiveScopes` is the clamp that says so, and
+ * this reuses it rather than restating the rule.
+ */
+export function readsPrivateAnywhere(session) {
+  if (hasScope(session, SCOPE_PRIVATE)) return true;
+  const granted = session?.grantScopes || session?.scopes || [];
+  return (session?.workspaces || []).some((entry) =>
+    effectiveScopes(granted, entry.role).includes(SCOPE_PRIVATE)
+  );
+}
+
 /* -------------------------------- the store ------------------------------- */
 
 /**
