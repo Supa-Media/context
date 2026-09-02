@@ -7,7 +7,8 @@ re-invented rather than its lessons kept.
 
 ## `folded-twin-refusals.patch`
 
-The write-path half of "A privacy decision is folded" (see CLAUDE.md). It
+The write-path half of "A privacy decision is folded" (see
+`docs/decisions/privacy-and-sharing.md`). It
 refuses, rather than silently no-ops, an operation whose visibility cannot be
 expressed because a case-twin holds a narrowing: a `foldedTwinBlocks` probe in
 front of `write_note`, `set_visibility`, `archive_note`, `move_note`,
