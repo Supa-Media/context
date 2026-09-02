@@ -211,10 +211,11 @@ function hasComputedModuleName(source) {
     const literal = /^\s*(["'`])([^"'`\n]*)\1\s*\)/.exec(window);
     if (!literal) return true;
     // **A literal whose text is not its value is one this method cannot
-    // resolve either.** `require("child_\x70rocess")` satisfies the rule above
-    // honestly — it is precisely one quoted string — and loads
-    // `child_process`, because the escape is decoded by the engine and not by
-    // us. Reading the source text and looking that text up in
+    // resolve either.** A call whose specifier is written with a hex escape —
+    // `child_` followed by `\x70rocess` inside one pair of quotes — satisfies
+    // the rule above honestly, because it IS precisely one quoted string, and
+    // it loads `child_process`, since the escape is decoded by the engine and
+    // not by us. Reading the source text and looking that text up in
     // `BLOCKED_MODULE_NAMES` therefore produced `runs` with nothing blocked:
     // the strongest reading of the strongest evasion, and the documented
     // `"child_" + "process"` case one door over. Decoding it here would mean
