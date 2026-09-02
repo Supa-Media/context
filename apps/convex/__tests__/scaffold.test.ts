@@ -1079,7 +1079,12 @@ describe("a shared workspace's starting manifest", () => {
 
     expect(rules.map((rule) => rule.prefix).sort()).toEqual([...PARA_FOLDERS].sort());
     expect(rules.every((rule) => rule.vis === "team")).toBe(true);
-    expect(overrides.size).toBe(0);
+    // One exact-note rule, and this line used to assert none — which is how the
+    // root-level miss got past a round of review. The folder rules genuinely
+    // are only these five; `index.md` needs a rule of its own precisely because
+    // no folder rule can reach the root. See "the front page is opened by
+    // name" below.
+    expect([...overrides.entries()]).toEqual([["index.md", "team"]]);
 
     for (const key of [
       "0-inbox/README.md",
@@ -1185,6 +1190,86 @@ describe("a shared workspace's starting manifest", () => {
     );
     expect(rules.length).toBe(2);
     expect(rules.every((rule) => rule.vis === "private")).toBe(true);
+  });
+
+  /**
+   * The guard that would have caught the root-level miss, and catches the next
+   * one.
+   *
+   * The previous round made every *folder* `team` and stopped, which is a rule
+   * about prefixes — and `index.md` is at the root, under no prefix, so it
+   * matched nothing and fell through to `default_visibility: private`. A
+   * workspace shipped whose members could read every note in it and not the
+   * page that says what it is; the gateway gates its whole orientation on
+   * `canSee("index.md", …)`, so their client got a bare folder map.
+   *
+   * So this asserts over **every key the scaffolder actually writes** rather
+   * than over the ones somebody remembered to list. Add a file at the root next
+   * year and forget its override, and this fails.
+   */
+  test("every file the scaffolder writes is readable by the workspace, bar the access map", async () => {
+    const store = memoryStore();
+    await scaffoldContext(store, { structureTemplate: "para", kind: "shared" });
+
+    const { parsePrivacyManifest, canSee } = gatewayInternals();
+    const { rules, overrides } = parsePrivacyManifest(
+      store.objects.get(PRIVACY_KEY)!.body,
+    );
+
+    const written = [...store.objects.keys()];
+    // Non-vacuous: the scaffold really did write a root note and some folders.
+    expect(written).toContain(INDEX_KEY);
+    expect(written.length).toBeGreaterThan(PARA_FOLDERS.length);
+
+    for (const key of written) {
+      // `privacy.md` is the one exception, and it is not this manifest's
+      // choice: `canSee` hardcodes owner-only for it.
+      const expected = key === PRIVACY_KEY ? false : true;
+      expect(canSee(key, "team", rules, overrides), `${key} at team scope`).toBe(expected);
+    }
+  });
+
+  /**
+   * The same fact stated on its own, because it is the one somebody will look
+   * for by name — and because the guard above would still pass if `index.md`
+   * were made readable by opening the whole bucket instead.
+   */
+  test("the front page is opened by name, not by widening anything", async () => {
+    const store = memoryStore();
+    await scaffoldContext(store, { structureTemplate: "para", kind: "shared" });
+
+    const { parsePrivacyManifest, canSee } = gatewayInternals();
+    const manifest = store.objects.get(PRIVACY_KEY)!.body;
+    const { rules, overrides } = parsePrivacyManifest(manifest);
+
+    expect(canSee(INDEX_KEY, "team", rules, overrides)).toBe(true);
+    // An exact-note rule, and exactly one of them.
+    expect([...overrides.entries()]).toEqual([[INDEX_KEY, "team"]]);
+    // The root itself stays shut: a sibling root note nobody ruled on, and a
+    // folder somebody adds later, are both still private.
+    expect(manifest).toContain("default_visibility: private");
+    expect(canSee("secrets.md", "team", rules, overrides)).toBe(false);
+    expect(canSee("payroll/2026.md", "team", rules, overrides)).toBe(false);
+  });
+
+  /**
+   * A brain's `index.md` is its owner's own manifest and may describe anything.
+   * Publishing it to everybody they later share a folder with is not ours to
+   * decide, so the root stays shut there — including on the repair path, which
+   * defaults to `personal`.
+   */
+  test("a brain's front page is not published, and neither is a repaired one", () => {
+    const { parsePrivacyManifest, canSee } = gatewayInternals();
+
+    const brain = parsePrivacyManifest(renderPrivacyManifest("para", [], "personal"));
+    expect(brain.overrides.size).toBe(0);
+    expect(canSee(INDEX_KEY, "team", brain.rules, brain.overrides)).toBe(false);
+
+    const repaired = parsePrivacyManifest(
+      renderPrivacyManifestForFolders(["1-projects", "handbook"]),
+    );
+    expect(repaired.overrides.size).toBe(0);
+    expect(canSee(INDEX_KEY, "team", repaired.rules, repaired.overrides)).toBe(false);
   });
 
   test("the manifest tells a member what the two words mean here", async () => {

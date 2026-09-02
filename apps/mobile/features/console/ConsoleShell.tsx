@@ -113,18 +113,17 @@ export function ConsoleShell({
           </View>
 
           {/*
-            Own contexts under "Contexts", everything granted under "Shared
-            with you", empty sections omitted — the same split, from the same
-            function, as the real console's rail. See `rail.ts`. The landing
-            page never offers the claim entry: a picture has nowhere to send
-            anybody.
+            Brains and Workspaces, empty sections omitted — the same split,
+            from the same function, as the real console's rail. See `rail.ts`.
+            The landing page never offers the claim or the new-workspace entry:
+            a picture has nowhere to send anybody.
           */}
           {railSections({ contexts: data.contexts, claimable: false }).map((section) => (
             <View key={section.key} style={[styles.railGroup, narrow && styles.railGroupNarrow]}>
               <Text variant="railHead" style={styles.railHead}>
                 {section.heading}
               </Text>
-              {section.key === "own" && data.contexts.length === 0 && !data.loading ? (
+              {section.key === "brains" && data.contexts.length === 0 && !data.loading ? (
                 <Text variant="rowSub" style={styles.railEmpty}>
                   Nothing here yet
                 </Text>

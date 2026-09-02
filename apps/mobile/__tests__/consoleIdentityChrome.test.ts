@@ -89,6 +89,26 @@ const SHARED_CONTEXT: ConsoleContext = {
   status: "ok",
 };
 
+/** A workspace the viewer created. `owner`, and deliberately not a brain. */
+const WORKSPACE_CONTEXT: ConsoleContext = {
+  id: "w3",
+  slug: "acme-eng",
+  displayName: "Acme Engineering",
+  role: "owner",
+  kind: "shared",
+  status: "ok",
+};
+
+/** A workspace somebody let the viewer into. */
+const WORKSPACE_GUEST: ConsoleContext = {
+  id: "w4",
+  slug: "public-worship",
+  displayName: "Public Worship",
+  role: "editor",
+  kind: "shared",
+  status: "ok",
+};
+
 const S3_STORAGE: ConsoleStorage = {
   connected: true,
   status: "connected",
@@ -266,33 +286,62 @@ describe("the storage pill on every other binding", () => {
 /* -------------------------------------------------------------------------- */
 
 describe("the rail's two context sections, rendered", () => {
-  test("own and shared contexts sit under different headings", () => {
-    const app = mountConsole({ contexts: [OWN_CONTEXT, SHARED_CONTEXT] });
+  test("brains and workspaces sit under the product's own two nouns", () => {
+    const app = mountConsole({ contexts: [OWN_CONTEXT, SHARED_CONTEXT, WORKSPACE_CONTEXT] });
     const text = app.text();
 
-    expect(text).toContain("Yours");
-    expect(text).toContain("Shared with you");
-    // Both rows are still reachable entries.
+    expect(text).toContain("Brains");
+    expect(text).toContain("Workspaces");
+    // The headings the ownership split used to draw are gone from the rail.
+    expect(text).not.toContain("Shared with you");
+    // Every row is still a reachable entry.
     expect(app.container.querySelector('[aria-label="Open @seyi"]')).not.toBeNull();
     expect(app.container.querySelector('[aria-label="Open @lk"]')).not.toBeNull();
+    expect(app.container.querySelector('[aria-label="Open @acme-eng"]')).not.toBeNull();
 
     app.unmount();
   });
 
-  test("an account with nothing shared sees no 'Shared with you' header", () => {
+  /**
+   * Where ownership went. Somebody else's brain sits in the same group as
+   * yours, so the mark is the only thing separating them — and it must appear
+   * exactly once, on the right row.
+   */
+  test("only the viewer's own brain is marked", () => {
+    const app = mountConsole({ contexts: [OWN_CONTEXT, SHARED_CONTEXT, WORKSPACE_CONTEXT] });
+    expect(app.text().match(/yours/g)?.length ?? 0).toBe(1);
+
+    const own = app.container.querySelector('[aria-label="Open @seyi"]');
+    expect(own?.textContent).toContain("yours");
+    // Not on somebody else's brain, and not on a workspace the viewer created —
+    // `WORKSPACE_CONTEXT` is `role: "owner"`, which is the half of the test
+    // that fails if the mark is derived from role alone.
+    expect(
+      app.container.querySelector('[aria-label="Open @lk"]')?.textContent,
+    ).not.toContain("yours");
+    expect(
+      app.container.querySelector('[aria-label="Open @acme-eng"]')?.textContent,
+    ).not.toContain("yours");
+
+    app.unmount();
+  });
+
+  test("an account in no workspaces still gets the group, because the entry is in it", () => {
     const app = mountConsole({ contexts: [OWN_CONTEXT] });
-    expect(app.text()).not.toContain("Shared with you");
+    expect(app.text()).toContain("Workspaces");
+    expect(app.find("rail-create-workspace")).not.toBeNull();
     app.unmount();
   });
 
-  test("an invited-only account sees no empty 'Yours' section — the claim entry is its whole content", () => {
-    const app = mountConsole({ contexts: [SHARED_CONTEXT] });
+  test("an invited-only account sees the claim entry in an otherwise empty Brains group", () => {
+    const app = mountConsole({ contexts: [WORKSPACE_GUEST] });
     // `offerOwnContext` answers yes for an invitee, so the group survives to
     // hold the one entry that matters to them…
     expect(app.find("rail-claim-context")).not.toBeNull();
-    // …and their guest context still lives under the shared heading, not
+    expect(app.text()).toContain("Brains");
+    // …and the workspace they were let into is under its own heading, not
     // beside the claim entry.
-    expect(app.text()).toContain("Shared with you");
+    expect(app.text()).toContain("Workspaces");
     app.unmount();
   });
 });

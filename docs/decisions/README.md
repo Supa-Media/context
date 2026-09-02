@@ -49,6 +49,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The audit trail's `details` are allow-listed, and its `paths` are not gated at all
 - A privacy decision is folded, and the fold only ever narrows
 - A shared workspace scaffolds `team`, and that is not a widening
+- `index.md` is opened by name, because no folder rule reaches the root
 - Restricting a folder to *some* of a workspace is not built, and the shape it would take
 - Domain-based membership is not built, and would be an invitation, never a grant
 
@@ -87,6 +88,17 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The layout presets are company-shaped, and PARA is not the default
 - Invitations are queued, and a partial send keeps its successes
 - The rail's "New workspace" entry is a verb, and the claim entry is a gap
+- The rail splits on kind, and ownership is a mark on one row
+
+## [Obsidian plugins](./obsidian-plugins.md)
+
+- The bucket is the vault, so compatibility starts as a duty not to break things
+- A compatibility verdict is a floor, and the code is shaped to keep it one
+- Curation changes the label and never the sandbox
+- The refusal is the product, so its wording is a rule and not a preference
+- One unreadable plugin costs one verdict, never the report
+- The read path cannot be aimed
+- What is deliberately not built
 
 ## [Testing and guards](./testing.md)
 

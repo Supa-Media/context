@@ -908,3 +908,65 @@ Nothing client-side gates it. How many workspaces one account may own is
 second copy in the rail would be the copy that is wrong after a deploy — hiding
 the entry from somebody under the limit, or showing a screen that refuses. The
 refusal is rendered on the step where the person can act on it.
+
+### The rail splits on kind, and ownership is a mark on one row
+
+The switcher grouped on **ownership** — "Yours" over everything where your role
+was `owner`, "Shared with you" over the rest — and the reason it gave was sound:
+one flat list made a context you own and a context you were invited into
+indistinguishable, and *whose notes am I about to open?* is the question the rail
+exists to answer at a glance.
+
+It was answering it in the wrong place, and two things showed that:
+
+- **It named neither of the product's nouns.** The vocabulary decision gives the
+  two kinds two words — a **brain** is one person's context, a **workspace** is
+  a shared one — and the rail is the one surface where a person meets both.
+  Heading it "Yours" and "Shared with you" made the switcher the only place in
+  the product that talks about contexts without using either word for them, at
+  exactly the moment somebody is learning that the two kinds are different.
+- **For a brain, the row already answered it.** `@sayo` is Sayo's brain; nobody
+  reads that row and wonders whose notes are behind it. The section boundary was
+  spending the rail's strongest structural device on a fact the handle carries
+  for free — and paying for it by scattering the workspaces, where whose-is-it
+  *is* genuinely ambiguous, across both sections according to something the rail
+  never showed.
+
+So the groups are **Brains** and **Workspaces**, and ownership moved to a mark
+on one row: `isOwnBrain` requires a personal context you own, that context is
+pinned first in its group, and it is labelled `yours`. Exactly one row can ever
+carry it — `createWorkspace` writes one personal context per person and there is
+no transfer path — which is what makes a marker the right shape and a section
+the wrong one. It is a quiet label rather than a badge, because the row it marks
+is the one the person recognises fastest anyway: it only has to settle the
+question, not raise it.
+
+Ownership of a *workspace* is deliberately unmarked. A workspace is shared by
+construction; what differs is your role in it, which is three states shown on
+the members card rather than one bit in a switcher.
+
+**The pin is a pin, not a sort.** Everything after the own brain keeps the order
+the control plane sent. Re-ordering somebody's list on their behalf is a
+decision the rail is not making, and a stable list is what makes muscle memory
+work.
+
+Each of the two entries moved to the group that raises the question it answers,
+and they stay two flags rather than one. "Claim your @name" lives last in
+**Brains** — a person looking at a list of brains, none of which is theirs, is
+being shown the gap — drawn accented, gone forever once used. "New workspace"
+lives last in **Workspaces**, drawn quietly because it is a permanent verb and
+an accent on it would be an advertisement on every screen of every session. It
+is also the *whole* group for somebody in no workspaces yet, which is how a
+person who has only ever had a brain finds out workspaces exist.
+
+**The one thing this regrouping made easy to get wrong, and the rename that
+stops it.** `ContextRowMenu` took a `shared` prop, filled in from whether the
+row sat under "Shared with you", and used it to decide whether to offer
+**Leave**. Under the old grouping that was the right answer by coincidence:
+that section was exactly `role !== "owner"`. Under kind-based grouping every
+workspace is "shared" and some of them are yours, so a section-derived answer
+offers Leave on a workspace you own and the press comes back
+`OWNER_CANNOT_LEAVE`. The prop is now `canLeave` and takes the role — the fact
+the server actually enforces — and `__tests__/contextMenu.test.ts` mounts a
+workspace the viewer owns and asserts the item is absent. Re-deriving it from
+the section fails that test.

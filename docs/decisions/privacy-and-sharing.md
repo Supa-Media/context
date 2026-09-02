@@ -737,6 +737,51 @@ because `private` there means **owners**, not "whoever wrote it". That is the
 one thing a member cannot work out from the rules, and it is the thing somebody
 otherwise learns by marking a folder private and locking out their co-lead.
 
+### `index.md` is opened by name, because no folder rule reaches the root
+
+The change above made every scaffolded **folder** `team` for a workspace, and
+stopped there. `folder_defaults` are prefix rules; `index.md` is at the root,
+under no prefix, so it matched nothing, fell through to `default_visibility:
+private`, and a `team`-scope read returned not found.
+
+That shipped a workspace whose members could read every note in it and not the
+page that says what it is — and `index.md` is not an ordinary note. It is the
+front page every connected agent reads first, and the gateway gates its whole
+orientation on `canSee("index.md", …)`, so a member's client got a bare folder
+map with no statement of what the workspace was for. The repair was a line in a
+file they had no reason to open. It was found in a live workspace by its owner,
+not by the suite, which is the part worth remembering.
+
+So the scaffolded manifest carries one `note_overrides` entry, `index.md: team`,
+for a shared context only.
+
+**An exact-note rule is the instrument, not a workaround.** `note_overrides` is
+for precisely this: one named `.md` whose visibility differs from what its
+surroundings imply. Nothing else would do — a `""` folder rule opens the whole
+bucket, and lifting `default_visibility` to `team` opens every path nobody has
+ruled on, including folders somebody adds next month. This opens one file, by
+name, and it is a file **we wrote**: at render time `index.md` is the
+scaffolder's own text about the layout it just laid down, with nothing of the
+customer's in it.
+
+**A brain gets nothing here, deliberately.** Its `index.md` is its owner's own
+manifest and may describe anything; publishing it to everyone they later share a
+folder with is not ours to decide. The repair path inherits that through its
+`personal` default, as with the folder rule.
+
+**The guard is over what the scaffolder writes, not over a list somebody
+maintains.** `__tests__/scaffold.test.ts` walks every key `scaffoldContext`
+actually put into a shared bucket and asserts `canSee(key, "team", …)` for all
+of them but `privacy.md` — whose owner-only answer is hardcoded in `canSee` and
+is not this manifest's choice. A root file added next year with no override
+fails it. Two narrower tests sit beside it, because the walk alone would still
+pass if `index.md` were made readable by widening the default instead of naming
+the file: one asserts the override set is exactly `{index.md: team}` and that a
+sibling root note and a later folder are both still closed, and one asserts a
+brain's and a repaired manifest's roots stay shut. Sabotage in all three
+directions — no override, a `team` default, an override on a brain — fails a
+different set.
+
 ### Restricting a folder to *some* of a workspace is not built, and the shape it would take
 
 The obvious next ask — "this folder has an owner and they want it seen by four of

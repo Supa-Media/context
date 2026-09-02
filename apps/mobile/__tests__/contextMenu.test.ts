@@ -39,26 +39,35 @@ describe("what the menu offers", () => {
   test("a shared context also offers Leave; an owned one never does", () => {
     // The server refuses an owner leaving (OWNER_CANNOT_LEAVE), so offering
     // it would be a menu item whose only outcome is an error.
-    expect(contextMenuItems("agent", { shared: false }).map((i) => i.key)).not.toContain(
+    expect(contextMenuItems("agent", { canLeave: false }).map((i) => i.key)).not.toContain(
       "leave",
     );
-    const shared = contextMenuItems("friend", { shared: true });
+    const shared = contextMenuItems("friend", { canLeave: true });
     expect(shared.map((i) => i.key)).toContain("leave");
     expect(shared.find((i) => i.key === "leave")!.label).toBe("Leave @friend…");
   });
 });
 
-function context(id: string, slug: string, role: "owner" | "editor") {
-  return { id, slug, displayName: slug, role, kind: "personal", status: "ok" };
+function context(
+  id: string,
+  slug: string,
+  role: "owner" | "editor",
+  kind: "personal" | "shared" = "personal",
+) {
+  return { id, slug, displayName: slug, role, kind, status: "ok" };
 }
 
 /** The least ConsoleData the rail needs: its two reads are contexts and loading. */
 function railData(
   contexts = [
     context("ctx-1", "agent", "owner"),
-    // Somebody else's context, reached by invitation — lands under
-    // "Shared with you", which is the only place Leave is offered.
+    // Somebody else's brain, reached by invitation. Leave is offered here.
     context("ctx-2", "friend", "editor"),
+    // A workspace the viewer created. It sits in the Workspaces group beside
+    // workspaces they were invited into, and Leave must NOT be offered on it —
+    // `leaveWorkspace` refuses an owner (`OWNER_CANNOT_LEAVE`). This row is the
+    // reason the menu takes a role rather than a rail section.
+    context("ctx-3", "acme-eng", "owner", "shared"),
   ],
 ): ConsoleData {
   return { loading: false, contexts } as unknown as ConsoleData;
@@ -155,6 +164,32 @@ describe("the menu, mounted for real", () => {
     }
   });
 
+  /**
+   * The trap the rail's kind-based grouping introduced, pinned directly.
+   *
+   * A workspace you created sits under **Workspaces**, next to workspaces
+   * somebody let you into. Anything deriving "can this person leave?" from the
+   * group — which is what the menu's old `shared` prop did, filled in from the
+   * section — offers Leave here, and the press comes back
+   * `OWNER_CANNOT_LEAVE`. The role is the fact the server enforces.
+   */
+  test("a workspace you own offers no Leave, however it is grouped", () => {
+    const left: string[] = [];
+    const { host, root } = mountRail(
+      () => {},
+      (id) => left.push(id),
+    );
+    try {
+      rightClick(host.querySelector('[aria-label="Open @acme-eng"]')!);
+      expect(host.querySelector('[data-testid="context-menu"]')).not.toBeNull();
+      expect(host.querySelector('[data-testid="context-menu-leave"]')).toBeNull();
+      expect(left).toEqual([]);
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
+
   test("Leave appears only on the shared context, and takes two presses", () => {
     const left: string[] = [];
     const { host, root } = mountRail(
@@ -205,8 +240,9 @@ describe("the menu, mounted for real", () => {
 /**
  * Where an open menu paints, and which element takes the click.
  *
- * Issue #197: the menu opened over the "Shared with you" heading and its first
- * row, that row's hover highlight painted **on top of** the menu, and clicking
+ * Issue #197: the menu opened over the heading below it and that heading's
+ * first row (the rail read "Yours" / "Shared with you" then; it groups on kind
+ * now, and the geometry is unchanged), that row's hover highlight painted **on top of** the menu, and clicking
  * "Settings…" navigated to the shared context instead. For an account whose
  * only context is the first in the rail, that made the context Settings pane
  * unreachable by its only affordance.
