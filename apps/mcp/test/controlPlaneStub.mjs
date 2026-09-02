@@ -42,6 +42,21 @@ export function createControlPlaneStub(options = {}) {
 
   /** workspaceId → binding descriptor (without workspaceId; added on the way out). */
   const bindings = new Map();
+  /**
+   * Knobs a test flips to model a control plane that is not this one — older
+   * than a field, or misbehaving. Read at request time, never at setup.
+   */
+  const flags = {
+    omitBindingWorkspaceId: false,
+    /**
+     * Serve this workspace's binding whatever was asked for — a control plane
+     * that has resolved the wrong tenant. This is the only shape in which the
+     * gateway's own identity check does any work, so a test of that check that
+     * does not set it is testing nothing.
+     */
+    bindingWorkspaceId: null,
+  };
+
   /** workspaceId → { slug } */
   const workspaces = new Map();
   /** grantId → grant */
@@ -196,9 +211,14 @@ export function createControlPlaneStub(options = {}) {
           // this a customer-list oracle for anyone holding the gateway secret.
           return ok({ binding: null });
         }
-        const binding = bindings.get(named.workspaceId);
+        const served = flags.bindingWorkspaceId ?? named.workspaceId;
+        const binding = bindings.get(served);
         if (!binding) return ok({ binding: null });
-        return ok({ binding: { workspaceId: named.workspaceId, ...binding } });
+        // `omitBindingWorkspaceId` stands in for a control plane older than the
+        // field, or one that stopped sending it. The gateway's identity check
+        // must refuse that rather than skip itself — see `storeForSession`.
+        if (flags.omitBindingWorkspaceId) return ok({ binding: { ...binding } });
+        return ok({ binding: { workspaceId: served, ...binding } });
       }
 
       case "/gateway/clients/register": {
@@ -339,6 +359,7 @@ export function createControlPlaneStub(options = {}) {
     clients,
     codes,
     bindings,
+    flags,
     accessTokens,
     refreshTokens,
     pendingAuthorizations,

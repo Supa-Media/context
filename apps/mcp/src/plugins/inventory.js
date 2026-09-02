@@ -57,6 +57,7 @@ const LIST_PAGE_CAP = 20;
 export async function listPluginFolders(store) {
   const folders = new Set();
   const seenCursors = new Set();
+  let listingTruncated = false;
   let cursor;
   do {
     const page = await store.list({ prefix: PLUGIN_PREFIX, delimiter: "/", cursor, limit: 1000 });
@@ -79,10 +80,20 @@ export async function listPluginFolders(store) {
       throw new Error("storage listing repeated a pagination cursor; refusing to loop");
     }
     seenCursors.add(page.cursor);
-    if (seenCursors.size >= LIST_PAGE_CAP) break;
+    if (seenCursors.size >= LIST_PAGE_CAP) {
+      // Cut by the page cap, not by the scan cap. Reported, because the caller
+      // computes `truncated` from `folders.length > selected.length` and this
+      // cut happens UPSTREAM of the length it measures — so a listing stopped
+      // here came back looking complete. Folders are sorted, so the ones lost
+      // are the last alphabetically: a `wont-run` plugin late in the alphabet
+      // vanishing from a report that reads as whole. That is the trap this
+      // module's own header says the report exists to avoid.
+      listingTruncated = true;
+      break;
+    }
     cursor = page.cursor;
   } while (cursor);
-  return [...folders].sort();
+  return { folders: [...folders].sort(), listingTruncated };
 }
 
 /**
@@ -101,9 +112,14 @@ function isSafeFolder(folder) {
     folder.length <= 200 &&
     !folder.startsWith(".") &&
     // Control characters and a backslash — the two shapes `assertSafeKey`
-    // refuses — screened here before it can throw.
-    // eslint-disable-next-line no-control-regex
-    !/[\u0000-\u001F\u007F\\]/.test(folder)
+    // refuses — screened here before it can throw, plus every other character
+    // that can move a cursor or reverse a run of text in the report this name
+    // ends up in. The hand-written range covered C0 and DEL and missed U+2028,
+    // U+2029, U+0085 and the whole bidi block, so a folder could draw its own
+    // lines into the report the way a manifest could before `str()` — the same
+    // actor, the same page, the adjacent path. Named by category so the two
+    // strips cannot drift apart again.
+    !/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\\]/u.test(folder)
   );
 }
 
@@ -130,6 +146,16 @@ async function readPlugin(store, folder) {
   } catch {
     // Nothing from the error reaches the caller: its message would carry an
     // object key, and keys are the customer's own paths.
+    //
+    // **Not individually pinned, and stated so rather than left to be
+    // rediscovered.** `readText` has its own inner `try`, so removing either
+    // one alone leaves the suite green and only removing both fails. What this
+    // one adds is the case the inner cannot reach — `scanPlugin` itself
+    // throwing on some input nothing has thought of — and testing that would
+    // mean injecting a throwing scanner into a module that takes no
+    // dependencies. So the property is covered and the structure is not; a
+    // reader deleting this as redundant gets a green run, which is exactly why
+    // this paragraph is here.
     return scanPlugin({ id: folder, manifestText: null, source: null });
   }
 }
@@ -160,8 +186,9 @@ async function readText(store, key) {
  */
 export async function inventoryPlugins(store, { cap = PLUGIN_SCAN_CAP } = {}) {
   let folders;
+  let listingTruncated = false;
   try {
-    folders = await listPluginFolders(store);
+    ({ folders, listingTruncated } = await listPluginFolders(store));
   } catch (error) {
     return {
       available: false,
@@ -188,7 +215,7 @@ export async function inventoryPlugins(store, { cap = PLUGIN_SCAN_CAP } = {}) {
     counts: summarize(plugins),
     found: folders.length,
     scanned: plugins.length,
-    truncated: folders.length > selected.length,
+    truncated: listingTruncated || folders.length > selected.length,
     checkedAt: new Date().toISOString(),
   };
 }

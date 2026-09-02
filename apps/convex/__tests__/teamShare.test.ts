@@ -746,6 +746,63 @@ describe("a folder gets a link too", () => {
   });
 
   /**
+   * THE PRESET FOLDERS ARE OURS TOO, AND THE `custom` PATH HID THAT.
+   *
+   * `isProductMandatedPath` refuses a preview for every path the product
+   * writes, on the ground that such a name is a guess anybody can make without
+   * knowing the owner. `scaffold.ts` states the exception in its own words: the
+   * `custom` template is out of scope "because those folder names are the
+   * owner's — `Journal/`, `Clients/` — so the guessability premise simply does
+   * not hold for them."
+   *
+   * #203 falsified that premise. `apps/mobile/features/workspace/presets.ts`
+   * ships two fixed folder lists, `templateFor` sends them down the **custom**
+   * path, and `DEFAULT_PRESET` is `company` — so they are what a workspace gets
+   * when nobody chooses. `2-teams`, `3-handbook`, `4-customers`, `5-archive`,
+   * `1-clients`, `2-pipeline` and `3-practice` are now names this product
+   * writes, at addresses anybody who knows a handle can type.
+   *
+   * And the same PR made it bite harder: a shared context's scaffold starts
+   * those folders `team`, so `snapshotChildren` at team scope actually returns
+   * contents. Before it, a folder card on a fresh context mostly named nothing.
+   *
+   * **Driven by the writer, not restated here.** The preset file is read as
+   * text — the way the check above reads the hook roster and the one below
+   * reads the router's mirror — because a list retyped in a test is a second
+   * guess about the same thing. It is text rather than an import on purpose:
+   * `apps/mobile` carries a tsconfig extending `expo/tsconfig.base`, which is
+   * not installed in every job that runs this suite, and a guard that is green
+   * locally and red in CI for a reason unrelated to what it checks is worse
+   * than no guard.
+   */
+  test("every folder a workspace preset writes is refused a preview", () => {
+    const presets = readFileSync(
+      new URL(
+        "../../mobile/features/workspace/presets.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+
+    const folders = [...presets.matchAll(/folder:\s*"([^"]+)"/g)].map((m) => m[1]!);
+    expect(
+      new Set(folders).size,
+      "presets.ts no longer declares folders in the shape this reads",
+    ).toBeGreaterThanOrEqual(7);
+
+    for (const folder of new Set(folders)) {
+      expect(
+        PRODUCT_MANDATED_PATHS,
+        `${folder} is a folder this product writes and must not unfurl`,
+      ).toContain(folder);
+      expect(
+        PRODUCT_MANDATED_PATHS,
+        `${folder}/README.md is written by the scaffold and must not unfurl`,
+      ).toContain(`${folder}/README.md`);
+    }
+  });
+
+  /**
    * **A canary, not a scan, and the difference is the point.**
    *
    * `store.put("<N>-folder/...")` matches the one literal form the gateway

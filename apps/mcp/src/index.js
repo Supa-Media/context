@@ -65,6 +65,7 @@ import {
   sessionForContext,
   splitWorkspacePath,
   storeForSession,
+  readsPrivateAnywhere,
   writesAnywhere,
 } from "./session.js";
 import { enforceOrigin, isTransportPath } from "./origin.js";
@@ -1484,9 +1485,16 @@ function modernErrorResponse(id, code, message, status, data) {
  * copy of either.
  */
 function toolsForSession(session) {
-  return writesAnywhere(session)
+  const offered = writesAnywhere(session)
     ? toolDefinitions()
     : toolDefinitions().filter((tool) => tool.annotations?.readOnlyHint === true);
+  // `readOnlyHint` is not the whole of the question. `list_plugins` reads a
+  // prefix the privacy manifest does not reach, so it is the context owner's
+  // however harmless the read is — offered to a connection that owns one of the
+  // contexts it covers, and refused per call in the ones it does not.
+  return readsPrivateAnywhere(session)
+    ? offered
+    : offered.filter((tool) => tool.name !== "list_plugins");
 }
 
 
@@ -1545,9 +1553,25 @@ async function callToolForSession(params, store, session) {
         return toolError("this connection has no access to that context");
       }
       // Reachable, and its bucket is not. Said plainly, because it is the one
-      // failure here the person can fix.
+      // failure here the person can fix — and said WITHOUT the reason, because
+      // `StorageUnavailable`'s own doc comment reserves that for this gateway's
+      // structured logs: "It never reaches a caller: `index.js` answers every
+      // one of these with the same 503." Interpolating `error.message` here
+      // made that false, and the reasons it published are plumbing state
+      // (`workspace mismatch` — the two-party disagreement signal — plus
+      // `no proof of authorization`, `refresh token in binding`,
+      // `cross-provider credential`, `binding not allowed`, `unknown
+      // provider`), pollable by any member of any covered context.
       if (error instanceof StorageUnavailable) {
-        return toolError(`that context has no reachable storage: ${error.message}`);
+        // Named, and the action attributed to whoever can take it. This branch
+        // is reached only on the cross-context hop, so it is by definition
+        // about another context — often one the caller is a `member` of and
+        // cannot reconnect. The identically-worded 503 is about the caller's
+        // own context, where "reconnect it" is advice they can act on.
+        return toolError(
+          `${target?.name || "that context"} has no reachable storage right now; ` +
+            "its owner can reconnect it from their dashboard.",
+        );
       }
       throw error;
     }
@@ -2178,6 +2202,24 @@ async function callTool(name, args, store, scope) {
     case "list_changes":
       return toolListChanges(store, scope, rules, overrides, args.limit);
     case "list_plugins":
+      // **The owner's, like the note census.** `.obsidian/` sits outside the
+      // privacy manifest's reach, and `isPlumbing` hides every dot-segment from
+      // `read_note`, `list_notes` and search for every role — so this is the
+      // only read path into that prefix, and it was open at the lowest read
+      // tier because this line passed the store and not the scope.
+      //
+      // What that handed a plain `member` of somebody else's context: every
+      // plugin's id, name, version and author, which blocked internals each
+      // bundle names, and up to twelve hostnames pulled out of the bundle text.
+      // A count over what they cannot see, and then the list. That is the
+      // reasoning `getStorageBinding` already applies to the note census, and
+      // #201 widened who can ask by making one connection reach every context
+      // its person belongs to.
+      if (scope !== "private") {
+        return toolError(
+          "reading this context's Obsidian plugins is the context owner's.",
+        );
+      }
       return toolListPlugins(store);
     default:
       return toolError(`unknown tool: ${name}`);
@@ -2778,7 +2820,13 @@ async function surveyOtherContexts(store) {
   if (!others.length) return null;
 
   const readable = typeof store.openContext === "function" ? others.slice(0, ORIENT_SIBLING_LIMIT) : [];
-  const named = others.slice(readable.length);
+  // The tail names what the CAP left out, so it is empty when nothing was
+  // capped. `others.slice(0)` is every sibling, and when `readable` is empty —
+  // an orient already addressed into another context gets no `openContext`, by
+  // the no-chaining rule — the body below is already listing all of them as
+  // bullets. That printed the whole section twice, and made a list that was
+  // complete read as truncated.
+  const named = readable.length ? others.slice(readable.length) : [];
 
   const pages = await Promise.all(
     readable.map(async (entry) => {

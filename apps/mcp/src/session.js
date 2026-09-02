@@ -519,6 +519,27 @@ export function writesAnywhere(session) {
   );
 }
 
+/**
+ * Whether this connection reads at the private tier in ANY context it covers.
+ *
+ * `writesAnywhere`'s argument, for the other tier. A tool that only an owner
+ * may use is still worth advertising to somebody who owns one of the contexts
+ * they reach — hiding it would take the capability away rather than refuse it
+ * in the places it does not apply — and the per-call gate decides *where*, from
+ * the addressed context's own scope.
+ *
+ * The tier is `private` for exactly one role: the owner of that context,
+ * holding `context:private`. `effectiveScopes` is the clamp that says so, and
+ * this reuses it rather than restating the rule.
+ */
+export function readsPrivateAnywhere(session) {
+  if (hasScope(session, SCOPE_PRIVATE)) return true;
+  const granted = session?.grantScopes || session?.scopes || [];
+  return (session?.workspaces || []).some((entry) =>
+    effectiveScopes(granted, entry.role).includes(SCOPE_PRIVATE)
+  );
+}
+
 /* -------------------------------- the store ------------------------------- */
 
 /**
@@ -571,8 +592,18 @@ export async function storeForSession(session, env, controlPlane) {
    * resolutions disagree — and a disagreement about *which tenant this is* is
    * the one bug that must never be papered over. Refuse; do not serve whichever
    * one happens to be in hand.
+   *
+   * **A missing field is a disagreement too.** This was
+   * `typeof binding.workspaceId === "string" && …`, so a control plane that
+   * stopped sending it skipped the check rather than failing it. That was
+   * defensible while a grant covered one context and the field merely confirmed
+   * what the grant had already fixed. Now that one connection covers many, this
+   * is the gateway's only local confirmation of *which of them* the store it
+   * just built belongs to, and a check an upstream omission can switch off is
+   * not a check. `/gateway/binding` sets it on both provider branches;
+   * `gatewayIngestBinding` is the email worker's route and never reaches here.
    */
-  if (typeof binding.workspaceId === "string" && binding.workspaceId !== session.workspaceId) {
+  if (typeof binding.workspaceId !== "string" || binding.workspaceId !== session.workspaceId) {
     throw new StorageUnavailable("workspace mismatch");
   }
 

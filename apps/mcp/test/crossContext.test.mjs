@@ -81,6 +81,15 @@ const TOKEN_EDITOR = `cat_cross_editor_${"0".repeat(24)}`;
 const TOKEN_GUEST = `cat_cross_guest_${"0".repeat(24)}`;
 /** A grant that was never given write, anywhere. */
 const TOKEN_READ_ONLY = `cat_cross_readonly_${"0".repeat(22)}`;
+/**
+ * Connected at a context they are only a `member` of, while owning another.
+ *
+ * The one shape `readsPrivateAnywhere`'s cross-context arm exists for: the
+ * default session reads at `team`, so `hasScope` alone answers no, and the
+ * scan over `workspaces` is the only thing that can offer an owner-only tool
+ * to somebody who owns one of the contexts they reach.
+ */
+const TOKEN_VISITOR = `cat_cross_visitor_${"0".repeat(23)}`;
 /** Somebody in more contexts than one orientation is willing to open. */
 const TOKEN_MANY = `cat_cross_many_${"0".repeat(26)}`;
 
@@ -224,6 +233,15 @@ export async function runCrossContextChecks(check) {
     alsoMemberOf: [{ workspaceId: "ws_stranger", role: "editor" }],
   });
   await controlPlane.addGrant({
+    accessToken: TOKEN_VISITOR,
+    workspaceId: "ws_shared",
+    role: "member",
+    scopes: ["context:read", "context:private"],
+    clientId: "mcp_client_cross_visitor",
+    userId: "user_cross",
+    alsoMemberOf: [{ workspaceId: "ws_own", role: "owner" }],
+  });
+  await controlPlane.addGrant({
     accessToken: TOKEN_READ_ONLY,
     workspaceId: "ws_own",
     role: "owner",
@@ -258,6 +276,36 @@ export async function runCrossContextChecks(check) {
   theirs.set("index.md", { body: "THEIRS-INDEX-MARKER", etag: "ti" });
   theirs.set("1-projects/shared-name.md", { body: "THEIRS-MARKER", etag: "t1" });
   theirs.set("2-areas/kept-private.md", { body: "THEIRS-PRIVATE-MARKER", etag: "t2" });
+  // A plugin in somebody else's brain. `.obsidian/` sits outside the privacy
+  // manifest's reach entirely — `isPlumbing` hides it from `read_note`,
+  // `list_notes` and search for every role — so `list_plugins` is the only read
+  // path into it, and the question is who may take it.
+  theirs.set(
+    ".obsidian/plugins/theirs-only/manifest.json",
+    {
+      body: JSON.stringify({
+        id: "theirs-only",
+        name: "THEIRS-PLUGIN-MARKER",
+        version: "1.0.0",
+        author: "their-owner",
+      }),
+      etag: "tp0",
+    }
+  );
+
+  mine.set(
+    ".obsidian/plugins/mine-only/manifest.json",
+    {
+      body: JSON.stringify({
+        id: "mine-only",
+        name: "MINE-PLUGIN-MARKER",
+        version: "1.0.0",
+        author: "me",
+      }),
+      etag: "mp0",
+    }
+  );
+
   const quiet = s3.bucketFor("cross-quiet");
   quiet.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "q0" });
   quiet.set("index.md", { body: "QUIET-PRIVATE-INDEX-MARKER", etag: "q1" });
@@ -474,6 +522,31 @@ export async function runCrossContextChecks(check) {
   );
 
   /*
+    THE TAIL NAMES WHAT WAS CAPPED, AND NOTHING ELSE.
+
+    Its documented job is "past the cap they are still named". An orient that
+    was itself addressed into another context gets no `openContext` — the
+    no-chaining rule — so `readable` is empty, and `others.slice(0)` made the
+    tail every sibling while the body was already listing every sibling as
+    bullets. Both halves of the section, over the same names.
+
+    Nothing was capped there, so the tail has nothing to add and should be
+    absent. Measured before the fix: `@home`, `@broken-manifest` and
+    `@no-storage` each appeared twice in one section.
+  */
+  const addressed = textOf(
+    await callTool(env, TOKEN_OWNER, "orient", { context: "@theirs" })
+  );
+  check(
+    "an addressed orient still names the siblings it cannot open",
+    addressed.includes("@mine")
+  );
+  check(
+    "and does not also list them under the capped tail",
+    !addressed.includes("Also reachable, not read here")
+  );
+
+  /*
     Connect time, which is the surface that reaches a model before it has
     decided anything. An agent will not go looking for a second context, so the
     handshake says there is one — and says it without opening a bucket, since
@@ -654,6 +727,174 @@ export async function runCrossContextChecks(check) {
     "a connection whose grant holds no write scope is not",
     !readOnlyTools.includes("write_note") && readOnlyTools.includes("read_note")
   );
+
+  /*
+    `.obsidian/` IS THE OWNER'S, AND `list_plugins` WAS THE ONE DOOR WITHOUT A
+    LOCK ON IT.
+
+    `isPlumbing` hides every dot-segment from `read_note`, `list_notes` and
+    search — for every role, including the owner's. So this prefix has exactly
+    one read path, and it was offered to any grant holding `context:read`,
+    because `toolListPlugins` took the store and not the scope.
+
+    `TOKEN_READ_ONLY` is the owner of `@mine` and a plain `member` of `@theirs`.
+    Addressing `@theirs`, the same call that returns `not found` from
+    `read_note` on any `.obsidian/` key was returning that owner's whole plugin
+    inventory: every plugin's id, name, version and author, which blocked
+    internals each bundle names, and up to twelve hostnames pulled out of the
+    bundle text — internal endpoints included.
+
+    The repo decided this class once already and in the other direction: the
+    note census is owner-only precisely because it is a count taken over what a
+    member cannot see, and this both counts and then enumerates. #201 widened
+    who can ask, by making one connection reach every context its person
+    belongs to.
+  */
+  const memberPlugins = textOf(
+    await callTool(env, TOKEN_READ_ONLY, "list_plugins", { context: "@theirs" })
+  );
+  check(
+    "a member cannot read the plugin inventory of somebody else's context",
+    !memberPlugins.includes("THEIRS-PLUGIN-MARKER")
+  );
+  check(
+    "and is not offered the tool at all",
+    !readOnlyTools.includes("list_plugins")
+  );
+
+  /*
+    THE OWNER STILL READS THEIR OWN — asserted on the marker, not on the absence
+    of two strings that the refusal never contains.
+
+    This check used to read `!includes("no access") && !includes("unknown
+    tool")`, and the refusal it exists to catch says "reading this context's
+    Obsidian plugins is the context owner's." Measured: gating the tool against
+    *everyone* left this passing.
+  */
+  const ownerPlugins = textOf(await callTool(env, TOKEN_OWNER, "list_plugins", {}));
+  check(
+    "while the owner of a context still reads its own",
+    ownerPlugins.includes("MINE-PLUGIN-MARKER")
+  );
+
+  /*
+    AND THE `Anywhere` HALF OF `readsPrivateAnywhere` IS THE PART THAT NEEDED
+    PINNING.
+
+    `writesAnywhere`'s cross-context arm is asserted; this one's was not —
+    deleting the whole `workspaces` scan and leaving `hasScope` left the suite
+    green, so the half that makes it `…Anywhere` was free.
+
+    It is not dead code. `TOKEN_GUEST` is a `member` where it connected and an
+    owner elsewhere, so only that arm can offer it the tool at all: without it,
+    somebody connected at a colleague's context could never call `list_plugins`
+    for their own brain over that connection.
+  */
+  const visitorOffered = await toolNamesFor(env, TOKEN_VISITOR);
+  check(
+    "a connection that owns a context it did not connect at is still offered the tool",
+    visitorOffered.includes("list_plugins")
+  );
+  check(
+    "and is still refused in the context it only visits",
+    !textOf(
+      await callTool(env, TOKEN_VISITOR, "list_plugins", { context: "@theirs" })
+    ).includes("THEIRS-PLUGIN-MARKER")
+  );
+  check(
+    "while reading its own",
+    textOf(
+      await callTool(env, TOKEN_VISITOR, "list_plugins", { context: "@mine" })
+    ).includes("MINE-PLUGIN-MARKER")
+  );
+
+  /*
+    THE STORE-IDENTITY CHECK FAILS CLOSED ON A MISSING FIELD.
+
+    `storeForSession` compares the binding's own `workspaceId` against the one
+    this request resolved to, and its comment calls a disagreement about which
+    tenant this is "the one bug that must never be papered over". The comparison
+    was guarded by `typeof binding.workspaceId === "string"`, so a control plane
+    that stopped sending the field skipped the check rather than failing it.
+
+    That was defensible while a grant covered one context: the field confirmed
+    something the grant had already fixed. It is not defensible now. This is the
+    gateway's only local confirmation of *which of N* covered contexts the store
+    it just built belongs to, and a check that a missing field turns off is a
+    check an upstream change can remove without touching this file.
+
+    Measured before the fix, with the stub handing back the wrong context's
+    binding: with the field present, 13 checks fail and every cross-context call
+    is refused; with it omitted, 9 fail and all nine are *content* assertions —
+    "it is that context's file", "it landed in that bucket rather than this one".
+    The guard never fired.
+  */
+  /*
+    `1-projects/shared-name.md` exists in both buckets with different bodies,
+    which is what makes this readable as a cross-wiring probe rather than as a
+    refusal that could have come from anywhere: MINE-MARKER coming back for
+    `@theirs` is the store belonging to the wrong tenant.
+  */
+  const readTheirs = async () =>
+    textOf(
+      await callTool(env, TOKEN_OWNER, "read_note", {
+        context: "@theirs",
+        path: "1-projects/shared-name.md",
+      })
+    );
+
+  // The control plane has resolved the WRONG tenant. This is the only shape in
+  // which the identity check does any work; a test of that check that does not
+  // set this watches a correct binding go past and calls it a pass. (It did:
+  // the first version of this test passed against the fail-open guard.)
+  controlPlane.flags.bindingWorkspaceId = "ws_own";
+
+  controlPlane.flags.omitBindingWorkspaceId = false;
+  const wrongWithId = await readTheirs();
+  check(
+    "a binding for the wrong workspace is refused when it names itself",
+    !wrongWithId.includes("MINE-MARKER")
+  );
+
+  controlPlane.flags.omitBindingWorkspaceId = true;
+  const wrongWithoutId = await readTheirs();
+  check(
+    "and refused just the same when it names nothing at all",
+    !wrongWithoutId.includes("MINE-MARKER")
+  );
+
+  /*
+    AND THE REFUSAL DOES NOT NAME THE GATEWAY'S OWN REASON.
+
+    `StorageUnavailable`'s doc comment says `reason` "is for this gateway's own
+    structured logs. It never reaches a caller: `index.js` answers every one of
+    these with the same 503." The cross-context tool path interpolated
+    `error.message`, which is `storage unavailable: ${reason}` — the doubled
+    phrase in the output was the tell.
+
+    `workspace mismatch` is the reason that matters: it is the two-party
+    disagreement signal, exactly what somebody probing for a tenancy bug would
+    poll for. The others are plumbing state a member has no business reading —
+    `no proof of authorization`, `refresh token in binding`,
+    `cross-provider credential`, `binding not allowed`, `unknown provider`.
+  */
+  // Field back, wrong workspace still served: the refusal now happens on the
+  // cross-context hop, where `callToolForSession` catches it, rather than at
+  // session setup, where the whole request 503s before any tool runs.
+  controlPlane.flags.omitBindingWorkspaceId = false;
+  const mismatched = await readTheirs();
+  check(
+    "a storage refusal does not name the gateway's internal reason",
+    !mismatched.includes("workspace mismatch") && !mismatched.includes("storage unavailable")
+  );
+  check(
+    "and still says the one thing the person can act on",
+    /no reachable storage/i.test(mismatched)
+  );
+
+  controlPlane.flags.bindingWorkspaceId = null;
+  controlPlane.flags.omitBindingWorkspaceId = false;
+  check("and the right binding still serves its own context", (await readTheirs()).includes("THEIRS-MARKER"));
 
   restoreControlPlane();
   restoreS3();

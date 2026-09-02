@@ -143,6 +143,15 @@ export const RESERVED_NAMES: ReadonlySet<string> = new Set([
   "auth",
   "cdn",
   "dev",
+  // Every first path segment `apps/mcp/src/session.js` reads as a route rather
+  // than as a context. `granola-webhook` was claimable until a test derived
+  // this set from the gateway's own list instead of restating five of them by
+  // hand: the gateway reads `/@granola-webhook/mcp` as a route, so the context
+  // was unaddressable by name, and — because ingestion is on the apex — the
+  // handle was also a mailbox sharing a name with one of our own endpoints.
+  // `t` and `.well-known` need no entry: the first is too short for a name and
+  // the second has a character this namespace does not allow.
+  "granola-webhook",
   "mcp",
   "oauth",
   "static",
