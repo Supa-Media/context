@@ -685,3 +685,120 @@ rule about how a helper may be used, which no test can state for it:
   because its callers are move and write *guards* that refuse when an override
   exists, so a folded twin only ever refuses more. Using it to decide what a
   caller may see would reintroduce the widening.
+
+### A shared workspace scaffolds `team`, and that is not a widening
+
+`renderPrivacyManifest` wrote every folder `private` for every context, and the
+reasoning it carried is right for exactly one of the two kinds: `team` is not
+public, but a brain created five seconds ago has granted nobody anything, so
+there is no correct set of folders to open up, and a `team` default would grant
+nothing today and then quietly open a folder the first time somebody was
+invited.
+
+A workspace inverts every clause of that. It is created *because* several people
+are in it, the invitations are usually sent in the same sitting, and the person
+creating it is not writing their own notes into it — they are laying down a
+place for other people's. Scaffolded all-private it is worse than thin: it is
+broken. `clampScopes` lets only an `owner` hand a client the `context:private`
+scope, so an `editor` or a `member` invited into a fresh workspace could not read
+one note in it **by any grant they were able to issue**. Every invitation landed
+somebody in an empty context, and the repair was a file they had to know existed.
+
+So `workspaces.kind` travels from the row, through `applyStructure`, into
+`scaffoldContext`, and decides one thing: what `startingVisibility` returns.
+
+**It widens nothing, and the argument is the membership rather than the word.**
+`team` still means exactly "the named people in this workspace". At the moment
+the layout is written that set has one member, the owner who just created it, so
+the scaffold discloses nothing to anybody. What it changes is that the *next*
+invitation means what the person sending it thinks it means. Nothing about the
+manifest's semantics moved: there is no third value, `Scope` is still
+two-valued, and `canSee` is untouched.
+
+Three things hold the edges, and each fails a test if removed:
+
+- **`default_visibility` stays `private`**, fixed in `renderPrivacyRulesBlock`.
+  Only the folders the scaffolder itself created are opened. A folder somebody
+  adds later — `payroll/`, say — is private until a line names it, which is what
+  keeps this a starting layout rather than a switch on the bucket.
+- **`kind` is read off the workspace row inside the mutation**, never taken as
+  an argument from a client. A client that could name it could scaffold somebody
+  else's brain open to everyone they later invite.
+- **The repair path keeps the old default.** `resetPrivacyManifest` →
+  `renderPrivacyManifestForFolders` defaults to `personal` and must never be
+  given a `kind`. It rewrites a manifest that was *failing closed*, against a
+  bucket that already has members and content — neither property a fresh
+  workspace has — so all-private stays the only rewrite under which nothing
+  changes hands. Passing `"shared"` there would make fixing a typo a way to
+  publish a bucket. A call site that adds the argument is the bug.
+
+The manifest and `index.md` also now say what the two words mean in a workspace,
+because `private` there means **owners**, not "whoever wrote it". That is the
+one thing a member cannot work out from the rules, and it is the thing somebody
+otherwise learns by marking a folder private and locking out their co-lead.
+
+### Restricting a folder to *some* of a workspace is not built, and the shape it would take
+
+The obvious next ask — "this folder has an owner and they want it seen by four of
+the eleven people here" — is real and is deliberately absent. `private` in a
+workspace answers a two-member version of it (owners, and nobody else) and
+nothing answers the general one. Three things would have to be true before it
+could be, and they are written down here so the next attempt starts from them
+rather than from a `visibility: "some"`:
+
+1. **It is not a third word in `privacy.md`.** `Scope` is two-valued in both
+   engines and in every grant; a third value would have to be understood by the
+   gateway's `canSee`, the search filter, the folder listing, the console's
+   visibility controls, and every already-issued grant, which cannot be
+   retrofitted. The precedent is the unlisted share: a *row* beside the
+   manifest, never a tier inside it.
+2. **The subject has to be a set the manifest can name without becoming an
+   access-control list.** `privacy.md` is a file in the customer's bucket that
+   they edit in Obsidian. Putting user ids in it makes it unreadable and makes it
+   a directory of the workspace's membership sitting in a synced folder. A named
+   *group* — a label the control plane resolves to members — is the only version
+   that keeps the file legible, and groups are a control-plane object that does
+   not exist yet.
+3. **The scope has to reach the grant.** Tier is carried by the scope list and
+   nothing else, on purpose ("The privacy tier is a scope on the grant, never an
+   inference from a role"). A per-folder subset is not a tier, so it is either a
+   fourth clamp dimension or it is enforced only at read time — and a read-time
+   check that no grant records is the shape that eventually disagrees with what
+   the console shows.
+
+Until then the honest answer, and the one the layout step now gives, is: a
+folder is readable by the workspace or held back to its owners, and a single
+note can be shared with one named person through a revocable link.
+
+### Domain-based membership is not built, and would be an invitation, never a grant
+
+"Anybody with an `@acme.com` address is in this workspace" is one sentence and
+three separate decisions, none of which the current model makes:
+
+- **A domain is not a person, and membership is per-identity.** Every row in
+  `workspaceMembers` names a `userId`, every grant is revocable per person, and
+  the audit trail records the acting identity. A rule that admits a *class* has
+  to resolve to those rows at some moment, and choosing that moment is the whole
+  design: at sign-in (a member appears without anybody adding them) or at first
+  access (the workspace's member list is not the list of people who can read it).
+  The first is the only one compatible with "audit records the acting identity".
+- **It has to prove the domain, not read the string after the `@`.** An email
+  address on an account is evidence only if it was verified, and Context's own
+  sign-in is the only thing that verifies one. A rule keyed on an unverified
+  address is a rule anybody can satisfy by typing.
+- **It must not become an oracle.** Today an invitation is addressed to a string
+  and resolved on acceptance precisely so that inviting `@lk` and inviting
+  somebody who does not exist are indistinguishable. A domain rule that reported
+  how many people it matched, or that behaved differently for a domain with no
+  accounts, would be the enumeration endpoint that design exists to prevent.
+
+The shape that fits: a **standing invitation** on the workspace, addressed to a
+verified domain instead of to one identity, with a role, an expiry, and a
+revocation — a `workspaceInvitations` row with `inviteeKind: "domain"`, consumed
+by an account whose *verified* address matches, producing an ordinary
+`workspaceMembers` row with `invitedBy` set to whoever created the rule. That
+keeps every downstream invariant: membership stays per-identity, the audit
+records who joined and under which rule, revoking the rule stops future joins
+without touching the people already in, and nothing anywhere reports who
+matched. It is a row and a resolver, not a new access model — which is why it is
+worth waiting to build properly rather than special-casing into the invite box.

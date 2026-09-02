@@ -750,3 +750,120 @@ afterwards rather than trusting its own removals. Leaving a context clears it
 **on the server's answer, never on the request** — `leaveWorkspace` answers
 `{ left: false }` for a row it did not find, and clearing on the press would
 discard the copies of a context the person still has.
+
+### Making a workspace is its own flow, not onboarding with a flag
+
+Four of the five screens rhyme with `/welcome`'s, which is exactly why it is
+tempting and exactly why it is wrong. Three things differ, and each one turns a
+shared implementation into a screen that lies to one of its two audiences:
+
+1. **A workspace is not the thing you may only have one of.** Onboarding has no
+   way back and is not re-runnable: step 1 claims a name out of a namespace with
+   no release path, and `createWorkspace` writes exactly one personal context.
+   `resolveWelcomeRoute` exists to enforce that. A person may own several
+   workspaces, so there is no gate, Back means something up to the claim, and
+   the copy does not borrow "there is no way back".
+2. **A workspace has no capture address.** Only a personal context gets an
+   ingestion alias. The onboarding name step's most consequential element is a
+   live panel showing the three things the name becomes, one of which is
+   `name@context.lc` — and here it would promise a mailbox that will never
+   receive anything. `workspaceNameConsequences` returns two entries, and a test
+   asserts the third is absent rather than trusting that nobody re-adds it.
+3. **A workspace nobody else is in is pointless.** Onboarding ends on "point
+   your tools at it". This ends on inviting people, which is the only step whose
+   absence makes the whole flow a no-op — and it therefore survives a failed
+   storage probe, where onboarding correctly drops its remaining steps. An
+   invitation is a control-plane row and writes nothing to a bucket; a workspace
+   whose storage is not sorted out is exactly the one whose members need to know
+   it exists. What it must not do is imply the context is ready, which is a
+   caveat on the screen rather than a silence.
+
+What is genuinely shared is imported, not copied: `validateName` (through
+`../onboarding/name`), the folder editor and its validator, `StorageChoice`,
+`parseInvitee`, and the role vocabulary. The rule is the one `onboarding/name.ts`
+already states — a drifted copy of a validation rule shows a green tick in front
+of a refusal.
+
+### Two name fields for a workspace, one for a brain
+
+A person's handle and a person's label are usually the same word, so onboarding
+asks once and uses the answer for both. An organisation's are not: "Acme
+Engineering" is what it is called and `acme-eng` is what fits in
+`@acme-eng/1-projects/note.md`. One field gets you a handle nobody can read or a
+label nobody can type.
+
+The handle follows the label until it is touched, and then stops permanently for
+that session. A suggestion that keeps overwriting is how a *permanent* name gets
+claimed that nobody chose — somebody goes back to fix a typo in the label and
+the handle silently changes under them. `slugSuggestion` is pure and its output
+is fed through `nameStatus` like any typed string; it is never assumed valid.
+
+### The layout presets are company-shaped, and PARA is not the default
+
+PARA sorts one person's work by how permanent it is. That is the right question
+for a brain and the wrong one for a company, whose context is sorted by who owns
+a thing and which outside party it concerns — a team handed `1-projects` /
+`2-areas` / `3-resources` files nothing into them. So `/workspace/new` defaults
+to a **Company** preset (inbox, projects, teams, handbook, customers, archive),
+offers **Client work** for organisations whose work is sorted by client first
+(a flat `1-projects` collides across three clients on day one), and keeps PARA
+third for teams that already use it.
+
+Two properties matter more than the folder names, which are a guess and are
+meant to be edited:
+
+- **A preset is a starting value for the folder editor, not a mode.** Choosing
+  "Company" and renaming `4-customers` is the common case. Every preset except
+  PARA travels to `applyStructure` as `custom` with its rows, so nothing
+  downstream knows which button was pressed.
+- **The descriptions are load-bearing.** Each becomes that folder's `README.md`
+  and its line in `index.md`, verbatim, which is what a connected AI client reads
+  to decide where a note belongs. A vague description produces a folder that
+  fills with everything. They are written in the third person, because a
+  workspace has no single reader and `index.md` addressed to "you" reads as
+  somebody else's file to everyone but its author.
+
+A test runs every preset through the control plane's own `validateCustomFolders`
+and `toFolderSpecs`: a preset shipping a folder the mutation would refuse is a
+button whose only outcome is an error.
+
+### Invitations are queued, and a partial send keeps its successes
+
+`inviteMember` is rate limited per account, so a box that fires on each press is
+the shape most likely to meet the limit and least likely to say which of five
+people it got to. Queueing also matches what the step is for — it is four
+colleagues and a typo, and a typo is cheaper to fix before it is a live
+invitation than after.
+
+The send is sequential and per-invitation. A failure does not discard the ones
+that went: those invitations exist, and re-sending one supersedes a live row. So
+the queue is replaced by exactly what failed, both halves are reported, and the
+flow does not advance until the box is empty or the person skips.
+
+Two things this screen may never do, both inherited rather than invented:
+
+- **Say whether the invitee exists.** Refusals are about the *shape* of the
+  string, which is a fact about the string and could not have been about who
+  holds it. Anybody with an account has an invite box; one that answered would
+  enumerate the user base.
+- **Imply anybody has access yet.** An invitation is an offer, and until it is
+  answered the workspace has one member. The last screen says "outstanding",
+  never "invited" and never a headcount — a "4 people invited" on a screen
+  somebody screenshots is read as "4 people can read this".
+
+### The rail's "New workspace" entry is a verb, and the claim entry is a gap
+
+They sit in the same group and are two flags rather than one, because they are
+true at different times and are drawn differently on purpose. "Claim your @name"
+is a *gap in the list* — it is for somebody who arrived through an invitation and
+has no reason to suspect the product does anything else, it is drawn accented so
+it cannot be missed, and it stops existing the moment it is used. "New workspace"
+is an ordinary verb that is true from the first session and stays true, so an
+accent on it would be an advertisement on every screen forever. It goes last,
+under the claim entry, in the group where its result will appear.
+
+Nothing client-side gates it. How many workspaces one account may own is
+`MAX_WORKSPACES_PER_USER`, enforced inside `createWorkspace`'s transaction, and a
+second copy in the rail would be the copy that is wrong after a deploy — hiding
+the entry from somebody under the limit, or showing a screen that refuses. The
+refusal is rendered on the step where the person can act on it.
