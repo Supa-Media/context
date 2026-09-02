@@ -95,6 +95,7 @@ export function ConsoleRail({
   // Which context's right-click menu is open, if any. One at a time: opening
   // a second closes the first, which is what every menu bar does.
   const [menuSlug, setMenuSlug] = useState<string | null>(null);
+  const menuOpenOn = (slug: string) => slug === menuSlug;
   const claimable = onClaimContext !== undefined && offerOwnContext({
     contexts: data.contexts,
     loading: data.loading,
@@ -130,7 +131,14 @@ export function ConsoleRail({
           nothing to show is omitted, header and all — see `rail.ts`.
         */}
         {railSections({ contexts: data.contexts, claimable }).map((section) => (
-          <Group key={section.key} heading={section.heading} icons={icons}>
+          <Group
+            key={section.key}
+            heading={section.heading}
+            icons={icons}
+            // Derived from the one piece of state that already knows, rather
+            // than a second answer to the same question.
+            raised={section.contexts.some((context) => menuOpenOn(context.slug))}
+          >
             {section.key === "own" && data.contexts.length === 0 && !data.loading ? (
               icons ? null : (
                 <Text variant="rowSub" style={styles.empty}>
@@ -145,6 +153,7 @@ export function ConsoleRail({
               // by people who already knew it was there.
               <RightClickTarget
                 key={context.id}
+                open={menuOpenOn(context.slug)}
                 onOpenMenu={() => setMenuSlug(context.slug)}
               >
                 <RailEntry
@@ -165,7 +174,7 @@ export function ConsoleRail({
                   onPress={() => onNavigate(selectContextRoute(context.slug))}
                   leading={<Dot tone={context.status} />}
                 />
-                {menuSlug === context.slug ? (
+                {menuOpenOn(context.slug) ? (
                   <ContextRowMenu
                     slug={context.slug}
                     shared={section.key === "shared"}
@@ -224,18 +233,37 @@ export function ConsoleRail({
   );
 }
 
+/**
+ * One labelled block of the rail.
+ *
+ * `raised` is the group's half of the fix for issue #197. A group is an
+ * ordinary react-native-web `View`, which means `position: relative;
+ * z-index: 0` and therefore a stacking context of its own — so an open context
+ * menu, however high its own `zIndex`, is ordered against the other groups by
+ * *this* element's `0`, and the group that follows paints over it and takes the
+ * click. The group holding the open menu is lifted while it is open; every
+ * other group stays where it is, because lifting them all would leave the rail
+ * in exactly the same order it is in now.
+ */
 function Group({
   heading,
   icons,
+  raised,
   children,
 }: {
   heading: string;
   icons: boolean;
+  /**
+   * True while a context menu is open on one of this group's rows. Required,
+   * like `RightClickTarget`'s `open`, so that forgetting it is a compile error
+   * rather than a menu that silently paints under the group below.
+   */
+  raised: boolean;
   children: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
-    <View style={styles.group}>
+    <View style={[styles.group, raised && styles.groupRaised]}>
       {icons ? (
         // A hairline instead of a word. The grouping is still visible, which is
         // what the heading was for; the label would not fit and truncating it
@@ -427,6 +455,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   contentIcons: { paddingHorizontal: space.x2, alignItems: "center" },
 
   group: { marginBottom: space.x5, gap: 2, alignSelf: "stretch" },
+  /** Above the groups that follow it, while one of its rows has a menu open. */
+  groupRaised: { zIndex: 1 },
   heading: { marginBottom: space.x2, paddingHorizontal: space.x2 },
   groupRule: {
     height: 1,
