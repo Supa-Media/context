@@ -356,11 +356,56 @@ export function validateCustomFolders(
 function renderStartingRulesBlock(
   folderDefaults: readonly string[],
   vis: Visibility,
+  overrides: ReadonlyMap<string, Visibility>,
 ): string {
   return renderPrivacyRulesBlock(
     folderDefaults.map((folder) => ({ prefix: folder, vis })),
-    new Map(),
+    overrides,
   );
+}
+
+/**
+ * The exact-note rules a fresh context needs, which is one and only for a
+ * workspace: **`index.md`**.
+ *
+ * ## Why a folder default cannot reach it
+ *
+ * `folder_defaults` are prefix rules and `index.md` is at the **root**, under
+ * no prefix at all. So it matches nothing, falls through to
+ * `default_visibility: private`, and a `team`-scope read of it returns not
+ * found — which is precisely the bug the folder work missed. Making the
+ * folders `team` and stopping there produced a workspace whose members can
+ * read every note in it and cannot read the page that says what it is.
+ *
+ * That is worse than it sounds, because `index.md` is not an ordinary note. It
+ * is the **front page every connected agent reads first**: the gateway gates
+ * its whole orientation on `canSee("index.md", …)`, so a member's client got a
+ * bare folder map with no statement of what the workspace is for or how it is
+ * organised — and the fix was a line in a file they had no reason to open.
+ *
+ * ## Why an exact-note override is the right instrument and not a workaround
+ *
+ * `note_overrides` exists for exactly this: one named `.md` file whose
+ * visibility differs from what its surroundings imply. Nothing else would do
+ * the job — a `""` folder rule would open the entire bucket, and lifting
+ * `default_visibility` to `team` would open every path nobody has ruled on,
+ * including folders somebody adds next month. This opens one file, by name,
+ * and it is a file **we wrote**: at the moment the manifest is rendered
+ * `index.md` is the scaffolder's own text about the layout the scaffolder just
+ * laid down, with nothing of the customer's in it.
+ *
+ * ## Personal contexts get nothing here, deliberately
+ *
+ * A brain's `index.md` is its owner's own manifest and may describe anything;
+ * publishing it to everyone they later share a folder with is not ours to
+ * decide. A brain stays all-private at the root as well as in its folders, and
+ * `renderPrivacyManifestForFolders`' `personal` default keeps the repair path
+ * out of this too.
+ */
+function startingOverrides(kind: ContextKind): Map<string, Visibility> {
+  const overrides = new Map<string, Visibility>();
+  if (kind === "shared") overrides.set(INDEX_KEY, "team");
+  return overrides;
 }
 
 /**
@@ -493,10 +538,15 @@ export function renderPrivacyManifestForFolders(
           "",
           "Anything **not** listed below is private, including a folder somebody adds",
           "later. Add a line for it here when it should be readable by the workspace.",
+          "",
+          "`index.md` is listed by name under `note_overrides` because it sits at the",
+          "root, under no folder, so no folder rule can reach it. It is the front page",
+          "every connected client reads first: hold it back and this workspace has no",
+          "description of itself for anybody but its owners.",
         ]
       : []),
     "",
-    renderStartingRulesBlock(folders, vis),
+    renderStartingRulesBlock(folders, vis, startingOverrides(kind)),
     "",
   ].join("\n");
 }

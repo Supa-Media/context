@@ -49,6 +49,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The audit trail's `details` are allow-listed, and its `paths` are not gated at all
 - A privacy decision is folded, and the fold only ever narrows
 - A shared workspace scaffolds `team`, and that is not a widening
+- `index.md` is opened by name, because no folder rule reaches the root
 - Restricting a folder to *some* of a workspace is not built, and the shape it would take
 - Domain-based membership is not built, and would be an invitation, never a grant
 
