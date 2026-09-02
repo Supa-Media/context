@@ -35,22 +35,30 @@ export function contextMenuItems(
   slug: string,
   options: {
     /**
-     * True for a context under "Shared with you" — somebody else's, reached
-     * by invitation. Only there does **Leave** appear: an owner walking out
-     * of their own context is an ownership transfer wearing a different
-     * name, and the server refuses it (`OWNER_CANNOT_LEAVE`), so the menu
-     * does not offer it. The door out of an invitation, though, has to open
-     * from the invitee's side — before this, getting out meant asking the
-     * owner to evict you.
+     * True when the caller is **not** this context's owner — the only case in
+     * which **Leave** appears. An owner walking out of their own context is an
+     * ownership transfer wearing a different name, and the server refuses it
+     * (`OWNER_CANNOT_LEAVE`), so the menu does not offer it. The door out of an
+     * invitation, though, has to open from the invitee's side — before this,
+     * getting out meant asking the owner to evict you.
+     *
+     * **Named for the role, not for the rail section it used to come from.**
+     * This was `shared`, filled in from whether the row sat under "Shared with
+     * you", which was the same answer by coincidence of that grouping. The rail
+     * now groups on *kind*, where every workspace is shared and some of them
+     * are yours — so a section-derived answer would have offered Leave on a
+     * workspace you own, and the button would have come back
+     * `OWNER_CANNOT_LEAVE`. The role is the fact the server enforces, so the
+     * role is what this takes.
      */
-    shared?: boolean;
+    canLeave?: boolean;
   } = {},
 ): ContextMenuItem[] {
   return [
     { key: "open", label: "Open", route: { kind: "context", slug, view: "browse" } },
     { key: "settings", label: "Settings…", route: { kind: "context", slug, view: "settings" } },
     { key: "sharing", label: "Manage sharing…", route: { kind: "app", section: "connections" } },
-    ...(options.shared
+    ...(options.canLeave
       ? [{ key: "leave" as const, label: `Leave @${slug}…` }]
       : []),
   ];

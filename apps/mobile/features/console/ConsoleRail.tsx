@@ -18,7 +18,7 @@ import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { offerOwnContext } from "../onboarding/route";
 import { atName } from "./format";
 import { selectContextRoute, type ConsoleRoute } from "./nav";
-import { railSections } from "./rail";
+import { isOwnBrain, railSections } from "./rail";
 import type { ConsoleData } from "./types";
 
 /**
@@ -144,9 +144,12 @@ export function ConsoleRail({
           moved is where you reach them from. See `SettingsPane`.
         */}
         {/*
-          Two groups, not one flat list: what you own under "Yours", and
-          everything you were let into under "Shared with you". A section with
-          nothing to show is omitted, header and all — see `rail.ts`.
+          Two groups, and they split on **kind**: the brains you can open, and
+          the workspaces you can open. Ownership is a mark on one row rather
+          than a section boundary — exactly one context can ever be your own
+          brain, and `@sayo` already says whose the others are. A section with
+          nothing to show and nothing to offer is omitted, header and all — see
+          `rail.ts`.
         */}
         {railSections({
           contexts: data.contexts,
@@ -161,7 +164,7 @@ export function ConsoleRail({
             // than a second answer to the same question.
             raised={section.contexts.some((context) => menuOpenOn(context.slug))}
           >
-            {section.key === "own" && data.contexts.length === 0 && !data.loading ? (
+            {section.key === "brains" && data.contexts.length === 0 && !data.loading ? (
               icons ? null : (
                 <Text variant="rowSub" style={styles.empty}>
                   Nothing here yet
@@ -195,11 +198,35 @@ export function ConsoleRail({
                   selected={route.kind === "context" && route.slug === context.slug}
                   onPress={() => onNavigate(selectContextRoute(context.slug))}
                   leading={<Dot tone={context.status} />}
+                  /*
+                    Where ownership went when it stopped being a section.
+
+                    Only ever on one row — `isOwnBrain` requires a personal
+                    context you own, and there is one of those per person. It is
+                    a quiet label rather than a badge: the row it marks is the
+                    one the person recognises fastest anyway, so this only has
+                    to settle the question, not raise it.
+
+                    Dropped in the collapsed rail with the rest of the trailing
+                    slot. Nothing is lost — the account block at the foot names
+                    the signed-in person, so the initial that matches it is the
+                    same answer in less space.
+                  */
+                  trailing={
+                    isOwnBrain(context) ? (
+                      <Text variant="foot" style={styles.yours}>
+                        yours
+                      </Text>
+                    ) : null
+                  }
                 />
                 {menuOpenOn(context.slug) ? (
                   <ContextRowMenu
                     slug={context.slug}
-                    shared={section.key === "shared"}
+                    // The role, not the section. Every workspace is "shared"
+                    // under this grouping and some of them are yours — see
+                    // `contextMenuItems`.
+                    canLeave={context.role !== "owner"}
                     onSelect={(target) => {
                       setMenuSlug(null);
                       onNavigate(target);
@@ -220,11 +247,11 @@ export function ConsoleRail({
             {/*
               The way to have a brain of your own, for somebody who does not.
 
-              It sits *in* the "Yours" group and last, under what you can
-              already reach, because that is the question it answers: these
-              are the ones you can open, and none of them is yours. Above the
-              group, or in App, it would read as a verb about the application
-              rather than a gap in this list.
+              It sits *in* the Brains group and last, under the brains you can
+              already reach, because that is exactly the question it answers:
+              these are the brains you can open, and none of them is yours.
+              Above the group, or in a group of its own, it would read as a verb
+              about the application rather than a gap in this list.
 
               It is drawn accented rather than as another quiet row on purpose.
               The person this is for arrived through somebody else's invitation
@@ -247,14 +274,19 @@ export function ConsoleRail({
               />
             ) : null}
             {/*
-              The other thing this group can gain, and the one that stays.
+              The foot of the Workspaces group, under the workspaces it makes
+              more of.
 
-              Quiet rather than accented: the claim entry above is drawn loudly
-              because it is for somebody who has no reason to suspect the
-              product does anything else, and it disappears the moment it is
-              used. This one is permanent, so an accent on it would be an
-              advertisement on every screen of every session. It reads as what
-              it is — a verb at the foot of the list of things it adds to.
+              Quiet rather than accented, unlike the claim entry: that one is
+              drawn loudly because it is for somebody who has no reason to
+              suspect the product does anything else, and it disappears the
+              moment it is used. This one is permanent, so an accent on it would
+              be an advertisement on every screen of every session. It reads as
+              what it is — a verb at the foot of the list it adds to.
+
+              It is also the *whole* group for somebody who is in no workspaces
+              yet, which is how a person who has only ever had a brain finds out
+              that workspaces exist.
             */}
             {section.create ? (
               <RailEntry
@@ -331,6 +363,7 @@ function RailEntry({
   selected,
   onPress,
   leading,
+  trailing,
   role = "button",
   accessibilityLabel,
   style,
@@ -348,6 +381,15 @@ function RailEntry({
   selected?: boolean;
   onPress: () => void;
   leading?: ReactNode;
+  /**
+   * Rendered after the label, in the expanded rail only.
+   *
+   * Dropped in the collapsed rail rather than shrunk: a 28px column has room
+   * for one mark, and that one is the initial. Whatever this carries has to be
+   * a *supplement* to something the row already says — the "yours" mark next to
+   * a handle the person recognises — never the only place a fact appears.
+   */
+  trailing?: ReactNode;
   role?: "button" | "tab";
   accessibilityLabel?: string;
   /** Painted over the sizing style, so a mode never loses its target size. */
@@ -406,6 +448,7 @@ function RailEntry({
           >
             {label}
           </Text>
+          {trailing}
         </>
       )}
     </PressRow>
@@ -556,6 +599,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderColor: colors.hintBorder,
   },
   claimLabel: { color: colors.hintStrong },
+  /**
+   * The "yours" mark.
+   *
+   * `marginLeft: auto` rather than a fixed gap, so it sits against the right
+   * edge and does not move when the handle beside it is one character or
+   * twenty; `flexShrink: 0` so a long handle truncates (the label is
+   * `numberOfLines={1}`) instead of squeezing this out of the row.
+   */
+  yours: { marginLeft: "auto", flexShrink: 0, color: colors.muted },
   entryOn: { backgroundColor: colors.accentDim },
   entryOnLabel: { color: colors.accentText },
   glyph: { color: colors.text2, fontSize: 14 },

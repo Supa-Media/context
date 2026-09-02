@@ -87,6 +87,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The layout presets are company-shaped, and PARA is not the default
 - Invitations are queued, and a partial send keeps its successes
 - The rail's "New workspace" entry is a verb, and the claim entry is a gap
+- The rail splits on kind, and ownership is a mark on one row
 
 ## [Testing and guards](./testing.md)
 
