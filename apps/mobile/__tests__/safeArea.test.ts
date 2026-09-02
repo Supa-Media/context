@@ -147,6 +147,8 @@ const { ConsentScreen } =
   require("../features/consent/ConsentScreen") as typeof import("../features/consent/ConsentScreen");
 const { WelcomeChrome } =
   require("../features/onboarding/WelcomeScreen") as typeof import("../features/onboarding/WelcomeScreen");
+const { CreateWorkspaceChrome } =
+  require("../features/workspace/CreateWorkspaceScreen") as typeof import("../features/workspace/CreateWorkspaceScreen");
 const { InviteScreen } =
   require("../features/invite/InviteScreen") as typeof import("../features/invite/InviteScreen");
 const { InviteListScreen } =
@@ -221,6 +223,28 @@ const ROUTES: Record<string, Coverage> = {
     mount: () =>
       createElement(
         WelcomeChrome,
+        {
+          step: "name",
+          shape: { storage: "connected" },
+          children: createElement(Text, null, "the step's card"),
+        },
+      ),
+  },
+  /*
+    `CreateWorkspaceChrome`, not `CreateWorkspaceScreen`, for the reason the
+    welcome route above gives: the screen is a live controller over Convex
+    subscriptions, and the chrome is the whole of what this route ever paints.
+  */
+  /*
+    The flow's navigator. A `Stack` and a background colour, like every other
+    nested layout here — the session gate is `(app)`'s and is not repeated.
+  */
+  "(app)/workspace/_layout.tsx": { kind: "shell" },
+  "(app)/workspace/new.tsx": {
+    kind: "screen",
+    mount: () =>
+      createElement(
+        CreateWorkspaceChrome,
         {
           step: "name",
           shape: { storage: "connected" },

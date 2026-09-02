@@ -64,6 +64,7 @@ export function ConsoleRail({
   onNavigate,
   account,
   onClaimContext,
+  onCreateWorkspace,
   onLeaveContext,
 }: {
   data: ConsoleData;
@@ -83,6 +84,23 @@ export function ConsoleRail({
    * pretending it could parse a URL it never sees.
    */
   onClaimContext?: () => void;
+  /**
+   * Start the flow that makes a new shared workspace.
+   *
+   * Absent on the landing page's copy of the rail, which is a picture, and in
+   * the read-only demo — the same rule as `onClaimContext`, and the same
+   * reason it is a prop rather than a `ConsoleRoute`: `/workspace/new` is
+   * outside the console, so putting it in that union would mean `routeForPath`
+   * pretending it could parse a URL it never sees.
+   *
+   * Unlike the claim entry there is **no client-side condition** on offering
+   * it. How many workspaces one account may own is the control plane's rule
+   * (`MAX_WORKSPACES_PER_USER`), enforced in `createWorkspace`'s transaction,
+   * and a second copy here would be the copy that is wrong after a deploy —
+   * hiding the entry from somebody who is under the limit, or showing a screen
+   * that refuses. The refusal is rendered where the person can act on it.
+   */
+  onCreateWorkspace?: () => void;
   /**
    * Leave a context somebody shared. Receives the workspace id. Absent on
    * the landing page's picture of the rail, where there is nothing to leave.
@@ -129,7 +147,11 @@ export function ConsoleRail({
           everything you were let into under "Shared with you". A section with
           nothing to show is omitted, header and all — see `rail.ts`.
         */}
-        {railSections({ contexts: data.contexts, claimable }).map((section) => (
+        {railSections({
+          contexts: data.contexts,
+          claimable,
+          creatable: onCreateWorkspace !== undefined,
+        }).map((section) => (
           <Group key={section.key} heading={section.heading} icons={icons}>
             {section.key === "own" && data.contexts.length === 0 && !data.loading ? (
               icons ? null : (
@@ -213,6 +235,27 @@ export function ConsoleRail({
                 style={styles.claim}
                 labelStyle={styles.claimLabel}
                 testID="rail-claim-context"
+              />
+            ) : null}
+            {/*
+              The other thing this group can gain, and the one that stays.
+
+              Quiet rather than accented: the claim entry above is drawn loudly
+              because it is for somebody who has no reason to suspect the
+              product does anything else, and it disappears the moment it is
+              used. This one is permanent, so an accent on it would be an
+              advertisement on every screen of every session. It reads as what
+              it is — a verb at the foot of the list of things it adds to.
+            */}
+            {section.create ? (
+              <RailEntry
+                label="New workspace"
+                icon="plus"
+                icons={icons}
+                touch={touch}
+                accessibilityLabel="Create a new shared workspace"
+                onPress={onCreateWorkspace!}
+                testID="rail-create-workspace"
               />
             ) : null}
           </Group>
