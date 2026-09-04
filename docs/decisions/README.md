@@ -98,6 +98,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The rail splits on kind, and ownership is a mark on one row
 - The URL is a mirror of the open note, and the phone's copy of it is a pointer
 - A note link is a path with a keyword in front, because a scheme has a host
+- A reference follows the note it points at, and a link is something you follow
 
 ## [Obsidian plugins](./obsidian-plugins.md)
 

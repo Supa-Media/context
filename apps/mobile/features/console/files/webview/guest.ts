@@ -34,6 +34,7 @@ import {
   type EditorHandlers,
   type HandlerRef,
 } from "../editorSetup";
+import type { NoteLinkRef } from "../noteLinks";
 import {
   PROTOCOL_VERSION,
   acceptsChange,
@@ -225,12 +226,30 @@ export function mountGuest(
     } satisfies EditorHandlers,
   };
 
+  /**
+   * What a link in this note points at, and what to do when one is followed.
+   *
+   * `path` starts `null`, which is the extension's own "draw no links": the
+   * guest is built before it is told anything, and a relative link has nothing
+   * to be relative to until the host sends `links`. Both callbacks post rather
+   * than navigate — the guest has no idea what a note *is*, only that one was
+   * asked for.
+   */
+  const links: NoteLinkRef = {
+    current: {
+      path: null,
+      onOpen: (path) => bridge.post({ v: PROTOCOL_VERSION, type: "open-link", path }),
+      onPress: (path) => bridge.post({ v: PROTOCOL_VERSION, type: "press-link", path }),
+    },
+  };
+
   const view = new EditorView({
     state: editorStateFor({
       doc: "",
       editable: false,
       editableCompartment,
       handlers,
+      links,
       insetBottom: () => inset,
     }),
     parent: root,
@@ -307,6 +326,25 @@ export function mountGuest(
         // The palette carries the *measure* too — type size, leading, the note's
         // own padding — so a theme message reflows the document.
         heights.request();
+        return;
+      }
+      case "links": {
+        /*
+          Replaced whole rather than merged. A note with no bare links sends no
+          `paths`, and merging would leave the previous note's list in place —
+          which is the shape that resolves `[[name]]` against a context nobody
+          is in any more.
+        */
+        links.current = {
+          ...links.current,
+          path: message.path,
+          paths: message.paths,
+        };
+        // The decorations are built by a view plugin keyed on document and
+        // viewport changes, and this is neither: without a nudge the note that
+        // arrived a moment ago would show its links only after the first
+        // keystroke.
+        view.dispatch({});
         return;
       }
       case "inset": {

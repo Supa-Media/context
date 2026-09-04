@@ -76,6 +76,7 @@ import {
   writesAnywhere,
 } from "./session.js";
 import { enforceOrigin, isTransportPath } from "./origin.js";
+import { indexByName, rewriteLinks } from "./links.js";
 import { createSearchBudget, NOTE_INDEX_CHAR_CAP } from "./search/maintain.js";
 import {
   SEARCH_RESULT_LIMIT,
@@ -2105,7 +2106,7 @@ function baseToolDefinitions() {
     {
       name: "archive_note",
       description:
-        "Retract a note from its canonical location into this context's own 4-archive, date-stamped and recoverable — there is no delete, and this is the safe way to pull something out of circulation. Only on contexts whose layout has a 4-archive; elsewhere it refuses and move_note follows the owner's conventions instead. Team archives remain team-visible; personal archives safely tighten to private. Pass expected_etag for team cleanup.",
+        "Retract a note from its canonical location into this context's own 4-archive, date-stamped and recoverable — there is no delete, and this is the safe way to pull something out of circulation. Links to it are rewritten to point into the archive, so nothing that referenced it breaks. Only on contexts whose layout has a 4-archive; elsewhere it refuses and move_note follows the owner's conventions instead. Team archives remain team-visible; personal archives safely tighten to private. Pass expected_etag for team cleanup.",
       inputSchema: {
         type: "object",
         properties: {
@@ -2120,7 +2121,7 @@ function baseToolDefinitions() {
     {
       name: "move_note",
       description:
-        "Move or rename one note without recreating it. Private overrides are preserved and privacy is never implicitly reduced. A team note moved by personal access into a private-default folder safely becomes private.",
+        "Move or rename one note without recreating it. Links to it are rewritten across every note this connection can see, so references follow the note rather than breaking — you do not need to find and fix them yourself. Private overrides are preserved and privacy is never implicitly reduced. A team note moved by personal access into a private-default folder safely becomes private.",
       inputSchema: {
         type: "object",
         properties: {
@@ -2139,7 +2140,7 @@ function baseToolDefinitions() {
     {
       name: "move_notes",
       description:
-        "Preflight or apply an all-or-rollback batch of up to 100 independent note moves. Set dry_run=true to validate every source, etag, destination, conflict, and scope without changing data. Cycles and destination/source overlap are rejected.",
+        "Preflight or apply an all-or-rollback batch of up to 100 independent note moves. Links to every moved note are rewritten across the notes this connection can see. Set dry_run=true to validate every source, etag, destination, conflict, and scope without changing data. Cycles and destination/source overlap are rejected.",
       inputSchema: {
         type: "object",
         properties: {
@@ -2168,7 +2169,7 @@ function baseToolDefinitions() {
     {
       name: "move_folder",
       description:
-        "Move or rename a folder tree after preflighting every destination. Maximum 500 objects. Private overrides are preserved and privacy is never implicitly reduced.",
+        "Move or rename a folder tree after preflighting every destination. Links into the folder are rewritten to follow it, and relative links inside it are recomputed for its new depth. Maximum 500 objects. Private overrides are preserved and privacy is never implicitly reduced.",
       inputSchema: {
         type: "object",
         properties: {
@@ -4348,11 +4349,124 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
   }
   await store.delete(path);
   await clearExactVisibility(store, path);
+  /*
+    Archiving is a move, so its links follow it. Retiring a note is not the same
+    as deleting one — the note is still there, still readable, and a link that
+    now points into `4-archive/` is telling the truth about where the thing went.
+    The alternative is a bucket where every archive silently breaks every link
+    into it, which is how people learn not to archive.
+  */
+  const references = await rewriteReferences(
+    store,
+    scope,
+    rules,
+    overrides,
+    new Map([[path, dest]])
+  );
   await recordChange(store, "archive_note", scope, [path, dest], {
     visibility: destinationVisibility,
     team_visible: destinationVisibility === "team",
+    references: references.capped ? "not-rewritten" : references.links,
   });
-  return toolText(`archived: ${path} → ${dest}\nvisibility: ${destinationVisibility}`);
+  return toolText(
+    `archived: ${path} → ${dest}\nvisibility: ${destinationVisibility}` + referencesLine(references)
+  );
+}
+
+/**
+ * How many notes a move will read looking for references to what moved.
+ *
+ * A move is rare and deliberate, so spending a full walk on one is the right
+ * trade — but "full" has to have a number, because a bucket is a customer's and
+ * can be any size. Past this the move still happens and the rewrite is
+ * **reported as not done**, which is the honest failure: a partial rewrite that
+ * announced success would leave a person believing their links were fixed.
+ */
+const LINK_SCAN_CAP = 4000;
+
+/**
+ * Point every link at where its note went.
+ *
+ * Called after a move has landed, so the bucket already holds the new paths and
+ * `renames` is how to get back to the old ones. Three things about it are
+ * decisions rather than mechanics.
+ *
+ * **It rewrites only what this connection can see.** That is `move_folder`'s
+ * existing rule, arrived at for the same reason and quoted here because it is
+ * easy to talk yourself out of: the gateway holds a credential that can read
+ * every object, so it *could* repair a private note's links on behalf of a team
+ * caller. It does not. Every other tool here operates on the visible surface,
+ * counts reported back are counts over that surface, and a count over notes the
+ * caller may not know exist is an inference channel. The residual is real and
+ * worth stating: after a team caller moves a note, links to it inside private
+ * notes are stale until an owner's connection moves something. An owner sees
+ * everything, so an owner's move fixes everything.
+ *
+ * **The moved notes are rewritten too, not just the notes pointing at them.** A
+ * note that moved keeps every relative link it had, and each one now needs a
+ * different number of `../`. Fixing the inbound links and not the outbound ones
+ * would trade one set of broken links for another.
+ *
+ * **Names are resolved as they were before the move.** `byName` is built over
+ * pre-move paths, because a bare `[[overview]]` was written against the bucket
+ * as it was; resolving it against the new shape would miss exactly the note
+ * that just moved.
+ */
+async function rewriteReferences(store, scope, rules, overrides, renames, { write = true } = {}) {
+  if (renames.size === 0) return { notes: 0, links: 0, capped: false };
+
+  let keys;
+  try {
+    keys = (await listAllNoteKeys(store))
+      .map(({ key }) => key)
+      .filter((key) => canSee(key, scope, rules, overrides));
+  } catch {
+    // `listAllKeys` throws rather than truncate. A walk that could not be
+    // completed is reported as a rewrite that did not happen, never as one that
+    // did — the move itself has already succeeded and must not be undone for
+    // this.
+    return { notes: 0, links: 0, capped: true };
+  }
+  if (keys.length > LINK_SCAN_CAP) return { notes: 0, links: 0, capped: true };
+
+  const wasAt = new Map();
+  for (const [from, to] of renames) wasAt.set(to, from);
+  const byName = indexByName(keys.map((key) => wasAt.get(key) ?? key));
+
+  let notes = 0;
+  let links = 0;
+  for (const key of keys) {
+    const fromPath = wasAt.get(key) ?? key;
+    const object = await store.get(key);
+    if (!object) continue;
+    const text = await object.text();
+    const rewritten = rewriteLinks(text, { fromPath, toPath: key, renames, byName });
+    if (rewritten === null) continue;
+    notes += 1;
+    links += rewritten.changed;
+    if (!write) continue;
+    /*
+      No snapshot before the overwrite, and that is the *current* rule rather
+      than an omission: version history is the customer's object versioning
+      (`docs/decisions/storage-and-credentials.md`), and this write path landed
+      the same week the snapshots were removed from every other one. Restoring
+      one here would put back the write amplification that decision measured,
+      on somebody else's bill, for a rollback nothing can read.
+    */
+    await store.put(key, rewritten.text);
+  }
+  return { notes, links, capped: false };
+}
+
+/** One line a move prints about its references, or nothing to say. */
+function referencesLine(result) {
+  if (result.capped) {
+    return "\nreferences: not rewritten (this context is too large to walk for one move)";
+  }
+  if (result.notes === 0) return "";
+  const links = result.links === 1 ? "1 link" : `${result.links} links`;
+  const notes = result.notes === 1 ? "1 note" : `${result.notes} notes`;
+  return `\nreferences: ${links} updated in ${notes}`;
 }
 
 async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinationArg, expectedSourceEtag) {
@@ -4395,13 +4509,22 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
   }
   await store.delete(source);
   await clearExactVisibility(store, source);
+  const references = await rewriteReferences(
+    store,
+    scope,
+    rules,
+    overrides,
+    new Map([[source, destination]])
+  );
   await recordChange(store, "move_note", scope, [source, destination], {
     etag: put.etag,
     visibility: destinationVisibility,
     team_visible: sourceVisibility === "team" && destinationVisibility === "team",
+    references: references.capped ? "not-rewritten" : references.links,
   });
   return toolText(
-    `moved: ${source} → ${destination} (etag ${put.etag})\nvisibility: ${destinationVisibility}`
+    `moved: ${source} → ${destination} (etag ${put.etag})\nvisibility: ${destinationVisibility}` +
+      referencesLine(references)
   );
 }
 
@@ -4559,6 +4682,13 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
     for (const move of preflight) await clearExactVisibility(store, move.source).catch(() => {});
   }
 
+  const references = await rewriteReferences(
+    store,
+    scope,
+    rules,
+    overrides,
+    new Map(preflight.map((move) => [move.source, move.destination]))
+  );
   await recordChange(
     store,
     "move_notes",
@@ -4568,9 +4698,10 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
       count: preflight.length,
       visibilities: preflight.map((move) => ({ path: move.destination, visibility: move.visibility })),
       team_visible: preflight.every((move) => move.visibility === "team"),
+      references: references.capped ? "not-rewritten" : references.links,
     }
   );
-  return toolText(`moved notes: ${preflight.length}\n${planText}`);
+  return toolText(`moved notes: ${preflight.length}\n${planText}` + referencesLine(references));
 }
 
 async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destinationArg, dryRun) {
@@ -4681,12 +4812,23 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
 
   for (const { source: path } of moves) await store.delete(path);
   for (const { source: path } of moves) await clearExactVisibility(store, path).catch(() => {});
+  const references = await rewriteReferences(
+    store,
+    scope,
+    rules,
+    overrides,
+    new Map(moves.map((move) => [move.source, move.destination]))
+  );
   await recordChange(store, "move_folder", scope, [source, destination], {
     count: moves.length,
     visibilities: moves.map((move) => ({ path: move.destination, visibility: move.visibility })),
     team_visible: moves.every((move) => move.visibility === "team"),
+    references: references.capped ? "not-rewritten" : references.links,
   });
-  return toolText(`moved folder: ${source}/ → ${destination}/ (${moves.length} objects)`);
+  return toolText(
+    `moved folder: ${source}/ → ${destination}/ (${moves.length} objects)` +
+      referencesLine(references)
+  );
 }
 
 /* -------------------------------- inbox ---------------------------------- */

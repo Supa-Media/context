@@ -21,3 +21,26 @@ export const APP_NAME = "Context";
 export const APP_SLUG = "context";
 
 export { normalizeEmail } from "./email";
+
+/**
+ * The link engine: what a link between two notes is, and how it is rewritten so
+ * a rename or a move does not break it. Used by the control plane's file
+ * operations and by the console's editor.
+ *
+ * Its twin lives in the gateway, which cannot import this package — see the
+ * module's own header for why, and for the parity test that keeps the two
+ * honest.
+ */
+export {
+  codeRanges,
+  dirOf,
+  expressLink,
+  indexByName,
+  normalizeSegments,
+  parseLinks,
+  relativePath,
+  resolveLink,
+  rewriteLinks,
+  styleOf,
+} from "./links";
+export type { Link, LinkStyle, RewriteOptions } from "./links";

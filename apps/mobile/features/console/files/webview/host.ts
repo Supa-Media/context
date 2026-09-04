@@ -218,6 +218,10 @@ export interface HostSink {
   onCaret?: (caret: { top: number; bottom: number }) => void;
   /** The guest failed to start. A blank rectangle otherwise. */
   onFailed?: (message: string) => void;
+  /** A link to another note was followed with a modifier held. Navigate. */
+  onOpenNote?: (path: string) => void;
+  /** One was long-pressed. **Ask first** — see the `press-link` message. */
+  onPressNote?: (path: string) => void;
 }
 
 export interface HostBridge {
@@ -227,6 +231,13 @@ export interface HostBridge {
   setTheme: (vars: Readonly<Record<string, string>>) => void;
   /** How many points of the editor something else is covering. */
   setInset: (bottom: number) => void;
+  /**
+   * Which note is open, and which paths the console knows of.
+   *
+   * A relative link cannot be resolved without the first, and the guest has no
+   * other way to learn it — a note's path is not in its bytes.
+   */
+  setLinks: (path: string | null, paths?: readonly string[]) => void;
   /**
    * Run one of the accessory bar's commands against the editor.
    *
@@ -256,6 +267,24 @@ export interface HostBridge {
  * web view ever reloads underneath us, which is a state a WKWebView can enter
  * on its own after a memory warning.
  */
+/**
+ * How many note paths are worth sending across the bridge.
+ *
+ * See `setLinks`. Chosen as "a large brain still fits" rather than measured:
+ * five thousand keys is a few hundred kilobytes of JSON, once per note opened,
+ * and the thing it buys is bare `[[name]]` links resolving. A bucket past it
+ * loses that one style rather than paying the cost on every open.
+ */
+export const LINK_PATHS_CAP = 5000;
+
+/** Two path lists that are the same list. Identity is not enough: the console
+ * rebuilds this array as folders load. */
+function sameList(a: readonly string[] | undefined, b: readonly string[] | undefined): boolean {
+  if (a === b) return true;
+  if (a === undefined || b === undefined) return false;
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
 export function createHostBridge(send: (raw: string) => void, sink: HostSink): HostBridge {
   let ready = false;
   let doc = "";
@@ -272,6 +301,8 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
    * component so it cannot be reset by a re-render.
    */
   let known = "";
+  let linkPath: string | null = null;
+  let linkPaths: readonly string[] | undefined;
 
   const post = (message: ToGuest) => {
     if (!ready) return;
@@ -319,6 +350,20 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
       inset = bottom;
       post({ v: PROTOCOL_VERSION, type: "inset", bottom });
     },
+    setLinks: (path, paths) => {
+      /*
+        Capped rather than sent whole. `paths` only improves one link style — a
+        bare `[[name]]` — and a bucket's whole key list across a `postMessage`
+        on every note open is not a trade worth making for it. Past the cap the
+        guest is sent none, and bare links are plain text on the phone: a
+        degradation that costs one style and never a wrong destination.
+      */
+      const capped = paths === undefined || paths.length > LINK_PATHS_CAP ? undefined : paths;
+      if (path === linkPath && sameList(capped, linkPaths) && ready) return;
+      linkPath = path;
+      linkPaths = capped;
+      post({ v: PROTOCOL_VERSION, type: "links", path, paths: capped });
+    },
     /**
      * The first of the three refusals a bar key meets.
      *
@@ -348,6 +393,7 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
           send(encode({ v: PROTOCOL_VERSION, type: "editable", editable }));
           send(encode({ v: PROTOCOL_VERSION, type: "theme", vars }));
           send(encode({ v: PROTOCOL_VERSION, type: "inset", bottom: inset }));
+          send(encode({ v: PROTOCOL_VERSION, type: "links", path: linkPath, paths: linkPaths }));
           send(encode({ v: PROTOCOL_VERSION, type: "doc", text: doc }));
           known = doc;
           return;
@@ -392,6 +438,17 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
           return;
         case "failed":
           sink.onFailed?.(message.message);
+          return;
+        /*
+          Neither is gated on `editable`: following a link is reading, and a
+          note somebody may only read is exactly the note they are most likely
+          to be following links out of.
+        */
+        case "open-link":
+          sink.onOpenNote?.(message.path);
+          return;
+        case "press-link":
+          sink.onPressNote?.(message.path);
           return;
       }
     },

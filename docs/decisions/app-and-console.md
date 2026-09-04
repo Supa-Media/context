@@ -1104,3 +1104,99 @@ note link that arrived in a shape the real route did not match, and otherwise
 says plainly that the link went nowhere and offers the one destination that is
 always meaningful. It does not echo the path back — that is somebody's note
 name, and it came from outside.
+
+### A reference follows the note it points at, and a link is something you follow
+
+Two halves of one rule, asked for in one sentence: "when the name is updated
+references to it are also updated automatically when using context.lc directly
+or using the mcp … by default the reference always changes when things are
+moved or renamed."
+
+Neither half existed. Moving or renaming a note left every link to it pointing
+at a path that no longer resolved, silently — so the person who tidied a folder
+was the one who broke their own brain — and `[[../../2-products/x/overview]]`
+rendered as that exact string, in an app whose notes are mostly links to each
+other.
+
+**The rewrite is a default with no flag.** `move_note`, `move_notes`,
+`move_folder` and `archive_note` in the gateway, and `movePath` in the control
+plane, rewrite the links and report how many they changed. Archiving is
+included because retiring a note is not deleting it: a link into `4-archive/`
+tells the truth about where the thing went, and the alternative is a bucket
+where archiving breaks every reference into it, which is how people learn not
+to archive.
+
+Four things about the rewrite are decisions, and each one is a way to get it
+visibly wrong:
+
+**Relative links are recomputed, not substituted.** When a folder moves, a link
+*inside* it pointing *outside* it needs a different number of `../`. A rewriter
+that only swapped the moved paths breaks every one of them while reporting
+success — which is why the moved notes are rewritten too, not only the notes
+pointing at them.
+
+**A link is re-expressed the way it was written.** Relative stays relative,
+rooted stays rooted. Normalising would mean a move that reformats notes it was
+not asked to touch, in files the customer also opens in Obsidian and syncs to
+their own machine.
+
+**A bare `[[overview]]` is rewritten only when exactly one note answers to that
+name.** Obsidian's shortest-path-wins rule is not implemented here and must not
+be guessed at: a link that still resolves the way it always did beats one this
+code decided the meaning of.
+
+**Code is not a link.** A fenced block or a code span containing `[[example]]`
+is documentation *about* a link, and these notes are full of them.
+
+The walk stops at what the caller can see — `move_folder`'s existing rule, and
+the one that is easiest to talk yourself out of, because the gateway holds a
+credential that could repair a private note's links on behalf of a team caller.
+It does not, and the counts reported back are counts over the visible surface
+only, because a count over notes the caller cannot list is an inference
+channel. The residual is real and stated rather than hidden: after a team
+caller's move, links inside private notes are stale until an owner moves
+something. An owner sees everything.
+
+A bucket too large to walk for one move reports the rewrite as **not done**
+rather than as partial. A partial rewrite announcing success leaves a person
+believing their links were fixed.
+
+The rewrite takes no `.history/` snapshot, and that is the current rule rather
+than an omission: it landed the same week version history became the customer's
+object versioning, and a snapshot here alone would put back the write
+amplification that decision measured for every other write path.
+
+**Two copies of the engine, and a test that pins them.** The boundary that
+forces it is not the obvious one: `fileOps.ts` already reaches into
+`../../../mcp/src/search/*.js`, so the control plane *can* import the gateway.
+What forces it is the other two edges — the gateway cannot import
+`@context/shared` (dependency-free by rule, and `check-gateway-imports.mjs`
+requires relative specifiers), and the mobile app cannot import the gateway
+(Metro is configured with `sharedPackages: ["@context/shared"]`). The control
+plane takes the shared copy rather than the gateway's, which puts a rename made
+in the console and a link drawn by the console on one engine.
+`apps/convex/__tests__/linkParity.test.ts` runs both over one deliberately
+awkward corpus and requires identical answers, with a floor on how many of them
+rewrote anything — a corpus that changed nothing would pass by comparing `null`
+to `null`.
+
+**Following a link is ⌘-click, and a plain click still places the caret.** This
+is an editor, and a mistyped path lives *inside* a link; an implementation that
+followed a plain click reads as working and has made those characters
+unreachable. A modifier is invisible, so hovering names the note and the chord.
+On a phone it is a long press, and the press **asks** rather than navigating: a
+press is also how a selection starts, and what it would replace is the note in
+front of somebody, possibly holding an unsaved draft.
+
+**The editor does not check that a link's target exists**, and that is forced
+rather than lazy: the tree loads folder by folder, so the console knows the
+notes somebody has expanded and nothing about the rest. Requiring existence
+would render a link into an unexpanded folder — the normal case — as plain
+prose. Following a link to a note that is not there lands on the editor's own
+"that file does not exist", which is the answer Obsidian gives.
+
+What a simplification would cost, and the test that catches it: dropping the
+`canSee` filter is two failures in `linkRewrite.test.ts`; substituting instead
+of recomputing relative links is one there and three in the gateway's
+`links.test.mjs`; following a plain click is one in `editorLinks.test.ts`; and
+letting the two engines drift is two in `linkParity.test.ts`.

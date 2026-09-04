@@ -120,7 +120,11 @@ describe("the ready handshake", () => {
     // `editable` before `doc`: the document write is annotated and would be
     // accepted either way, but a guest that learns what it may do first is one
     // fewer ordering to reason about.
-    expect(types).toEqual(["editable", "theme", "inset", "doc"]);
+    //
+    // `links` before `doc` for a sharper reason: the guest decorates links
+    // when the document changes, so a note that arrived before its own path
+    // would paint once with every relative link in it as plain text.
+    expect(types).toEqual(["editable", "theme", "inset", "links", "doc"]);
     expect(JSON.parse(sent[types.indexOf("doc")]).text).toBe("# note\n");
   });
 

@@ -191,6 +191,17 @@ const movedValidator = v.object({
   from: v.string(),
   to: v.string(),
   paths: v.array(v.string()),
+  /**
+   * What the link rewrite did, and **optional on purpose**.
+   *
+   * `copyPath` shares this validator and rewrites nothing — a copy leaves every
+   * original where it was, so there is no reference to follow — and a move that
+   * found nothing to do reports zeroes rather than omitting the field. Required
+   * would force `copyEntry` to invent a shape describing work it never does.
+   */
+  references: v.optional(
+    v.object({ notes: v.number(), links: v.number(), capped: v.boolean() }),
+  ),
 });
 
 const deletedValidator = v.object({

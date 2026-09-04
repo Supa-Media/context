@@ -15,6 +15,7 @@ import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
 import { runPluginChecks } from "./plugins.test.mjs";
 import { runCrossContextChecks } from "./crossContext.test.mjs";
+import { runLinkChecks } from "./links.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
 import {
   CONTROL_PLANE_ORIGIN,
@@ -3892,6 +3893,12 @@ await runSearchPacingChecks(check);
 // inventory against its own bucket stubs, and the phrasing of the report. No
 // control plane and no shared fixture, so it runs anywhere in this file.
 await runPluginChecks(check);
+
+// Links between notes, and the rewrite that keeps them pointing at what they
+// name after a move. Pure rules first, then the four move tools against a
+// worker of its own — see the file header for why it does not share this
+// fixture.
+await runLinkChecks(check);
 
 await runTenancyChecks(check);
 await runCrossContextChecks(check);

@@ -12,6 +12,7 @@ import { accessoryUp } from "./accessory";
 import { describe as describeVisibility } from "./Breadcrumb";
 import { saveButton, type EditorState } from "./editor";
 import { noteHeading, noteHeadingSource, properties, splitNote, type Property } from "./frontmatter";
+import { Confirm } from "./Dialogs";
 import { LiveEditor, type EditorControls } from "./LiveEditor";
 import { NoteAccessory } from "./NoteAccessory";
 import { highlightMarkdown } from "./highlight";
@@ -100,6 +101,8 @@ export function NoteEditor({
   onDiscard,
   onUseTheirs,
   onKeepMine,
+  onOpenLink,
+  notePaths,
 }: {
   state: EditorState;
   canEdit: boolean;
@@ -138,6 +141,21 @@ export function NoteEditor({
    */
   notices?: ReactNode;
   /**
+   * Follow a link to another note.
+   *
+   * Absent where there is nowhere to go — the landing page's demo console — and
+   * the editor then draws links as plain text rather than as a control that
+   * does nothing. See `noteLinks.ts`.
+   *
+   * **The confirmation for a long press is this component's, not the caller's.**
+   * A press arrives as an ambiguous gesture and the thing at risk is the note
+   * on screen; the component holding that note is the one that knows whether
+   * there is an unsaved draft in it.
+   */
+  onOpenLink?: (path: string) => void;
+  /** Paths the console knows of, for bare `[[name]]` links. Usually partial. */
+  notePaths?: readonly string[];
+  /**
    * The phone's path bar, above the notices and above the inline title.
    *
    * Passed in for the reason `notices` is: a note on a phone brings its own
@@ -168,6 +186,15 @@ export function NoteEditor({
     for no visible change, on the mount that is already the most expensive one.
   */
   const [focused, setFocused] = useState(false);
+  /**
+   * A link somebody long-pressed, waiting on an answer.
+   *
+   * A press is how a person also starts a text selection, so it cannot navigate
+   * on its own — and what it would replace is the note in front of them,
+   * possibly with an unsaved draft in it. The dialog is the whole difference
+   * between an affordance and a trap.
+   */
+  const [pressed, setPressed] = useState<string | null>(null);
   const controls = useRef<EditorControls | null>(null);
   const frame = useFrame();
   const padding = useSurfacePadding();
@@ -427,7 +454,30 @@ export function NoteEditor({
                 : undefined
             }
             accessibilityLabel={`${state.path} markdown`}
+            notePath={state.path}
+            notePaths={notePaths}
+            /*
+              A modifier click navigates; a long press asks. The asymmetry is
+              the gesture's, not the destination's — see `noteLinks.ts`. Both
+              are absent when the caller gave us nowhere to go, which is what
+              stops the editor underlining text it cannot act on.
+            */
+            onOpenNote={onOpenLink === undefined ? undefined : (path) => onOpenLink(path)}
+            onPressNote={onOpenLink === undefined ? undefined : (path) => setPressed(path)}
           />
+          {pressed === null || onOpenLink === undefined ? null : (
+            <Confirm
+              title="Open this note?"
+              body={pressed}
+              confirmLabel="Open"
+              onCancel={() => setPressed(null)}
+              onConfirm={() => {
+                const path = pressed;
+                setPressed(null);
+                onOpenLink(path);
+              }}
+            />
+          )}
         </View>
       ) : (
         <ScrollView

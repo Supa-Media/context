@@ -29,6 +29,7 @@ import {
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, redo, undo } from "@codemirror/commands";
 import { livePreview, markdownLanguage } from "./livePreview";
+import { noteLinks, type NoteLinkRef } from "./noteLinks";
 import type { EditorCommand } from "./webview/protocol";
 
 /**
@@ -321,11 +322,19 @@ export function editorExtensions(options: {
   handlers: HandlerRef;
   /** How many pixels of the editor the keyboard and its accessory bar cover. */
   insetBottom?: () => number;
+  /**
+   * What a link to another note points at, and what to do when one is
+   * followed. Absent on a surface with nowhere to navigate to — the landing
+   * page's demo console is one — and the links are then plain text there,
+   * which is honest rather than a degraded feature.
+   */
+  links?: NoteLinkRef;
 }): Extension[] {
-  const { editable, editableCompartment, handlers, insetBottom } = options;
+  const { editable, editableCompartment, handlers, insetBottom, links } = options;
   return [
     markdownLanguage(),
     livePreview(),
+    ...(links === undefined ? [] : [noteLinks(links)]),
     history(),
     EditorView.lineWrapping,
     placeholder(EDITOR_PLACEHOLDER),
@@ -390,6 +399,7 @@ export function editorStateFor(options: {
   editableCompartment: Compartment;
   handlers: HandlerRef;
   insetBottom?: () => number;
+  links?: NoteLinkRef;
 }): EditorState {
   return EditorState.create({
     doc: options.doc,
