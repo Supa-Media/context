@@ -18,6 +18,7 @@ import { runCrossContextChecks } from "./crossContext.test.mjs";
 import { runLinkChecks } from "./links.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
 import { runMeetingChecks } from "./meetings.test.mjs";
+import { runSearchD1Checks } from "./searchD1.test.mjs";
 import {
   CONTROL_PLANE_ORIGIN,
   GATEWAY_SECRET,
@@ -3907,6 +3908,7 @@ await runLinkChecks(check);
 await runTenancyChecks(check);
 await runCrossContextChecks(check);
 await runUsageReportingChecks(check);
+await runSearchD1Checks(check);
 
 // Meeting ingestion: the routes a phone and a desktop app send a meeting to,
 // the one note it becomes, and the neighbour who knows its session id. Its own
