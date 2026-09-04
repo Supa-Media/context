@@ -217,6 +217,30 @@ const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   // an OAuth flow, and folding it into `storage.ts` would put the connect
   // handshake inside the module that serves credentials to the gateway.
   "functions/dropboxConnect.ts",
+  // THE FOURTH, AND THE ONLY ONE THAT OPENS NOBODY'S CREDENTIAL BUT OURS.
+  //
+  // Every importer above holds something belonging to a *customer* — their
+  // bucket key, their Cloudflare account, their half-finished Dropbox
+  // handshake — and the rules around them exist to keep one tenant's secret
+  // away from another tenant and from every client. `appSecrets` is the other
+  // direction: the platform's own integration credentials, the Cloudflare
+  // token that provisions search databases, a payment provider's key. No
+  // tenant is on the other end of one.
+  //
+  // It is a separate importer rather than a row in `storage.ts` because the
+  // two are bound to different things and must stay that way: a storage
+  // envelope is sealed to a `workspaceId`, and these are sealed to the
+  // `platform:integration` scope (`lib/crypto.ts`), so neither can ever
+  // authenticate in the other's place. Putting both in one module would put
+  // one keyset call away from the wrong context object.
+  //
+  // What bounds it: `readIntegrationSecret` is an internalAction with no
+  // schedule edge and no route — the only callers are server-side
+  // integrations that need the token to make an outbound request. The admin
+  // console, which is the only thing that *writes* these rows, cannot read
+  // one back: it has `listSecrets`, which returns a fingerprint, and there is
+  // deliberately no `getSecret`. If one is ever added, this suite fails.
+  "functions/admin.ts",
 ]);
 
 /** An import of `decryptSecret`, in code rather than in prose. */
@@ -808,6 +832,20 @@ describe("no public function can reach a storage secret", () => {
       // inbound email has nobody behind it. Read the CREDENTIAL_HTTP_ROUTES
       // comment before adding a third.
       "http.gatewayIngestBinding",
+      // THE PLATFORM'S OWN CREDENTIALS, AND THE ONE FUNCTION THAT OPENS ONE.
+      //
+      // Not a customer's anything — see the `functions/admin.ts` entry in
+      // DECRYPT_IMPORTERS. internalAction, no schedule edge and no HTTP route;
+      // the callers are the server-side integrations that need a token to make
+      // an outbound request with it.
+      //
+      // The thing to check if this list ever grows a sibling: the admin
+      // console writes these rows and must never read one. It calls
+      // `setSecret` (which encrypts and never decrypts) and `listSecrets`
+      // (which returns a fingerprint). A `getSecret` would land in this list
+      // as a *public* function and be caught by the next test rather than
+      // this one.
+      "functions.admin.readIntegrationSecret",
     ].sort());
   });
 

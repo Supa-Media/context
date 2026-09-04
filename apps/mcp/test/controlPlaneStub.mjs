@@ -319,6 +319,15 @@ export function createControlPlaneStub(options = {}) {
         return ok({ revoked: true });
       }
 
+      case "/gateway/usage": {
+        // The reference implementation of the counter route: it accepts a list
+        // of {metric, workspaceId, count} and answers how many it applied.
+        // `calls` already carries the body, so a test asserts what the gateway
+        // reported by reading that rather than by a second recording here.
+        const events = Array.isArray(body.events) ? body.events : [];
+        return ok({ applied: events.length });
+      }
+
       default:
         return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
     }

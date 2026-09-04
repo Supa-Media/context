@@ -22,6 +22,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Scheduling is not calling
 - Credential barriers are enumerated, never inferred
 - The setup credential is not a stored credential
+- Staff is an environment allowlist, never a column
+- Platform credentials seal to a scope, customers' seal to a workspace
+- Anything needed before this table can be read cannot live in it
+- Usage is counted, never logged
 
 ## [Identity, grants, invitations, and ingestion](./identity-and-access.md)
 

@@ -618,5 +618,30 @@ export function createControlPlane(env, options = {}) {
         "revoked"
       );
     },
+
+    /**
+     * Tell the control plane that some counted things happened.
+     *
+     * **The only call on this client whose failure is nobody's problem.** Every
+     * other method resolves a session, opens a credential or moves a grant, and
+     * a failure there is a failed request. This one moves a number on an
+     * operator's dashboard, so it is called behind the response and its
+     * rejection is swallowed at the call site — a search that worked but was
+     * not counted is a good outcome, and a search that failed because the
+     * counter was down is not.
+     *
+     * **What crosses is a name and a number.** `events` carries a metric name
+     * from the control plane's closed vocabulary and an optional workspace id
+     * this gateway just resolved a grant to. There is no field here for a
+     * path, a query, a note title or a timestamp, and there must never be one:
+     * what a person searched for is theirs, and their own audit trail — in
+     * their own bucket — is where a record of it legitimately lives.
+     *
+     * @param {{metric: string, workspaceId?: string, count?: number}[]} events
+     */
+    async reportUsage(events) {
+      if (!Array.isArray(events) || events.length === 0) return { applied: 0 };
+      return await post("/gateway/usage", { events });
+    },
   };
 }

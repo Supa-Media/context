@@ -10,6 +10,7 @@
 
 import type * as auth from "../auth.js";
 import type * as crons from "../crons.js";
+import type * as functions_admin from "../functions/admin.js";
 import type * as functions_account from "../functions/account.js";
 import type * as functions_audit from "../functions/audit.js";
 import type * as functions_authorizations from "../functions/authorizations.js";
@@ -24,6 +25,8 @@ import type * as functions_ingestion from "../functions/ingestion.js";
 import type * as functions_ingestionGateway from "../functions/ingestionGateway.js";
 import type * as functions_invitationEmail from "../functions/invitationEmail.js";
 import type * as functions_invitations from "../functions/invitations.js";
+import type * as functions_lib_admin from "../functions/lib/admin.js";
+import type * as functions_lib_appSecrets from "../functions/lib/appSecrets.js";
 import type * as functions_lib_audit from "../functions/lib/audit.js";
 import type * as functions_lib_cardArt from "../functions/lib/cardArt.js";
 import type * as functions_lib_cardCoverage from "../functions/lib/cardCoverage.js";
@@ -49,6 +52,7 @@ import type * as functions_lib_privacy from "../functions/lib/privacy.js";
 import type * as functions_lib_rateLimit from "../functions/lib/rateLimit.js";
 import type * as functions_lib_scaffold from "../functions/lib/scaffold.js";
 import type * as functions_lib_shareTitle from "../functions/lib/shareTitle.js";
+import type * as functions_lib_usage from "../functions/lib/usage.js";
 import type * as functions_lib_verification from "../functions/lib/verification.js";
 import type * as functions_lib_workspaceAuth from "../functions/lib/workspaceAuth.js";
 import type * as functions_names from "../functions/names.js";
@@ -56,6 +60,7 @@ import type * as functions_provisioning from "../functions/provisioning.js";
 import type * as functions_shareCard from "../functions/shareCard.js";
 import type * as functions_shares from "../functions/shares.js";
 import type * as functions_storage from "../functions/storage.js";
+import type * as functions_usage from "../functions/usage.js";
 import type * as functions_workspaces from "../functions/workspaces.js";
 import type * as http from "../http.js";
 
@@ -68,6 +73,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   crons: typeof crons;
+  "functions/admin": typeof functions_admin;
   "functions/account": typeof functions_account;
   "functions/audit": typeof functions_audit;
   "functions/authorizations": typeof functions_authorizations;
@@ -82,6 +88,8 @@ declare const fullApi: ApiFromModules<{
   "functions/ingestionGateway": typeof functions_ingestionGateway;
   "functions/invitationEmail": typeof functions_invitationEmail;
   "functions/invitations": typeof functions_invitations;
+  "functions/lib/admin": typeof functions_lib_admin;
+  "functions/lib/appSecrets": typeof functions_lib_appSecrets;
   "functions/lib/audit": typeof functions_lib_audit;
   "functions/lib/cardArt": typeof functions_lib_cardArt;
   "functions/lib/cardCoverage": typeof functions_lib_cardCoverage;
@@ -107,6 +115,7 @@ declare const fullApi: ApiFromModules<{
   "functions/lib/rateLimit": typeof functions_lib_rateLimit;
   "functions/lib/scaffold": typeof functions_lib_scaffold;
   "functions/lib/shareTitle": typeof functions_lib_shareTitle;
+  "functions/lib/usage": typeof functions_lib_usage;
   "functions/lib/verification": typeof functions_lib_verification;
   "functions/lib/workspaceAuth": typeof functions_lib_workspaceAuth;
   "functions/names": typeof functions_names;
@@ -114,6 +123,7 @@ declare const fullApi: ApiFromModules<{
   "functions/shareCard": typeof functions_shareCard;
   "functions/shares": typeof functions_shares;
   "functions/storage": typeof functions_storage;
+  "functions/usage": typeof functions_usage;
   "functions/workspaces": typeof functions_workspaces;
   http: typeof http;
 }>;

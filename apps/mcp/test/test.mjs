@@ -15,6 +15,7 @@ import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
 import { runPluginChecks } from "./plugins.test.mjs";
 import { runCrossContextChecks } from "./crossContext.test.mjs";
+import { runUsageReportingChecks } from "./usageReporting.test.mjs";
 import {
   CONTROL_PLANE_ORIGIN,
   GATEWAY_SECRET,
@@ -3865,6 +3866,7 @@ await runPluginChecks(check);
 
 await runTenancyChecks(check);
 await runCrossContextChecks(check);
+await runUsageReportingChecks(check);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");
 process.exit(failures ? 1 : 0);
