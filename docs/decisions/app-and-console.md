@@ -1157,11 +1157,14 @@ channel. The residual is real and stated rather than hidden: after a team
 caller's move, links inside private notes are stale until an owner moves
 something. An owner sees everything.
 
-Every rewritten note is snapshotted to `.history/` first — an edit nobody typed
-needs to be undoable more than one somebody did — and a bucket too large to
-walk for one move reports the rewrite as **not done** rather than as partial. A
-partial rewrite announcing success leaves a person believing their links were
-fixed.
+A bucket too large to walk for one move reports the rewrite as **not done**
+rather than as partial. A partial rewrite announcing success leaves a person
+believing their links were fixed.
+
+The rewrite takes no `.history/` snapshot, and that is the current rule rather
+than an omission: it landed the same week version history became the customer's
+object versioning, and a snapshot here alone would put back the write
+amplification that decision measured for every other write path.
 
 **Two copies of the engine, and a test that pins them.** The boundary that
 forces it is not the obvious one: `fileOps.ts` already reaches into

@@ -30,7 +30,6 @@ import { renderPrivacyManifest } from "../functions/lib/scaffold";
  *
  *   the `canSee` filter dropped from the walk                    1
  *   the moved note's own links not recomputed                    1
- *   no `.history/` snapshot before the automatic edit            1
  *   a truncated listing returning its short list, not `null`     1
  *   a failed walk rethrowing instead of reporting `capped`       1
  *
@@ -85,25 +84,6 @@ describe("a move rewrites the links that pointed at what moved", () => {
     expect(read(store, "2-areas/health.md")).toBe("# Health\n\nrooted [[1-projects/alpha/summary]]\n");
     expect(read(store, "2-areas/private-log.md")).toBe(
       "# Log\n\n[[../1-projects/alpha/summary]]\n",
-    );
-  });
-
-  test("the previous body is snapshotted before an automatic edit", async () => {
-    // An edit nobody typed needs to be undoable more than one somebody did.
-    const store = bucket();
-    await movePath(store, {
-      from: "1-projects/alpha/overview.md",
-      to: "1-projects/alpha/summary.md",
-      scope: "private",
-      now: NOW,
-    });
-
-    const snapshot = Object.keys(store.snapshot()).find(
-      (key) => key.endsWith(".links.md") && key.includes("1-projects/beta/notes.md"),
-    );
-    expect(snapshot).toBeDefined();
-    expect(read(store, snapshot!)).toBe(
-      "# Beta\n\n[[../alpha/overview]] and [x](../alpha/overview.md)\n",
     );
   });
 

@@ -1593,7 +1593,6 @@ export async function movePath(
     scope: options.scope,
     state,
     renames: new Map(pairs.map((pair) => [pair.source, pair.destination])),
-    now: options.now,
   });
 
   return { from, to, paths: pairs.map((pair) => pair.destination), references };
@@ -1646,7 +1645,6 @@ async function rewriteReferences(
     scope: Scope;
     state: PrivacyState;
     renames: ReadonlyMap<string, string>;
-    now: number;
   },
 ): Promise<ReferenceRewrite> {
   if (options.renames.size === 0) return { notes: 0, links: 0, capped: false };
@@ -1663,7 +1661,6 @@ async function rewriteReferences(
   for (const [source, destination] of options.renames) wasAt.set(destination, source);
   const byName = indexByName(keys.map((key) => wasAt.get(key) ?? key));
 
-  const stamp = timestampSlug(options.now);
   let notes = 0;
   let links = 0;
   for (const key of keys) {
@@ -1679,9 +1676,12 @@ async function rewriteReferences(
     if (rewritten === null) continue;
     notes += 1;
     links += rewritten.changed;
-    // The same `.history/` snapshot every other write here takes. An edit
-    // nobody typed needs to be undoable more than one somebody did.
-    await store.put(`${HISTORY_PREFIX}${key}.${stamp}.links.md`, text);
+    /*
+      No snapshot. Version history is the customer's object versioning — see
+      `docs/decisions/storage-and-credentials.md` — and adding one back for this
+      path alone would restore the write amplification that decision removed
+      from every other one.
+    */
     await store.put(key, rewritten.text);
   }
   return { notes, links, capped: false };

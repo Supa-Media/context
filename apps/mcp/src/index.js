@@ -4446,12 +4446,13 @@ async function rewriteReferences(store, scope, rules, overrides, renames, { writ
     links += rewritten.changed;
     if (!write) continue;
     /*
-      A `.history/` snapshot before the overwrite, the same as every other write
-      in this worker. It is the customer's bucket and object storage has no
-      dependable versioning, so an automatic edit is exactly the kind that has
-      to be undoable — more so than one a person typed.
+      No snapshot before the overwrite, and that is the *current* rule rather
+      than an omission: version history is the customer's object versioning
+      (`docs/decisions/storage-and-credentials.md`), and this write path landed
+      the same week the snapshots were removed from every other one. Restoring
+      one here would put back the write amplification that decision measured,
+      on somebody else's bill, for a rollback nothing can read.
     */
-    await store.put(`${HISTORY_PREFIX}${key}.${timestampSlug()}.links.md`, text);
     await store.put(key, rewritten.text);
   }
   return { notes, links, capped: false };

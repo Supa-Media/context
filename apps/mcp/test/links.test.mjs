@@ -479,8 +479,13 @@ async function runWiredChecks(check) {
       "# alpha\n\nsee [[../beta/notes]] and [[../../2-areas/practice]]\n"
   );
   check(
-    "the previous body of every rewritten note is snapshotted before the overwrite",
-    [...objects.keys()].some((key) => key.startsWith(".history/1-projects/beta/notes.md") && key.endsWith(".links.md"))
+    "and the rewrite leaves no snapshot behind it",
+    // Version history is the customer's object versioning now — see
+    // `docs/decisions/storage-and-credentials.md`. This write path landed the
+    // same week the snapshots were removed from every other one, and a
+    // `.history/` entry here would put the write amplification back for one
+    // tool.
+    ![...objects.keys()].some((key) => key.startsWith(".history/"))
   );
 
   /* -- move_folder: the notes inside it get their own links recomputed ----- */
