@@ -120,13 +120,39 @@ export interface Keyset {
 /**
  * What an envelope is bound to.
  *
- * A workspace id today. It is a named object rather than a bare string so that
- * adding another binding dimension later is a compile error at every call site
- * instead of a silently mismatched positional argument.
+ * A named object rather than a bare string so that adding another binding
+ * dimension is a compile error at every call site instead of a silently
+ * mismatched positional argument — which is what happened when the second
+ * dimension arrived.
+ *
+ * Two kinds now, and they are a **union rather than two optional fields** so
+ * that no call site can construct a context that is bound to both or neither:
+ *
+ *  - `{ workspaceId }` — a customer's storage credential. One tenant's, and
+ *    openable in that tenant's row and nowhere else.
+ *  - `{ platform }` — a credential the platform itself holds, belonging to no
+ *    tenant: the D1 provisioning token, a payment provider's key, a mail
+ *    provider's key. `platform` is a fixed scope label rather than a free
+ *    string, so the AAD cannot be varied by anything a caller passes.
+ *
+ * **The two namespaces cannot be confused for one another**, because the AAD
+ * carries the kind as a literal segment (`…:workspace:<id>` against
+ * `…:platform:<scope>`). Without that segment a workspace whose id happened to
+ * equal a platform scope label would open the platform's envelope, which is
+ * the class of bug the AAD exists to make impossible rather than unlikely.
  */
-export interface CredentialContext {
-  workspaceId: string;
-}
+export type CredentialContext =
+  | { workspaceId: string; platform?: never }
+  | { platform: PlatformScope; workspaceId?: never };
+
+/**
+ * The scopes a platform credential may be bound to.
+ *
+ * A closed set, not a string: the AAD is what stops one envelope opening in
+ * another's place, so the values that can appear in it are enumerated here
+ * rather than supplied by a caller. Adding a scope is a deliberate edit.
+ */
+export type PlatformScope = "integration";
 
 function toBase64(bytes: Uint8Array): string {
   let binary = "";
@@ -177,13 +203,27 @@ function assertKeyId(id: string, envVar: string): string {
  * have it still authenticate.
  */
 function additionalData(keyId: string, context: CredentialContext): Uint8Array {
-  if (context.workspaceId.length === 0) {
+  // The kind is a literal segment of the AAD, so a workspace envelope and a
+  // platform envelope can never authenticate against each other even if their
+  // identifiers collide. `workspace:` is spelled exactly as it always was —
+  // changing it would make every stored binding undecryptable.
+  //
+  // The identifier is checked for being a non-empty string rather than for
+  // being falsy or for the assembled string's shape: this module is also
+  // reachable from plain JS in the gateway, where the union above is not
+  // enforced, and `workspace:undefined` is a perfectly well-formed binding to
+  // nothing at all. An unbound envelope wearing a binding is the v1 format
+  // this one replaced.
+  const kind = context.platform !== undefined ? "platform" : "workspace";
+  const identifier =
+    kind === "platform" ? context.platform : context.workspaceId;
+  if (typeof identifier !== "string" || identifier.length === 0) {
     throw new CredentialCryptoError(
-      "A credential envelope must be bound to a workspace id",
+      "A credential envelope must be bound to a workspace id or a platform scope",
     );
   }
   return new TextEncoder().encode(
-    `${ENVELOPE_VERSION}:${keyId}:workspace:${context.workspaceId}`,
+    `${ENVELOPE_VERSION}:${keyId}:${kind}:${identifier}`,
   );
 }
 
