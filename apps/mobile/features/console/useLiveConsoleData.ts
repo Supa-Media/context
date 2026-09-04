@@ -509,13 +509,22 @@ export function useLiveConsoleData(): ConsoleData {
     // for the rail's status pips. The tile is absent, not zero, until something
     // has walked at least one bucket, and carries a `+` when the total is a
     // floor — see `noteTotals.ts`.
-    stats: [
-      ...(notes === null
-        ? []
-        : [{ value: formatNotesTotal(notes), label: "notes across all" }]),
-      { value: formatCount(contexts.length), label: "in your context" },
-      { value: formatCount(activeGrants.length), label: "AI clients connected" },
-    ],
+    //
+    // And the same rule for the other two, which is the one this file already
+    // states and this list did not follow: `contexts` and `activeGrants` are
+    // empty while the first round trip is outstanding, so a cold launch drew
+    // "0 in your context" and "0 AI clients connected" — counts of lists that
+    // had not been fetched, on the console of somebody who has both. Filmed on
+    // a native cold launch, beside a Map captioned "0 connected".
+    stats: workspaces === undefined
+      ? []
+      : [
+          ...(notes === null
+            ? []
+            : [{ value: formatNotesTotal(notes), label: "notes across all" }]),
+          { value: formatCount(contexts.length), label: "in your context" },
+          { value: formatCount(activeGrants.length), label: "AI clients connected" },
+        ],
     clients,
     storage,
     storageActions,

@@ -224,25 +224,44 @@ export function landingStep(
   contexts: ReadonlyArray<{ slug: string; role: string }>,
   /** `undefined` while the device is still being asked. */
   place: LastPlace | null | undefined,
+  /**
+   * Whether the workspace list has actually arrived.
+   *
+   * An empty `contexts` is two different facts and this is the one that tells
+   * them apart. Without it a cold launch cannot distinguish an account with no
+   * contexts from an account whose contexts are one round trip away.
+   */
+  listed: boolean,
 ): LandingStep {
+  /*
+    **The list has not arrived, so there is nothing true to draw.**
+
+    This used to answer `map` here, on the reasoning that "the Map is what this
+    route draws anyway until the list arrives". Filmed on a cold launch of the
+    native app, that reasoning was wrong twice over. The Map is *not* what this
+    route draws for somebody who has contexts — it is a screen they are about
+    to be redirected out of — so it appeared for a single frame between two
+    blanks, which is a flicker by construction. And the Map it drew was a
+    picture of an account with nothing in it: "0 reachable", "0 connected", a
+    lone "You" node, "0 in your context". Every number in it was a count of a
+    list that had not been fetched.
+
+    So the Map is for the account that really has no contexts, which is a fact
+    this route only knows once `listed`. Until then the console draws its own
+    chrome around a quiet pane — which is the state it is in a moment later
+    anyway, while the note it is heading for is read, so waiting here adds no
+    transition rather than adding a wrong one.
+  */
+  if (!listed) return { action: "wait" };
   if (place === undefined) {
     /*
-      **`wait` paints nothing, so it may only be answered when there is
-      something to protect.**
+      The device is being asked and the list is in hand. `map` here would be
+      the constellation flashing on the way to a redirect — the flash this
+      route exists to remove — so nothing is painted for the tick an
+      `AsyncStorage` read takes. It is bounded: see `RECALL_DEADLINE_MS`.
 
-      This returned `wait` unconditionally, and on a phone that was a bug with
-      a screenshot: a cold launch asks the device before the workspace list has
-      landed, so the console drew its rail — with the person's own brain
-      selected — around an empty pane, and held it there for as long as the
-      read took. An `AsyncStorage` read is a bridge call, and a bridge that has
-      not woken up yet is slowest at exactly the moment this runs.
-
-      The state it was protecting is the *warm* one: contexts already in hand,
-      the device answering in a tick, and a `map` there would be the
-      constellation flashing on the way to a redirect. With no contexts yet
-      there is nothing to flash past — the Map is what this route draws anyway
-      until the list arrives — so drawing it costs nothing and blank costs the
-      first thing somebody sees.
+      With the list in hand and genuinely empty there is nothing to flash past,
+      and the Map is the honest answer rather than a placeholder.
     */
     return contexts.length === 0 ? { action: "map" } : { action: "wait" };
   }

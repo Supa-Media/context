@@ -19,9 +19,17 @@ export function MapPane({ data }: { data: ConsoleData }) {
         title="Your context"
         description="Everything you can read from — your brain, brains shared with you, and your workspaces — and which AI clients are connected to each. Solid edges are yours; dashed edges are access someone granted you."
         trailing={
-          <Pill tone="ok" leading={<Dot tone="ok" />}>
-            {`${connected} connected`}
-          </Pill>
+          /*
+            Absent, not zero, until the list has arrived — the same rule the
+            stats below follow and the reason they are built that way. This
+            pane is reachable while `loading` (its own rail entry), and "0
+            connected" there is a count of a list nobody has fetched.
+          */
+          data.loading ? null : (
+            <Pill tone="ok" leading={<Dot tone="ok" />}>
+              {`${connected} connected`}
+            </Pill>
+          )
         }
       />
       <ConstellationMap graph={data.graph} />

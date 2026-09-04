@@ -431,6 +431,63 @@ feature back to working everywhere except the platform it was asked for.
 `touchcancel` at 300ms with the finger still on the link — and each of the four
 rules fails its own test and only its own when reversed.
 
+### A launch is not a screen, and an empty list is not an empty account
+
+A native cold launch, filmed: the splash for four hundred milliseconds, a full
+second of white, **the Map for a single frame**, white again, then the note.
+Five states to reach one note, and two of them were wrong rather than merely
+slow.
+
+**The Map frame was a decision reversed on evidence.** The version above of
+this file answered a blank cold-launch pane by drawing the Map whenever
+`contexts` was empty, reasoning that "the Map is what this route draws anyway
+until the list arrives". Wrong twice. For somebody who has contexts the Map is a
+screen they are about to be redirected out of, so drawing it is a transition
+that exists only to be undone — a flicker by construction, whatever it says. And
+what it said was a picture of an account with nothing in it: "0 reachable", "0
+connected", a lone "You" node, "0 in your context", "0 AI clients connected".
+Every number counted a list whose first round trip was outstanding.
+
+So `landingStep` takes `listed`, and answers `wait` until the workspace list has
+actually arrived. The Map is then what it always meant — the pane for an account
+that really can reach nothing — and the counts around the console follow the
+same rule as `ConsoleData.storage`: the "N reachable" chip, the Map's "N
+connected" pill and the stat tiles are **absent, not zero**, until the list has
+answered. `stats` already worked this way for the note total ("the tile is
+absent, not zero, until something has walked at least one bucket"); the other
+two tiles simply had not been held to it.
+
+The blank that reversal restores is not a new state: the console layout's chrome
+is up around it, and the same quiet pane is there a moment later while the note
+is read. Waiting adds no transition rather than adding a wrong one.
+
+**The white second was the launch image being dismissed too early.** Expo hides
+it when the JavaScript bundle finishes evaluating; the app has nothing to draw
+until `useConvexAuth` has restored the stored token and opened its socket, which
+is a network round trip later, and `(app)/_layout` renders `null` for all of it.
+Two different questions, and the default answers the easier one. `splash.ts`
+holds the launch image past the bundle and releases it when the session
+resolves — one transition instead of two with a sheet of white between them.
+
+It is bounded by `SPLASH_DEADLINE_MS`, and that is not belt-and-braces: what is
+being waited on is a network round trip, so offline `isLoading` stays true for
+as long as the socket keeps retrying and an unbounded hold is a permanent launch
+image. The release lives in the root layout rather than in `(app)` because a
+launch to `/login`, to an invitation or to the landing page must not sit behind
+a splash until the deadline.
+
+What a simplification of either costs: drawing the Map for an unresolved list
+puts a picture of an empty account back on the way to somebody's notes, and
+dropping the deadline turns a plane journey into an app that will not start.
+`consoleLanding.test.ts`, `lastPlace.test.ts`, `emptyConsoleStats.test.ts` and
+`splashHold.test.ts` each fail on their own rule and only theirs.
+
+The harness in `emptyConsoleStats.test.ts` had the same confusion written into
+it, which is why it stayed green through all of this: it mounted a client that
+never resolves a query and called that "exactly the state a brand-new account is
+in". It is the state a *loading* console is in. A fixture that cannot tell the
+two apart cannot catch a bug that is exactly their difference.
+
 ### An absence is a claim, and a claim needs an answer
 
 Three states, not two, wherever the console says something is missing. Filmed
