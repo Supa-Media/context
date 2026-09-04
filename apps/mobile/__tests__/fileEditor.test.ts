@@ -861,6 +861,25 @@ describe("the permanent-delete sentence", () => {
   test("still points away from archive rather than pretending this is one", () => {
     expect(describeDeleteForever("1-projects/pay.md", false)).toMatch(/archive/i);
   });
+
+  /**
+   * The half that went wrong in the other direction. Once the product tells
+   * people to enable versioning as their only protection against a bad
+   * overwrite, an unqualified "this cannot be undone" is false for exactly the
+   * customers who took that advice — their provider still holds the noncurrent
+   * version, and we cannot see or delete it.
+   */
+  test("does not promise erasure it cannot perform at the provider", () => {
+    for (const body of [
+      describeDeleteForever("1-projects/pay.md", false),
+      describeDeleteForever("1-projects", true),
+    ]) {
+      expect(body).toMatch(/versioning/i);
+      expect(body).toMatch(/only you can remove them/i);
+      // Qualified, not absolute: "from here" is the whole point of the fix.
+      expect(body).not.toMatch(/cannot be undone[.,]/i);
+    }
+  });
 });
 
 /* -------------------------------------------------------------------------- */

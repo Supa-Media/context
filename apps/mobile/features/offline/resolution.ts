@@ -118,7 +118,7 @@ export const CHOICES = {
   mine: {
     label: "Keep mine",
     detail:
-      "Write what you typed over the version in your bucket. The version it replaces is kept in .history/, so it stays recoverable.",
+      "Write what you typed over the version in your bucket. Unless you turned on versioning at your storage provider, the version it replaces is gone.",
   },
   merge: {
     label: "Merge them",

@@ -205,12 +205,23 @@ export function restoreTargetFor(archivedPath: string): string | null {
  *    under the path it used to live at, and `deletePath` only sees the path it
  *    is given. The sentence says what is removed *alongside the note*, which
  *    is exactly what happens.
- *  - **Nothing about the storage provider.** Bucket versioning, backups and
- *    replication are the customer's own settings, and we cannot see them.
+ *  - **It no longer says nothing about the storage provider.** It used to, on
+ *    the grounds that versioning, backups and replication are the customer's
+ *    own settings and we cannot see them. Both halves are still true, and the
+ *    silence stopped being honest the moment we started telling people to turn
+ *    versioning ON as their only protection against a bad overwrite. "This
+ *    cannot be undone" is then wrong in the one case we recommended: the
+ *    noncurrent version outlives the delete, in their bucket, where only they
+ *    can remove it. So the sentence names the condition without claiming to
+ *    know which side of it they are on — we still cannot see the setting.
  */
 export function describeDeleteForever(path: string, isFolder: boolean): string {
   const subject = isFolder
-    ? `Every file in ${path} will be removed from your bucket, along with the earlier versions Context kept alongside them.`
-    : `${path} will be removed from your bucket, along with the earlier versions Context kept alongside it.`;
-  return `${subject} This cannot be undone, and nothing is moved to an archive.`;
+    ? `Every file in ${path} will be removed from your bucket, along with any earlier versions Context kept alongside them.`
+    : `${path} will be removed from your bucket, along with any earlier versions Context kept alongside it.`;
+  return (
+    `${subject} This cannot be undone from here, and nothing is moved to an archive. ` +
+    `If you turned on versioning at your storage provider, earlier versions stay there, ` +
+    `and only you can remove them.`
+  );
 }
