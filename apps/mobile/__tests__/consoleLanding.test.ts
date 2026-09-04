@@ -23,6 +23,16 @@
  * *during* render, and swapping it for a `router.replace` in an effect leaves a
  * frame in which the Map is mounted and painting — the exact flash this route
  * exists to remove, and one no pure test can see.
+ *
+ * ## And now there is a third state, which is why `mountLanding` is awaited
+ *
+ * `/console` also restores the file page a device was last on, which it has to
+ * *ask* the device for — asynchronously, on every platform. So the route paints
+ * nothing at all for the first commit, and then answers. `mountLanding` flushes
+ * that read before returning, so every assertion below is about the settled
+ * screen; `paints nothing while the device is being asked` is the one test that
+ * looks at the frame before it, and it is the one that would catch the Map
+ * flash coming back.
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
@@ -78,7 +88,22 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function mountLanding(data: ConsoleData): HTMLElement {
+/**
+ * Mount, and flush the device read the route now makes.
+ *
+ * `recallPlace` resolves on a microtask — `memoryStore()` under
+ * `localStorage`, both async by contract — so without this every assertion
+ * would run against the "still asking" frame, which paints nothing at all.
+ */
+async function mountLanding(data: ConsoleData): Promise<HTMLElement> {
+  const container = mountLandingSync(data);
+  await act(async () => {
+    for (let i = 0; i < 4; i += 1) await Promise.resolve();
+  });
+  return container;
+}
+
+function mountLandingSync(data: ConsoleData): HTMLElement {
   mockData = data;
   Object.defineProperty(document.documentElement, "clientWidth", {
     value: 390,
@@ -111,12 +136,24 @@ const CONTEXTS = [
 /* -------------------------------------------------------------------------- */
 
 describe("signing in lands on your notes", () => {
-  test("the first context in the rail's own order, on its Browse", () => {
-    const container = mountLanding(dataWith(CONTEXTS));
+  test("the first context in the rail's own order, on its Browse", async () => {
+    const container = await mountLanding(dataWith(CONTEXTS));
     const redirect = container.querySelector('[data-testid="redirect"]');
 
     expect(redirect).not.toBeNull();
     expect(redirect!.getAttribute("data-href")).toBe("/console/@seyi");
+  });
+
+  test("and paints nothing at all while the device is being asked", () => {
+    /*
+      The frame before the answer. It has to be blank rather than the Map:
+      drawing the constellation and then redirecting out of it is the flash this
+      route was made to remove, and the asynchronous device read is a new way to
+      reintroduce it. Deliberately not awaited — that is the point.
+    */
+    const container = mountLandingSync(dataWith(CONTEXTS));
+    expect(container.querySelector('[data-testid="redirect"]')).toBeNull();
+    expect(container.textContent ?? "").toBe("");
   });
 
   /**
@@ -128,8 +165,8 @@ describe("signing in lands on your notes", () => {
    * constellation for a frame first — invisible to a pure test, and the whole
    * reason this file mounts anything.
    */
-  test("and the Map is never mounted on the way through", () => {
-    const container = mountLanding(dataWith(CONTEXTS));
+  test("and the Map is never mounted on the way through", async () => {
+    const container = await mountLanding(dataWith(CONTEXTS));
     expect(container.textContent ?? "").toBe("");
   });
 });
@@ -142,15 +179,15 @@ describe("the two states that do not redirect", () => {
    * flight sees it for the moment before it arrives, rather than a blank screen.
    * Telling the two apart is the caller's job, not the URL's.
    */
-  test("an account that can reach no context sees the Map instead", () => {
-    const container = mountLanding(dataWith([] as unknown as ConsoleData["contexts"]));
+  test("an account that can reach no context sees the Map instead", async () => {
+    const container = await mountLanding(dataWith([] as unknown as ConsoleData["contexts"]));
     expect(container.querySelector('[data-testid="redirect"]')).toBeNull();
     expect(container.textContent ?? "").not.toBe("");
   });
 
-  test("so does a list that has not arrived yet", () => {
+  test("so does a list that has not arrived yet", async () => {
     const loading = { ...dataWith([] as unknown as ConsoleData["contexts"]), loading: true };
-    const container = mountLanding(loading);
+    const container = await mountLanding(loading);
     expect(container.querySelector('[data-testid="redirect"]')).toBeNull();
   });
 });

@@ -1,6 +1,7 @@
 import { forgetEverything, forgetWorkspace, waitingOnDevice } from "./cache";
 import { endSession } from "./epoch";
 import { keysForWorkspace, ownedKeys } from "./keys";
+import { forgetPlace, placeKeys } from "../console/lastPlace";
 import type { OutboxCounts } from "./outbox";
 import { openStore } from "./store";
 
@@ -202,8 +203,22 @@ async function clearEverything(): Promise<ForgetResult> {
   try {
     const store = openStore();
     await forgetEverything(store);
+    /*
+      The last file page this device was on goes with the copies.
+
+      It is not one of them — it holds no note text, only a context slug and a
+      path (`console/lastPlace.ts`) — but a path is the *name* of one of
+      somebody's notes, and leaving it behind would also hand the next person to
+      sign in on this machine a redirect into a context they have never seen.
+      It lives under its own namespace, so it is cleared and verified
+      explicitly rather than being swept up by `ownedKeys`; a clear this module
+      does not measure is exactly the silent half-clear its "never silently"
+      stance exists to prevent.
+    */
+    await forgetPlace(store);
     if (!store.durable) return { verdict: "unmeasured" };
-    const left = ownedKeys(await store.keys());
+    const keys = await store.keys();
+    const left = [...ownedKeys(keys), ...placeKeys(keys)];
     if (left.length > 0) {
       warnLeftBehind("sign-out", left.length);
       return { verdict: "left-behind" };
