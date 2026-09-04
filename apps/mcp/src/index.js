@@ -620,6 +620,52 @@ async function route(request, env, ctx) {
       // where the work happens.
       store.defer = ctx && typeof ctx.waitUntil === "function" ? (work) => ctx.waitUntil(work) : null;
 
+      /**
+       * Count a thing that happened, behind the response and never in front of
+       * it.
+       *
+       * Request-scoped like `store.defer` above and for the same reason: the
+       * tool layer never sees `env` or the control plane, so a reused isolate
+       * carries nothing across tenants.
+       *
+       * Two properties, both of which are the whole point:
+       *
+       *  - **It cannot fail a request.** The report is deferred where the host
+       *    can defer and dropped where it cannot — never awaited, never
+       *    retried, and its rejection is swallowed here rather than at each
+       *    call site, so there is one place this promise can throw from and it
+       *    does not.
+       *  - **It carries a name and a number.** The metric names are the
+       *    control plane's closed vocabulary; the workspace is one this
+       *    request already resolved a grant to. Nothing about *what* the call
+       *    was — no path, no query, no title — is in the shape at all. Adding
+       *    one would make this a record of what somebody wrote, which their
+       *    own bucket already holds and we deliberately do not.
+       */
+      store.reportUsage = (events) => {
+        if (!Array.isArray(events) || events.length === 0) return;
+        // **The deferral is checked before the request is built, not after.**
+        // A host with no `waitUntil` has nothing keeping the invocation alive
+        // past the response, so a `fetch` started here is one the runtime may
+        // cancel at any point — a request that costs a subrequest, may or may
+        // not arrive, and cannot be observed either way. Not starting it is the
+        // honest version of "this host does not report", and it is the one
+        // place in this worker where "cannot defer" means "do not do the
+        // work": an index nobody builds is a broken product, and a figure
+        // nobody counts is a slightly emptier dashboard.
+        if (typeof store.defer !== "function") return;
+        try {
+          store.defer(
+            controlPlane.reportUsage(events).catch(() => {
+              // A counter that could not be written changes nothing about the
+              // answer that has already gone out.
+            }),
+          );
+        } catch {
+          // A host whose `waitUntil` refuses the work simply does not report.
+        }
+      };
+
       // Capture is anchored to the context its grant was approved for, so the
       // inbox store is built without the opener at all rather than with one
       // nothing calls. That makes "a capture-only credential reaches exactly
@@ -1390,6 +1436,10 @@ async function handleModernMcp(request, msg, store, session) {
   try {
     switch (msg.method) {
       case "server/discover":
+        // A connection opening. Counted here on the modern transport and at
+        // `initialize` on the legacy one, because those are the two shapes of
+        // "a client just arrived" — see `reportSessionUsage`.
+        reportSessionUsage(store, session.workspaceId);
         // MUST be implemented. It is how a modern client learns what this
         // server is without probing every list endpoint in turn. Modern-only
         // `supportedVersions` — see `MODERN_ONLY_VERSION_LISTS`.
@@ -1600,7 +1650,68 @@ async function callToolForSession(params, store, session) {
             "Reconnect the client with write access from the Context dashboard."
     );
   }
-  return callTool(params?.name, args, targetStore, target.scope);
+  const result = await callTool(params?.name, args, targetStore, target.scope);
+  // Counted after the call, against the context the call was *routed to* —
+  // `target`, never `session`. A cross-context call is activity in the brain it
+  // reached, and attributing it to the connection's default context would
+  // quietly make one tenant's figures include another's work.
+  reportToolUsage(store, params?.name, target.workspaceId);
+  return result;
+}
+
+/**
+ * The metrics one tool call is worth.
+ *
+ * Every call is an `mcp.tool_call`. Two tools are additionally counted as the
+ * thing they are, because those are the figures the product is judged on: a
+ * search, and a note written.
+ *
+ * **The tool's name is never what is reported** — it is matched against this
+ * table and the *metric* is sent. That is the difference between counting how
+ * busy the gateway is and keeping a record of what people do in their
+ * contexts, and it is why this is a lookup rather than a passthrough.
+ */
+const USAGE_METRICS_BY_TOOL = new Map([
+  ["search", ["search.query"]],
+  ["search_notes", ["search.query"]],
+  ["write_note", ["note.write"]],
+  ["propose_note", ["note.write"]],
+  ["save_context", ["note.write"]],
+]);
+
+/**
+ * One connection opening, counted once per request that opens one.
+ *
+ * Not a count of *people*, and the dashboard says so: a client that
+ * reconnects on every call reports every time. The distinct-contexts figure
+ * (`usageActiveDaily`) is the one that answers "how many brains are in use",
+ * and this one answers "how much connecting is going on", which is a different
+ * and also useful question.
+ */
+function reportSessionUsage(store, workspaceId) {
+  if (typeof store?.reportUsage !== "function") return;
+  if (typeof workspaceId !== "string" || workspaceId === "") return;
+  try {
+    store.reportUsage([{ metric: "mcp.session", workspaceId }]);
+  } catch {
+    // As in `reportToolUsage`: a counter may not fail a request by any route.
+  }
+}
+
+function reportToolUsage(store, toolName, workspaceId) {
+  if (typeof store?.reportUsage !== "function") return;
+  if (typeof workspaceId !== "string" || workspaceId === "") return;
+  const events = [{ metric: "mcp.tool_call", workspaceId }];
+  for (const metric of USAGE_METRICS_BY_TOOL.get(toolName) ?? []) {
+    events.push({ metric, workspaceId });
+  }
+  try {
+    store.reportUsage(events);
+  } catch {
+    // `reportUsage` already swallows its own rejection; this catches a
+    // synchronous throw from a host that refuses deferral in an unexpected
+    // way. A counter must not be able to fail a tool call by any route.
+  }
 }
 
 /** Something that could name a context: a non-empty string, and nothing else. */
@@ -1625,6 +1736,7 @@ async function handleRpc(msg, store, session) {
   try {
     switch (method) {
       case "initialize": {
+        reportSessionUsage(store, session.workspaceId);
         // MCP lifecycle: if the requested revision is one we speak, echo it.
         // Otherwise counter-offer — in a normal result, never a JSON-RPC error
         // — with the newest revision we do speak, and let the client decide
