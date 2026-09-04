@@ -115,8 +115,11 @@ export function SettingsPane({
           : "Your bucket, your credentials. Revoke the key at your provider and Context loses access immediately — no export needed."}
       </Text>
 
-      {storage === null ? (
-        data.loading ? (
+      {storage === null || storage === undefined ? (
+        // `undefined` is the binding still in flight, which is what the
+        // spinner is for; `data.loading` is the workspace list and lands
+        // first. See `ConsoleData.storage`.
+        data.loading || storage === undefined ? (
           <Card>
             <View style={styles.loadingRow}>
               <ActivityIndicator color={colors.text2} size="small" />

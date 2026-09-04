@@ -39,9 +39,16 @@ export function providerLabel(provider: string): string {
  * it is a warning with a tone, not a label.
  */
 export function storagePillLabel(
-  storage: { provider: string; bucket?: string; rootPrefix?: string } | null,
+  storage: { provider: string; bucket?: string; rootPrefix?: string } | null | undefined,
 ): string | null {
-  if (storage === null) return null;
+  /*
+    `null` and `undefined` both produce no label, and a caller must not read
+    that as "no bucket" without checking which one it had — `undefined` is a
+    binding that has not answered yet (`ConsoleData.storage`). The status bar
+    is the one caller that needs no check: it *omits* the segment for a missing
+    label rather than printing a claim.
+  */
+  if (storage === null || storage === undefined) return null;
   const provider = providerLabel(storage.provider);
   const location = [storage.bucket, storage.rootPrefix].find(
     (value) => value !== undefined && value.trim() !== "",

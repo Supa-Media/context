@@ -50,11 +50,12 @@ export default function ContextBrowseRoute() {
       data={data}
       onOpenSettings={slug === null ? undefined : () => router.push(settingsHref(slug))}
       /*
-        What the URL has asked for and the browser has not reached yet. It is
-        `null` the instant `select` lands, so the pane's empty state is
-        suppressed for exactly the gap and not a frame longer.
+        What the URL has asked for. The pane pairs it with the browser's own
+        `opening` to cover both halves of the gap before a linked note is on
+        screen; narrowing it here to "and the browser has not reached it yet"
+        was the first attempt and closed only the first half.
       */
-      pendingNote={data.files.selectedPath === null ? note : null}
+      pendingNote={note}
     />
   );
 }

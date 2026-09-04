@@ -174,6 +174,19 @@ export function useFileBrowser(options: {
   const [listings, setListings] = useState<Listings>({});
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  /*
+    The selection whose contents are still on their way. See `opening` in
+    `browser.ts` for what reads it and why the pane cannot infer it from
+    `selectedPath` and `editor` alone.
+
+    Cleared with a functional update comparing against the path that set it, so
+    a slow read for a note somebody has already navigated away from cannot
+    clear the flag belonging to the one they are waiting on now.
+  */
+  const [opening, setOpening] = useState<string | null>(null);
+  const settleOpening = useCallback((path: string) => {
+    setOpening((current) => (current === path ? null : current));
+  }, []);
   const [editor, dispatch] = useReducer(editorReducer, emptyEditor);
   const [clipboard, setClipboard] = useState<Clipboard | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -460,6 +473,10 @@ export function useFileBrowser(options: {
     setListings({});
     setExpanded(new Set());
     setSelectedPath(null);
+    // Nothing is on its way in a context nothing has asked for yet. A read
+    // still in flight for the *previous* context settles onto its own path and
+    // finds this `null`, which is the state it would have left anyway.
+    setOpening(null);
     setClipboard(null);
     setNotice(null);
     dispatch({ type: "closed" });
@@ -581,49 +598,59 @@ export function useFileBrowser(options: {
     async (path: string): Promise<void> => {
       if (workspaceId === null) return;
       const offline = offlineRef.current;
+      setOpening(path);
+      try {
+        let note: OpenNote | null = null;
+        let fromCache = false;
+        let notice: string | undefined;
 
-      let note: OpenNote | null = null;
-      let fromCache = false;
-      let notice: string | undefined;
-
-      if (offline.reachability === "offline") {
-        const cached = await offline.cachedNote(path);
-        if (cached !== null) {
-          note = cached.value;
-          fromCache = true;
-          notice = cachedNotice({ cachedAt: cached.cachedAt, now: Date.now() });
-        }
-      } else {
-        try {
-          note = await readNote({ workspaceId, path });
-          offline.rememberNote(note);
-        } catch (error) {
-          const cached = isServerRefusal(error) ? null : await offline.cachedNote(path);
-          if (cached === null) {
-            dispatch({ type: "closed" });
-            setNotice(toFileError(error).message);
-            return;
+        if (offline.reachability === "offline") {
+          const cached = await offline.cachedNote(path);
+          if (cached !== null) {
+            note = cached.value;
+            fromCache = true;
+            notice = cachedNotice({ cachedAt: cached.cachedAt, now: Date.now() });
           }
-          note = cached.value;
-          fromCache = true;
-          notice = cachedNotice({ cachedAt: cached.cachedAt, now: Date.now() });
+        } else {
+          try {
+            note = await readNote({ workspaceId, path });
+            offline.rememberNote(note);
+          } catch (error) {
+            const cached = isServerRefusal(error) ? null : await offline.cachedNote(path);
+            if (cached === null) {
+              dispatch({ type: "closed" });
+              setNotice(toFileError(error).message);
+              return;
+            }
+            note = cached.value;
+            fromCache = true;
+            notice = cachedNotice({ cachedAt: cached.cachedAt, now: Date.now() });
+          }
         }
-      }
 
-      if (note === null) {
-        dispatch({ type: "closed" });
-        setNotice(NOT_CACHED);
-        return;
-      }
+        if (note === null) {
+          dispatch({ type: "closed" });
+          setNotice(NOT_CACHED);
+          return;
+        }
 
-      const restored = restoreFor({
-        note,
-        pending: offline.pendingFor(path),
-        draft: await offline.savedDraft(path),
-      });
-      dispatch({ type: "opened", note, fromCache, notice, restored });
+        const restored = restoreFor({
+          note,
+          pending: offline.pendingFor(path),
+          draft: await offline.savedDraft(path),
+        });
+        dispatch({ type: "opened", note, fromCache, notice, restored });
+      } finally {
+        /*
+          Every exit, including the three early returns above that end in
+          `closed` plus a notice. A read that failed is not still opening, and
+          leaving the flag set would hold the region blank under the failure's
+          own message.
+        */
+        settleOpening(path);
+      }
     },
-    [readNote, workspaceId],
+    [readNote, settleOpening, workspaceId],
   );
 
   const select = useCallback(
@@ -660,7 +687,18 @@ export function useFileBrowser(options: {
         dispatch({ type: "closed" });
         // Its own listing, so the folder view has contents to draw rather than
         // an empty screen. `refresh` is a no-op for a folder already loaded.
-        if (listings[path] === undefined) void refresh([path]).catch(reportRefreshFailure);
+        if (listings[path] === undefined) {
+          /*
+            A folder reached by a link has no listing yet either, and the gap
+            before one arrives is the same blank the note path has — so it is
+            reported the same way. A folder already loaded is not opening: the
+            view has everything it needs this frame.
+          */
+          setOpening(path);
+          void refresh([path])
+            .catch(reportRefreshFailure)
+            .finally(() => settleOpening(path));
+        }
         return true;
       }
       if (workspaceId === null) return true;
@@ -669,7 +707,7 @@ export function useFileBrowser(options: {
       // this answer is not about. A caller only needs to know the guard let go.
       return true;
     },
-    [listings, openNote, refresh, reportRefreshFailure, workspaceId],
+    [listings, openNote, refresh, reportRefreshFailure, settleOpening, workspaceId],
   );
 
   /**
@@ -1693,6 +1731,7 @@ export function useFileBrowser(options: {
       toggleFolder,
       collapseAll,
       selectedPath,
+      opening,
       select,
       search,
       editor,
@@ -1793,6 +1832,7 @@ export function useFileBrowser(options: {
       search,
       select,
       selectedPath,
+      opening,
       setDraft,
       setVisibility,
       setScope,
