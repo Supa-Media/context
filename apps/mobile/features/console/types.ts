@@ -208,7 +208,25 @@ export interface ConsoleData {
   graph: MapGraph;
   stats: ConsoleStat[];
   clients: ConsoleClient[];
-  storage: ConsoleStorage | null;
+  /**
+   * The bucket this context is bound to, `null` for a context with none, and
+   * **`undefined` while the binding has not answered yet**.
+   *
+   * The third value is the whole point, and it was missing. `loading` goes
+   * false when the *workspace list* lands, and the binding is a different
+   * subscription — added to the spec only once a context is selected, so it is
+   * necessarily a round trip behind. Collapsing "not answered" into `null` for
+   * that window made the console tell somebody with a bucket connected that
+   * they had none: a warn pill in the top bar, "no bucket connected" on the
+   * phone's tree, and a banner in Browse offering to connect one. Filmed on a
+   * refresh, it is on screen for about a tenth of a second before the answer
+   * arrives and it disappears.
+   *
+   * So **nothing may claim an absence from this field without an answer.**
+   * `undefined` is "ask again in a moment"; only `null` is "there is no
+   * bucket".
+   */
+  storage: ConsoleStorage | null | undefined;
   /** Absent in the demo and for non-owners. See `StorageActions`. */
   storageActions?: StorageActions;
   endpoint: string;

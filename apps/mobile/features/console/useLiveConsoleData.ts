@@ -329,10 +329,17 @@ export function useLiveConsoleData(): ConsoleData {
       ? undefined
       : usable<StorageBinding | null>(results[`storage:${selectedContextId}`]);
 
-  const storage: ConsoleStorage | null =
-    binding === undefined || binding === null
-      ? null
-      : {
+  /*
+    Three values, not two. `binding` is `undefined` until the subscription
+    answers and `null` when the answer is "no bucket", and the difference is
+    the difference between a pause and an accusation — see `ConsoleData.storage`.
+  */
+  const storage: ConsoleStorage | null | undefined =
+    binding === undefined
+      ? undefined
+      : binding === null
+        ? null
+        : {
           connected: binding.status === "connected",
           status: binding.status,
           provider: binding.provider,

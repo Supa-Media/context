@@ -111,6 +111,8 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       toggleFolder,
       collapseAll,
       selectedPath,
+      // Nothing is ever in flight here: the demo's notes are in the bundle.
+      opening: null,
       select,
       /*
         The landing page has no bucket to search. It rejects rather than

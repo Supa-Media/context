@@ -305,6 +305,7 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     toggleFolder: noop,
     collapseAll: noop,
     selectedPath: null,
+  opening: null,
     // `select` answers whether the unsaved-changes guard let go; these
     // fixtures have no draft, so it always does.
     select: () => true,

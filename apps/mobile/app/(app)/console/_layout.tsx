@@ -546,7 +546,7 @@ export default function ConsoleLayout() {
                 ways — which is how "dropbox · undefined" got printed once.
               */
               vaultDetail={
-                phone
+                phone && data.storage !== undefined
                   ? (storagePillLabel(data.storage) ?? "no bucket connected")
                   : undefined
               }
@@ -1106,7 +1106,10 @@ function StorageChip({
   onOpenSettings?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
-  if (data.loading) return null;
+  // `undefined` is a binding that has not answered. Saying "no bucket
+  // connected" about it is a warn pill on somebody's own bucket, and
+  // `data.loading` does not cover it — see `ConsoleData.storage`.
+  if (data.loading || data.storage === undefined) return null;
   const label = storagePillLabel(data.storage);
 
   const pill =

@@ -97,6 +97,28 @@ export interface FileBrowser {
   collapseAll: () => void;
 
   selectedPath: string | null;
+
+  /**
+   * The selected path whose **contents have not arrived yet**, or `null`.
+   *
+   * `selectedPath` moves the instant somebody picks something; the note's body
+   * is a Convex action away and a folder's listing is another. Between the two
+   * there is a state with a path selected and nothing to draw, and it is not
+   * the same state as "nothing is selected" — a pane that reads it as one
+   * tells somebody who is opening a note to choose a note.
+   *
+   * That is what a refresh of `/console/@name?note=…` looked like: a round
+   * trip's worth of "Choose a note to read or edit it" over a URL that had
+   * already chosen one. `pendingNote` in `BrowsePane` covered the *first* half
+   * of that gap — the URL seen, `select` not yet called — and this covers the
+   * second and longer half.
+   *
+   * It is not an error state and it does not survive one. A read that fails
+   * clears it, so the empty state comes back with the failure's notice above
+   * it rather than the screen staying blank.
+   */
+  opening: string | null;
+
   /** Refused, with a prompt, when the open note has unsaved changes. */
   /**
    * Open a note or a folder. Answers **false** when the unsaved-changes guard

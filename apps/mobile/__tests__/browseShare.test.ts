@@ -101,6 +101,8 @@ function mount(element: ReturnType<typeof createElement>): HTMLElement {
 }
 
 const NOTE = "1-projects/plan.md";
+/** A note no listing in the fixture holds — a link followed on a cold load. */
+const UNLOADED = "3-resources/mcp/granola.md";
 
 const LISTING: FolderListing = {
   path: "1-projects",
@@ -153,6 +155,7 @@ function dataWith(over: Partial<FileBrowser> = {}, entry: Partial<FolderListing[
     expanded: new Set<string>(),
     toggleFolder: () => {},
     selectedPath: path,
+    opening: null,
     select: () => {},
     editor: emptyEditor,
     setDraft: () => {},
@@ -647,9 +650,57 @@ describe("a URL that names a note does not say 'choose a note' first", () => {
     expect(container.textContent ?? "").toContain("Choose a note");
   });
 
+  test("nor once the browser has taken it and is reading the body", () => {
+    /**
+     * **The half the first fix missed, filmed on a phone.**
+     *
+     * `pendingNote` is `null` again the instant `select` lands — and at that
+     * moment the note's body is still a Convex action away, so `selectedPath`
+     * names something `entryAt` cannot answer for and the empty state came
+     * straight back. In the recording it is the *longer* of the two gaps: a
+     * quarter of a second of "Choose a note to read or edit it" over a URL
+     * that had chosen one, on every refresh.
+     *
+     * The URL's own note is deliberately **not** passed here: this is the
+     * state after the browser has taken it, which is exactly where the first
+     * fix stopped looking.
+     */
+    const container = mount(
+      createElement(BrowsePane, {
+        /*
+          A path the listings cannot answer for — which is the state, not a
+          contrivance: on a cold load the only folder fetched is the root, and
+          the note being opened is two levels down. `entryAt` has nothing, so
+          `selected` is null and this is the branch that used to say "Choose a
+          note".
+        */
+        data: dataWith({ selectedPath: UNLOADED, opening: UNLOADED }),
+        pendingNote: null,
+      }),
+    );
+    expect(container.textContent ?? "").not.toContain("Choose a note");
+  });
+
+  test("but a read that failed lands back on the empty state, not on a blank page", () => {
+    /*
+      The control on the control. `opening` is not "a path is selected" — it is
+      "the contents are on their way" — and a read that comes back refused
+      clears it. Were it left set, a note that genuinely will not open would be
+      a blank region under a notice, with nothing telling anybody what to do
+      next, and no test above would have noticed.
+    */
+    const container = mount(
+      createElement(BrowsePane, {
+        data: dataWith({ selectedPath: null, opening: null, notice: "That file does not exist." }),
+        pendingNote: null,
+      }),
+    );
+    expect(container.textContent ?? "").toContain("Choose a note");
+  });
+
   test("a note that has opened is the note, not a blank region", () => {
-    // The gap closes the instant `select` lands: `pendingNote` is passed as
-    // `null` once anything is selected, so this cannot become a pane that is
+    // The gap closes when the body arrives: `opening` goes back to `null` and
+    // the entry is answerable, so this cannot become a pane that is
     // permanently blank.
     const container = mount(
       createElement(BrowsePane, {

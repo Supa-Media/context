@@ -386,6 +386,61 @@ uncompressed, 880 kB gzipped, and until it has run there is no console. What
 changed is that the wait is now the app's own ground instead of the browser's
 white. Splitting that bundle is a separate piece of work and a real one.
 
+### An absence is a claim, and a claim needs an answer
+
+Three states, not two, wherever the console says something is missing. Filmed
+on a phone refreshing a note, the console spent the first half-second telling
+the truth about nothing:
+
+- **"No bucket is connected to this context yet"**, with a *Connect a bucket*
+  button, across the Browse pane of a context whose bucket has been connected
+  for months — and "no bucket connected" in the chrome beside it.
+- **"Choose a note to read or edit it"**, over a URL that had already chosen
+  one, for about a quarter of a second.
+
+Neither condition was wrong about what it tested. Both were wrong about what
+the value *meant*.
+
+`ConsoleData.storage` was `ConsoleStorage | null`, and `null` was doing two
+jobs: "this context has no bucket" and "the binding subscription has not
+answered". The guard against the second was `!data.loading` — and `loading` is
+the **workspace list**, a different query, which lands first. The binding is
+only added to the query spec once a context is selected, so it is necessarily a
+round trip behind the thing that was guarding it. `storage` is
+`ConsoleStorage | null | undefined` now, `undefined` means *ask again in a
+moment*, and the four places that used to read an absence off it — the Browse
+banner, the top-bar pill, the phone's tree detail, the settings pane — each
+check which one they are holding. `storagePillLabel` still answers `null` to
+both, because its one caller that needs no check is the status bar, which
+*omits* a segment rather than printing a claim.
+
+The empty state is the same shape one layer down. `selectedPath` moves the
+instant somebody picks a note; the body is a Convex action away and a folder's
+listing is another, and in between `entryAt` has nothing to answer with — a
+state indistinguishable from an empty console unless the browser says so. The
+first fix for this named only the gap *before* `select` was called
+(`pendingNote`), which closed about a tenth of a second and left the longer
+quarter-second untouched, because `pendingNote` goes `null` at exactly the
+moment the second gap opens. `FileBrowser.opening` is the browser's own answer
+to "the selection has not arrived yet", and the pane draws nothing while either
+is set.
+
+**`opening` is not "a path is selected".** It clears on a failed read, and that
+is load-bearing rather than tidy: the pane is blank while it is set, so a flag
+that survived a refusal would leave somebody on an empty region under an error
+notice with nothing telling them what to do next — a worse screen than the
+flicker, and one no render test of the pane can catch, because the pane is not
+what fails to clear it. `__tests__/openingNote.test.ts` drives the real hook
+and pins all three transitions; sabotaging each one fails that test and only
+that test.
+
+What a simplification of this costs: collapse either field back to two values
+and the console goes back to accusing people of having no bucket, and telling
+somebody opening a note to open a note. The tests that fail are
+`storageUnknown.test.ts` (every case has its `null` control beside it, so
+deleting the claim outright fails too) and the four "choose a note" cases in
+`browseShare.test.ts`.
+
 ### Offline is a queue and a cache, and a conflict is parked rather than resolved
 
 The console holds a customer's notes and is used on laptops and phones, so

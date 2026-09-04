@@ -67,11 +67,13 @@ export function BrowsePane({
   data: ConsoleData;
   onOpenSettings?: () => void;
   /**
-   * A note this URL names that the file browser has not opened yet.
+   * The note this URL names, if it names one.
    *
-   * Only ever set for the moment between arriving on `/console/@slug?note=…`
-   * and the workspace list landing — see `Empty` for why that moment needed a
-   * name.
+   * The first of the two gaps between landing on `/console/@slug?note=…` and
+   * seeing that note: the URL has been read and the browser has not acted on
+   * it yet. The second gap — the browser reading the note's body — is
+   * `files.opening`, and both are answered in the same place. See the comment
+   * on `openDocument`.
    */
   pendingNote?: string | null;
 }) {
@@ -124,7 +126,15 @@ export function BrowsePane({
   */
   const padding = useSurfacePadding();
 
-  const noBucket = data.storage === null && !data.loading;
+  /*
+    `=== null`, and never `!== undefined`. A binding that has not answered is
+    not a context without one — see `ConsoleData.storage`. The `!data.loading`
+    that used to stand here looked like the same guard and was not: `loading`
+    is the *workspace list*, and the binding is a round trip behind it, so this
+    banner offered to connect a bucket that was already connected on every
+    refresh.
+  */
+  const noBucket = data.storage === null;
   const manifestBroken = files.listings[""]?.manifestUsable === false;
   /*
     The one notice here that is not an event, and the one that is drawn **once
@@ -306,17 +316,29 @@ export function BrowsePane({
   const openDocument =
     selected === null ? (
       /*
-        Nothing, rather than "Choose a note", while the URL names one.
+        Nothing, rather than "Choose a note", while something is on its way.
 
-        Reported from a hard refresh of `/console/@seyi?note=…`: the note opens
-        only once the workspace list has landed and the file browser has caught
-        up with it, and until then this region drew the context's name in a
-        heading over a line telling somebody to choose a note — on a URL that
-        had already chosen one. A round trip's worth of the opposite of what is
-        about to happen, and then a jump. Blank is not a nice state either; it
-        is a quiet one, and it is honest about a document that is on its way.
+        Reported from a hard refresh of `/console/@seyi?note=…`: this region
+        drew the context's name in a heading over a line telling somebody to
+        choose a note — on a URL that had already chosen one. A round trip's
+        worth of the opposite of what is about to happen, and then a jump.
+        Blank is not a nice state either; it is a quiet one, and it is honest
+        about a document that is on its way.
+
+        **There are two gaps, and the first fix only closed one of them.**
+        `pendingNote` covers the URL being read before the browser has acted on
+        it, and it is `null` again the instant `select` lands — after which
+        `selectedPath` names a note whose *body* is still a Convex action away,
+        `entryAt` has nothing to answer with, and the empty state came back for
+        the whole read. Filmed on a phone: about a tenth of a second of the
+        first gap and a quarter of a second of the second. `files.opening` is
+        the browser's own answer to "the selection has not arrived yet", and it
+        clears on a failed read — so a note that genuinely will not open lands
+        back here, under its notice, instead of on a blank page.
       */
-      pendingNote == null ? <Empty contextLabel={contextLabel} /> : null
+      pendingNote == null && files.opening === null ? (
+        <Empty contextLabel={contextLabel} />
+      ) : null
     ) : selected.kind === "folder" ? (
       <FolderView
         entry={selected}
