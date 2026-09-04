@@ -49,6 +49,12 @@ export default function ContextBrowseRoute() {
     <BrowsePane
       data={data}
       onOpenSettings={slug === null ? undefined : () => router.push(settingsHref(slug))}
+      /*
+        What the URL has asked for and the browser has not reached yet. It is
+        `null` the instant `select` lands, so the pane's empty state is
+        suppressed for exactly the gap and not a frame longer.
+      */
+      pendingNote={data.files.selectedPath === null ? note : null}
     />
   );
 }

@@ -54,6 +54,17 @@ const NAMESPACE = "context.lc.place";
 const VERSION = "v1";
 const KEY = `${NAMESPACE}.${VERSION}.last`;
 
+/**
+ * How long the device gets to answer before the landing stops waiting.
+ *
+ * Not a latency budget — a healthy `AsyncStorage` or `localStorage` read is
+ * single-digit milliseconds — but the answer to a bridge that has stopped
+ * answering, which is `forget.ts`'s stance applied to the one read that can
+ * hold a screen. Short enough that nobody experiences it as a launch that hung,
+ * and long enough that a cold bridge waking up still wins.
+ */
+export const RECALL_DEADLINE_MS = 600;
+
 /** Where somebody was: which context, and which note or folder in it. */
 export interface LastPlace {
   slug: string;
@@ -203,7 +214,7 @@ export function placeHref(place: LastPlace): string {
  * somebody has lost into the address bar on the way through.
  */
 export type LandingStep =
-  /** This device has not answered yet. One tick, and nothing painted. */
+  /** This device has not answered yet, and there is a redirect to protect. */
   | { action: "wait" }
   /** No context to go to: the list is empty, or has not arrived. */
   | { action: "map" }
@@ -214,7 +225,27 @@ export function landingStep(
   /** `undefined` while the device is still being asked. */
   place: LastPlace | null | undefined,
 ): LandingStep {
-  if (place === undefined) return { action: "wait" };
+  if (place === undefined) {
+    /*
+      **`wait` paints nothing, so it may only be answered when there is
+      something to protect.**
+
+      This returned `wait` unconditionally, and on a phone that was a bug with
+      a screenshot: a cold launch asks the device before the workspace list has
+      landed, so the console drew its rail — with the person's own brain
+      selected — around an empty pane, and held it there for as long as the
+      read took. An `AsyncStorage` read is a bridge call, and a bridge that has
+      not woken up yet is slowest at exactly the moment this runs.
+
+      The state it was protecting is the *warm* one: contexts already in hand,
+      the device answering in a tick, and a `map` there would be the
+      constellation flashing on the way to a redirect. With no contexts yet
+      there is nothing to flash past — the Map is what this route draws anyway
+      until the list arrives — so drawing it costs nothing and blank costs the
+      first thing somebody sees.
+    */
+    return contexts.length === 0 ? { action: "map" } : { action: "wait" };
+  }
   if (place !== null && contexts.some((context) => context.slug === place.slug)) {
     return { action: "redirect", href: placeHref(place) };
   }

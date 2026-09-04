@@ -144,16 +144,43 @@ describe("signing in lands on your notes", () => {
     expect(redirect!.getAttribute("data-href")).toBe("/console/@seyi");
   });
 
-  test("and paints nothing at all while the device is being asked", () => {
+  test("and paints nothing at all while a device with contexts in hand is asked", () => {
     /*
-      The frame before the answer. It has to be blank rather than the Map:
-      drawing the constellation and then redirecting out of it is the flash this
-      route was made to remove, and the asynchronous device read is a new way to
-      reintroduce it. Deliberately not awaited — that is the point.
+      The frame before the answer, on the *warm* path. It has to be blank rather
+      than the Map: drawing the constellation and then redirecting out of it is
+      the flash this route was made to remove, and the asynchronous device read
+      is a new way to reintroduce it. Deliberately not awaited — that is the
+      point.
     */
     const container = mountLandingSync(dataWith(CONTEXTS));
     expect(container.querySelector('[data-testid="redirect"]')).toBeNull();
     expect(container.textContent ?? "").toBe("");
+  });
+
+  test("a cold launch never shows an empty pane, however slow the device is", async () => {
+    /**
+     * **Reported from a phone: relaunching the app landed on a blank page with
+     * the personal brain in the rail.**
+     *
+     * That is this component rendering `null`. A cold launch asks the device
+     * before the workspace list has landed, and the answer to "still asking"
+     * was to paint nothing — for as long as an `AsyncStorage` read took, which
+     * on a bridge that has just woken up is not a frame.
+     *
+     * A mounted test rather than a pure one, because what was wrong was *what
+     * was on the screen* during a wait, and `landingStep` returning `wait` is
+     * not by itself a defect.
+     */
+    const container = mountLandingSync({
+      ...dataWith([] as unknown as ConsoleData["contexts"]),
+      loading: true,
+    });
+    expect(container.textContent ?? "").not.toBe("");
+    // And it still gets where it is going once both answers arrive.
+    await act(async () => {
+      for (let i = 0; i < 4; i += 1) await Promise.resolve();
+    });
+    expect(container.textContent ?? "").not.toBe("");
   });
 
   /**

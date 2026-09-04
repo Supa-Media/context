@@ -186,14 +186,31 @@ describe("where a remembered place sends somebody", () => {
     });
   });
 
-  test("nothing is painted while the device is still being asked", () => {
+  test("nothing is painted while a device with contexts in hand is asked", () => {
     /*
       Not the same answer as "this device knows nothing", and the difference is
       a visible one: `map` here would draw the constellation for a frame and
       then redirect out of it, which is the flash `/console` exists to remove.
     */
     expect(landingStep(CONTEXTS, undefined)).toEqual({ action: "wait" });
-    expect(landingStep([], undefined)).toEqual({ action: "wait" });
+  });
+
+  test("but a cold launch draws the Map rather than an empty pane", () => {
+    /**
+     * **Reported from a phone: relaunching landed on a blank page.**
+     *
+     * A cold launch asks the device before the workspace list has landed, and
+     * `wait` paints nothing — so the console drew its rail, with the person's
+     * own brain selected in it, around an empty pane and held it there for as
+     * long as an `AsyncStorage` read took. A bridge is slowest at exactly the
+     * moment this runs.
+     *
+     * `wait` is for the warm state it was written for: contexts in hand, the
+     * device answering in a tick, and a `map` that would be a flash on the way
+     * to a redirect. With no contexts there is nothing to flash past — the Map
+     * is what this route draws anyway until the list arrives.
+     */
+    expect(landingStep([], undefined)).toEqual({ action: "map" });
   });
 
   test("a place in a context that is reachable wins over the default", () => {
