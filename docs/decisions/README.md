@@ -72,6 +72,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - …and it opens the shards that can answer it, not all of them
 - The manifest is the query surface, and the diff moved out from under it
 - The console searches through the gateway's search, not a copy of it
+- A database we own holds a copy of somebody's notes only where they asked
+- Corpus statistics are per tenant, which is why it is a database each
 
 ## [The mobile app and the console](./app-and-console.md)
 

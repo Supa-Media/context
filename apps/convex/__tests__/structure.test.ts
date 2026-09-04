@@ -536,7 +536,8 @@ function analyze(modules: AnalyzedModule[]): {
 
     // Fail closed: a decrypt reached from a module-level helper cannot be
     // attributed to one export, so every export in the module inherits it.
-    const moduleWideTaint = DECRYPT_CALL.test(withoutImports(preamble));
+    // Superseded by `moduleWideTaintFromHelpers` below, which covers this
+    // case and the one it missed.
 
     // Same fail-closed rule for *call edges*, and it is the hole the barrier
     // set would otherwise open. A module-level helper like
@@ -545,16 +546,40 @@ function analyze(modules: AnalyzedModule[]): {
     //     return await ctx.runAction(internal.functions.storage.getBindingForGateway, …);
     //   }
     //
-    // sits above the first `export const`, so it belongs to no export block and
-    // its reference was previously counted for nobody — a public action could
-    // call it and the graph would see nothing. Every export in the module now
-    // inherits references found in the preamble.
+    // belongs to no Convex function, so its reference would be counted for
+    // nobody — a public action could call it and the graph would see nothing.
+    // Every export in the module inherits references found in unattributed
+    // text.
+    //
+    // **Unattributed is not the same as "above the first export", and the
+    // difference was a live hole.** `exportBlocks` splits on `export const`,
+    // so a helper written *after* a non-function export —
+    //
+    //   export const SOME_NAME = "…";      // not a Convex function
+    //   async function openStore(ctx) { … } // lands in SOME_NAME's block
+    //
+    // was attributed to that constant's block. A constant is not a registered
+    // Convex function, so it is not in `module.exports`, so it is not a node,
+    // so the edge was dropped on the floor. Found by writing a provisioner
+    // whose credential read sits in exactly that position: the analyzer said
+    // it reached no decrypt, and it plainly did.
+    //
+    // So the unattributed text is the preamble *plus every block whose name is
+    // not a Convex function this analysis knows about*.
+    const unattributed = [preamble];
+    for (const [blockName, blockText] of blocks) {
+      if (!(blockName in module.exports)) unattributed.push(blockText);
+    }
+    const moduleWideTaintFromHelpers = unattributed.some((text) =>
+      DECRYPT_CALL.test(withoutImports(text)),
+    );
+
     const preambleTargets: string[] = [];
-    {
-      const text = withoutImports(preamble);
+    for (const text of unattributed) {
+      const stripped = withoutImports(text);
       let found: RegExpExecArray | null;
       CONVEX_REFERENCE.lastIndex = 0;
-      while ((found = CONVEX_REFERENCE.exec(text)) !== null) {
+      while ((found = CONVEX_REFERENCE.exec(stripped)) !== null) {
         const target = found[1].slice(1);
         if (knownNodes.has(target)) preambleTargets.push(target);
       }
@@ -572,7 +597,9 @@ function analyze(modules: AnalyzedModule[]): {
       // behind an indirect export makes the analysis *more* suspicious of it,
       // not blind to it.
       const body = blocks.get(name) ?? module.source;
-      if (moduleWideTaint || DECRYPT_CALL.test(body)) decryptCapable.add(node);
+      if (moduleWideTaintFromHelpers || DECRYPT_CALL.test(body)) {
+        decryptCapable.add(node);
+      }
 
       let match: RegExpExecArray | null;
 
@@ -846,6 +873,23 @@ describe("no public function can reach a storage secret", () => {
       // as a *public* function and be caught by the next test rather than
       // this one.
       "functions.admin.readIntegrationSecret",
+      // THE PROVISIONER, AND ITS UNDERTAKER.
+      //
+      // Both open `SEARCH_D1_API_TOKEN` — a credential of *ours*, not a
+      // customer's — to create and delete one context's search database.
+      // internalActions, reached only by a schedule edge from
+      // `fastSearch.enable` / `.disable`, which is the same shape
+      // `verifyStorageBinding` has and rests on the same decision: scheduling
+      // is not calling, so the public mutations that start them are not
+      // themselves paths to the token.
+      //
+      // They are in this list at all because of a hole this branch found and
+      // closed: their credential read sits in a module-level helper written
+      // *after* a non-function export, which the analyzer used to attribute to
+      // that constant's block and then drop for not being a node. Both were
+      // invisible here and are not any more. See `unattributed` in `analyze`.
+      "functions.fastSearchProvision.provisionIndex",
+      "functions.fastSearchProvision.releaseIndex",
     ].sort());
   });
 
@@ -1528,6 +1572,88 @@ export const peek = action({
     expect(
       findViolations([...realModules(), attack]).map((v) => v.node),
     ).toContain("functions.helper.peek");
+  });
+
+  /**
+   * THE SAME HELPER, MOVED FOUR LINES DOWN, WHICH USED TO BE ENOUGH.
+   *
+   * The test above places the helper above the first `export const`, which is
+   * where the preamble rule looks. `exportBlocks` splits the file on
+   * `export const`, so a helper written *after* an exported constant lands in
+   * that constant's block instead — and a constant is not a registered Convex
+   * function, so it is not a node, so its edge was dropped rather than
+   * inherited. Same three lines, same public action, no violation.
+   *
+   * Found while writing `functions/fastSearchProvision.ts`, whose credential
+   * read sits in exactly that position: the analyzer reported it reached no
+   * decrypt, and it plainly did. `analyze` now treats every block belonging to
+   * a non-function export as unattributed, alongside the preamble.
+   *
+   * The two tests are kept separate rather than parameterised because they
+   * fail for different reasons and the second one is the subtle one: a fix to
+   * the preamble rule that did not also cover this position would leave this
+   * red and the other green.
+   */
+  test("a helper after a non-function export cannot hide one either", () => {
+    const attack: AnalyzedModule = {
+      reference: "functions.helper2",
+      path: "functions/helper2.ts",
+      source: `
+import { internal } from "../_generated/api";
+import { action } from "../_generated/server";
+
+export const SOME_NAME = "not-a-convex-function";
+
+async function openStore(ctx: any, workspaceId: any) {
+  return await ctx.runAction(internal.functions.storage.getBindingForGateway, {
+    workspaceId,
+  });
+}
+
+export const peek = action({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    const credential = await openStore(ctx, args.workspaceId);
+    return credential.bucket;
+  },
+});
+`,
+      exports: { peek: { kind: "action", isPublic: true, isInternal: false } },
+    };
+
+    expect(
+      findViolations([...realModules(), attack]).map((v) => v.node),
+    ).toContain("functions.helper2.peek");
+  });
+
+  /**
+   * And the same for a `decryptSecret(` call rather than a call edge — the
+   * other half of the fail-closed rule, which had the identical gap.
+   */
+  test("a decrypt after a non-function export taints the module too", () => {
+    const attack: AnalyzedModule = {
+      reference: "functions.helper3",
+      path: "functions/helper3.ts",
+      source: `
+import { decryptSecret } from "./lib/crypto";
+import { action } from "../_generated/server";
+
+export const SOME_NAME = "not-a-convex-function";
+
+async function open(envelope: string, keyset: any, context: any) {
+  return await decryptSecret(envelope, keyset, context);
+}
+
+export const peek = action({
+  args: {},
+  handler: async () => await open("v2:…", null, null),
+});
+`,
+      exports: { peek: { kind: "action", isPublic: true, isInternal: false } },
+    };
+
+    const { decryptCapable } = analyze([...realModules(), attack]);
+    expect(decryptCapable.has("functions.helper3.peek")).toBe(true);
   });
 });
 
