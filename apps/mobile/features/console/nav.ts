@@ -127,12 +127,33 @@ export function noteHref(slug: string, path: string): string {
 export function noteFromQuery(value: string | string[] | undefined): string | null {
   const raw = Array.isArray(value) ? value[0] : value;
   if (typeof raw !== "string") return null;
+  return safeNotePath(raw);
+}
+
+/**
+ * A bucket path somebody handed us, or `null`.
+ *
+ * **Every path that arrives from outside the app goes through here** — the
+ * `?note=` query, the `/note/@slug/…` link grammar, and the last place read
+ * back off the device — because each of them ends up as a path in a request to
+ * somebody's bucket, and each of them can be hand-edited or forged.
+ *
+ * The refusals are `safeNextRoute`'s, for `safeNextRoute`'s reason. A leading
+ * slash, a backslash some parser will normalise to a slash, a `.` or `..`
+ * segment, or a control character is not a note anybody has: it is somebody
+ * probing the adapter's prefix handling. The honest answer is to open nothing
+ * rather than to guess what was meant — the gateway refuses these too
+ * (`assertSafePrefix`), and refusing here as well means the console never
+ * builds the request in the first place.
+ *
+ * It deliberately does **not** check that the path ends in `.md`. A folder is a
+ * legitimate thing to link to and to come back to — `select` opens one — and
+ * `useFileBrowser` already decides note-or-folder from the listing and the
+ * extension together.
+ */
+export function safeNotePath(raw: string): string | null {
   const trimmed = raw.trim();
   if (trimmed === "") return null;
-  // The same refusals `safeNextRoute` makes, for the same reason: this becomes
-  // a path in a request to somebody's bucket. A leading slash, a traversal
-  // segment or a control character is a hand-edited URL, and the honest answer
-  // is to open nothing rather than to guess what was meant.
   if (trimmed.startsWith("/") || trimmed.includes("\\")) return null;
   if (trimmed.split("/").some((segment) => segment === "." || segment === "..")) return null;
   // eslint-disable-next-line no-control-regex
