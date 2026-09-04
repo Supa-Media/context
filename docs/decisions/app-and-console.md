@@ -386,6 +386,51 @@ uncompressed, 880 kB gzipped, and until it has run there is no console. What
 changed is that the wait is now the app's own ground instead of the browser's
 white. Splitting that bundle is a separate piece of work and a real one.
 
+### A long press has two signals, because the platform is watching the finger too
+
+The gesture shipped, its tests passed, and on a phone it did nothing.
+
+The timer is the obvious implementation and it is correct: touch down on a
+link, hold `LONG_PRESS_MS`, ask the host. Driven as real touch events in
+headless Chromium under touch emulation it fires exactly as written. **On iOS
+it fired approximately never**, and the reason is that the page is not the only
+thing watching the finger: WebKit's own long-press recogniser — the one that
+raises the selection magnifier over editable text — claims a stationary touch
+and tells the page by sending `touchcancel`. The handler treated that as *give
+up*. The gesture was being cancelled by the very thing that had recognised it.
+
+So a long press arrives two ways and either one is the press:
+
+- **the timer**, for every browser that leaves the touch alone; and
+- **`contextmenu`**, which is the platform *reporting* a long press rather than
+  silently taking it.
+
+`contextmenu` is honoured only while one of our touch gestures is live, and
+that is the load-bearing half of the rule: the same event is a right-click on a
+pointer device, and answering that with "open this note?" would take the
+browser's menu away from every note on a desktop. The handler reads whether a
+touch of ours is pending, never the event.
+
+And `touchcancel` no longer cancels a finger that has not moved — the timer is
+left to run, which is what turns WebKit's interruption into the press it was
+recognising. A scroll has already drifted past the slop by then, and a cancel
+that arrives inside `PRESS_CANCEL_FLOOR_MS` is something interrupting a touch
+that had not become anything yet, so it is still dropped. `.cm-note-link` also
+carries `-webkit-touch-callout: none`, scoped to the link span so the rest of
+the note keeps every selection affordance it has.
+
+Two signals cannot become two dialogs and no flag says so: `press` cancels the
+pending gesture on its way out, so whichever signal arrives first takes the
+timer with it. A first draft carried an `emitted` boolean as well, and
+sabotaging it changed no test's outcome — it was guarding a case `cancel` had
+already closed, which is the only evidence that matters about a guard.
+
+What a simplification of this costs: restoring the one-signal version puts the
+feature back to working everywhere except the platform it was asked for.
+`__tests__/editorLinks.test.ts` drives the WebKit sequence — `touchstart`, then
+`touchcancel` at 300ms with the finger still on the link — and each of the four
+rules fails its own test and only its own when reversed.
+
 ### An absence is a claim, and a claim needs an answer
 
 Three states, not two, wherever the console says something is missing. Filmed

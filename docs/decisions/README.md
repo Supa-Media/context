@@ -85,6 +85,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Every react-native-web `View` is a stacking context, so a `zIndex` is local
 - There are two palettes, and a screen may not hold either one
 - The web shell is `public/index.html`, because `+html.tsx` is a static-rendering file
+- A long press has two signals, because the platform is watching the finger too
 - An absence is a claim, and a claim needs an answer
 - Offline is a queue and a cache, and a conflict is parked rather than resolved
 - A team link's note survives the console's own cold start, and the login gate

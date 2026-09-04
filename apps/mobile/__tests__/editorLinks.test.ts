@@ -40,7 +40,12 @@
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { LONG_PRESS_MS, noteLinks, type NoteLinkContext } from "../features/console/files/noteLinks";
+import {
+  LONG_PRESS_MS,
+  PRESS_CANCEL_FLOOR_MS,
+  noteLinks,
+  type NoteLinkContext,
+} from "../features/console/files/noteLinks";
 
 const NOTE = "1-projects/persistence/overview.md";
 const TARGET = "2-products/context-lc/overview.md";
@@ -248,6 +253,117 @@ describe("a long press asks, and a tap and a scroll do not", () => {
     // The callback is the app's and outlives the view; what must not happen is
     // a navigation somebody did not ask for after leaving the note.
     expect(held.pressed).toEqual([TARGET]);
+  });
+});
+
+describe("the platform's own long press is the same press", () => {
+  /**
+   * **Reported from a phone: long pressing a link does nothing.**
+   *
+   * Driven as real touch events in a real browser, the timer above works. On
+   * iOS it fired approximately never, and the reason is that the page is not
+   * the only thing watching the finger: WebKit's own long-press recogniser —
+   * the one that raises the selection magnifier over editable text — claims a
+   * stationary touch and tells the page by sending `touchcancel`. The handler
+   * treated that as "give up", so the gesture was cancelled by the very thing
+   * that had recognised it.
+   *
+   * Reproduced before it was fixed, by dispatching the sequence WebKit
+   * dispatches — `touchstart`, then `touchcancel` at 300ms with the finger
+   * still on the link — against the built extension in headless Chromium under
+   * touch emulation: no press. The same sequence here.
+   */
+  test("a cancel over a finger that has not moved still becomes a press", () => {
+    jest.useFakeTimers();
+    mounted = mount();
+    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    jest.advanceTimersByTime(300);
+    mounted.content.dispatchEvent(touch("touchcancel", []));
+    jest.advanceTimersByTime(LONG_PRESS_MS);
+    expect(mounted.pressed).toEqual([TARGET]);
+  });
+
+  test("but one that arrives before the gesture was anything is dropped", () => {
+    /*
+      The control on the rule above, and the reason it is a floor rather than
+      "never cancel": a call arriving twenty milliseconds after a finger lands
+      is an interruption, and turning every interruption into a dialog about a
+      link somebody happened to touch is its own bug.
+    */
+    jest.useFakeTimers();
+    mounted = mount();
+    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    jest.advanceTimersByTime(PRESS_CANCEL_FLOOR_MS - 50);
+    mounted.content.dispatchEvent(touch("touchcancel", []));
+    jest.advanceTimersByTime(LONG_PRESS_MS);
+    expect(mounted.pressed).toEqual([]);
+  });
+
+  test("a drifting touch that is then cancelled is still a scroll", () => {
+    // Cancelling is not a second chance for a gesture already ruled out.
+    jest.useFakeTimers();
+    mounted = mount();
+    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    mounted.content.dispatchEvent(touch("touchmove", [{ clientX: 1, clientY: 60 }]));
+    jest.advanceTimersByTime(300);
+    mounted.content.dispatchEvent(touch("touchcancel", []));
+    jest.advanceTimersByTime(LONG_PRESS_MS);
+    expect(mounted.pressed).toEqual([]);
+  });
+
+  test("`contextmenu` during a touch is the platform reporting the press", () => {
+    // The second signal: some browsers announce the long press rather than
+    // silently taking it. Both are the same gesture and both reach the host.
+    jest.useFakeTimers();
+    mounted = mount();
+    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    jest.advanceTimersByTime(300);
+    const event = mouse("contextmenu");
+    mounted.content.dispatchEvent(event);
+    expect(mounted.pressed).toEqual([TARGET]);
+    // The system menu would otherwise come up over the dialog.
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  test("a right-click with no touch behind it keeps the browser's menu", () => {
+    /*
+      The control that decides the shape of the rule. `contextmenu` is also a
+      right-click on a pointer device, and answering that with "open this
+      note?" would take the browser's menu away from every note on a desktop.
+      The handler reads whether one of *our* touch gestures is live, not the
+      event.
+    */
+    jest.useFakeTimers();
+    mounted = mount();
+    const event = mouse("contextmenu");
+    mounted.content.dispatchEvent(event);
+    expect(mounted.pressed).toEqual([]);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  test("both signals for one gesture ask once", () => {
+    // Two dialogs for one press is the failure this pair invites.
+    jest.useFakeTimers();
+    mounted = mount();
+    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    jest.advanceTimersByTime(300);
+    mounted.content.dispatchEvent(mouse("contextmenu"));
+    jest.advanceTimersByTime(LONG_PRESS_MS);
+    mounted.content.dispatchEvent(touch("touchend", []));
+    expect(mounted.pressed).toEqual([TARGET]);
+  });
+
+  test("and a second gesture can still press", () => {
+    // The control on the deduplication: a flag that never reset would make the
+    // feature work exactly once per note.
+    jest.useFakeTimers();
+    mounted = mount();
+    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    jest.advanceTimersByTime(LONG_PRESS_MS + 1);
+    mounted.content.dispatchEvent(touch("touchend", []));
+    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    jest.advanceTimersByTime(LONG_PRESS_MS + 1);
+    expect(mounted.pressed).toEqual([TARGET, TARGET]);
   });
 });
 
