@@ -60,6 +60,7 @@ import type * as functions_provisioning from "../functions/provisioning.js";
 import type * as functions_shareCard from "../functions/shareCard.js";
 import type * as functions_shares from "../functions/shares.js";
 import type * as functions_storage from "../functions/storage.js";
+import type * as functions_usage from "../functions/usage.js";
 import type * as functions_workspaces from "../functions/workspaces.js";
 import type * as http from "../http.js";
 
@@ -122,6 +123,7 @@ declare const fullApi: ApiFromModules<{
   "functions/shareCard": typeof functions_shareCard;
   "functions/shares": typeof functions_shares;
   "functions/storage": typeof functions_storage;
+  "functions/usage": typeof functions_usage;
   "functions/workspaces": typeof functions_workspaces;
   http: typeof http;
 }>;

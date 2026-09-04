@@ -1,7 +1,7 @@
 /**
  * HTTP routes.
  *
- * Three families live here: the auth framework's own callbacks, the nine
+ * Three families live here: the auth framework's own callbacks, the ten
  * control-plane routes the MCP gateway resolves every request through, and the
  * three ingest routes the Cloudflare Email Worker calls.
  *
@@ -46,6 +46,12 @@
  *    to be impossible because the surface has no shape for it, not because
  *    nobody has tried.
  *
+ *    `/gateway/usage` is the one route whose *request* names several
+ *    workspaces, and it is not an exception to this: it returns a count of
+ *    rows written and nothing else. Naming a context there cannot read it,
+ *    confirm it exists, or distinguish a real id from an invented one — every
+ *    input is answered identically.
+ *
  * `__tests__/structure.test.ts` reads this file and enforces (1) structurally,
  * along with the rule that only an enumerated route may reach a decrypted
  * storage credential.
@@ -88,6 +94,7 @@ import { auth } from "./auth";
 import { api, internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { hashToken, TOKEN_HASH_PATTERN } from "./functions/lib/crypto";
 import { logIngest } from "./functions/lib/ingestLog";
 import {
@@ -836,6 +843,63 @@ export const shareNotePreview = httpAction(async (ctx, request) => {
 
 http.route({ path: "/share/note", method: "POST", handler: shareNotePreview });
 
+/**
+ * `POST /gateway/usage` — the gateway telling the control plane that some
+ * counted things happened.
+ *
+ * **What may cross this boundary is a name from a closed list and a number.**
+ * No path, no query, no note title, no client-supplied timestamp: the day is
+ * decided here, from this deployment's clock, so a caller cannot backdate or
+ * spread activity. `record` drops any metric it does not recognize, so a
+ * gateway on a different build than this control plane skews a figure rather
+ * than writing a name of its choosing into the table.
+ *
+ * The workspace ids are the gateway's own — it has just resolved a grant to
+ * get them — and they are validated as ids by the mutation's argument
+ * validator. An id for a workspace that does not exist writes a counter row
+ * nothing joins to; it cannot read or affect one.
+ *
+ * **A failure here is answered 200.** This route exists to make a dashboard
+ * less blank, and the gateway calls it behind its own response. Returning an
+ * error would put a retry, a log line and eventually an operator's attention
+ * on a counter, which is a worse outcome than a number being slightly low.
+ */
+export const gatewayUsage = gatewayRoute(async (ctx, body) => {
+  const rawEvents = Array.isArray(body.events) ? body.events : [];
+  const events: { metric: string; workspaceId?: Id<"workspaces">; count?: number }[] =
+    [];
+  for (const entry of rawEvents) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const record = entry as Record<string, unknown>;
+    const metric = stringField(record, "metric");
+    if (metric === null) continue;
+    const workspaceId = stringField(record, "workspaceId");
+    const count = record.count;
+    events.push({
+      metric,
+      // Cast at the boundary, checked by the validator on the other side of
+      // `runMutation` — a malformed id is a rejected call, not a stored row.
+      workspaceId: workspaceId === null ? undefined : (workspaceId as Id<"workspaces">),
+      count: typeof count === "number" ? count : undefined,
+    });
+  }
+
+  if (events.length === 0) return json({ applied: 0 });
+
+  try {
+    const result = await ctx.runMutation(internal.functions.usage.record, {
+      events,
+      surface: "mcp",
+    });
+    return json(result);
+  } catch {
+    // See the header: a counter must never be the reason a tool call is
+    // retried. The gateway is not waiting on this and has nothing to do with
+    // the answer.
+    return json({ applied: 0 });
+  }
+});
+
 /* -------------------------------------------------------------------------- */
 
 // POST only, every one of them. The contract has no GET shape, and a GET would
@@ -892,5 +956,6 @@ http.route({
   method: "POST",
   handler: gatewayIngestRecord,
 });
+http.route({ path: "/gateway/usage", method: "POST", handler: gatewayUsage });
 
 export default http;
