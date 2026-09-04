@@ -1346,6 +1346,89 @@ const schema = defineSchema({
     .index("by_workspace_at", ["workspaceId", "at"]),
 
   /**
+   * Whether a context's search is served from a database Supa Media owns, and
+   * which one.
+   *
+   * ## A row exists only because somebody asked for one
+   *
+   * **There is no row for a context that has not opted in.** Not a row with
+   * `optedIn: false` — no row. That is the difference between a table of
+   * every customer's preference and a table of the customers who said yes,
+   * and it is the shape that makes "we hold a derived copy of your notes only
+   * where you asked us to" checkable by counting rows.
+   *
+   * A row appears when an owner turns the switch on and is **deleted**, along
+   * with the database it names, when they turn it off. A switch labelled off
+   * that leaves the derived copy in place is the switch not working.
+   *
+   * ## What this is not
+   *
+   * Not a storage binding. `storageBindings` points at the customer's own
+   * bucket, holds their credential, and is the canonical store; this points at
+   * a database *we* own holding a disposable derivative, and holds no customer
+   * credential at all. Deleting every row here costs a rebuild and loses
+   * nothing (CLAUDE.md, "Plain files stay canonical"). Deleting a storage
+   * binding disconnects somebody's brain.
+   *
+   * The reasoning for the two-condition gate is in `functions/lib/fastSearch.ts`.
+   */
+  searchIndexes: defineTable({
+    workspaceId: v.id("workspaces"),
+    /**
+     * The owner's answer, and the reason the row exists.
+     *
+     * Stored rather than implied by the row's existence because the two come
+     * apart for exactly one moment: an opt-out that has written the row's
+     * intent but not yet finished deleting the remote database. A reader
+     * during that window must serve the R2 index, and `optedIn: false` is how
+     * it knows to.
+     */
+    optedIn: v.boolean(),
+    /** Who turned it on, and when. Recorded because it is a consent decision. */
+    optedInBy: v.id("users"),
+    optedInAt: v.number(),
+    /**
+     * `provisioning` → creating the remote database and applying the schema.
+     * `backfilling` → schema applied, notes still being projected.
+     * `ready`       → serving.
+     * `failed`      → provisioning did not complete; `error` says why.
+     * `releasing`   → opted out, database not yet deleted. Serves nothing.
+     */
+    status: v.union(
+      v.literal("provisioning"),
+      v.literal("backfilling"),
+      v.literal("ready"),
+      v.literal("failed"),
+      v.literal("releasing"),
+    ),
+    /**
+     * Cloudflare's uuid for the database, once it exists.
+     *
+     * Configuration, not a secret: reaching it still requires the API token,
+     * which lives in `appSecrets` and never here. Absent until created, and
+     * the thing a release has to delete — a row that loses this before the
+     * remote database is gone is a database nothing will ever clean up, which
+     * is why `releasing` keeps it until the delete succeeds.
+     */
+    databaseId: v.optional(v.string()),
+    databaseName: v.optional(v.string()),
+    /** The projection schema version applied, for forward migrations. */
+    schemaVersion: v.optional(v.number()),
+    /** Ours, from a closed set — never a provider's text. */
+    errorCode: v.optional(v.string()),
+    /** Operator-facing detail, shown to the owner. Never a credential. */
+    error: v.optional(v.string()),
+    /** Backfill progress, so the settings screen can be honest about it. */
+    notesIndexed: v.optional(v.number()),
+    notesPending: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    /** For the sweep that finishes releases and retries failures. */
+    .index("by_status", ["status"]),
+
+  /**
    * What staff did on the platform, as opposed to what a member did in a
    * context.
    *
