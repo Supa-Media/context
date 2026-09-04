@@ -1705,6 +1705,25 @@ check(
   (await call("priv-token", "fetch", { id: "privacy.md" }))?.isError === true &&
     (await call("priv-token", "fetch", { id: ".history/index.md.x.archive.md" }))?.isError === true
 );
+
+// `.context/recover/` is new, and what it holds is the owner's copy of their
+// own access map — the one file where "unreadable to every client" matters most.
+// It is covered by the same dot-segment rule as everything else, which is the
+// argument for putting it there; this is the check that the argument holds,
+// at the owner's own scope and through every reader.
+await contextStore.put(".context/recover/privacy.md.2026-01-01T00-00-00-000Z.md", "# manifest\n");
+check(
+  "the recovered manifest copy is unreadable to every client, owner included",
+  (await call("priv-token", "fetch", { id: ".context/recover/privacy.md.2026-01-01T00-00-00-000Z.md" }))
+    ?.isError === true &&
+    (await call("priv-token", "read_note", {
+      path: ".context/recover/privacy.md.2026-01-01T00-00-00-000Z.md",
+    }))?.isError === true &&
+    (await call("priv-token", "write_note", {
+      path: ".context/recover/forged.md",
+      content: "x",
+    }))?.isError === true
+);
 check(
   "the dialect is read-only, so a read-only grant keeps it",
   (await rpc("readonly-token", "tools/list"))?.result.tools.some((t) => t.name === "search") &&
