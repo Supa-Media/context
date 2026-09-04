@@ -21,9 +21,8 @@ import type { ConflictCheck, FileError } from "../console/files/types";
  * ## Why it is sequential, and why it stops early
  *
  * Each entry is one round trip against **the customer's** bucket, on their
- * request quota, and each one snapshots a `.history/` object into **their**
- * storage. Firing forty in parallel to be quick with somebody else's resources
- * is not a trade this product gets to make. Sequential also makes the outcome
+ * request quota. Firing forty in parallel to be quick with somebody else's
+ * resources is not a trade this product gets to make. Sequential also makes the outcome
  * explicable: the report reads in the order things were typed.
  *
  * A transient failure stops the whole drain rather than continuing down the

@@ -198,18 +198,21 @@ export function Confirm({
  *
  * Its own component, and it asks you to type the name.
  *
- * That is not friction for its own sake. Everything else the editor does is
- * reversible — archive puts a note in `4-archive/` with its original path
- * intact, an overwritten note leaves its previous version in `.history/`. This
- * one is not, by design: leaving a hidden copy behind would make the sentence
- * below a lie, in the one product whose entire claim is that you know where
- * your data is. So the sentence is plain, the button is not the default, and
- * you have to spell the name out.
+ * That is not friction for its own sake. Archive is reversible — it puts a note
+ * in `4-archive/` with its original path intact. This one is not, by design:
+ * leaving a hidden copy behind would make the sentence below a lie, in the one
+ * product whose entire claim is that you know where your data is. So the
+ * sentence is plain, the button is not the default, and you have to spell the
+ * name out.
  *
  * The sentence itself lives in `paths.ts` as `describeDeleteForever`, next to
- * the note explaining what it may and may not claim. It sat twelve lines below
- * this comment for a while, saying "there is no copy kept anywhere" while the
- * `.history/` behaviour described *in this very comment* meant there was.
+ * the note explaining what it may and may not claim. It has now been wrong in
+ * both directions: it claimed "there is no copy kept anywhere" while `.history/`
+ * snapshots meant there was, and later claimed deletion "cannot be undone" after
+ * this product started telling people to enable versioning at their provider —
+ * which is the one setting that makes the noncurrent version outlive the delete.
+ * We cannot see that setting, so the sentence names the condition instead of
+ * guessing which side of it somebody is on.
  */
 export function DeleteForever({
   path,

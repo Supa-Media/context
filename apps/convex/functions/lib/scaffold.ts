@@ -607,7 +607,7 @@ export function renderIndex(
           "  back to owners says `private` in `privacy.md`, and says so there only.",
         ]
       : []),
-    "- Paths starting with a dot (`.history/`, `.audit/`) are plumbing, never",
+    "- Paths starting with a dot (`.audit/`, `.context/`) are plumbing, never",
     "  notes, and are not shown to any client.",
     "",
   ];

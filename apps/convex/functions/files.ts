@@ -217,11 +217,13 @@ const privacyResetValidator = v.object({
   path: v.string(),
   folders: v.array(v.string()),
   /**
-   * A `.history/` key, and the one place the console is told one.
+   * A `.context/recover/` key, and the one place the console is told one.
    *
    * Shown because "we replaced your file" and "we replaced your file and here
    * is where the old one went" are different sentences to somebody whose
-   * manifest had forty rules in it.
+   * manifest had forty rules in it. This is the only copy this product still
+   * keeps of anything: `.history/` snapshots are gone, and versioning is the
+   * customer's to enable at their provider.
    */
   backedUpTo: v.union(v.string(), v.null()),
   /** `folders` is short: the walk hit its cap, or a name could not be a rule. */
@@ -1067,10 +1069,15 @@ export const archiveEntry = action({
  * string, which the console only sends after the person has been told plainly
  * that the file cannot be recovered.
  *
- * Nothing is kept: no archive, no new `.history/` snapshot, **and the existing
- * `.history/` snapshots for that path are purged too**. That last clause is the
- * one this comment used to imply and the code did not do. See `lib/fileOps.ts`
- * for why leaving a hidden copy behind would be the worse choice.
+ * Nothing this product controls is kept: no archive, and **the legacy
+ * `.history/` snapshots for that path are purged too** — that last clause is the
+ * one this comment used to imply and the code did not do. Nothing writes new
+ * snapshots any more.
+ *
+ * What it cannot reach is the customer's own object versioning, which we tell
+ * them to enable and cannot see or delete. `lib/fileOps.ts` has the full
+ * argument, and `describeDeleteForever` is the sentence the console has to keep
+ * true.
  */
 export const deleteEntry = action({
   args: {

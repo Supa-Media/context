@@ -13,9 +13,9 @@
  * The index is a **disposable derivative** (CLAUDE.md, plain-files rule), and
  * three consequences of that are deliberate rather than omissions:
  *
- * - It is **not snapshotted to `.history/`**. Versioning a derivative of
- *   versioned files is waste, and `.history/` is already the largest thing in
- *   a real bucket.
+ * - It is **not snapshotted**. Nothing here is any more — version history is
+ *   the customer's own object versioning at their provider — and a derivative
+ *   rebuildable from the notes would be the last thing to reinstate it for.
  * - It is **not written to `.audit/`**. The audit trail records what a person
  *   or an agent did to somebody's notes; nobody did this, and an audit line per
  *   search would bury the lines that matter.

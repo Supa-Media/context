@@ -11,9 +11,9 @@
  *
  * **One entry per note, and the last text wins.** Forty saves while offline are
  * one write when the connection comes back. A queue of forty revisions would be
- * forty round trips against the customer's bucket, forty `.history/` snapshots
- * in their own storage, and thirty-nine chances for one of them to conflict —
- * for a result identical to sending the last one.
+ * forty round trips against the customer's bucket, thirty-nine chances for one
+ * of them to conflict, and — where they have versioning on — forty noncurrent
+ * versions they pay to store, for a result identical to sending the last one.
  *
  * **A conflicted entry is never retried on its own.** It is parked until a
  * person decides, and typing more does not un-park it — the same rule the
@@ -210,10 +210,11 @@ export function discard(outbox: Outbox, path: string): Outbox {
  * "Mine wins" — send this draft over the version that is there now.
  *
  * Re-bases onto the etag the conflict reported, so the retry is still a
- * conditional write against a specific version rather than a blind put. The
- * version being replaced is not destroyed either way: `writeFile` snapshots the
- * outgoing body into `.history/` before every write, so "overwrite theirs" is
- * recoverable from the customer's own bucket.
+ * conditional write against a specific version rather than a blind put. What it
+ * does NOT do is keep the version being replaced. Nothing here does any more —
+ * that is object versioning's job at the provider, and it is the customer's to
+ * enable — so "overwrite theirs" recovers only if they turned it on. The
+ * conflict UI says so rather than promising a copy this product stopped making.
  *
  * A `rejected` entry cannot be forced this way — there is nothing to re-base
  * onto and the refusal was not about a version. `retry` is its route back.

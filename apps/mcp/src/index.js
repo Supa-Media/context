@@ -36,18 +36,25 @@
  *   POST /granola-webhook      signed Granola note events (single-deployment only)
  *   cron                       calendar refresh (single-deployment only)
  *
- * Object storage has no dependable versioning, so before any overwrite the
- * previous version is snapshotted to .history/<path>.<timestamp>.md.
+ * **Nothing here snapshots a previous version.** This gateway used to copy
+ * every overwritten, moved and archived body to `.history/<path>.<stamp>.md`
+ * on the premise that "object storage has no dependable versioning". It does:
+ * R2, S3, B2 and Wasabi all version at the bucket, for free, capturing the
+ * Obsidian and rclone writes our snapshots never saw. What the snapshots
+ * actually bought was write amplification — tens of thousands of objects
+ * standing for a few hundred notes, in the customer's bucket and synced down
+ * to every vault — for a rollback that was never built and could not be read
+ * back anyway, since `isPlumbing` refuses every dot-prefixed segment at every
+ * scope, personal included.
  *
- * Those snapshots are **unreachable, not merely unlisted**. `isPlumbing`
- * treats every dot-prefixed segment as plumbing and `canSee` refuses plumbing
- * at every scope, personal included, so no tool here can read one back. There
- * is no rollback; this comment used to claim there was, and that claim is part
- * of why permanent deletion spent so long quietly keeping copies. Deleting a
- * note now purges its snapshots with it — see `deletePath` in
- * apps/convex/functions/lib/fileOps.ts. If a rollback is ever built, that is
- * the function it has to be reconciled with, and the console's delete dialog
- * is the sentence it has to keep true.
+ * So versioning is the customer's to enable on a bucket they own, and this
+ * gateway does not keep a second copy of their notes. The consequence is
+ * stated plainly rather than dressed up: with versioning off, an overwrite is
+ * final. See docs/decisions/storage-and-credentials.md.
+ *
+ * `.history/` remains plumbing — legacy buckets are full of it, it stays
+ * unreadable and unlistable, and `deletePath` in
+ * apps/convex/functions/lib/fileOps.ts still purges what is there.
  */
 
 import { createControlPlane } from "./controlPlane.js";
@@ -112,7 +119,6 @@ const LEGACY_SCOPES_KEY = "scopes.yml";
 // inside every live privacy.md, so renaming them would break existing buckets.
 const PRIVACY_RULES_BEGIN = "<!-- BEGIN BRAIN PRIVACY RULES -->";
 const PRIVACY_RULES_END = "<!-- END BRAIN PRIVACY RULES -->";
-const HISTORY_PREFIX = ".history/";
 const AUDIT_PREFIX = ".audit/";
 const NOTE_ACL_PREFIX = ".note-acl/";
 const GRANOLA_PENDING_PREFIX = ".granola-events/pending/";
@@ -3308,10 +3314,6 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
           `Re-read, merge your change into the current content below, and write again.\n\n${current}`
       );
     }
-    // Snapshot the previous version before overwriting (object storage has no
-    // dependable versioning).
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    await store.put(`${HISTORY_PREFIX}${path}.${stamp}.md`, await existing.arrayBuffer());
   } else if (expectedEtag) {
     return toolError("conflict: note no longer exists; write again without expected_etag to recreate it");
   }
@@ -4337,7 +4339,6 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
   }
   if (await store.get(dest)) return toolError("conflict: archive destination already exists");
   const body = await obj.arrayBuffer();
-  await store.put(`${HISTORY_PREFIX}${path}.${stamp}.archive.md`, body);
   if (destinationVisibility === "private") {
     await persistExactVisibility(store, dest, "private", rules);
   }
@@ -4385,8 +4386,6 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
     sourceVisibility === "private" || visibilityOf(destination, rules) === "private"
       ? "private"
       : "team";
-  const stamp = timestampSlug();
-  await store.put(`${HISTORY_PREFIX}${source}.${stamp}.move.md`, body);
   if (destinationVisibility === "private") {
     await persistExactVisibility(store, destination, "private", rules);
   }
@@ -4507,17 +4506,6 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
     }
   }
 
-  const stamp = timestampSlug();
-  if (!fastArchiveRelocation) {
-    try {
-      for (const move of preflight) {
-        await store.put(`${HISTORY_PREFIX}${move.source}.${stamp}.batch-move.md`, move.body);
-      }
-    } catch (error) {
-      return toolError(`batch move aborted before copying destinations: history snapshot failed: ${error.message}`);
-    }
-  }
-
   const copied = [];
   const preparedAcls = [];
   try {
@@ -4578,7 +4566,6 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
     preflight.flatMap((move) => [move.source, move.destination]),
     {
       count: preflight.length,
-      history_snapshot: !fastArchiveRelocation,
       visibilities: preflight.map((move) => ({ path: move.destination, visibility: move.visibility })),
       team_visible: preflight.every((move) => move.visibility === "team"),
     }
@@ -4662,13 +4649,16 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
 
   const copied = [];
   const preparedAcls = [];
-  const sourceBodies = [];
+  // Bodies are not retained. They were, to feed the `.history/` snapshot loop
+  // that ran after this one, which meant a whole folder tree sat in a Worker's
+  // 128MB heap at once. Sources are deleted only after every copy has landed,
+  // so the rollback below deletes copies rather than restoring originals and
+  // needs nothing kept.
   try {
     for (const move of moves) {
       const obj = await store.get(move.source);
       if (!obj) throw new Error(`source changed during move: ${move.source}`);
       const body = await obj.arrayBuffer();
-      sourceBodies.push({ ...move, body });
       if (move.visibility === "private") {
         await persistExactVisibility(store, move.destination, "private", rules);
         preparedAcls.push(move.destination);
@@ -4689,10 +4679,6 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
     return toolError(`move aborted before deleting sources: ${error.message}`);
   }
 
-  const stamp = timestampSlug();
-  for (const item of sourceBodies) {
-    await store.put(`${HISTORY_PREFIX}${item.source}.${stamp}.move.md`, item.body);
-  }
   for (const { source: path } of moves) await store.delete(path);
   for (const { source: path } of moves) await clearExactVisibility(store, path).catch(() => {});
   await recordChange(store, "move_folder", scope, [source, destination], {
@@ -4806,9 +4792,11 @@ async function writeInboxCapture(store, capture, { actorScope = "inbox", replace
 
   const note = `${frontmatter.join("\n")}\n\n${bodyParts.join("\n")}`;
   if (existing) {
+    // Idempotency only. An unchanged capture is not re-written; a changed one
+    // overwrites, and the version it replaces is kept only if the customer
+    // enabled versioning on their bucket.
     const previous = await existing.text();
     if (previous === note) return { path: key, duplicate: true };
-    await store.put(`${HISTORY_PREFIX}${key}.${timestampSlug()}.inbox.md`, previous);
   }
   await store.put(key, note);
   await recordChange(store, existing ? "inbox_update" : "inbox_capture", actorScope, [key], { source });
