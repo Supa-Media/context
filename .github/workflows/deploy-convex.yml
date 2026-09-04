@@ -1,3 +1,35 @@
+# Deploy the control plane (apps/convex) on every merge to `main`.
+#
+# ## The secrets this pushes, and why it pushes any
+#
+# `deploy-mcp.yml` has a "Sync the gateway's secrets" step whose comment gives
+# the reason: so the live deployment is "reproducible from this repository
+# rather than from whatever somebody once typed at a terminal". That argument
+# is not about Workers. It applies to this deployment identically, and until
+# now nothing applied it — every Convex environment variable
+# (`STORAGE_SECRET_ENCRYPTION_KEY`, `GATEWAY_SECRET`, `RESEND_API_KEY`, …) was
+# set by hand in the dashboard, with nothing anywhere recording what a working
+# deployment needs.
+#
+# So the variables below are pushed from the GitHub `production` environment on
+# every deploy, and GitHub becomes the one place a value is written. Two of
+# them are *halves of a shared secret* — `GATEWAY_SECRET` must be byte-identical
+# here and on the gateway Worker — and pushing both from one source is what
+# stops the failure that already cost this project hours: two halves set from
+# two places, no check comparing them, and a 401 that names nothing.
+#
+# ## What is deliberately NOT here
+#
+# `convex env set` is additive and this workflow never *unsets* anything. A
+# variable removed from the list below stays live on the deployment until
+# somebody removes it there too. That is the safe direction — a deploy must not
+# be able to take the encryption key away from a running control plane — but it
+# does mean this file is a floor on what is set, not a description of it.
+#
+# An absent GitHub secret is skipped rather than pushed as an empty string.
+# Writing `""` over a live `STORAGE_SECRET_ENCRYPTION_KEY` would make every
+# stored credential undecryptable, and a workflow that can do that on a typo is
+# a workflow that eventually does.
 name: Deploy Convex
 
 on:
@@ -6,10 +38,13 @@ on:
     paths:
       - "apps/convex/**"
       - "packages/shared/**"
+      - ".github/workflows/deploy-convex.yml"
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: production
     permissions:
       contents: read
       packages: read
@@ -29,3 +64,91 @@ jobs:
         run: npx convex deploy
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+
+      # After the deploy, so a function that reads a new variable is already
+      # deployed when the variable arrives rather than the other way round.
+      #
+      # Values reach `convex env set` by shell expansion of a variable this
+      # step's `env:` block holds, with `set -x` off — never interpolated into
+      # the script text, which is where a `${{ secrets.* }}` in a `run:` block
+      # would put them. The step prints the NAME of each variable it set and
+      # never its value.
+      - name: Sync the control plane's secrets
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          # Shared with the gateway Worker, which `deploy-mcp.yml` pushes the
+          # other half of from this same GitHub secret.
+          GATEWAY_SECRET: ${{ secrets.GATEWAY_SECRET }}
+          # Who may reach `/admin`. An allowlist of exact, verified addresses;
+          # unset authorizes nobody. See `functions/lib/admin.ts` for why this
+          # is an environment variable and not a column.
+          ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
+          STORAGE_SECRET_ENCRYPTION_KEY: ${{ secrets.STORAGE_SECRET_ENCRYPTION_KEY }}
+          STORAGE_SECRET_ENCRYPTION_KEY_ID: ${{ secrets.STORAGE_SECRET_ENCRYPTION_KEY_ID }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          APP_ORIGIN: ${{ secrets.APP_ORIGIN }}
+          EMAIL_WORKER_SECRET: ${{ secrets.EMAIL_WORKER_SECRET }}
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
+          DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+        run: |
+          set -euo pipefail
+          # Plain strings rather than arrays: an empty array under `set -u` is
+          # a fatal expansion on some bash builds, and "the list was empty" is
+          # the ordinary case on a deployment that sets nothing here.
+          synced=""
+          skipped=""
+          for var in GATEWAY_SECRET ADMIN_EMAILS \
+                     STORAGE_SECRET_ENCRYPTION_KEY STORAGE_SECRET_ENCRYPTION_KEY_ID \
+                     RESEND_API_KEY APP_ORIGIN EMAIL_WORKER_SECRET \
+                     DROPBOX_APP_KEY DROPBOX_APP_SECRET; do
+            value="${!var:-}"
+            if [ -z "$value" ]; then
+              # Never pushed as an empty string — see the header.
+              skipped="$skipped $var"
+              continue
+            fi
+            # The value never appears on a command line a process listing could
+            # show: it is expanded by this shell into the argument vector, and
+            # `set -x` is off. The name is a literal from the loop above.
+            npx convex env set "$var" "$value" > /dev/null
+            synced="$synced $var"
+          done
+          echo "Set on the deployment:${synced:- (none)}"
+          if [ -n "$skipped" ]; then
+            echo "Not present in the GitHub 'production' environment, so left"
+            echo "as whatever the deployment already holds:$skipped"
+          fi
+
+      # A deployed control plane that cannot decrypt a storage credential, or
+      # cannot recognize its own gateway, is broken in a way no test catches and
+      # no screen reports. Ask the deployment what it has — by name, never by
+      # value — and fail the deploy rather than discovering it from a customer.
+      - name: Verify the control plane has what it needs
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          listed="$(npx convex env list)"
+          missing=0
+          for var in STORAGE_SECRET_ENCRYPTION_KEY GATEWAY_SECRET; do
+            if ! printf '%s' "$listed" | grep -q "^$var="; then
+              echo "ERROR: $var is not set on this deployment."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo ""
+            echo "Set it as a secret in the GitHub 'production' environment so"
+            echo "this workflow can push it, rather than by hand in the Convex"
+            echo "dashboard — see this file's header."
+            exit 1
+          fi
+          # ADMIN_EMAILS is not required: a deployment with no staff is a
+          # deployment where /admin answers "not found" to everyone, which is
+          # the correct fail-closed state and is what a self-hoster gets.
+          if printf '%s' "$listed" | grep -q "^ADMIN_EMAILS="; then
+            echo "OK — required variables are set, and /admin has an allowlist."
+          else
+            echo "OK — required variables are set. ADMIN_EMAILS is unset, so"
+            echo "/admin authorizes nobody."
+          fi
