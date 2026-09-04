@@ -364,8 +364,9 @@ The bucket is yours, so sync it directly. Nothing here goes through the gateway.
    - **End-to-end encryption: OFF** — the Worker has to be able to read the files
    - Sync on save / interval: your taste
 4. First sync pulls the layout down. Repeat on mobile.
-5. Optional: exclude `.history/` in Remotely Save's ignore settings to keep
-   version snapshots out of your vault view.
+5. Optional: exclude `.history/` in Remotely Save's ignore settings. Nothing
+   writes there any more, but a bucket connected before this change can still
+   hold a large tree of old snapshots you would otherwise sync down.
 
 Folder defaults and exact-note exceptions live in `privacy.md` at the root of the
 bucket — private, and visible in Obsidian. Editing `visibility:` or `scope:` in a
@@ -504,10 +505,12 @@ guessing wrong there silently sends reads and writes to a *different bucket*.
   prompts, internal reasoning, credentials, or raw tool logs.
 - **Large reorganizations:** dry-run `move_notes` or `move_folder` first. An
   applied `move_notes` requires the current etag for every source.
-- **Rollback a note:** previous versions live at
-  `.history/<path>.<timestamp>.md`. Object storage has no dependable versioning,
-  so the gateway snapshots the previous version before any overwrite. Snapshots
-  are never listed and never team-visible.
+- **Rollback a note:** **enable object versioning on your bucket** — this is the
+  only thing standing between you and a bad overwrite, and it is yours to turn
+  on. R2, S3, B2 and Wasabi all support it; the gateway keeps no second copy of
+  your notes and cannot restore one for you. Versioning also captures the writes
+  Obsidian and rclone make directly, which the gateway never sees. With it off,
+  an overwrite is final.
 - **Disconnect a client:** revoke its grant. `/oauth/revoke` kills exactly the
   one grant that token belongs to and touches nothing else — sibling grants for
   the same person and context from a different AI client keep working, which is

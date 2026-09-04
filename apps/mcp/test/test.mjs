@@ -2216,7 +2216,10 @@ const wOk = await call("priv-token", "write_note", { path: "index.md", content: 
 check("CAS write with fresh etag ok", !wOk.isError);
 const wStale = await call("priv-token", "write_note", { path: "index.md", content: "v3", expected_etag: etag });
 check("CAS write with stale etag conflicts", wStale.isError && wStale.content[0].text.includes("conflict"));
-check("history snapshot exists", [...objects.keys()].some((k) => k.startsWith(".history/index.md.")));
+check(
+  "an overwrite writes no history snapshot",
+  ![...objects.keys()].some((k) => k.startsWith(".history/"))
+);
 
 // -- search scoping
 const sPub = (await call("pub-token", "search_notes", { query: "status" }))?.content?.[0]?.text;
@@ -2528,9 +2531,8 @@ check(
     (await call("team-token", "read_note", { path: "1-projects/private-folder-renamed/a.md" }))?.isError
 );
 check(
-  "moves snapshot sources to history",
-  [...objects.keys()].some((key) => key.startsWith(".history/1-projects/portable/a.md.")) &&
-    [...objects.keys()].some((key) => key.startsWith(".history/1-projects/private-folder/a.md."))
+  "a folder move writes no history snapshot",
+  ![...objects.keys()].some((key) => key.startsWith(".history/"))
 );
 
 // -- batch move plan and apply
@@ -2611,11 +2613,19 @@ const archiveRelocation = await call("priv-token", "move_notes", {
   }],
 });
 check(
-  "archive relocation moves without a redundant history snapshot",
+  "archive relocation moves the note",
   !archiveRelocation.isError &&
     !objects.has("4-archive/old-layout/a.md") &&
-    objects.has("4-archive/new-layout/a.md") &&
-    ![...objects.keys()].some((key) => key.startsWith(".history/4-archive/old-layout/a.md."))
+    objects.has("4-archive/new-layout/a.md")
+);
+
+// Every write path that used to snapshot has now run in this suite: an
+// overwriting write_note, archive_note, move_note, move_notes and move_folder.
+// The guard is the sweep, not any one of them — a snapshot restored to a single
+// path is the regression this pins, and it is cheap to check the whole bucket.
+check(
+  "no gateway write path snapshots to .history/",
+  ![...objects.keys()].some((key) => key.startsWith(".history/"))
 );
 
 // -- immutable, scope-filtered audit log

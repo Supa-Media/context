@@ -260,7 +260,7 @@ export const CURATED_PLUGINS = Object.freeze({
     limitation: "User System Commands stays off — it shells out, and there is no shell here.",
   },
   "obsidian-git": {
-    note: "Context snapshots every write to .history/ and keeps an audit trail, which covers most of what Git is used for here.",
+    note: "Context keeps an audit trail of every write. For version history, turn on object versioning at your storage provider — that also captures what you edit in Obsidian directly.",
   },
   "remotely-save": {
     formatSupported: true,
