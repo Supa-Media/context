@@ -9,6 +9,7 @@ import { useThemedStyles, type Colors } from "../../design/theme";
 import { Breadcrumb } from "../files/Breadcrumb";
 import { ConflictResolver } from "../files/ConflictResolver";
 import { FolderView } from "../files/FolderView";
+import { knownNotePaths } from "../files/paths";
 import { NoteEditor } from "../files/NoteEditor";
 import { ShareDialog } from "../files/ShareDialog";
 import { consoleOrigin } from "../files/shareOrigin";
@@ -350,6 +351,15 @@ export function BrowsePane({
         onDiscard={files.discard}
         onUseTheirs={files.useTheirs}
         onKeepMine={files.keepMine}
+        /*
+          Following a link is the same operation as tapping a note in the tree,
+          and it goes through the same `select` — so the unsaved-changes guard
+          refuses it the same way, the URL follows it (`useNoteAddress`), and
+          the device remembers where it left somebody. A second navigation path
+          here would be a second set of all three.
+        */
+        onOpenLink={files.select}
+        notePaths={knownNotePaths(files.listings)}
       />
     );
 

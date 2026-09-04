@@ -214,3 +214,30 @@ export function describeDeleteForever(path: string, isFolder: boolean): string {
     : `${path} will be removed from your bucket, along with the earlier versions Context kept alongside it.`;
   return `${subject} This cannot be undone, and nothing is moved to an archive.`;
 }
+
+/**
+ * Every note path the console currently knows about.
+ *
+ * Which is **not** every note in the context, and that is the point of the
+ * name: the tree loads folder by folder, so this holds what somebody has
+ * expanded plus whatever a link or a search happened to fetch. It is used for
+ * exactly one thing — resolving a bare `[[name]]` in the editor — where an
+ * incomplete answer costs one link style and never a wrong destination. Every
+ * other link style resolves from the path alone and needs none of this.
+ *
+ * Sorted so the array is stable between renders that learned nothing new: the
+ * value crosses the WebView bridge on native, and an unsorted rebuild would
+ * repost a few hundred kilobytes every time a folder collapsed.
+ */
+export function knownNotePaths(
+  listings: Readonly<Record<string, { entries: readonly { kind: string; path: string }[] } | undefined>>,
+): string[] {
+  const paths = new Set<string>();
+  for (const listing of Object.values(listings)) {
+    if (listing === undefined) continue;
+    for (const entry of listing.entries) {
+      if (entry.kind === "file" && entry.path.endsWith(".md")) paths.add(entry.path);
+    }
+  }
+  return [...paths].sort();
+}

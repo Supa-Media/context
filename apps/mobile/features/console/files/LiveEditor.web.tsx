@@ -48,6 +48,7 @@ import {
   runCommand,
   type HandlerRef,
 } from "./editorSetup";
+import type { NoteLinkContext } from "./noteLinks";
 import { fonts, layout } from "../../design/tokens";
 import { useColors, type Colors } from "../../design/theme";
 
@@ -130,6 +131,24 @@ export interface LiveEditorProps {
    * and a mobile browser shrinks the layout viewport for the keyboard anyway.
    */
   onScrollBy?: (delta: number) => void;
+  /**
+   * A link to another note was followed, and how.
+   *
+   * `onOpenNote` is a ⌘-click (Ctrl elsewhere) and navigates. `onPressNote` is
+   * a long press, and deliberately does **not** — the host asks first, because
+   * a press is an ambiguous gesture and throwing away the note somebody is
+   * editing on the strength of one is the worst available reading of it. See
+   * `noteLinks.ts`.
+   *
+   * Both absent means links are plain text on this surface, which is what the
+   * landing page's demo console wants: it has nowhere to navigate to.
+   */
+  onOpenNote?: (path: string) => void;
+  onPressNote?: (path: string) => void;
+  /** The note being edited, so a relative link knows what it is relative to. */
+  notePath?: string | null;
+  /** Paths this surface knows of, for bare `[[name]]` links. Usually partial. */
+  notePaths?: readonly string[];
 }
 
 /**
@@ -226,10 +245,36 @@ export function LiveEditor({
   onFocus,
   onBlur,
   accessibilityLabel,
+  onOpenNote,
+  onPressNote,
+  notePath,
+  notePaths,
 }: LiveEditorProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const view = useRef<EditorView | null>(null);
   const colors = useColors();
+
+  /**
+   * What a link points at, and where following one goes.
+   *
+   * A ref rather than a dependency of the effect that builds the editor, for
+   * the reason `HandlerRef` exists: rebuilding the view when a different note
+   * opens would throw away the caret, the selection and the undo history. The
+   * extension reads this at event time, so the note it resolves against is
+   * always the one on screen.
+   */
+  const links = useRef<NoteLinkContext>({
+    path: notePath ?? null,
+    paths: notePaths,
+    onOpen: () => {},
+    onPress: () => {},
+  });
+  links.current = {
+    path: notePath ?? null,
+    paths: notePaths,
+    onOpen: (path) => onOpenNote?.(path),
+    onPress: (path) => onPressNote?.(path),
+  };
 
   /**
    * The note's colours, kept in step with the app's.
@@ -305,6 +350,9 @@ export function LiveEditor({
       editable,
       editableCompartment: editableCompartment.current,
       handlers: bridged,
+      // Absent when this surface has nowhere to navigate to; the extension is
+      // then not installed at all and links are plain text.
+      links: onOpenNote === undefined && onPressNote === undefined ? undefined : links,
       /*
         No `insetBottom`. A mobile browser shrinks the layout viewport when the
         keyboard opens rather than drawing over the page, so the scroller is

@@ -100,6 +100,10 @@ export function LiveEditor({
   onBlur,
   onScrollBy,
   accessibilityLabel,
+  onOpenNote,
+  onPressNote,
+  notePath,
+  notePaths,
 }: LiveEditorProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -148,8 +152,26 @@ export function LiveEditor({
    * `onChange` directly would deliver every keystroke after the first state
    * change to a stale reducer. Exactly the trap `LiveEditor.web.tsx` documents.
    */
-  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onScrollBy });
-  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onScrollBy };
+  const handlers = useRef({
+    onChange,
+    onSave,
+    controls,
+    onFocus,
+    onBlur,
+    onScrollBy,
+    onOpenNote,
+    onPressNote,
+  });
+  handlers.current = {
+    onChange,
+    onSave,
+    controls,
+    onFocus,
+    onBlur,
+    onScrollBy,
+    onOpenNote,
+    onPressNote,
+  };
 
   /**
    * What the keyboard is covering, and how much of that is our own bar.
@@ -221,6 +243,15 @@ export function LiveEditor({
           onHeight: (next) => setHeight(next),
           onCaret: (caret) => keepCaretClear(caret),
           onFailed: (message) => setFailure(message),
+          /*
+            Both read off the ref rather than closed over, like every other
+            callback here: this bridge is built once and would otherwise report
+            to the first render's props forever — which on this component means
+            navigating to a note relative to whichever note was open when the
+            editor mounted.
+          */
+          onOpenNote: (path) => handlers.current.onOpenNote?.(path),
+          onPressNote: (path) => handlers.current.onPressNote?.(path),
         },
       ),
     [keepCaretClear],
@@ -280,6 +311,17 @@ export function LiveEditor({
   useEffect(() => {
     bridge.setTheme(themeVars(colors, fonts.mono, compact));
   }, [bridge, colors, compact]);
+
+  /*
+    Which note is open, so the guest can resolve `[[../beta/notes]]` against
+    something. Its own effect rather than a line in the `doc` one: a note's path
+    and its bytes change together on an open and independently on a rename, and
+    an editor that had been told the text but not the path would draw every
+    relative link in it as plain prose.
+  */
+  useEffect(() => {
+    bridge.setLinks(notePath ?? null, notePaths);
+  }, [bridge, notePath, notePaths]);
 
   /**
    * KEEPING THE CARET OFF THE KEYBOARD, and it is answered differently at the

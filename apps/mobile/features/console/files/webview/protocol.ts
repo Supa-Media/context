@@ -157,6 +157,19 @@ export type ToGuest =
    */
   | { v: number; type: "inset"; bottom: number }
   /**
+   * Which note is open, and which note paths the console happens to know.
+   *
+   * The guest needs the first to resolve a relative link — `[[../beta/notes]]`
+   * means nothing without knowing where it was written — and the second only
+   * for a bare `[[name]]`. Sent with the document rather than derived from it,
+   * because a note's own path is not in its bytes.
+   *
+   * `paths` is capped by the host (`LINK_PATHS_CAP`) rather than sent whole: it
+   * is a nice-to-have for one link style, and a bucket's entire key list across
+   * a `postMessage` on every note open is not a trade worth making for it.
+   */
+  | { v: number; type: "links"; path: string | null; paths?: readonly string[] }
+  /**
    * A key on the accessory bar was pressed. Run it against the real editor.
    *
    * `command` is typed rather than `unknown` because this is the host's own
@@ -174,6 +187,19 @@ export type ToHost =
   | { v: number; type: "change"; text: string }
   /** `Mod-s`, which only a hardware keyboard can produce on iOS. */
   | { v: number; type: "save" }
+  /**
+   * A link to another note was followed with the modifier held. Navigate.
+   */
+  | { v: number; type: "open-link"; path: string }
+  /**
+   * A link to another note was long-pressed. **Ask, do not navigate.**
+   *
+   * A press is an ambiguous gesture — it is also how somebody starts a
+   * selection — and acting on one by replacing the note being edited is the
+   * worst available reading of it. The host puts a confirmation in front of the
+   * person; see `noteLinks.ts`.
+   */
+  | { v: number; type: "press-link"; path: string }
   /** Focus, so the host can tell the keyboard layer the note is being typed into. */
   | { v: number; type: "focus"; focused: boolean }
   /**
@@ -253,6 +279,7 @@ export const TO_GUEST_TYPES: ReadonlySet<ToGuest["type"]> = new Set([
   "theme",
   "inset",
   "command",
+  "links",
 ] as const);
 
 export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
@@ -263,6 +290,8 @@ export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
   "height",
   "caret",
   "failed",
+  "open-link",
+  "press-link",
 ] as const);
 
 /**
