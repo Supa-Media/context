@@ -22,6 +22,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Scheduling is not calling
 - Credential barriers are enumerated, never inferred
 - The setup credential is not a stored credential
+- Staff is an environment allowlist, never a column
+- Platform credentials seal to a scope, customers' seal to a workspace
+- Anything needed before this table can be read cannot live in it
+- Usage is counted, never logged
 - Version history is the customer's object versioning, not a copy we keep
 
 ## [Identity, grants, invitations, and ingestion](./identity-and-access.md)
@@ -69,6 +73,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - …and it opens the shards that can answer it, not all of them
 - The manifest is the query surface, and the diff moved out from under it
 - The console searches through the gateway's search, not a copy of it
+- A database we own holds a copy of somebody's notes only where they asked
+- Corpus statistics are per tenant, which is why it is a database each
 
 ## [The mobile app and the console](./app-and-console.md)
 
@@ -90,6 +96,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Invitations are queued, and a partial send keeps its successes
 - The rail's "New workspace" entry is a verb, and the claim entry is a gap
 - The rail splits on kind, and ownership is a mark on one row
+- The URL is a mirror of the open note, and the phone's copy of it is a pointer
+- A note link is a path with a keyword in front, because a scheme has a host
 
 ## [Obsidian plugins](./obsidian-plugins.md)
 

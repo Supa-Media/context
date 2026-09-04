@@ -234,3 +234,85 @@ its own filename filter keeps working. **Collapsing that into "no matches" is
 the bug this whole feature exists to remove** — a console that reports absence
 for a bucket nothing has read yet is worse than the message it replaced, and the
 palette carries the same rule for a search that is still running or that failed.
+
+### A database we own holds a copy of somebody's notes only where they asked
+
+The R2 index is a derived copy of a context's notes **inside that context's own
+bucket** — beside the notes it derives from, under the customer's own
+credential, deleted when they delete the bucket. `search/CONTRACT.md` says the
+quiet part: "the index contains text drawn from private notes. That is
+acceptable where it lives — inside the customer's own bucket."
+
+A D1 projection is the same text somewhere else: a database Supa Media owns,
+that the customer cannot see, revoke, or delete. Everything about it is
+defensible — canonical Markdown never moves, the projection is disposable, the
+performance is the difference between search working and not — and none of that
+makes it a decision we get to make for them.
+
+So it is **two independent conditions, and both must hold**:
+
+- **Entitled** — may this context turn it on? Derived, never stored, true for
+  everyone today. This is the single function a paid tier later narrows, and it
+  exists now so that narrowing is one edit rather than a search for every place
+  the question is asked.
+- **Opted in** — has an *owner* turned it on? Stored, and **off by default**.
+
+Folding them into one flag is the obvious simplification and it loses the
+distinction that matters: "you are not paying for this" and "you have not asked
+for this" need different copy, and one of them must never be answered by a
+billing state. A customer who stops paying has not consented to anything being
+deleted; a customer who opts out has.
+
+Four consequences, each load-bearing rather than tidy:
+
+- **Owner-only.** An editor may write every note in a context. Deciding where a
+  copy of all of them is kept is a different authority, which is the whole
+  reason membership carries an explicit role.
+- **No row means never asked** — not a row saying `false`. "How many customers
+  have we made a copy of" is then a count rather than a filter.
+- **Provisioning happens at the toggle, never at signup.** A context that never
+  opts in has no database: nothing to secure, nothing to bill, nothing to delete
+  when the account closes. It also means Cloudflare's per-account database
+  ceiling is a limit on opted-in contexts rather than on customers.
+- **Off deletes it, and the row outlives the delete.** A switch that stops
+  *reading* the copy and leaves it in place is the switch not working. `disable`
+  marks the row `releasing` and schedules the delete rather than removing it,
+  because a row deleted before its database is a database nothing can ever find
+  — an orphaned copy of somebody's notes with nothing pointing at it, which is
+  the exact outcome the opt-out exists to prevent, reached by tidying up. Search
+  falls back to the R2 index the instant `optedIn` goes false, so the delete
+  finishing is bookkeeping and not the switch.
+
+**Off is a working state, not a degraded one.** Either condition false means the
+R2 shard index serves the search exactly as it does today. That is what makes
+off-by-default shippable: the fast path is an upgrade, and its absence is the
+product as it already is.
+
+The test that fails if this is reversed:
+`__tests__/fastSearch.test.ts`. One sabotage in it measured zero on its first
+run and is worth remembering — `fastSearchEntitled` is true for every workspace
+kind that exists, so deleting the entitlement half of the composition was
+invisible to the whole suite. It fails closed on an unrecognized kind, which is
+both a real property and the only handle a test has on that half until a paid
+tier arrives.
+
+### Corpus statistics are per tenant, which is why it is a database each
+
+One D1 database per context, never a shared table with a tenant column, and the
+reason is sharper than tidiness. FTS5's `bm25()` reads **corpus statistics** —
+how many documents hold a term, how long the average one is — over the whole
+table. In a shared table a term's rarity in one customer's notes would shift
+another customer's result *ordering*, and no `WHERE` clause closes that: it is
+the same inference channel `search/CONTRACT.md` argues about at length for the
+R2 index, where `visibleIndex` narrows the corpus so that `N`, `df` and `avglen`
+are computed over the caller's own view.
+
+The same argument splits the tables *within* one database by visibility.
+Querying `notes_team_fts` alone computes the statistics over exactly the
+documents a team-tier caller may read; a single table with a `visibility` column
+would let private notes reorder a team caller's results.
+
+That split is for *statistics*, not for access. The visibility stored in the
+projection is `privacy.md` as it was at index time and can go stale, so the live
+`canSee` still filters every result before it leaves — exactly as it does for
+the R2 index. The split buys correct ranking; the filter buys correctness.

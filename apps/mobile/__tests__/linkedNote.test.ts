@@ -44,6 +44,17 @@ import type { FolderListing, OpenNote } from "../features/console/files/types";
  * a real child component so the ordering is the reconciler's rather than the
  * test's. A string of `act`s cannot stand in for that: the bug is that two
  * effects ran in one commit in an order neither of them chose.
+ *
+ * ## And the other direction, which was missing entirely
+ *
+ * The hook is now `useNoteAddress` and the URL is a **mirror**: the selection
+ * writes back to it, so a refresh returns to the file somebody was on. The
+ * suite carries that half too, and it is the half whose failure mode needs a
+ * reconciler rather than a pure test — two effects updating each other through
+ * the router is how you get an infinite loop, and `nextAddressStep` being
+ * correct in isolation does not prove the wiring settles. Every test below
+ * therefore asserts the count of URL writes, not only the final value: one
+ * write per real change, and none at rest.
  */
 
 const actions: Record<string, (args: never) => Promise<unknown>> = {};
@@ -64,7 +75,7 @@ jest.mock("convex/react", () => {
 });
 
 import { useFileBrowser } from "../features/console/files/useFileBrowser";
-import { useLinkedNote } from "../features/console/useLinkedNote";
+import { useNoteAddress } from "../features/console/useNoteAddress";
 
 const NOTE = "3-resources/engineering/shipping-an-expo-app-safely.md";
 const FOLDER = "3-resources/engineering";
@@ -105,6 +116,11 @@ function name(fn: string): string {
 
 let browser: FileBrowser;
 let setContext: (id: string | null) => void;
+/** Change the URL from outside the app — a pasted address, a followed link. */
+let setUrl: (note: string | null) => void;
+/** What the URL says right now, and every value it has been set to. */
+let url: string | null = null;
+let addressed: (string | null)[] = [];
 
 /**
  * The console's real shape: the layout owns the browser, the route is a child
@@ -114,20 +130,41 @@ let setContext: (id: string | null) => void;
  * `useLiveConsoleData` does — `selectedContextId` is derived from a Convex
  * subscription, so it is `null` for every render before the workspace list
  * lands. That first non-null render is the whole of this bug.
+ *
+ * **The URL is state**, held by the layout and written by the hook's `address`
+ * callback. That is what the router does — `setParams` re-renders the route
+ * with a new `?note=` — and modelling it as anything less would make the
+ * write-back half untestable: the failure it guards against is the two
+ * directions taking turns undoing each other, and you cannot see that in a
+ * one-way harness. `addressed` records every write in order, so a test can
+ * assert both what the URL ends up saying and how many times it was set.
  */
 function mount(note: string | null): () => void {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
 
-  function Route({ files, contextId }: { files: FileBrowser; contextId: string | null }): ReactNode {
-    useLinkedNote(files, note, contextId);
+  function Route({
+    files,
+    contextId,
+    note: inUrl,
+    onAddress,
+  }: {
+    files: FileBrowser;
+    contextId: string | null;
+    note: string | null;
+    onAddress: (next: string | null) => void;
+  }): ReactNode {
+    useNoteAddress(files, inUrl, contextId, onAddress);
     return null;
   }
 
   function Layout(): ReactNode {
     const [contextId, setId] = useState<string | null>(null);
+    const [inUrl, setInUrl] = useState<string | null>(note);
     setContext = setId;
+    setUrl = setInUrl;
+    url = inUrl;
     const files = useFileBrowser({
       workspaceId: contextId as never,
       tier: "private",
@@ -135,7 +172,15 @@ function mount(note: string | null): () => void {
       isOwner: true,
     });
     browser = files;
-    return createElement(Route, { files, contextId });
+    return createElement(Route, {
+      files,
+      contextId,
+      note: inUrl,
+      onAddress: (next: string | null) => {
+        addressed.push(next);
+        setInUrl(next);
+      },
+    });
   }
 
   act(() => {
@@ -158,6 +203,8 @@ describe("a team link opens the note it names", () => {
 
   beforeEach(() => {
     calls.length = 0;
+    addressed = [];
+    url = null;
     actions[name("listFiles")] = async (args: never) => {
       const path = (args as { path: string }).path;
       return path === "" ? ROOT : { ...ROOT, path, entries: [entry(NOTE, "file")] };
@@ -270,5 +317,149 @@ describe("a team link opens the note it names", () => {
     // Re-applying the URL on every render would drag somebody back to the
     // linked note the moment they opened anything else.
     expect(browser.selectedPath).toBe("3-resources");
+  });
+});
+
+describe("the URL follows the note that is open", () => {
+  let unmount: (() => void) | null = null;
+
+  beforeEach(() => {
+    calls.length = 0;
+    addressed = [];
+    url = null;
+    actions[name("listFiles")] = async (args: never) => {
+      const path = (args as { path: string }).path;
+      return path === "" ? ROOT : { ...ROOT, path, entries: [entry(NOTE, "file")] };
+    };
+    actions[name("readNote")] = async () => NOTE_BODY;
+  });
+
+  afterEach(() => {
+    unmount?.();
+    unmount = null;
+  });
+
+  test("tapping a note puts it in the URL, once", async () => {
+    /**
+     * **The bug this whole direction exists for.** `?note=` opened the note it
+     * named and nothing ever wrote it back, so the address bar told the truth
+     * until somebody tapped a second note — and every refresh after that landed
+     * them on "Choose a note to read or edit it" over the context they were
+     * already in.
+     */
+    unmount = mount(null);
+    await settle();
+    await act(async () => setContext("w1"));
+    await settle();
+    expect(url).toBeNull();
+
+    await act(async () => {
+      browser.select(NOTE);
+    });
+    await settle();
+
+    expect(url).toBe(NOTE);
+    expect(addressed).toEqual([NOTE]);
+  });
+
+  test("and does not re-read the note it just addressed", async () => {
+    // The oscillation, in its cheapest form: a URL write that reads back as a
+    // link being followed costs a second `readNote` for the note already open.
+    // `select` is not idempotent, so this is a real round trip, every tap.
+    unmount = mount(null);
+    await settle();
+    await act(async () => setContext("w1"));
+    await settle();
+
+    await act(async () => {
+      browser.select(NOTE);
+    });
+    await settle();
+
+    expect(calls.filter((c) => c.name === name("readNote"))).toHaveLength(1);
+  });
+
+  test("a link followed while another note is open wins", async () => {
+    unmount = mount(NOTE);
+    await settle();
+    await act(async () => setContext("w1"));
+    await settle();
+
+    await act(async () => {
+      browser.select("3-resources");
+    });
+    await settle();
+    expect(url).toBe("3-resources");
+
+    // A second link arrives from outside — pasted into the address bar, or
+    // followed from a chat while the app is already open. The URL changes
+    // under the route, which is exactly what `setParams` does to it.
+    await act(async () => setUrl(NOTE));
+    await settle();
+
+    expect(browser.selectedPath).toBe(NOTE);
+    expect(url).toBe(NOTE);
+    // And it settles: the selection is not written back over the link.
+    expect(addressed).toEqual(["3-resources"]);
+  });
+
+  test("a URL that merely lost its note is re-addressed, not obeyed", async () => {
+    /**
+     * There is no "close the note" to express: `select` takes a path and the
+     * file browser has no deselect. So a console URL with no note, over a
+     * console with a note open, is stale rather than an instruction — the rail
+     * navigating to `/console/@slug` while a note is open produces exactly it.
+     * Treating it as a request would leave the address bar disagreeing with the
+     * screen, which is the state this whole module exists to end.
+     */
+    unmount = mount(NOTE);
+    await settle();
+    await act(async () => setContext("w1"));
+    await settle();
+
+    await act(async () => setUrl(null));
+    await settle();
+
+    expect(browser.selectedPath).toBe(NOTE);
+    expect(url).toBe(NOTE);
+  });
+
+  test("deleting the open note clears ?note= rather than leaving a dead one", async () => {
+    /**
+     * The stale-state requirement, from the other end. `useFileBrowser` drops
+     * the selection when the open note is deleted, archived or moved away; if
+     * the URL kept naming it, the next reload would follow a link to a note
+     * that no longer exists and land on "That file does not exist".
+     */
+    actions[name("deleteEntry")] = async () => ({});
+    unmount = mount(NOTE);
+    await settle();
+    await act(async () => setContext("w1"));
+    await settle();
+    expect(url).toBe(NOTE);
+
+    await act(async () => {
+      browser.destroy(NOTE);
+    });
+    await settle();
+
+    expect(browser.selectedPath).toBeNull();
+    expect(url).toBeNull();
+    expect(addressed[addressed.length - 1]).toBeNull();
+  });
+
+  test("nothing is written while the console sits still", async () => {
+    unmount = mount(NOTE);
+    await settle();
+    await act(async () => setContext("w1"));
+    await settle();
+    const afterLanding = addressed.length;
+
+    // Several more commits with nothing changing. A rule that re-addresses on
+    // every render would show up here and nowhere else.
+    await settle();
+    await settle();
+
+    expect(addressed.length).toBe(afterLanding);
   });
 });

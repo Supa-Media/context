@@ -1344,6 +1344,248 @@ const schema = defineSchema({
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_workspace_at", ["workspaceId", "at"]),
+
+  /**
+   * Whether a context's search is served from a database Supa Media owns, and
+   * which one.
+   *
+   * ## A row exists only because somebody asked for one
+   *
+   * **There is no row for a context that has not opted in.** Not a row with
+   * `optedIn: false` — no row. That is the difference between a table of
+   * every customer's preference and a table of the customers who said yes,
+   * and it is the shape that makes "we hold a derived copy of your notes only
+   * where you asked us to" checkable by counting rows.
+   *
+   * A row appears when an owner turns the switch on and is **deleted**, along
+   * with the database it names, when they turn it off. A switch labelled off
+   * that leaves the derived copy in place is the switch not working.
+   *
+   * ## What this is not
+   *
+   * Not a storage binding. `storageBindings` points at the customer's own
+   * bucket, holds their credential, and is the canonical store; this points at
+   * a database *we* own holding a disposable derivative, and holds no customer
+   * credential at all. Deleting every row here costs a rebuild and loses
+   * nothing (CLAUDE.md, "Plain files stay canonical"). Deleting a storage
+   * binding disconnects somebody's brain.
+   *
+   * The reasoning for the two-condition gate is in `functions/lib/fastSearch.ts`.
+   */
+  searchIndexes: defineTable({
+    workspaceId: v.id("workspaces"),
+    /**
+     * The owner's answer, and the reason the row exists.
+     *
+     * Stored rather than implied by the row's existence because the two come
+     * apart for exactly one moment: an opt-out that has written the row's
+     * intent but not yet finished deleting the remote database. A reader
+     * during that window must serve the R2 index, and `optedIn: false` is how
+     * it knows to.
+     */
+    optedIn: v.boolean(),
+    /** Who turned it on, and when. Recorded because it is a consent decision. */
+    optedInBy: v.id("users"),
+    optedInAt: v.number(),
+    /**
+     * `provisioning` → creating the remote database and applying the schema.
+     * `backfilling` → schema applied, notes still being projected.
+     * `ready`       → serving.
+     * `failed`      → provisioning did not complete; `error` says why.
+     * `releasing`   → opted out, database not yet deleted. Serves nothing.
+     */
+    status: v.union(
+      v.literal("provisioning"),
+      v.literal("backfilling"),
+      v.literal("ready"),
+      v.literal("failed"),
+      v.literal("releasing"),
+    ),
+    /**
+     * Cloudflare's uuid for the database, once it exists.
+     *
+     * Configuration, not a secret: reaching it still requires the API token,
+     * which lives in `appSecrets` and never here. Absent until created, and
+     * the thing a release has to delete — a row that loses this before the
+     * remote database is gone is a database nothing will ever clean up, which
+     * is why `releasing` keeps it until the delete succeeds.
+     */
+    databaseId: v.optional(v.string()),
+    databaseName: v.optional(v.string()),
+    /** The projection schema version applied, for forward migrations. */
+    schemaVersion: v.optional(v.number()),
+    /** Ours, from a closed set — never a provider's text. */
+    errorCode: v.optional(v.string()),
+    /** Operator-facing detail, shown to the owner. Never a credential. */
+    error: v.optional(v.string()),
+    /** Backfill progress, so the settings screen can be honest about it. */
+    notesIndexed: v.optional(v.number()),
+    notesPending: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    /** For the sweep that finishes releases and retries failures. */
+    .index("by_status", ["status"]),
+
+  /**
+   * What staff did on the platform, as opposed to what a member did in a
+   * context.
+   *
+   * Deliberately **not** `auditEvents`. That table is a customer-facing record
+   * scoped to one workspace, readable by that workspace's members and shown in
+   * their console; an admin setting a Stripe key belongs to neither a
+   * workspace nor a customer, and folding it in would either make
+   * `workspaceId` optional — weakening every per-workspace query that relies
+   * on it being present — or attribute a platform act to whichever context
+   * happened to be on screen.
+   *
+   * The rule the two tables share: **paths and names, never values.** A row
+   * here records that `SEARCH_D1_API_TOKEN` was set and by whom. It never
+   * records what it was set to, and the fingerprint is the most this table
+   * will ever carry of a secret.
+   */
+  adminAuditEvents: defineTable({
+    actorUserId: v.id("users"),
+    /** The address that matched the allowlist, kept for a readable trail. */
+    actorEmail: v.string(),
+    /** A closed vocabulary — see `functions/admin.ts`. */
+    action: v.string(),
+    /** The secret's name, a metric name, a workspace slug. Never a value. */
+    subject: v.optional(v.string()),
+    at: v.number(),
+    details: v.optional(
+      v.record(
+        v.string(),
+        v.union(v.string(), v.number(), v.boolean(), v.null()),
+      ),
+    ),
+  })
+    .index("by_at", ["at"])
+    .index("by_actor_at", ["actorUserId", "at"]),
+
+  /**
+   * Integration credentials the platform itself holds.
+   *
+   * Not a customer's credential — those are `storageBindings`, bound to a
+   * workspace and openable in that workspace's row alone. These belong to
+   * Context.LC: the Cloudflare token that provisions search databases, a
+   * payment provider's key, a mail provider's key. One row per name.
+   *
+   * ## What may never live here
+   *
+   * **`STORAGE_SECRET_ENCRYPTION_KEY` and `GATEWAY_SECRET` stay environment
+   * variables, permanently.** The first is the key these envelopes are sealed
+   * with, so storing it here is a safe whose combination is written inside it;
+   * the second is what proves a caller is the gateway, and the gateway must be
+   * able to authenticate before any database read is trusted. Anything that
+   * has to exist *before* this table can be read cannot be kept in it.
+   * `functions/admin.ts` enforces that as a refused name rather than a comment.
+   *
+   * ## Write-only, structurally
+   *
+   * `encryptedValue` is an AES-GCM envelope bound to the `integration` scope
+   * (`lib/crypto.ts`). No public function may reach `decryptSecret` — that is
+   * `__tests__/structure.test.ts`, and it is what makes "the console can set a
+   * secret but never read one back" a property of the codebase rather than a
+   * habit of its screens. The admin UI renders `fingerprint`, which is
+   * computed at write time from the plaintext and is not reversible.
+   */
+  appSecrets: defineTable({
+    /**
+     * The environment-variable-style name, e.g. `SEARCH_D1_API_TOKEN`.
+     * Uppercase, digits and underscores; validated on write, unique by index.
+     */
+    name: v.string(),
+    /**
+     * `v2:<key-id>:<iv>:<ciphertext>`, bound to the `integration` scope.
+     *
+     * Named `encrypted*` deliberately, and not for style:
+     * `__tests__/structure.test.ts` derives `SCHEMA_ENCRYPTED_FIELDS` by
+     * matching that prefix, and forbids any of them appearing in a public
+     * function's `returns:` validator "with nobody needing to remember". A
+     * column called `value` sits outside that promise — inert today, since
+     * these functions declare no return validator, and a trap the moment one
+     * does.
+     */
+    encryptedValue: v.string(),
+    /**
+     * First 8 hex characters of SHA-256 over the plaintext.
+     *
+     * Enough to confirm that the value you pasted is the value that landed,
+     * and to tell two credentials apart, without being the credential. Not a
+     * prefix or a last-four of the secret itself: those are fragments of the
+     * real thing, and this needs to be safe to render on a screen and put in
+     * a log line.
+     */
+    fingerprint: v.string(),
+    /** What this is for, shown in the console. Never the value. */
+    description: v.optional(v.string()),
+    updatedBy: v.id("users"),
+    updatedAt: v.number(),
+    createdAt: v.number(),
+  }).index("by_name", ["name"]),
+
+  /**
+   * Daily product usage, as counters.
+   *
+   * ## Counters, not events, and the reason is the first non-negotiable
+   *
+   * An event log with one row per tool call would be a second record of what
+   * somebody did in their own context, held by us — and the audit trail that
+   * legitimately records that already exists, in the customer's own bucket
+   * under `.audit/`, where they can read and delete it. Mining that to build
+   * our dashboards would quietly turn a customer-owned record into a
+   * product-analytics pipeline, which is exactly the move CLAUDE.md's first
+   * rule forbids.
+   *
+   * So this table holds **integers per day per metric**, incremented in place.
+   * There is no path column, no query text, no note title, no timestamp finer
+   * than the day, and no shape into which any of those could later be added
+   * without an obvious schema change and a conversation.
+   *
+   * `workspaceId` is optional and present only for metrics that are counted
+   * per context (tool calls). Where it is set, the row says "this workspace
+   * made N calls on this day" — which is metadata we already hold, of the same
+   * kind as a member list, and never what the calls were about.
+   */
+  usageDaily: defineTable({
+    /** `YYYY-MM-DD`, UTC. The bucket, and half the identity of the row. */
+    day: v.string(),
+    /** A `UsageMetric` from `lib/usage.ts` — a closed set, never free text. */
+    metric: v.string(),
+    /** Set only for per-context metrics; absent for platform-wide ones. */
+    workspaceId: v.optional(v.id("workspaces")),
+    count: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_day_metric", ["day", "metric"])
+    .index("by_day_metric_workspace", ["day", "metric", "workspaceId"])
+    .index("by_metric_day", ["metric", "day"]),
+
+  /**
+   * One row per workspace per day that did anything, so "active" is countable.
+   *
+   * Kept apart from `usageDaily` because an active-user count is a
+   * **cardinality**, not a sum: incrementing a counter per call answers "how
+   * many calls", and no arithmetic over that answers "how many distinct
+   * contexts". The alternative — reading every counter row for a day and
+   * counting the distinct workspaces — is the same data, so this table exists
+   * only to make the common query a cheap range read rather than a scan.
+   *
+   * Rows carry no activity detail. That a context was active on a day is the
+   * entire content.
+   */
+  usageActiveDaily: defineTable({
+    day: v.string(),
+    workspaceId: v.id("workspaces"),
+    /** Which surface saw it — `UsageSurface` from `lib/usage.ts`. */
+    surface: v.string(),
+    at: v.number(),
+  })
+    .index("by_day", ["day"])
+    .index("by_day_surface", ["day", "surface"])
+    .index("by_day_surface_workspace", ["day", "surface", "workspaceId"]),
 });
 
 export default schema;

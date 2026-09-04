@@ -118,6 +118,7 @@ jest.mock("expo-router", () => {
     Link: ({ children }: { children?: unknown }) => h("div", null, children as never),
     useRouter: () => ({ replace: () => {}, push: () => {}, back: () => {} }),
     useLocalSearchParams: () => ({}),
+    useGlobalSearchParams: () => ({}),
     usePathname: () => "/",
     // What `(app)/_layout.tsx` carries into `?next=`: the href *with* its
     // query, which `usePathname` deliberately strips.
@@ -145,6 +146,8 @@ jest.mock("@convex-dev/auth/react", () => ({
 const { LoginScreen } = require("../features/auth/LoginScreen") as typeof import("../features/auth/LoginScreen");
 const { ConsentScreen } =
   require("../features/consent/ConsentScreen") as typeof import("../features/consent/ConsentScreen");
+const { AdminChrome } =
+  require("../features/admin/AdminPane") as typeof import("../features/admin/AdminPane");
 const { WelcomeChrome } =
   require("../features/onboarding/WelcomeScreen") as typeof import("../features/onboarding/WelcomeScreen");
 const { CreateWorkspaceChrome } =
@@ -256,12 +259,49 @@ const ROUTES: Record<string, Coverage> = {
   "invite/[token].tsx": { kind: "screen", mount: () => createElement(InviteScreen) },
   "s/[token].tsx": { kind: "screen", mount: () => createElement(ShareScreen) },
   "connect/dropbox.tsx": { kind: "screen", mount: () => createElement(DropboxCallbackScreen) },
+  /*
+    The two halves of "a link that went nowhere", mounted as themselves rather
+    than through `DeadLinkScreen`, because the whole reason these routes exist
+    is that Expo Router's built-in Unmatched Route screen was what somebody
+    following a `context://note/…` link actually saw — and that screen pays no
+    insets at all. With `useLocalSearchParams` and `useGlobalSearchParams`
+    mocked empty, neither route finds an address, so each renders the dead end
+    that is the only thing it ever paints: a `Redirect` paints nothing.
+  */
+  "+not-found.tsx": { kind: "screen", mount: () => createElement(requireRoute("+not-found.tsx")) },
+  "note/[...address].tsx": {
+    kind: "screen",
+    mount: () => createElement(requireRoute("note/[...address].tsx")),
+  },
 
   "(auth)/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("(auth)/_layout.tsx")) },
   "(app)/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("(app)/_layout.tsx")) },
   "connect/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("connect/_layout.tsx")) },
   "invite/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("invite/_layout.tsx")) },
   "s/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("s/_layout.tsx")) },
+  "note/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("note/_layout.tsx")) },
+
+  /*
+    The staff console. A screen rather than `framed`: it sits outside the
+    console's rail and `AppFrame`, so nothing above it supplies the notch
+    padding and `ScreenScroll` has to. `AdminChrome` is what is mounted here —
+    `AdminPane` is a live Convex subscription from its first line, and the
+    chrome is the whole of what the route ever paints, which is the reason
+    `WelcomeChrome` is mounted above rather than `WelcomeScreen`.
+  */
+  "(app)/admin/_layout.tsx": {
+    kind: "gate",
+    mount: () => createElement(requireRoute("(app)/admin/_layout.tsx")),
+  },
+  "(app)/admin/index.tsx": {
+    kind: "screen",
+    mount: () =>
+      createElement(
+        AdminChrome,
+        null,
+        createElement(Text, null, "the staff console's content"),
+      ),
+  },
 
   "(app)/console/_layout.tsx": { kind: "framed" },
   "(app)/console/index.tsx": { kind: "framed" },
