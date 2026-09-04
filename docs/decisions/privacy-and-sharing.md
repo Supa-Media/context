@@ -426,8 +426,12 @@ what make it safe, and each fails a test if removed:
   adding one would make repairing a typo a way to publish a bucket.
 - **Owner clearance only**, checked at the action (`minimum: "owner"`) and
   again in the module a test can drive without a session.
-- **The unreadable file is kept** in `.history/`. A manifest usually breaks on
-  one line, and the other forty are the owner's record of what was shared.
+- **The unreadable file is kept** in `.context/recover/`. A manifest usually
+  breaks on one line, and the other forty are the owner's record of what was
+  shared. It moved out of `.history/` when snapshots stopped being written: this
+  is now the only copy this product keeps of anything, and it earns that by not
+  being recoverable from the notes or from the customer's own versioning. See
+  [storage-and-credentials](./storage-and-credentials.md).
 
 It declares the bucket's **real** top-level folders, not the five PARA names,
 because the case this exists for is a brain that arrived with a hand-edited

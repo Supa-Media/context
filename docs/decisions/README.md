@@ -22,6 +22,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Scheduling is not calling
 - Credential barriers are enumerated, never inferred
 - The setup credential is not a stored credential
+- Version history is the customer's object versioning, not a copy we keep
 
 ## [Identity, grants, invitations, and ingestion](./identity-and-access.md)
 

@@ -112,3 +112,74 @@ holding an account-level credential; without a deadline, a run lost to a deploy
 holds one forever *and* blocks the person from retrying, because a pending row
 refuses a second attempt. The row expires, an hourly sweep destroys the
 envelope, and a pending row past its deadline stops blocking.
+
+### Version history is the customer's object versioning, not a copy we keep
+
+Every write path in this product used to snapshot the body it was about to
+replace into `.history/<path>.<stamp>.md` — six paths in the gateway, two more
+in the console. The stated premise, in the gateway's header comment, was that
+"object storage has no dependable versioning".
+
+**The premise was false.** R2, S3, B2 and Wasabi all version at the bucket. It
+costs no write amplification, it is a setting on storage the customer owns, and
+it captures something our snapshots never could: the writes Obsidian's sync
+plugin and rclone make directly, which never pass through us at all. A product
+whose first non-negotiable is that the customer owns the storage was hand-rolling
+a worse version of a feature that storage already has.
+
+What the snapshots actually bought:
+
+- **Write amplification on somebody else's bill.** `app-and-console.md` measures
+  it: tens of thousands of objects standing for a few hundred notes, in the
+  customer's bucket, synced down to every Obsidian vault, and paid for by them.
+- **A rollback that was never built**, and could not be read back if it were:
+  `isPlumbing` refuses every dot-prefixed segment at every scope, personal
+  included, so no tool could reach one. For a move or an archive it was not even
+  insurance — the body still exists at the destination.
+- **A permanent delete that had to hunt.** `deletePath` grew a whole purge —
+  prefix-matched across five snapshot spellings written by four functions —
+  because "permanently delete" was otherwise a lie. That machinery exists to
+  clean up after a feature nobody used.
+
+So the snapshots are gone and the honest consequence is stated rather than
+dressed up: **with versioning off, an overwrite is final.** The setup guide tells
+people to turn it on, `describeDeleteForever` says what deletion can and cannot
+reach, and the offline conflict UI says "unless you turned on versioning, the
+version it replaces is gone" instead of pointing at a `.history/` copy.
+
+**What a "simplification" of this would cost.** Restoring snapshots to any one
+write path re-creates every line above, quietly, in a customer's bucket. The
+guard is a sweep over the whole bucket after every gateway write path has run,
+not an assertion per path; sabotage `write_note` to snapshot again and it fails.
+
+**Three things this decision deliberately keeps:**
+
+- **`.history/` stays plumbing, and the purge stays.** Every bucket connected
+  before this change is full of snapshots. Nothing writes them, everything still
+  hides them, and `deletePath` is the only thing that removes them. Delete the
+  purge when no such bucket can exist, which is not a date anyone can name.
+- **`.context/recover/` is not a replacement history.** One file goes there: the
+  unreadable `privacy.md` that `resetPrivacyManifest` repairs, whose other forty
+  lines are the owner's record of what was shared. It is owner-triggered, one
+  copy per repair, and the test for whether anything else belongs beside it is
+  whether that thing is recoverable from anywhere else — from versioning, or from
+  the notes. A note always is. `.context/` needed no plumbing changes: both
+  privacy engines already refuse every dot-prefixed segment, and `.context-probe/`
+  is a different segment that no prefix test collides with.
+- **We do not ask for `DeleteObjectVersion`.** Permanent delete cannot remove the
+  customer's noncurrent versions, and should not try. Reaching into version
+  history we told them to enable, with a permission the binding does not
+  currently need, to delete data in a bucket they own, is the opposite of the
+  arrangement. The console names the condition instead — it cannot see the
+  setting, so it does not guess which side of it somebody is on.
+
+**What this does not solve.** A bulk move still copies every byte through the
+Worker, because the storage adapter has `get`/`put`/`delete`/`list` and no
+`copy`; a folder move still rewrites `privacy.md` once per note under a
+conditional-write retry loop, which serialises the batch; and both run inside one
+Worker invocation against a 50-subrequest budget, which is what `FOLDER_MOVE_CAP`
+of 500 and `BATCH_MOVE_CAP` of 100 are optimistic about. Removing the snapshot
+takes one round trip and one full body copy per object out of that, and no more.
+Server-side `CopyObject` behind a probed `copy` capability, one manifest write per
+operation, and a resumable job for anything larger than an invocation are the
+next three, in that order.

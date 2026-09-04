@@ -14,7 +14,7 @@ One object per bucket: `.index/search-v1.json`. Dot-prefixed on purpose:
 scope, so the index is unreachable through the note surface without a single
 new rule. It is written only by the gateway's own maintenance path
 (`store.put`, conditional on etag), never through `write_note`, and it is
-**not** snapshotted to `.history/` — it is a derivative, and versioning a
+**not** snapshotted anywhere — it is a derivative, and versioning a
 derivative of versioned files is waste.
 
 **The index contains text drawn from private notes.** That is acceptable where
