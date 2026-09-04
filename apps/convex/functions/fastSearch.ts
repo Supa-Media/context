@@ -79,6 +79,31 @@ export interface FastSearchStatus {
 }
 
 /**
+ * The wire form of `FastSearchState`.
+ *
+ * Declared once so the three functions returning it cannot disagree with each
+ * other. It does **not** tie itself to the union in `lib/fastSearch.ts` — that
+ * is a type and this is a value, and nothing checks them against one another.
+ * A sixth state added there would leave this stale.
+ *
+ * The direction that failure takes is why it is acceptable rather than merely
+ * noted: Convex validates a return against this at runtime, so the new state
+ * would be **refused** and every test covering it would fail loudly. A stale
+ * validator here breaks the feature; it cannot widen what a caller sees.
+ *
+ * `structure.test.ts` requires the `returns:` itself: without one, a public
+ * function hands the credential guard a return schema of `"null"`, which it
+ * reads and passes whatever the function actually returns.
+ */
+const stateValidator = v.union(
+  v.literal("off"),
+  v.literal("preparing"),
+  v.literal("on"),
+  v.literal("failed"),
+  v.literal("unavailable"),
+);
+
+/**
  * What the settings screen draws.
  *
  * Readable by any member — knowing how a context's search is served is not
@@ -87,6 +112,14 @@ export interface FastSearchStatus {
  */
 export const status = query({
   args: { workspaceId: v.id("workspaces") },
+  returns: v.object({
+    state: stateValidator,
+    canChange: v.boolean(),
+    notesIndexed: v.optional(v.number()),
+    notesPending: v.optional(v.number()),
+    error: v.optional(v.string()),
+    optedInAt: v.optional(v.number()),
+  }),
   handler: async (ctx, args): Promise<FastSearchStatus> => {
     const userId = await requireUserId(ctx);
     const { workspace, membership } = await requireWorkspaceAccess(
@@ -122,6 +155,7 @@ export const status = query({
  */
 export const enable = mutation({
   args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ state: stateValidator }),
   handler: async (ctx, args): Promise<{ state: FastSearchState }> => {
     const userId = await requireUserId(ctx);
     const { workspace } = await requireWorkspaceRole(
@@ -197,6 +231,7 @@ export const enable = mutation({
  */
 export const disable = mutation({
   args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ state: stateValidator }),
   handler: async (ctx, args): Promise<{ state: FastSearchState }> => {
     const userId = await requireUserId(ctx);
     const { workspace } = await requireWorkspaceRole(

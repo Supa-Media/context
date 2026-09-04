@@ -125,6 +125,7 @@ async function recordAdminAudit(
  */
 export const amIAdmin = query({
   args: {},
+  returns: v.boolean(),
   handler: async (ctx) => await viewerIsAdminHelper(ctx),
 });
 
@@ -137,6 +138,16 @@ export const amIAdmin = query({
  * is a legible "10,000+" rather than a failed query.
  */
 export const COUNT_CEILING = 10_000;
+
+/**
+ * The wire form of `CountedTotal`. See `structure.test.ts`: a public function
+ * with no `returns:` hands the credential guard a schema of `"null"`, which it
+ * reads and passes whatever the function actually returns.
+ */
+const countedTotalValidator = v.object({
+  count: v.number(),
+  isFloor: v.boolean(),
+});
 
 export interface CountedTotal {
   count: number;
@@ -175,6 +186,25 @@ export interface MetricSeries {
  */
 export const usageReport = query({
   args: { days: v.optional(v.number()) },
+  returns: v.object({
+    days: v.number(),
+    window: v.array(v.string()),
+    series: v.array(
+      v.object({
+        metric: v.string(),
+        points: v.array(v.object({ day: v.string(), count: v.number() })),
+        total: v.number(),
+      }),
+    ),
+    activeContexts: v.object({
+      points: v.array(v.object({ day: v.string(), count: v.number() })),
+      distinctInWindow: v.number(),
+    }),
+    totals: v.object({
+      workspaces: countedTotalValidator,
+      users: countedTotalValidator,
+    }),
+  }),
   handler: async (ctx, args) => {
     try {
       await requireAdmin(ctx);
@@ -277,6 +307,16 @@ export interface AdminSecretRow {
  */
 export const listSecrets = query({
   args: {},
+  returns: v.array(
+    v.object({
+      name: v.string(),
+      fingerprint: v.string(),
+      description: v.optional(v.string()),
+      updatedAt: v.number(),
+      createdAt: v.number(),
+      updatedByEmail: v.optional(v.string()),
+    }),
+  ),
   handler: async (ctx): Promise<AdminSecretRow[]> => {
     try {
       await requireAdmin(ctx);
@@ -321,6 +361,7 @@ export const setSecret = action({
     value: v.string(),
     description: v.optional(v.string()),
   },
+  returns: v.object({ name: v.string(), fingerprint: v.string() }),
   handler: async (ctx, args): Promise<{ name: string; fingerprint: string }> => {
     let actor: AdminActor;
     let name: string;
@@ -359,6 +400,7 @@ export const setSecret = action({
 
 export const deleteSecret = mutation({
   args: { name: v.string() },
+  returns: v.object({ name: v.string() }),
   handler: async (ctx, args) => {
     let actor: AdminActor;
     let name: string;
