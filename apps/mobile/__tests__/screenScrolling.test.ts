@@ -28,11 +28,12 @@ import { createRoot } from "react-dom/client";
  * ## The bug
  *
  * Both screens were a `flex: 1` box with `justifyContent: "center"` and
- * `overflow: "hidden"`, and **no ScrollView**. `app/+html.tsx` emits Expo
- * Router's `ScrollViewStyleReset`, which switches *document* scrolling off so
- * the body cannot fight a React Native `ScrollView` — so with no ScrollView in
- * the tree, nothing scrolls at all. Content taller than the viewport overflows
- * both ends of the centred box and is clipped.
+ * `overflow: "hidden"`, and **no ScrollView**. The web shell
+ * (`public/index.html`) carries react-native-web's reset, which switches
+ * *document* scrolling off so the body cannot fight a React Native
+ * `ScrollView` — so with no ScrollView in the tree, nothing scrolls at all.
+ * Content taller than the viewport overflows both ends of the centred box and
+ * is clipped.
  *
  * The consent body runs roughly 700–900px. On a 390×700 phone browser — where
  * an AI client's `/authorize?request_id=…` redirect lands somebody — **Approve

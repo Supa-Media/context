@@ -20,8 +20,9 @@ import { ThemeProvider, useColors, useScheme } from "../features/design/theme";
  * `EXPO_PUBLIC_*` env vars in app code, NOT inside node_modules (where
  * @supa-media/core lives), so the provider can't read it on its own.
  *
- * `ensureFontsLoaded` is a no-op on native and idempotent on web — `+html.tsx`
- * already links the faces, and this covers a host that serves its own shell.
+ * `ensureFontsLoaded` is a no-op on native and idempotent on web —
+ * `public/index.html` already links the faces, and this covers a host that
+ * serves its own shell.
  * It runs during module evaluation rather than in an effect so the stylesheet
  * request starts before the first paint.
  *

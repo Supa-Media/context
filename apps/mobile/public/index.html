@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<!--
+  The document Expo serves for the web app, and the reason this file is here
+  rather than in `app/+html.tsx`: that one belongs to static rendering and is
+  never rendered by a single-page export, so it shipped nothing and the site
+  painted the browser's white until the bundle finished running. The full
+  account is in `docs/decisions/app-and-console.md` and in
+  `__tests__/htmlShell.test.ts`, which reads this file.
+
+  Expo fills this in as a template, so keep it short and keep it out of the
+  way: every tag Expo inserts goes before the first closing head tag in the
+  file, and its two placeholders are substituted by plain text replacement.
+  Naming any of them in a comment is how the favicon ends up inside one.
+-->
+<html lang="%LANG_ISO_CODE%">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>%WEB_TITLE%</title>
+
+    <!--
+      No URL of ours is ever sent to a third party. `/invite/<token>?code=…`
+      is the highest-value URL in the product and this document makes
+      cross-origin font requests; today's browsers already send only the
+      origin, which is one default away from being a leak.
+    -->
+    <meta name="referrer" content="no-referrer" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#050506" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FFFFFF" />
+    <meta
+      name="description"
+      content="Tell one AI once. Context carries the right decisions to every AI and teammate you allow, backed by plain markdown in Dropbox or storage you own."
+    />
+
+    <!--
+      The type, linked from the head so the first paint already has it.
+      `features/design/fonts.web.ts` injects the same stylesheet from app code
+      for a host that serves its own shell; the two hrefs are pinned together
+      by the test.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+    <link
+      id="context-fonts"
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+    />
+
+    <!-- react-native-web's recommended reset, from Expo's stock template. -->
+    <style id="expo-reset">
+      /* These styles make the body full-height */
+      html,
+      body {
+        height: 100%;
+      }
+      /* These styles disable body scrolling if you are using <ScrollView> */
+      body {
+        overflow: hidden;
+      }
+      /* These styles make the root element full-height */
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+
+    <!--
+      The ground, as a media query because this document is written at build
+      time and its first paint happens before any of the app's JavaScript
+      runs — so it cannot ask React which appearance is in force. The query is
+      the same question `useColorScheme()` asks, so it lands on the same answer
+      as `resolveScheme()`. Light is the default rule because that is how
+      `prefers-color-scheme` reports "no preference"; guessing the other way
+      would flash black at every light-mode visitor.
+
+      The hex values are the palettes' `ground` and `text`, written out because
+      a static file cannot import `tokens.ts`. The test reads both and fails on
+      drift.
+    -->
+    <style id="context-ground">
+      html,
+      body,
+      #root {
+        background-color: #FFFFFF;
+        color-scheme: light;
+      }
+      body {
+        margin: 0;
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+      }
+      /* Selection in the product's blue rather than the browser default. */
+      ::selection { background: rgba(37,99,235,.22); color: #222222; }
+
+      @media (prefers-color-scheme: dark) {
+        html,
+        body,
+        #root {
+          background-color: #050506;
+          color-scheme: dark;
+        }
+        ::selection { background: rgba(59,130,246,.35); color: #F2F2F4; }
+      }
+    </style>
+  </head>
+
+  <body>
+    <noscript> You need to enable JavaScript to run this app. </noscript>
+    <!-- The root element for the Expo app. -->
+    <div id="root"></div>
+  </body>
+</html>

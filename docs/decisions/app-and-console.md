@@ -322,10 +322,69 @@ under AA. The elevation tokens are *re-ranked* between the two rather than
 inverted, because in a light world elevation and interaction move in opposite
 directions; `tokens.ts` says which token does which job.
 
-`app/+html.tsx` cannot ask React — it is rendered at build time and paints the
-page before any app code runs — so it carries the two grounds as literals under
-a `prefers-color-scheme` query, pinned against the palettes by
-`__tests__/htmlShell.test.ts`.
+The shell cannot ask React — it is a static document and paints the page before
+any app code runs — so it carries the two grounds as literals under a
+`prefers-color-scheme` query, pinned against the palettes by
+`__tests__/htmlShell.test.ts`. Which file that is, and why it moved, is the
+next section.
+
+### The web shell is `public/index.html`, because `+html.tsx` is a static-rendering file
+
+The shell lived in `app/+html.tsx` for the whole life of the web app, painted
+both grounds under a `prefers-color-scheme` query, linked the three type
+families, and set `referrer: no-referrer` so the sign-in code in an invitation
+URL is never handed to Google Fonts. It was tested. **None of it ever reached a
+browser.**
+
+`+html.tsx` is part of Expo Router's *static rendering*: it wraps each route's
+HTML when `expo.web.output` is `"static"` or `"server"`. This app's `output` is
+unset, which means `"single"` — a single-page export, whose document
+`@expo/cli` builds in `createTemplateHtmlAsync` from `public/index.html` when
+one exists and from its own stock template when one does not. That function
+never looks at `+html.tsx`. There was no `public/`, so every visitor got the
+stock template: no ground colour on `html`/`body`, no fonts, no referrer
+policy.
+
+What that cost is measurable, and was measured against a real
+`expo export -p web` driven by headless Chromium at 20 Mbps: `/console/@name`
+painted **pure white for 1.9 seconds** — fetch, parse and run 3.3 MB of
+JavaScript — and then the app mounted and repainted the viewport `#050506`. A
+white-to-black flash on every load and every refresh, on every URL, for every
+dark-mode visitor; light-mode visitors got the mirror of it on any screen whose
+first surface is not white. It was reported as "an ugly flicker" and it is not
+a rendering bug in the app at all: the app was not on screen yet.
+
+So the shell is now `public/index.html` — the file that single-page output
+actually reads — and `+html.tsx` is deleted rather than left as a second copy
+to drift. Three things follow, and each is a test:
+
+- **The suite must read the file that ships.** `htmlShell.test.ts` asserted the
+  palette against `+html.tsx` and was green for as long as the site was
+  flashing. It now reads `public/index.html`, asserts `web.output` is still
+  single, and fails if `app/+html.tsx` comes back — a shell in a file the
+  bundler ignores is a shell nobody sees.
+- **Expo fills this file in, so its substitution targets are unique.**
+  `%LANG_ISO_CODE%`, the title placeholder, the closing head tag and
+  `<div id="root">` are each the target of a plain `String.replace`, which
+  takes the *first* match. Writing this explanation into the file proved the
+  point immediately: the favicon link Expo inserts before the closing head tag
+  landed inside the paragraph describing where Expo inserts it, and the export
+  shipped with no favicon. The long form belongs here; the file keeps a
+  pointer.
+- **The head link carries `id="context-fonts"`,** which is what
+  `ensureFontsLoaded` looks for. Without it that function cannot see the link
+  already in the head and appends a second one on every web load.
+
+The accepted cost is that a render-blocking stylesheet on a third-party host is
+now on the critical path: if Google Fonts is slow, the app's mount waits on it.
+That was the original intent — type at first paint rather than a swap — and the
+shell's ground still paints immediately either way, so the failure mode is a
+late app on the right colour rather than a flash of the wrong one.
+
+**None of this makes the 1.9 seconds shorter.** The bundle is 3.3 MB
+uncompressed, 880 kB gzipped, and until it has run there is no console. What
+changed is that the wait is now the app's own ground instead of the browser's
+white. Splitting that bundle is a separate piece of work and a real one.
 
 ### Offline is a queue and a cache, and a conflict is parked rather than resolved
 
