@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { openStore } from "../offline/store";
-import { recallPlace, rememberPlace, type LastPlace } from "./lastPlace";
+import { RECALL_DEADLINE_MS, recallPlace, rememberPlace, type LastPlace } from "./lastPlace";
 
 /**
  * The React half of "come back to the file you were on". The rules, and what
@@ -19,21 +19,42 @@ import { recallPlace, rememberPlace, type LastPlace } from "./lastPlace";
  * Read once per mount and never re-read. The only writer is this app, in this
  * process, and it writes what the console is already showing; re-reading would
  * be asking the device to tell us something we just told it.
+ *
+ * ## It is bounded, and that is not belt-and-braces
+ *
+ * `undefined` can hold the landing on a `wait`, so an unbounded read is a
+ * screen this app cannot leave. `forget.ts` already states the rule this file
+ * ignored: **`AsyncStorage` is a bridge call, and a wedged bridge never
+ * settles**, so a `catch` is only half a failure stance and the other half is a
+ * deadline. A store that has not answered by then is a device that does not
+ * know, which is a state the landing already handles — it goes to the context
+ * you own.
+ *
+ * What that costs when it fires is one launch's restore, and it is the right
+ * thing to lose: the alternative is holding somebody on an empty pane for as
+ * long as the bridge feels like taking.
  */
 export function useLastPlace(): LastPlace | null | undefined {
   const [place, setPlace] = useState<LastPlace | null | undefined>(undefined);
 
   useEffect(() => {
     let live = true;
-    void (async () => {
-      const answer = await recallPlace(openStore());
+    const settle = (answer: LastPlace | null) => {
       // A store that answers after the console has been left would otherwise
       // set state on an unmounted tree, and — worse — resolve a redirect for a
       // screen nobody is on.
       if (live) setPlace(answer);
+      live = false;
+    };
+    const timer = setTimeout(() => settle(null), RECALL_DEADLINE_MS);
+    void (async () => {
+      const answer = await recallPlace(openStore());
+      clearTimeout(timer);
+      settle(answer);
     })();
     return () => {
       live = false;
+      clearTimeout(timer);
     };
   }, []);
 

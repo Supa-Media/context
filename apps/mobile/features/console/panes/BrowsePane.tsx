@@ -62,9 +62,18 @@ export function BrowsePane({
    * control is then not rendered rather than rendered dead.
    */
   onOpenSettings,
+  pendingNote,
 }: {
   data: ConsoleData;
   onOpenSettings?: () => void;
+  /**
+   * A note this URL names that the file browser has not opened yet.
+   *
+   * Only ever set for the moment between arriving on `/console/@slug?note=…`
+   * and the workspace list landing — see `Empty` for why that moment needed a
+   * name.
+   */
+  pendingNote?: string | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const files = data.files;
@@ -296,7 +305,18 @@ export function BrowsePane({
 
   const openDocument =
     selected === null ? (
-      <Empty contextLabel={contextLabel} />
+      /*
+        Nothing, rather than "Choose a note", while the URL names one.
+
+        Reported from a hard refresh of `/console/@seyi?note=…`: the note opens
+        only once the workspace list has landed and the file browser has caught
+        up with it, and until then this region drew the context's name in a
+        heading over a line telling somebody to choose a note — on a URL that
+        had already chosen one. A round trip's worth of the opposite of what is
+        about to happen, and then a jump. Blank is not a nice state either; it
+        is a quiet one, and it is honest about a document that is on its way.
+      */
+      pendingNote == null ? <Empty contextLabel={contextLabel} /> : null
     ) : selected.kind === "folder" ? (
       <FolderView
         entry={selected}

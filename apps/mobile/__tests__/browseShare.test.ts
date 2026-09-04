@@ -611,3 +611,53 @@ describe("who does not get it", () => {
     expect(pane.querySelector('[data-testid="browse-share"]')).toBeNull();
   });
 });
+
+/* -------------------------------------------------------------------------- */
+
+describe("a URL that names a note does not say 'choose a note' first", () => {
+  /**
+   * **Reported from a hard refresh of `/console/@seyi?note=…`: an ugly
+   * flicker.**
+   *
+   * The note opens only once the workspace list has landed and the file browser
+   * has caught up with it — a whole round trip — and until then this region drew
+   * the context's name in a heading over a line telling somebody to choose a
+   * note. On a URL that had already chosen one. The copy is right for an empty
+   * console and is the opposite of what is happening here, and then it jumps.
+   *
+   * A render test rather than a pure one, because what was wrong was what was on
+   * the screen during a gap that no pure function has a name for.
+   */
+  test("the empty state is suppressed while the named note is on its way", () => {
+    const container = mount(
+      createElement(BrowsePane, {
+        data: dataWith({ selectedPath: null }),
+        pendingNote: "1-projects/plan.md",
+      }),
+    );
+    expect(container.textContent ?? "").not.toContain("Choose a note");
+  });
+
+  test("and is still there for a console that really has nothing open", () => {
+    // The negative control. Without it, deleting `Empty` outright would pass
+    // the test above — and an empty console would have nothing to say at all.
+    const container = mount(
+      createElement(BrowsePane, { data: dataWith({ selectedPath: null }) }),
+    );
+    expect(container.textContent ?? "").toContain("Choose a note");
+  });
+
+  test("a note that has opened is the note, not a blank region", () => {
+    // The gap closes the instant `select` lands: `pendingNote` is passed as
+    // `null` once anything is selected, so this cannot become a pane that is
+    // permanently blank.
+    const container = mount(
+      createElement(BrowsePane, {
+        data: dataWith(),
+        pendingNote: null,
+      }),
+    );
+    expect(container.textContent ?? "").not.toContain("Choose a note");
+    expect(container.textContent ?? "").not.toBe("");
+  });
+});
