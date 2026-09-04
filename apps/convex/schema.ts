@@ -1401,7 +1401,7 @@ const schema = defineSchema({
    *
    * ## Write-only, structurally
    *
-   * `value` is an AES-GCM envelope bound to the `integration` platform scope
+   * `encryptedValue` is an AES-GCM envelope bound to the `integration` scope
    * (`lib/crypto.ts`). No public function may reach `decryptSecret` — that is
    * `__tests__/structure.test.ts`, and it is what makes "the console can set a
    * secret but never read one back" a property of the codebase rather than a
@@ -1414,8 +1414,18 @@ const schema = defineSchema({
      * Uppercase, digits and underscores; validated on write, unique by index.
      */
     name: v.string(),
-    /** `v2:<key-id>:<iv>:<ciphertext>`, bound to the `integration` scope. */
-    value: v.string(),
+    /**
+     * `v2:<key-id>:<iv>:<ciphertext>`, bound to the `integration` scope.
+     *
+     * Named `encrypted*` deliberately, and not for style:
+     * `__tests__/structure.test.ts` derives `SCHEMA_ENCRYPTED_FIELDS` by
+     * matching that prefix, and forbids any of them appearing in a public
+     * function's `returns:` validator "with nobody needing to remember". A
+     * column called `value` sits outside that promise — inert today, since
+     * these functions declare no return validator, and a trap the moment one
+     * does.
+     */
+    encryptedValue: v.string(),
     /**
      * First 8 hex characters of SHA-256 over the plaintext.
      *

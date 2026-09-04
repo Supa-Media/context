@@ -29,7 +29,7 @@
  *   `isAdminEmail` matching on domain suffix rather than exactly       2
  *   `additionalData` dropping the `workspace:`/`platform:` segment     2
  *   `normalizeSecretName` allowing a reserved name through             5
- *   `listSecrets` selecting `value` onto its returned row              1
+ *   `listSecrets` selecting the sealed envelope onto its returned row   1
  */
 
 import { describe, expect, test } from "vitest";
@@ -405,13 +405,14 @@ describe("a secret goes in and does not come back", () => {
     expect(serialized).not.toContain(value);
     expect(serialized).not.toContain("v2:");
     expect(Object.keys(listed[0])).not.toContain("value");
+    expect(Object.keys(listed[0])).not.toContain("encryptedValue");
 
     // And it really was stored, sealed, and is openable only internally.
     const stored = await t.run(
       async (ctx) => await ctx.db.query("appSecrets").unique(),
     );
-    expect(stored?.value.startsWith("v2:")).toBe(true);
-    expect(stored?.value).not.toContain(value);
+    expect(stored?.encryptedValue.startsWith("v2:")).toBe(true);
+    expect(stored?.encryptedValue).not.toContain(value);
   });
 
   test("readIntegrationSecret returns what was set", async () => {

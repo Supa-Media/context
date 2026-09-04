@@ -270,10 +270,10 @@ export interface AdminSecretRow {
 /**
  * Every stored integration credential, as metadata.
  *
- * `value` is not selected, not decrypted, and not returned. The envelope never
- * leaves the database through this function — not even in its sealed form,
- * because a sealed envelope plus a leaked key is the credential, and a
- * ciphertext on a client is a ciphertext an attacker can keep.
+ * `encryptedValue` is not selected, not decrypted, and not returned. The
+ * envelope never leaves the database through this function — not even in its
+ * sealed form, because a sealed envelope plus a leaked key is the credential,
+ * and a ciphertext on a client is a ciphertext an attacker can keep.
  */
 export const listSecrets = query({
   args: {},
@@ -431,7 +431,7 @@ export const applySecret = internalMutation({
     if (existing === null) {
       await ctx.db.insert("appSecrets", {
         name: args.name,
-        value: args.envelope,
+        encryptedValue: args.envelope,
         fingerprint: args.fingerprint,
         description: args.description,
         updatedBy: args.actorUserId,
@@ -445,7 +445,7 @@ export const applySecret = internalMutation({
     }
 
     await ctx.db.patch(existing._id, {
-      value: args.envelope,
+      encryptedValue: args.envelope,
       fingerprint: args.fingerprint,
       // An absent description leaves the existing one alone: the common edit
       // is rotating a value, and clearing the note explaining what a token is
@@ -492,7 +492,7 @@ export const readIntegrationSecret = internalAction({
       { name },
     );
     if (row === null) return null;
-    return await decryptSecret(row.value, requireKeyset(), {
+    return await decryptSecret(row.encryptedValue, requireKeyset(), {
       platform: "integration",
     });
   },
