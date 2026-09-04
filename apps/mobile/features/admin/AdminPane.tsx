@@ -52,6 +52,7 @@ import {
   dayOverDay,
   formatCount,
   formatDelta,
+  formatTotal,
   metricLabel,
   orderSeries,
   relativeTime,
@@ -158,12 +159,12 @@ function UsageSection() {
         />
         <StatTile
           label="Contexts"
-          value={formatCount(report.totals.workspaces)}
+          value={formatTotal(report.totals.workspaces)}
           caption="all time"
         />
         <StatTile
           label="Accounts"
-          value={formatCount(report.totals.users)}
+          value={formatTotal(report.totals.users)}
           caption="all time"
         />
       </View>

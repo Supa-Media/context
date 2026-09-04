@@ -6,6 +6,7 @@ import {
   dayOverDay,
   formatCount,
   formatDelta,
+  formatTotal,
   metricLabel,
   orderSeries,
   relativeTime,
@@ -198,5 +199,18 @@ describe("the known-integration list", () => {
     const names = KNOWN_SECRETS.map((known) => known.name);
     expect(names).toContain("SEARCH_D1_API_TOKEN");
     expect(names).toContain("SEARCH_D1_ACCOUNT_ID");
+  });
+});
+
+describe("a total the server stopped counting", () => {
+  test("an exact total renders as a number", () => {
+    expect(formatTotal({ count: 412, isFloor: false })).toBe("412");
+  });
+
+  test("a floor says so rather than stating a number nobody measured", () => {
+    // `usageReport` reads one bounded page instead of scanning the table, so
+    // past its ceiling the server genuinely does not know the total. Printing
+    // "10,000" would be a figure somebody quotes.
+    expect(formatTotal({ count: 10_000, isFloor: true })).toBe("10.0K+");
   });
 });

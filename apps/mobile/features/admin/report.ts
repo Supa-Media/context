@@ -215,3 +215,20 @@ export function unsetKnownSecrets(
   const have = new Set(configured.map((row) => row.name));
   return KNOWN_SECRETS.filter((known) => !have.has(known.name));
 }
+
+/**
+ * A total the server may have stopped counting.
+ *
+ * `usageReport` reads one bounded page rather than the whole table, so a
+ * number past its ceiling comes back as a floor. Rendering that as a plain
+ * figure would state a number the server did not measure; `10,000+` says what
+ * is actually known.
+ */
+export interface CountedTotal {
+  count: number;
+  isFloor: boolean;
+}
+
+export function formatTotal(total: CountedTotal): string {
+  return total.isFloor ? `${formatCount(total.count)}+` : formatCount(total.count);
+}

@@ -130,6 +130,33 @@ export const amIAdmin = query({
 
 // -- the figures ----------------------------------------------------------
 
+/**
+ * How many rows a total may read before it becomes a floor.
+ *
+ * One page, sized so the common case is an exact number and the uncommon one
+ * is a legible "10,000+" rather than a failed query.
+ */
+export const COUNT_CEILING = 10_000;
+
+export interface CountedTotal {
+  count: number;
+  /** `true` when the ceiling was reached, so `count` is a floor. */
+  isFloor: boolean;
+}
+
+async function countUpTo(
+  ctx: { db: { query: (table: "workspaces" | "users") => { take: (n: number) => Promise<unknown[]> } } },
+  table: "workspaces" | "users",
+): Promise<CountedTotal> {
+  // One more than the ceiling, so "exactly at the ceiling" and "more than the
+  // ceiling" are distinguishable — reading exactly `COUNT_CEILING` rows and
+  // reporting a floor would understate a number that happened to be exact.
+  const rows = await ctx.db.query(table).take(COUNT_CEILING + 1);
+  return rows.length > COUNT_CEILING
+    ? { count: COUNT_CEILING, isFloor: true }
+    : { count: rows.length, isFloor: false };
+}
+
 export interface MetricSeries {
   metric: string;
   /** One entry per day in the requested window, oldest first, zeroes included. */
@@ -213,9 +240,17 @@ export const usageReport = query({
         distinctInWindow: activeInWindow.size,
       },
       // Totals that are facts about now rather than about the window.
+      //
+      // **Floors, not totals, and bounded reads.** `collect()` here was a full
+      // table scan per page load: correct at today's size, and at a hundred
+      // thousand accounts it is the admin page failing on Convex's per-query
+      // document limit — the one screen whose job is to tell you the product
+      // is growing, breaking because it did. There is no count API, so this
+      // takes one page and says honestly when it filled it, which is the same
+      // floor language `noteCount` and the census already use.
       totals: {
-        workspaces: (await ctx.db.query("workspaces").collect()).length,
-        users: (await ctx.db.query("users").collect()).length,
+        workspaces: await countUpTo(ctx, "workspaces"),
+        users: await countUpTo(ctx, "users"),
       },
     };
   },
