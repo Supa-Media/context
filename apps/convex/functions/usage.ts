@@ -209,6 +209,7 @@ export const record = internalMutation({
  */
 export const reportAppSession = mutation({
   args: { workspaceId: v.optional(v.id("workspaces")) },
+  returns: v.object({ recorded: v.boolean() }),
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) return { recorded: false };
