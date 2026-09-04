@@ -513,8 +513,8 @@ describe("an existing context is never overwritten", () => {
   /**
    * The regression this design exists for.
    *
-   * A real brain snapshots every overwrite into `.history/`, so it accumulates
-   * tens of thousands of objects under a key that sorts *before* every note
+   * A brain connected before snapshots stopped accumulated one object per
+   * overwrite under a key that sorts *before* every note — tens of thousands
    * (`.` is 0x2E, `0` is 0x30). A flat first-page listing of that bucket comes
    * back looking completely empty, and a detector built on one would scaffold
    * straight over a live context. Listing with a delimiter collapses the whole
