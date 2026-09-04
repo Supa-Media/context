@@ -179,6 +179,15 @@ export function followChord(agent: string | undefined): string {
 export const LONG_PRESS_MS = 450;
 /** How far it may drift first. Beyond this it is a scroll, not a press. */
 export const LONG_PRESS_SLOP = 10;
+/**
+ * How long a touch must have been held before the browser taking it away is
+ * read as a press rather than as an interruption.
+ *
+ * See the `touchcancel` handler. A cancel at twenty milliseconds is a phone
+ * call arriving; a cancel at three hundred is the platform's own long-press
+ * recogniser claiming a finger that has not moved.
+ */
+export const PRESS_CANCEL_FLOOR_MS = 150;
 
 const linkMark = Decoration.mark({ class: "cm-note-link" });
 
@@ -238,14 +247,53 @@ export function noteLinks(ref: NoteLinkRef): Extension {
   /*
     A press is state that belongs to one gesture, so it is held here rather than
     on the view: two fingers are two touches and only the first of them can be a
-    press. `pending` is cleared on every end, cancel, move past the slop, and on
-    a second touch starting — anything that makes the gesture ambiguous.
+    press.
+
+    ## Two ways a long press arrives, because one of them was never arriving
+
+    The timer below is the obvious one and, driven as real touch events in a
+    real browser, it works: touch down, hold, and at `LONG_PRESS_MS` the host is
+    asked. **On iOS Safari it fired approximately never**, and the reason is
+    that the page is not the only thing watching the finger. WebKit's own
+    long-press recogniser — the one that puts up the selection magnifier over
+    editable text — claims a stationary touch and tells the page by sending
+    `touchcancel`. This handler used that as its cue to give up, so the gesture
+    was cancelled by the very thing that recognised it.
+
+    So there are two signals now, and either one is the press:
+
+     - the timer, for every browser that leaves the touch alone;
+     - `contextmenu`, which is the platform *reporting* a long press, and which
+       is only honoured while a touch gesture of ours is live — a right-click
+       on a desktop has no touch behind it and must keep the browser's menu.
+
+    And `touchcancel` no longer cancels a finger that has not moved: the timer
+    is left to run, which is what turns WebKit's interruption into the press it
+    was recognising. A scroll has already drifted past the slop by then and a
+    genuine interruption is caught by `PRESS_CANCEL_FLOOR_MS`.
+
+    Two signals cannot become two dialogs, and no flag is needed to say so:
+    `press` cancels the pending gesture on its way out, so whichever signal
+    arrives first takes the timer with it and the other finds nothing pending.
+    A first draft carried an `emitted` boolean as well; sabotaging it changed
+    no test's outcome, because it was guarding a case `cancel` had already
+    closed.
   */
-  let pending: { timer: ReturnType<typeof setTimeout>; x: number; y: number } | null = null;
+  let pending: {
+    timer: ReturnType<typeof setTimeout>;
+    x: number;
+    y: number;
+    path: string;
+    startedAt: number;
+  } | null = null;
   const cancel = () => {
     if (pending === null) return;
     clearTimeout(pending.timer);
     pending = null;
+  };
+  const press = (path: string) => {
+    cancel();
+    ref.current.onPress(path);
   };
 
   const events = EditorView.domEventHandlers({
@@ -275,10 +323,9 @@ export function noteLinks(ref: NoteLinkRef): Extension {
       pending = {
         x: touch.clientX,
         y: touch.clientY,
-        timer: setTimeout(() => {
-          pending = null;
-          ref.current.onPress(span.path);
-        }, LONG_PRESS_MS),
+        path: span.path,
+        startedAt: Date.now(),
+        timer: setTimeout(() => press(span.path), LONG_PRESS_MS),
       };
       // Deliberately `false`: the touch keeps behaving like a touch — the caret
       // still lands, the note still scrolls — until the timer decides it was a
@@ -301,8 +348,30 @@ export function noteLinks(ref: NoteLinkRef): Extension {
       return false;
     },
     touchcancel() {
-      cancel();
+      /*
+        **The one handler that must not do the obvious thing.** A cancel over a
+        finger that has not drifted is, on iOS, the platform's long-press
+        recogniser taking the touch — so the timer is left to run and the press
+        still lands. A cancel that arrives before `PRESS_CANCEL_FLOOR_MS` is
+        something interrupting a touch that had not become anything yet, and is
+        dropped.
+      */
+      if (pending !== null && Date.now() - pending.startedAt < PRESS_CANCEL_FLOOR_MS) cancel();
       return false;
+    },
+    contextmenu(event) {
+      /*
+        Only while one of our touch gestures is live. A right-click on a
+        pointer device reaches this handler too and must keep the browser's own
+        menu, which is why this reads `pending` rather than the event.
+      */
+      if (pending === null) return false;
+      // Explicit rather than relying on the `true` below: the system menu
+      // coming up over the dialog is the failure this prevents, and it should
+      // not depend on a library's convention for what a handled event means.
+      event.preventDefault();
+      press(pending.path);
+      return true;
     },
   });
 
@@ -335,6 +404,13 @@ const linkTheme = EditorView.theme({
     textDecoration: "underline",
     textUnderlineOffset: "2px",
     cursor: "pointer",
+    /*
+      Safari's own long-press menu, off — over this text and nowhere else.
+      Long press *is* this feature's gesture on a touch screen, and the system
+      callout is the other thing that answers to it. Scoped to the link span so
+      the rest of the note keeps every selection affordance it has.
+    */
+    WebkitTouchCallout: "none",
   },
   ".cm-note-link-tooltip": {
     display: "flex",
