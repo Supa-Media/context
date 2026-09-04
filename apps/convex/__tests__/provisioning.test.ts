@@ -476,10 +476,13 @@ describe("verification classifies the bucket without touching it", () => {
   /**
    * The delimiter listing, through the whole stack.
    *
-   * A real brain snapshots every overwrite into `.history/`, which sorts before
-   * every digit. A flat first-page listing of one comes back looking completely
-   * empty — so a detector built on one would tell onboarding this live context
-   * is a blank bucket and offer to lay a layout over the top of it.
+   * A brain connected before snapshots stopped has an overwrite's worth of
+   * `.history/` per edit, under a key that sorts before every digit. A flat
+   * first-page listing of one comes back looking completely empty — so a
+   * detector built on one would tell onboarding this live context is a blank
+   * bucket and offer to lay a layout over the top of it. Nothing writes those
+   * any more; every bucket that already has them still does, and this is the
+   * onboarding path they come back through.
    */
   test("a live brain whose first pages are all .history is not reported empty", async () => {
     const { t, backend, workspaceId } = await connecting();

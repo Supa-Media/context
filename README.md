@@ -48,8 +48,8 @@ That's not a feature we might remove later. It's the architecture:
                             ├──────────────────────┤      │  4-archive/        │
                             │  MCP gateway         │─────▶│  index.md          │
                             │  (Cloudflare Worker) │OAuth │  privacy.md        │
-                            └──────────────────────┘/keys │  .history/         │
-                                                          │  .audit/           │
+                            └──────────────────────┘/keys │  .audit/           │
+                                                          │  .context/         │
                                                           └────────────────────┘
      control plane holds metadata only — never your notes, never a second copy
 ```

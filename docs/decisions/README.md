@@ -26,6 +26,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Platform credentials seal to a scope, customers' seal to a workspace
 - Anything needed before this table can be read cannot live in it
 - Usage is counted, never logged
+- Version history is the customer's object versioning, not a copy we keep
 
 ## [Identity, grants, invitations, and ingestion](./identity-and-access.md)
 

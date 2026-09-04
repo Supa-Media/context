@@ -44,7 +44,7 @@ import {
   setVisibility,
   writeFile,
 } from "../functions/lib/fileOps";
-import { PRIVACY_KEY, parsePrivacyManifest } from "../functions/lib/privacy";
+import { PRIVACY_KEY, isPlumbing, parsePrivacyManifest } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 
 const NOW = 1_800_000_000_000;
@@ -65,11 +65,11 @@ function bucket(options: { ignoreIfMatch?: boolean } = {}): MemoryStore & FileSt
   store.seed("2-areas/health.md", "# Health\n");
   store.seed("4-archive/README.md", "# Archive\n");
   store.seed(".history/1-projects/context-lc.md.old.md", "# older\n");
-  // Every note in a real bucket has been edited at least once, and every one of
-  // those edits left the version it replaced in `.history/`. A fixture without
-  // these describes a bucket nobody has — and let the delete tests below pass
-  // by having nothing to find, which is exactly how the copy on the console's
-  // delete dialog came to be false.
+  // A bucket connected before snapshots stopped being written. Nothing creates
+  // these any more, but every bucket that predates that change is full of them
+  // and `deletePath` still has to purge them — a fixture without these lets the
+  // delete tests pass by having nothing to find, which is exactly how the copy
+  // on the console's delete dialog came to be false the first time.
   store.seed(".history/1-projects/pay.md.2026-07-01T09-00-00-000Z.md", "# Pay\n\nsalaries\n");
   store.seed(
     ".history/1-projects/pay.md.2026-07-02T09-00-00-000Z.move.md",
@@ -581,8 +581,9 @@ describe("saving a note", () => {
     expect(store.snapshot()["1-projects/context-lc.md"]).toBe("# Edited\n");
   });
 
-  test("the replaced version is kept under .history/", async () => {
+  test("the replaced version is not copied anywhere", async () => {
     const store = bucket();
+    const before = Object.keys(store.snapshot());
     const read = await readFile(store, { path: "1-projects/context-lc.md", scope: "private" });
     await writeFile(store, {
       path: read.path,
@@ -591,10 +592,13 @@ describe("saving a note", () => {
       scope: "private",
       now: NOW,
     });
-    const history = Object.keys(store.snapshot()).filter(
-      (key) => key.startsWith(".history/1-projects/context-lc.md.") && key.endsWith(".md"),
-    );
-    expect(history.length).toBeGreaterThan(1);
+    // Not "no `.history/` key" — the whole bucket. A snapshot that moved to a
+    // different prefix is the same second copy of somebody's note under a new
+    // name, and versioning at the provider is what keeps versions now.
+    expect(Object.keys(store.snapshot()).sort()).toEqual(before.sort());
+    expect(
+      Object.values(store.snapshot()).filter((body) => body === "# Context.LC\n\nnotes\n"),
+    ).toEqual([]);
   });
 
   /* ------------------------------ conflicts ------------------------------- */
@@ -1607,8 +1611,12 @@ describe("deleting is the permanent one", () => {
     });
 
     /**
-     * The version an *edit* left behind, not one a fixture planted. This is the
-     * path a real person takes: write a note, change it, delete it.
+     * The path a real person takes: write a note, change it, delete it.
+     *
+     * The edit no longer stashes the first draft — nothing does — so the first
+     * half of this now guards that, and the second half still guards the purge.
+     * A bucket connected before snapshots stopped is the case the seeded
+     * fixtures below cover; this one is the bucket of somebody who joined after.
      */
     test("a note written, edited, then deleted leaves nothing of either version", async () => {
       const store = bucket();
@@ -1625,10 +1633,10 @@ describe("deleting is the permanent one", () => {
         scope: "private",
         now: NOW + 60_000,
       });
-      // The bug, stated: the edit really did stash the first draft.
+      // The edit kept nothing, so there is nothing for the delete to miss.
       expect(
-        historyKeys(store).some((key) => store.snapshot()[key].includes("the first draft")),
-      ).toBe(true);
+        Object.entries(store.snapshot()).filter(([, body]) => body.includes("the first draft")),
+      ).toEqual([]);
 
       await deletePath(store, {
         path: "1-projects/secret.md",
@@ -3838,8 +3846,14 @@ describe("resetting a privacy.md that cannot be read", () => {
     const result = await resetPrivacyManifest(store, { scope: "private", now: NOW });
 
     expect(result.backedUpTo).not.toBeNull();
-    expect(result.backedUpTo!.startsWith(".history/")).toBe(true);
+    // `.context/recover/`, not `.history/`: this is the one copy the product
+    // still keeps for somebody, and it is deliberately not filed with the
+    // snapshot system that no longer exists.
+    expect(result.backedUpTo!.startsWith(".context/recover/")).toBe(true);
     expect(store.snapshot()[result.backedUpTo!]).toBe(original);
+    // And it is plumbing by the same rule everything else is: a dot-prefixed
+    // segment, so both privacy engines refuse it without being told about it.
+    expect(isPlumbing(result.backedUpTo!)).toBe(true);
   });
 
   test("a bucket with no manifest at all is repaired, and has nothing to keep", async () => {

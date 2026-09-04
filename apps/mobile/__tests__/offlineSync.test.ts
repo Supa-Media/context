@@ -313,9 +313,11 @@ describe("resolving a conflict", () => {
       writes between the conflict and the retry, that is a new conflict and gets
       asked about again, rather than being flattened.
 
-      Nor is it destructive: `writeFile` snapshots the outgoing body into
-      `.history/` before every write, so the version being replaced stays
-      recoverable from the customer's own bucket.
+      It IS destructive, and the UI says so. `writeFile` keeps no copy of the
+      version being replaced — object versioning at the customer's provider is
+      what keeps versions now, and we cannot see whether they enabled it — so
+      the choice reads "unless you turned on versioning, the version it
+      replaces is gone" rather than promising a snapshot nothing writes.
     */
     const outbox = forceMine(conflicted(), "a.md");
     expect(outbox.writes[0]!.state).toBe("pending");

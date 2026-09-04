@@ -10,10 +10,11 @@ bucket", "Reachable — 1,284 objects" — over a live bucket holding six. The f
 then was to delete the tiles, because there was no honest number available. The
 tile is back, and four things are what make it safe.
 
-**It counts notes, not objects.** `.history/` on a real context holds every
-revision of every file: tens of thousands of objects standing for a few hundred
-notes. An object count wearing the label "your notes" is the original bug with
-a measurement attached.
+**It counts notes, not objects.** `.history/` on a context connected before
+snapshots stopped holds every revision of every file: tens of thousands of
+objects standing for a few hundred notes. An object count wearing the label
+"your notes" is the original bug with a measurement attached — and it stays
+wrong for every such bucket, none of which get smaller on their own.
 
 **The walk is delimited at the root, then flat inside each real folder.** Not
 an optimisation. A flat listing returns `.history/…` first, because `.` sorts
@@ -457,10 +458,13 @@ etag, and the cache mirrors the bucket — and it is what keeps a *second* round
 mergeable: the ancestor of the text somebody just approved is precisely the
 version they approved it against.
 
-**Nothing is lost by either answer, including the one that overwrites.**
-`writeFile` snapshots the outgoing body into `.history/` before every write, so
-"Keep mine" leaves the replaced version recoverable from the customer's own
-bucket.
+**"Keep mine" overwrites, and says so.** This used to read "nothing is lost by
+either answer", on the strength of a `.history/` snapshot before every write.
+Nothing snapshots now — version history is the customer's own object versioning,
+which we cannot see — so the choice says "unless you turned on versioning at your
+storage provider, the version it replaces is gone" and lets them decide knowing
+that. A conflict dialog that overstates what it keeps is worse than one that
+asks plainly.
 
 **A draft is conflict-checked before it is ever sent.** A draft typed and never
 saved carries its base etag. If the note has moved on by the time it is

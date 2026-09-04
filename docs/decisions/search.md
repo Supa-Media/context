@@ -15,8 +15,8 @@ maintenance loop are pinned in `apps/mcp/src/search/CONTRACT.md`; what belongs
 here is what a tidy-up would break:
 
 - **It is a disposable derivative, and every consequence of that is
-  deliberate.** Rebuildable from the notes, never snapshotted to `.history/`,
-  never audited, never the only copy of anything, and never gating
+  deliberate.** Rebuildable from the notes, never audited, never the only copy
+  of anything, and never gating
   correctness: an unusable index degrades to a bounded literal scan, and both
   paths spend from the same budget — the recovery route re-creating the very
   subrequest failure it exists to survive is the regression the wide-bucket

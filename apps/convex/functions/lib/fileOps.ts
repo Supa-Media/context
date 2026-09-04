@@ -92,7 +92,30 @@ export const FOLDER_OPERATION_CAP = 500;
 /** Attempts at the compare-and-swap that rewrites `privacy.md`. */
 const MANIFEST_CAS_ATTEMPTS = 5;
 
+/**
+ * Legacy only. Nothing writes a `.history/` snapshot any more — versioning is
+ * the customer's to enable at their provider — but buckets connected before
+ * that change are full of them, so `deletePath` still purges what it finds.
+ */
 const HISTORY_PREFIX = ".history/";
+
+/**
+ * Where the one copy this product still keeps for somebody goes.
+ *
+ * `.context/` is ours the way `.audit/` is: a dot-prefixed segment, so every
+ * `isPlumbing` check in both engines already refuses it without being told,
+ * and `.context-probe/` is a different segment that no prefix test collides
+ * with. `recover/` under it is for a file we replaced that the owner may want
+ * back — today only the unreadable `privacy.md` that `resetPrivacyManifest`
+ * repairs, whose other forty lines are their record of what was shared.
+ *
+ * This is deliberately not a general history. It is owner-triggered, one file
+ * per repair, and it exists because that file is not recoverable from anywhere
+ * else — not from versioning the customer may not have enabled, and not from
+ * the notes, which is the test for whether anything else belongs here.
+ */
+const RECOVER_PREFIX = ".context/recover/";
+
 const ARCHIVE_ROOT = "4-archive";
 
 /* -------------------------------------------------------------------------- */
@@ -720,15 +743,10 @@ export async function writeFile(
     );
   }
 
-  // Keep the version we are about to replace. Same `.history/` convention the
-  // gateway writes, so a rollback looks the same whoever made the edit.
-  if (existing !== null) {
-    await store.put(
-      `${HISTORY_PREFIX}${path}.${timestampSlug(options.now)}.md`,
-      await existing.text(),
-    );
-  }
-
+  // The version being replaced is not copied anywhere. Object versioning at the
+  // provider is what keeps it, and it is the customer's to enable on a bucket
+  // they own — see docs/decisions/storage-and-credentials.md. With it off, this
+  // overwrite is final, and the console says so before it runs.
   const conditional = store.capabilities?.conditionalWrite === true && existing !== null;
   const put = conditional
     ? await store.put(path, options.text, { onlyIf: { etagMatches: existing!.etag } })
@@ -1085,11 +1103,12 @@ async function namesExtending(store: FileStore, path: string): Promise<string[]>
  * is right for move and copy, and was wrong for delete. This is the one caller
  * that has to look inside it.
  *
- * **Matched by prefix, not by parsing the stamp.** Snapshots are written as
- * `.history/<path>.<stamp>.md` with an optional kind in the middle, and there
- * are five spellings of that across two apps already (`.md`, `.move.md`,
- * `.archive.md`, `.batch-move.md`, `.inbox.md`) written by four different
- * functions. A regex that had to stay in sync with all of them would fail
+ * **Matched by prefix, not by parsing the stamp.** Nothing writes these any
+ * more, but every bucket connected before that holds them in five spellings
+ * (`.md`, `.move.md`, `.archive.md`, `.batch-move.md`, `.inbox.md`) written by
+ * four functions that no longer exist. That is the argument for prefix matching
+ * rather than against it: the writers are gone, so a regex can only be checked
+ * against buckets nobody can re-create. A regex that had to stay in sync would fail
  * *silently and in the wrong direction*: an unrecognised key is a copy left
  * behind under a sentence promising none. `.history/<path>.` is the one thing
  * every writer agrees on, so that is what this matches, and the only thing it
@@ -1556,12 +1575,10 @@ export async function movePath(
     }
   }
 
-  const stamp = timestampSlug(options.now);
   for (const pair of pairs) {
     const object = await store.get(pair.source);
     if (object === null) continue; // vanished mid-move; nothing to carry
     const body = await object.text();
-    await store.put(`${HISTORY_PREFIX}${pair.source}.${stamp}.move.md`, body);
     await store.put(pair.destination, body);
     await store.delete(pair.source);
   }
@@ -1917,19 +1934,31 @@ export interface DeleteResult {
  * trustworthy about where their data is. Archive is the recoverable one.
  *
  * Writing no new snapshot was never enough on its own, and for a while this
- * function thought it was. Every save of an existing note leaves the version it
- * replaced in `.history/`, so any note that had ever been edited kept its
- * content in the bucket after being "permanently" deleted — invisible, because
- * `isPlumbing` hides `.history/` from the file tree and from every gateway
- * tool, and unreachable, because `canSee` refuses plumbing at every scope. A
- * copy nobody can read is still a copy: it is in the customer's bucket, it is
- * in their storage bill, and it is in the export their provider hands to
- * whoever subpoenas it.
+ * function thought it was. Saves used to leave the replaced version in
+ * `.history/`, so any note that had ever been edited kept its content in the
+ * bucket after being "permanently" deleted — invisible, because `isPlumbing`
+ * hides it from the file tree and from every gateway tool, and unreachable,
+ * because `canSee` refuses plumbing at every scope. A copy nobody can read is
+ * still a copy: it is in the customer's bucket, it is in their storage bill,
+ * and it is in the export their provider hands to whoever subpoenas it.
  *
- * Purging it costs nothing that exists. Nothing reads `.history/` — not the
- * console, not `read_note`, not any other tool — so there is no rollback to
- * break, only a claim in `apps/mcp/src/index.js`'s header comment that one is
- * possible. Fix that comment before building the feature, not this function.
+ * **Nothing writes those snapshots now**, and the purge still runs, because the
+ * argument above is about buckets rather than about code: every context
+ * connected before the change is still full of them, and this is the only thing
+ * that removes them. Delete the purge when no such bucket can exist, which is
+ * not a date anyone can name.
+ *
+ * **What this function cannot reach is now the more important half.** Version
+ * history is the customer's own object versioning, at their provider, and this
+ * product actively tells them to turn it on. Where they did, the noncurrent
+ * version survives this delete: we hold no `DeleteObjectVersion` capability we
+ * can rely on across R2, S3, B2, Wasabi and Dropbox, and on several of them we
+ * would need permissions the binding does not ask for. That is not a gap to
+ * paper over — it is the customer's copy, in the customer's bucket, under the
+ * customer's control, which is the arrangement this product is for. It does
+ * mean the console must not promise erasure it cannot perform: see
+ * `describeDeleteForever` in apps/mobile/features/console/files/paths.ts, which
+ * names the condition instead.
  *
  * `confirmation` must be the literal `DELETE_CONFIRMATION`. A boolean flag
  * would be satisfied by any truthy value a buggy caller passed; a specific
@@ -2114,9 +2143,9 @@ export async function resetPrivacyManifest(
 
   let backedUpTo: string | null = null;
   if (state.text !== null) {
-    // Not `.md`, on purpose: the copy keeps the name of the file it came from,
-    // and `.history/` is plumbing that no listing shows either way.
-    backedUpTo = `${HISTORY_PREFIX}${PRIVACY_KEY}.${timestampSlug(options.now)}.md`;
+    // The copy keeps the name of the file it came from, and `.context/` is
+    // plumbing that no listing shows either way.
+    backedUpTo = `${RECOVER_PREFIX}${PRIVACY_KEY}.${timestampSlug(options.now)}.md`;
     await store.put(backedUpTo, state.text);
   }
 

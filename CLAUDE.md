@@ -30,7 +30,7 @@ breaking one, stop and say so rather than working around it.
 3. **Plain files stay canonical.** Markdown stays portable and human-readable.
    Search indexes, caches and embeddings are **disposable derivatives**,
    rebuildable from the files, never the only copy of anything. The on-bucket
-   layout — `index.md` and `privacy.md` at root, `.history/`, `.audit/`, PARA
+   layout — `index.md` and `privacy.md` at root, `.audit/`, `.context/`, PARA
    folders — is a stable format, not an internal detail; changing it is a
    breaking change.
 4. **One person or workspace is one security boundary.** Every workspace has its
