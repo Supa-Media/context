@@ -9,9 +9,10 @@ import { ScreenScroll } from "../../app/Screen";
  *
  * The consent screen and the login screen were each a `flex: 1` container with
  * `justifyContent: "center"` and `overflow: "hidden"`, and **no ScrollView**.
- * On the web that is a page that cannot scroll in either direction: `+html.tsx`
- * emits Expo Router's `ScrollViewStyleReset`, which switches document scrolling
- * off so the body cannot fight a React Native `ScrollView`. Centred content
+ * On the web that is a page that cannot scroll in either direction: the shell
+ * (`public/index.html`) carries react-native-web's reset, which switches
+ * document scrolling off so the body cannot fight a React Native
+ * `ScrollView`. Centred content
  * taller than the viewport therefore overflows *both* ends and is clipped by
  * `overflow: hidden` — unreachable, with nothing to scroll.
  *

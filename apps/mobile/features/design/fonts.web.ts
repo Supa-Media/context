@@ -1,12 +1,16 @@
 /**
  * Font loading — web.
  *
- * `app/+html.tsx` already puts the Google Fonts `<link>` in the served HTML,
- * which is what avoids a flash of fallback type on a cold load. This module is
- * the belt to that pair of braces: `+html.tsx` only participates in Expo
- * Router's HTML generation, and a host that serves its own shell (or a future
- * embed) would otherwise get system type. Injecting from app code is idempotent
- * and costs one DOM query.
+ * `public/index.html` already puts the Google Fonts `<link>` in the served
+ * document, which is what avoids a flash of fallback type on a cold load. This
+ * module is the belt to that brace: the shell is the *export's* document, and a
+ * host that serves its own (or a future embed) would otherwise get system type.
+ * Injecting from app code is idempotent and costs one DOM query.
+ *
+ * It is only ever the belt. This runs after the bundle has been fetched,
+ * parsed and executed, which is the whole of the delay the head link exists to
+ * cover — `__tests__/htmlShell.test.ts` pins the two hrefs together so a change
+ * of family cannot land on one of them alone.
  */
 export const FONT_STYLESHEET_ID = "context-fonts";
 

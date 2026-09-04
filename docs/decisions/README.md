@@ -84,6 +84,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The iOS editor is the web editor, in a WebView, from a committed bundle
 - Every react-native-web `View` is a stacking context, so a `zIndex` is local
 - There are two palettes, and a screen may not hold either one
+- The web shell is `public/index.html`, because `+html.tsx` is a static-rendering file
 - Offline is a queue and a cache, and a conflict is parked rather than resolved
 - A team link's note survives the console's own cold start, and the login gate
 - A folder page is a page, and a folder is acted on like a note

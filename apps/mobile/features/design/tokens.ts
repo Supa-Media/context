@@ -289,7 +289,7 @@ export const lightGraphColors: GraphColors = {
  * Font families.
  *
  * On web these are CSS font stacks — the faces themselves are pulled from
- * Google Fonts (see `fonts.web.ts` and `app/+html.tsx`), exactly as the mockup
+ * Google Fonts (see `fonts.web.ts` and `public/index.html`), exactly as the mockup
  * does. On native we deliberately hand back `undefined` so the platform
  * default is used: passing a comma-separated stack to a native text node is
  * meaningless on iOS and can throw on Android, and there are no bundled font

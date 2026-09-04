@@ -197,12 +197,11 @@ type Coverage =
    * console with its Convex subscriptions.
    */
   | { kind: "framed" }
-  /** Not a screen: the root providers, and the build-time HTML shell. */
+  /** Not a screen: the root providers. The HTML shell is a static file. */
   | { kind: "shell" };
 
 const ROUTES: Record<string, Coverage> = {
   "_layout.tsx": { kind: "shell" },
-  "+html.tsx": { kind: "shell" },
 
   /*
     The route module, not `Landing` — jest renders through react-native-web, so
