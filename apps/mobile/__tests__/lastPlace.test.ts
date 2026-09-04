@@ -32,6 +32,9 @@ import {
  * outlives a sign-out.
  */
 
+/** The workspace list has arrived. Every case below is about what happens then. */
+const LISTED = true;
+
 const CONTEXTS = [
   { slug: "seyi", role: "owner" },
   { slug: "supa", role: "editor" },
@@ -165,7 +168,7 @@ describe("where a remembered place sends somebody", () => {
       context to the landing — but it would put somebody who lost access through
       a bounce that names the context they lost in the address bar on the way.
     */
-    expect(landingStep(CONTEXTS, { slug: "gone", note: "a.md" })).toEqual({
+    expect(landingStep(CONTEXTS, { slug: "gone", note: "a.md" }, LISTED)).toEqual({
       action: "redirect",
       href: "/console/@seyi",
     });
@@ -174,13 +177,13 @@ describe("where a remembered place sends somebody", () => {
   test("a place is never a substitute for authorization", () => {
     // The whole surface: a record decides *where*, and membership decides
     // *whether*. An account with no contexts goes to the Map, not to the note.
-    expect(landingStep([], { slug: "supa", note: "a.md" })).toEqual({ action: "map" });
+    expect(landingStep([], { slug: "supa", note: "a.md" }, LISTED)).toEqual({ action: "map" });
   });
 
   test("the default is unchanged when this device knows nothing", () => {
     // `landingHref`'s rule, not a second one: a context you own, before the
     // first of the list.
-    expect(landingStep(CONTEXTS, null)).toEqual({
+    expect(landingStep(CONTEXTS, null, LISTED)).toEqual({
       action: "redirect",
       href: "/console/@seyi",
     });
@@ -192,10 +195,33 @@ describe("where a remembered place sends somebody", () => {
       a visible one: `map` here would draw the constellation for a frame and
       then redirect out of it, which is the flash `/console` exists to remove.
     */
-    expect(landingStep(CONTEXTS, undefined)).toEqual({ action: "wait" });
+    expect(landingStep(CONTEXTS, undefined, LISTED)).toEqual({ action: "wait" });
   });
 
-  test("but a cold launch draws the Map rather than an empty pane", () => {
+  test("nothing is drawn at all until the workspace list has arrived", () => {
+    /**
+     * **Filmed on a cold launch of the native app: splash, blank, the Map for
+     * one frame, blank, then the note.**
+     *
+     * The Map frame was this function answering `map` for an empty
+     * `contexts` — and on a cold launch `contexts` is empty because nothing
+     * has been fetched yet, not because this account has nothing. So what
+     * appeared for an eighth of a second was a picture of an account with
+     * nothing in it: "0 reachable", "0 connected", a lone "You" node, "0 in
+     * your context". Every number in it counted a list that had not arrived.
+     *
+     * It is also a flicker by construction, whatever the numbers said: for
+     * somebody who has contexts the Map is a screen they are about to be
+     * redirected out of, so drawing it is a transition that exists only to be
+     * undone.
+     */
+    expect(landingStep([], undefined, false)).toEqual({ action: "wait" });
+    expect(landingStep([], null, false)).toEqual({ action: "wait" });
+    expect(landingStep([], { slug: "supa", note: "a.md" }, false)).toEqual({ action: "wait" });
+    expect(landingStep(CONTEXTS, null, false)).toEqual({ action: "wait" });
+  });
+
+  test("but a list that has arrived and is empty is the Map, honestly", () => {
     /**
      * **Reported from a phone: relaunching landed on a blank page.**
      *
@@ -210,11 +236,11 @@ describe("where a remembered place sends somebody", () => {
      * to a redirect. With no contexts there is nothing to flash past — the Map
      * is what this route draws anyway until the list arrives.
      */
-    expect(landingStep([], undefined)).toEqual({ action: "map" });
+    expect(landingStep([], undefined, LISTED)).toEqual({ action: "map" });
   });
 
   test("a place in a context that is reachable wins over the default", () => {
-    expect(landingStep(CONTEXTS, { slug: "supa", note: "1-projects/a.md" })).toEqual({
+    expect(landingStep(CONTEXTS, { slug: "supa", note: "1-projects/a.md" }, LISTED)).toEqual({
       action: "redirect",
       href: "/console/@supa?note=1-projects%2Fa.md",
     });

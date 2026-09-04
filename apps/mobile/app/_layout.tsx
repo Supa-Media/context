@@ -5,9 +5,12 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SupaConvexProvider } from "@supa-media/core/providers";
 import { ErrorBoundary } from "../features/app/ErrorBoundary";
+import { holdSplash, releaseSplash } from "../features/app/splash";
 import { shouldHandleCodeHere } from "../features/auth/handleCode";
 import { ensureFontsLoaded } from "../features/design/fonts";
 import { ThemeProvider, useColors, useScheme } from "../features/design/theme";
+import { useConvexAuth } from "convex/react";
+import { useEffect } from "react";
 
 /**
  * Root layout for Context.
@@ -34,6 +37,15 @@ import { ThemeProvider, useColors, useScheme } from "../features/design/theme";
  * message and no way back. See `features/app/ErrorBoundary.tsx`.
  */
 ensureFontsLoaded();
+
+/*
+  Before anything renders, and beside the fonts for the same reason: what both
+  of these are avoiding is a frame that has already been painted by the time an
+  effect could run. `splash.ts` has the account — in short, Expo dismisses the
+  launch image when the *bundle* is ready, and the app has nothing to show
+  until the *session* is, which is a round trip later.
+*/
+holdSplash();
 
 export default function RootLayout() {
   return (
@@ -69,6 +81,22 @@ export default function RootLayout() {
 function AppGround() {
   const colors = useColors();
   const scheme = useScheme();
+
+  /*
+    The launch image comes down when there is something behind it.
+
+    Here rather than in `(app)/_layout` because that layout is one route group:
+    somebody launching to `/login`, to an invitation or to the landing page
+    would be left staring at a launch image until the deadline. This sits under
+    the Convex provider and above every route, which is the one place that is
+    true for all of them. `releaseSplash` is idempotent and the deadline is its
+    own backstop, so a session that never resolves is still bounded.
+  */
+  const { isLoading } = useConvexAuth();
+  useEffect(() => {
+    if (!isLoading) releaseSplash();
+  }, [isLoading]);
+
   return (
     <>
       {/*

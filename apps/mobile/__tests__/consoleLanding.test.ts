@@ -157,29 +157,52 @@ describe("signing in lands on your notes", () => {
     expect(container.textContent ?? "").toBe("");
   });
 
-  test("a cold launch never shows an empty pane, however slow the device is", async () => {
+  test("a cold launch paints nothing until the list has arrived, not a false Map", async () => {
     /**
-     * **Reported from a phone: relaunching the app landed on a blank page with
-     * the personal brain in the rail.**
+     * **This reverses a decision, on the evidence of a screen recording.**
      *
-     * That is this component rendering `null`. A cold launch asks the device
-     * before the workspace list has landed, and the answer to "still asking"
-     * was to paint nothing — for as long as an `AsyncStorage` read took, which
-     * on a bridge that has just woken up is not a frame.
+     * #212 answered a blank cold-launch pane by drawing the Map whenever
+     * `contexts` was empty, reasoning that "the Map is what this route draws
+     * anyway until the list arrives". Filmed on the native app, that was wrong
+     * twice.
      *
-     * A mounted test rather than a pure one, because what was wrong was *what
-     * was on the screen* during a wait, and `landingStep` returning `wait` is
-     * not by itself a defect.
+     * It was a *flicker*: splash, blank, the Map for one frame, blank, then
+     * the note. For somebody who has contexts the Map is a screen they are
+     * about to be redirected out of, so drawing it is a transition that exists
+     * only to be undone.
+     *
+     * And it was a *lie*: on a cold launch `contexts` is empty because nothing
+     * has been fetched, so what appeared was a picture of an account with
+     * nothing in it — "0 reachable", "0 connected", a lone "You" node, "0 in
+     * your context" — every number counting a list that had not arrived.
+     *
+     * Blank is not a nice state and it is an honest one, and it is not what
+     * somebody sees: the console layout's chrome is up around it, and the same
+     * quiet pane is there a moment later while the note is read. Waiting here
+     * adds no transition rather than adding a wrong one.
      */
     const container = mountLandingSync({
       ...dataWith([] as unknown as ConsoleData["contexts"]),
       loading: true,
     });
-    expect(container.textContent ?? "").not.toBe("");
-    // And it still gets where it is going once both answers arrive.
+    expect(container.textContent ?? "").toBe("");
     await act(async () => {
       for (let i = 0; i < 4; i += 1) await Promise.resolve();
     });
+    expect(container.textContent ?? "").toBe("");
+  });
+
+  test("and the Map is still what an account with no contexts gets", async () => {
+    /*
+      The control. Waiting for the list must not become "never draw the Map":
+      somebody who really has nothing needs the pane that is *about* having
+      nothing, with the invitation to make a context on it.
+    */
+    const container = await mountLanding({
+      ...dataWith([] as unknown as ConsoleData["contexts"]),
+      loading: false,
+    });
+    expect(container.querySelector('[data-testid="redirect"]')).toBeNull();
     expect(container.textContent ?? "").not.toBe("");
   });
 
@@ -201,10 +224,11 @@ describe("signing in lands on your notes", () => {
 describe("the two states that do not redirect", () => {
   /**
    * `landingHref` answers `null` for both, and they are different facts with
-   * the same instruction — do not navigate. Somebody who can reach nothing sees
-   * the one pane that is *about* having nothing; somebody whose list is still in
-   * flight sees it for the moment before it arrives, rather than a blank screen.
-   * Telling the two apart is the caller's job, not the URL's.
+   * the same instruction — do not navigate. They no longer get the same
+   * *screen*: somebody who can reach nothing sees the one pane that is about
+   * having nothing, and somebody whose list is still in flight sees nothing at
+   * all, because the pane about having nothing is a claim and the list has not
+   * answered. Telling the two apart is the caller's job, not the URL's.
    */
   test("an account that can reach no context sees the Map instead", async () => {
     const container = await mountLanding(dataWith([] as unknown as ConsoleData["contexts"]));
@@ -212,9 +236,10 @@ describe("the two states that do not redirect", () => {
     expect(container.textContent ?? "").not.toBe("");
   });
 
-  test("so does a list that has not arrived yet", async () => {
+  test("a list that has not arrived yet navigates nowhere and draws nothing", async () => {
     const loading = { ...dataWith([] as unknown as ConsoleData["contexts"]), loading: true };
     const container = await mountLanding(loading);
     expect(container.querySelector('[data-testid="redirect"]')).toBeNull();
+    expect(container.textContent ?? "").toBe("");
   });
 });

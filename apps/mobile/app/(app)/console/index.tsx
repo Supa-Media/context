@@ -50,7 +50,12 @@ import { MapPane } from "../../../features/console/panes/MapPane";
  */
 export default function ConsoleLanding() {
   const data = useConsoleData();
-  const step = landingStep(data.contexts, useLastPlace());
+  /*
+    `!data.loading` is "the workspace list has arrived". An empty `contexts` is
+    otherwise indistinguishable from a list still in flight, and the Map drawn
+    for the second of those is a picture of an account with nothing in it.
+  */
+  const step = landingStep(data.contexts, useLastPlace(), !data.loading);
   if (step.action === "wait") return null;
   if (step.action === "redirect") return <Redirect href={step.href} />;
   return <MapPane data={data} />;

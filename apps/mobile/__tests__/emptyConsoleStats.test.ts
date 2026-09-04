@@ -24,27 +24,40 @@ import type { ConsoleData } from "../features/console/types";
  * statement about their storage, on a product whose whole promise is that the
  * storage is theirs.
  *
- * This test mounts the real hook with a client that never resolves a query,
- * which is exactly the state a brand-new account is in.
+ * These tests mount the real hook against a client whose answers they choose,
+ * so that "the list came back empty" and "nothing has come back" are two
+ * different fixtures rather than one.
  */
 
-/** The smallest client `useQueries` accepts: it is only ever asked to watch. */
-function fakeConvexClient() {
-  const watch = {
-    localQueryResult: () => undefined,
+/**
+ * The smallest client `useQueries` accepts: it is only ever asked to watch.
+ *
+ * `answers` is keyed by function name, so a test can say *this query came back
+ * empty* rather than only *nothing has come back*. Those were the same thing
+ * here once, and they are not: a query that has not answered is a console
+ * still loading, and printing "0 in your context" for it is a count of a list
+ * nobody fetched. See `ConsoleData.stats`.
+ */
+function fakeConvexClient(answers: Record<string, unknown> = {}) {
+  const { getFunctionName } = require("convex/server") as typeof import("convex/server");
+  const watch = (value: unknown) => ({
+    localQueryResult: () => value,
     onUpdate: () => () => {},
     journal: () => undefined,
-  };
+  });
   return {
-    watchQuery: () => watch,
-    watchPaginatedQuery: () => watch,
+    watchQuery: (query: never) => watch(answers[getFunctionName(query)]),
+    watchPaginatedQuery: () => watch(undefined),
     mutation: async () => undefined,
     action: async () => undefined,
     connectionState: () => ({ isWebSocketConnected: false }),
   } as never;
 }
 
-function mountConsole(): ConsoleData {
+/** An account whose workspace list has come back, and is empty. */
+const LIST_ARRIVED_EMPTY = { "functions/workspaces:listMyWorkspaces": [] };
+
+function mountConsole(answers: Record<string, unknown> = {}): ConsoleData {
   const container = document.createElement("div");
   document.body.appendChild(container);
   let latest: ConsoleData | null = null;
@@ -56,7 +69,9 @@ function mountConsole(): ConsoleData {
 
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
   act(() => {
-    root.render(createElement(ConvexProvider, { client: fakeConvexClient() }, createElement(Probe)));
+    root.render(
+      createElement(ConvexProvider, { client: fakeConvexClient(answers) }, createElement(Probe)),
+    );
   });
   act(() => root.unmount());
   container.remove();
@@ -65,7 +80,7 @@ function mountConsole(): ConsoleData {
 
 describe("an account with no contexts is told nothing it cannot verify", () => {
   test("the note and byte totals are not invented", () => {
-    const data = mountConsole();
+    const data = mountConsole(LIST_ARRIVED_EMPTY);
     expect(data.contexts).toHaveLength(0);
 
     const notes = data.stats.find((s) => s.label === "notes across all");
@@ -94,8 +109,24 @@ describe("an account with no contexts is told nothing it cannot verify", () => {
   test("the counts it CAN answer are still answered", () => {
     // The fix must not turn the honest stats into em dashes too — zero contexts
     // and zero connected clients are facts, and worth stating.
-    const data = mountConsole();
+    const data = mountConsole(LIST_ARRIVED_EMPTY);
     expect(data.stats.find((s) => s.label === "in your context")?.value).toBe("0");
     expect(data.stats.find((s) => s.label === "AI clients connected")?.value).toBe("0");
+  });
+
+  test("but a list that has not answered is counted as nothing at all", () => {
+    /**
+     * **Filmed on a native cold launch.** The Map appeared for one frame on the
+     * way to a note, captioned "0 connected", over "0 in your context" and "0
+     * AI clients connected" — on an account with several contexts and a
+     * connected client. Every number counted a list whose first round trip was
+     * still outstanding.
+     *
+     * This file's own harness had the same confusion written into it: it
+     * mounted a client that never resolves a query and called that "exactly the
+     * state a brand-new account is in". It is the state a *loading* console is
+     * in. The two tests above now say which one they mean.
+     */
+    expect(mountConsole().stats).toEqual([]);
   });
 });

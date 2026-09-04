@@ -385,9 +385,17 @@ export default function ConsoleLayout() {
             // "Vocabulary").
             <View style={[styles.switcher, phone && styles.switcherCompact]}>
               <Text variant="wsSwitch">Your context</Text>
-              <Text variant="wsSwitch" style={styles.switcherKind}>
-                {`${data.contexts.length} reachable`}
-              </Text>
+              {/*
+                No number until the list has arrived. `contexts` is empty on a
+                cold launch because nothing has been fetched, and "0 reachable"
+                over somebody's own console is the same accusation the storage
+                banner used to make — see `ConsoleData.storage`.
+              */}
+              {data.loading ? null : (
+                <Text variant="wsSwitch" style={styles.switcherKind}>
+                  {`${data.contexts.length} reachable`}
+                </Text>
+              )}
             </View>
           )
         }
@@ -399,7 +407,9 @@ export default function ConsoleLayout() {
         switcherLabel={
           insideContext
             ? [contextLabel, current?.kind].filter(Boolean).join(", ")
-            : `Your context, ${data.contexts.length} reachable`
+            : data.loading
+              ? "Your context"
+              : `Your context, ${data.contexts.length} reachable`
         }
         /*
           Absent on a phone, where both chips have moved to the foot of the file
