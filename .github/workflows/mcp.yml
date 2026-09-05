@@ -128,10 +128,12 @@ jobs:
       # A pull request based on a branch other than `main` used to run NO
       # checks at all — see the header, and #169, which merged with zero check
       # runs. The same block decides that no deploy workflow may be reached by
-      # a fork's pull request, which is the assertion that actually protects
+      # a pull request at all, which is the assertion that actually protects
       # something: widening CI's triggers has an obvious-looking next step
-      # ("make the rest consistent") that would hand untrusted code the
-      # account's Cloudflare credentials.
+      # ("make the rest consistent") that would run unreviewed code with the
+      # account's Cloudflare credentials. The actor there is a branch pushed
+      # HERE, not a fork — a fork's run inherits no secrets, so it is the one
+      # shape that could not do it.
       #
       # It runs here AND in email-worker.yml on purpose. A checker hosted in
       # one workflow cannot see that workflow's own trigger being narrowed —
