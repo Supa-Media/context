@@ -141,6 +141,26 @@ Three rules follow, and they are the enforceable part:
    audio ever left their laptop, which is not a question they should have to
    reconstruct from their billing history. The check is
    `a finalized note names the engine that produced it`.
+
+   Four things that follow, because each is a way of writing this key that
+   would not keep the promise. **The key is always written**, and a meeting
+   nothing transcribed says `transcription: none` — an absent key and an old
+   note are the same thing to a reader, so omitting it on the notes-only case
+   is the one shape that answers nobody. **`null` is the third legal value and
+   is explicit** on `MeetingSession`, never an absent field:
+   `TRANSCRIPTION_ENGINES` names the two engines, and "no engine" is the
+   absence of a member rather than a member of the list. **An engine nobody
+   recognises is refused rather than coerced** — `source.kind` falls back to
+   `unknown` and `device.platform` to `web` because those are a detector's
+   evidence, while this field has no honest fallback: `null` would claim
+   nothing was transcribed and `cloud` would claim something left the machine.
+   And **a session's engine is set when it opens and is never rewritten**: it
+   may be raised from `none` to an engine, but audio that has been streamed to
+   a service cannot un-leave the machine, so a client talking a note out of
+   saying `cloud` is refused. `device:` beside it is `name (platform)` when the
+   device named itself and the bare platform when it did not — the platform is
+   the floor, the name answers "which of my two Macs", and the app version is
+   not a device.
 3. **The choice is visible before the recording, not in a settings page.** A tier
    that silently upgrades the transcription path is a tier that silently changes
    where the audio goes.
