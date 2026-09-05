@@ -29,6 +29,11 @@
  *   `recordProvisionResult` applying to an opted-out row              1
  *   `forgetIndex` deleting a row that was re-enabled                  1
  *   `fastSearchActive` dropping the entitlement half             0 → 2
+ *   `status` returning the backfill counters to every member          1
+ *   `status` gating them on `canChange` instead of ownership          0
+ *
+ * The last one is zero and stays zero: see "a member cannot count the notes
+ * they cannot read" below for why no test can reach it, and what would.
  *
  * The last one measured **zero** on the first run and is the reason two tests
  * above exist. `fastSearchEntitled` is true for every workspace kind that
@@ -241,6 +246,77 @@ describe("only an owner decides", () => {
     );
     expect(errorCode(error)).toBe("INSUFFICIENT_ROLE");
     expect((await bindingRow(t, workspaceId))?.optedIn).toBe(true);
+  });
+
+  /**
+   * The backfill counters are a note census, and a member is not entitled to
+   * one.
+   *
+   * `status` is readable by every member, and `docs/decisions/search.md`
+   * justifies that with "how a context's search is served is not privileged".
+   * True of `state` and `canChange`. `notesIndexed` and `notesPending` are not
+   * how search is served — they are HOW MANY NOTES EXIST, and the index they
+   * count covers private notes, as this file's own header says. So a member
+   * who cannot read a private note could read the total that includes it, and
+   * by polling could watch the total move when one was written or deleted.
+   * SECURITY.md counts inferring that a private note exists as a bug.
+   *
+   * Nothing populates these counters with a real figure yet: `notesIndexed: 0`
+   * at provision is the only write, `notesPending` is never written, and
+   * `apps/mcp/src/search/d1/project.js`'s `projectNote` — the backfill that
+   * would fill them — has no importer anywhere. So this closes the channel
+   * while it is still empty rather than after it fills.
+   *
+   * The owner keeps both, because the screen that shows backfill progress is
+   * theirs and they can read every note in the context anyway.
+   *
+   * SABOTAGE: return the counters unconditionally and this test fails (1).
+   *
+   * The other sabotage — gating on `canChange` rather than on ownership —
+   * measured **zero**, and the reason is worth recording rather than papering
+   * over with a test that cannot exist. `canChange` is ownership AND
+   * entitlement, `fastSearchEntitled` is true for both workspace kinds that
+   * exist, and the schema validator refuses to write a third — so today
+   * `canChange === isOwner` for every workspace reachable through the
+   * database, and the swap is behaviour-preserving. Nothing can catch it.
+   *
+   * It is still written as `isOwner`, because the two come apart the day a
+   * paid tier makes entitlement real, and on that day an owner whose tier
+   * lapsed would lose the progress figures for notes they still own. When
+   * `fastSearchEntitled` gains a handle that is not `kind`, the test that
+   * belongs here is: unentitled owner, `canChange` false, counters present.
+   */
+  test("a member cannot count the notes they cannot read", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "census-ctx");
+    const member = await createUser(t, "census-member@example.com");
+    await addMember(t, workspaceId, member, "member");
+    await asUser(t, owner).mutation(api.functions.fastSearch.enable, {
+      workspaceId,
+    });
+
+    // A backfill that has seen some of the context, private notes included.
+    const row = await bindingRow(t, workspaceId);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(row!._id, { notesIndexed: 41, notesPending: 7 });
+    });
+
+    const asMember = await asUser(t, member).query(
+      api.functions.fastSearch.status,
+      { workspaceId },
+    );
+    expect(asMember.notesIndexed).toBeUndefined();
+    expect(asMember.notesPending).toBeUndefined();
+    // What they DO get is unchanged: the state, and that they may not change it.
+    expect(asMember.canChange).toBe(false);
+    expect(asMember.state).not.toBe("off");
+
+    const asOwner = await asUser(t, owner).query(
+      api.functions.fastSearch.status,
+      { workspaceId },
+    );
+    expect(asOwner.notesIndexed).toBe(41);
+    expect(asOwner.notesPending).toBe(7);
   });
 
   test("a stranger learns nothing, including whether the context exists", async () => {
