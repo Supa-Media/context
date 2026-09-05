@@ -29,9 +29,19 @@
  * ── AND THE HALF THAT MUST NOT BE "FIXED" THE SAME WAY ─────────────────────
  *
  * The deploy workflows are `push`-only by deliberate design, and each says so
- * in its own header: a deploy triggered by a fork's pull request would run
- * untrusted code with the account's Cloudflare credentials, against the Worker
- * that holds customers' storage keys and the one that reads their mail. This
+ * in its own header: a deploy triggered by a pull request from a branch pushed
+ * *here* would run unreviewed code with the account's credentials, against the
+ * Worker that holds customers' storage keys and the one that reads their mail.
+ *
+ * **A branch, not a fork** — and the difference is the whole point, because the
+ * intuition runs the other way. A fork's pull request inherits no secrets at
+ * all; `ci.yml`'s header says so a few lines in and relies on it. A same-repo
+ * branch is trusted by Actions: its run inherits repository secrets, and it may
+ * name the `production` environment, which is then gated only by that
+ * environment's own branch policy and reviewers — settings that live in GitHub
+ * and not in this repository. So the actor this guard actually bounds is one of
+ * ours, and saying "fork" made it sound like protection from outsiders while
+ * describing the one case that cannot happen. This
  * checker's more important assertion is therefore the negative one — no deploy
  * workflow may grow a `pull_request` trigger — and it is the reason this is a
  * guard rather than a one-off edit. Widening the test workflows is the kind of
@@ -389,10 +399,14 @@ export function analyse(files) {
 
     const pr = triggers.has("pull_request");
 
-    // B — the security half. A deploy triggered by a fork's pull request would
-    // run untrusted code with production credentials.
+    // B — the security half. A deploy triggered by a pull request from a branch
+    // pushed here would run unreviewed code with the account's credentials.
+    // Said as "a branch" and not "a fork" deliberately: a fork's run inherits no
+    // secrets, so naming it would hand anybody tripping this rule a rationale
+    // they can refute in ten seconds — and the natural next move after refuting
+    // a guard's stated reason is to delete the guard.
     if (isDeploy && pr) {
-      fail("B", name, "is a deploy workflow with a `pull_request` trigger. A deploy triggered by a fork's pull request runs untrusted code with the account's credentials; deploy workflows are `push`-only.");
+      fail("B", name, "is a deploy workflow with a `pull_request` trigger. A pull request from a branch pushed to this repository runs unreviewed code with the account's credentials — a same-repo run is trusted by Actions, unlike a fork's; deploy workflows are `push`-only.");
     }
 
     // B — `workflow_run` fires after another workflow finishes, with the base
@@ -577,12 +591,22 @@ function selfTest() {
       //
       // Not a fork's branch: this used to say that, and it is the one actor
       // that cannot do it. A pull request from a fork inherits no secrets at
-      // all — `ci.yml` says so a dozen lines into its own header, and relies on
-      // it. The exposure is a SAME-REPO branch, which is this repository's
-      // normal shape: agents push branches here and open pull requests against
-      // `main`, and those runs do inherit the secrets. Naming the fork made the
-      // guard sound like protection against outsiders, when what it actually
-      // bounds is what a branch of our own may run.
+      // all — `ci.yml` says so a few lines into its own header, and relies on
+      // it. The exposure is a SAME-REPO branch, this repository's normal shape:
+      // agents push branches here and open pull requests against `main`. Those
+      // runs are trusted, and `ci.yml` proves it in-repo — it is
+      // `on: pull_request` with `secrets: inherit`, and per `sync-secrets.yml`
+      // both `OP_SERVICE_ACCOUNT_TOKEN` and `GH_ADMIN_TOKEN` (a repo-admin PAT
+      // with `secrets:write`) are REPOSITORY secrets, so a branch of ours
+      // already reaches those.
+      //
+      // `EXPO_TOKEN` is not one of them, and the distinction is worth keeping:
+      // it is a `production` ENVIRONMENT secret, reached only by a workflow that
+      // names that environment and then held by the environment's own branch
+      // policy and reviewers — GitHub settings this repository cannot show. It
+      // is also the key to the signing credentials rather than the credentials,
+      // which live on EAS. What the deploy NAME buys is that rules B and C apply
+      // at all; what stands behind them is configured elsewhere.
       "a store submission that does not carry the name",
       [{ name: "release.yml", text: "on:\n  push:\n    branches: [main]\n  pull_request:\njobs:\n  d:\n    steps:\n      - run: eas submit --platform ios --latest --non-interactive\n" }],
       ["NAME release.yml", "B release.yml"],

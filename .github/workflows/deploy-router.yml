@@ -21,8 +21,9 @@ on:
       - ".github/workflows/deploy-router.yml"
   workflow_dispatch:
 
-# Never on `pull_request`: a deploy triggered by a fork's pull request would
-# run untrusted code with the account's Cloudflare credentials.
+# Never on `pull_request`: a deploy triggered by a pull request from a branch
+# pushed HERE would run unreviewed code with the account's Cloudflare
+# credentials. A branch and not a fork — a fork's run inherits no secrets.
 concurrency:
   group: deploy-router-production
   cancel-in-progress: false

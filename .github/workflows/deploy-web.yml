@@ -17,7 +17,9 @@ on:
   workflow_dispatch:
 
 # Nothing here runs on `pull_request`, and never should: a deploy triggered by
-# a fork's pull request would run untrusted code with production credentials.
+# a pull request from a branch pushed HERE would run unreviewed code with
+# production credentials. A branch and not a fork — a fork's run inherits no
+# secrets, so it is the one shape that could not.
 concurrency:
   group: deploy-web-production
   cancel-in-progress: false
