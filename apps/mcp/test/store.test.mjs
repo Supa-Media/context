@@ -497,18 +497,85 @@ export async function runStoreChecks(check, gateway) {
       !traversalError.message.includes("escape.md")
   );
 
+  // The same matrix, on the other argument. This used to be one prefix through
+  // one adapter, under a name claiming a list prefix "gets the same treatment
+  // as a key" — the key matrix above runs fourteen keys through three backends.
+  // Measured before widening it: deleting `assertSafePrefix` from
+  // `DropboxStore.list` reddened **nothing**, while deleting it from
+  // `R2Store.list` reddened one and dropping `normalizeRootPrefix` from the
+  // Dropbox constructor reddened one. So the single gap was the `list` prefix
+  // on the backend where it matters most: Dropbox's token is scoped to an
+  // ACCOUNT, not to a bucket nobody else uses, so a prefix that escapes the
+  // root escapes into the customer's own Dropbox — the reason the key matrix
+  // above was widened to include this adapter in the first place.
+  const TRAVERSAL_PREFIXES = [
+    "../",
+    "a/../../b/",
+    "x/../../../",
+    "1-projects/./",
+    "%2e%2e/",
+    "a/%2E%2E/",
+    "%2e/",
+    "/1-projects/",
+    "1-projects//",
+    "1-projects/a\\..\\b/",
+    "1-projects/a\u0000/",
+    "1-projects/a\r\nb/",
+  ];
+
   const traversalPrefixStore = s3(() => new Response(listXml({})), { rootPrefix: "team-notes" });
-  let prefixError = null;
-  try {
-    await traversalPrefixStore.list({ prefix: "../" });
-  } catch (error) {
-    prefixError = error;
+  // R2's backend is watched by RECORDING ITS LIST CALLS, not by checking the
+  // bucket is empty. An earlier revision did the latter, copying the key
+  // matrix's `traversalBucket.objects.size === 0` — and that expression is
+  // load-bearing there only because that matrix runs `put`. Here nothing
+  // writes, so an empty bucket is true however badly the guard fails: measured,
+  // deleting `assertSafePrefix` from `R2Store.list` left the size check green.
+  // A tautology inside a check named "on any of them" is the defect this whole
+  // section is about, so it is a call log instead.
+  const traversalPrefixR2Lists = [];
+  const traversalPrefixBucket = memoryBucket();
+  const traversalPrefixR2 = new R2Store(
+    {
+      ...traversalPrefixBucket,
+      list: async (options) => {
+        traversalPrefixR2Lists.push(options);
+        return traversalPrefixBucket.list(options);
+      },
+    },
+    { rootPrefix: "team-notes" },
+  );
+  const prefixRejections = [];
+  for (const prefix of TRAVERSAL_PREFIXES) {
+    for (const [name, run] of [
+      ["S3Store.list", () => traversalPrefixStore.list({ prefix })],
+      ["R2Store.list", () => traversalPrefixR2.list({ prefix })],
+      ["DropboxStore.list", () => traversalDropbox.list({ prefix })],
+    ]) {
+      let threw = null;
+      try {
+        await run();
+      } catch (error) {
+        threw = error;
+      }
+      if (!threw) prefixRejections.push(`${name} accepted ${JSON.stringify(prefix)}`);
+      else if (!/unsafe storage prefix/.test(threw.message)) {
+        prefixRejections.push(`${name} threw the wrong error for ${JSON.stringify(prefix)}`);
+      }
+    }
   }
   check(
-    "a list prefix gets the same treatment as a key",
-    prefixError instanceof Error &&
-      /unsafe storage prefix/.test(prefixError.message) &&
-      traversalPrefixStore.fetchImpl.calls.length === 0
+    "a list prefix gets the same treatment as a key, on every adapter",
+    prefixRejections.length === 0
+  );
+  // All three, like the key matrix above. `traversalDropboxCalls` is asserted
+  // empty at the end of that matrix and nothing touches the instance between
+  // there and here, so counting it again is a claim about this loop and not a
+  // restatement of that one.
+  check(
+    "and a refused prefix reaches no backend at all, on any of them",
+    traversalPrefixStore.fetchImpl.calls.length === 0 &&
+      traversalPrefixR2Lists.length === 0 &&
+      traversalDropboxCalls.length === 0
   );
 
   const badRootPrefixes = ["..", "../other-tenant", "team/../../elsewhere", "team/./notes"];
