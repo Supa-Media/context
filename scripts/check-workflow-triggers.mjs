@@ -572,8 +572,17 @@ function selfTest() {
       // The gap deploy-mobile-native.yml closed. A store submission is the most
       // outward-facing thing this repository can do, and until `eas submit`
       // joined DEPLOY_COMMANDS a workflow doing it was classified as ordinary
-      // CI — free to grow a `pull_request` trigger and hand a fork's branch the
-      // account's App Store credentials.
+      // CI — free to grow a `pull_request` trigger and run a signed build with
+      // the account's App Store credentials from any branch pushed here.
+      //
+      // Not a fork's branch: this used to say that, and it is the one actor
+      // that cannot do it. A pull request from a fork inherits no secrets at
+      // all — `ci.yml` says so a dozen lines into its own header, and relies on
+      // it. The exposure is a SAME-REPO branch, which is this repository's
+      // normal shape: agents push branches here and open pull requests against
+      // `main`, and those runs do inherit the secrets. Naming the fork made the
+      // guard sound like protection against outsiders, when what it actually
+      // bounds is what a branch of our own may run.
       "a store submission that does not carry the name",
       [{ name: "release.yml", text: "on:\n  push:\n    branches: [main]\n  pull_request:\njobs:\n  d:\n    steps:\n      - run: eas submit --platform ios --latest --non-interactive\n" }],
       ["NAME release.yml", "B release.yml"],
