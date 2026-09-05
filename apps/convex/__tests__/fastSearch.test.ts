@@ -31,6 +31,8 @@
  *   `fastSearchActive` dropping the entitlement half             0 → 2
  *   `status` returning the backfill counters to every member          1
  *   `status` gating them on `canChange` instead of ownership          0
+ *   `enable` returning early for a `failed` row (the #233 bug)    1 → 2
+ *   `enable`'s re-enable patch clearing `databaseId`              0 → 2
  *
  * The last one is zero and stays zero: see "a member cannot count the notes
  * they cannot read" below for why no test can reach it, and what would.
@@ -434,32 +436,45 @@ describe("turning it on", () => {
   });
 
   /**
-   * AND THE RETRY MUST NOT ORPHAN THE DATABASE IT IS RETRYING.
+   * AND RE-ENABLING MUST NOT LOSE THE HANDLE ON WHAT WAS ALREADY BUILT.
    *
-   * The retry branch keeps `databaseId` on purpose, and its comment says why:
-   * "so the sweep still knows what to delete if this fails again." Nothing was
-   * asserting it. Measured before this test: adding `databaseId: undefined` to
-   * that patch reddened **nothing**, including the test directly above, which
-   * checks the row count, the status, the cleared error and the clock — every
-   * field except the one whose loss is permanent.
+   * `enable`'s re-enable patch keeps `databaseId` on purpose, and its comment
+   * says why: "so the sweep still knows what to delete if this fails again."
+   * Nothing was asserting it. Adding `databaseId: undefined` to that patch
+   * reddened **nothing** — including the test directly above, which checks the
+   * row count, the status, the cleared error and the clock, every field except
+   * the one whose loss cannot be undone.
    *
-   * The mutant is live and the damage is not recoverable by anything in this
-   * repository. `provisionIndex` creates a database only
-   * `if (databaseId === undefined)`, so a retry that cleared it would build a
-   * SECOND D1 database and leave the first standing on the account — holding a
-   * derived copy of this customer's note text, with no row pointing at it, so
-   * `releaseIndex` can never find it and turning fast search off can never
-   * delete it. That is exactly the hazard `fastSearchProvision.ts` records
-   * ("a database created but not recorded is one nothing can ever find to
-   * delete") and it defeats the second of the two questions this file exists to
-   * answer: *does off actually delete it?*
+   * TWO ROUTES REACH THAT PATCH, and only one of them is new. The failed-retry
+   * route arrived with the fix above. The **`releasing` route did not**:
+   * `disable` sets `optedIn: false`, so a row mid-release never satisfied the
+   * old `existing !== null && existing.optedIn` early return either, and the
+   * patch has run down that path since `#209` — which is what the comment it
+   * quotes is actually about ("if the release had not finished"). Both routes
+   * are covered below, because the older one was unproved for longer.
    *
-   * The path is newly reachable. Until the fix directly above, a failed row
-   * returned early and never reached this patch at all — so the guard has been
-   * live for one day and unproved for the whole of it.
+   * WHAT THE MUTANT COSTS, traced rather than assumed. `provisionIndex`
+   * creates a database only `if (databaseId === undefined)`, so a cleared
+   * handle sends the next provision back to `createDatabase` — with the same
+   * deterministic `databaseNameFor(workspaceId)`, so whether Cloudflare then
+   * duplicates or refuses is provider behaviour this repo neither tests nor
+   * documents, and is not asserted here. What IS traceable, and is worse: with
+   * `databaseId` gone, `disable` takes its `existing.databaseId === undefined`
+   * branch and **deletes the row outright** — no `releasing`, no schedule, no
+   * retry. The handle on a live database holding a derived copy of this
+   * customer's note text is destroyed by the very action that exists to delete
+   * that copy, and `releaseIndex` reaches a database only through
+   * `binding.databaseId`. Nothing in this repository can find it afterwards;
+   * `databaseNameFor` is deterministic, so an operator still could, which is
+   * the difference between unrecoverable and merely lost.
    *
-   * SABOTAGE: `databaseId: undefined` in the retry patch reddens this test and
-   * nothing else.
+   * That defeats the second of the two questions this file exists to answer:
+   * *does off actually delete it?* So the tests below turn it off and check
+   * that the row survives as `releasing` with its handle, rather than checking
+   * two field values and stopping.
+   *
+   * SABOTAGE: `databaseId: undefined` in the re-enable patch reddens both tests
+   * below and nothing else.
    */
   test("a retry keeps the database it already provisioned, so nothing is orphaned", async () => {
     const t = setupTest();
@@ -490,17 +505,72 @@ describe("turning it on", () => {
       workspaceId,
     });
 
-    const rows = await t.run(
+    const retried = await t.run(
       async (ctx) => await ctx.db.query("searchIndexes").collect(),
     );
-    expect(rows).toHaveLength(1);
-    // The whole assertion. Losing this is losing the only handle on a database
-    // that holds somebody's notes.
-    expect(rows[0].databaseId).toBe("db-already-created");
-    expect(rows[0].databaseName).toBe("context-search-already-created");
+    expect(retried).toHaveLength(1);
+    expect(retried[0].databaseId).toBe("db-already-created");
+    expect(retried[0].databaseName).toBe("context-search-already-created");
     // And it really did retry, so the case above is not what passed here.
-    expect(rows[0].status).toBe("provisioning");
-    expect(rows[0].updatedAt).toBeGreaterThan(1);
+    expect(retried[0].status).toBe("provisioning");
+    expect(retried[0].updatedAt).toBeGreaterThan(1);
+
+    // The property, not the field. With the handle gone, `disable` takes its
+    // `databaseId === undefined` branch and deletes the row — so off stops
+    // being able to delete the copy, which is the whole point of off.
+    await asUser(t, owner).mutation(api.functions.fastSearch.disable, {
+      workspaceId,
+    });
+    const afterOff = await t.run(
+      async (ctx) => await ctx.db.query("searchIndexes").collect(),
+    );
+    expect(afterOff).toHaveLength(1);
+    expect(afterOff[0].status).toBe("releasing");
+    expect(afterOff[0].databaseId).toBe("db-already-created");
+  });
+
+  /**
+   * THE OLDER ROUTE INTO THE SAME PATCH, which has been live since `#209`.
+   *
+   * Turning it off mid-release and turning it straight back on. `disable` sets
+   * `optedIn: false`, so this never hit the old early return and has always
+   * reached the re-enable patch — the case its "if the release had not
+   * finished" comment is written about, and the one nothing asserted for
+   * longer. Same mutant, same loss: the row is re-enabled pointing at nothing,
+   * and the database it was mid-way through deleting is stranded.
+   */
+  test("re-enabling during a release keeps the handle on what is being released", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "reenable-mid-release");
+    await asUser(t, owner).mutation(api.functions.fastSearch.enable, {
+      workspaceId,
+    });
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("searchIndexes")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(row!._id, { status: "ready", databaseId: "db-mid-release" });
+    });
+
+    await asUser(t, owner).mutation(api.functions.fastSearch.disable, {
+      workspaceId,
+    });
+    const releasing = await t.run(
+      async (ctx) => await ctx.db.query("searchIndexes").collect(),
+    );
+    expect(releasing[0].status).toBe("releasing");
+    expect(releasing[0].databaseId).toBe("db-mid-release");
+
+    await asUser(t, owner).mutation(api.functions.fastSearch.enable, {
+      workspaceId,
+    });
+    const back = await t.run(
+      async (ctx) => await ctx.db.query("searchIndexes").collect(),
+    );
+    expect(back).toHaveLength(1);
+    expect(back[0].status).toBe("provisioning");
+    expect(back[0].databaseId).toBe("db-mid-release");
   });
 
   test("it is audited as a decision", async () => {
