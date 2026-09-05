@@ -9,6 +9,36 @@ an afternoon. The hard parts are listed separately at the end, with what is
 actually known about each, so that a plan built on this document does not
 discover them in week six.
 
+## Update — 2026-09-05: the phone and the browser record
+
+Stage 3's recording half has landed, and the sequencing below is out of date in
+one specific way worth stating plainly: **capture arrived before the gateway
+routes of Stage 2, not after.**
+
+That was deliberate. The gateway authenticates MCP clients by OAuth grant, and
+how the *app* should authenticate to it is still the open decision this document
+records. The app already authenticates to **Convex**, so transcription is routed
+`app → Convex action → a Cloudflare Worker with a Workers AI binding`, which uses
+auth that exists today and settles none of that question early. Nothing here
+forecloses the Stage 2 design: when it is decided, the cloud transcriber is one
+implementation of `ChunkTranscriber` behind an unchanged interface.
+
+What works now, on iOS and on the web build:
+
+- Microphone capture, rotated into 20-second chunks on a wall clock so
+  `startMs`/`endMs` stay arithmetic, each chunk transcribed by Whisper and
+  deleted immediately.
+- `interruptionMode: "mixWithOthers"`, so a phone already in a call keeps its
+  microphone; an interruption surfaces as a recoverable error and the meeting
+  continues as a notepad rather than dying.
+- Android is untouched and still reports notes-only, honestly.
+
+Two things this does **not** do. It transcribes in the cloud only — the
+on-device free tier needs a new native module and is still ahead. And a browser
+still cannot hear system audio, so the web build captures the room and your own
+side of a call, never the far side through headphones; that limit is Notion's
+too, and it is why the desktop app remains where system audio belongs.
+
 ## Where this is today
 
 The contract, and almost nothing else. `packages/meetings/src/protocol.js`
@@ -64,8 +94,10 @@ finalize.
 
 Record, type alongside, queue offline, replay on reconnect. `read_meeting` and
 `list_meetings` as MCP tools. A Live Activity, which needs an App Group,
-`UIBackgroundModes: ["audio"]` in `app.config.js` (the `expo-audio` plugin there
-carries only a microphone permission string today), and an Expo SDK upgrade if
+`UIBackgroundModes: ["audio"]` in `app.config.js` (added 2026-09-05, and it
+takes effect only in a new native build — the microphone permission string was
+already in the shipped binary, which is why *foreground* capture reached phones
+over the air), and an Expo SDK upgrade if
 the first-party `expo-widgets` route is taken — see
 [watch-companion](./watch-companion.md) §1.
 
