@@ -21,7 +21,16 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const ROOTS = ["apps/mcp/src", "infra/email-worker/src", "infra/router/src"];
+const ROOTS = [
+  "apps/mcp/src",
+  "infra/email-worker/src",
+  "infra/router/src",
+  // No `fetch` in here today — it reaches Workers AI through a binding rather
+  // than the REST API — but a Worker source root missing from this list is one
+  // the guard silently stopped covering, and the second occurrence above was
+  // found only because somebody went looking after the first.
+  "infra/transcribe-worker/src",
+];
 const BANNED = /redirect:\s*["']error["']/;
 
 /** Comment-stripped, so a rationale naming the banned string is not a hit. */
