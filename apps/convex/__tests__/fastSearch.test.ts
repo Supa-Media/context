@@ -29,6 +29,11 @@
  *   `recordProvisionResult` applying to an opted-out row              1
  *   `forgetIndex` deleting a row that was re-enabled                  1
  *   `fastSearchActive` dropping the entitlement half             0 → 2
+ *   `status` returning the backfill counters to every member          1
+ *   `status` gating them on `canChange` instead of ownership          0
+ *
+ * The last one is zero and stays zero: see "a member cannot count the notes
+ * they cannot read" below for why no test can reach it, and what would.
  *
  * The last one measured **zero** on the first run and is the reason two tests
  * above exist. `fastSearchEntitled` is true for every workspace kind that
@@ -256,9 +261,11 @@ describe("only an owner decides", () => {
    * by polling could watch the total move when one was written or deleted.
    * SECURITY.md counts inferring that a private note exists as a bug.
    *
-   * Nothing populates these counters with a real figure yet — the backfill
-   * that would is row 389's missing caller — so this closes the channel while
-   * it is still empty rather than after it fills.
+   * Nothing populates these counters with a real figure yet: `notesIndexed: 0`
+   * at provision is the only write, `notesPending` is never written, and
+   * `apps/mcp/src/search/d1/project.js`'s `projectNote` — the backfill that
+   * would fill them — has no importer anywhere. So this closes the channel
+   * while it is still empty rather than after it fills.
    *
    * The owner keeps both, because the screen that shows backfill progress is
    * theirs and they can read every note in the context anyway.

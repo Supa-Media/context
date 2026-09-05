@@ -70,7 +70,15 @@ export interface FastSearchStatus {
   state: FastSearchState;
   /** Whether the viewer may change it. Rendering only; the mutation re-checks. */
   canChange: boolean;
-  /** Present while backfilling, so the screen can be honest rather than spin. */
+  /**
+   * Backfill progress — present while backfilling, **and absent to everyone
+   * but the owner.**
+   *
+   * The index counts every note the context has, private ones included, while
+   * a member may read only the `team` tier. Handing them the total would let
+   * them derive how much they are not being shown, and watch it move. Same
+   * rule, same shape, as `getStorageBinding`'s `noteCount`.
+   */
   notesIndexed?: number;
   notesPending?: number;
   /** Set only in `failed`. Our sentence, never a provider's. */
@@ -136,6 +144,7 @@ export const status = query({
   returns: v.object({
     state: stateValidator,
     canChange: v.boolean(),
+    // Owner only — a census of notes a member may not read. See the type above.
     notesIndexed: v.optional(v.number()),
     notesPending: v.optional(v.number()),
     error: v.optional(v.string()),

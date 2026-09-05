@@ -14,6 +14,11 @@
  * deciding it is. `canChange` is the server's own answer to the second
  * question, which is why nothing here re-derives it from a role.
  *
+ * With one limit: the backfill counters come back only to an OWNER. They are
+ * not how search is served, they are a count of the notes, and the index
+ * counts private ones a member may not read. The server drops them; this file
+ * never has to know whose they are.
+ *
  * ## What the switch actually does, which is why the copy is not "make search
  * faster"
  *
@@ -60,9 +65,13 @@ export interface FastSearchStatus {
    * How much of the context is in the index, and how much is waiting.
    *
    * **Optional, and absent is not zero** — the same rule the storage binding's
-   * measurements follow. A context whose provisioning has not written a count
-   * yet has not indexed nothing; nobody has looked. A `0` drawn from an absent
-   * field is a claim, so the label is omitted instead.
+   * measurements follow. A `0` drawn from an absent field is a claim, so the
+   * label is omitted instead.
+   *
+   * Absent now has two causes, and the code must treat them identically:
+   * nobody has looked yet, OR the viewer is not the owner and the server
+   * withheld a census of notes they may not read. Rendering a zero would leak
+   * in the second case what omitting the label does not.
    */
   notesIndexed?: number;
   notesPending?: number;
