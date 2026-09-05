@@ -299,7 +299,6 @@ describe("resolving a name that may receive mail", () => {
   });
 });
 
-
 /* -------------------------------------------------------------------------- */
 
 /**
@@ -523,9 +522,9 @@ describe("a personal context that has been shared keeps its capture address", ()
  * no-ticket assertion below, which is the one that names the harm.
  *
  * WHY TEST A STATE THE PRODUCT CANNOT REACH. It cannot reach it *today*, and
- * that is the argument for the test rather than against it. The whole write
- * surface for `workspaceMembers` is two inserts and one role patch, and none
- * can mint a second owner: `createWorkspace` writes the single owner,
+ * that is the argument for the test rather than against it. The whole
+ * OWNER-CREATING write surface for `workspaceMembers` is two inserts and one
+ * role patch — the two deletes cannot mint one — and none of the three can: `createWorkspace` writes the single owner,
  * `invitations` and `setMemberRole` both validate the role as
  * `editor | member`, and `setMemberRole`'s own refusal says ownership transfer
  * "is a separate step, and is not built yet". **The day it is built is the day
@@ -571,7 +570,6 @@ describe("a personal context with two owners cannot receive mail either", () => 
     expect(body.ingestion.context).toEqual({ kind: "personal", path: "seyi" });
   });
 });
-
 
 /* -------------------------------------------------------------------------- */
 
