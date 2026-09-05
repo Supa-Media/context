@@ -201,9 +201,7 @@ export async function callerHash(userId: string, workerSecret: string): Promise<
 /**
  * The longest chunk id a client may send.
  *
- * The segment ids this action mints are `${chunkId}-${index}`, and
- * `packages/meetings/src/transcript.js`'s `normalizeSegment` accepts an
- * unbounded segment id — it trims, checks non-empty, and stores. So this
+ * The segment ids this action mints are `${chunkId}-${index}`, and this
  * argument is where the bound belongs: it is this contract's own input, it
  * arrives from a client, and every downstream consumer would otherwise have to
  * distrust a value we handed it.
@@ -212,6 +210,23 @@ export async function callerHash(userId: string, workerSecret: string): Promise<
  * `<Date.now()>-<index>` (`apps/mobile/features/meetings/capture/segments.ts`),
  * which is around seventeen characters, and a UUID-shaped session key with an
  * index still fits in half of this.
+ *
+ * **This is no longer the only bound, and the other one is coupled to it.**
+ * `normalizeSegment` used to accept an unbounded segment id — this comment said
+ * so, and said it was why the bound lived here — but since 2026-09-05 it refuses
+ * one longer than `MAX_SEGMENT_ID_CHARS` (200), because
+ * `POST /meetings/sessions/:id/segments` reaches the merge without passing
+ * through this action at all. See `docs/decisions/meetings.md`.
+ *
+ * The consequence to keep in view: `128 + 1 + <index digits>` must stay under
+ * 200, or every segment this action mints is refused at the merge — silently,
+ * because no client reads the `rejected` count an ack carries. Raising this
+ * constant past 168 does that — measured, not derived: 168 passes and 169
+ * fails. (Real breakage starts nearer 195; the assertion is deliberately
+ * conservative, because it budgets eight index digits where a batch capped at
+ * `segmentsPerRequest` produces four.) `apps/convex/__tests__/meetingTranscribe.test.ts`
+ * asserts the relationship in both directions, so the two packages cannot drift
+ * apart unnoticed.
  */
 export const MAX_CHUNK_ID_LENGTH = 128;
 

@@ -469,6 +469,25 @@ export async function runMeetingChecks(check) {
   check("a row the merge cannot use is counted rather than swallowed", unusable.body?.rejected === 2);
   check("and changes nothing", unusable.body?.segmentCount === 3);
 
+  /*
+    An id is a merge key and nothing bounded its length. Text is capped at
+    `segmentTextChars` and a request at `requestBytes`, but the size of the
+    stored record is never checked — so an oversized id was the one field a
+    `context:write` grant could use to inflate a session past what those caps
+    imply, in a record `isPlumbing` hides from every note surface at every tier
+    including the owner's. Refused at the merge, and counted like any other
+    unusable row rather than swallowed.
+  */
+  const longId = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_MAIN}/segments`, {
+    body: {
+      segments: [
+        { id: "x".repeat(5_000), startMs: 30_000, endMs: 31_000, text: "padded", speaker: null, channel: "mic" },
+      ],
+    },
+  });
+  check("a segment whose id is oversized is refused", longId.body?.rejected === 1);
+  check("and no such row reaches the record", longId.body?.segmentCount === 3);
+
   const tooMany = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_MAIN}/segments`, {
     body: { segments: Array.from({ length: 1_001 }, (_, n) => segment(`bulk-${n}`, n * 10, "spam")) },
   });

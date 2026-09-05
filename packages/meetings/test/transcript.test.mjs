@@ -27,6 +27,7 @@
 import {
   DEFAULT_TURN_GAP_MS,
   formatClock,
+  MAX_SEGMENT_ID_CHARS,
   groupIntoTurns,
   mergeSegments,
   normalizeSegment,
@@ -44,6 +45,26 @@ export function runTranscriptChecks(check) {
 
   check("a segment with no id is refused", normalizeSegment(segment({ id: "" })) === null);
   check("...and one whose id is only whitespace", normalizeSegment(segment({ id: "   " })) === null);
+
+  /*
+    An id is a merge key, not content, and nothing bounded its length. The
+    gateway caps a segment's *text* at 4,000 characters and a request body at
+    2 MB, and caps how many segments a session may hold — but a record's size is
+    never checked, so an unbounded id let a `context:write` grant inflate one
+    session far past what those caps imply. That record lives under
+    `.meetings/`, which `isPlumbing` hides from every note surface at every
+    tier including the owner's, so the growth is invisible to the person paying
+    for it. Refused rather than truncated, because two ids that differ only past
+    the cut would merge into one segment and silently drop a turn.
+  */
+  check(
+    "an id longer than the cap is refused",
+    normalizeSegment(segment({ id: "x".repeat(MAX_SEGMENT_ID_CHARS + 1) })) === null
+  );
+  check(
+    "...while one exactly at the cap survives",
+    normalizeSegment(segment({ id: "x".repeat(MAX_SEGMENT_ID_CHARS) }))?.id.length === MAX_SEGMENT_ID_CHARS
+  );
   check("a negative startMs is refused", normalizeSegment(segment({ startMs: -1 })) === null);
   check("a negative endMs is refused", normalizeSegment(segment({ endMs: -5 })) === null);
   check("an end before its start is refused", normalizeSegment(segment({ startMs: 5000, endMs: 4000 })) === null);

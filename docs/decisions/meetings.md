@@ -266,14 +266,46 @@ consistent, so a caller spread across colos gets a multiple of the ceiling; it
 bounds a blast radius and is not an accounting system, which Cloudflare says
 outright.
 
-### A client-supplied id is bounded where it enters, not where it lands
+### A client-supplied id is bounded where it enters — and, since 2026-09-05, where it lands as well
+
+**Amended.** This section used to end at "where it enters", and its premise was
+that `normalizeSegment` in `packages/meetings/src/transcript.js` "accepts an
+unbounded segment id: it trims, checks for non-empty, and stores." That is no
+longer true, and the reversal is written here rather than left to be discovered
+from the code, because a decision record asserting the negation of the shipped
+behaviour is worse than no record.
 
 `chunkId` arrives from a recorder and becomes a transcript segment id
-(`${chunkId}-${index}`), and `normalizeSegment` in
-`packages/meetings/src/transcript.js` accepts an unbounded segment id: it trims,
-checks for non-empty, and stores. So the bound belongs on the argument — it is
-the contract's own input, it arrives from a client, and every consumer
-downstream would otherwise have to distrust a value we handed it.
+(`${chunkId}-${index}`). The bound still belongs on the argument, for the reason
+it always did — it is the contract's own input, it arrives from a client, and
+every consumer downstream would otherwise have to distrust a value we handed it.
+What changed is that the entry bound is no longer the *only* one.
+
+**Why the second bound was added.** `normalizeSegment` is reached by a path the
+entry check does not cover: `POST /meetings/sessions/:id/segments` takes segments
+from any `context:write` grant directly, without passing through
+`transcribeChunk` at all. The gateway caps a segment's text, one request body,
+and how many segments a session holds — but never the size of the stored record,
+so a padded id was the one field those caps did not reach. The record lives at
+`.meetings/sessions/<id>.json`, and `isPlumbing` refuses a dot-prefixed segment
+at every tier including the owner's, so the growth is invisible to the person
+whose storage bill it lands on. `MAX_SEGMENT_ID_CHARS` = 200 closes it.
+
+**What it is worth, stated honestly.** Roughly 38 MB per session, against a
+legitimate ceiling of about 80 MB that those same count limits already permit
+(20,000 segments × 4,000 characters of text). So this is a third off a ceiling
+that is otherwise unchanged, not a new bound on how large a session may be.
+**The larger axis is still open and is deliberately not closed here: nothing
+caps how many sessions may exist.** A fresh `mtg_` id mints a new record every
+time, each up to that ceiling, all under `.meetings/` and all equally invisible.
+That is the same shape at N times the magnitude and it wants its own decision.
+
+**The two bounds are coupled and nothing in the type system says so.**
+`MAX_CHUNK_ID_LENGTH` = 128 keeps the longest real id at ~133, comfortably under
+200. Raise it past 168 and every segment from the transcription path is refused
+at the merge instead — silently, because no client reads the `rejected` count.
+`apps/convex/__tests__/meetingTranscribe.test.ts` asserts the relationship, since
+the two constants live in packages with separate test runners.
 
 1 to 128 characters of `A-Za-z0-9_-`. The recorders mint `<Date.now()>-<index>`,
 around seventeen characters, so the bound is enormously generous against the
