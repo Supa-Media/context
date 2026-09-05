@@ -60,6 +60,7 @@ import {
   listSessions,
   openSession,
   readSession,
+  sessionNotFound,
   sessionSummary,
   updateSession,
   writeSession,
@@ -157,9 +158,11 @@ function refusal(error) {
 }
 
 function notFound() {
-  // One answer for another workspace's id, an id that never existed, and an id
-  // whose record its owner deleted. See the file header.
-  return new MeetingRefusal(404, "forbidden", "no such meeting session in this context");
+  // One answer for another workspace's id, an id that never existed, an id
+  // whose record its owner deleted, and an id this connection's tier may not
+  // see. See the file header. Spelled in `state.js` so the refusal
+  // `updateSession` raises for the last of those is the same object.
+  return sessionNotFound();
 }
 
 /**
@@ -305,18 +308,28 @@ export async function handleMeetings(request, path, store, session, { publishNot
   if (!route) return json({ error: ERRORS.invalid, error_description: "no such meeting route" }, 404);
 
   try {
+    /*
+      The tier this connection reads at, threaded into every handler.
+
+      A meeting is note content before it is a note: `publishMeetingNote` files a
+      personal connection's meeting as private and a team connection's as team,
+      so the record it is filed *from* answers at the same tier. Passed
+      explicitly rather than read off `store` so that a handler cannot be written
+      that forgets to ask.
+    */
+    const tier = session.scope;
     if (route.kind === "collection") {
-      if (request.method === "GET") return await listMeetingSessions(request, store);
-      if (request.method === "POST") return await upsertSession(request, store);
+      if (request.method === "GET") return await listMeetingSessions(request, store, tier);
+      if (request.method === "POST") return await upsertSession(request, store, tier);
       return methodNotAllowed();
     }
     if (route.kind === "session") {
-      if (request.method === "GET") return await readOneSession(request, store, route.id);
+      if (request.method === "GET") return await readOneSession(request, store, route.id, tier);
       return methodNotAllowed();
     }
     if (request.method !== "POST") return methodNotAllowed();
-    if (route.kind === "segments") return await appendSegments(request, store, route.id);
-    if (route.kind === "notes") return await replaceNotes(request, store, route.id);
+    if (route.kind === "segments") return await appendSegments(request, store, route.id, tier);
+    if (route.kind === "notes") return await replaceNotes(request, store, route.id, tier);
     return await finalizeSession(request, store, session, route.id, publishNote);
   } catch (error) {
     if (error instanceof MeetingRefusal) return refusal(error);
@@ -356,7 +369,7 @@ function methodNotAllowed() {
  * replaying a log it correctly kept — so the ack says `complete` and the note
  * path, and the client stops.
  */
-async function upsertSession(request, store) {
+async function upsertSession(request, store, tier) {
   const body = await readJsonBody(request);
   if (!isMeetingId(body.id)) throw invalid("id must be a meeting id");
 
@@ -367,7 +380,7 @@ async function upsertSession(request, store) {
     let next = current ? foldMetadata(current, body) : openSession({ ...body, id: body.id });
     next = foldLog(next, body.events);
     return assertSessionWithinLimits(next);
-  });
+  }, tier);
   return ack(store, result ? result.session : observed);
 }
 
@@ -381,7 +394,7 @@ async function upsertSession(request, store) {
  * that meeting is a note now and there is nothing left that would ever write
  * them out — losing them silently is the one outcome worth an error.
  */
-async function appendSegments(request, store, id) {
+async function appendSegments(request, store, id, tier) {
   const body = await readJsonBody(request);
   const segments = Array.isArray(body.segments) ? body.segments : null;
   if (!segments) throw invalid("segments must be an array");
@@ -394,12 +407,12 @@ async function appendSegments(request, store, id) {
       throw invalid("this session is already complete; its transcript is in the note");
     }
     return assertSessionWithinLimits(fold(current, { type: "segments", segments }));
-  });
+  }, tier);
   return ack(store, result.session, unusable ? { rejected: unusable } : {});
 }
 
 /** `POST /meetings/sessions/:id/notes` — replace the human's Markdown. */
-async function replaceNotes(request, store, id) {
+async function replaceNotes(request, store, id, tier) {
   const body = await readJsonBody(request);
   const markdown = notesFrom(body);
   if (markdown === null) throw invalid("notes must be a string");
@@ -411,7 +424,7 @@ async function replaceNotes(request, store, id) {
       throw invalid("this session is already complete; edit the note instead");
     }
     return fold(current, { type: "notes", markdown });
-  });
+  }, tier);
   return ack(store, result.session);
 }
 
@@ -474,7 +487,7 @@ async function finalizeSession(request, store, session, id, publishNote) {
       next = { ...next, notePath: await unclaimedNotePath(store, candidate) };
     }
     return assertSessionWithinLimits(next);
-  });
+  }, session.scope);
 
   // Idempotent by the contract: answer with the note that was already written.
   if (alreadyComplete) return ack(store, alreadyComplete, { etag: alreadyComplete.noteEtag ?? undefined });
@@ -490,7 +503,7 @@ async function finalizeSession(request, store, session, id, publishNote) {
   let stored = await writeSession(store, receipt, claim.etag);
   if (stored === false) {
     // Somebody wrote to this record between the claim and the note.
-    const fresh = await readSession(store, id);
+    const fresh = await readSession(store, id, session.scope);
     if (fresh?.session.state === "complete") {
       // The other writer finalized first. Answer with their note rather than
       // overwriting a meeting that is already closed.
@@ -551,8 +564,8 @@ async function unclaimedNotePath(store, candidate) {
  * and a client checking whether its session is still alive should not have to
  * download the meeting to find out. `?transcript=true` includes it.
  */
-async function readOneSession(request, store, id) {
-  const record = await readSession(store, id);
+async function readOneSession(request, store, id, tier) {
+  const record = await readSession(store, id, tier);
   if (!record) throw notFound();
   const url = new URL(request.url);
   const wanted = url.searchParams.get("transcript");
@@ -562,13 +575,17 @@ async function readOneSession(request, store, id) {
 }
 
 /** `GET /meetings/sessions` — what this context has recorded, newest first. */
-async function listMeetingSessions(request, store) {
+async function listMeetingSessions(request, store, tier) {
   const url = new URL(request.url);
   const limit = Number(url.searchParams.get("limit") || 20);
-  const { records, scanned } = await listSessions(store, Number.isFinite(limit) ? limit : 20);
+  const { records, scanned } = await listSessions(store, Number.isFinite(limit) ? limit : 20, tier);
   return json({
     sessions: records.map(sessionSummary),
-    /** A floor, never a total: the scan is bounded. */
+    /**
+     * A floor, never a total: the scan is bounded, and it counts only the
+     * meetings this connection's tier may see — so it cannot be subtracted
+     * from anything to learn how many private ones were filtered out.
+     */
     scanned,
   });
 }
