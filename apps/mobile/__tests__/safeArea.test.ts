@@ -302,6 +302,41 @@ const ROUTES: Record<string, Coverage> = {
       ),
   },
 
+  /*
+    Meeting capture. Three route files, and each is covered as itself rather
+    than through a chrome component: none of them is a live controller from its
+    first line — the meetings state is an external store
+    (`features/meetings/controller.ts`), which answers "nothing configured"
+    without a session or a Convex deployment, so the routes mount here exactly
+    as they do on a phone.
+
+    The layout is a `gate` rather than a `shell` even though it draws a `Stack`,
+    because it also mounts the persistent recording bar. That bar renders
+    `null` while nothing is recording, and the `gate` assertion — a layout draws
+    no content of its own — is what keeps it that way: a bar that started
+    painting a band unconditionally would be a strip across the notch on every
+    screen in the section, and this is the test that would say so.
+  */
+  "(app)/meetings/_layout.tsx": {
+    kind: "gate",
+    mount: () => createElement(requireRoute("(app)/meetings/_layout.tsx")),
+  },
+  "(app)/meetings/index.tsx": {
+    kind: "screen",
+    mount: () => createElement(requireRoute("(app)/meetings/index.tsx")),
+  },
+  /*
+    With `useLocalSearchParams` mocked empty there is no id at all, so this
+    renders the dead-link answer — the same thing `note/[...address].tsx` is
+    mounted for here, and the only thing this route paints with no recording
+    behind it. (It is deliberately *not* the "not on this device" line: that one
+    is a claim about the store, and the store has not been read.)
+  */
+  "(app)/meetings/[id].tsx": {
+    kind: "screen",
+    mount: () => createElement(requireRoute("(app)/meetings/[id].tsx")),
+  },
+
   "(app)/console/_layout.tsx": { kind: "framed" },
   "(app)/console/index.tsx": { kind: "framed" },
   "(app)/console/map.tsx": { kind: "framed" },
