@@ -302,6 +302,65 @@ describe("resolving a name that may receive mail", () => {
 /* -------------------------------------------------------------------------- */
 
 /**
+ * THE SOLE-OWNER CHECK, WHICH NOTHING WAS ASSERTING.
+ *
+ * `resolvePersonalContextForIngestion` refuses a personal context that does not
+ * have exactly one owner, and says why: *"zero means damaged data
+ * (`removeMember` refuses to delete an owner), two would mean the sole-owner
+ * invariant broke somewhere else. Either way there is no single accountable
+ * person, so refuse."*
+ *
+ * Measured before this block existed: degrading `owners.length !== 1` to
+ * `owners.length < 1` — which admits the two-owner case and silently picks
+ * `owners[0]` as the accountable person for somebody else's mail — reddened
+ * **nothing**. The mutant is live: with two owners the two expressions differ,
+ * and `ownerUserId` is what the capture is attributed to and what the
+ * ingestion policy is read for.
+ *
+ * The state is unreachable through the product's own mutations *today*, and
+ * that is the argument for the test rather than against it. `setMemberRole`'s
+ * validator is `v.union(v.literal("editor"), v.literal("member"))`, so it
+ * cannot mint a second owner at all, and its own refusal says ownership
+ * transfer "is a separate step, and is not built yet". **The day it is built is
+ * the day this guard starts mattering, and an unproved guard is one nobody will
+ * notice has stopped working.** So the row is inserted directly, which is the
+ * only way to reach a state the mutations are supposed to prevent.
+ *
+ * The refusal must also be byte-identical to the one for a name nobody claimed,
+ * for the reason the shared-context block below gives: a rejection that
+ * differed at all is an enumeration oracle from any mail client.
+ */
+describe("a personal context without exactly one owner cannot receive mail", () => {
+  test("two owners is refused, and refused indistinguishably", async () => {
+    const { t, workspaceId } = await ready();
+    const intruder = await createUser(t, "second-owner@example.test");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("workspaceMembers", {
+        workspaceId,
+        userId: intruder,
+        role: "owner",
+        joinedAt: Date.now(),
+      });
+    });
+
+    const body = await (await resolve(t, "seyi")).json();
+    expect(body).toEqual({ ingestion: null });
+
+    expect(await responseFingerprint(await resolve(t, "seyi"))).toBe(
+      await responseFingerprint(await resolve(t, "nobody-has-this-name")),
+    );
+  });
+
+  test("and one owner still works, so the case above fails for its own reason", async () => {
+    const { t } = await ready();
+    const body = await (await resolve(t, "seyi")).json();
+    expect(body.ingestion).not.toBeNull();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
  * THE DECISION, ASSERTED.
  *
  * A shared context has no ingestion address. Not a disabled one, not one
