@@ -35,10 +35,21 @@
 # gets a `429`, so the Worker transcribes nothing at all. There is no version of
 # that worth going green over.
 #
-# A MISSING `rateLimit` key is a warning rather than a failure, and only that:
-# it means the script answering predates the flag, which is a propagation
+# A MISSING (or non-boolean) `rateLimit` key is a warning rather than a failure.
+# The likeliest cause is a script older than the flag, which is a propagation
 # question and not a configuration one. `ai` gets no such allowance because that
-# key has always been there, so its absence is a malformed answer.
+# key has been in every version of this Worker since its first commit, so its
+# absence is a malformed answer rather than an old one.
+#
+# THE COST OF THAT ALLOWANCE, STATED RATHER THAN GLOSSED: one of the two causes
+# the `false` branch treats as fatal — a `/health` answered by a script this run
+# did not deploy — also lands in this warning branch, when that script is old
+# enough to omit the key. So the same fault is fatal in one branch and tolerated
+# in the other. The trade is deliberate: the 200-retry above does not cover a
+# stale-but-healthy answer, so failing on a missing key would red a deploy on
+# ordinary propagation lag. A permanently stale `TRANSCRIBE_WORKER_URL` is the
+# residual, and it was equally invisible before this flag existed — the flag
+# narrows that hole rather than opening it.
 #
 # What this probe still does NOT prove is that the limiter COUNTS. Sending
 # `limit + 1` requests and demanding a `429` is a different step, it belongs
@@ -378,18 +389,30 @@ jobs:
               console.error("  needs `test`, and src/wranglerConfig.test.ts reddens when that block");
               console.error("  is missing or renamed, so the config was already proved green.");
               console.error("");
-              console.error("  Fix, in order:");
-              console.error("    1. Re-run this workflow — the likeliest cause is that the script");
-              console.error("       answering /health is not the one this run deployed.");
-              console.error("    2. If it persists, check the binding on the deployed version in");
-              console.error("       the Cloudflare dashboard: Workers -> context-transcribe ->");
-              console.error("       Settings -> Bindings. A declared binding the platform did not");
-              console.error("       attach is the remaining explanation.");
+              console.error("  Two causes reach this branch, and neither is the config:");
+              console.error("    1. The platform did not attach a binding we declared. Check the");
+              console.error("       deployed version in the Cloudflare dashboard: Workers ->");
+              console.error("       context-transcribe -> Settings -> Bindings.");
+              console.error("    2. TRANSCRIBE_WORKER_URL points at a Worker this run did not");
+              console.error("       deploy — note that a script merely OLDER than the flag would");
+              console.error("       omit the key rather than report false, so this is a different,");
+              console.error("       post-flag Worker answering at that address.");
+              console.error("");
+              console.error("  Re-running is worth one attempt before either.");
               process.exit(1);
             } else {
-              console.log("[warn] /health did not report rateLimit at all — the script answering");
-              console.log("       predates the flag. A propagation question, not a configuration");
-              console.log("       one, so it is not fatal; re-run if it does not clear.");
+              // Absent, null, or any non-boolean. Not narrowed to "absent": the
+              // narrower sentence was measurably false for `null`, `"true"` and
+              // `1`, all of which land here.
+              console.log("[warn] /health answered no usable rateLimit flag (" + JSON.stringify(d.rateLimit) + ").");
+              console.log("       The likeliest cause is a script older than the flag, which is a");
+              console.log("       propagation question rather than a configuration one, so it is");
+              console.log("       not fatal. Re-run if it does not clear.");
+              console.log("       NOTE: this branch tolerates one fault the FAIL branch does not —");
+              console.log("       a /health answered by a script this run did not deploy. Making it");
+              console.log("       fatal would red a deploy on ordinary propagation lag, which the");
+              console.log("       200-retry above does not cover; a stale TRANSCRIBE_WORKER_URL is");
+              console.log("       the residual, and it was equally invisible before this flag.");
             }
           ' "$body"
 
@@ -405,9 +428,11 @@ jobs:
             echo "- **Verified:** the script was modified by this run;"
             echo "  \`TRANSCRIBE_WORKER_SECRET\` is bound; and \`GET /health\` reports"
             echo "  \`ai: true\`, which is the only proof that Workers AI is enabled on"
-            echo "  the account; and \`rateLimit: true\`, which proves the deployed"
-            echo "  script carries a USABLE limiter binding — not that the limiter"
-            echo "  counts, which no probe here asserts yet."
+            echo "  the account; and that \`/health\` did not report"
+            echo "  \`rateLimit: false\`, which would have failed this job. A green run"
+            echo "  where the key was ABSENT proves nothing about the limiter — the"
+            echo "  step log says which happened. No probe here asserts that the"
+            echo "  limiter COUNTS."
             echo "- **Not verified by CI:** that the control plane holds the same"
             echo "  \`TRANSCRIBE_WORKER_SECRET\`. Both halves come from this repository's"
             echo "  GitHub secret, but nothing here compares them — see the equivalent"

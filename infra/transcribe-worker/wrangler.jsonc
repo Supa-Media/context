@@ -151,7 +151,9 @@
   // reddens when this block is missing or renamed, and the deploy job needs
   // that suite — which is why `GET /health`'s `rateLimit: false` means the
   // platform did not attach a binding we declared, or the script answering is
-  // not the one just deployed, and never that this file lost the block.
+  // not the one just deployed, and never that this file lost the block. That
+  // holds for deploys through the pipeline; a hand-run `wrangler deploy`
+  // bypasses CI and so bypasses the reasoning with it.
   "ratelimits": [
     {
       "name": "TRANSCRIBE_RATE_LIMIT",

@@ -66,7 +66,7 @@
  * ── The rate limit, added when the review found there was none ─────────────
  *
  * Twelve more, run the same way and measured rather than expected. The suite
- * was 61 checks before and is 91 after; each line is the count that reddened
+ * was 61 checks before and is 90 after; each line is the count that reddened
  * and nothing else reddened in its place.
  *
  *   src/rateLimit.ts
@@ -115,9 +115,10 @@
  *
  * ── `/health` reporting the limiter binding, 2026-09-05 ────────────────────
  *
- * Three more, measured. The suite is 91 either side: the new assertions live
- * inside an existing `it`, so this is coverage the count cannot show — which
- * is exactly why the record is kept by sabotage and not by counting.
+ * Three more, measured. The suite went 90 → 91: this work added one `it`, and
+ * then a third assertion INSIDE it, which moved the count not at all. That
+ * second half is coverage a count cannot show, and is the whole reason this
+ * record is kept by sabotage rather than by counting.
  *
  *   src/index.ts
  *     `rateLimit` hard-coded to `true`

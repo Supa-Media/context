@@ -252,13 +252,16 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     // absent at runtime" failure shape, and until this flag existed the only
     // ways to answer "does the deployed script have it?" were a credentialed
     // query against the Cloudflare account — which the deploy workflow already
-    // makes, for secrets — or inference from a `429`, which `checkRateLimit`
-    // produces for four different reasons.
+    // makes, for secrets — or inference from a `429`, which the handler below
+    // returns on all five of `checkRateLimit`'s non-`allowed` paths (four
+    // flavours of `unavailable`, plus a genuine `refused`).
     //
-    // Reported HERE rather than read from that account API for the same reason
-    // `ai` is: this answer comes from inside the running script, and the account
-    // API answers what the platform believes it attached. The whole premise of
-    // the `ai` probe is that those two can differ on a green deploy.
+    // Reported HERE rather than read from that account API because only the
+    // running script can say what it actually got. `wrangler deploy` succeeding
+    // and the account's own metadata both describe what was UPLOADED, and the
+    // premise of the `ai` probe — stated in this file, `wrangler.jsonc` and the
+    // deploy workflow — is that an upload succeeding says nothing about what is
+    // bound at runtime.
     //
     // It reports whether the binding is USABLE, not merely present. That is the
     // same test `checkRateLimit` applies before trusting it, and a binding that
