@@ -1469,7 +1469,11 @@ export async function runMeetingChecks(check) {
     on the strength of it.
 
     So the ceilings are driven directly at `assertSessionWithinLimits`, which is
-    the function all three live in and which `ingest.js` calls at every write.
+    the function all three live in and which `ingest.js` calls on every write
+    that can grow one of them — the upsert, the segment append and the finalize
+    claim. `replaceNotes` does not call it, and does not need to: it folds a
+    `notes` event and touches none of these three lists. ("At every write" is
+    what this said until review; it is one word wider than the code.)
   */
   const atCeiling = {
     transcript: Array.from({ length: LIMITS.segmentsPerSession }, (_, i) => seg(i)),
