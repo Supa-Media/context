@@ -31,8 +31,9 @@
 # So a `false` here means something the config cannot explain — the platform did
 # not attach a binding we declared, or the script answering is not the one this
 # run deployed. Both are broken deploys of exactly the `ai: false` kind: with no
-# CALLABLE limiter, `checkRateLimit` fails closed and every authenticated caller
-# gets a `429`, so the Worker transcribes nothing at all. There is no version of
+# CALLABLE limiter, `checkRateLimit` fails closed and every caller that gets past
+# the shared secret gets a `429` — one without a valid `X-Caller-Hash` gets a
+# `400` first — so the Worker transcribes nothing at all. There is no version of
 # that worth going green over — and note that this is the reason a binding that
 # meters nothing still has to be present, which the block in `wrangler.jsonc`
 # argues at length.
