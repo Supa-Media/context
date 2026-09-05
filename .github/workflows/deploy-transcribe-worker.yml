@@ -15,11 +15,21 @@
 # met several times and which deploy-email-worker.yml's header records at
 # length: a green deploy of something that cannot work.
 #
-# `GET /health` answers `{ ok: true, ai: <boolean> }` from inside the deployed
-# Worker, so it is the only thing that can settle the question. `ai: false`
-# FAILS THIS JOB, with a runbook in the failure message, because enabling
-# Workers AI is a thing a human does in the Cloudflare dashboard and a red build
-# is the correct representation of "configured wrong".
+# `GET /health` answers `{ ok: true, ai: <boolean>, rateLimit: <boolean> }` from
+# inside the deployed Worker, so it is the only thing that can settle the
+# question. `ai: false` FAILS THIS JOB, with a runbook in the failure message,
+# because enabling Workers AI is a thing a human does in the Cloudflare
+# dashboard and a red build is the correct representation of "configured wrong".
+#
+# `rateLimit` is REPORTED AND NOT ASSERTED, deliberately. The binding declares
+# no account resource, so unlike Workers AI it cannot be enabled-or-not behind
+# our back — an absent one means this repository's own `wrangler.jsonc` lost it,
+# and `checkRateLimit` then refuses every caller, which is loud on its own. What
+# the line buys is that every deploy leaves a dated record of whether the
+# deployed script carried the limiter, so "is it even bound?" is answerable from
+# the build log instead of from the account. A real assertion on the limiter is
+# a different step — sending `limit + 1` requests and demanding a `429` — and it
+# belongs here too; it is not this line.
 #
 # ── WHY THE URL IS A SECRET AND NOT A LINE IN A FILE ────────────────────────
 #
@@ -337,6 +347,21 @@ jobs:
               process.exit(1);
             }
             console.log("[ok] the deployed Worker reports ai: true — Workers AI is enabled.");
+            // Recorded, not asserted — the header of this file gives the reason.
+            // A `false` here means wrangler.jsonc lost the `ratelimits` block, and
+            // `checkRateLimit` fails closed, so the deployed Worker is refusing
+            // every caller with a 429. That is a broken deploy and this line is
+            // where the build log says so.
+            if (d.rateLimit === true) {
+              console.log("[ok] the deployed Worker reports rateLimit: true — the limiter binding is attached.");
+            } else if (d.rateLimit === false) {
+              console.log("[warn] the deployed Worker reports rateLimit: false — no limiter binding.");
+              console.log("       checkRateLimit fails closed, so POST /transcribe is answering 429");
+              console.log("       for every caller. Check the `ratelimits` block in wrangler.jsonc.");
+            } else {
+              console.log("[warn] /health did not report rateLimit at all — a deployment older");
+              console.log("       than the flag, or a /health that stopped reporting it.");
+            }
           ' "$body"
 
       - name: Summary
@@ -351,7 +376,8 @@ jobs:
             echo "- **Verified:** the script was modified by this run;"
             echo "  \`TRANSCRIBE_WORKER_SECRET\` is bound; and \`GET /health\` reports"
             echo "  \`ai: true\`, which is the only proof that Workers AI is enabled on"
-            echo "  the account."
+            echo "  the account. \`/health\` also reports whether the rate-limit binding"
+            echo "  is attached; that one is recorded in the step log, not asserted."
             echo "- **Not verified by CI:** that the control plane holds the same"
             echo "  \`TRANSCRIBE_WORKER_SECRET\`. Both halves come from this repository's"
             echo "  GitHub secret, but nothing here compares them — see the equivalent"

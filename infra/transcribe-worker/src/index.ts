@@ -37,7 +37,9 @@
  *                      time; anything else is a bare 401. Plus an
  *                      `X-Caller-Hash` header naming which account is asking —
  *                      opaquely; see RATE LIMITING below and `src/rateLimit.ts`.
- *   GET  /health       `{ ok: true, ai: <boolean> }`. Unauthenticated.
+ *   GET  /health       `{ ok: true, ai: <boolean>, rateLimit: <boolean> }`,
+ *                      one flag per binding this Worker cannot work without.
+ *                      Unauthenticated; see the handler for why that is safe.
  *   anything else      404.
  *
  * ============================================================================
@@ -234,7 +236,24 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   // Exact paths, never prefixes: `startsWith` here would make
   // `/transcribeXYZ` and `/transcribe/anything` live routes.
   if (request.method === "GET" && path === "/health") {
-    return json(200, { ok: true, ai: Boolean(env.AI) });
+    // Both bindings, for one reason each.
+    //
+    // `ai` because Workers AI is an ACCOUNT-LEVEL feature and `wrangler deploy`
+    // succeeds whether or not it is enabled — the deploy workflow FAILS THE JOB
+    // on `ai: false`, and that is the only proof the account has it.
+    //
+    // `rateLimit` because the limiter has the same "declared in `wrangler.jsonc`,
+    // absent at runtime" failure shape and had no way to be observed at all. It
+    // is reported rather than enforced here: `checkRateLimit` fails closed, so a
+    // Worker with no limiter refuses every caller — loud, not silent — and the
+    // question this answers is the other one, asked when the limiter is
+    // suspected of not doing its job: does the deployed script even have it?
+    //
+    // Unauthenticated for the same reason the whole endpoint is: neither answer
+    // depends on a caller, a workspace or a secret, and `rateLimit: false`
+    // describes a Worker that refuses everyone rather than one that lets
+    // everyone through.
+    return json(200, { ok: true, ai: Boolean(env.AI), rateLimit: Boolean(env.TRANSCRIBE_RATE_LIMIT) });
   }
   if (request.method !== "POST" || path !== "/transcribe") {
     return json(404, { error: "not found" });

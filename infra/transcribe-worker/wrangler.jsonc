@@ -28,10 +28,15 @@
   // transcription returns 500 — the same shape as the four green deploys that
   // deployed nothing, recorded in the header of deploy-email-worker.yml.
   //
-  // So `GET /health` answers `{ ok: true, ai: <boolean> }` honestly and
-  // unauthenticated, and .github/workflows/deploy-transcribe-worker.yml FAILS
-  // THE JOB when `ai` is false. If it fails, Workers AI must be enabled on the
-  // Cloudflare account — nothing in this repository can do that.
+  // So `GET /health` answers `{ ok: true, ai: <boolean>, rateLimit: <boolean> }`
+  // honestly and unauthenticated, and
+  // .github/workflows/deploy-transcribe-worker.yml FAILS THE JOB when `ai` is
+  // false. If it fails, Workers AI must be enabled on the Cloudflare account —
+  // nothing in this repository can do that.
+  //
+  // `rateLimit` reports the binding declared below by the same reasoning, and
+  // the deploy records it rather than failing on it: see that block, and the
+  // workflow's header for why the two are asserted differently.
   //
   // ── THE ADDRESS IS NOT IN THIS FILE ───────────────────────────────────────
   //
