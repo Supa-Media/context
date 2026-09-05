@@ -79,6 +79,40 @@ export function platformFor(): "ios" | "android" | "web" {
 }
 
 /**
+ * Hand the recorders the app's Convex client, for as long as a recording can
+ * exist.
+ *
+ * Cloud transcription is a Convex action, and `capture/` is outside React by
+ * design — a recording outlives the screen that started it. `SupaConvexProvider`
+ * keeps the app's single `ConvexReactClient` as a module singleton and does not
+ * export it, so a hook inside the provider is the only thing that can put it
+ * where `audio.ts` and `audio.web.ts` reach it. Building a second client would
+ * be a second websocket, a second auth state and a second set of credentials on
+ * the device.
+ *
+ * **Where it is called is the whole of this hook.** It used to live in
+ * `useMeetingsSetup`, which is mounted in `app/(app)/meetings/_layout.tsx` — the
+ * layout that unmounts the moment somebody leaves `/meetings/*`, while
+ * `RecordingBar` is mounted a level up precisely because a recording outlives
+ * those screens. So the install was wired to the half that does not: leave the
+ * section mid-meeting and from the next chunk on `resolveTranscriber()` answered
+ * `null`, and audio was recorded, base64-ed, deleted and thrown away while the
+ * bar went on drawing a live timer.
+ *
+ * It belongs where the bar is, and for the same reason. `app/(app)/_layout.tsx`
+ * calls it, and it is cleared on unmount for the reason it is set: a recorder
+ * still holding the previous session's client after a sign-out would be
+ * shipping one person's audio under another person's credentials.
+ */
+export function useTranscriptionClient(): void {
+  const convex = useConvex();
+  useEffect(() => {
+    setTranscriptionClient(convex);
+    return () => setTranscriptionClient(null);
+  }, [convex]);
+}
+
+/**
  * Point the controller at the signed-in person's context, once.
  *
  * ## Why the workspace comes from the same query the console uses
@@ -114,27 +148,6 @@ export function useMeetingsSetup(options: { gateway?: MeetingsGateway } = {}): v
 
   const reachability = useReachability();
   const snapshot = useMeetingsSnapshot();
-
-  /*
-    The one place the recorders can be handed a Convex client.
-
-    Cloud transcription is a Convex action, and `capture/` is outside React by
-    design — a recording outlives the screen that started it. `SupaConvexProvider`
-    keeps the app's single `ConvexReactClient` as a module singleton and does not
-    export it, so this hook, which is already inside the provider, is what puts it
-    where `audio.ts` and `audio.web.ts` can reach it. Building a second client
-    here would be a second websocket, a second auth state and a second set of
-    credentials on the device.
-
-    It is cleared on unmount for the same reason it is set: a recorder still
-    holding the previous session's client after a sign-out or a context switch
-    would be shipping one person's audio under another person's credentials.
-  */
-  const convex = useConvex();
-  useEffect(() => {
-    setTranscriptionClient(convex);
-    return () => setTranscriptionClient(null);
-  }, [convex]);
 
   const gateway = useMemo(
     () => options.gateway ?? defaultGateway(),
