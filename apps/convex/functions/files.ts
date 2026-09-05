@@ -573,8 +573,9 @@ export const runFileOperation = internalAction({
      * or the sweep, and in that time an owner can have turned fast search off.
      * A pass that opened the bucket first and then discovered it had nothing
      * to do would have decrypted a customer's storage secret on the way to
-     * doing nothing — so the order here is the guard, and the test that pins
-     * it asserts the bucket saw no request at all.
+     * doing nothing — so the order here is the guard. The test that pins it
+     * deletes the storage binding, because "no bucket request was made" cannot
+     * see the mutant: opening a credential makes none.
      *
      * `projectionTargetForWorkspace` is the same composed gate that decides
      * whether a D1 write credential may leave this deployment for the gateway,
@@ -621,7 +622,10 @@ export const runFileOperation = internalAction({
             apiToken,
             state: target.state,
           },
-          { fetchImpl: timeoutFetch },
+          // No `fetchImpl`: the client resolves `globalThis.fetch` per call
+          // and carries its own deadline. Handing it `timeoutFetch` would
+          // *replace* the abort signal it sets with a longer one, quietly
+          // disabling the timeout it thinks it has.
         ) as ProjectionClient;
       } catch {
         // A deployment nobody has configured is an ordinary state, and the row

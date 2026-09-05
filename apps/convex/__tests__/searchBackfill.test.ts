@@ -48,28 +48,28 @@
  * file, one measured zero included — a record that lists only the satisfying
  * numbers is decoration.
  *
- *   `projectSearchIndex` not running the R2 sync in front of the copy      7
- *   the pass never reporting that it finished                              2
+ *   `projectSearchIndex` not running the R2 sync in front of the copy     10
+ *   the pass never reporting that it finished                              4
+ *   a `D1Error` code swallowed instead of returned                         2
  *   every note projected at `team`                                     1 → 2
- *   `moved` ignoring a pass that only advanced the R2 index            0 → 1
  *   a failed pass reported as progress                                     1
- *   a `D1Error` code swallowed instead of returned                         1
+ *   `moved` ignoring a pass that only advanced the R2 index            0 → 1
  *   `indexPending` dropped, so `ready` may outrun the R2 index             0
  *
  * And the trigger, over the whole control-plane suite rather than this file,
  * because several of these mutants are visible to the structural tests too:
  *
+ *   the row never asked, so an opt-out is not obeyed                          4
  *   `provisionIndex` recording `backfilling` and scheduling nothing           1
- *   the row never asked, so an opt-out is not obeyed                          2
- *   the credential opened before the row is asked                         0 → 1
- *   the chain treated as still due for a row that is no longer
- *     `backfilling` (i.e. one that is `ready`)                            0 → 1
  *   a link chaining whatever it moved, or did not                             1
- *   a refused database reported nowhere                                       2
+ *   a refused database reported nowhere                                       1
  *   progress never written to the row                                         1
  *   the sweep restarting a chain that is already working                      1
  *   the sweep starting a context whose owner never asked                      1
  *   an unconfigured deployment left `backfilling` forever                     1
+ *   the credential opened before the row is asked                         0 → 1
+ *   the chain treated as still due for a row that is no longer
+ *     `backfilling` (i.e. one that is `ready`)                            0 → 1
  *
  * **The credential opened before the row is asked** measured zero at first,
  * and the assertion that measured it was the problem rather than the guard:
@@ -133,7 +133,32 @@ import {
 } from "./fixtures.helpers";
 import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET } from "../functions/lib/d1";
 
-afterEach(() => {
+/**
+ * Every deployment a test in this file stood up, so `afterEach` can put its
+ * scheduler to bed.
+ *
+ * `convex-test` starts a `runAfter(0)` job on a **real** timer, and several
+ * checks here deliberately end with one queued — asserting that a link was
+ * scheduled is half the point of the file. Left alone, that timer fires during
+ * whichever test is running by then, and reaches for `globalThis.fetch`, which
+ * is that test's stub. The symptom is a check failing over statements sent by
+ * a pass belonging to a context it has never heard of, and it passes when run
+ * alone: the classic shape of a suite whose tests are not isolated.
+ *
+ * So every pending job is cancelled between tests. Cancelling rather than
+ * draining, because draining would run work the test had just finished proving
+ * should exist and had no intention of executing.
+ */
+const deployments: TestConvex[] = [];
+
+afterEach(async () => {
+  for (const t of deployments.splice(0)) {
+    await t.run(async (ctx) => {
+      for (const job of await ctx.db.system.query("_scheduled_functions").collect()) {
+        if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
+      }
+    });
+  }
   vi.unstubAllGlobals();
 });
 
@@ -402,6 +427,7 @@ async function opted(
   bucket: ReturnType<typeof memoryS3>;
 }> {
   const t = setupTest();
+  deployments.push(t);
   const owner = await createUser(t, "owner@example.invalid");
   const workspaceId = await createWorkspace(t, owner, "quokka-notes");
 
