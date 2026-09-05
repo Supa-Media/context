@@ -128,3 +128,66 @@ export function fastSearchState(
       return "preparing";
   }
 }
+
+/**
+ * How far the backfill has got, as a whole-number percentage — **or nothing**.
+ *
+ * ## Why it is derived and never stored
+ *
+ * A percentage is a ratio against a total, and the total is `indexed +
+ * pending` as of the report that carried both. Storing the percentage would
+ * store a ratio against the total that was true when it was written, and this
+ * total moves in both directions: notes are written during a backfill, and
+ * notes are deleted during one. A stored 42% survives a corpus that halved and
+ * says something that was never true of the corpus it is displayed beside.
+ * Derived from the two counters, the ratio cannot go stale relative to them —
+ * because they are the only thing it is computed from, and they are written
+ * together.
+ *
+ * ## The edge cases, each decided rather than fallen into
+ *
+ *  - **Either counter absent → `undefined`.** Nothing has reported a total, so
+ *    there is no denominator. This is the important one: the row is created
+ *    with `notesIndexed: 0` and no `notesPending` at all, so anything that
+ *    treated an absent pending as zero would report **100%** to an owner whose
+ *    backfill has not read a single note. An unknown reported as a number is
+ *    the one direction that tells somebody their notes are written down when
+ *    they are not — the same rule `docs/decisions/search.md` states for the
+ *    manifest's `listedAt: null`.
+ *  - **A total of zero → 100.** Both counters present and both zero is a real
+ *    report about a context with no notes in it. There is nothing left to
+ *    index, which is what 100 means; `undefined` here would spin a progress
+ *    bar forever on an empty brain.
+ *  - **A total that shrank → a larger percentage, never one above 100.** The
+ *    denominator is computed from the same report as the numerator, so notes
+ *    deleted mid-backfill leave both smaller together and the ratio simply
+ *    moves up. `Math.floor` is what keeps it honest at the top: it can only
+ *    reach 100 when `pending` is exactly zero, so 9,999 of 10,000 reads 99 and
+ *    never "done".
+ *  - **A negative counter is clamped to zero**, not trusted and not refused:
+ *    the counters arrive from the gateway and this function's job is to render
+ *    a number, not to police the wire. `recordProjectionProgress` is where a
+ *    malformed report is refused.
+ *
+ * **It inherits the counters' owner-only gate wherever it is served.** This
+ * function is pure and knows nothing about roles; `fastSearch.status` is the
+ * caller that must apply it, for the reason written there: a percentage is the
+ * census, in one number instead of two, and a member who may read only the
+ * `team` tier must not be handed a figure computed over private notes.
+ */
+export function backfillPercent(
+  notesIndexed: number | undefined,
+  notesPending: number | undefined,
+): number | undefined {
+  if (typeof notesIndexed !== "number" || typeof notesPending !== "number") {
+    return undefined;
+  }
+  if (!Number.isFinite(notesIndexed) || !Number.isFinite(notesPending)) {
+    return undefined;
+  }
+  const indexed = Math.max(0, notesIndexed);
+  const pending = Math.max(0, notesPending);
+  const total = indexed + pending;
+  if (total === 0) return 100;
+  return Math.floor((indexed * 100) / total);
+}

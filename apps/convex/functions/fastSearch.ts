@@ -40,6 +40,7 @@ import {
 import { recordAudit } from "./lib/audit";
 import { requireWorkspaceAccess, requireWorkspaceRole } from "./lib/workspaceAuth";
 import {
+  backfillPercent,
   fastSearchEntitled,
   fastSearchState,
   type FastSearchState,
@@ -81,6 +82,27 @@ export interface FastSearchStatus {
    */
   notesIndexed?: number;
   notesPending?: number;
+  /**
+   * The same census as one number, and therefore **under the same gate**.
+   *
+   * The two counters above are owner-only because a member may read only the
+   * `team` tier, so a total that includes private notes lets them derive how
+   * much they are not being shown. A percentage IS that total, divided — it
+   * moves when a private note is written and it stops moving when the backfill
+   * ends, which is the whole of what the counters leak. It leaks it while
+   * looking like a progress bar rather than like a count, which is precisely
+   * how a gate gets left off the second field.
+   *
+   * Both forms are returned rather than one, because the console renders a bar
+   * and a "41 of 48" line from the same read and neither should be a second
+   * round trip. `undefined` for anyone but an owner — the test that says so is
+   * the one that matters most in `fastSearch.test.ts`.
+   *
+   * Derived on every read and never stored: see `backfillPercent` for why a
+   * stored ratio goes stale against a corpus that moves, and for what each
+   * edge case answers.
+   */
+  percentIndexed?: number;
   /** Set only in `failed`. Our sentence, never a provider's. */
   error?: string;
   optedInAt?: number;
@@ -147,6 +169,8 @@ export const status = query({
     // Owner only — a census of notes a member may not read. See the type above.
     notesIndexed: v.optional(v.number()),
     notesPending: v.optional(v.number()),
+    // Owner only for the same reason, and it is the same number: see the type.
+    percentIndexed: v.optional(v.number()),
     error: v.optional(v.string()),
     optedInAt: v.optional(v.number()),
   }),
@@ -166,6 +190,13 @@ export const status = query({
       canChange: isOwner && fastSearchEntitled(workspace),
       notesIndexed: isOwner ? binding?.notesIndexed : undefined,
       notesPending: isOwner ? binding?.notesPending : undefined,
+      // `isOwner &&` rather than a ternary over the computed value, so the
+      // percentage is not even computed for a member — there is no expression
+      // here that could survive a refactor that dropped the gate on the line
+      // above and be returned by accident.
+      percentIndexed: isOwner
+        ? backfillPercent(binding?.notesIndexed, binding?.notesPending)
+        : undefined,
       error: binding?.error,
       optedInAt: binding?.optedInAt,
     };

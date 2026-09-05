@@ -34,6 +34,10 @@
  *   `enable` returning early for a `failed` row (the #233 bug)    1 → 2
  *   `enable`'s re-enable patch clearing `databaseId`              0 → 2
  *   `enable` returning early for a `releasing` row                   2
+ *   `status` returning `percentIndexed` to every member                1
+ *   `backfillPercent` reading an absent `notesPending` as 0            2
+ *   `backfillPercent` rounding instead of flooring                     1
+ *   `backfillPercent` answering `undefined` for a total of 0           1
  *
  * **Each note below names its row.** "The last one" was how two of these read
  * until rows were appended beneath them, at which point both pointed at
@@ -60,6 +64,20 @@
  * both routes into that patch are covered below, the failed retry and the
  * re-enable mid-release.
  *
+ * **`status` returning `percentIndexed` to every member** is the row this task
+ * exists for, and it measures **1** rather than 2 because the member half and
+ * the owner half are deliberately one test: a gate asserted without a
+ * non-vacuity check beside it passes just as well when the whole field is
+ * broken. See "a member cannot read the census as a percentage either".
+ *
+ * **`backfillPercent` reading an absent `notesPending` as 0** measures 2 and is
+ * the mutant worth naming, because it is the one a reasonable person writes.
+ * `provisionIndex` records `notesIndexed: 0` and no `notesPending` at all, so
+ * `pending ?? 0` makes the total zero, and an owner whose backfill has not read
+ * a single note is shown **100%**. The two tests it reddens are the
+ * absent-counter unit case and `an owner sees no percentage before anything has
+ * reported one`.
+ *
  * **`enable` returning early for a `releasing` row** is why those are two tests
  * and not one. It reddens the re-enable-mid-release test and `forgetIndex
  * refuses a row that was re-enabled`, and leaves the retry test green — so
@@ -80,6 +98,7 @@ import {
   type TestConvex,
 } from "./fixtures.helpers";
 import {
+  backfillPercent,
   fastSearchActive,
   fastSearchEntitled,
   fastSearchOptedIn,
@@ -173,6 +192,59 @@ describe("the two conditions", () => {
     // without noticing that every caller already handles false.
     expect(fastSearchEntitled(workspaceDoc("personal"))).toBe(true);
     expect(fastSearchEntitled(workspaceDoc("shared"))).toBe(true);
+  });
+
+  /**
+   * THE PERCENTAGE, AND WHY IT IS DERIVED.
+   *
+   * A stored percentage is a ratio against the total that was true when it was
+   * written. The total moves in both directions during a backfill — notes are
+   * written, notes are deleted — so a stored 42% outlives the corpus it
+   * describes and is displayed beside a different one. Computed from the two
+   * counters that were written together, it cannot be stale relative to them.
+   */
+  test("the percentage is a floor over the counters, and undefined when there are none", () => {
+    // Nothing has reported a total, so there is no denominator to divide by.
+    // THE MUTANT THIS CATCHES is `pending ?? 0`, which is what a row looks like
+    // the moment `provisionIndex` writes `notesIndexed: 0` with no pending at
+    // all: it would report a finished backfill that has read nothing.
+    expect(backfillPercent(undefined, undefined)).toBeUndefined();
+    expect(backfillPercent(0, undefined)).toBeUndefined();
+    expect(backfillPercent(undefined, 0)).toBeUndefined();
+    expect(backfillPercent(41, undefined)).toBeUndefined();
+
+    // A real report about a context with no notes in it. There is nothing left
+    // to index, which is what 100 means — `undefined` would spin a bar forever
+    // on an empty brain.
+    expect(backfillPercent(0, 0)).toBe(100);
+
+    // Started, and nothing read yet. Honestly zero rather than absent: the
+    // denominator exists.
+    expect(backfillPercent(0, 500)).toBe(0);
+
+    expect(backfillPercent(41, 7)).toBe(85);
+    expect(backfillPercent(48, 0)).toBe(100);
+
+    // FLOOR, NOT ROUND, and this is the whole of why. 9,999 of 10,000 rounds to
+    // 100 and reads as done while a note is still missing; floored it is 99 and
+    // can only reach 100 when `pending` is exactly zero.
+    expect(backfillPercent(9_999, 1)).toBe(99);
+    expect(backfillPercent(1, 2)).toBe(33);
+
+    // A total that shrank mid-backfill: the denominator comes from the same
+    // report as the numerator, so deleted notes leave both smaller together and
+    // the ratio moves up rather than off the end of the scale.
+    expect(backfillPercent(90, 10)).toBe(90);
+    expect(backfillPercent(90, 0)).toBe(100);
+    expect(backfillPercent(80, 0)).toBe(100);
+
+    // Nonsense from the wire renders rather than throwing — refusing a bad
+    // report is `recordProjectionProgress`'s job, not a display function's —
+    // and a negative counter is clamped rather than allowed to invert the sign.
+    expect(backfillPercent(-5, 100)).toBe(0);
+    expect(backfillPercent(50, -5)).toBe(100);
+    expect(backfillPercent(Number.NaN, 10)).toBeUndefined();
+    expect(backfillPercent(10, Number.POSITIVE_INFINITY)).toBeUndefined();
   });
 
   test("the state distinguishes the kinds of off", () => {
@@ -340,6 +412,110 @@ describe("only an owner decides", () => {
     );
     expect(asOwner.notesIndexed).toBe(41);
     expect(asOwner.notesPending).toBe(7);
+  });
+
+  /**
+   * AND THE PERCENTAGE IS THE SAME CENSUS, SO IT IS UNDER THE SAME GATE.
+   *
+   * This is the test that matters most in this file. `notesIndexed` and
+   * `notesPending` were gated on ownership because the index counts private
+   * notes and a member may read only the `team` tier — so a total including
+   * notes they cannot read lets them derive how much is being withheld, and
+   * polling it lets them watch a private note be written.
+   *
+   * A percentage is that total. It is 41 and 7 divided; it moves when a private
+   * note is written and settles when the backfill ends, which is the entire
+   * content of what the two counters leak. What is different about it is only
+   * that it *looks* like a progress bar rather than like a count, which is
+   * exactly the reason a second field gets added without the gate the first one
+   * has.
+   *
+   * The owner half is in the same test on purpose. A gate asserted alone passes
+   * just as well when the field is broken for everybody, and this file already
+   * carries one measurement that was zero for that kind of reason.
+   *
+   * SABOTAGE: return `percentIndexed` unconditionally — drop the `isOwner &&`
+   * in `status` — and this test fails (1). Nothing else in the suite notices.
+   */
+  test("a member cannot read the census as a percentage either", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "percent-ctx");
+    const member = await createUser(t, "percent-member@example.com");
+    await addMember(t, workspaceId, member, "member");
+    await asUser(t, owner).mutation(api.functions.fastSearch.enable, {
+      workspaceId,
+    });
+
+    const row = await bindingRow(t, workspaceId);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(row!._id, { notesIndexed: 41, notesPending: 7 });
+    });
+
+    const asMember = await asUser(t, member).query(
+      api.functions.fastSearch.status,
+      { workspaceId },
+    );
+    // Not a number, of any size. `0` would be a leak too — it would say the
+    // backfill had read nothing, which is a fact about the corpus.
+    expect(asMember.percentIndexed).toBeUndefined();
+    expect(typeof asMember.percentIndexed).not.toBe("number");
+
+    // Non-vacuity: the field works, and it is the counters divided.
+    const asOwner = await asUser(t, owner).query(
+      api.functions.fastSearch.status,
+      { workspaceId },
+    );
+    expect(asOwner.percentIndexed).toBe(85);
+    // Both forms come back from one read, because the console draws a bar and
+    // a "41 of 48" line and neither should cost a second round trip.
+    expect(asOwner.notesIndexed).toBe(41);
+    expect(asOwner.notesPending).toBe(7);
+  });
+
+  /**
+   * The row as `provisionIndex` actually leaves it: `notesIndexed: 0`, and no
+   * `notesPending` at all, because nothing has listed the bucket yet.
+   *
+   * SABOTAGE: `notesPending ?? 0` inside `backfillPercent` and this reports
+   * **100%** to an owner whose backfill has not read a single note (2, with the
+   * unit case above).
+   */
+  test("an owner sees no percentage before anything has reported one", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "percent-unstarted");
+    await asUser(t, owner).mutation(api.functions.fastSearch.enable, {
+      workspaceId,
+    });
+    const row = await bindingRow(t, workspaceId);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(row!._id, { notesIndexed: 0 });
+    });
+
+    const status = await asUser(t, owner).query(
+      api.functions.fastSearch.status,
+      { workspaceId },
+    );
+    expect(status.notesIndexed).toBe(0);
+    expect(status.notesPending).toBeUndefined();
+    expect(status.percentIndexed).toBeUndefined();
+  });
+
+  /**
+   * A context nobody has opted in has no row at all, so there is nothing to
+   * divide — and the answer must be "no figure", not "0%", which would be a
+   * claim about a backfill that does not exist.
+   */
+  test("a context that never opted in reports no progress at all", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "percent-never");
+    const status = await asUser(t, owner).query(
+      api.functions.fastSearch.status,
+      { workspaceId },
+    );
+    expect(status.state).toBe("off");
+    expect(status.notesIndexed).toBeUndefined();
+    expect(status.notesPending).toBeUndefined();
+    expect(status.percentIndexed).toBeUndefined();
   });
 
   test("a stranger learns nothing, including whether the context exists", async () => {
