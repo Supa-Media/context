@@ -12,6 +12,7 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useArming } from "../useArming";
 import {
   describeFastSearch,
+  describeIndexProgress,
   fastSearchControl,
   fastSearchPill,
   indexedLabel,
@@ -103,6 +104,7 @@ export function FastSearchCard({
   const pill = fastSearchPill(status.state);
   const control = fastSearchControl(view);
   const indexed = indexedLabel(status);
+  const progress = describeIndexProgress(status);
 
   return (
     <Card>
@@ -121,14 +123,48 @@ export function FastSearchCard({
       </View>
 
       {/*
-        The count only where something counted it — absent is not zero, the
-        same rule the storage card's note count follows.
+        How much of the context is in, and then how many notes that is.
+
+        The percentage leads because it is the question somebody actually has
+        — "is this finished, and if not how far off is it" — and because "0
+        notes indexed", which is all this card used to say, is what let a stuck
+        backfill and a working one look identical for hours. The count stays
+        underneath it: a percentage alone cannot say whether 62% is six notes
+        or six thousand, and the second line is the one that makes the first
+        one mean something.
+
+        Both are absent rather than zero — the same rule the storage card's
+        note count follows — and both are absent for a member, because the
+        server withholds the census a percentage would be derived from.
+
+        `describeIndexProgress` is the same function the status bar and the file
+        tree's footer read, so one context cannot be 62% in three places and
+        63% in a fourth.
       */}
-      {indexed === null ? null : (
-        <Notice style={styles.notice}>
-          <Text variant="check" role="status">
-            {indexed}
-          </Text>
+      {progress === null && indexed === null ? null : (
+        <Notice style={styles.notice} testID="fast-search-index">
+          {progress === null ? null : (
+            <Text
+              variant="check"
+              role="status"
+              // The visible string is a fragment — "62% indexed" says nothing
+              // about *what* is indexed or what the denominator is. A screen
+              // reader gets the sentence.
+              accessibilityLabel={progress.detail}
+              testID="fast-search-progress"
+            >
+              {progress.label}
+            </Text>
+          )}
+          {indexed === null ? null : (
+            <Text
+              variant="rowSub"
+              role="status"
+              style={progress === null ? undefined : styles.progressCount}
+            >
+              {indexed}
+            </Text>
+          )}
         </Notice>
       )}
 
@@ -216,6 +252,8 @@ const makeStyles = (_colors: Colors) => StyleSheet.create({
   headText: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
   blurb: { marginTop: 4, maxWidth: 546 },
   notice: { marginTop: 15 },
+  /** The count under the percentage, not beside it. */
+  progressCount: { marginTop: 3 },
   actions: { marginTop: 17, gap: 9, flexWrap: "wrap" },
   readOnly: { marginTop: 12, lineHeight: leading(12.5, 1.6) },
   loadingRow: { flexDirection: "row", alignItems: "center", gap: 11 },
