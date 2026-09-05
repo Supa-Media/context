@@ -34,10 +34,12 @@ import {
  *
  * ## The sabotage record
  *
- * Each invariant below was broken on purpose, all three capture suites run
- * together (57 tests), and the change reverted. What is recorded is *which*
- * tests failed, because a sabotage that turns half a file red proves only that
- * the file runs:
+ * Each invariant below was broken on purpose, all three meetings-capture suites
+ * run together, and the change reverted. What is recorded is *which* tests
+ * failed, because a sabotage that turns half a file red proves only that the
+ * file runs.
+ *
+ * ### The original set (57 tests at the time)
  *
  *  - `interruptionMode: "mixWithOthers"` -> `"doNotMix"`: 2 — **"the audio
  *    session mixes rather than seizing the input"** and **"a binary with no
@@ -66,7 +68,7 @@ import {
  *    failures is still one interruption"**, and nothing else. That is the
  *    interesting result: the two interruption tests above pass either way, so
  *    without this one the de-duplication would be untested.
- *  - moving `discard(file)` out of the `finally` to after the `transcribe`
+ *  - moving `discard(...)` out of the `finally` to after the `transcribe`
  *    await: 1 — **"the recording is deleted before its bytes are sent"**.
  *    Nothing else notices, which is why the ordering is asserted against a log
  *    rather than a call count.
@@ -76,6 +78,59 @@ import {
  *    is still a notepad, and says why"**.
  *  - `resume()` dropping its `state === "stopped"` guard: 1 — **"resuming a
  *    meeting that ended does not reopen the microphone"**.
+ *
+ * ### What a review of the branch found, and what now catches it (230 tests)
+ *
+ *  - `stop()`'s `finally` around `releaseDevice` removed: 1 — **"a chunk whose
+ *    path the file system refuses still releases the device"**. That test
+ *    exists because after the send was detached nothing *else* inside
+ *    `closeChunk` can throw any more, and a `finally` with no reachable trigger
+ *    is decoration. `new File(uri)` on a path the file system will not accept
+ *    is the trigger, and it happens before anything else owns the file.
+ *  - the rotation's `finally` around `openChunk` removed: 1 — **"a chunk whose
+ *    path the file system refuses does not stop the rotation"**. Same trigger,
+ *    and the failure it prevents is forty seconds of a meeting rather than
+ *    twenty.
+ *  - `dispatch(...)` -> `await send(...)`, putting the round trip back inside
+ *    the rotation's critical section: 2 — **"rotation reopens the microphone
+ *    without waiting for the answer"** and **"a backlog is bounded, and what it
+ *    drops it says"**.
+ *  - `MAX_INFLIGHT_CHUNKS` raised to 100_000: 1 — **"a backlog is bounded, and
+ *    what it drops it says"**. Only one, and deliberately so: the bound is a
+ *    decision with a stated reason, not a fact about the device.
+ *  - `chunkStartOffsetMs` advanced *after* the close and `chunkIndex` *before*
+ *    it — the arrangement this file started with: 1 — **"a chunk that will not
+ *    close does not take the next twenty seconds too"**, which asserts both
+ *    halves of the swap at once.
+ *  - `handleFailure` not closing the interrupted chunk: 1 — **"an
+ *    interruption's lost time lands in the offset"**. Dropping the gap
+ *    arithmetic in `scheduleResume` instead: the same 1. Two different ways to
+ *    put every later timestamp early, one test that sees both.
+ *  - `interrupted` left set by *both* `pause` and `resume`: 1 — **"a revoked
+ *    permission is still caught after an interruption and a pause"**. Left set
+ *    by `pause` alone: **0**, which is the honest result — `resume` always
+ *    follows `pause`, so `pause`'s clear is redundant. It stays because
+ *    `pause` is where `cancelResume()` kills the retry that would otherwise
+ *    have cleared it, and the pair reads as one thought.
+ *  - `closeChunk` not discarding the file of a device that would not close: 1 —
+ *    **"a chunk that will not close does not take the next twenty seconds
+ *    too"**. `discard` building its `File` outside its own `try`: 1 — **"a
+ *    chunk whose path the file system refuses still releases the device"**.
+ *  - the `sweepLeftovers()` call removed: 1 — **"a recording a previous run
+ *    left behind is swept at startup"**.
+ *  - `NO_TRANSCRIBER` reported instead of given up on: 1 — **"with nowhere to
+ *    send, the microphone is let go rather than held"**.
+ *  - `messageOf(error, CHUNK_FAILED)` put back on the send's catch: 1 — **"an
+ *    upstream error never reaches the screen in its own words"**.
+ *  - `releaseDevice` dropping the `inFlightUris` guard: 2 — **"ending does not
+ *    delete the chunk it is still sending"** and **"ending mid-chunk still
+ *    sends what was captured, with its real length"**. This is the one the fake
+ *    had to be made *more* faithful to catch: with a file read modelled as a
+ *    single microtask nothing failed, because on a real device a native read is
+ *    I/O and `releaseDevice`'s two microtasks beat it every time. See
+ *    `READ_HOPS`.
+ *  - `report` trusting its listeners again: 1 — **"a throwing error listener
+ *    does not take the microphone with it"**.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -124,6 +179,10 @@ let mockDeviceRefusesToStop = false;
 /** What a `Directory.list()` of the recording folder answers, by uri. */
 let mockLeftovers: string[] = [];
 let mockRecordingDirExists = true;
+/** A uri the file system refuses to make a `File` for. */
+let mockUnopenableUri: string | null = null;
+/** How many turns of the microtask queue a file read takes. See `base64`. */
+const READ_HOPS = 12;
 
 /*
   The fakes are built out here rather than inside the `jest.mock` factories, and
@@ -186,10 +245,22 @@ async function mockReadPermission(): Promise<{ granted: boolean; canAskAgain: bo
 const mockFileClass = class MockFile {
   readonly uri: string;
   constructor(uri: string) {
+    if (uri === mockUnopenableUri) throw new Error("That is not a path.");
     this.uri = uri;
   }
   async base64(): Promise<string> {
     mockLog.push(`read:${this.uri}`);
+    /*
+      A native file read is I/O — reading a twenty-second `.m4a` is milliseconds
+      of real work — and modelling it as a single microtask hides the race the
+      detached send introduced: `releaseDevice` drops "a recording the session
+      never got round to sending", and on a real device its two microtasks beat
+      the read every time. So the read here settles behind a queue rather than
+      on the next tick, and a read of a file something else deleted fails the
+      way it would on a phone.
+    */
+    for (let hop = 0; hop < READ_HOPS; hop += 1) await Promise.resolve();
+    if (mockDeleted.includes(this.uri)) throw new Error("The file is gone.");
     return mockBase64;
   }
   delete(): void {
@@ -323,6 +394,7 @@ beforeEach(() => {
   mockDeviceRefusesToStop = false;
   mockLeftovers = [];
   mockRecordingDirExists = true;
+  mockUnopenableUri = null;
   mockBase64 = "YWJj";
 });
 
@@ -1088,5 +1160,89 @@ describe("audio a crash left behind", () => {
       }),
     ).not.toThrow();
     expect(mockDeleted).toEqual([]);
+  });
+});
+
+describe("a screen's bug is not a reason to keep the microphone", () => {
+  /**
+   * `report` is called from the rotation timer and from a status callback, both
+   * of which reach it through a `void queue(...)`. A listener that threw
+   * rejected the device chain — an unhandled rejection — and took `stop()`'s
+   * promise down with it. `queue`'s own comment always said one screen's bug
+   * was not a reason to stop capture; now it is not.
+   */
+  test("a throwing error listener does not take the microphone with it", async () => {
+    const { recorder, transcriber } = harness();
+    recorder.onError(() => {
+      throw new Error("a screen with a bug in it");
+    });
+    await recorder.start();
+
+    transcriber.refuse("the network went away");
+    await advance(SEGMENT_MS * 2);
+
+    // Rotation carried on through it, and both chunks were still handed over.
+    expect(transcriber.chunks).toHaveLength(2);
+    expect(recorder.state).toBe("recording");
+
+    await expect(recorder.stop()).resolves.toBeUndefined();
+    expect(mockDevices.every((device) => device.released)).toBe(true);
+  });
+
+  /**
+   * And the `finally` that releases the device is a guard rather than
+   * decoration. The reachable trigger left is the file system refusing the uri
+   * the device wrote to — `new File(uri)` throws — which happens *before* the
+   * chunk is handed to anything, so nothing else is in a position to clean up.
+   */
+  test("a chunk whose path the file system refuses still releases the device", async () => {
+    const { recorder } = harness();
+    await recorder.start();
+    await advance(1_000);
+    mockUnopenableUri = mockDevices[0].uri;
+
+    await recorder.stop();
+
+    expect(recorder.state).toBe("stopped");
+    expect(mockDevices.every((device) => device.released)).toBe(true);
+  });
+
+  /** Same trigger, and rotation carries on rather than stopping on that tick. */
+  test("a chunk whose path the file system refuses does not stop the rotation", async () => {
+    const { recorder } = harness();
+    await recorder.start();
+    mockUnopenableUri = mockDevices[0].uri;
+
+    await advance(SEGMENT_MS);
+    mockUnopenableUri = null;
+
+    expect(mockDevices[0].records).toBe(2);
+    expect(recorder.state).toBe("recording");
+
+    void recorder.stop();
+    await advance(0);
+  });
+});
+
+describe("the device and a send do not fight over one file", () => {
+  /**
+   * `releaseDevice` drops "a recording the session never got round to sending",
+   * which was unambiguous while nothing could be in flight while the device was
+   * closing. With the send detached it can be, and deleting a file out from
+   * under the read that is carrying it loses the chunk — the last one, which is
+   * the end of the meeting.
+   */
+  test("ending does not delete the chunk it is still sending", async () => {
+    const { recorder, transcriber, errors } = harness();
+    await recorder.start();
+    await advance(5_000);
+
+    await recorder.stop();
+
+    expect(transcriber.chunks).toHaveLength(1);
+    expect(transcriber.chunks[0].durationMs).toBe(5_000);
+    expect(errors).toEqual([]);
+    // And it is gone once the send has finished with it.
+    expect(mockOpened.filter((uri) => !mockDeleted.includes(uri))).toEqual([]);
   });
 });

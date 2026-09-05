@@ -49,6 +49,26 @@ import {
  * retains every chunk by design, so one import above `capture/` is all it took
  * to keep an hour of somebody's meeting in memory — while `audio.ts` and
  * `capture/index.ts` both say in prose that nothing above there could.
+ *
+ * ## The sabotage record
+ *
+ * Broken deliberately, all three meetings-capture suites run together (230
+ * tests), reverted:
+ *
+ *  - `retainedRecorder` returning the incoming recorder unconditionally: 1 —
+ *    **"re-configuring mid-meeting keeps the recorder that is holding the
+ *    microphone"**. Not "a finished meeting lets the next recorder through",
+ *    which passes either way and is there to show the retention is scoped to a
+ *    live recording rather than permanent.
+ *  - `useTranscriptionClient()` removed from `app/(app)/_layout.tsx`: 2 —
+ *    **"the layout that mounts the recording bar is the one that installs
+ *    it"** and **"leaving the meetings section does not switch transcription
+ *    off"**. The second is the bug as it was reported; the first is what makes
+ *    the fix a placement rather than an accident.
+ *  - `setTranscriber` re-exported from `capture/index.ts`: 1 — **"the barrel
+ *    does not hand out a way to install a transcriber"**. "No module outside
+ *    capture/ imports past the barrel" stays green, because a re-export is not
+ *    a deep import — which is exactly why both are asserted.
  */
 
 /* -------------------------------------------------------------------------- */

@@ -41,8 +41,10 @@ import {
  *
  * ## The sabotage record
  *
- * Broken deliberately, all three capture suites run together (57 tests),
- * reverted:
+ * Broken deliberately, all three meetings-capture suites run together,
+ * reverted.
+ *
+ * ### The original set (57 tests at the time)
  *
  *  - `browserCanRecord()` -> `return true`: 3 — **"a browser with no
  *    MediaRecorder is a notepad, and says so"**, **"a browser with no
@@ -68,6 +70,33 @@ import {
  *    version of iOS's red bar, and nothing else in the suite notices it.
  *  - `resume()` dropping its `state === "stopped"` guard: 1 — **"resuming a
  *    meeting that ended does not reopen the microphone"**.
+ *
+ * ### What a review of the branch found, and what now catches it (230 tests)
+ *
+ *  - `stop()`'s `finally` around `releaseStream` removed: 1 — **"ending
+ *    releases the stream even if the chunk cannot be assembled"**. The
+ *    `ended` handler's, removed: 1 — **"a microphone that goes away releases it
+ *    too"**. The rotation's, removed: 1 — **"and a rotation that cannot
+ *    assemble one still reopens the recorder"**. All three lean on
+ *    `blobConstructionFails`, which exists because after the send was detached
+ *    nothing else inside `closeChunk` can throw — and a `finally` with no
+ *    reachable trigger is decoration rather than a guard.
+ *  - `dispatch(...)` -> `await send(...)`: 2 — **"rotation reopens the recorder
+ *    without waiting for the answer"** and **"a backlog is bounded, and what it
+ *    drops it says"**.
+ *  - `MAX_INFLIGHT_CHUNKS` raised to 100_000: 1 — **"a backlog is bounded, and
+ *    what it drops it says"**.
+ *  - `chunkStartOffsetMs` advanced after the close and `chunkIndex` before it:
+ *    1 — **"a chunk that will not close does not take the next twenty seconds
+ *    too"**.
+ *  - `interrupted` left set by both `pause` and `resume`: 1 — **"an
+ *    interruption survived a pause is reported again"**.
+ *  - `NO_TRANSCRIBER` reported instead of given up on: 1 — **"with nowhere to
+ *    send, the stream is let go rather than held"**.
+ *  - `messageOf(error, CHUNK_FAILED)` put back on the send's catch: 1 — **"an
+ *    upstream error never reaches the screen in its own words"**.
+ *  - `report` trusting its listeners again: 1 — **"a throwing error listener
+ *    does not take the stream with it"**.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -90,6 +119,11 @@ class FakeBlob {
   readonly type: string;
 
   constructor(parts: unknown[] = [], options: { type?: string } = {}) {
+    // A `Blob` constructor really can fail — assembling a long chunk on a tab
+    // under memory pressure is the ordinary way — and it is the one reachable
+    // throw left inside `closeChunk`, which is what makes the `finally`s around
+    // `releaseStream` guards rather than decoration.
+    if (blobConstructionFails) throw new Error("Out of memory.");
     const pieces: Uint8Array[] = [];
     for (const part of parts) {
       // `TextEncoder` is not in jest's jsdom environment, and the parts here
@@ -152,6 +186,8 @@ interface FakeRecorderInstance {
 let supportedTypes: string[] = [];
 /** Make `MediaRecorder.stop()` throw, the way a torn-down stream does. */
 let refuseStop = false;
+/** Make assembling a chunk's `Blob` throw, the way a tab out of memory does. */
+let blobConstructionFails = false;
 let instances: FakeRecorderInstance[] = [];
 let tracks: FakeTrack[] = [];
 let denyMicrophone = false;
@@ -256,6 +292,7 @@ beforeEach(() => {
   tracks = [];
   denyMicrophone = false;
   refuseStop = false;
+  blobConstructionFails = false;
   (globalThis as Record<string, unknown>).Blob = FakeBlob;
   installMediaRecorder();
   installGetUserMedia();
@@ -719,6 +756,78 @@ describe("what the screen is allowed to be told", () => {
       expect(CAPTURE_MESSAGES).toContain(error.message);
       expect(error.message).not.toContain("QQQ");
     }
+
+    void recorder.stop();
+    await advance(0);
+  });
+});
+
+describe("a screen's bug is not a reason to keep the stream", () => {
+  /**
+   * Same as the phone's: `report` reaches listeners from a rotation timer and
+   * from a track event, both through a `void queue(...)`, so a listener that
+   * threw rejected the device chain and took `stop()` with it.
+   */
+  test("a throwing error listener does not take the stream with it", async () => {
+    const { recorder, transcriber } = harness();
+    recorder.onError(() => {
+      throw new Error("a screen with a bug in it");
+    });
+    await recorder.start();
+
+    transcriber.refuse("the network went away");
+    await advance(SEGMENT_MS * 2);
+
+    expect(transcriber.chunks).toHaveLength(2);
+    expect(recorder.state).toBe("recording");
+
+    await expect(recorder.stop()).resolves.toBeUndefined();
+    expect(tracks.every((track) => track.stopped)).toBe(true);
+  });
+});
+
+describe("the stream is a guard, not a hope", () => {
+  /**
+   * The `finally`s around `releaseStream` need a reachable trigger to be
+   * guards, and assembling the chunk's `Blob` is it: a long recording on a tab
+   * under memory pressure. Nothing else in `closeChunk` can throw any more, so
+   * without these the browser's recording dot outlives the meeting silently.
+   */
+  test("ending releases the stream even if the chunk cannot be assembled", async () => {
+    const { recorder } = harness();
+    await recorder.start();
+    await advance(5_000);
+    blobConstructionFails = true;
+
+    await recorder.stop();
+
+    expect(recorder.state).toBe("stopped");
+    expect(tracks.every((track) => track.stopped)).toBe(true);
+  });
+
+  test("a microphone that goes away releases it too", async () => {
+    const { recorder } = harness();
+    await recorder.start();
+    await advance(5_000);
+    blobConstructionFails = true;
+
+    tracks[0].dispatchEvent(new Event("ended"));
+    await advance(0);
+
+    expect(recorder.state).toBe("stopped");
+    expect(tracks.every((track) => track.stopped)).toBe(true);
+  });
+
+  test("and a rotation that cannot assemble one still reopens the recorder", async () => {
+    const { recorder } = harness();
+    await recorder.start();
+
+    blobConstructionFails = true;
+    await advance(SEGMENT_MS);
+    blobConstructionFails = false;
+
+    expect(instances).toHaveLength(2);
+    expect(recorder.state).toBe("recording");
 
     void recorder.stop();
     await advance(0);

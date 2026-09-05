@@ -327,8 +327,24 @@ function expoAudioRecorder(): MeetingRecorder {
     return pending;
   }
 
+  /**
+   * Tell every listener, and let none of them break capture.
+   *
+   * Guarded per listener rather than trusted: `report` is called from the
+   * rotation timer and from a status callback, so a screen with a bug in its
+   * error handler used to reject the device chain — from a `void queue(...)`,
+   * which is an unhandled rejection — and take `stop()`'s promise down with it.
+   * One screen's bug is not a reason to stop somebody's meeting.
+   */
   function report(error: RecorderError): void {
-    for (const listener of errorListeners) listener(error);
+    for (const listener of errorListeners) {
+      try {
+        listener(error);
+      } catch {
+        // Nothing to do with it here, and nothing worth telling somebody in a
+        // meeting about.
+      }
+    }
   }
 
   function emit(segment: TranscriptSegment): void {
@@ -389,7 +405,7 @@ function expoAudioRecorder(): MeetingRecorder {
       goes out, and deleting it from under that read would lose the chunk.
     */
     const leftover = open.uri;
-    if (leftover !== null && !inFlightUris.has(leftover)) discard(new File(leftover));
+    if (leftover !== null && !inFlightUris.has(leftover)) discard(leftover);
     open.release();
   }
 
@@ -441,7 +457,7 @@ function expoAudioRecorder(): MeetingRecorder {
       nothing left in the process that knew about it.
     */
     if (!closed || durationMs <= 0) {
-      discard(file);
+      discard(file.uri);
       if (!closed) report({ recoverable: true, message: CHUNK_FAILED });
       return;
     }
@@ -455,14 +471,14 @@ function expoAudioRecorder(): MeetingRecorder {
         is the shape this feature exists to make impossible — so the report is
         made true rather than repeated.
       */
-      discard(file);
+      discard(file.uri);
       await abandon(NO_TRANSCRIBER);
       return;
     }
 
     if (inFlight.size >= MAX_INFLIGHT_CHUNKS) {
       // Dropped rather than queued, and said out loud. See MAX_INFLIGHT_CHUNKS.
-      discard(file);
+      discard(file.uri);
       report({ recoverable: true, message: SEND_BACKLOG });
       return;
     }
@@ -514,7 +530,7 @@ function expoAudioRecorder(): MeetingRecorder {
         a failed request cannot leave a recording of somebody's meeting sitting
         in the app's cache directory.
       */
-      discard(file);
+      discard(file.uri);
     }
     if (audioBase64.length === 0) return;
 
@@ -762,13 +778,20 @@ async function configureAudioSession(): Promise<void> {
   }
 }
 
-/** Delete, and never let the delete be the thing that breaks a meeting. */
-function discard(file: File): void {
+/**
+ * Delete, and never let the delete be the thing that breaks a meeting.
+ *
+ * Takes a uri rather than a `File` because `new File(uri)` is itself a call
+ * that can throw — a path the file system will not accept — and the one place
+ * that must never throw is the sweep on the way out of a recording.
+ */
+function discard(uri: string): void {
   try {
-    file.delete();
+    new File(uri).delete();
   } catch {
-    // A file that was never written, or one already collected. Nothing to do,
-    // and nothing worth telling somebody in a meeting about.
+    // A file that was never written, one already collected, or a path this
+    // build cannot make a handle for. Nothing to do, and nothing worth telling
+    // somebody in a meeting about.
   }
 }
 

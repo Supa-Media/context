@@ -169,8 +169,24 @@ function mediaRecorderRecorder(): MeetingRecorder {
     return pending;
   }
 
+  /**
+   * Tell every listener, and let none of them break capture.
+   *
+   * Guarded per listener rather than trusted: `report` is called from the
+   * rotation timer and from a status callback, so a screen with a bug in its
+   * error handler used to reject the device chain — from a `void queue(...)`,
+   * which is an unhandled rejection — and take `stop()`'s promise down with it.
+   * One screen's bug is not a reason to stop somebody's meeting.
+   */
   function report(error: RecorderError): void {
-    for (const listener of errorListeners) listener(error);
+    for (const listener of errorListeners) {
+      try {
+        listener(error);
+      } catch {
+        // Nothing to do with it here, and nothing worth telling somebody in a
+        // meeting about.
+      }
+    }
   }
 
   function emit(segment: TranscriptSegment): void {
