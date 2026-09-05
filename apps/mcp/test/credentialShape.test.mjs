@@ -6,10 +6,10 @@
  * cross-context sibling each hold the caller's OAuth access token, and the
  * store holds the D1 write token that came with the storage binding. All three
  * are attached with `Object.defineProperty(..., { enumerable: false })`, and
- * each site's docblock argues at length that this is what stops a bearer token
- * reaching a log line — "the single most likely way for a bearer token to reach
- * a log line", "one `{...store}` or one `JSON.stringify` away from a D1 write
- * token".
+ * The rule is argued at length where it is written down — "the single most
+ * likely way for a bearer token to reach a log line", "one `{...store}` or one
+ * `JSON.stringify` away from a D1 write token" — the sibling session's half in
+ * `sessionForContext`'s own header rather than at the property.
  *
  * ## Why this file exists
  *
@@ -79,7 +79,12 @@ const controlPlane = {
   },
 };
 
-/** Every way a value can escape an object without being asked for by name. */
+/*
+  The channels that read enumerability. Not four independent probes — they are
+  four readings of one bit, which is the bit the guard sets — but each is a
+  shape somebody actually writes, and a check named after `JSON.stringify`
+  should fail when `JSON.stringify` is the thing that changed.
+*/
 function exposedKeys(object) {
   return [
     ...Object.keys(object),
@@ -140,6 +145,16 @@ export async function runCredentialShapeChecks(check) {
     Asserted on what the store LOOKS like rather than on how it is built, so it
     survives a rewrite of either adapter.
   */
+  /*
+    PAIRED, because the negative alone is vacuous. Every other check here has a
+    positive twin asserting the credential is still reachable by name, and this
+    one did not: an `S3Store` that stored the WRONG secret passed the whole
+    suite, so "the secret is not on the store" would have gone green on a store
+    that had lost it. Review caught it; the twin is the fix, and it also closes
+    a gap older than this file — nothing proved the S3 store carries the
+    credential it was built with.
+  */
+  check("the store carries its bucket secret by name", store.secretAccessKey === SECRET_KEY);
   check(
     "and the bucket secret is not on the store either",
     !exposedText(store).includes(SECRET_KEY)
