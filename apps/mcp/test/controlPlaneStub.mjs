@@ -319,6 +319,16 @@ export function createControlPlaneStub(options = {}) {
         return ok({ revoked: true });
       }
 
+      case "/gateway/search-index/progress": {
+        // The reference implementation of the projection's progress route: it
+        // accepts counts, an optional `ready`, and an optional error code from
+        // the gateway's own closed set, and answers. The control plane owns
+        // the row; the gateway reports numbers and decides no policy. `calls`
+        // already carries the body, so a test asserts what was reported by
+        // reading that rather than by a second recording here.
+        return ok({ ok: true });
+      }
+
       case "/gateway/usage": {
         // The reference implementation of the counter route: it accepts a list
         // of {metric, workspaceId, count} and answers how many it applied.

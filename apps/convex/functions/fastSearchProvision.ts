@@ -30,33 +30,18 @@ import { internal } from "../_generated/api";
 import { internalAction, type ActionCtx } from "../_generated/server";
 import {
   D1Error,
+  D1_ACCOUNT_SECRET,
   D1_SCHEMA_VERSION,
+  D1_TOKEN_SECRET,
   SCHEMA_STATEMENTS,
   createDatabase,
   databaseNameFor,
   deleteDatabase,
   exec,
+  messageFor,
   type D1Config,
 } from "./lib/d1";
-
-export const D1_TOKEN_SECRET = "SEARCH_D1_API_TOKEN";
-export const D1_ACCOUNT_SECRET = "SEARCH_D1_ACCOUNT_ID";
-
-/** Operator-facing sentences, one per code. Ours, from a closed set. */
-const MESSAGES: Record<string, string> = {
-  NOT_CONFIGURED:
-    "Fast search is not configured on this deployment yet. An administrator needs to set SEARCH_D1_API_TOKEN and SEARCH_D1_ACCOUNT_ID.",
-  UNAUTHORIZED:
-    "The configured Cloudflare token was refused. It needs D1:Edit on the account in SEARCH_D1_ACCOUNT_ID.",
-  NOT_FOUND: "The search database could not be found.",
-  RATE_LIMITED: "Cloudflare is rate limiting this account. This will retry.",
-  UNAVAILABLE: "Cloudflare could not be reached. This will retry.",
-  REFUSED: "Cloudflare refused to create the search database.",
-};
-
-function messageFor(code: string): string {
-  return MESSAGES[code] ?? MESSAGES.REFUSED;
-}
+import { PROJECTION_CHAIN } from "./lib/fastSearch";
 
 /**
  * Read both halves of the credential, or `null` if either is missing.
@@ -154,6 +139,33 @@ export const provisionIndex = internalAction({
         databaseName,
         schemaVersion: D1_SCHEMA_VERSION,
         notesIndexed: 0,
+      });
+
+      /*
+       * AND THEN SOMETHING ACTUALLY COPIES THE NOTES.
+       *
+       * This used to end here: schema applied, `backfilling` recorded, return.
+       * Every trigger that filled the database was a search — the gateway's,
+       * behind its own response — so an owner who turned the switch on and
+       * closed the app sat at "0 notes indexed / Preparing" indefinitely, and
+       * three real contexts were doing exactly that.
+       *
+       * **After the status is recorded**, because the first thing the pass
+       * does is ask the row whether it is `backfilling`; scheduled before,
+       * it would race its own precondition.
+       *
+       * **Scheduled, not called.** It opens a bucket credential, which is a
+       * thing only the enumerated barrier may do, and the scheduler discards
+       * the result so nothing can flow back here — CLAUDE.md, "scheduling is
+       * not calling", the same shape that reaches this action from `enable`.
+       */
+      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+        workspaceId: args.workspaceId,
+        // Scope-blind: an index describes the bucket, and the tier a note is
+        // copied at is read from `privacy.md` per note. Nothing about this
+        // pass consults the scope it is handed.
+        scope: "private",
+        operation: { kind: "projectIndex", passes: PROJECTION_CHAIN },
       });
       return { status: "backfilling" };
     } catch (error) {

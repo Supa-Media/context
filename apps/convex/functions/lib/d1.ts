@@ -39,6 +39,24 @@
 
 export const CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4";
 
+/**
+ * The `appSecrets` names both halves of the write credential are stored under.
+ *
+ * Here rather than beside the provisioner because there are two callers now and
+ * they must not be able to drift: `fastSearchProvision` opens them to create and
+ * delete a database, and `controlPlane.openStorageBinding` opens them to hand
+ * the gateway what it needs to write a projection into one. A second literal
+ * spelling of a secret name is a deployment that is configured and a code path
+ * that reads nothing, reported as "not configured yet".
+ *
+ * `SEARCH_D1_READ_TOKEN` — the `D1:Read` half this module's header describes —
+ * has no constant because nothing reads it yet. See the caveat on
+ * `openStorageBinding`: the token below carries `D1:Edit` on the whole account,
+ * which is more than any one context's projection needs.
+ */
+export const D1_TOKEN_SECRET = "SEARCH_D1_API_TOKEN";
+export const D1_ACCOUNT_SECRET = "SEARCH_D1_ACCOUNT_ID";
+
 /** Bumped when `SCHEMA_STATEMENTS` changes in a way an existing index needs. */
 export const D1_SCHEMA_VERSION = 1;
 
@@ -368,4 +386,30 @@ export async function exec(
   for (const sql of statements) {
     await query(config, databaseId, sql, []);
   }
+}
+
+/**
+ * The operator-facing sentence for a failure code. **Ours, from a closed set.**
+ *
+ * Here rather than beside the provisioner because there are two writers of
+ * `searchIndexes.error` now — `provisionIndex` creating the database, and the
+ * projection pass filling it — and a second copy of these sentences is two
+ * spellings of the same failure for one person to compare. The rule they both
+ * obey is `classify`'s: a provider message can name the account, the database,
+ * or the token, so none of it is ever repeated back.
+ */
+export const D1_MESSAGES: Readonly<Record<string, string>> = {
+  NOT_CONFIGURED:
+    "Fast search is not configured on this deployment yet. An administrator needs to set SEARCH_D1_API_TOKEN and SEARCH_D1_ACCOUNT_ID.",
+  UNAUTHORIZED:
+    "The configured Cloudflare token was refused. It needs D1:Edit on the account in SEARCH_D1_ACCOUNT_ID.",
+  NOT_FOUND: "The search database could not be found.",
+  RATE_LIMITED: "Cloudflare is rate limiting this account. This will retry.",
+  UNAVAILABLE: "Cloudflare could not be reached. This will retry.",
+  REFUSED: "Cloudflare refused the search database request.",
+};
+
+/** `REFUSED` for a code from outside the set, which is the least specific truth. */
+export function messageFor(code: string): string {
+  return D1_MESSAGES[code] ?? D1_MESSAGES.REFUSED!;
 }

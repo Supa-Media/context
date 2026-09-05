@@ -90,9 +90,41 @@ let cached: GatewayInternals | null = null;
 export function gatewayInternals(): GatewayInternals {
   if (cached) return cached;
 
-  const body = gatewaySource
-    .replace(/^import[\s\S]*?from\s+["'][^"']+["'];?$/gm, "")
-    .replace(/^export default/m, "const __workerDefault =");
+  /*
+    The names `index.js` imports, declared as undefined before the body runs.
+
+    Stripping the imports and evaluating the rest works only while nothing the
+    gateway imports is *used at module top level*. The moment one is — and one
+    now is, `D1_PASS_RESERVE_CAP` computes a budget from `D1_PASS_NOTE_CAP` at
+    load — evaluation dies with a bare `ReferenceError` naming a constant that
+    has nothing to do with privacy, in 24 scaffolding tests at once. That is a
+    long way from the cause, so this collects the binding names off the import
+    statements it is already stripping and declares them, rather than listing
+    today's constants and waiting to be broken by tomorrow's.
+
+    `var`, deliberately: hoisted, so an assignment anywhere in the body still
+    works, and re-declaration is not an error. The values stay `undefined`,
+    which is right — this helper extracts pure privacy functions, and any
+    top-level arithmetic over them lands in a constant nothing here reads. If a
+    privacy function ever depends on an imported value, this returns `undefined`
+    rather than the truth, and the test that asserts on it must fail loudly
+    instead of being taught to accept it.
+  */
+  const imported = new Set<string>();
+  for (const statement of gatewaySource.matchAll(
+    /^import\s+([\s\S]*?)\s+from\s+["'][^"']+["'];?$/gm,
+  )) {
+    for (const name of statement[1].matchAll(/([A-Za-z_$][\w$]*)(?=\s*(?:,|}|$))/g)) {
+      if (name[1] !== "as") imported.add(name[1]);
+    }
+  }
+  const declared = imported.size > 0 ? `var ${[...imported].join(", ")};\n` : "";
+
+  const body =
+    declared +
+    gatewaySource
+      .replace(/^import[\s\S]*?from\s+["'][^"']+["'];?$/gm, "")
+      .replace(/^export default/m, "const __workerDefault =");
 
   if (/^export\s/m.test(body)) {
     throw new Error(

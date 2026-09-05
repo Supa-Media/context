@@ -35,6 +35,7 @@ import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { hashToken } from "../functions/lib/crypto";
 import {
+  FAKE_D1,
   FAKE_STORAGE,
   TEST_GATEWAY_SECRET,
   addMember,
@@ -45,6 +46,7 @@ import {
   errorCode,
   gatewayPost,
   responseFingerprint,
+  seedAppSecret,
   seedStorageBinding,
   setupTest,
   type TestConvex,
@@ -870,6 +872,781 @@ describe("/gateway/binding", () => {
 
     expect((first.binding as { bucket: string }).bucket).toBe("tenant-a");
     expect(second).toEqual({ binding: null });
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* 3b. /gateway/binding — the search-index credential beside it               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE SECOND CREDENTIAL ON THE TWO-FACTOR ROUTE.
+ *
+ * Fast search provisions a D1 database per opted-in context and nothing was
+ * copying notes into it — three databases in production, schema applied, zero
+ * rows. The gateway is the only component in this system that reads note text,
+ * so the projection has to be its job, and it needs two things it cannot get
+ * anywhere else: a database to write into and a token that may write into it.
+ *
+ * They ride on `/gateway/binding` rather than a route of their own, and that is
+ * the security decision rather than a convenience. A second route handing out a
+ * credential is a third entry in `structure.test.ts`'s `CREDENTIAL_HTTP_ROUTES`
+ * — whose comment says a second entry "means a second internet-facing path to
+ * other people's bucket keys" and that a third needs the argument made again.
+ * Here the argument does not have to be made: the same two proofs are spent,
+ * the workspace is resolved once from the same grant, and there is no new door.
+ *
+ * So what these tests are about is that the *same* bound holds for the *new*
+ * payload. In particular that a caller cannot name whose index it gets, which
+ * is the property the whole route exists to have.
+ *
+ * ## Sabotage record
+ *
+ * Run as temporary local edits and reverted, counts as measured.
+ *
+ *   the index lookup hoisted above the membership check, keyed on
+ *     `args.expectedWorkspaceId`                                        5
+ *   the index lookup left in place, keyed on `args.expectedWorkspaceId` 1
+ *   the `apiToken`/`accountId` both-or-neither check dropped            1
+ *   `searchProjectionState` accepting `failed` and `provisioning`       2
+ *
+ * The two-factor property here is **inherited rather than restated**, and the
+ * two forms of the first sabotage are what measure the difference. Keying the
+ * index query on the caller's own `expectedWorkspaceId` where it sits changes
+ * no behaviour at all: `covered === undefined` has already returned `null` for
+ * every id the token does not cover, so by the time the index is read the only
+ * value that argument can hold is the one the grant resolved to. Exactly one
+ * test reddens — `structure.test.ts`'s textual rule that the argument may never
+ * select — which is that rule earning its place: it fails on the *shape* before
+ * the shape becomes exploitable.
+ *
+ * Move the same lookup above the membership check and it becomes the real
+ * thing: a compromised gateway holding one valid token reads any opted-in
+ * context's database id and the account-wide write token, one id at a time.
+ * Five tests redden, three of them in this block, and that is why the
+ * cross-tenant test below asserts on the **bytes of the whole response** rather
+ * than on `body.searchIndex` — under that mutant the binding half is still a
+ * correct `null`, and everything that leaks leaks beside it.
+ *
+ * `searchProjectionState`'s own guards are unit-tested in `fastSearch.test.ts`,
+ * which records why two of them measured zero from here.
+ */
+describe("/gateway/binding — the search index", () => {
+  /**
+   * An opted-in, provisioned index row, inserted directly.
+   *
+   * `fastSearch.enable` would schedule a real provision, which in a test
+   * reaches for a Cloudflare token that is not there and flips the row to
+   * `failed` partway through whatever the test was about — the same fixture
+   * race `seedStorageBinding` exists to avoid.
+   */
+  async function seedSearchIndex(
+    t: TestConvex,
+    options: {
+      workspaceId: Id<"workspaces">;
+      optedInBy: Id<"users">;
+      status?: "provisioning" | "backfilling" | "ready" | "failed" | "releasing";
+      optedIn?: boolean;
+      databaseId?: string;
+    },
+  ): Promise<void> {
+    const now = Date.now();
+    await t.run((ctx) =>
+      ctx.db.insert("searchIndexes", {
+        workspaceId: options.workspaceId,
+        optedIn: options.optedIn ?? true,
+        optedInBy: options.optedInBy,
+        optedInAt: now,
+        status: options.status ?? "ready",
+        databaseId: options.databaseId,
+        databaseName:
+          options.databaseId === undefined ? undefined : `context-search-${options.databaseId}`,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+  }
+
+  /** The deployment configured with both halves of the platform's credential. */
+  async function configureD1(t: TestConvex): Promise<void> {
+    await seedAppSecret(t, "SEARCH_D1_API_TOKEN", FAKE_D1.apiToken);
+    await seedAppSecret(t, "SEARCH_D1_ACCOUNT_ID", FAKE_D1.accountId);
+  }
+
+  test("an opted-in, provisioned context gets a write credential beside its binding", async () => {
+    const { t, alice, aliceWs } = await twoConnectedTenants();
+    await configureD1(t);
+    await seedSearchIndex(t, {
+      workspaceId: aliceWs,
+      optedInBy: alice,
+      status: "backfilling",
+      databaseId: "db-alice-0000",
+    });
+
+    const body = await bodyOf(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: aliceWs,
+      }),
+    );
+    // The binding is untouched by any of this — the fast path is an upgrade,
+    // and a context whose index broke must still be able to read its bucket.
+    expect((body.binding as { bucket: string }).bucket).toBe("tenant-a");
+    expect(body.searchIndex).toEqual({
+      databaseId: "db-alice-0000",
+      accountId: FAKE_D1.accountId,
+      apiToken: FAKE_D1.apiToken,
+      state: "backfilling",
+    });
+  });
+
+  test("a ready index reports ready, so the gateway knows it is not backfilling", async () => {
+    const { t, alice, aliceWs } = await twoConnectedTenants();
+    await configureD1(t);
+    await seedSearchIndex(t, {
+      workspaceId: aliceWs,
+      optedInBy: alice,
+      status: "ready",
+      databaseId: "db-alice-ready",
+    });
+
+    const body = await bodyOf(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: null,
+      }),
+    );
+    expect((body.searchIndex as { state: string }).state).toBe("ready");
+  });
+
+  /**
+   * THE NORMAL CASE, AND IT MUST NOT BE AN ERROR.
+   *
+   * Almost every context has never opted in. The key is absent — not present
+   * and null — so a gateway on a build that predates this reads the same bytes
+   * it always did.
+   */
+  test("a context that never opted in has no searchIndex key at all", async () => {
+    const { t, aliceWs } = await twoConnectedTenants();
+    await configureD1(t);
+
+    const response = await gatewayPost(t, "/gateway/binding", {
+      accessToken: ACCESS_A,
+      expectedWorkspaceId: aliceWs,
+    });
+    const text = await response.text();
+    expect(response.status).toBe(200);
+    expect(text).not.toContain("searchIndex");
+    const body = JSON.parse(text) as Record<string, unknown>;
+    expect(Object.keys(body)).toEqual(["binding"]);
+    expect((body.binding as { bucket: string }).bucket).toBe("tenant-a");
+  });
+
+  /**
+   * OFF DELETES IT, SO OFF MUST STOP HANDING OUT THE KEY TO IT.
+   *
+   * `disable` sets `optedIn: false` and leaves the row `releasing` until
+   * Cloudflare confirms the delete — deliberately, so the database can still be
+   * found. A projection credential served during that window would keep writing
+   * a copy of somebody's notes into a database they asked us to destroy, which
+   * is the switch not working.
+   */
+  test("a releasing context is handed nothing, even though the row still names a database", async () => {
+    const { t, alice, aliceWs } = await twoConnectedTenants();
+    await configureD1(t);
+    await seedSearchIndex(t, {
+      workspaceId: aliceWs,
+      optedInBy: alice,
+      optedIn: false,
+      status: "releasing",
+      databaseId: "db-being-deleted",
+    });
+
+    const response = await gatewayPost(t, "/gateway/binding", {
+      accessToken: ACCESS_A,
+      expectedWorkspaceId: aliceWs,
+    });
+    const text = await response.text();
+    expect(text).not.toContain("searchIndex");
+    expect(text).not.toContain("db-being-deleted");
+    expect(text).not.toContain(FAKE_D1.apiToken);
+  });
+
+  test("a half-built index is handed nothing either", async () => {
+    const { t, alice, aliceWs } = await twoConnectedTenants();
+    await configureD1(t);
+
+    // Provisioning: the database may exist but the schema is not on it yet.
+    await seedSearchIndex(t, {
+      workspaceId: aliceWs,
+      optedInBy: alice,
+      status: "provisioning",
+      databaseId: "db-no-schema-yet",
+    });
+    let text = await (
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: null,
+      })
+    ).text();
+    expect(text).not.toContain("searchIndex");
+    expect(text).not.toContain("db-no-schema-yet");
+
+    // Failed, with a database recorded: a projection into a half-built database
+    // is how a failure becomes data.
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("searchIndexes")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", aliceWs))
+        .unique();
+      await ctx.db.patch(row!._id, { status: "failed" });
+    });
+    text = await (
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: null,
+      })
+    ).text();
+    expect(text).not.toContain("searchIndex");
+
+    // Opted in and provisioned with no database id recorded — nothing to write
+    // into, and naming no database is not the same as naming none of them.
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("searchIndexes")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", aliceWs))
+        .unique();
+      await ctx.db.patch(row!._id, { status: "ready", databaseId: undefined });
+    });
+    text = await (
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: null,
+      })
+    ).text();
+    expect(text).not.toContain("searchIndex");
+  });
+
+  /**
+   * THE ONE THAT MATTERS.
+   *
+   * Both tenants have an index. Alice names bob's workspace, exactly as a
+   * compromised gateway holding one valid token would. She is not a member of
+   * it, so the binding half already answers `null` — and the assertion is on the
+   * **bytes of the whole response**, not on `body.searchIndex`, because the
+   * mutant this exists to catch (the index query keyed on the caller's own
+   * `expectedWorkspaceId` rather than on the id the grant resolved to) leaves
+   * the binding half correct and rides bob's database id and the account-wide
+   * write token out beside it.
+   */
+  test("a caller cannot obtain another tenant's index credential by naming it", async () => {
+    const { t, alice, aliceWs, bob, bobWs } = await twoConnectedTenants();
+    await configureD1(t);
+    await seedSearchIndex(t, {
+      workspaceId: aliceWs,
+      optedInBy: alice,
+      databaseId: "db-alice-0000",
+    });
+    await seedSearchIndex(t, {
+      workspaceId: bobWs,
+      optedInBy: bob,
+      databaseId: "db-bob-1111",
+    });
+
+    const response = await gatewayPost(t, "/gateway/binding", {
+      accessToken: ACCESS_A,
+      expectedWorkspaceId: bobWs,
+    });
+    const text = await response.text();
+    expect(JSON.parse(text)).toEqual({ binding: null });
+    expect(text).not.toContain("db-bob-1111");
+    expect(text).not.toContain(FAKE_D1.apiToken);
+    expect(text).not.toContain(FAKE_D1.accountId);
+
+    // Non-vacuity: alice's own call gets alice's own database, so the refusal
+    // above is not "the feature is off".
+    const own = await bodyOf(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: aliceWs,
+      }),
+    );
+    expect((own.searchIndex as { databaseId: string }).databaseId).toBe("db-alice-0000");
+  });
+
+  /**
+   * The other half of that pair, kept beside it for the reason the binding
+   * tests keep theirs together: a context alice really is a member of opens.
+   *
+   * The credential belongs to the *context*, not to the caller's role in it —
+   * the same as the bucket key beside it. A member searching bob's brain is
+   * answered from bob's database, filtered by `canSee` at read time, so the
+   * gateway needs the projection for whichever context the call addressed.
+   */
+  test("a context the caller is a member of opens, index and all", async () => {
+    const { t, alice, bob, bobWs } = await twoConnectedTenants();
+    await configureD1(t);
+    await addMember(t, bobWs, alice, "member");
+    await seedSearchIndex(t, {
+      workspaceId: bobWs,
+      optedInBy: bob,
+      databaseId: "db-bob-1111",
+    });
+
+    const body = await bodyOf(
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: bobWs,
+      }),
+    );
+    expect((body.binding as { workspaceId: string }).workspaceId).toBe(bobWs);
+    expect((body.searchIndex as { databaseId: string }).databaseId).toBe("db-bob-1111");
+
+    // And the moment that membership goes, so does the reach — the set is
+    // re-read on every request.
+    const membership = await t.run((ctx) =>
+      ctx.db
+        .query("workspaceMembers")
+        .withIndex("by_workspace_user", (q) =>
+          q.eq("workspaceId", bobWs).eq("userId", alice),
+        )
+        .unique(),
+    );
+    await t.run((ctx) => ctx.db.delete(membership!._id));
+    const after = await (
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: bobWs,
+      })
+    ).text();
+    expect(JSON.parse(after)).toEqual({ binding: null });
+    expect(after).not.toContain("db-bob-1111");
+  });
+
+  /**
+   * A deployment nobody has configured is an ordinary state, not a crash — the
+   * same rule `fastSearchProvision` states for the provisioner. A self-hoster
+   * who never pasted a D1 token gets a working binding and no fast search.
+   *
+   * Half-configured reads exactly like unconfigured, because there is one cure.
+   */
+  test("an unconfigured deployment serves the binding and no index", async () => {
+    const { t, alice, aliceWs } = await twoConnectedTenants();
+    await seedSearchIndex(t, {
+      workspaceId: aliceWs,
+      optedInBy: alice,
+      databaseId: "db-alice-0000",
+    });
+
+    // Neither half set.
+    let response = await gatewayPost(t, "/gateway/binding", {
+      accessToken: ACCESS_A,
+      expectedWorkspaceId: aliceWs,
+    });
+    let text = await response.text();
+    expect(response.status).toBe(200);
+    expect(text).not.toContain("searchIndex");
+    expect((JSON.parse(text).binding as { bucket: string }).bucket).toBe("tenant-a");
+
+    // The token but not the account id.
+    await seedAppSecret(t, "SEARCH_D1_API_TOKEN", FAKE_D1.apiToken);
+    response = await gatewayPost(t, "/gateway/binding", {
+      accessToken: ACCESS_A,
+      expectedWorkspaceId: aliceWs,
+    });
+    text = await response.text();
+    expect(response.status).toBe(200);
+    expect(text).not.toContain("searchIndex");
+    expect(text).not.toContain(FAKE_D1.apiToken);
+  });
+
+  /**
+   * THE TOKEN IS IN NO REFUSAL, ON ANY SHAPE OF THE REQUEST.
+   *
+   * A credential that reaches an error body reaches a log, a bug report and a
+   * screenshot. Every negative this route can produce is checked against the
+   * configured token in one sweep, including the refusals that happen before
+   * the two proofs are even read.
+   */
+  test("the write token never appears in a refusal", async () => {
+    const { t, alice, aliceWs, bobWs } = await twoConnectedTenants();
+    await configureD1(t);
+    await seedSearchIndex(t, {
+      workspaceId: aliceWs,
+      optedInBy: alice,
+      databaseId: "db-alice-0000",
+    });
+
+    const attempts: { body: unknown; secret?: string | null }[] = [
+      { body: { accessToken: ACCESS_A, expectedWorkspaceId: bobWs } },
+      { body: { accessToken: "unknown-token", expectedWorkspaceId: null } },
+      { body: { accessToken: ACCESS_A, expectedWorkspaceId: "not-even-an-id" } },
+      { body: { accessToken: ACCESS_A, expectedWorkspaceId: [bobWs] } },
+      { body: {} },
+      { body: "not-an-object" },
+      { body: { accessToken: ACCESS_A }, secret: "wrong-secret" },
+      { body: { accessToken: ACCESS_A }, secret: null },
+    ];
+
+    for (const [index, attempt] of attempts.entries()) {
+      const text = await (
+        await gatewayPost(t, "/gateway/binding", attempt.body, {
+          secret: attempt.secret,
+        })
+      ).text();
+      expect(text, `attempt ${index} leaked the token`).not.toContain(
+        FAKE_D1.apiToken,
+      );
+      expect(text, `attempt ${index} leaked the account id`).not.toContain(
+        FAKE_D1.accountId,
+      );
+      expect(text, `attempt ${index} leaked a database id`).not.toContain(
+        "db-alice-0000",
+      );
+    }
+
+    // Non-vacuity: the happy path really does carry all three, so the sweep
+    // above is not passing because nothing is ever returned.
+    const ok = await (
+      await gatewayPost(t, "/gateway/binding", {
+        accessToken: ACCESS_A,
+        expectedWorkspaceId: aliceWs,
+      })
+    ).text();
+    expect(ok).toContain(FAKE_D1.apiToken);
+    expect(ok).toContain("db-alice-0000");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* 3c. /gateway/search-index/progress — the backfill reporting back          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE ROUTE WITH ONE PROOF, AND WHY IT IS SAFE TO HAVE ONE.
+ *
+ * A backfill runs behind a response and outlives the request that started it,
+ * so there is no user access token to present — the same reason the ingest
+ * routes cannot present one. What a holder of the gateway secret can therefore
+ * do here, for a workspace it names, is the whole of the residual risk: write
+ * two integers onto a row, and move one that is already backfilling to `ready`.
+ *
+ * It cannot read anything. It cannot learn whether the id it named exists,
+ * whether that context opted in, or whether the report was applied — **every
+ * input is answered with the same bytes**, which is the property the first test
+ * here is about and the reason `/gateway/usage` is shaped the same way.
+ *
+ * Everything else is the control plane owning its own row. The gateway knows
+ * how many notes it wrote; it does not know whether the owner turned the
+ * feature off while it was writing them, and a report that could re-open a row
+ * somebody turned off would make the switch not work.
+ *
+ * ## Sabotage record
+ *
+ * Run as temporary local edits and reverted, counts as measured.
+ *
+ *   `recordProjectionProgress` dropping the `searchProjectionState` gate    2
+ *   `status` assigned `"ready"` unconditionally                             1
+ *   a report without `state` demoting a `ready` row to `backfilling`        1
+ *   the route answering `{ applied }` instead of one constant answer        1
+ *   `countField` coercing rather than refusing a bad count                  2
+ *
+ * The gate row is **2, not 3**, and the missing one is worth naming. The mutant
+ * run was `if (binding === null) return` in place of the composed gate, and a
+ * context that never opted in has no row at all — so any implementation that
+ * reads a row before writing to it refuses that case, and "a report for a
+ * context that never opted in is refused" cannot separate them. It is still
+ * written, because what it pins is the *product* property (no row means never
+ * asked, so the count of customers we hold a copy for stays a count rather than
+ * a filter) rather than that one line of the gate.
+ *
+ * The other two — opted out mid-release, and half-built — do separate, and they
+ * are two tests rather than one because the states arrive by different routes
+ * through the product and a future change could reopen either alone.
+ *
+ * `recordProjectionProgress` also re-validates the counts the route already
+ * validated, and that guard measured **zero** from here for the reason
+ * `fastSearch.test.ts` records: the door is one caller, and only a direct call
+ * to the mutation can tell the two layers apart. The test that does is there.
+ */
+describe("/gateway/search-index/progress", () => {
+  async function enabledIndex(t: TestConvex, workspaceId: Id<"workspaces">, owner: Id<"users">) {
+    const now = Date.now();
+    await t.run((ctx) =>
+      ctx.db.insert("searchIndexes", {
+        workspaceId,
+        optedIn: true,
+        optedInBy: owner,
+        optedInAt: now,
+        status: "backfilling",
+        databaseId: "db-progress",
+        databaseName: "context-search-progress",
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+  }
+
+  async function indexRow(t: TestConvex, workspaceId: Id<"workspaces">) {
+    return await t.run((ctx) =>
+      ctx.db
+        .query("searchIndexes")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique(),
+    );
+  }
+
+  async function report(
+    t: TestConvex,
+    body: unknown,
+    options: { secret?: string | null } = {},
+  ): Promise<Response> {
+    return await gatewayPost(t, "/gateway/search-index/progress", body, options);
+  }
+
+  test("a report from the gateway moves the counters an owner reads", async () => {
+    const { t, alice, aliceWs } = await twoConnectedTenants();
+    await enabledIndex(t, aliceWs, alice);
+
+    const response = await report(t, {
+      workspaceId: aliceWs,
+      notesIndexed: 41,
+      notesPending: 7,
+    });
+    expect(response.status).toBe(200);
+
+    const row = await indexRow(t, aliceWs);
+    expect(row?.notesIndexed).toBe(41);
+    expect(row?.notesPending).toBe(7);
+    // Still backfilling: reporting progress is not declaring victory.
+    expect(row?.status).toBe("backfilling");
+
+    // And the owner's screen sees it, percentage and all.
+    const status = await asUser(t, alice).query(api.functions.fastSearch.status, {
+      workspaceId: aliceWs,
+    });
+    expect(status.notesIndexed).toBe(41);
+    expect(status.notesPending).toBe(7);
+    expect(status.percentIndexed).toBe(85);
+    expect(status.state).toBe("preparing");
+  });
+
+  test("the gateway saying ready is what finishes the backfill", async () => {
+    const { t, alice, aliceWs } = await twoConnectedTenants();
+    await enabledIndex(t, aliceWs, alice);
+
+    await report(t, {
+      workspaceId: aliceWs,
+      notesIndexed: 48,
+      notesPending: 0,
+      state: "ready",
+    });
+    expect((await indexRow(t, aliceWs))?.status).toBe("ready");
+    const status = await asUser(t, alice).query(api.functions.fastSearch.status, {
+      workspaceId: aliceWs,
+    });
+    expect(status.state).toBe("on");
+    expect(status.percentIndexed).toBe(100);
+
+    // A later report without `ready` must not restart the spinner: a gateway
+    // that keeps projecting new notes after finishing is the ordinary case.
+    await report(t, { workspaceId: aliceWs, notesIndexed: 50, notesPending: 2 });
+    const row = await indexRow(t, aliceWs);
+    expect(row?.status).toBe("ready");
+    expect(row?.notesPending).toBe(2);
+  });
+
+  /**
+   * A CONTEXT THAT IS NOT OPTED IN IS NOT A ROW TO WRITE TO.
+   *
+   * Three shapes, one gate, three tests — because they arrive by three routes
+   * through the product and a change could reopen any of them alone.
+   */
+  test("a report for a context that never opted in is refused", async () => {
+    const { t, aliceWs } = await twoConnectedTenants();
+
+    const response = await report(t, {
+      workspaceId: aliceWs,
+      notesIndexed: 41,
+      notesPending: 7,
+    });
+    expect(response.status).toBe(200);
+    // No row was created. "No row means never asked" is how the count of
+    // customers we hold a copy for stays a count rather than a filter.
+    expect(await indexRow(t, aliceWs)).toBeNull();
+    expect(
+      await t.run(async (ctx) => (await ctx.db.query("searchIndexes").collect()).length),
+    ).toBe(0);
+  });
+
+  test("a report cannot re-open a row somebody turned off", async () => {
+    const { t, alice, aliceWs } = await twoConnectedTenants();
+    await enabledIndex(t, aliceWs, alice);
+    // The owner turns it off. The row survives as `releasing` so the delete can
+    // still find its database.
+    await asUser(t, alice).mutation(api.functions.fastSearch.disable, {
+      workspaceId: aliceWs,
+    });
+    expect((await indexRow(t, aliceWs))?.status).toBe("releasing");
+
+    // The backfill, which has been running all along, reports in and says it
+    // finished. This is the late arrival that must change nothing.
+    await report(t, {
+      workspaceId: aliceWs,
+      notesIndexed: 999,
+      notesPending: 0,
+      state: "ready",
+    });
+
+    const row = await indexRow(t, aliceWs);
+    // Not `ready`: that would put a database mid-delete back into service.
+    expect(row?.status).toBe("releasing");
+    expect(row?.optedIn).toBe(false);
+    // And not the counters either — a row nobody is serving from should not be
+    // accumulating a census of somebody's notes.
+    expect(row?.notesIndexed).toBeUndefined();
+    expect(row?.notesPending).toBeUndefined();
+
+    // The owner's screen still says off, which is what they pressed.
+    const status = await asUser(t, alice).query(api.functions.fastSearch.status, {
+      workspaceId: aliceWs,
+    });
+    expect(status.state).toBe("off");
+  });
+
+  test("a half-built index cannot be declared ready by a report", async () => {
+    const { t, alice, aliceWs } = await twoConnectedTenants();
+    await enabledIndex(t, aliceWs, alice);
+
+    for (const status of ["provisioning", "failed"] as const) {
+      await t.run(async (ctx) => {
+        const row = await ctx.db
+          .query("searchIndexes")
+          .withIndex("by_workspace", (q) => q.eq("workspaceId", aliceWs))
+          .unique();
+        await ctx.db.patch(row!._id, { status });
+      });
+
+      await report(t, {
+        workspaceId: aliceWs,
+        notesIndexed: 12,
+        notesPending: 0,
+        state: "ready",
+      });
+
+      const row = await indexRow(t, aliceWs);
+      expect(row?.status, `${status} was moved by a progress report`).toBe(status);
+      expect(row?.notesIndexed).toBeUndefined();
+    }
+  });
+
+  /**
+   * EVERY INPUT IS ANSWERED IDENTICALLY.
+   *
+   * A holder of the gateway secret must not be able to use this route to learn
+   * which contexts have opted in. An accepted report, a refused one, one for a
+   * context that does not exist and one for an id that is not an id are the
+   * same status, the same headers and the same bytes — the comparison
+   * `isolation.test.ts` insists on, because "both returned 200" is not the
+   * property that stops an oracle.
+   */
+  test("an accepted report and a refused one are byte-identical", async () => {
+    const { t, alice, aliceWs, bobWs } = await twoConnectedTenants();
+    await enabledIndex(t, aliceWs, alice);
+    const dangling = await danglingWorkspaceId(t);
+
+    const fingerprints = await Promise.all(
+      [
+        // Accepted.
+        { workspaceId: aliceWs, notesIndexed: 1, notesPending: 1 },
+        // A real context that never opted in.
+        { workspaceId: bobWs, notesIndexed: 1, notesPending: 1 },
+        // A context that does not exist.
+        { workspaceId: dangling, notesIndexed: 1, notesPending: 1 },
+        // Not an id at all.
+        { workspaceId: "not-even-an-id", notesIndexed: 1, notesPending: 1 },
+        // Malformed in every other way.
+        { workspaceId: aliceWs, notesIndexed: -1, notesPending: 1 },
+        { workspaceId: aliceWs, notesIndexed: 1.5, notesPending: 1 },
+        { workspaceId: aliceWs, notesIndexed: "12", notesPending: 1 },
+        { workspaceId: aliceWs, notesIndexed: 1 },
+        { workspaceId: aliceWs, notesIndexed: 1, notesPending: 1, state: "on" },
+        {},
+      ].map(async (body) => responseFingerprint(await report(t, body as unknown))),
+    );
+    for (const [index, fingerprint] of fingerprints.entries()) {
+      expect(fingerprint, `case ${index} answered differently`).toBe(fingerprints[0]);
+    }
+
+    // Non-vacuity: the accepted one really was applied, so the sameness above is
+    // not "nothing works".
+    expect((await indexRow(t, aliceWs))?.notesIndexed).toBe(1);
+    // ...and none of the refusals wrote anything.
+    expect(await indexRow(t, bobWs)).toBeNull();
+  });
+
+  /**
+   * A COUNT THAT IS NOT A COUNT IS REFUSED, NOT COERCED.
+   *
+   * These are rendered to an owner as a percentage. A negative makes a progress
+   * bar run backwards; a stored `Infinity` makes the row unrenderable for good;
+   * a fraction is a note count that is not a number of notes.
+   */
+  test("a malformed count writes nothing at all", async () => {
+    const { t, alice, aliceWs } = await twoConnectedTenants();
+    await enabledIndex(t, aliceWs, alice);
+    await report(t, { workspaceId: aliceWs, notesIndexed: 10, notesPending: 5 });
+
+    for (const bad of [
+      { notesIndexed: -1, notesPending: 0 },
+      { notesIndexed: 0, notesPending: -1 },
+      { notesIndexed: 1.5, notesPending: 0 },
+      { notesIndexed: Number.MAX_VALUE * 2, notesPending: 0 },
+      { notesIndexed: "41", notesPending: 7 },
+      { notesIndexed: null, notesPending: 7 },
+      { notesIndexed: 41 },
+    ]) {
+      await report(t, { workspaceId: aliceWs, ...bad } as unknown);
+      const row = await indexRow(t, aliceWs);
+      expect(row?.notesIndexed, `${JSON.stringify(bad)} was written`).toBe(10);
+      expect(row?.notesPending).toBe(5);
+    }
+  });
+
+  test("the gateway secret is still necessary", async () => {
+    const { t, alice, aliceWs } = await twoConnectedTenants();
+    await enabledIndex(t, aliceWs, alice);
+
+    for (const secret of [null, "wrong-secret", `${TEST_GATEWAY_SECRET}x`]) {
+      const response = await report(
+        t,
+        { workspaceId: aliceWs, notesIndexed: 41, notesPending: 7 },
+        { secret },
+      );
+      expect(response.status).toBe(401);
+      expect((await indexRow(t, aliceWs))?.notesIndexed).toBeUndefined();
+    }
+  });
+
+  /**
+   * The route carries no credential and must never grow one. `structure.test.ts`
+   * enforces the structural half — this is the behavioural one, in the same
+   * spirit as the token sweep on `/gateway/binding`.
+   */
+  test("no answer here carries a credential of any kind", async () => {
+    const { t, alice, aliceWs } = await twoConnectedTenants();
+    await seedAppSecret(t, "SEARCH_D1_API_TOKEN", FAKE_D1.apiToken);
+    await seedAppSecret(t, "SEARCH_D1_ACCOUNT_ID", FAKE_D1.accountId);
+    await enabledIndex(t, aliceWs, alice);
+
+    const text = await (
+      await report(t, { workspaceId: aliceWs, notesIndexed: 41, notesPending: 7 })
+    ).text();
+    expect(text).not.toContain(FAKE_D1.apiToken);
+    expect(text).not.toContain(FAKE_D1.accountId);
+    expect(text).not.toContain("db-progress");
+    expect(text).not.toContain(FAKE_STORAGE.secretAccessKey);
+    expect(text).not.toContain(TEST_GATEWAY_SECRET);
   });
 });
 

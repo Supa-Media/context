@@ -1291,6 +1291,8 @@ export async function syncShardedIndex(
       pending: 0,
       listingTruncated: true,
       manifestOverflow: false,
+      touched: [],
+      removed: [],
       changed: false,
       committed: false,
       spent: ops.spent,
@@ -1388,6 +1390,25 @@ export async function syncShardedIndex(
   for (let id = 0; id < shardCount; id += 1) {
     for (const path of manifest.docsByShard[id].keys()) claimedShard.set(path, id);
   }
+
+  /**
+   * What this pass moved, for whoever else derives from the same notes.
+   *
+   * The D1 projection (`search/d1/backfill.js`) is the same event with a
+   * second destination: it copies note text into a database the customer opted
+   * into, and it must know which notes changed and which are gone. Deriving
+   * that again — a second listing, a second diff — would be a second answer to
+   * "what changed", which is the same objection this file makes to a second
+   * maintenance path.
+   *
+   * Collected on the in-memory `addDoc`/`removeDoc` rather than on a
+   * successful write, deliberately: a shard whose write was refused is
+   * re-fetched next pass and reported again, and the projection's own upsert
+   * is idempotent. Over-reporting costs a repeat; under-reporting loses an
+   * edit.
+   */
+  const touchedPaths = new Set();
+  const removedPaths = new Set();
 
   const staleByShard = new Map();
   const queued = new Set();
@@ -1499,6 +1520,7 @@ export async function syncShardedIndex(
     for (const path of removals) {
       if (!shard.docs.has(path)) continue;
       removeDoc(shard, path);
+      removedPaths.add(path);
       touched = true;
     }
 
@@ -1551,9 +1573,11 @@ export async function syncShardedIndex(
           // way the removal pass above cannot be: we asked for it by name and
           // it is not there.
           if (shard.docs.has(result.path)) removeDoc(shard, result.path);
+          removedPaths.add(result.path);
           touched = true;
           continue;
         }
+        touchedPaths.add(result.path);
         addDoc(shard, result.path, {
           etag: result.version,
           uploaded: result.uploaded,
@@ -1731,6 +1755,10 @@ export async function syncShardedIndex(
     pending,
     listingTruncated: truncated,
     manifestOverflow,
+    // What moved, for the other derivative of these same notes. See
+    // `touchedPaths` above; nothing in the R2 index reads either of these.
+    touched: [...touchedPaths],
+    removed: [...removedPaths],
     // Two answers to two questions that look like one, and conflating them
     // breaks one caller or the other.
     //

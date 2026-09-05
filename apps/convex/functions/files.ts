@@ -78,6 +78,17 @@ import {
 } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
+// The gateway's D1 wire, imported rather than ported, for the same reason
+// `lib/fileOps.ts` imports its search: `apps/mcp` targets the Workers runtime,
+// which is Convex's runtime too. It holds the write token for the life of one
+// call and puts it in exactly one place, an `Authorization` header.
+import { createD1Client } from "../../mcp/src/search/d1/client.js";
+import {
+  D1_ACCOUNT_SECRET,
+  D1_TOKEN_SECRET,
+  messageFor,
+} from "./lib/d1";
+import { PROJECTION_CHAIN } from "./lib/fastSearch";
 import {
   DELETE_CONFIRMATION,
   FileOpError,
@@ -91,6 +102,9 @@ import {
   movePath,
   readFile,
   maintainSearchIndex,
+  projectSearchIndex,
+  type ProjectionClient,
+  type ProjectionPass,
   searchNotes,
   type SearchResults,
   resetPrivacyManifest,
@@ -127,6 +141,25 @@ const REQUEST_TIMEOUT_MS = 10_000;
  * The bound is the backstop for the case both of those miss.
  */
 const INDEX_SYNC_CHAIN = 12;
+
+/**
+ * What a projection link answers when there is nothing for it to do.
+ *
+ * A row that stopped being `backfilling`, an owner who opted out, a deployment
+ * with no D1 credential. Zeros and `moved: false`, which is what ends the
+ * chain — and `report: false`, because writing these onto a row would say a
+ * backfill found no notes rather than that no backfill ran.
+ */
+const IDLE_PROJECTION = {
+  kind: "indexProjected",
+  projected: 0,
+  deleted: 0,
+  notesIndexed: 0,
+  notesPending: 0,
+  ready: false,
+  moved: false,
+  report: false,
+} as const;
 
 export { DELETE_CONFIRMATION };
 
@@ -270,6 +303,29 @@ const indexMaintainedValidator = v.object({
   complete: v.boolean(),
 });
 
+/**
+ * What one projection pass reports back, and nothing else.
+ *
+ * Counts, a state and a failure code. **No path, no title and no term** — the
+ * pass reads every note in the bucket including private ones, and a return
+ * that could name which ones it touched would be an existence oracle for the
+ * private half of somebody's context, which is the same rule
+ * `indexMaintained` follows one field at a time.
+ *
+ * `failure` is a `D1Error` code from a closed set, never a provider sentence.
+ */
+const indexProjectedValidator = v.object({
+  kind: v.literal("indexProjected"),
+  projected: v.number(),
+  deleted: v.number(),
+  notesIndexed: v.number(),
+  notesPending: v.number(),
+  ready: v.boolean(),
+  moved: v.boolean(),
+  report: v.boolean(),
+  failure: v.optional(v.string()),
+});
+
 const operationResultValidator = v.union(
   listingValidator,
   fileValidator,
@@ -283,6 +339,7 @@ const operationResultValidator = v.union(
   imageValidator,
   searchResultsValidator,
   indexMaintainedValidator,
+  indexProjectedValidator,
 );
 
 const operationValidator = v.union(
@@ -304,6 +361,16 @@ const operationValidator = v.union(
    * that never converges from scheduling itself forever.
    */
   v.object({ kind: v.literal("maintainIndex"), passes: v.optional(v.number()) }),
+  /**
+   * Copy a pass's worth of this context's notes into its search database.
+   * Scheduled, never called by a client — there is no public action that
+   * reaches this variant either.
+   *
+   * `passes` is the same bound `maintainIndex` carries and the same backstop:
+   * what actually ends the chain is a pass that moved nothing, a row that
+   * stopped being `backfilling`, or a projection that reached `ready`.
+   */
+  v.object({ kind: v.literal("projectIndex"), passes: v.optional(v.number()) }),
   v.object({
     kind: v.literal("write"),
     path: v.string(),
@@ -354,6 +421,7 @@ type FileOperation =
   | { kind: "read"; path: string }
   | { kind: "search"; query: string; prefix?: string }
   | { kind: "maintainIndex"; passes?: number }
+  | { kind: "projectIndex"; passes?: number }
   | { kind: "write"; path: string; text: string; expectedEtag?: string }
   | { kind: "createFolder"; path: string }
   | { kind: "move"; from: string; to: string }
@@ -370,6 +438,7 @@ type FileOperation =
 type OperationResult =
   | ({ kind: "searchResults" } & SearchResults)
   | { kind: "indexMaintained"; pending: number; changed: boolean; complete: boolean }
+  | ({ kind: "indexProjected" } & Omit<ProjectionPass, "failure"> & { failure?: string })
   | {
       kind: "listing";
       path: string;
@@ -497,6 +566,86 @@ export const runFileOperation = internalAction({
   // Annotated rather than inferred: this action calls another function in the
   // same deployment, which is the inference cycle `bindStorage` has.
   handler: async (ctx, args): Promise<OperationResult> => {
+    /*
+     * A PROJECTION PASS ASKS THE ROW BEFORE IT ASKS FOR A CREDENTIAL.
+     *
+     * This link may have been scheduled minutes ago by a chain, a provisioner,
+     * or the sweep, and in that time an owner can have turned fast search off.
+     * A pass that opened the bucket first and then discovered it had nothing
+     * to do would have decrypted a customer's storage secret on the way to
+     * doing nothing — so the order here is the guard. The test that pins it
+     * deletes the storage binding, because "no bucket request was made" cannot
+     * see the mutant: opening a credential makes none.
+     *
+     * `projectionTargetForWorkspace` is the same composed gate that decides
+     * whether a D1 write credential may leave this deployment for the gateway,
+     * and every reason to say no is the same `null`. `backfilling` and nothing
+     * else: a `ready` row is served by the gateway riding its own search's
+     * sync, and a chain that kept running against one would be a full bucket
+     * listing per link, forever, for a context with nothing left to copy.
+     */
+    let projection: ProjectionClient | null = null;
+    if (args.operation.kind === "projectIndex") {
+      const target = await ctx.runQuery(
+        internal.functions.fastSearch.projectionTargetForWorkspace,
+        { workspaceId: args.workspaceId },
+      );
+      if (target === null || target.state !== "backfilling") return IDLE_PROJECTION;
+
+      // Ours, not a customer's — `appSecrets` holds this deployment's own
+      // integration credentials. Read here rather than in a helper because
+      // this function is already the enumerated barrier and a second one would
+      // be a second entry in `decryptCapable` for the same job.
+      const apiToken = await ctx.runAction(
+        internal.functions.admin.readIntegrationSecret,
+        { name: D1_TOKEN_SECRET },
+      );
+      const accountId = await ctx.runAction(
+        internal.functions.admin.readIntegrationSecret,
+        { name: D1_ACCOUNT_SECRET },
+      );
+      try {
+        if (
+          typeof apiToken !== "string" ||
+          apiToken.length === 0 ||
+          typeof accountId !== "string" ||
+          accountId.length === 0
+        ) {
+          // Both or neither, as `provisionIndex` reads them: a half-configured
+          // deployment is two error states with one cure.
+          throw new Error("no D1 credential");
+        }
+        projection = createD1Client(
+          {
+            databaseId: target.databaseId,
+            accountId,
+            apiToken,
+            state: target.state,
+          },
+          // No `fetchImpl`: the client resolves `globalThis.fetch` per call
+          // and carries its own deadline. Handing it `timeoutFetch` would
+          // *replace* the abort signal it sets with a longer one, quietly
+          // disabling the timeout it thinks it has.
+        ) as ProjectionClient;
+      } catch {
+        // A deployment nobody has configured is an ordinary state, and the row
+        // has to say so: left `backfilling`, it is a person watching a counter
+        // that will never move with nothing to explain why. The thrown error
+        // can quote the descriptor it was handed, so it is dropped rather than
+        // wrapped.
+        await ctx.runMutation(
+          internal.functions.fastSearch.recordProvisionResult,
+          {
+            workspaceId: args.workspaceId,
+            status: "failed",
+            errorCode: "NOT_CONFIGURED",
+            error: messageFor("NOT_CONFIGURED"),
+          },
+        );
+        return IDLE_PROJECTION;
+      }
+    }
+
     const credential: GatewayCredential | null = await ctx.runAction(
       internal.functions.storage.getBindingForGateway,
       { workspaceId: args.workspaceId },
@@ -550,7 +699,70 @@ export const runFileOperation = internalAction({
       });
     }
 
-    const result = await executeOperation(store, args.scope, args.operation as FileOperation);
+    const result = await executeOperation(
+      store,
+      args.scope,
+      args.operation as FileOperation,
+      Date.now(),
+      projection,
+    );
+
+    /*
+     * WHAT A PROJECTION PASS LEARNED, WRITTEN WHERE A PERSON CAN SEE IT.
+     *
+     * The gateway's copy of this posts to `/gateway/search-index/progress`,
+     * because it is on the other side of a network boundary and holds a secret
+     * rather than a session. There is no hop to make from inside the control
+     * plane, so the internal mutations are called directly — and they are the
+     * same two the route calls, so the policy about what may be applied to a
+     * row is answered in one place whichever half reports.
+     *
+     * A failure goes to `recordProvisionResult` rather than to the progress
+     * mutation, and that is not a tidy-up: the progress mutation carries two
+     * counters and a `ready` flag, and a failed pass's counters are zero
+     * because they are only computed when something moved. Reporting them
+     * would write "no notes found" onto the row. `failed` is a state the
+     * console already renders, with the owner's own "Try again" on it.
+     */
+    if (result.kind === "indexProjected") {
+      if (result.failure !== undefined) {
+        await ctx.runMutation(
+          internal.functions.fastSearch.recordProvisionResult,
+          {
+            workspaceId: args.workspaceId,
+            status: "failed",
+            errorCode: result.failure,
+            error: messageFor(result.failure),
+          },
+        );
+        return result;
+      }
+      if (result.report) {
+        await ctx.runMutation(
+          internal.functions.fastSearch.recordProjectionProgress,
+          {
+            workspaceId: args.workspaceId,
+            notesIndexed: result.notesIndexed,
+            notesPending: result.notesPending,
+            ready: result.ready,
+          },
+        );
+      }
+      // Same shape, same reasoning and the same place as the maintenance chain
+      // below: scheduled from inside the barrier, which propagates no taint,
+      // and only by a link that made progress and did not finish.
+      const passes = Math.floor(args.operation.kind === "projectIndex"
+        ? args.operation.passes ?? 0
+        : 0);
+      if (result.moved && !result.ready && passes > 0) {
+        await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+          workspaceId: args.workspaceId,
+          scope: args.scope,
+          operation: { kind: "projectIndex", passes: passes - 1 },
+        });
+      }
+      return result;
+    }
 
     // A maintenance pass that got somewhere and is not finished schedules the
     // next one. Here rather than in a job of its own because a second internal
@@ -608,6 +820,17 @@ export async function executeOperation(
   scope: Scope,
   operation: FileOperation,
   now: number = Date.now(),
+  /**
+   * This context's search database, for a `projectIndex` pass and nothing
+   * else.
+   *
+   * Passed in rather than built here for the same reason the store is: the
+   * credential it is made from belongs to the barrier above, and this function
+   * exists so that every operation is drivable from a test with no credential,
+   * no workspace and no session. `null` for every other operation, and for a
+   * projection whose row said there was nothing to do.
+   */
+  projection: ProjectionClient | null = null,
 ): Promise<OperationResult> {
   try {
     switch (operation.kind) {
@@ -626,6 +849,25 @@ export async function executeOperation(
           scope,
         });
         return { kind: "searchResults", ...results };
+      }
+      case "projectIndex": {
+        // Scope-blind, exactly like `maintainIndex` below: the tier a note is
+        // copied at comes from `privacy.md` per note, never from whoever
+        // scheduled the pass. A projection built per caller would be one
+        // database per membership.
+        if (projection === null) return IDLE_PROJECTION;
+        const pass = await projectSearchIndex(store, projection);
+        return {
+          kind: "indexProjected",
+          projected: pass.projected,
+          deleted: pass.deleted,
+          notesIndexed: pass.notesIndexed,
+          notesPending: pass.notesPending,
+          ready: pass.ready,
+          moved: pass.moved,
+          report: pass.report,
+          failure: pass.failure ?? undefined,
+        };
       }
       case "maintainIndex": {
         // Scope-blind on purpose: an index describes the bucket, and building

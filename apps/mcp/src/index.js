@@ -101,6 +101,15 @@ import {
   snippetLinesFor,
 } from "./search/visible.js";
 import { syncShardedIndex } from "./search/shards.js";
+import { createD1Client } from "./search/d1/client.js";
+import {
+  D1_PASS_NOTE_CAP,
+  censusFromManifest,
+  loadCensus,
+  progressFrom,
+  projectPass,
+  worthReporting,
+} from "./search/d1/backfill.js";
 import { createSearchTrace, logSearchTrace } from "./search/trace.js";
 import { inventoryPlugins } from "./plugins/inventory.js";
 import { renderPluginReport } from "./plugins/report.js";
@@ -179,6 +188,62 @@ function searchBudgetFor(env) {
  * Below it the pass would spend a request on a round trip that lands nothing.
  */
 const DEFERRED_SYNC_FLOOR = 8;
+/**
+ * Store operations one note costs the D1 projection: the bucket read, plus one
+ * request per statement (`upsertStatements` emits three deletes, the `notes`
+ * row, and one insert per chunk — five for an ordinary note).
+ *
+ * Used only to size a reserve, so it is a working estimate and not a contract:
+ * the pass peeks the budget before every statement group and stops rather than
+ * overspending, so being wrong here costs a note, never a search.
+ */
+const D1_OPS_PER_NOTE = 6;
+/**
+ * What the deferred pass keeps back for the projection before the R2 sync
+ * spends anything — and it is a *share*, never a fixed number.
+ *
+ * A fixed reserve is a trap in the one direction that matters. `reserve` in
+ * `syncShardedIndex` is refused outright when the budget is smaller than it
+ * (`ops.take(reserve)` at the top), so a constant 128 on a free-tier budget of
+ * 40 would not slow the R2 index down, it would **stop it**: every pass would
+ * return having listed nothing, and the search index would never be built at
+ * all.
+ *
+ * A share, then — and a quarter rather than a third or a half, which was
+ * measured rather than chosen. At **half** of what was left, a 26-note fixture
+ * on the default budget could not build its R2 index either: every pass spent
+ * its allowance on the listing and had nothing over the reserve left to fetch
+ * a note with, so the manifest reported `docs: 0` forever. A reserve that
+ * starves the index it is riding is worse than no reserve. At a quarter the
+ * same fixture converges in three passes and the projection still gets a turn
+ * on each of them.
+ */
+const D1_PASS_RESERVE_CAP = 4 + D1_PASS_NOTE_CAP * D1_OPS_PER_NOTE;
+/**
+ * Notes the projection may copy while somebody is waiting.
+ *
+ * Only reached on a host with no `waitUntil`, where maintenance runs inline
+ * (see `maintainIndexAfter`). The deferred path has no such caller to keep
+ * waiting and uses the ordinary cap.
+ */
+const INTERACTIVE_PROJECT_NOTES = 3;
+/**
+ * Ops that must remain before a projection pass with no sync in front of it is
+ * worth starting: the manifest, the docmap, the cursor, a version probe, and
+ * one note's worth of statements. Below it the pass spends round trips to land
+ * nothing.
+ */
+const D1_STANDALONE_FLOOR = 10;
+/**
+ * Projection passes one invocation may chain.
+ *
+ * A ceiling on the chain rather than the thing that ends it — the budget and
+ * "did this pass move anything" do that. It exists so a pathological census
+ * cannot turn one deferred invocation into an unbounded loop, and it is small
+ * because the budget is the real bound: at `D1_OPS_PER_NOTE` a paid-plan pass
+ * runs out of ops long before it runs out of links.
+ */
+const D1_PASSES_PER_INVOCATION = 8;
 /**
  * How stale the index's own listing may be before a search starts a pass
  * behind itself.
@@ -723,6 +788,27 @@ async function route(request, env, ctx) {
         }
       };
 
+      /**
+       * How far this context's search projection has got.
+       *
+       * Request-scoped like `store.reportUsage`, and bound to the workspace
+       * *this store reaches* rather than to the connection's default — a
+       * cross-context call projects the context it was routed to, and a
+       * progress figure filed against the wrong tenant is a census of somebody
+       * else's notes on somebody's settings screen.
+       *
+       * Unlike `reportUsage` it is not gated on `store.defer`. The projection
+       * pass is already behind the response wherever it can be, and on a host
+       * that cannot defer it runs inline and awaited — so there is always a
+       * live invocation around this call, and the case `reportUsage` declines
+       * (a fetch nothing keeps alive) does not arise.
+       */
+      store.reportSearchIndexProgress = (progress) =>
+        controlPlane.reportSearchIndexProgress({
+          ...progress,
+          workspaceId: session.workspaceId,
+        });
+
       // Capture is anchored to the context its grant was approved for, so the
       // inbox store is built without the opener at all rather than with one
       // nothing calls. That makes "a capture-only credential reaches exactly
@@ -768,6 +854,14 @@ async function route(request, env, ctx) {
         targetStore.defer = store.defer;
         targetStore.actor = actorFor(target);
         targetStore.contexts = contextsFor(target);
+        // Against the context that was routed to, never the connection's own.
+        // `targetStore.searchIndex` came from that context's own binding, so
+        // the projection and the figure describing it name one workspace.
+        targetStore.reportSearchIndexProgress = (progress) =>
+          controlPlane.reportSearchIndexProgress({
+            ...progress,
+            workspaceId: target.workspaceId,
+          });
         return { session: target, store: targetStore };
       };
 
@@ -4110,6 +4204,23 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
   // nothing here survives into another tenant's call.
   const budget = createSearchBudget(store.searchSubrequestBudget ?? SEARCH_SUBREQUEST_BUDGET);
   const isIndexable = (key) => key.endsWith(".md") && !isPlumbing(key);
+  /**
+   * Which of the two FTS tables a note's text may be copied into, for the
+   * workspaces that have opted into the D1 projection.
+   *
+   * The gateway's own privacy engine, bound to this context — injected into
+   * the projection for the same reason `isVisible` is injected into
+   * `searchIndexedNotes`: a second copy of `effectiveVisibility` would be a
+   * second place for a visibility bug, and this one is the tier split that
+   * keeps a private note's terms out of a team caller's corpus statistics.
+   *
+   * Note the asymmetry with `isVisible` above, which is deliberate. That one
+   * answers "may *this caller* see it"; this one answers "what is this note",
+   * which is a property of the note and not of who is asking — the projection
+   * is shared by every caller, and building it from one caller's view would
+   * make a team connection's search erase the private notes from it.
+   */
+  const projectVisibility = (path) => effectiveVisibility(path, rules, overrides);
   const trace = createSearchTrace();
   trace.set("workspace", store.actor?.workspaceId);
   trace.set("grant", store.actor?.grantId);
@@ -4149,7 +4260,10 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
     // and folding the background half into it would make the trace unable to
     // say which is which.
     trace.set("spent", budget.spent);
-    trace.set("maintain", await maintainIndexAfter(store, budget, isIndexable, found));
+    trace.set(
+      "maintain",
+      await maintainIndexAfter(store, budget, isIndexable, found, projectVisibility)
+    );
     logSearchTrace(trace);
     return {
       hits: found.hits,
@@ -4190,7 +4304,10 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
   // exactly the work worth doing behind this response — and it is the only way
   // a bucket whose first pass could not finish ever stops paying for this path.
   trace.set("spent", budget.spent);
-  trace.set("maintain", await maintainIndexAfter(store, budget, isIndexable, null));
+  trace.set(
+    "maintain",
+    await maintainIndexAfter(store, budget, isIndexable, null, projectVisibility)
+  );
   logSearchTrace(trace);
   return {
     hits: scan.hits,
@@ -4236,19 +4353,72 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
  *   rclone has to be re-read on some clock, and a full listing per search
  *   against a request quota the customer is billed for is not it.
  *
+ * - **It is also where the D1 projection happens**, for the contexts that
+ *   opted into one. Same trigger, same budget, same side of the response — the
+ *   copy is this sync's diff with a second destination rather than a second
+ *   indexer. It has one reason of its own to run, and only one: while the
+ *   control plane says the projection is still filling. See the comment in the
+ *   body, which is where that gets argued.
+ *
  * @param {object} found the answer's own report, or `null` where there was no
  *   index to answer from — which is always work worth doing.
+ * @param {(path: string) => string} visibilityOf the privacy engine bound to
+ *   this context, for the projection's tier split. Absent means no projection.
  * @returns {Promise<"deferred"|"inline"|"none">} for the trace, so an operator
  *   can tell "no work left" from "this host cannot defer".
  */
-async function maintainIndexAfter(store, budget, isIndexable, found) {
-  if (!indexNeedsAPass(found)) return "none";
-  if (budget.remaining < DEFERRED_SYNC_FLOOR) return "none";
-  const run = (options) =>
-    syncShardedIndex(store, { budget, isIndexable, ...options }).catch(() => {
-      // A storage failure after the answer is already out changes nothing about
-      // the answer. The next search re-diffs from the manifest.
-    });
+async function maintainIndexAfter(store, budget, isIndexable, found, visibilityOf) {
+  const projecting = Boolean(store.searchIndex) && typeof visibilityOf === "function";
+  /*
+   * **The projection has its own reason to run, and it has to.** Tying it
+   * purely to the R2 sync looked right — one trigger, one listing, one diff —
+   * and it silently starves every backfill that matters: a bucket whose index
+   * builds in a single pass then reports itself converged, and `syncingIndex`
+   * is false on every search for the next `INDEX_RECONCILE_INTERVAL_MS`. A
+   * context that has just opted in would copy one pass's worth of notes and
+   * then wait a minute for the next chance, and a pass that *failed* would not
+   * be retried at all. Measured on a six-note fixture: the R2 index converged
+   * on search one, the projection's only pass was the one that failed, and
+   * eleven further searches did nothing.
+   *
+   * So while the control plane says this projection is still filling, a pass
+   * runs on every search — and it buys its census from the index's own docmap
+   * (two object reads, `loadCensus`) rather than from a listing. Once the
+   * control plane calls it `ready`, the projection rides the R2 sync alone and
+   * a converged context pays nothing.
+   */
+  const syncingIndex = indexNeedsAPass(found) && budget.remaining >= DEFERRED_SYNC_FLOOR;
+  const backfilling = projecting && store.searchIndex.state !== "ready";
+  const projectingAlone = backfilling && !syncingIndex && budget.remaining >= D1_STANDALONE_FLOOR;
+  if (!syncingIndex && !projectingAlone) return "none";
+  // Where this context has opted into the projection, the sync keeps back a
+  // share of what is left for it — settled *before* the sync spends anything,
+  // for the reason `walkReserve` exists: a reserve taken out of what the
+  // previous stage happened to leave is not a reserve.
+  const reserve =
+    projecting && syncingIndex
+      ? Math.min(D1_PASS_RESERVE_CAP, Math.floor(budget.remaining / 4))
+      : 0;
+  const run = async (options) => {
+    let synced = null;
+    try {
+      if (syncingIndex) {
+        synced = await syncShardedIndex(store, { budget, isIndexable, reserve, ...options });
+      }
+    } catch {
+      // A storage failure after the answer is already out changes nothing
+      // about the answer. The next search re-diffs from the manifest — and the
+      // projection still gets its turn below, because a failed listing is not
+      // a reason to stop copying the notes that were already indexed.
+    }
+    if (!projecting) return;
+    try {
+      await projectAfterSync(store, budget, synced, visibilityOf, options);
+    } catch {
+      // Same rule, one layer down. `projectPass` already turns every provider
+      // failure into a reported code; this is the belt to that pair of braces.
+    }
+  };
   if (typeof store.defer === "function") {
     try {
       store.defer(run({}));
@@ -4263,8 +4433,162 @@ async function maintainIndexAfter(store, budget, isIndexable, found) {
   // past the response, so a promise left running there is a promise that may
   // simply be discarded — and an index nothing ever finishes building. The cap
   // is what keeps the resulting delay bounded.
-  await run({ backfillOps: INTERACTIVE_BACKFILL_OPS });
+  await run({ backfillOps: INTERACTIVE_BACKFILL_OPS, projectNotes: INTERACTIVE_PROJECT_NOTES });
   return "inline";
+}
+
+/**
+ * Copy what the sync just found into this context's search database.
+ *
+ * **The same event with a second destination.** The sync has already listed the
+ * bucket, diffed it, and worked out which notes moved and which are gone; this
+ * takes that answer rather than deriving a second one, which is why turning
+ * the projection on costs no extra listing and no second diff. See
+ * `search/d1/backfill.js`.
+ *
+ * Three properties, and each is the reason a line is where it is:
+ *
+ * - **It runs after the sync, on what the sync's `reserve` kept back for it.**
+ *   The R2 index is the one that answers searches, so it spends first and the
+ *   projection gets the remainder — on a budget too small for both, the
+ *   projection simply does not advance that pass.
+ * - **It cannot fail a search.** Every provider failure is caught inside the
+ *   pass and turned into a reported code; anything else is caught here. The
+ *   call site is behind the response either way.
+ * - **The census is the manifest's own diff surface**, so a note reaches the
+ *   projection once the R2 index knows about it and not before. That ordering
+ *   is deliberate: `notesPending` can then be honest about a bucket the R2
+ *   index has not finished listing, rather than reporting a projection
+ *   "complete" over a census that is itself a floor.
+ */
+async function projectAfterSync(store, budget, synced, visibilityOf, options) {
+  // No sync this pass: the projection is still filling and buys its own census
+  // from the index's diff surface. Two reads, never a listing — see
+  // `loadCensus`.
+  let census = null;
+  let indexPending = 0;
+  if (synced && synced.manifest) {
+    census = censusFromManifest(synced.manifest);
+    indexPending = (synced.pending || 0) + (synced.listingTruncated ? 1 : 0);
+  } else {
+    const loaded = await loadCensus(store, budget);
+    if (!loaded) return null;
+    census = loaded.census;
+    const freshness = loaded.manifest.freshness;
+    indexPending = (freshness.pending || 0) + (freshness.truncated ? 1 : 0);
+  }
+  let client;
+  try {
+    client = createD1Client(store.searchIndex);
+  } catch {
+    // A descriptor this build cannot use is fast search off, which is a
+    // working state. `readSearchIndexBinding` has already refused the
+    // malformed shapes; this is the belt to that pair of braces.
+    return null;
+  }
+
+  /*
+   * **The backfill continues itself while it is making progress**, rather than
+   * copying one slice per search.
+   *
+   * The alternative is arithmetic nobody would sign off on: one slice per
+   * search, and a context that has just opted in copies twenty notes and then
+   * waits for somebody to search again. A brain in the thousands is then days
+   * of ordinary use away from a working fast search, which is indistinguishable
+   * — to its owner, watching a counter — from the "nothing is happening" state
+   * this whole change exists to end.
+   *
+   * The same shape the control plane's scheduled `maintainIndex` already uses
+   * for the R2 index ("chains itself while it is making progress so a cold
+   * brain converges without anybody searching eight times"), with the two
+   * bounds that make a chain terminate rather than wedge:
+   *
+   *  - **Every iteration spends at least one op** (it re-reads the cursor), and
+   *    the budget only decreases, so the loop cannot spin. `DEFERRED_SYNC_FLOOR`
+   *    has the cautionary tale: a recovery path that cannot afford to end
+   *    itself is not a recovery path.
+   *  - **It stops the moment a pass stops moving notes** — nothing projected,
+   *    nothing deleted — so a pass blocked on anything at all ends the chain
+   *    instead of retrying it.
+   *
+   * It stays inside one invocation on purpose. A Worker cannot schedule itself,
+   * and `waitUntil` is what keeps this one alive; the loop is bounded by the
+   * same subrequest budget the search was, so chaining spends what the pass
+   * would have spent anyway rather than opening a second allowance.
+   */
+  const passCap = options?.projectNotes !== undefined ? 1 : D1_PASSES_PER_INVOCATION;
+  let last = null;
+  for (let pass = 0; pass < passCap; pass += 1) {
+    const noteCap = Math.min(
+      Number.isFinite(options?.projectNotes) ? options.projectNotes : D1_PASS_NOTE_CAP,
+      Math.max(0, Math.floor(budget.remaining / D1_OPS_PER_NOTE))
+    );
+    const result = await projectPass(store, client, {
+      census,
+      // Only the first pass carries them: they are this sync's news, and a
+      // later pass re-projecting the same notes would spend the budget the
+      // backfill needs on work already done.
+      touched: pass === 0 ? synced?.touched || [] : [],
+      removed: pass === 0 ? synced?.removed || [] : [],
+      visibilityOf,
+      budget,
+      noteCap,
+      // A projection cannot honestly call itself complete over a census the R2
+      // index is still building.
+      indexPending,
+      // Reported once, after the chain ends, rather than once per link: the
+      // control plane wants to know where this got to, not the eight places it
+      // passed through, and each report is a subrequest off the same budget.
+      reportProgress: null,
+    });
+    if (result.projected > 0 || result.deleted > 0 || last === null) last = result;
+    if (result.failure !== null) break;
+    if (result.projected === 0 && result.deleted === 0) break;
+    if (result.sweepComplete) break;
+    if (budget.remaining < D1_STANDALONE_FLOOR) break;
+  }
+  const result = last;
+
+  if (
+    worthReporting(result, store.searchIndex?.state) &&
+    typeof store.reportSearchIndexProgress === "function"
+  ) {
+    try {
+      budget.take(0);
+      await store.reportSearchIndexProgress(progressFrom(result));
+    } catch {
+      // The counter is nobody's problem — `reportUsage`'s rule. A projection
+      // that advanced but was not counted is a good outcome.
+    }
+  }
+  /*
+   * Its own line rather than a field on the search trace, because the pass
+   * runs *after* that trace has been logged: on the deferred path
+   * `logSearchTrace` fires the moment `maintainIndexAfter` says "deferred",
+   * and a field set later would either be lost or would mutate a line an
+   * operator has already read. Same rules as the trace: identifiers and
+   * counts, never a path, never a query, never the token, and the failure is
+   * the code `d1/client.js` classified — never the provider's text, which can
+   * name an account or a database.
+   */
+  try {
+    console.log(
+      JSON.stringify({
+        event: "search-projection",
+        workspace: store.actor?.workspaceId,
+        projected: result.projected,
+        deleted: result.deleted,
+        notesIndexed: result.notesIndexed,
+        notesPending: result.notesPending,
+        sweepComplete: result.sweepComplete,
+        failure: result.failure ?? undefined,
+      })
+    );
+  } catch {
+    // Instrumentation that can take down the thing it measures is worse than
+    // none — `trace.js`'s rule, applied here too.
+  }
+  return result;
 }
 
 /**

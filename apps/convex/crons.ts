@@ -93,4 +93,34 @@ crons.interval(
   {},
 );
 
+/**
+ * Restart a search backfill that has stopped moving.
+ *
+ * **The only job here that starts work rather than deleting it**, and the
+ * exception is worth stating rather than smuggling. The rule this file opens
+ * with is that a cron may hold no decision, and this one holds none: whether a
+ * context may have a projection at all is `searchProjectionState`, re-asked by
+ * the pass itself before it opens a credential, and whether there is anything
+ * to copy is answered by the pass. What the sweep decides is only *when to
+ * look*, and the answer is "when nothing else has for a while".
+ *
+ * It exists because every other trigger needs somebody present. The gateway
+ * projects behind a search, and `provisionIndex` schedules a chain when the
+ * switch is thrown — so a context that reached `backfilling` before either of
+ * those existed, or whose chain was lost to a deploy, waits forever for a
+ * search that may never come. Three production contexts were in exactly that
+ * state, sitting at "0 notes indexed", and there is no way to reach them
+ * through the switch: `enable` returns early for a row that is already opted
+ * in and not failed.
+ *
+ * Hourly, and each run only touches rows nothing has written to in fifteen
+ * minutes, so a chain that is working is never overtaken by a second one.
+ */
+crons.interval(
+  "restart stalled search backfills",
+  { hours: 1 },
+  internal.functions.fastSearch.sweepStalledBackfills,
+  {},
+);
+
 export default crons;
