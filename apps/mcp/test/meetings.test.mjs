@@ -87,7 +87,13 @@ import {
   createS3Backend,
 } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
-import { MEETING_PREFIX, conflictSafeWrites, writeSession } from "../src/meetings/state.js";
+import {
+  LIMITS,
+  MEETING_PREFIX,
+  assertSessionWithinLimits,
+  conflictSafeWrites,
+  writeSession,
+} from "../src/meetings/state.js";
 import { SessionRefusal, sessionForContext, splitWorkspacePath } from "../src/session.js";
 import { handleMeetings } from "../src/meetings/ingest.js";
 
@@ -1293,6 +1299,186 @@ export async function runMeetingChecks(check) {
     "so a meeting is not overwritten by a writer holding a stale etag",
     JSON.parse(unprobed.objects.get(`${MEETING_PREFIX}${SESSION_MAIN}.json`).body).notes === "somebody else"
   );
+
+  /* ------------------- every size bound, driven to its edge ------------------ */
+
+  /*
+    NINE OF THE TEN BOUNDS ON THIS PATH WERE PROVED BY NOTHING.
+
+    `LIMITS` is what stops a `context:write` grant growing an unbounded hidden
+    object in somebody else's bucket — the record is refused by `isPlumbing` at
+    every tier including the owner's, so nothing in the product ever shows it.
+    Measured by replacing each check's condition with `false` in turn and
+    running the suite. Against the tree before this block, only
+    `segmentsPerRequest` reddened; the other nine were live in production and
+    exercised by nothing. With this block all ten redden, and re-running that
+    measurement is how you check the block still earns its place.
+
+    Each case reads its number out of `LIMITS` rather than copying it: a suite
+    written relative to its own constant cannot catch a bad value, but it can
+    catch a deleted check, which is what these are for.
+
+    ONE CHECK PER BOUND, NAMED. An earlier draft rolled six of them into a
+    single `admitted.length === 0`, which would have gone green with a case
+    refused for the wrong reason — and one of them was, because the segment
+    shape was wrong and `normalizeSegment` dropped it before any bound saw it.
+  */
+  const boundStore = fakeStore({ conditionalWrite: true });
+  const boundSession = { scope: "private", workspaceId: "ws_bounds" };
+  const neverPublish = async () => {
+    throw new Error("this fixture never finalizes");
+  };
+  const BOUND_SESSION = idOf("z");
+
+  const sendTo = async (path, body, headers = {}) =>
+    handleMeetings(
+      new Request(`https://mcp.context.test${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: typeof body === "string" ? body : JSON.stringify(body),
+      }),
+      path,
+      boundStore,
+      boundSession,
+      { publishNote: neverPublish }
+    );
+
+  await sendTo("/meetings/sessions", {
+    id: BOUND_SESSION,
+    startedAt: "2026-09-05T13:00:00.000Z",
+  });
+
+  const segmentsPath = `/meetings/sessions/${BOUND_SESSION}/segments`;
+  const notesPath = `/meetings/sessions/${BOUND_SESSION}/notes`;
+  // The shape `normalizeSegment` accepts. Getting this wrong is how a bound
+  // test passes on a row that was discarded before the bound was consulted.
+  const seg = (i, text = "a") => ({ id: `s${i}`, startMs: i * 10, endMs: i * 10 + 5, text });
+  const flags = (n) => Array.from({ length: n }, () => ({ type: "flag", at: 1 }));
+
+  /*
+    EACH BOUND IS A PAIR: the payload exactly at the limit is accepted and the
+    payload one past it is refused. The refusal alone is not evidence — an
+    earlier draft posted the three event bounds to `/meetings/sessions/:id/events`,
+    a route that does not exist, and all three went green on the 404. A pair
+    cannot do that: no wrong reason refuses one and admits the other.
+  */
+  const atBatch = await sendTo(segmentsPath, {
+    segments: Array.from({ length: LIMITS.segmentsPerRequest }, (_, i) => seg(i)),
+  });
+  check("a full per-request batch of segments is accepted", atBatch.status < 400);
+  const tooManySegments = await sendTo(segmentsPath, {
+    segments: Array.from({ length: LIMITS.segmentsPerRequest + 1 }, (_, i) => seg(i)),
+  });
+  check("one segment over the per-request batch is refused", tooManySegments.status >= 400);
+
+  const atSegmentText = await sendTo(segmentsPath, {
+    segments: [seg(0, "a".repeat(LIMITS.segmentTextChars))],
+  });
+  check("a segment exactly at the text bound is accepted", atSegmentText.status < 400);
+  const tooLongSegment = await sendTo(segmentsPath, {
+    segments: [seg(0, "a".repeat(LIMITS.segmentTextChars + 1))],
+  });
+  check("one character over the per-segment text bound is refused", tooLongSegment.status >= 400);
+
+  /*
+    The three event bounds. A client's replay log arrives as `events` on the
+    upsert body and on finalize — `foldLog(next, body.events)` at both — so the
+    upsert is the surface that reaches `eventsPerRequest` and, through it,
+    `assertEventWithinLimits` on every event in the batch. There is no separate
+    events route to post to; `SUB_ROUTES` has segments, notes and finalize.
+  */
+  const replay = async (events) => sendTo("/meetings/sessions", { id: BOUND_SESSION, events });
+
+  // Folded, not discarded: this leaves 1,000 flags on the record, half the
+  // `flags` ceiling. A second full replay batch here would trip that instead
+  // and the check below would pass on the wrong guard.
+  const atEvents = await replay(flags(LIMITS.eventsPerRequest));
+  check("a full replay batch of events is accepted", atEvents.status < 400);
+  const tooManyEvents = await replay(flags(LIMITS.eventsPerRequest + 1));
+  check("one event over the per-replay bound is refused", tooManyEvents.status >= 400);
+
+  const atNotes = await sendTo(notesPath, { notes: "a".repeat(LIMITS.notesChars) });
+  check("notes exactly at the bound are accepted", atNotes.status < 400);
+  const tooLongNotes = await sendTo(notesPath, { notes: "a".repeat(LIMITS.notesChars + 1) });
+  check("notes one character over the bound are refused", tooLongNotes.status >= 400);
+
+  const atEnhanced = await replay([
+    { type: "enhanced", at: 1, markdown: "a".repeat(LIMITS.enhancedChars) },
+  ]);
+  check("an enhanced note exactly at the bound is accepted", atEnhanced.status < 400);
+  const tooLongEnhanced = await replay([
+    { type: "enhanced", at: 1, markdown: "a".repeat(LIMITS.enhancedChars + 1) },
+  ]);
+  check("an enhanced note one character over the bound is refused", tooLongEnhanced.status >= 400);
+
+  /*
+    `requestBytes`, both halves, and they are NOT the same guard. `Content-Length`
+    is a header the caller controls and a chunked request carries none at all,
+    so `Number(null || 0)` is `0` and sails past the declared check — the
+    byteLength check is the only real bound and the declared one is the
+    courtesy that stops us buffering first.
+
+    Which is why the declared half is driven by a body that LIES: a truthfully
+    oversized body is refused by the byte check whether the declared one exists
+    or not, so deleting the declared check reddens nothing and the pair proves
+    one guard twice. A small body under a huge `Content-Length` is the only
+    payload that isolates it — and it is the case the guard is for, since the
+    header is the only thing we know before we buffer. The oversized body below
+    is one long string field rather than a segments array, so its refusal can
+    only be the byte bound: an array that large would trip
+    `segmentsPerRequest` first and prove a different guard.
+  */
+  const declaredTooBig = await sendTo(segmentsPath, JSON.stringify({ notes: "small" }), {
+    "Content-Length": String(LIMITS.requestBytes + 1),
+  });
+  check("a body that only claims to be too large is refused unread", declaredTooBig.status === 413);
+  const huge = JSON.stringify({ notes: "a".repeat(LIMITS.requestBytes + 1) });
+  const chunkedTooBig = await sendTo(segmentsPath, huge);
+  check(
+    "and one that declares nothing is refused on what it actually weighs",
+    chunkedTooBig.status === 413
+  );
+
+  /*
+    THE WHOLE-RECORD CEILINGS, asserted on the function that enforces them.
+
+    `segmentsPerSession` is 20,000 and `flags` is 2,000, reached over many
+    requests rather than in one; driving 20,000 segments through the handler
+    would re-serialise the record on every batch and cost more than the check is
+    worth. `attendees` is different again and worth saying out loud: the ingest
+    path *truncates* with `slice(0, LIMITS.attendees)`, so this ceiling is the
+    second line behind that and is not reachable through the handler at all.
+
+    So these three are driven directly at `assertSessionWithinLimits`, which is
+    the function all three live in and which `ingest.js` calls at every write.
+  */
+  const atCeiling = {
+    transcript: Array.from({ length: LIMITS.segmentsPerSession }, (_, i) => seg(i)),
+    attendees: Array.from({ length: LIMITS.attendees }, (_, i) => ({ name: `a${i}` })),
+    flags: Array.from({ length: LIMITS.flags }, (_, i) => ({ at: i })),
+  };
+  let ceilingHeld = true;
+  try {
+    assertSessionWithinLimits(atCeiling);
+  } catch {
+    ceilingHeld = false;
+  }
+  check("a session exactly at every ceiling is allowed", ceilingHeld);
+
+  const overBy = (field, extra) => {
+    try {
+      assertSessionWithinLimits({ ...atCeiling, [field]: [...atCeiling[field], extra] });
+      return false;
+    } catch {
+      return true;
+    }
+  };
+  check(
+    "one segment past the session ceiling is refused",
+    overBy("transcript", seg(LIMITS.segmentsPerSession))
+  );
+  check("one attendee past the ceiling is refused", overBy("attendees", { name: "one more" }));
+  check("one flag past the ceiling is refused", overBy("flags", { at: 1 }));
 
   const fakeSession = { scope: "private", workspaceId: "ws_fake" };
   const publishNever = async () => {
