@@ -469,6 +469,8 @@ describe("a personal context that has been shared keeps its capture address", ()
   });
 
   test("a personal context with no owner row is refused, byte-identically", async () => {
+    // The zero-owner half of `owners.length !== 1`. The two-owner half is the
+    // describe block immediately below, and neither covers the other.
     // The fail-closed floor of the new rule. The sole owner is what makes a
     // personal context accountable — whose allow-list, whose inbox — so a
     // membership set with no resolvable owner, reachable only by data damage
@@ -493,6 +495,79 @@ describe("a personal context that has been shared keeps its capture address", ()
     expect(await responseFingerprint(await resolve(t, "seyi"))).toBe(
       await responseFingerprint(await resolve(t, "nobody-has-this-name")),
     );
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE OTHER HALF OF THE SOLE-OWNER RULE, WHICH NOTHING WAS ASSERTING.
+ *
+ * The zero-owner case is the test directly above. This is the two-owner case,
+ * and it was uncovered: degrading `owners.length !== 1` to `owners.length < 1`
+ * reddened **nothing**, because `0 < 1` is still true and the test above still
+ * passed. The two halves belong together and each names the other.
+ *
+ * WHAT THE GUARD ACTUALLY PREVENTS. Not a misattributed capture: the resolver's
+ * `ownerUserId` has no production consumer downstream of resolution, the
+ * ingestion policy is read by workspace (`getIngestionSettingsRow(ctx,
+ * personal.workspace._id)`), and the note's owner label is the workspace slug
+ * (`owner: resolution.context.path`). What it prevents is larger. A personal
+ * context whose sole-owner invariant has broken keeps a **live capture
+ * address**: resolve answers with an ingestion object and writes an
+ * `ingestionTickets` row, and spending that ticket at
+ * `/gateway/ingest/binding` returns the decrypted storage credential. That is
+ * the second internet-facing path to a credential that `http.ts` names, and
+ * `owners.length !== 1` is one of the things holding it shut. Hence the
+ * no-ticket assertion below, which is the one that names the harm.
+ *
+ * WHY TEST A STATE THE PRODUCT CANNOT REACH. It cannot reach it *today*, and
+ * that is the argument for the test rather than against it. The whole
+ * OWNER-CREATING write surface for `workspaceMembers` is two inserts and one
+ * role patch — the two deletes cannot mint one — and none of the three can: `createWorkspace` writes the single owner,
+ * `invitations` and `setMemberRole` both validate the role as
+ * `editor | member`, and `setMemberRole`'s own refusal says ownership transfer
+ * "is a separate step, and is not built yet". **The day it is built is the day
+ * this guard starts mattering, and an unproved guard is one nobody notices has
+ * stopped working.**
+ *
+ * SABOTAGE: `!== 1` → `< 1` reddens this block and not the one above; deleting
+ * the check reddens both.
+ */
+describe("a personal context with two owners cannot receive mail either", () => {
+  async function withTwoOwners() {
+    const { t, ownerId, workspaceId } = await ready();
+    const intruder = await createUser(t, "second-owner@example.test");
+    await addMember(t, workspaceId, intruder, "owner", ownerId);
+    return { t, ownerId, workspaceId };
+  }
+
+  test("it is refused, and refused indistinguishably", async () => {
+    const { t } = await withTwoOwners();
+
+    expect(await (await resolve(t, "seyi")).json()).toEqual({ ingestion: null });
+    // A rejection that differed at all would let anyone enumerate which names
+    // on this domain are damaged, from any mail client.
+    expect(await responseFingerprint(await resolve(t, "seyi"))).toBe(
+      await responseFingerprint(await resolve(t, "nobody-has-this-name")),
+    );
+  });
+
+  test("and no ticket is minted, so nothing can be spent for a credential", async () => {
+    const { t } = await withTwoOwners();
+    await resolve(t, "seyi");
+
+    const tickets = await t.run((ctx) => ctx.db.query("ingestionTickets").collect());
+    expect(tickets).toEqual([]);
+  });
+
+  test("one owner still resolves, so the refusal above is the rule and not the fixture", async () => {
+    const { t } = await ready();
+
+    // Asserted on the shape rather than `not.toBeNull()`: an error body has no
+    // `ingestion` key at all, and `undefined` would satisfy the looser form.
+    const body = await (await resolve(t, "seyi")).json();
+    expect(body.ingestion.context).toEqual({ kind: "personal", path: "seyi" });
   });
 });
 
