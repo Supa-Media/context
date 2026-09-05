@@ -4,8 +4,12 @@
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 import type { MeetingRecorder, RecorderError } from "../features/meetings/capture";
-import { audioRecorder } from "../features/meetings/capture/audio.web";
-import { SEGMENT_MS, chunkIdFor } from "../features/meetings/capture/segments";
+import { CAPTURE_MESSAGES, audioRecorder } from "../features/meetings/capture/audio.web";
+import {
+  MAX_INFLIGHT_CHUNKS,
+  SEGMENT_MS,
+  chunkIdFor,
+} from "../features/meetings/capture/segments";
 import {
   fakeTranscriber,
   setTranscriber,
@@ -146,6 +150,8 @@ interface FakeRecorderInstance {
 }
 
 let supportedTypes: string[] = [];
+/** Make `MediaRecorder.stop()` throw, the way a torn-down stream does. */
+let refuseStop = false;
 let instances: FakeRecorderInstance[] = [];
 let tracks: FakeTrack[] = [];
 let denyMicrophone = false;
@@ -173,6 +179,7 @@ function installMediaRecorder(): void {
     }
 
     stop(): void {
+      if (refuseStop) throw new Error("The recorder would not stop.");
       this.state = "inactive";
       this.ondataavailable?.({ data: new Blob(["audio-bytes"], { type: this.mimeType }) });
       this.onstop?.();
@@ -210,9 +217,26 @@ interface Harness {
   errors: RecorderError[];
 }
 
-function harness(): Harness {
-  const transcriber = fakeTranscriber();
-  setTranscriber(transcriber);
+interface HarnessOptions {
+  /** Never answer a `transcribe` — a link that is up but going nowhere. */
+  hang?: boolean;
+  /** Install nothing at all, so `resolveTranscriber()` answers `null`. */
+  noTranscriber?: boolean;
+}
+
+function harness(options: HarnessOptions = {}): Harness {
+  const base = fakeTranscriber();
+  const transcriber: FakeTranscriber = {
+    ...base,
+    async transcribe(input) {
+      if (options.hang === true) {
+        base.chunks.push(input);
+        return new Promise<never>(() => {});
+      }
+      return base.transcribe(input);
+    },
+  };
+  setTranscriber(options.noTranscriber === true ? null : transcriber);
   const recorder = audioRecorder("web");
   const errors: RecorderError[] = [];
   recorder.onError((error) => errors.push(error));
@@ -231,6 +255,7 @@ beforeEach(() => {
   instances = [];
   tracks = [];
   denyMicrophone = false;
+  refuseStop = false;
   (globalThis as Record<string, unknown>).Blob = FakeBlob;
   installMediaRecorder();
   installGetUserMedia();
@@ -531,5 +556,171 @@ describe("the audio is transient, structurally", () => {
     await advance(SEGMENT_MS);
     expect(seen).toEqual([null]);
     await recorder.stop();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                      what an adversarial review found                      */
+/* -------------------------------------------------------------------------- */
+
+describe("the stream is let go whatever the network did", () => {
+  /**
+   * The browser's recording dot is lit until every track is stopped, and
+   * `releaseStream()` used to sit behind an awaited send inside the same arrow.
+   * A last chunk that could not be transcribed — the ordinary way a meeting
+   * ends on a bad link — meant the rejection escaped, `queue` turned it into a
+   * report, and the dot stayed on for the life of the tab.
+   */
+  test("a last chunk that cannot be transcribed still stops the tracks", async () => {
+    const { recorder, transcriber } = harness();
+    await recorder.start();
+    await advance(5_000);
+    transcriber.refuse("the network went away");
+
+    await recorder.stop();
+
+    expect(recorder.state).toBe("stopped");
+    expect(tracks.every((track) => track.stopped)).toBe(true);
+  });
+
+  /** Same for the microphone going away mid-meeting. */
+  test("a microphone that goes away releases the stream even if the send fails", async () => {
+    const { recorder, transcriber } = harness();
+    await recorder.start();
+    await advance(5_000);
+    transcriber.refuse("the network went away");
+
+    tracks[0].dispatchEvent(new Event("ended"));
+    await advance(0);
+
+    expect(recorder.state).toBe("stopped");
+    expect(tracks.every((track) => track.stopped)).toBe(true);
+  });
+});
+
+describe("the send is off the device's critical path", () => {
+  test("rotation reopens the recorder without waiting for the answer", async () => {
+    const { recorder, transcriber } = harness({ hang: true });
+    await recorder.start();
+
+    await advance(SEGMENT_MS * 3);
+
+    expect(transcriber.chunks.map((chunk) => chunk.offsetMs)).toEqual([
+      0,
+      SEGMENT_MS,
+      SEGMENT_MS * 2,
+    ]);
+    // One `MediaRecorder` per chunk plus the one currently open.
+    expect(instances).toHaveLength(4);
+    expect(instances.every((instance) => instance.started === 1)).toBe(true);
+    expect(recorder.state).toBe("recording");
+
+    void recorder.stop();
+    await advance(0);
+  });
+
+  /** Bounded, and what it drops it says. Same decision as the phone's. */
+  test("a backlog is bounded, and what it drops it says", async () => {
+    const { recorder, transcriber, errors } = harness({ hang: true });
+    await recorder.start();
+
+    await advance(SEGMENT_MS * 6);
+
+    expect(transcriber.chunks).toHaveLength(MAX_INFLIGHT_CHUNKS);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.every((error) => CAPTURE_MESSAGES.includes(error.message))).toBe(true);
+    expect(errors.some((error) => /dropped/i.test(error.message))).toBe(true);
+    expect(recorder.state).toBe("recording");
+
+    void recorder.stop();
+    await advance(0);
+  });
+
+  /**
+   * A chunk that will not close costs its own audio and nothing else — the
+   * next twenty seconds are recorded rather than lost with it, and the wall
+   * clock keeps the time that passed.
+   */
+  test("a chunk that will not close does not take the next twenty seconds too", async () => {
+    const { recorder, transcriber } = harness();
+    await recorder.start();
+
+    refuseStop = true;
+    await advance(SEGMENT_MS);
+    refuseStop = false;
+    // A fresh recorder was opened on the same tick that failed to close.
+    expect(instances).toHaveLength(2);
+
+    await advance(SEGMENT_MS);
+
+    expect(transcriber.chunks).toHaveLength(1);
+    expect(transcriber.chunks[0].offsetMs).toBe(SEGMENT_MS);
+    expect(transcriber.chunks[0].chunkId).toBe(chunkIdFor(String(SESSION_START), 0));
+
+    void recorder.stop();
+    await advance(0);
+  });
+});
+
+describe("the interruption flag is not sticky", () => {
+  /**
+   * `mute` set `interrupted` and only `unmute` cleared it. A pause and a resume
+   * in between left the flag on, so the `mute` handler's guard returned for the
+   * rest of the meeting and a second interruption was never reported.
+   */
+  test("an interruption survived a pause is reported again", async () => {
+    const { recorder, errors } = harness();
+    await recorder.start();
+
+    tracks[0].dispatchEvent(new Event("mute"));
+    await advance(0);
+    expect(errors).toHaveLength(1);
+
+    await recorder.pause();
+    await recorder.resume();
+    await advance(0);
+
+    tracks[0].dispatchEvent(new Event("mute"));
+    await advance(0);
+
+    expect(errors).toHaveLength(2);
+    expect(errors[1].recoverable).toBe(true);
+
+    void recorder.stop();
+    await advance(0);
+  });
+});
+
+describe("nothing to transcribe to", () => {
+  test("with nowhere to send, the stream is let go rather than held", async () => {
+    const { recorder, errors } = harness({ noTranscriber: true });
+    await recorder.start();
+
+    await advance(SEGMENT_MS * 3);
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0].recoverable).toBe(false);
+    expect(errors[0].message).toMatch(/not being transcribed/i);
+    expect(recorder.state).toBe("stopped");
+    expect(tracks.every((track) => track.stopped)).toBe(true);
+  });
+});
+
+describe("what the screen is allowed to be told", () => {
+  test("an upstream error never reaches the screen in its own words", async () => {
+    const { recorder, transcriber, errors } = harness();
+    await recorder.start();
+    transcriber.refuse(`Argument too large: {"audioBase64":"${"Q".repeat(200)}"}`);
+
+    await advance(SEGMENT_MS);
+
+    expect(errors.length).toBeGreaterThan(0);
+    for (const error of errors) {
+      expect(CAPTURE_MESSAGES).toContain(error.message);
+      expect(error.message).not.toContain("QQQ");
+    }
+
+    void recorder.stop();
+    await advance(0);
   });
 });

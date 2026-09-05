@@ -1,7 +1,7 @@
 import type { TranscriptSegment } from "../protocol";
 import type { MeetingRecorder, RecorderError, RecorderState } from "./index";
 import { notesOnlyRecorder } from "./notesOnly";
-import { SEGMENT_MS, chunkIdFor } from "./segments";
+import { MAX_INFLIGHT_CHUNKS, SEGMENT_MS, chunkIdFor } from "./segments";
 import { resolveTranscriber } from "./transcriber";
 
 /**
@@ -42,6 +42,17 @@ import { resolveTranscriber } from "./transcriber";
  * "delete the transient recording" rule is satisfied by there being nothing to
  * delete rather than by a call. No IndexedDB, no `showSaveFilePicker`, no
  * object URL that outlives the request.
+ *
+ * ## The send is not in the rotation's critical section
+ *
+ * A rotation stops the recorder, starts a new one, and hands the blob to a
+ * transcriber that answers whenever it answers. With the round trip inside the
+ * chain — which is how this was first written — recording did not resume until
+ * the answer came back, so seconds of every twenty were never captured while
+ * the offsets went on claiming the chunks were contiguous. `MAX_INFLIGHT_CHUNKS`
+ * is the bound on how many sends may be outstanding, and says what happens at
+ * it and why. Segments carry ids and `startMs`, so out-of-order arrival costs
+ * nothing; silently missing audio would cost the meeting.
  */
 
 /** What we ask for, best first. The browser's own answer is what gets sent. */
@@ -68,6 +79,27 @@ const NO_TRANSCRIBER =
 
 const CHUNK_FAILED =
   "A few seconds of audio could not be transcribed. Capture is still running.";
+
+const SEND_BACKLOG =
+  "Transcription is running behind, so a few seconds of audio were dropped. Capture is still running.";
+
+/**
+ * Everything a `RecorderError` from this module may say, and the whole of it.
+ *
+ * Same closed set, and the same reason, as `audio.ts`: a failed send used to
+ * report `messageOf(error, CHUNK_FAILED)`, which is an arbitrary upstream
+ * `Error.message` going straight onto the glass. Safe only while every refusal
+ * upstream is a fixed string, and an argument-too-large error that quoted its
+ * payload would put base64 audio on somebody's screen.
+ */
+export const CAPTURE_MESSAGES: readonly string[] = Object.freeze([
+  MIC_DENIED,
+  MIC_LOST,
+  INTERRUPTED,
+  NO_TRANSCRIBER,
+  CHUNK_FAILED,
+  SEND_BACKLOG,
+]);
 
 /**
  * The recorder this browser has.
@@ -123,13 +155,16 @@ function mediaRecorderRecorder(): MeetingRecorder {
   let interrupted = false;
 
   // Same reason as the phone's: a rotation tick cannot await, so every touch of
-  // the device goes through one chain.
+  // the device goes through one chain. The send is deliberately not on it.
   let pending: Promise<void> = Promise.resolve();
+
+  /** The sends that have not answered yet. See `MAX_INFLIGHT_CHUNKS`. */
+  const inFlight = new Set<Promise<void>>();
 
   function queue(work: () => Promise<void>): Promise<void> {
     // Both arms are `work` on purpose — see `audio.ts`, same reason.
-    pending = pending.then(work, work).catch((error: unknown) => {
-      report({ recoverable: true, message: messageOf(error, CHUNK_FAILED) });
+    pending = pending.then(work, work).catch(() => {
+      report({ recoverable: true, message: CHUNK_FAILED });
     });
     return pending;
   }
@@ -146,8 +181,17 @@ function mediaRecorderRecorder(): MeetingRecorder {
     stopRotation();
     rotationTimer = setInterval(() => {
       void queue(async () => {
-        await closeChunk(SEGMENT_MS);
-        openChunk();
+        /*
+          `finally`, because a chunk that could not be closed used to cost the
+          twenty seconds after it too: the arrow rejected before `openChunk()`,
+          so nothing recorded until the next tick, and that dead interval was
+          never added to the offset either.
+        */
+        try {
+          await closeChunk(SEGMENT_MS);
+        } finally {
+          openChunk();
+        }
       });
     }, SEGMENT_MS);
   }
@@ -173,46 +217,124 @@ function mediaRecorderRecorder(): MeetingRecorder {
   }
 
   /**
-   * Close the open recording, send it, and let it fall out of scope.
+   * Close the open recording and hand it over. Never waits for the answer.
    *
    * `durationMs` is the caller's rather than a clock reading — a full rotation
    * contributes exactly `SEGMENT_MS` and only the partial chunk at a pause or
    * an end measures — so an offset is arithmetic rather than a guess.
+   *
+   * The order matters the same way it does on the phone. **The clock moves
+   * first, and it moves whatever happens next**: `durationMs` of session time
+   * passed, so a recorder that would not close must not make the rest of the
+   * meeting early. **The id is spent last**, only when there is a request to
+   * carry it, so a chunk that contributed nothing leaves no gap in the sequence.
    */
   async function closeChunk(durationMs: number): Promise<void> {
     const recorder = active;
     active = null;
     if (recorder === null) return;
 
-    const chunkId = chunkIdFor(sessionKey, chunkIndex);
     const offsetMs = chunkStartOffsetMs;
-    chunkIndex += 1;
     chunkStartOffsetMs += durationMs;
 
+    /*
+      `parts` is reassigned *after* the stop, never before: `ondataavailable`
+      closes over the variable rather than the array, so emptying it first means
+      the recorder's last blob lands somewhere nothing is reading.
+    */
     const blob = await stopAndCollect(recorder, parts);
     parts = [];
     if (blob.size === 0 || durationMs <= 0) return;
 
+    if (resolveTranscriber() === null) {
+      /*
+        `recoverable: false` means "the session is notes-only from here", and
+        this used to say it every twenty seconds while going on holding the
+        microphone and rotating chunks whose bytes it dropped unread. The report
+        is made true rather than repeated. See `audio.ts`, same decision.
+      */
+      await abandon(NO_TRANSCRIBER);
+      return;
+    }
+
+    if (inFlight.size >= MAX_INFLIGHT_CHUNKS) {
+      // Dropped rather than queued, and said out loud. See MAX_INFLIGHT_CHUNKS.
+      report({ recoverable: true, message: SEND_BACKLOG });
+      return;
+    }
+
+    // The browser's own answer, never our request: Safari accepts `audio/mp4`
+    // and answers `audio/mp4`, Chrome answers webm/opus, and the service on the
+    // other end names the upload from this.
+    const mimeType = blob.type || recorder.mimeType || FALLBACK_MIME;
+    dispatch(blob, mimeType, chunkIdFor(sessionKey, chunkIndex), offsetMs, durationMs);
+    chunkIndex += 1;
+  }
+
+  /**
+   * Start a send and forget about it.
+   *
+   * The line that keeps the microphone off the network's critical path: the
+   * caller has already reopened recording by the time anything here is awaited.
+   */
+  function dispatch(
+    blob: Blob,
+    mimeType: string,
+    chunkId: string,
+    offsetMs: number,
+    durationMs: number,
+  ): void {
+    const run = send(blob, mimeType, chunkId, offsetMs, durationMs)
+      .catch(() => {
+        report({ recoverable: true, message: CHUNK_FAILED });
+      })
+      .finally(() => {
+        inFlight.delete(run);
+      });
+    inFlight.add(run);
+  }
+
+  /** Wait for what is already out. Only ever called with the stream released. */
+  async function drainSends(): Promise<void> {
+    await Promise.allSettled([...inFlight]);
+  }
+
+  async function send(
+    blob: Blob,
+    mimeType: string,
+    chunkId: string,
+    offsetMs: number,
+    durationMs: number,
+  ): Promise<void> {
     const audioBase64 = await toBase64(blob);
     if (audioBase64.length === 0) return;
 
     const transcriber = resolveTranscriber();
-    if (transcriber === null) {
-      report({ recoverable: false, message: NO_TRANSCRIBER });
-      return;
-    }
+    if (transcriber === null) return;
 
     const segments = await transcriber.transcribe({
       audioBase64,
-      // The browser's own answer, never our request: Safari accepts
-      // `audio/mp4` and answers `audio/mp4`, Chrome answers webm/opus, and the
-      // service on the other end names the upload from this.
-      mimeType: blob.type || recorder.mimeType || FALLBACK_MIME,
+      mimeType,
       chunkId,
       offsetMs,
       durationMs,
     });
     for (const segment of segments) emit(segment);
+  }
+
+  /**
+   * Give capture up for the rest of this meeting, and put the stream back.
+   *
+   * The same shape as the microphone going away, because it is the same
+   * situation from the person's side: nothing more will be transcribed, so
+   * holding the input would be recording for nobody — and the browser's
+   * recording dot would go on saying otherwise.
+   */
+  async function abandon(message: string): Promise<void> {
+    stopRotation();
+    state = "stopped";
+    releaseStream();
+    report({ recoverable: false, message });
   }
 
   /**
@@ -245,8 +367,17 @@ function mediaRecorderRecorder(): MeetingRecorder {
       stopRotation();
       state = "stopped";
       void queue(async () => {
-        await closeChunk(Math.max(0, Date.now() - chunkStartedAtMs));
-        releaseStream();
+        /*
+          `finally`, for the same reason as `stop()`: `closeChunk` used to await
+          the transcriber, so a last chunk that could not be sent — which is what
+          a microphone going away usually comes with — meant `releaseStream()`
+          never ran and the tab's recording dot stayed lit.
+        */
+        try {
+          await closeChunk(Math.max(0, Date.now() - chunkStartedAtMs));
+        } finally {
+          releaseStream();
+        }
       });
       report({ recoverable: false, message: MIC_LOST });
     });
@@ -303,6 +434,13 @@ function mediaRecorderRecorder(): MeetingRecorder {
       if (state === "recording") {
         await queue(() => closeChunk(Math.max(0, Date.now() - chunkStartedAtMs)));
       }
+      /*
+        `interrupted` is cleared here and in `resume` because only `unmute`
+        cleared it before, and a pause in between a `mute` and its `unmute` left
+        it set for good — after which the `mute` handler's own guard returned
+        forever and a second interruption was never reported at all.
+      */
+      interrupted = false;
       state = "paused";
     },
 
@@ -310,6 +448,7 @@ function mediaRecorderRecorder(): MeetingRecorder {
       if (state === "recording") return;
       // A meeting that has ended does not reopen the microphone. See `audio.ts`.
       if (state === "stopped") return;
+      interrupted = false;
       await queue(async () => {
         openChunk();
       });
@@ -322,9 +461,25 @@ function mediaRecorderRecorder(): MeetingRecorder {
       const wasCapturing = state === "recording";
       state = "stopped";
       await queue(async () => {
-        if (wasCapturing) await closeChunk(Math.max(0, Date.now() - chunkStartedAtMs));
-        releaseStream();
+        /*
+          `finally`. `closeChunk` used to await the transcriber, which throws on
+          every worker fault, and the rejection escaped this arrow into
+          `queue`'s catch — so `releaseStream()` never ran and the browser's
+          recording dot stayed lit for the life of the tab. Ending a meeting on
+          a bad link is the ordinary case, not the edge one.
+        */
+        try {
+          if (wasCapturing) await closeChunk(Math.max(0, Date.now() - chunkStartedAtMs));
+        } finally {
+          releaseStream();
+        }
       });
+      /*
+        The stream is already back, so waiting here costs a spinner rather than a
+        microphone — and it buys the last few seconds of the meeting landing in
+        the note before the controller finalizes it.
+      */
+      await drainSends();
     },
 
     onSegment(listener) {
@@ -397,6 +552,14 @@ async function toBase64(blob: Blob): Promise<string> {
   return btoa(binary);
 }
 
+/**
+ * The one place an upstream sentence still reaches somebody, and why.
+ *
+ * `start()` fails because of the *device* — `new MediaRecorder(...)` refusing a
+ * container this browser cannot make — and that error carries no payload and
+ * cannot: it is thrown before a byte has been recorded. Every failure that
+ * happens with audio in hand goes through `CAPTURE_MESSAGES` instead.
+ */
 function messageOf(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.length > 0 ? error.message : fallback;
 }

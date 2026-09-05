@@ -6,11 +6,11 @@ import {
   setAudioModeAsync,
 } from "expo-audio";
 import type { AudioMode, AudioRecorder, RecordingStatus } from "expo-audio";
-import { File } from "expo-file-system";
+import { Directory, File, Paths } from "expo-file-system";
 import type { TranscriptSegment } from "../protocol";
 import type { MeetingRecorder, RecorderError, RecorderState } from "./index";
 import { notesOnlyRecorder } from "./notesOnly";
-import { SEGMENT_MS, chunkIdFor } from "./segments";
+import { MAX_INFLIGHT_CHUNKS, SEGMENT_MS, chunkIdFor } from "./segments";
 import { resolveTranscriber } from "./transcriber";
 
 /**
@@ -87,6 +87,22 @@ import { resolveTranscriber } from "./transcriber";
  * bytes to the transcriber with an `offsetMs` that is the sum of the durations
  * before it rather than a clock reading at send time.
  *
+ * **The send is not in that chain.** A rotation closes the file and reopens the
+ * microphone at once; the bytes go out separately and the segments arrive
+ * whenever they arrive, which is fine because segments carry ids and `startMs`.
+ * With the round trip inside the critical section — which is how this was first
+ * written — recording did not resume until Whisper answered, so 1.5–4s of every
+ * twenty seconds was never captured, cut mid-word, while `chunkStartOffsetMs`
+ * went on asserting the chunks were contiguous. The bound on how many sends may
+ * be outstanding, and what happens at it, is `MAX_INFLIGHT_CHUNKS`.
+ *
+ * **The offset is session time, and it moves whatever else fails.** A chunk the
+ * device would not close, a chunk with nowhere to go, the seconds an
+ * interruption took: all of them are time that passed, so every later chunk
+ * starts that much further along. The one thing that does *not* move on a
+ * failure is the chunk **id** — an id is spent when there is something to send
+ * with it, so a run of bad chunks does not leave gaps in the sequence.
+ *
  * `chunkId` is `<session>-<index>`, derived from when the session began and how
  * many chunks preceded this one. Nothing about it is random and nothing about
  * it is read at send time, because the protocol's idempotency rests on it: "the
@@ -105,6 +121,15 @@ import { resolveTranscriber } from "./transcriber";
  * nothing above `capture/` that could ask. That is what makes "audio is
  * transient and is never written to the bucket" a property of the code rather
  * than a promise in a document.
+ *
+ * Two paths were leaving files behind, and both are closed. A device that threw
+ * out of `stop()` used to take its half-written file with it — `uri` was never
+ * read, so nothing ever deleted it — and a crash or a force-quit mid-chunk left
+ * up to `SEGMENT_MS` of somebody's meeting in `<caches>/ExpoAudio/` with no code
+ * anywhere that would look at it again. `closeChunk` now owns the file on every
+ * exit, and `sweepLeftovers` runs when this module is first evaluated: the one
+ * moment in a runtime where no recorder exists yet, so it cannot race a chunk
+ * that is being written.
  *
  * ────────────────────────────────────────────────────────────────────────────
  * 6. WHAT IS STILL NOT HERE.
@@ -178,6 +203,66 @@ const NO_TRANSCRIBER =
 const CHUNK_FAILED =
   "A few seconds of audio could not be transcribed. Capture is still running.";
 
+const SEND_BACKLOG =
+  "Transcription is running behind, so a few seconds of audio were dropped. Capture is still running.";
+
+/**
+ * Everything a `RecorderError` from this module may say, and the whole of it.
+ *
+ * The messages above are what the controller puts on the glass, and until this
+ * existed one of them was not ours: a failed send reported
+ * `messageOf(error, CHUNK_FAILED)`, which is an arbitrary upstream
+ * `Error.message`. That is safe exactly while every refusal on the other end is
+ * a fixed string, and it is one deploy away from not being — an
+ * argument-too-large error that quotes its payload would put base64 audio on
+ * somebody's screen. So the set is closed, and `meetingsCapture.test.ts` asserts
+ * every reported message is in it.
+ *
+ * `MIC_DENIED` is here too even though it is *thrown* from `start()` rather than
+ * reported: the controller writes a rejected start onto the same snapshot field.
+ */
+export const CAPTURE_MESSAGES: readonly string[] = Object.freeze([
+  MIC_DENIED,
+  MIC_REVOKED,
+  INTERRUPTED,
+  NO_TRANSCRIBER,
+  CHUNK_FAILED,
+  SEND_BACKLOG,
+]);
+
+/** Where `expo-audio` writes: `<caches>/ExpoAudio/recording-<uuid>.m4a`. */
+const RECORDING_DIR = "ExpoAudio";
+
+/**
+ * Drop anything a previous run of this app left in the recording directory.
+ *
+ * Called once, when this module is evaluated. That placement is the whole of
+ * why it is safe: a module body runs before any recorder in this runtime
+ * exists, so there is no open chunk for it to delete out from under a meeting.
+ * Doing it at `createRecorder` time would not be safe — every screen in the
+ * feature builds one, including on a remount that happens mid-recording.
+ *
+ * Everything is guarded: a cache directory this build cannot read is not a
+ * reason to refuse somebody a meeting.
+ */
+function sweepLeftovers(): void {
+  try {
+    const directory = new Directory(Paths.cache, RECORDING_DIR);
+    if (!directory.exists) return;
+    for (const entry of directory.list()) {
+      try {
+        entry.delete();
+      } catch {
+        // One file that will not go is not a reason to leave the rest.
+      }
+    }
+  } catch {
+    // No cache directory, or no permission to read it. Nothing to do.
+  }
+}
+
+sweepLeftovers();
+
 /**
  * The recorder this build has.
  *
@@ -208,21 +293,36 @@ function expoAudioRecorder(): MeetingRecorder {
   let chunkStartedAtMs = 0;
   /** Something else holds the input and we are waiting for it back. */
   let interrupted = false;
+  /** When it took the input, so the seconds it cost land in the offset. */
+  let interruptedAtMs = 0;
 
   /*
     Everything that touches the device is serialised through this chain. The
     rotation timer cannot await, so without it a tick landing while `stop()` is
     halfway through would stop a recorder that is already stopped and read a uri
     belonging to the next chunk.
+
+    What is deliberately *not* on it is the send. See point 4 in the header.
   */
   let pending: Promise<void> = Promise.resolve();
+
+  /**
+   * The sends that have not answered yet, and the files they own.
+   *
+   * The set of promises is what `stop()` waits on once the device is already
+   * back; the set of uris is what keeps `releaseDevice` from deleting a file a
+   * send is still reading. Before the send was detached those could not
+   * collide, because nothing was ever in flight while the device was closing.
+   */
+  const inFlight = new Set<Promise<void>>();
+  const inFlightUris = new Set<string>();
 
   function queue(work: () => Promise<void>): Promise<void> {
     // Both arms are `work` on purpose: a chunk that failed must not stop the
     // next one from being recorded. The chain only ever rejects if a listener
     // in `report` throws, and one screen's bug is not a reason to stop capture.
-    pending = pending.then(work, work).catch((error: unknown) => {
-      report({ recoverable: true, message: messageOf(error, CHUNK_FAILED) });
+    pending = pending.then(work, work).catch(() => {
+      report({ recoverable: true, message: CHUNK_FAILED });
     });
     return pending;
   }
@@ -239,8 +339,19 @@ function expoAudioRecorder(): MeetingRecorder {
     stopRotation();
     rotationTimer = setInterval(() => {
       void queue(async () => {
-        await closeChunk(SEGMENT_MS);
-        await openChunk();
+        /*
+          `finally`, because a chunk that could not be closed used to cost the
+          twenty seconds after it as well: the arrow rejected before
+          `openChunk()`, so nothing recorded until the next tick — and neither
+          that dead interval nor the failed chunk's own was ever added to the
+          offset. One flaky chunk was forty seconds of a meeting and a permanent
+          shift in every timestamp after it.
+        */
+        try {
+          await closeChunk(SEGMENT_MS);
+        } finally {
+          await openChunk();
+        }
       });
     }, SEGMENT_MS);
   }
@@ -273,10 +384,12 @@ function expoAudioRecorder(): MeetingRecorder {
     /*
       A recording the session never got round to sending — the microphone was
       revoked mid-chunk, or the app is being torn down — is still a recording of
-      somebody's meeting. It goes the same way as every other one.
+      somebody's meeting. It goes the same way as every other one, unless a send
+      is still reading it: `send` deletes the file it owns before its request
+      goes out, and deleting it from under that read would lose the chunk.
     */
     const leftover = open.uri;
-    if (leftover !== null) discard(new File(leftover));
+    if (leftover !== null && !inFlightUris.has(leftover)) discard(new File(leftover));
     open.release();
   }
 
@@ -290,40 +403,109 @@ function expoAudioRecorder(): MeetingRecorder {
   }
 
   /**
-   * Close the open file, send it, and drop it.
+   * Close the open file and hand it over. Never waits for the answer.
    *
    * `durationMs` is the caller's rather than a clock reading, because that is
    * what makes the offsets arithmetic: a full rotation contributes exactly
    * `SEGMENT_MS`, and only the partial chunk at a pause or an end measures.
+   *
+   * The order below is the load-bearing part. **The clock moves first, and it
+   * moves whatever happens next**: `durationMs` of session time really did
+   * pass, so every later chunk starts that much further along, and a device
+   * that will not close must not make the rest of the meeting's timestamps
+   * early. **The id is spent last**, only when there is a request to carry it,
+   * so a chunk that contributed nothing leaves no gap in the sequence.
    */
   async function closeChunk(durationMs: number): Promise<void> {
     const active = device;
     if (active === null) return;
 
-    const chunkId = chunkIdFor(sessionKey, chunkIndex);
     const offsetMs = chunkStartOffsetMs;
-    chunkIndex += 1;
     chunkStartOffsetMs += durationMs;
 
-    await active.stop();
+    let closed = true;
+    try {
+      await active.stop();
+    } catch {
+      closed = false;
+    }
+
     const uri = active.uri;
     if (uri === null) return;
-    await send(uri, chunkId, offsetMs, durationMs);
+    const file = new File(uri);
+
+    /*
+      Every exit from here owns the file. `send` deletes the one it is given;
+      everything else deletes it right here. The path that did not — a `stop()`
+      that threw, so `uri` was never read — left the `.m4a` in the cache with
+      nothing left in the process that knew about it.
+    */
+    if (!closed || durationMs <= 0) {
+      discard(file);
+      if (!closed) report({ recoverable: true, message: CHUNK_FAILED });
+      return;
+    }
+
+    if (resolveTranscriber() === null) {
+      /*
+        `recoverable: false` is documented as "the session is notes-only from
+        here", and this used to say it every twenty seconds while going on
+        holding the microphone and rotating chunks it deleted unread. Recording
+        somebody's meeting in order to throw it away, behind a live indicator,
+        is the shape this feature exists to make impossible — so the report is
+        made true rather than repeated.
+      */
+      discard(file);
+      await abandon(NO_TRANSCRIBER);
+      return;
+    }
+
+    if (inFlight.size >= MAX_INFLIGHT_CHUNKS) {
+      // Dropped rather than queued, and said out loud. See MAX_INFLIGHT_CHUNKS.
+      discard(file);
+      report({ recoverable: true, message: SEND_BACKLOG });
+      return;
+    }
+
+    dispatch(file, chunkIdFor(sessionKey, chunkIndex), offsetMs, durationMs);
+    chunkIndex += 1;
+  }
+
+  /**
+   * Start a send and forget about it.
+   *
+   * This is the line that keeps the microphone off the network's critical path:
+   * the caller has already reopened recording by the time anything here has
+   * been awaited. Out-of-order arrival is fine — a segment carries its own id
+   * and `startMs` — and a failure is one chip rather than a gap in the audio.
+   */
+  function dispatch(file: File, chunkId: string, offsetMs: number, durationMs: number): void {
+    inFlightUris.add(file.uri);
+    const run = send(file, chunkId, offsetMs, durationMs)
+      .catch(() => {
+        report({ recoverable: true, message: CHUNK_FAILED });
+      })
+      .finally(() => {
+        inFlight.delete(run);
+        inFlightUris.delete(file.uri);
+      });
+    inFlight.add(run);
+  }
+
+  /** Wait for what is already out. Only ever called with the device released. */
+  async function drainSends(): Promise<void> {
+    await Promise.allSettled([...inFlight]);
   }
 
   async function send(
-    uri: string,
+    file: File,
     chunkId: string,
     offsetMs: number,
     durationMs: number,
   ): Promise<void> {
-    const file = new File(uri);
     let audioBase64 = "";
     try {
-      // A zero-length chunk — a pause pressed on the same tick a rotation
-      // opened one — is still a file, and it still gets deleted below. It is
-      // simply not worth a request.
-      if (durationMs > 0) audioBase64 = await file.base64();
+      audioBase64 = await file.base64();
     } finally {
       /*
         The file dies here — before the request that carries its contents, not
@@ -337,10 +519,7 @@ function expoAudioRecorder(): MeetingRecorder {
     if (audioBase64.length === 0) return;
 
     const transcriber = resolveTranscriber();
-    if (transcriber === null) {
-      report({ recoverable: false, message: NO_TRANSCRIBER });
-      return;
-    }
+    if (transcriber === null) return;
 
     const segments = await transcriber.transcribe({
       audioBase64,
@@ -350,6 +529,21 @@ function expoAudioRecorder(): MeetingRecorder {
       durationMs,
     });
     for (const segment of segments) emit(segment);
+  }
+
+  /**
+   * Give capture up for the rest of this meeting, and put the device back.
+   *
+   * The same shape as a revoked permission, because it is the same situation
+   * from the person's side: nothing more is going to be transcribed, so holding
+   * the microphone would be recording for nobody.
+   */
+  async function abandon(message: string): Promise<void> {
+    stopRotation();
+    cancelResume();
+    state = "stopped";
+    await releaseDevice();
+    report({ recoverable: false, message });
   }
 
   /**
@@ -377,13 +571,23 @@ function expoAudioRecorder(): MeetingRecorder {
     stopRotation();
     const permission = await getRecordingPermissionsAsync();
     if (!permission.granted) {
-      cancelResume();
-      state = "stopped";
-      await releaseDevice();
-      report({ recoverable: false, message: MIC_REVOKED });
+      await abandon(MIC_REVOKED);
       return;
     }
     interrupted = true;
+    interruptedAtMs = Date.now();
+    /*
+      The partial goes out with the length it actually ran for.
+
+      Without this the chunk was simply dropped — `scheduleResume`'s
+      `openDevice()` discards the file — and neither its seconds nor the
+      interruption's were added to the offset, so after a thirty-second call
+      every later segment was thirty seconds early, compounding per
+      interruption. `docs/decisions/meetings.md` needs a flag's `at` on the
+      right sentence, and this is the arithmetic that decides which sentence
+      that is. (`audio.web.ts` always did this; the phone did not.)
+    */
+    await closeChunk(Math.max(0, Date.now() - chunkStartedAtMs));
     report({ recoverable: true, message: INTERRUPTED });
     scheduleResume();
   }
@@ -403,7 +607,15 @@ function expoAudioRecorder(): MeetingRecorder {
           scheduleResume();
           return;
         }
+        /*
+          The input was gone for this long and no audio exists for it, but the
+          session was `recording` throughout — which is what `elapsedMs` counts
+          and what a flag's `at` is measured against. So the gap is session time
+          and it belongs in the offset.
+        */
+        chunkStartOffsetMs += Math.max(0, chunkStartedAtMs - interruptedAtMs);
         interrupted = false;
+        interruptedAtMs = 0;
         startRotation();
       });
     }, RESUME_RETRY_MS);
@@ -436,6 +648,7 @@ function expoAudioRecorder(): MeetingRecorder {
       chunkIndex = 0;
       chunkStartOffsetMs = 0;
       interrupted = false;
+      interruptedAtMs = 0;
 
       try {
         await openDevice();
@@ -456,6 +669,15 @@ function expoAudioRecorder(): MeetingRecorder {
       if (state === "recording") {
         await queue(() => closeChunk(Math.max(0, Date.now() - chunkStartedAtMs)));
       }
+      /*
+        `interrupted` is cleared here and in `resume` because `cancelResume`
+        above kills the retry that would otherwise have cleared it. Left set, it
+        made `handleFailure`'s guard return for the rest of the meeting — so a
+        microphone permission revoked later was never noticed at all: no error,
+        no release, and a session recording silence while reporting health.
+      */
+      interrupted = false;
+      interruptedAtMs = 0;
       state = "paused";
     },
 
@@ -469,6 +691,9 @@ function expoAudioRecorder(): MeetingRecorder {
         with.
       */
       if (state === "stopped") return;
+      cancelResume();
+      interrupted = false;
+      interruptedAtMs = 0;
       await queue(async () => {
         await openDevice();
         await openChunk();
@@ -483,9 +708,28 @@ function expoAudioRecorder(): MeetingRecorder {
       const wasCapturing = state === "recording";
       state = "stopped";
       await queue(async () => {
-        if (wasCapturing) await closeChunk(Math.max(0, Date.now() - chunkStartedAtMs));
-        await releaseDevice();
+        /*
+          `finally`, and this is the most expensive line in the file to get
+          wrong. `closeChunk` used to await the transcriber, which throws on
+          every worker fault — offline, 502, 401, bad JSON — and the rejection
+          escaped this arrow into `queue`'s catch, so `releaseDevice()` never
+          ran. Ending a meeting with no signal is the ordinary case, and on iOS
+          the result is the red bar across the status bar for the life of the
+          process. **Releasing the device cannot depend on the send.**
+        */
+        try {
+          if (wasCapturing) await closeChunk(Math.max(0, Date.now() - chunkStartedAtMs));
+        } finally {
+          await releaseDevice();
+        }
       });
+      /*
+        The device is already back, so waiting here costs a spinner rather than
+        a microphone. What it buys is the last few seconds of the meeting —
+        usually the decision — landing in the note before the controller
+        finalizes it, instead of arriving after the first sync.
+      */
+      await drainSends();
     },
 
     onSegment(listener) {
@@ -528,6 +772,15 @@ function discard(file: File): void {
   }
 }
 
+/**
+ * The one place an upstream sentence still reaches somebody, and why.
+ *
+ * `start()` fails because of the *device* — a microphone another app is holding,
+ * a session this binary has no entitlement for — and `expo-audio` says which,
+ * usefully, in words. That error carries no payload and cannot: it is thrown
+ * before a byte has been recorded. Every failure that happens with audio in
+ * hand goes through `CAPTURE_MESSAGES` instead.
+ */
 function messageOf(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.length > 0 ? error.message : fallback;
 }
