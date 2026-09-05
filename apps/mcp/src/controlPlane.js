@@ -199,6 +199,38 @@
  * hold an S3 key from before a rebind. See `src/store/factory.js`.
  *
  * ----------------------------------------------------------------------------
+ * 2a. THE OPTIONAL `searchIndex` SIBLING — fast search, where it is on
+ * ----------------------------------------------------------------------------
+ *
+ * A binding MAY carry one more object beside the storage fields:
+ *
+ *   "searchIndex": {
+ *       "databaseId": "<d1 uuid>",
+ *       "accountId":  "<cloudflare account id>",
+ *       "apiToken":   "<d1 write token>",   // radioactive: as secretAccessKey
+ *       "state":      "backfilling" | "ready"
+ *   }
+ *
+ * **Absent means fast search is off for this workspace, which is the normal
+ * case and not an error.** Off-by-default is the decision, and the R2 shard
+ * index serves the search exactly as it does today — `docs/decisions/search.md`
+ * calls that a working state rather than a degraded one, which is the whole
+ * reason the feature could ship off. So the gateway treats an absent, partial
+ * or malformed descriptor identically: serve from R2, project nothing.
+ *
+ * `apiToken` gets the treatment `secretAccessKey` gets, and for the same
+ * reason: it appears in one `Authorization` header in `search/d1/client.js`
+ * and nowhere else. Never logged, never in an error message, never returned to
+ * a caller, never written to a bucket. `search/d1/client.js` classifies every
+ * provider failure into a closed set of codes rather than relaying the
+ * provider's text, because that text can name an account or a database.
+ *
+ * The control plane MUST NOT send this object for a workspace whose owner has
+ * not opted in, and MUST stop sending it the moment they opt out — search
+ * falls back to R2 on the next request, which is what makes the switch a
+ * switch rather than a deletion job.
+ *
+ * ----------------------------------------------------------------------------
  * THE REFRESH TOKEN NEVER CROSSES THIS BOUNDARY
  * ----------------------------------------------------------------------------
  *
@@ -378,6 +410,45 @@
  *
  * The control plane MUST refuse to revoke a grant belonging to a different
  * `clientId` than the one authenticating the revocation request.
+ *
+ * ----------------------------------------------------------------------------
+ * 10. POST /gateway/search-index/progress — how far the projection has got
+ * ----------------------------------------------------------------------------
+ * request:
+ *   { "workspaceId":  "<id this request already resolved a grant to>",
+ *     "notesIndexed": 412,
+ *     "notesPending": 88,
+ *     "state":        "ready",        // optional; only when nothing is pending
+ *     "errorCode":    "UNAUTHORIZED"  // optional; ours, from a closed set
+ *   }
+ *
+ * response 200: anything. The gateway discards the body.
+ *
+ * The gateway copies notes into the projection (`search/d1/backfill.js`) and
+ * therefore is the only thing that knows how far it has got. **It reports
+ * counts and never decides policy**: the control plane owns the row, decides
+ * what a state transition means, and is free to ignore anything here.
+ *
+ * Two rules, and both are about what the numbers are *not*:
+ *
+ *  - **`state` is only ever `"ready"`.** A pass that is still working says
+ *    nothing, because the row already says `backfilling` and a gateway
+ *    reasserting it every search is a write per search. There is deliberately
+ *    no "failed" state on this route — the state vocabulary belongs to the
+ *    control plane, and a gateway inventing a word for it would be the
+ *    console's "a state this build does not know" case arriving from the wrong
+ *    direction.
+ *  - **`errorCode` is how a failure is heard.** A projection that cannot reach
+ *    its database leaves search working — the R2 index answers — so nothing
+ *    else in the system would ever notice, and the workspace would sit at
+ *    "Preparing" forever. That was the bug. The code comes from
+ *    `search/d1/client.js`'s closed set, never from the provider's text, and
+ *    the field name matches `searchIndexes.errorCode` so the row can hold it
+ *    unchanged.
+ *
+ * Like `/gateway/usage`, this is a call whose failure is nobody's problem: it
+ * runs behind the response and its rejection is swallowed. A projection that
+ * advanced but was not counted is a good outcome.
  *
  * ============================================================================
  */
@@ -642,6 +713,41 @@ export function createControlPlane(env, options = {}) {
     async reportUsage(events) {
       if (!Array.isArray(events) || events.length === 0) return { applied: 0 };
       return await post("/gateway/usage", { events });
+    },
+
+    /**
+     * Say how far this workspace's search projection has got.
+     *
+     * The second call on this client whose failure is nobody's problem, for
+     * the same reason as `reportUsage`: it moves a number on somebody's
+     * settings screen, and a search that worked but was not counted is a good
+     * outcome.
+     *
+     * **What crosses is counts and, when there is one, a failure code from our
+     * own closed set.** There is no field here for a path, a note title, a
+     * query or a provider's error text, and there must never be one — the
+     * counts are a census of notes and nothing else, which is why the control
+     * plane keeps them owner-only.
+     *
+     * `undefined` members are dropped by `JSON.stringify`, so an ordinary pass
+     * sends exactly `{workspaceId, notesIndexed, notesPending}`.
+     *
+     * @param {{workspaceId: string, notesIndexed: number, notesPending: number,
+     *          state?: "ready", errorCode?: string}} progress
+     */
+    async reportSearchIndexProgress(progress) {
+      if (!progress || typeof progress.workspaceId !== "string" || !progress.workspaceId) {
+        // A per-workspace figure with no workspace is a wrong number in the one
+        // direction nobody would think to check.
+        return null;
+      }
+      return await post("/gateway/search-index/progress", {
+        workspaceId: progress.workspaceId,
+        notesIndexed: progress.notesIndexed,
+        notesPending: progress.notesPending,
+        state: progress.state,
+        errorCode: progress.errorCode,
+      });
     },
   };
 }

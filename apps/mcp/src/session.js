@@ -39,6 +39,7 @@
 
 import { StorageUnavailable, storeForBinding } from "./store/factory.js";
 import { ControlPlaneError } from "./controlPlane.js";
+import { readSearchIndexBinding } from "./search/d1/client.js";
 
 /**
  * Re-exported so every caller keeps importing it from here.
@@ -623,5 +624,26 @@ export async function storeForSession(session, env, controlPlane) {
   // point of `storeForBinding` is that one `provider` check builds the store
   // and nothing above it asks again.
   store.provider = typeof binding.provider === "string" ? binding.provider : null;
+
+  /**
+   * The search projection's coordinates, where this workspace opted in.
+   *
+   * **Non-enumerable, because it carries a token.** `apiToken` is radioactive
+   * on exactly the terms `secretAccessKey` is, and a store is an object other
+   * code spreads, logs shapes of, and hands to helpers; enumerable would mean
+   * one `{...store}` or one `JSON.stringify` away from a D1 write token in a
+   * log line. The credential inside it dies with the request, like the bucket
+   * credential in `store` itself.
+   *
+   * `null` where the descriptor is absent, partial or malformed — all three
+   * are the same thing to this gateway, which is "fast search is off here,
+   * serve from R2 and project nothing". That is the normal case.
+   */
+  Object.defineProperty(store, "searchIndex", {
+    value: readSearchIndexBinding(binding),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   return store;
 }
