@@ -302,7 +302,7 @@ That is the same shape at N times the magnitude and it wants its own decision.
 
 **The two bounds are coupled and nothing in the type system says so.**
 `MAX_CHUNK_ID_LENGTH` = 128 keeps the longest real id at ~133, comfortably under
-200. Raise it past 192 and every segment from the transcription path is refused
+200. Raise it past 168 and every segment from the transcription path is refused
 at the merge instead — silently, because no client reads the `rejected` count.
 `apps/convex/__tests__/meetingTranscribe.test.ts` asserts the relationship, since
 the two constants live in packages with separate test runners.

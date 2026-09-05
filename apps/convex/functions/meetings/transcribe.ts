@@ -221,8 +221,12 @@ export async function callerHash(userId: string, workerSecret: string): Promise<
  * The consequence to keep in view: `128 + 1 + <index digits>` must stay under
  * 200, or every segment this action mints is refused at the merge — silently,
  * because no client reads the `rejected` count an ack carries. Raising this
- * constant past 192 does that. The test below asserts the relationship so the
- * two packages cannot drift apart unnoticed.
+ * constant past 168 does that — measured, not derived: 168 passes and 169
+ * fails. (Real breakage starts nearer 195; the assertion is deliberately
+ * conservative, because it budgets eight index digits where a batch capped at
+ * `segmentsPerRequest` produces four.) `apps/convex/__tests__/meetingTranscribe.test.ts`
+ * asserts the relationship in both directions, so the two packages cannot drift
+ * apart unnoticed.
  */
 export const MAX_CHUNK_ID_LENGTH = 128;
 

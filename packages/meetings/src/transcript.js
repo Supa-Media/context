@@ -50,7 +50,7 @@ export const UNKNOWN_SPEAKER = "Speaker";
  * real scheme and is far below anything that matters in aggregate.
  *
  * **That coupling is not enforced by the type system and it is one edit from
- * biting.** Raise `MAX_CHUNK_ID_LENGTH` past 192 and every segment from the
+ * biting.** Raise `MAX_CHUNK_ID_LENGTH` past 168 and every segment from the
  * transcription path starts being refused here — silently, from the user's
  * seat, because the ack reports `rejected` and no client reads that field yet.
  * A meeting would simply produce an empty transcript, which is the one outcome
