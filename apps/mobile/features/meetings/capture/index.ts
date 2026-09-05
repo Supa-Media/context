@@ -141,16 +141,28 @@ export function createRecorder(
 
 /*
   Re-exported here so `capture/` is one import for everything above it: the
-  interface, the recorder this build has, the honest fallback, and the module
-  that documents what a real one needs. The split into three files is about
-  keeping `audio.ts` importable without a cycle back through this barrel, not
-  about three places to import from.
+  interface, the recorder this build has, the honest fallback, the fake a test
+  drives by hand, and the module that documents what a real one needs. The split
+  into files is about keeping `audio.ts` importable without a cycle back through
+  this barrel, not about several places to import from — and this being the only
+  door is what makes "nothing above `capture/` can reach the audio" a boundary
+  rather than a preference. `meetingsCaptureWiring.test.ts` fails if any module
+  outside `capture/` imports past it.
+
+  **`setTranscriber` is deliberately not here.** It installs an object that is
+  handed every chunk's bytes — `fakeTranscriber` retains all of them by design —
+  so re-exporting it beside the types put a way to capture raw audio one import
+  away from every module in the app, in the same file that says in prose that
+  nothing above here could. `setTranscriptionClient` genuinely has to be
+  reachable from above (only React can see the app's Convex client) and hands
+  out nothing; the other does not, and a test reaches `capture/transcriber` by
+  its own path instead.
 */
 export { notesOnlyRecorder } from "./notesOnly";
 export { audioRecorder } from "./audio";
+export { fakeRecorder, fakeSegment, type FakeRecorder } from "./fake";
 export { SEGMENT_MS } from "./segments";
 export {
-  setTranscriber,
   setTranscriptionClient,
   type ChunkTranscriber,
   type TranscribeChunkArgs,

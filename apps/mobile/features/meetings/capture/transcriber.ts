@@ -193,7 +193,16 @@ export function setTranscriptionClient(client: ActionRunner | null): void {
   installedClient = client;
 }
 
-/** Substitute the whole transcriber. Tests only; `null` restores the default. */
+/**
+ * Substitute the whole transcriber. Tests only; `null` restores the default.
+ *
+ * "Tests only" was a comment and nothing else while `capture/index.ts`
+ * re-exported this beside the types — one import above `capture/` and any
+ * module could install something that retained every chunk's base64, which
+ * `fakeTranscriber` above does by design. It is no longer on the barrel, and
+ * `meetingsCaptureWiring.test.ts` fails if it goes back, or if anything outside
+ * `capture/` reaches past that door to find it.
+ */
 export function setTranscriber(transcriber: ChunkTranscriber | null): void {
   installedTranscriber = transcriber;
 }
