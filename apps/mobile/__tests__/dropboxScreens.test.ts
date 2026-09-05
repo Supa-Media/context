@@ -377,6 +377,7 @@ function consoleData(storage: Partial<ConsoleStorage>): ConsoleData {
     ingestion: { settings: null, loading: false },
     files: { listings: {} },
     members: { members: [], loading: false },
+    fastSearch: { status: { state: "off", canChange: false }, loading: false },
     loading: false,
     failure: null,
   } as never;

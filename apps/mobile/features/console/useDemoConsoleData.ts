@@ -226,6 +226,15 @@ export function useDemoConsoleData(): ConsoleData {
       // cannot be changed from a page nobody has signed in to.
       save: undefined,
     },
+    // Off, which is what every real context starts as, and with no switch
+    // behind it — `enable`/`disable` absent for the same reason
+    // `storageActions` is. The card still explains what turning it on would
+    // put where, which is the part of this decision worth showing somebody
+    // who has not signed in.
+    fastSearch: {
+      status: { state: "off", canChange: false },
+      loading: false,
+    },
     files,
     // Names, but no controls — `actions` absent exactly like `storageActions`
     // and the clients' `revoke`. A demo console must never offer a button that

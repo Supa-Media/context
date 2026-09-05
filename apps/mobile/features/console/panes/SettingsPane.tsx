@@ -15,6 +15,7 @@ import { PaneHead } from "../ConsoleShell";
 import { atName } from "../format";
 import { loadedFolders } from "../files/browser";
 import { IngestionCard } from "../ingestion/IngestionCard";
+import { FastSearchCard } from "../search/FastSearchCard";
 import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageActions } from "../types";
 import { useArming } from "../useArming";
 import { ConnectForm } from "../storage/ConnectForm";
@@ -217,6 +218,29 @@ export function SettingsPane({
         fallbackAddress={data.ingestionAddress}
         folders={loadedFolders(data.files.listings)}
       />
+
+      {/*
+        Search, under the same gear as storage and ingestion, and here rather
+        than at app level for the same reason this whole pane moved: what it
+        switches is per context. Two brains can be answered from two different
+        places, and a switch above the context picker would claim there is one
+        setting for all of them.
+
+        Below ingestion because it is the least urgent of the three and the
+        only one that is off for everybody until somebody asks — and the same
+        screen on a phone and in a browser, which is the whole point of it
+        living in Expo Router's shared tree rather than a web-only console.
+      */}
+      <Text variant="eyebrow" style={styles.sectionHeadLater}>
+        Search
+      </Text>
+      <Text variant="paneSub" style={styles.sectionSub}>
+        Where this context&apos;s search is answered from. Your Markdown never moves:
+        the index is a copy that can be deleted and rebuilt, and it is off until an
+        owner turns it on.
+      </Text>
+
+      <FastSearchCard view={data.fastSearch} demo={data.demo} />
 
       {/*
         Map and Connections, re-homed.
