@@ -242,10 +242,58 @@ describe("turning an engine answer into segments", () => {
     }
   });
 
-  it("says nothing at all rather than nothing plausible when the engine is silent", () => {
-    const result = toTranscription({}, 1000)!;
-    expect(result.text).toBe("");
-    expect(result.segments).toEqual([{ startMs: 0, endMs: 1000, text: "", confidence: null }]);
+  /**
+   * THE SHAPE CHECK, and the reason `null` is worth having at all.
+   *
+   * Being an object is not being an answer. Every case below is a plain object
+   * this Worker can read nothing out of, and every one of them used to produce
+   * `{ text: "", segments: [{ 0, 0, "", null }] }` with a 200 and a clean
+   * `event: "transcribed", segments: 1` in the log. The control plane then
+   * drops the blank segment and hands back `segments: []`, which its own header
+   * documents as meaning *the worker listened and heard nothing* — so a Workers
+   * AI response-shape change would ship as every meeting in the product
+   * silently producing an empty transcript, with `/health` green throughout.
+   *
+   * `docs/decisions/meetings.md` is the rule being kept here: an absent
+   * capability is reported, never faked.
+   *
+   * SABOTAGE: restore the old `typeof raw !== "object"`-only guard and every
+   * case below goes RED, along with the two handler tests in worker.test.ts.
+   */
+  it("refuses an object it can read nothing out of, rather than hearing silence", () => {
+    for (const raw of [
+      {},
+      // A re-shaped envelope: the fields are all there, one level down. This is
+      // what an upstream shape change actually looks like.
+      { result: { text: "hello there", words: [{ word: "hello", start: 0, end: 1 }] } },
+      { success: true, errors: [], messages: [] },
+      // Present, but not of a type anything here can read.
+      { text: 42 },
+      { text: null },
+      { segments: "two of them" },
+      { words: { first: "hello" } },
+      { transcription_info: { language: "en", duration: 3.2 } },
+    ]) {
+      expect(toTranscription(raw, 1000), JSON.stringify(raw)).toBeNull();
+    }
+  });
+
+  it("reads an answer that carries any one of the three fields it understands", () => {
+    // The other half of the check: it must not have become "refuse everything
+    // that is not the turbo model's full shape", which would 502 the fallback
+    // model and every legitimately silent chunk.
+    expect(toTranscription({ text: "" }, 1000)).toEqual({
+      text: "",
+      segments: [{ startMs: 0, endMs: 1000, text: "", confidence: null }],
+    });
+    expect(toTranscription({ segments: [] }, 1000)).toEqual({
+      text: "",
+      segments: [{ startMs: 0, endMs: 1000, text: "", confidence: null }],
+    });
+    expect(toTranscription({ words: [] }, 1000)).toEqual({
+      text: "",
+      segments: [{ startMs: 0, endMs: 1000, text: "", confidence: null }],
+    });
   });
 });
 

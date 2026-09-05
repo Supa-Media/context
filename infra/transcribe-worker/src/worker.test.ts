@@ -41,6 +41,14 @@
  *         → "413s audio over the cap", and "refuses audio over the cap" (2)
  *     `start * 1000` → `start`
  *         → "reads the engine's seconds as seconds", and two more (3)
+ *     the `isReadableAnswer` guard deleted (the shape it shipped with)
+ *         → "refuses an object it can read nothing out of", "502s an object
+ *           the engine's shape changed under", and "logs a shape change as a
+ *           fault, never as a transcription" (3)
+ *     `isReadableAnswer` narrowed to `text` AND `segments`
+ *         → seven, including the two flat-answer paths and the fallback
+ *           model's words-only answer — the check must not have become
+ *           "refuse anything that is not the turbo model's full shape" (7)
  *
  *   src/index.ts
  *     the 502 interpolates `String(error)`
@@ -310,6 +318,54 @@ describe("transcribing a chunk", () => {
     expect((await response.json()) as Record<string, unknown>).toMatchObject({
       error: expect.stringContaining("engine"),
     });
+  });
+
+  /**
+   * SABOTAGE: let `toTranscription` accept any object again — the guard it
+   * shipped with was `typeof raw !== "object"` and nothing more — and both
+   * tests below go RED, along with two in transcribe.test.ts.
+   *
+   * This is the failure worth spelling out, because nothing about it looks like
+   * a failure. A Workers AI response-shape change answers 200 with an object
+   * this Worker can read nothing out of; the old code turned that into one
+   * blank segment; the control plane drops blank segments and returns
+   * `segments: []`, which it documents as *the worker listened and heard
+   * nothing*. So every meeting in the product transcribes to nothing, `/health`
+   * stays green because the binding is still bound, and the logs say
+   * `event: "transcribed"`. The audio is gone by then.
+   */
+  it("502s an object the engine's shape changed under, rather than hearing silence", async () => {
+    for (const answer of [
+      {},
+      { result: { text: "a whole minute of somebody's meeting" } },
+      { success: true, errors: [] },
+    ]) {
+      const ai = fakeAi(answer);
+      const response = await handleRequest(
+        post({ audioBase64: AUDIO, mimeType: "audio/webm", durationMs: 30_000 }),
+        envWith(ai.binding),
+      );
+      expect(response.status, JSON.stringify(answer)).toBe(502);
+      expect((await response.json()) as Record<string, unknown>).toMatchObject({
+        error: expect.stringContaining("unreadable"),
+      });
+    }
+  });
+
+  it("logs a shape change as a fault, never as a transcription", async () => {
+    // The half a green dashboard is made of. `event: "transcribed", segments:
+    // 1` is what the old code emitted for an answer it had read nothing out of,
+    // so the one signal an operator would look at agreed that it was working.
+    const logs: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((...args) => void logs.push(args.join(" ")));
+
+    await handleRequest(
+      post({ audioBase64: AUDIO, mimeType: "audio/webm", durationMs: 30_000 }),
+      envWith(fakeAi({}).binding),
+    );
+
+    expect(logs.join("\n")).toContain("engine_unreadable");
+    expect(logs.join("\n")).not.toContain("transcribed");
   });
 });
 

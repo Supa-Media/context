@@ -239,6 +239,37 @@ function engineDurationMs(answer: Record<string, unknown>): number {
 }
 
 /**
+ * Whether this object is an answer from an engine this Worker understands.
+ *
+ * Being an object is not being an answer, and the difference is the whole of
+ * why `toTranscription` returns `null` at all. Everything below reads exactly
+ * three fields — `text`, `segments` and `words` — so an object carrying none of
+ * them, or carrying them at a type nothing here can read, is an answer this
+ * Worker cannot read rather than an answer that said nothing.
+ *
+ * That distinction is not academic. `{}` and a re-shaped envelope such as
+ * `{ result: { text, words } }` used to fall all the way through to the flat
+ * branch and come back as one blank segment with a 200. The control plane drops
+ * blank segments, so the caller received `segments: []` — which
+ * `functions/meetings/transcribe.ts` documents as meaning the worker listened
+ * and heard nothing. A Workers AI shape change would therefore have shipped as
+ * every meeting silently transcribing to nothing, with a green `/health` (the
+ * binding is still bound) and an `event: "transcribed"` line per chunk.
+ * `docs/decisions/meetings.md`: an absent capability is reported, never faked.
+ *
+ * It is deliberately a check for *presence at a readable type* rather than for
+ * the turbo model's full shape. The fallback model answers with `words` and no
+ * `segments`, and a genuinely silent chunk answers with `text: ""` — both are
+ * readable answers and neither may be turned into a 502.
+ */
+function isReadableAnswer(answer: Record<string, unknown>): boolean {
+  if (typeof answer["text"] === "string") return true;
+  if (Array.isArray(answer["segments"])) return true;
+  if (Array.isArray(answer["words"])) return true;
+  return false;
+}
+
+/**
  * Turn whatever the engine returned into the transcript contract.
  *
  * `null` means "this is not an engine answer", and the handler turns that into
@@ -252,6 +283,7 @@ function engineDurationMs(answer: Record<string, unknown>): number {
 export function toTranscription(raw: unknown, durationMs: number | null): Transcription | null {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
   const answer = raw as Record<string, unknown>;
+  if (!isReadableAnswer(answer)) return null;
   const flat = typeof answer["text"] === "string" ? (answer["text"] as string).trim() : "";
 
   const segments = readSegments(answer["segments"]);
