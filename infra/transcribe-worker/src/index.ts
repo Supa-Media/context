@@ -83,8 +83,11 @@
  * serve a control plane that predates the header. `main` deploys the Convex
  * functions and this Worker from one push, so the window is small — but it is
  * not zero, and during it transcription fails loudly rather than transcribing
- * unmetered. That is the right way round: a chunk that fails is a chunk the
+ * unattributed. That is the right way round: a chunk that fails is a chunk the
  * person is told about, and an accepted unidentified request is the finding.
+ * "Unattributed" and not "unmetered": nothing here meters, per `#227` and the
+ * `ratelimits` block in `wrangler.jsonc`. What the header buys is a caller a
+ * bill can be traced to, which is a different and smaller thing.
  *
  * ── Why /health is open, and why it is the most load-bearing line here ──────
  *
@@ -96,10 +99,15 @@
  * deploying something that could not work.
  *
  * So `/health` answers `ai` honestly, and `deploy-transcribe-worker.yml` fails
- * the job when it is false. It is unauthenticated because it has to be usable
- * as a probe and because it reveals nothing: the answer depends on no caller,
- * no workspace, no secret and no request — it is one boolean about our own
- * account's feature flags.
+ * the job when it is false. `rateLimit` is answered beside it for the same
+ * reason and the job fails on a false there too — a declared binding the
+ * runtime did not get, which `checkRateLimit` turns into a `429` for every
+ * authenticated caller. It is unauthenticated because it has to be usable as a
+ * probe and because it reveals nothing: the answer depends on no caller, no
+ * workspace, no secret and no request — two booleans about our own deployment,
+ * one an account feature flag and one a binding attachment, neither of them a
+ * credential and neither of them a fact about any user. The handler says why
+ * `TRANSCRIBE_WORKER_SECRET` is not a third.
  *
  * ============================================================================
  * LOGGING

@@ -55,12 +55,12 @@
 #
 # WHAT A GREEN `rateLimit` DOES NOT MEAN, and this is the important part as of
 # 2026-09-05: it does NOT mean the caller is metered. `#226`/`#227` established
-# by paced probe against the deployed Worker, on two `namespace_id` values, with
-# the binding confirmed attached through the Workers API, that this binding does
-# not enforce on this account — 30 requests on one key a second apart drew zero
-# refusals. `wrangler.jsonc` says so at length and says to treat the limit as
-# absent. This flag reports that the binding is PRESENT AND CALLABLE, which is
-# the property `checkRateLimit` needs before it will trust it, and nothing more.
+# by paced probe against the deployed Worker, on two `namespace_id` values and
+# with the binding confirmed attached, that this binding does not enforce on
+# this account — 30 requests on one key a second apart drew zero refusals.
+# `wrangler.jsonc` says so at length and says to treat the limit as absent. This
+# flag reports that the binding is PRESENT AND CALLABLE, which is the property
+# `checkRateLimit` needs before it will trust it, and nothing more.
 #
 # So the obvious next step — send `limit + 1` requests and demand a `429` — is
 # NOT written here on purpose. It would go red on the first run and stay red,
