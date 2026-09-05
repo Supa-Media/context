@@ -614,9 +614,13 @@ function selfTest() {
       // why the NAME rule calls wearing the name without deploying "an
       // exemption in disguise". Rule C is orthogonal — `if (triggers.has("push"))`
       // with no `isDeploy` guard, so it applies to every workflow, and the
-      // self-test cases above expect `C mcp.yml` for an ordinary CI file. An
-      // earlier version of this paragraph said the name gated B *and C*; the
-      // suite forty lines up already disproved it.
+      // self-test cases above expect `C mcp.yml` for an ordinary CI file. So is
+      // B2, `if (triggers.has("pull_request_target"))`, ungated in the same way
+      // and emitting the code `B` on any workflow — the case above expects
+      // `B mcp.yml` for a plain one. So the name gates the two checks labelled
+      // B, not everything that reports as `B`. An earlier version of this
+      // paragraph said the name gated B *and C*; the suite forty lines up
+      // already disproved it.
       "a store submission that does not carry the name",
       [{ name: "release.yml", text: "on:\n  push:\n    branches: [main]\n  pull_request:\njobs:\n  d:\n    steps:\n      - run: eas submit --platform ios --latest --non-interactive\n" }],
       ["NAME release.yml", "B release.yml"],
