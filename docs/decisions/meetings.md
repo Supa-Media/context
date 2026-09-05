@@ -290,6 +290,61 @@ The checks are `refuses an id longer than the bound, before spending any
 inference`, `refuses characters that mean something to a renderer, a path, or a
 shell`, `the refusal names the field without quoting what was sent` and
 `an anonymous caller with a bad chunk id is still just anonymous`.
+### The device is never waiting on the network, and a backlog is dropped rather than kept
+
+Capture rotates on a fixed wall clock, and the first version of it closed a
+chunk, **awaited the transcription round trip**, and only then reopened the
+microphone. That is 1.5-4s of every twenty seconds never recorded, cut mid-word,
+on both platforms — 8-20% of a meeting — while the offset arithmetic went on
+asserting the chunks were contiguous, so the transcript's timestamps claimed
+audio that had never existed. On a slow link it was worse than lossy: if a round
+trip outran `SEGMENT_MS` the interval kept firing, the backlog grew with no
+ceiling, and the offsets diverged from wall clock permanently while the recorder
+still reported `state: "recording"`.
+
+So **the send is not on the chain that owns the device.** A rotation closes the
+file, reopens recording, and hands the bytes off; segments arrive whenever they
+arrive, which costs nothing because a `TranscriptSegment` carries its own id and
+`startMs`. Out-of-order arrival is acceptable; silently missing audio is not.
+
+That leaves a bound to choose, and what happens at it is the actual decision:
+**at `MAX_INFLIGHT_CHUNKS` a chunk is dropped, with an honest sentence on the
+screen, rather than queued.** Queueing means holding somebody's audio past the
+moment it would otherwise have been deleted — on the phone, keeping the `.m4a`
+in the cache — and "the file dies before the request that carries its contents"
+is what makes *audio is never persisted by us* a property of the code rather
+than a line in this document. A bounded queue also only moves the same decision
+`MAX_INFLIGHT_CHUNKS` chunks later, by which time the backlog is minutes rather
+than seconds and nobody has been told anything.
+
+Two rules follow from the same place, and both were wrong before they were
+written down. **The offset is session time and it moves whatever else fails** —
+a chunk the device would not close, a chunk with nowhere to send, the seconds an
+interruption cost: all of it is time that passed, so every later chunk starts
+that much further along, and a flag's `at` lands on the sentence it was pressed
+during. **A chunk id, conversely, is spent only when there is a request to carry
+it**, so a run of bad chunks leaves no gaps in the sequence.
+
+And **releasing the device may never depend on the send.** `stop()` awaited the
+last chunk's transcription before releasing, so ending a meeting with no signal
+— the ordinary case, not the edge one — left the microphone open: iOS's red bar
+for the life of the process, the browser's recording dot for the life of the
+tab. The release is unconditional now, and waiting for outstanding sends happens
+after it, where it costs a spinner rather than a microphone.
+
+The same rule reaches the other end of a recording. Nothing swept the recording
+directory at startup, so a crash or a force-quit mid-chunk left up to
+`SEGMENT_MS` of somebody's meeting in the app's cache permanently — while the
+code claimed in prose that it could not. The sweep runs when the capture module
+is first evaluated, which is the one moment in a runtime where no recorder
+exists for it to race.
+
+The checks are `rotation reopens the microphone without waiting for the
+answer`, `a backlog is bounded, and what it drops it says`, `a chunk that will
+not close does not take the next twenty seconds too`, `an interruption's lost
+time lands in the offset`, `a chunk whose path the file system refuses still
+releases the device`, and `a recording a previous run left behind is swept at
+startup`.
 
 ### The recorder is one interface with two implementations, and nothing above it knows which
 
@@ -604,8 +659,9 @@ Detection may *suggest*, and the suggestion is a prompt with a "not now" — a
 detector that silently starts recording would be the same product with the
 indicator removed.
 
-**"Wherever they are looking" is mounted once, at the root of the app.** The
-phone's bar lived inside the meetings navigator, which made it visible on the
+**"Wherever they are looking" is mounted once, at the root of the app — and so
+is everything the recording depends on.** The phone's bar lived inside the
+meetings navigator, which made it visible on the
 meetings screens and nowhere else — so a person who started a recording and went
 to read a note had a microphone open and no indicator, which is precisely the
 mode this section says is a bug. It is now mounted beside the `(app)` stack,
@@ -620,8 +676,23 @@ bars over each other, because that layout renders inside this one. And it
 console's toolbar is a pill of the same height in the same slot, and a recording
 bar lying on top of it would take a screen's navigation away for the length of a
 meeting. The frame publishes the height it occupies and the bar clears it, which
-is also why a screen with no chrome there pays nothing for the possibility. The
-checks are `the persistent recording bar is mounted here, and draws nothing when
-idle`, `the frame publishes the height of its floating toolbar, and takes it
-back`, and `with the console's toolbar underneath, it clears it rather than
-covering it`.
+is also why a screen with no chrome there pays nothing for the possibility.
+
+The half that took longer to see is that **a recording visible from anywhere has
+to be *working* from anywhere**, and two of the parts it depends on were still
+wired to the navigator that unmounts. The Convex client the recorders ship
+chunks through was installed by the meetings layout, so leaving the section
+mid-meeting recorded audio, encoded it, deleted it and threw it away while the
+bar went on drawing a live timer. And the recorder itself was built inside that
+layout's effect, so coming back handed the controller a fresh idle one — End
+then stopped that, while the object actually holding the microphone kept its
+rotation timer and its listeners forever. A recording outlives those screens, so
+anything it depends on is mounted where the bar is, or held across a
+reconfiguration.
+
+The checks are `the persistent recording bar is mounted here, and draws nothing
+when idle`, `the frame publishes the height of its floating toolbar, and takes
+it back`, `with the console's toolbar underneath, it clears it rather than
+covering it`, `leaving the meetings section does not switch transcription off`,
+and `re-configuring mid-meeting keeps the recorder that is holding the
+microphone`.

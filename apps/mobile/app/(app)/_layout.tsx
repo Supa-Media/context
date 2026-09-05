@@ -6,6 +6,7 @@ import { useConvexAuth, useQueries, type RequestForQueries } from "convex/react"
 import { api } from "@context/convex/_generated/api";
 import { useColors } from "../../features/design/theme";
 import { RecordingBar } from "../../features/meetings/components/RecordingBar";
+import { useTranscriptionClient } from "../../features/meetings/useMeetings";
 import { useAttemptedHref } from "../../features/auth/attemptedHref";
 import { resolveProtectedRoute } from "../../features/auth/redirect";
 import { EMPTY_QUERY_SPEC } from "../../features/console/querySpec";
@@ -60,6 +61,13 @@ import {
  * `zIndex` set inside the stack would mean nothing out here
  * (`docs/decisions/app-and-console.md`).
  *
+ * `useTranscriptionClient` is here for exactly the same reason, and it was not:
+ * it lived in `useMeetingsSetup`, in the meetings navigator, which unmounts the
+ * moment somebody leaves that section — so leaving mid-meeting switched
+ * transcription off for the rest of it while the bar went on drawing a live
+ * timer. A recording that is visible from anywhere has to be *working* from
+ * anywhere. See `features/meetings/useMeetings.ts`.
+ *
  * ## Why `useQueries` and not two `useQuery` calls
  *
  * This layout used to hold a single `useQuery` guarded by the `"skip"`
@@ -107,6 +115,11 @@ export default function AppLayout() {
    */
   const decision = resolveProtectedRoute(useConvexAuth(), useAttemptedHref());
   const authed = decision.action === "render";
+
+  // Above the early returns below, like every other hook here: this layout's
+  // job is to gate, and a hook that ran only on the happy path would install
+  // transcription a render late on a cold start into a running meeting.
+  useTranscriptionClient();
 
   const spec = useMemo<RequestForQueries>(() => {
     if (!authed) return EMPTY_QUERY_SPEC;

@@ -76,15 +76,22 @@ export {
 } from "./gateway";
 export { fakeGateway, type FakeGateway } from "./fakeGateway";
 
+/*
+  Through `./capture`, never past it. That barrel is the one audited door into
+  the modules that hold audio, and a deep import from out here is what turned
+  the rule into a preference.
+*/
 export {
+  audioRecorder,
   createRecorder,
+  fakeRecorder,
+  fakeSegment,
   notesOnlyRecorder,
+  type FakeRecorder,
   type MeetingRecorder,
   type RecorderCapability,
   type RecorderError,
 } from "./capture";
-export { audioRecorder } from "./capture/audio";
-export { fakeRecorder, fakeSegment, type FakeRecorder } from "./capture/fake";
 
 export {
   applyMeetingEvent,

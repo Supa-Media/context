@@ -1,5 +1,5 @@
 /**
- * The two facts both recorders have to agree on, in a file neither of them owns.
+ * The facts both recorders have to agree on, in a file neither of them owns.
  *
  * `audio.ts` and `audio.web.ts` are a platform split, and a platform split
  * cannot import from its own other half: Metro resolves `./audio` to
@@ -24,6 +24,30 @@
  * mean keeping the audio.
  */
 export const SEGMENT_MS = 20_000;
+
+/**
+ * How many chunks may be on their way to a transcriber at once.
+ *
+ * The send is deliberately off the device's critical path — a rotation closes a
+ * file, reopens the microphone *immediately*, and hands the bytes to a
+ * transcriber that answers whenever it answers — because waiting for the answer
+ * meant 1.5–4s of every twenty was never recorded, cut mid-word, while the
+ * offsets went on claiming the chunks were contiguous. The cost of detaching it
+ * is that a link slower than `SEGMENT_MS` would grow a backlog with no ceiling,
+ * on a device that is also recording.
+ *
+ * **At the bound a chunk is dropped, with an honest error, rather than queued.**
+ * That is a decision rather than an omission. Queueing means holding somebody's
+ * audio past the moment it would otherwise have been deleted — on the phone,
+ * keeping the `.m4a` in the cache — and "the file dies before the request that
+ * carries its contents" is what makes *audio is transient* a property of the
+ * code rather than a line in a document. A bounded queue also only moves the
+ * same decision `MAX_INFLIGHT_CHUNKS` chunks later, by which point the backlog
+ * is minutes rather than seconds and nobody has been told anything. Three is a
+ * minute of latency before the first drop, which is well past the point where a
+ * transcript is still arriving usefully.
+ */
+export const MAX_INFLIGHT_CHUNKS = 3;
 
 /**
  * The id a chunk keeps forever.
