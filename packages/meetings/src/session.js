@@ -33,6 +33,7 @@ import {
   MEETING_SOURCE_KINDS,
   MEETING_TRANSITIONS,
   PROTOCOL_VERSION,
+  TRANSCRIPTION_ENGINES,
   WATCH_FLAG_LABEL_MAX,
   isMeetingId,
 } from "./protocol.js";
@@ -58,6 +59,8 @@ export const DEFAULT_TITLE = "Untitled meeting";
 const SOURCE_KINDS = new Set(MEETING_SOURCE_KINDS);
 
 const PLATFORMS = new Set(DEVICE_PLATFORMS);
+
+const ENGINES = new Set(TRANSCRIPTION_ENGINES);
 
 /** Thrown when a client asks for a move `MEETING_TRANSITIONS` does not allow. */
 export class MeetingTransitionError extends Error {
@@ -250,6 +253,35 @@ function normalizeDevice(device) {
   return /** @type {import("./protocol.js").MeetingDevice} */ (out);
 }
 
+/**
+ * Which engine produced this meeting's words, refused rather than guessed.
+ *
+ * The only field in this file that is **refused** on an unrecognised value
+ * instead of falling back the way `source.kind` falls back to `unknown` and
+ * `device.platform` falls back to `web`. Those two are evidence a detector
+ * offered, and a wrong guess about them costs a label. This one is the note's
+ * answer to "did my audio leave this machine", and there is no honest fallback:
+ * `null` would claim nothing was transcribed, `cloud` would claim something
+ * left, and either is the product telling somebody a thing it does not know
+ * about their own recording. A client sending a word this contract has never
+ * heard of has a bug, and hearing about it is cheaper than a note that lies.
+ *
+ * Absent is not malformed: a body with no `transcription` is a session with no
+ * engine, which is `null` — an ordinary notes-only meeting.
+ *
+ * @param {unknown} value
+ * @returns {import("./protocol.js").TranscriptionEngine|null}
+ */
+export function normalizeTranscription(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "string" && ENGINES.has(value)) {
+    return /** @type {import("./protocol.js").TranscriptionEngine} */ (value);
+  }
+  throw new MeetingEventError(
+    `transcription must be one of ${TRANSCRIPTION_ENGINES.join(", ")}, or null`
+  );
+}
+
 /** @param {unknown} title */
 function normalizeTitle(title) {
   // Newlines would break the `# <title>` heading the note is built around.
@@ -292,6 +324,7 @@ export function createSession(input = {}) {
     enhanced: typeof input.enhanced === "string" ? input.enhanced : null,
     templateId: typeof input.templateId === "string" ? input.templateId : null,
     device: normalizeDevice(input.device),
+    transcription: normalizeTranscription(input.transcription),
     notePath: typeof input.notePath === "string" ? input.notePath : null,
     failureReason: typeof input.failureReason === "string" ? input.failureReason : null,
     recordingSince: null,

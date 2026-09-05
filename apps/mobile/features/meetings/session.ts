@@ -1,4 +1,5 @@
 import { MEETING_TRANSITIONS, WATCH_FLAG_LABEL_MAX } from "./protocol";
+import type { TranscribesAt } from "./capture";
 import type {
   Attendee,
   MeetingDevice,
@@ -7,6 +8,7 @@ import type {
   MeetingSession,
   MeetingSource,
   MeetingState,
+  TranscriptionEngine,
   TranscriptSegment,
 } from "./protocol";
 
@@ -88,8 +90,33 @@ export interface SeedInput {
   source: MeetingSource;
   device: MeetingDevice;
   attendees?: Attendee[];
+  /**
+   * Which engine will produce this meeting's words, or `null` when none will.
+   *
+   * Required rather than optional, and taken from the recorder that is about to
+   * run: the note has to say how it was made, and a field a caller can forget
+   * is a note that quietly says `none` about a meeting that went to the cloud.
+   */
+  transcription: TranscriptionEngine | null;
   /** The `PROTOCOL_VERSION` the client wrote with. */
   version: number;
+}
+
+/**
+ * The recorder's word for where it transcribes, in the contract's word for it.
+ *
+ * The two vocabularies differ on purpose and are not going to be unified: a
+ * recorder answers "where does this happen" (`device`, `cloud`, `nowhere`), and
+ * a note answers a reader's question about a meeting they are looking at
+ * (`on-device`, `cloud`, or nothing at all). Translating in one function is what
+ * keeps that from becoming three near-identical ternaries, one of which will
+ * one day map `nowhere` to `"on-device"` — which reads, in somebody's note, as
+ * "your audio stayed on this machine" about a meeting that was never recorded.
+ */
+export function transcriptionFor(transcribesAt: TranscribesAt): TranscriptionEngine | null {
+  if (transcribesAt === "device") return "on-device";
+  if (transcribesAt === "cloud") return "cloud";
+  return null;
 }
 
 /** A session in `idle`, before anything has been recorded into it. */
@@ -110,6 +137,7 @@ export function seedSession(input: SeedInput): MeetingSession {
     enhanced: null,
     templateId: null,
     device: input.device,
+    transcription: input.transcription,
     notePath: null,
     failureReason: null,
   };

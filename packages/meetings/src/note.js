@@ -18,6 +18,7 @@
 //    about forty kilobytes, and no AI client should have to pull that to read a
 //    summary.
 
+import { TRANSCRIPTION_ENGINES } from "./protocol.js";
 import { DEFAULT_TITLE } from "./session.js";
 import { UNKNOWN_SPEAKER, formatClock, groupIntoTurns } from "./transcript.js";
 
@@ -50,9 +51,70 @@ export const FRONTMATTER_KEYS = Object.freeze([
   "ended",
   "duration",
   "source",
+  "transcription",
+  "device",
   "attendees",
   "status",
 ]);
+
+/**
+ * Stands in for a meeting nothing transcribed.
+ *
+ * Written rather than omitted, and that is the whole of the rule: a key that is
+ * absent is indistinguishable from a note written before this product recorded
+ * how it was made, so a reader could not tell "nobody transcribed this" from
+ * "nobody wrote it down". `none` is a word in a document a person opens, so it
+ * says what happened rather than spelling `null`.
+ */
+export const TRANSCRIPTION_NONE = "none";
+
+/**
+ * ...and for a value this contract does not recognise.
+ *
+ * Only reachable from a session record somebody hand-edited in their own
+ * bucket — the gateway refuses an unknown engine on the way in
+ * (`normalizeTranscription`). The renderer still has to answer, and it may
+ * neither guess an engine nor drop the key, so it says it does not know. It
+ * never throws: refusing to write the note would lose the meeting to protect a
+ * field.
+ */
+export const TRANSCRIPTION_UNKNOWN = "unknown";
+
+/**
+ * What the frontmatter says a meeting's words came from.
+ *
+ * @param {unknown} transcription
+ * @returns {string}
+ */
+export function transcriptionLabel(transcription) {
+  if (transcription === null) return TRANSCRIPTION_NONE;
+  if (typeof transcription === "string" && TRANSCRIPTION_ENGINES.includes(transcription)) {
+    return transcription;
+  }
+  return TRANSCRIPTION_UNKNOWN;
+}
+
+/**
+ * The device that recorded it, for a human.
+ *
+ * The platform is the floor — every `MeetingDevice` has one, and "was this the
+ * laptop or the phone" is answerable from it alone — and the name is the useful
+ * half when there is one, because a person with two Macs is asking *which*. So:
+ * `Studio Mac (macos)` when the device named itself, `macos` when it did not.
+ *
+ * `appVersion` is deliberately not here. It is a fact about the build, not
+ * about the device that recorded, and the decision this key exists for asks for
+ * the device; a note is not a support ticket.
+ *
+ * @param {unknown} device
+ * @returns {string}
+ */
+export function deviceLabel(device) {
+  const raw = device && typeof device === "object" ? /** @type {Record<string, unknown>} */ (device) : {};
+  const platform = typeof raw.platform === "string" && raw.platform.trim() ? raw.platform.trim() : "unknown";
+  const name = typeof raw.name === "string" ? raw.name.replace(/\s+/g, " ").trim() : "";
+  return name ? `${name} (${platform})` : platform;
+}
 
 /* ------------------------------- YAML ------------------------------------ */
 
@@ -370,6 +432,15 @@ export function renderMeetingNote(session, options = {}) {
     ended: yamlScalar(session.endedAt ?? ""),
     duration: yamlScalar(formatDuration(session.recordedMs ?? 0)),
     source: yamlScalar(session.source?.kind ?? "unknown"),
+    // Beside `source` on purpose: `source` is where the audio came from,
+    // `transcription` is what turned it into text, and `device` is what was in
+    // the room. A reader asking "where did my audio go" reads three adjacent
+    // lines rather than hunting the block.
+    // A session carrying no field at all reads as no engine, which is the same
+    // normalization `createSession` does at the gateway's door: absent has one
+    // meaning here, and it is not a second kind of unknown.
+    transcription: yamlScalar(transcriptionLabel(session.transcription ?? null)),
+    device: yamlScalar(deviceLabel(session.device)),
     attendees: yamlFlowList((session.attendees ?? []).map((attendee) => attendee.name)),
     status: yamlScalar(session.state ?? "idle"),
   };

@@ -94,6 +94,7 @@ export {
   projectLog,
   seedProjection,
   seedSession,
+  transcriptionFor,
   type MeetingProjection,
 } from "./session";
 

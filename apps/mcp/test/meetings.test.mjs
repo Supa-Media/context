@@ -63,6 +63,20 @@
  *     thing standing between a client and a meeting marked finished that was
  *     never written.
  * 11. **`listSessions` ignores its limit** — 1 check failed.
+ * 12. **`normalizeTranscription` coerces an unknown engine to `null` instead of
+ *     refusing** — 2 checks failed: the refusal, and the session it then opened
+ *     for an engine nobody has heard of. The note that meeting would become
+ *     says `transcription: none` about audio that may well have left the
+ *     device, which is the one direction this field is not allowed to be wrong
+ *     in.
+ * 13. **`withTranscription` lets a client rewrite the engine a session was
+ *     opened with** — 2 checks failed. Deleting the call to it altogether fails
+ *     1 instead: an unknown engine is still refused at `createSession`, so what
+ *     the later-body path adds is exactly the refusal of a *rewrite*.
+ * 14. **`completionReceipt` drops `transcription` with the transcript** —
+ *     1 check failed. Cheap to get wrong, because the receipt is deliberately
+ *     the place where almost everything is dropped; the note has the answer,
+ *     but the receipt is what a client lists without opening one.
  */
 
 import worker from "../src/index.js";
@@ -98,6 +112,8 @@ const SESSION_STORAGE_FAILURE = idOf("c");
 const SESSION_CONFLICT = idOf("d");
 const SESSION_TEAM = idOf("e");
 const SESSION_FORGED = idOf("g");
+/** Never opened: the id a refused transcription engine is offered under. */
+const SESSION_BAD_ENGINE = idOf("m");
 /** A meeting nobody recorded: typed notes, and no `start` event ever sent. */
 const SESSION_TYPED_ONLY = idOf("h");
 /** Opened while a workspace calls itself `meetings`. It must still be ours. */
@@ -318,6 +334,9 @@ export async function runMeetingChecks(check) {
       startedAt: "2026-09-01T09:00:00.000Z",
       source: { kind: "zoom", app: "Zoom" },
       device: { platform: "ios", name: "Test Phone" },
+      // A phone on the paid tier: the audio left the device. The note has to
+      // say so, and this is where the only party that knows says it.
+      transcription: "cloud",
       attendees: [
         { name: "Ada Lovelace", email: "ada@example.test", self: true, via: "manual" },
         { name: "Grace Hopper", email: "grace@example.test", via: "calendar" },
@@ -353,6 +372,35 @@ export async function runMeetingChecks(check) {
 
   const badArray = await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", { raw: "[1,2,3]" });
   check("a JSON array is not a session", badArray.status === 400 && badArray.body?.error === "meeting_invalid");
+
+  const badEngine = await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: { id: SESSION_BAD_ENGINE, transcription: "quantum" },
+  });
+  check(
+    "an engine nobody has heard of is refused rather than stored",
+    badEngine.status === 400 && badEngine.body?.error === "meeting_invalid"
+  );
+  check("...and opens no session for it", keysIn(recorder, `${MEETING_PREFIX}${SESSION_BAD_ENGINE}`).length === 0);
+
+  /*
+    And it cannot be rewritten on a session that already declared one. Audio
+    that has been streamed to a service cannot un-leave the machine, so a client
+    talking a note out of saying `cloud` is refused rather than obeyed — which
+    is the only direction this field can be wrong in that costs anybody
+    anything.
+  */
+  const rewrittenEngine = await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: { id: SESSION_MAIN, transcription: "on-device" },
+  });
+  check(
+    "a client may not rewrite the engine a meeting was opened with",
+    rewrittenEngine.status === 400 && rewrittenEngine.body?.error === "meeting_invalid"
+  );
+  check("and the stored session still says where its audio went", rawRecord().transcription === "cloud");
+  const sameEngine = await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: { id: SESSION_MAIN, transcription: "cloud" },
+  });
+  check("while re-sending the same answer is the no-op a replay needs", sameEngine.status === 200);
 
   const badId = await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions/not-an-id/segments", { body: {} });
   check("a path that is not a meeting id is no route at all", badId.status === 404);
@@ -445,6 +493,10 @@ export async function runMeetingChecks(check) {
   const read = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_MAIN}`, { method: "GET" });
   check("a session reads back", read.status === 200 && read.body?.session?.id === SESSION_MAIN);
   check("with its counts", read.body?.session?.segmentCount === 3);
+  check(
+    "and with the engine its words came from, so a client need not open the note",
+    read.body?.session?.transcription === "cloud"
+  );
   check("and without the transcript, unless it is asked for", read.body?.transcript === undefined);
 
   const readFull = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_MAIN}?transcript=true`, {
@@ -559,11 +611,30 @@ export async function runMeetingChecks(check) {
   check("and the moment the wearer marked, beside the turn they marked it during", noteBody.includes("> [!flag] 00:04 — come back to this"));
   check("with the meeting id in its frontmatter", noteBody.includes(`meeting-id: ${SESSION_MAIN}`));
   check("and a status that says the meeting is over, not mid-write", noteBody.includes("status: complete"));
+  /*
+    The decision's own check, by its own name: "Every note records how it was
+    made ... A person reading a meeting from eight months ago can tell whether
+    its audio ever left their laptop, which is not a question they should have
+    to reconstruct from their billing history."
+
+    This is the end of that promise rather than the middle of it: not that a
+    session field exists, but that the file in the customer's bucket — the only
+    artifact left once the receipt drops everything else — says the word.
+  */
+  check(
+    "a finalized note names the engine that produced it",
+    noteBody.includes("transcription: cloud")
+  );
+  check(
+    "...and the device that recorded it, beside it",
+    noteBody.includes('device: "Test Phone (ios)"')
+  );
 
   const receipt = rawRecord();
   check("the in-flight record becomes a completion receipt", receipt.state === "complete");
   check("naming the note it wrote", receipt.notePath === notePath);
   check("keeping the count", receipt.segmentCount === 3);
+  check("and keeping the disclosure, which is one word and is not in the transcript", receipt.transcription === "cloud");
   check("and keeping no second copy of the flags either, because they are in the note", receipt.flags.length === 0);
   check(
     "and keeping no second copy of what was said",

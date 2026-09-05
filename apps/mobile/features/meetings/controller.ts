@@ -24,6 +24,7 @@ import {
   elapsedMs,
   isLive,
   seedProjection,
+  transcriptionFor,
   type MeetingProjection,
 } from "./session";
 import { drainMeetings } from "./sync";
@@ -285,6 +286,15 @@ export class MeetingsController {
       source: input.source ?? { kind: "unknown" },
       device: config.device,
       attendees: input.attendees,
+      /*
+        Taken from the recorder this build has, at the one moment a session is
+        built, so the note that lands in somebody's bucket says how it was made.
+        It names the engine that is about to run rather than the one that turned
+        out to produce words: a recorder that ships audio to a service and then
+        fails still shipped it, and a note that said `none` because nothing came
+        back would be wrong in the only direction that matters.
+      */
+      transcription: transcriptionFor(config.recorder.capability.transcribesAt),
       version: PROTOCOL_VERSION,
     });
     this.projections.set(id, projection);

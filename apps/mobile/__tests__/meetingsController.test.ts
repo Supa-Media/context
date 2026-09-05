@@ -3,7 +3,7 @@ import { memoryStore, type KeyValueStore } from "../features/offline/memory";
 import { endSession } from "../features/offline/epoch";
 import { ownedKeys } from "../features/offline/keys";
 import { forgetEverything } from "../features/offline/cache";
-import { MeetingsController, recordElapsedMs } from "../features/meetings/controller";
+import { MeetingsController, findSession, recordElapsedMs } from "../features/meetings/controller";
 import { fakeGateway, type FakeGateway } from "../features/meetings/fakeGateway";
 import { fakeRecorder, fakeSegment, type FakeRecorder } from "../features/meetings/capture/fake";
 import { forgetAllMeetings, loadMeetings } from "../features/meetings/local";
@@ -28,6 +28,21 @@ import { isSynced } from "../features/meetings/record";
  * `persistDebounceMs: 0` throughout, with an explicit tick between the write
  * and the assertion, because the debounce is a real behaviour tested on its own
  * below rather than something every other test should have to wait out.
+ *
+ * ## The sabotage record
+ *
+ * Broken on purpose, the whole mobile suite run (3050 tests), and reverted:
+ *
+ *  - **`start()` stops asking the recorder and writes `transcription: null`**:
+ *    1 — **"the session records which engine is about to produce its words"**.
+ *    Every meeting this build recorded would then land in the bucket saying
+ *    nothing was transcribed, including the ones whose audio was streamed to a
+ *    service, and nothing else in the app would have noticed.
+ *  - **`transcriptionFor` mapping `nowhere` to `on-device`**: 2 — this file's
+ *    **"a build that transcribes nowhere writes a meeting with no engine"** and
+ *    `meetingsSession.test.ts`'s own mapping check. That is the pair worth
+ *    having: the mapping is tested where it lives *and* through the one caller
+ *    that uses it, so deleting either test still leaves the lie caught.
  */
 
 const DEVICE = { platform: "ios" as const, name: "a phone" };
@@ -116,6 +131,37 @@ describe("starting a meeting", () => {
     */
     expect(snapshot.live?.session.failureReason).toBeNull();
     expect(snapshot.captureError).toBe("Context needs permission to use the microphone.");
+  });
+
+  test("the session records which engine is about to produce its words", async () => {
+    /*
+      The note this meeting becomes has to say how it was made, and the only
+      moment anything knows is this one: the recorder this build has is the
+      thing that knows where the audio is going, and the session is built once.
+      A field filled in later, at finalize, would be guessing from the outside
+      at what the recorder was doing.
+    */
+    const { controller } = await harness({ recorder: fakeRecorder({ transcribesAt: "cloud" }) });
+    const id = await controller.start({ title: "Design review" });
+
+    expect(controller.getSnapshot().live?.session.transcription).toBe("cloud");
+    expect(findSession(controller.getSnapshot(), id)?.transcription).toBe("cloud");
+  });
+
+  test("a build that transcribes nowhere writes a meeting with no engine, not a missing field", async () => {
+    /*
+      Android today, and any browser that cannot record: a notes-only session is
+      a real and useful product, and its note says `transcription: none` rather
+      than saying nothing — which a reader could not tell from an old note.
+    */
+    const { controller } = await harness({
+      recorder: fakeRecorder({ audio: false, transcribesAt: "nowhere" }),
+    });
+    await controller.start({ title: "Design review" });
+
+    const session = controller.getSnapshot().live?.session;
+    expect(session?.transcription).toBeNull();
+    expect(session !== undefined && "transcription" in session).toBe(true);
   });
 
   test("a recorder that dies mid-meeting leaves a session you can still type into", async () => {

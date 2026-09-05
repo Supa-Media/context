@@ -373,6 +373,10 @@ export function completionReceipt(session, notePath, noteEtag) {
     // canonical. A second copy in `.meetings/` is somebody's storage bill.
     flags: [],
     device: session.device ?? { platform: "web" },
+    // Kept, where the transcript is dropped. It is one word, it is the answer
+    // to "did this meeting's audio leave the machine", and the receipt is what
+    // a client lists without opening every note.
+    transcription: session.transcription ?? null,
     notePath,
     noteEtag,
     finalizedAt: new Date().toISOString(),
@@ -450,6 +454,7 @@ export function sessionSummary(session) {
     source: session.source ?? { kind: "unknown" },
     attendees: session.attendees ?? [],
     device: session.device ?? { platform: "web" },
+    transcription: session.transcription ?? null,
     segmentCount: Array.isArray(session.transcript) && session.transcript.length
       ? session.transcript.length
       : (session.segmentCount ?? 0),

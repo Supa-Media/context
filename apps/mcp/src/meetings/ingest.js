@@ -43,7 +43,7 @@
 import { ERRORS, ROUTES, isMeetingId } from "../../../../packages/meetings/src/protocol.js";
 import { renderMeetingNote } from "../../../../packages/meetings/src/note.js";
 import { meetingNotePath } from "../../../../packages/meetings/src/paths.js";
-import { normalizeFlag } from "../../../../packages/meetings/src/session.js";
+import { normalizeFlag, normalizeTranscription } from "../../../../packages/meetings/src/session.js";
 import { SCOPE_READ, SCOPE_WRITE, hasScope } from "../session.js";
 import {
   LIMITS,
@@ -274,12 +274,54 @@ function foldMetadata(session, body) {
       if (normalizeFlag(flag)) next = fold(next, { type: "flag", at: flag.at, label: flag.label });
     }
   }
+  next = withTranscription(next, body);
   const markdown = notesFrom(body);
   if (markdown !== null) {
     assertEventWithinLimits({ type: "notes", markdown });
     next = fold(next, { type: "notes", markdown });
   }
   return next;
+}
+
+/**
+ * The engine that produced this meeting's words, on a session that already
+ * exists.
+ *
+ * It is set when the session is *opened* — `createSession` normalizes it, and
+ * an unrecognised word is refused there rather than guessed — because the
+ * recorder that is about to run is what knows where the audio is going. What
+ * this handles is the two things a later body can carry:
+ *
+ *  - **A value the contract has never heard of.** Refused, wherever it arrives.
+ *    `normalizeTranscription` is the one implementation of what a legal engine
+ *    is, and it throws; silently keeping the stored answer would mean a client
+ *    with a bug believing it had disclosed something it had not.
+ *  - **A different answer from the stored one.** A session that transcribed
+ *    nothing may be *raised* to an engine — a recorder that only got going
+ *    after the meeting was opened — but an engine is never rewritten, and never
+ *    rewritten back to `null`. Audio that has already been streamed to a
+ *    service cannot un-leave the machine, so a note that stopped saying so
+ *    would be the one lie this field exists to prevent. That is a refusal, not
+ *    a silent drop: a client that thinks it can change this has a bug worth
+ *    hearing about.
+ *
+ * Nothing here goes through an event, because the contract has none: like
+ * `device`, this is a fact the session was opened with.
+ */
+function withTranscription(session, body) {
+  if (body.transcription === undefined) return session;
+  let transcription;
+  try {
+    transcription = normalizeTranscription(body.transcription);
+  } catch (error) {
+    throw invalid(error?.message ?? "transcription is not an engine this contract knows");
+  }
+  const stored = session.transcription ?? null;
+  if (transcription === stored) return session;
+  if (stored !== null) {
+    throw invalid("a meeting's transcription engine is set when the session opens and cannot be rewritten");
+  }
+  return { ...session, transcription };
 }
 
 /** `notes` is the session's field name and `markdown` the event's; both are accepted. */

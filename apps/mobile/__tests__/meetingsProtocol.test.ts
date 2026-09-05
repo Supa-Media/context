@@ -147,6 +147,7 @@ function session(overrides: Partial<MeetingSession> = {}): MeetingSession {
       startedAt: "2026-09-05T18:43:00.000Z",
       source: { kind: "in-person" },
       device: DEVICE,
+      transcription: "cloud",
       version: PROTOCOL_VERSION,
     }),
     ...overrides,
