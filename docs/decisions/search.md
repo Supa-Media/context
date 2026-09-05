@@ -553,12 +553,99 @@ path. Four consequences are load-bearing:
 flips the switch and then closes the app has nothing copied until something
 reaches the gateway for that context — which is a property of the two-proof
 binding, not an oversight, and it is why the gateway cannot be the whole
-answer. The other half belongs where it already is: the control plane's
-scheduled `maintainIndex` opens a bucket credential of its own and runs the
-gateway's `syncShardedIndex` (`functions/lib/fileOps.ts`), so it is the one
-component that can enumerate opted-in contexts and start work for a person who
-is not connected. `projectPass`, `loadCensus` and `createD1Client` take a
-store, a census, a `visibilityOf` and a budget and know nothing about the
-gateway's request; wiring them into that action is the same import
-`syncShardedIndex` already is, and until it happens a freshly enabled context
-fills on its owner's next search rather than on the schedule.
+answer. The other half is the section below.
+
+### …and the control plane runs the same pass for a person who is not there
+
+The gateway's half was the whole of it, and every trigger in it was a search.
+So an owner who turned fast search on and closed the app copied nothing, ever:
+three production contexts sat at "0 notes indexed / Preparing" with the schema
+applied and `SELECT COUNT(*) FROM notes` returning zero, and there was no way
+to reach them through the switch, because `enable` returns early for a row that
+is already opted in and not failed. Pressing it again did nothing at all.
+
+`projectSearchIndex` (`functions/lib/fileOps.ts`) is the gateway's own
+`projectPass`, imported, over the store `runFileOperation` already opens —
+the same arrangement `searchNotes` and `maintainSearchIndex` have with
+`searchIndexedNotes` and `syncShardedIndex`. What is different is only what
+the control plane's position forces:
+
+- **The R2 index pass runs in front of the copy.** The projection's census is
+  that index's own docmap, so a bucket nothing has ever searched has nothing to
+  walk — which is exactly the state a context stuck at "Preparing" is in. The
+  gateway can skip this because a search has usually just done it; here it is
+  the difference between converging and never starting.
+- **Every provider failure is returned, never thrown.** The caller is a
+  scheduled job whose entire purpose is to record the outcome. A throw leaves
+  the row saying `backfilling` with nothing to explain it, which is the bug
+  rather than a way to report it. It lands as `failed` with our code and our
+  sentence, which is a state the console already draws with "Try again" on it.
+- **Progress is written by calling the internal mutations.** The gateway posts
+  to `/gateway/search-index/progress` because it is across a network boundary;
+  inside the control plane there is no hop to make, and reaching for the HTTP
+  route would be authenticating to ourselves. The mutations are the same two,
+  so the policy about what may be applied to a row is answered in one place
+  whichever half reports.
+
+**It runs inside `runFileOperation` rather than beside it**, for the reason
+`CREDENTIAL_BARRIERS` has one member and a long warning attached: a second
+internal action that opens a bucket credential is a second barrier. And inside
+it, **the row is asked before the credential is opened** — a link can have been
+queued minutes ago and an owner can have opted out since, and a pass that
+decrypted a customer's storage secret on the way to discovering it had nothing
+to do would be paying the highest-cost operation in the system for nothing.
+
+**A chain that cannot terminate is worse than no trigger at all**, because each
+link is a full bucket listing billed to the customer. Four things end it, and
+each has a test:
+
+- a pass that **moved nothing** — where "moved" includes a pass that only
+  advanced the R2 index, because a cold brain's first link may have no budget
+  left to copy with and stopping there would reintroduce the whole bug one
+  layer up;
+- a row that is **no longer `backfilling`**, `ready` included.
+  `projectionTargetForWorkspace` answers `backfilling` and `ready` alike — its
+  other caller hands the gateway a credential in both — so the narrowing lives
+  at the pass, and what it prevents is a converged context paying a listing per
+  link forever;
+- a projection that **reached `ready`**;
+- a **bound of 24 links**, which is the backstop for the case the other three
+  miss rather than the thing that ends it.
+
+**Two populations, two schedulers, and the second one is the point.**
+`provisionIndex` schedules a chain after it records `backfilling`, which covers
+every context enabled from now on. It does not cover a context that reached
+`backfilling` before any of this existed, or one whose chain was lost to a
+deploy or an eviction — so an hourly cron restarts every `backfilling` row
+nothing has written to in fifteen minutes. `updatedAt` is the heartbeat: a
+working chain writes counters on every link that moves anything, so it is never
+overtaken, and a dead one looks stale. Reading the row rather than the
+scheduler's own table is deliberate, because the case this exists for is a row
+with nothing scheduled *and no record that anything ever was*.
+
+It is the one cron here that starts work rather than deleting it, and it still
+holds no decision: whether a context may have a projection is
+`searchProjectionState`, re-asked by the pass itself, and whether there is
+anything to copy is answered by the pass. The sweep decides only when to look.
+It deliberately does not retry a `failed` row — a failure is a sentence
+somebody is being shown, and "Try again" is theirs to press.
+
+**The residual, stated rather than buried.** Two passes projecting the *same*
+note at the same time — the gateway behind somebody's search while the
+scheduled chain runs — can leave that note duplicate rows in its FTS table.
+`upsertStatements` opens with three deletes and then inserts, D1's `/query`
+runs one statement per request, and there is no transaction around the group.
+What it costs is bounded and is not a disclosure: nothing crosses the
+private/team split, `notes` is keyed by path so the census an owner reads
+cannot double, and `d1/query.js` merges chunk hits per path ("a note is its
+best chunk") so a search still returns the note once. What is lost is a slot of
+the query's `LIMIT` and a little ranking, until that note is next projected.
+Closing it properly means an atomic multi-statement batch, which is a change to
+the gateway's D1 client and to the reasoning `lib/d1.ts` sets out for refusing
+multi-statement requests — a decision with a real cost, not something to invent
+quietly. The stall window on the sweep is what keeps this deployment from
+causing the overlap on purpose.
+
+The tests that fail if any of this is reversed: `__tests__/searchBackfill.test.ts`,
+whose header carries the sabotage record — including the two mutants that
+measured zero until the assertion that could see them was written.

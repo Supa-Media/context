@@ -74,7 +74,13 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The manifest is the query surface, and the diff moved out from under it
 - The console searches through the gateway's search, not a copy of it
 - A database we own holds a copy of somebody's notes only where they asked
+- The gateway writes the projection, so the credential rides on the binding
+- Progress is reported to the control plane, which owns the row
+- The backfill percentage is derived, and inherits the census's owner-only gate
+- The switch lives in a context's settings, and the server owns who may throw it
 - Corpus statistics are per tenant, which is why it is a database each
+- The gateway copies the notes, and a search is what starts it
+- …and the control plane runs the same pass for a person who is not there
 
 ## [The mobile app and the console](./app-and-console.md)
 
