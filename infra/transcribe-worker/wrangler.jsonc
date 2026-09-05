@@ -28,10 +28,27 @@
   // transcription returns 500 — the same shape as the four green deploys that
   // deployed nothing, recorded in the header of deploy-email-worker.yml.
   //
-  // So `GET /health` answers `{ ok: true, ai: <boolean> }` honestly and
-  // unauthenticated, and .github/workflows/deploy-transcribe-worker.yml FAILS
-  // THE JOB when `ai` is false. If it fails, Workers AI must be enabled on the
-  // Cloudflare account — nothing in this repository can do that.
+  // So `GET /health` answers `{ ok: true, ai: <boolean>, rateLimit: <boolean> }`
+  // honestly and unauthenticated, and
+  // .github/workflows/deploy-transcribe-worker.yml FAILS THE JOB when `ai` is
+  // false. If it fails, Workers AI must be enabled on the Cloudflare account —
+  // nothing in this repository can do that.
+  //
+  // `rateLimit` reports the binding declared below, by the same reasoning and
+  // with the same consequence: the deploy FAILS THE JOB on `rateLimit: false`
+  // too. What differs is the remedy, not the severity — see the `ratelimits`
+  // block below, and the workflow's header for why a MISSING key there is a
+  // warning while a false one is fatal.
+  //
+  // A `true` says the binding is present and callable and NOTHING about whether
+  // it meters. It does not meter here — the block below carries the probe that
+  // established that, the instruction to treat its limit as absent, and the
+  // pointer to the control-plane ceiling that replaced it. The flag exists so
+  // that "is it even attached?" stops being answerable only from the account,
+  // which is the question those investigations opened with; it is not evidence
+  // for the question they closed. It is still worth failing on, because an
+  // absent binding does not un-limit anything — it makes `checkRateLimit` fail
+  // closed and refuse every request.
   //
   // ── THE ADDRESS IS NOT IN THIS FILE ───────────────────────────────────────
   //
@@ -139,6 +156,14 @@
   // Removing this block does NOT quietly remove the limit: `checkRateLimit`
   // fails closed on an absent binding, so the Worker refuses every request
   // instead. A bad deploy that says so is the point.
+  //
+  // It also does not get as far as a deploy. `src/wranglerConfig.test.ts`
+  // reddens when this block is missing or renamed, and the deploy job needs
+  // that suite — which is why `GET /health`'s `rateLimit: false` means the
+  // platform did not attach a binding we declared, or the script answering is
+  // not the one just deployed, and never that this file lost the block. That
+  // holds for deploys through the pipeline; a hand-run `wrangler deploy`
+  // bypasses CI and so bypasses the reasoning with it.
   "ratelimits": [
     {
       "name": "TRANSCRIBE_RATE_LIMIT",

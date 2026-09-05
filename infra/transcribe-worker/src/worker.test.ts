@@ -112,6 +112,25 @@
  *         → four in wranglerConfig.test.ts. Nothing in this file: no unit test
  *           can see a wrangler binding, which is the entire reason that file
  *           exists.
+ *
+ * ── `/health` reporting the limiter binding, 2026-09-05 ────────────────────
+ *
+ * Three more, measured. The suite went 90 → 91: this work added one `it`, and
+ * then a third assertion INSIDE it, which moved the count not at all. That
+ * second half is coverage a count cannot show, and is the whole reason this
+ * record is kept by sabotage rather than by counting.
+ *
+ *   src/index.ts
+ *     `rateLimit` hard-coded to `true`
+ *         → "reports the rate-limit binding on /health…" and "answers /health
+ *           honestly, and without a credential" (2)
+ *     `rateLimit` wired to `Boolean(env.AI)`
+ *         → "reports the rate-limit binding on /health…" (1)
+ *     `typeof env.TRANSCRIBE_RATE_LIMIT?.limit === "function"` weakened to
+ *     `Boolean(env.TRANSCRIBE_RATE_LIMIT)`
+ *         → "reports the rate-limit binding on /health…" (1), the bound-but-
+ *           not-callable case — the one state a presence check calls healthy
+ *           while every authenticated request answers 429
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleRequest } from "./index";
@@ -541,13 +560,67 @@ describe("routing", () => {
       envWith(fakeAi(TIMED_ANSWER).binding),
     );
     expect(bound.status).toBe(200);
-    expect(await bound.json()).toEqual({ ok: true, ai: true });
+    expect(await bound.json()).toEqual({ ok: true, ai: true, rateLimit: true });
 
     const unbound = await handleRequest(new Request("https://transcribe.invalid/health"), {
       TRANSCRIBE_WORKER_SECRET: SECRET,
     } as Env);
     expect(unbound.status).toBe(200);
-    expect(await unbound.json()).toEqual({ ok: true, ai: false });
+    expect(await unbound.json()).toEqual({ ok: true, ai: false, rateLimit: false });
+  });
+
+  /**
+   * The same reasoning as `ai`, applied to the binding it was not applied to.
+   *
+   * `wrangler deploy` succeeds with `ratelimits` removed from `wrangler.jsonc`
+   * exactly as it succeeds with Workers AI unprovisioned. Until this flag
+   * existed, "does the deployed script have the limiter?" could only be
+   * answered by a credentialed query against the Cloudflare account, or
+   * inferred from a `429`, which the handler returns on all five of
+   * `checkRateLimit`'s non-`allowed` paths — four flavours of `unavailable`
+   * plus a genuine `refused`.
+   *
+   * It reveals nothing a caller could use. The answer depends on no caller, no
+   * workspace and no secret; it is the same class of fact as `ai`, which this
+   * endpoint has always answered unauthenticated; and because `checkRateLimit`
+   * FAILS CLOSED, `rateLimit: false` describes a Worker that refuses every
+   * authenticated caller, which is not an invitation.
+   *
+   * The third case is the one a presence check gets wrong. `checkRateLimit`
+   * asks `typeof limiter.limit === "function"` before trusting the binding, so
+   * `/health` asks the same question: an object that is bound but not callable
+   * is a Worker answering `429` to everything while a `Boolean(env.…)` flag
+   * calls it healthy.
+   *
+   * SABOTAGE (measured 2026-09-05): hard-code `rateLimit: true` → 2 red
+   * (this test and "answers /health honestly"); `Boolean(env.AI)` → 1 red;
+   * `Boolean(env.TRANSCRIBE_RATE_LIMIT)` → 1 red, the third case only.
+   */
+  it("reports the rate-limit binding on /health the same way it reports Workers AI", async () => {
+    const withLimiter = await handleRequest(
+      new Request("https://transcribe.invalid/health"),
+      envWith(fakeAi(TIMED_ANSWER).binding),
+    );
+    expect(await withLimiter.json()).toEqual({ ok: true, ai: true, rateLimit: true });
+
+    const withoutLimiter = await handleRequest(new Request("https://transcribe.invalid/health"), {
+      TRANSCRIBE_WORKER_SECRET: SECRET,
+      AI: fakeAi(TIMED_ANSWER).binding,
+    } as Env);
+    expect(withoutLimiter.status).toBe(200);
+    // `ai` still true: the two bindings are reported independently, so a
+    // deploy that lost one is not mistaken for a deploy that lost the other.
+    expect(await withoutLimiter.json()).toEqual({ ok: true, ai: true, rateLimit: false });
+
+    // Bound, and useless. `checkRateLimit` answers `unavailable` for this env
+    // and the handler 429s, so reporting it as healthy would be the one lie
+    // this flag is able to tell.
+    const unusable = await handleRequest(new Request("https://transcribe.invalid/health"), {
+      TRANSCRIBE_WORKER_SECRET: SECRET,
+      AI: fakeAi(TIMED_ANSWER).binding,
+      TRANSCRIBE_RATE_LIMIT: {} as never,
+    } as Env);
+    expect(await unusable.json()).toEqual({ ok: true, ai: true, rateLimit: false });
   });
 
   it("404s every other path and method", async () => {

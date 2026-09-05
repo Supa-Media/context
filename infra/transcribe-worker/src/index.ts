@@ -37,7 +37,15 @@
  *                      time; anything else is a bare 401. Plus an
  *                      `X-Caller-Hash` header naming which account is asking —
  *                      opaquely; see RATE LIMITING below and `src/rateLimit.ts`.
- *   GET  /health       `{ ok: true, ai: <boolean> }`. Unauthenticated.
+ *   GET  /health       `{ ok: true, ai: <boolean>, rateLimit: <boolean> }`,
+ *                      one flag per binding `wrangler.jsonc` declares — the two
+ *                      that can be absent at runtime with the deploy still
+ *                      green. NOT every input this Worker needs:
+ *                      `TRANSCRIBE_WORKER_SECRET` is also required and is
+ *                      deliberately not reported, because it is a credential
+ *                      and this endpoint is unauthenticated.
+ *                      See the handler for why the two that are reported are
+ *                      safe to report.
  *   anything else      404.
  *
  * ============================================================================
@@ -75,8 +83,14 @@
  * serve a control plane that predates the header. `main` deploys the Convex
  * functions and this Worker from one push, so the window is small — but it is
  * not zero, and during it transcription fails loudly rather than transcribing
- * unmetered. That is the right way round: a chunk that fails is a chunk the
+ * unattributed. That is the right way round: a chunk that fails is a chunk the
  * person is told about, and an accepted unidentified request is the finding.
+ * "Unattributed" and not "unmetered": nothing in THIS Worker meters, per `#227`
+ * and the `ratelimits` block in `wrangler.jsonc`, and since `#228` the ceiling
+ * that does is `consumeTranscribeBudget` in the control plane — spent before
+ * this Worker is called, so it is not what this header buys either. What the
+ * header buys is a caller a bill can be traced to, which is a different and
+ * smaller thing than either limit.
  *
  * ── Why /health is open, and why it is the most load-bearing line here ──────
  *
@@ -88,10 +102,15 @@
  * deploying something that could not work.
  *
  * So `/health` answers `ai` honestly, and `deploy-transcribe-worker.yml` fails
- * the job when it is false. It is unauthenticated because it has to be usable
- * as a probe and because it reveals nothing: the answer depends on no caller,
- * no workspace, no secret and no request — it is one boolean about our own
- * account's feature flags.
+ * the job when it is false. `rateLimit` is answered beside it for the same
+ * reason and the job fails on a false there too — a declared binding the
+ * runtime did not get, which `checkRateLimit` turns into a `429` for every
+ * authenticated caller. It is unauthenticated because it has to be usable as a
+ * probe and because it reveals nothing: the answer depends on no caller, no
+ * workspace, no secret and no request — two booleans about our own deployment,
+ * one an account feature flag and one a binding attachment, neither of them a
+ * credential and neither of them a fact about any user. The handler says why
+ * `TRANSCRIBE_WORKER_SECRET` is not a third.
  *
  * ============================================================================
  * LOGGING
@@ -234,7 +253,54 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   // Exact paths, never prefixes: `startsWith` here would make
   // `/transcribeXYZ` and `/transcribe/anything` live routes.
   if (request.method === "GET" && path === "/health") {
-    return json(200, { ok: true, ai: Boolean(env.AI) });
+    // Both bindings, for one reason each.
+    //
+    // `ai` because Workers AI is an ACCOUNT-LEVEL feature and `wrangler deploy`
+    // succeeds whether or not it is enabled — the deploy workflow FAILS THE JOB
+    // on `ai: false`, and that is the only proof the account has it.
+    //
+    // `rateLimit` because the limiter has the same "declared in `wrangler.jsonc`,
+    // absent at runtime" failure shape, and until this flag existed the only
+    // ways to answer "does the deployed script have it?" were a credentialed
+    // query against the Cloudflare account — which the deploy workflow already
+    // makes, for secrets — or inference from a `429`, which the handler below
+    // returns on all five of `checkRateLimit`'s non-`allowed` paths (four
+    // flavours of `unavailable`, plus a genuine `refused`).
+    //
+    // Reported HERE rather than read from that account API because only the
+    // running script can say what it actually got. `wrangler deploy` succeeding
+    // and the account's own metadata both describe what was UPLOADED, and the
+    // premise of the `ai` probe — stated in this file, `wrangler.jsonc` and the
+    // deploy workflow — is that an upload succeeding says nothing about what is
+    // bound at runtime.
+    //
+    // It reports whether the binding is CALLABLE, not merely present — the same
+    // test `checkRateLimit` applies before trusting it, because a binding that
+    // is present but not callable is precisely the state a presence check would
+    // report as healthy while every request 429s.
+    //
+    // AND CALLABLE IS NOT METERED — not by this binding. `#226`/`#227` proved by
+    // paced probe against the deployed Worker, on two `namespace_id` values with
+    // the binding confirmed attached, that it does not enforce on this account,
+    // and `wrangler.jsonc` says to treat its limit as absent until somebody
+    // watches it return a `429`. `#228` then moved the ceiling that does enforce
+    // to `consumeTranscribeBudget` in the control plane, which is spent before
+    // this Worker is called at all. So a `true` here is the narrow fact that
+    // `checkRateLimit` has something it can call — not a claim about either
+    // ceiling. The binding is left declared because failing closed on absence
+    // would refuse every request, which is worse than a limit that no-ops.
+    //
+    // Unauthenticated for the same reason the whole endpoint is: neither answer
+    // depends on a caller, a workspace or a secret, and `rateLimit: false`
+    // describes a Worker that refuses every authenticated caller rather than one
+    // that lets anyone through. `TRANSCRIBE_WORKER_SECRET` is the input this
+    // endpoint does NOT report, and the reason is that it is a credential —
+    // "one flag per binding" is a description of these two, not a rule to extend.
+    return json(200, {
+      ok: true,
+      ai: Boolean(env.AI),
+      rateLimit: typeof env.TRANSCRIBE_RATE_LIMIT?.limit === "function",
+    });
   }
   if (request.method !== "POST" || path !== "/transcribe") {
     return json(404, { error: "not found" });

@@ -1,7 +1,16 @@
 /**
- * The rate limit is enforced by a binding declared in `wrangler.jsonc`, so the
- * config file is the enforcement point and the constants in `rateLimit.ts` are
- * only a description of it.
+ * A binding declared in `wrangler.jsonc` is what this Worker's rate limit was
+ * meant to be enforced by, so the config file is where its numbers live and the
+ * constants in `rateLimit.ts` are only a description of them.
+ *
+ * ⚠️ IT DOES NOT ENFORCE. `#226`/`#227` measured that against the deployed
+ * Worker and `#228` moved the ceiling that does enforce to
+ * `consumeTranscribeBudget` in the control plane; `rateLimit.ts`'s header and
+ * the `ratelimits` block carry the measurements. This file still matters for
+ * two reasons that outlive the enforcement: the numbers here are pinned to the
+ * control plane's by a convex test, so a drift in either is caught; and the
+ * block must stay declared, because `checkRateLimit` fails closed and losing it
+ * refuses every request rather than quietly un-limiting anything.
  *
  * A description that drifts from the thing it describes is worse than none:
  * the comment justifying "20 a minute against a 3-a-minute workload" would go

@@ -15,11 +15,69 @@
 # met several times and which deploy-email-worker.yml's header records at
 # length: a green deploy of something that cannot work.
 #
-# `GET /health` answers `{ ok: true, ai: <boolean> }` from inside the deployed
-# Worker, so it is the only thing that can settle the question. `ai: false`
-# FAILS THIS JOB, with a runbook in the failure message, because enabling
-# Workers AI is a thing a human does in the Cloudflare dashboard and a red build
-# is the correct representation of "configured wrong".
+# `GET /health` answers `{ ok: true, ai: <boolean>, rateLimit: <boolean> }` from
+# inside the deployed Worker, so it is the only thing that can settle the
+# question. `ai: false` FAILS THIS JOB, with a runbook in the failure message,
+# because enabling Workers AI is a thing a human does in the Cloudflare
+# dashboard and a red build is the correct representation of "configured wrong".
+#
+# `rateLimit: false` FAILS THIS JOB TOO, and the reason it is not merely logged
+# is worth stating, because the obvious reason is wrong. It is NOT "the
+# `ratelimits` block went missing from wrangler.jsonc": that cause cannot reach
+# this step at all, because `deploy` has `needs: test`, and
+# src/wranglerConfig.test.ts reddens when the block is absent or renamed. By the
+# time this probe runs, CI has already proved the config declares the binding.
+#
+# So a `false` here means something the config cannot explain — the platform did
+# not attach a binding we declared, or the script answering is not the one this
+# run deployed. Both are broken deploys of exactly the `ai: false` kind: with no
+# CALLABLE limiter, `checkRateLimit` fails closed and every caller that gets past
+# the shared secret gets a `429` — one without a valid `X-Caller-Hash` gets a
+# `400` first — so the Worker transcribes nothing at all. There is no version of
+# that worth going green over — and note that this is the reason a binding that
+# meters nothing still has to be present, which the block in `wrangler.jsonc`
+# argues at length.
+#
+# A MISSING (or non-boolean) `rateLimit` key is a warning rather than a failure.
+# The likeliest cause is a script older than the flag, which is a propagation
+# question and not a configuration one. `ai` gets no such allowance because that
+# key has been in every version of this Worker since its first commit, so its
+# absence is a malformed answer rather than an old one.
+#
+# THE COST OF THAT ALLOWANCE, STATED RATHER THAN GLOSSED: one of the two causes
+# the `false` branch treats as fatal — a `/health` answered by a script this run
+# did not deploy — also lands in this warning branch, when that script is old
+# enough to omit the key. So the same fault is fatal in one branch and tolerated
+# in the other. The trade is deliberate: the 200-retry above does not cover a
+# stale-but-healthy answer, so failing on a missing key would red a deploy on
+# ordinary propagation lag. A permanently stale `TRANSCRIBE_WORKER_URL` is the
+# residual, and it was equally invisible before this flag existed — the flag
+# narrows that hole rather than opening it.
+#
+# WHAT A GREEN `rateLimit` DOES NOT MEAN, and this is the important part as of
+# 2026-09-05: it does NOT mean the caller is metered. `#226`/`#227` established
+# by paced probe against the deployed Worker, on two `namespace_id` values and
+# with the binding confirmed attached, that this binding does not enforce on
+# this account — 30 requests on one key a second apart drew zero refusals.
+# `wrangler.jsonc` says so at length and says to treat this binding's limit as
+# absent. This flag reports that the binding is PRESENT AND CALLABLE, which is
+# the property `checkRateLimit` needs before it will trust it, and nothing more.
+#
+# THE CEILING THAT DOES ENFORCE IS NOT IN THIS WORKER. `#228` moved it to
+# `consumeTranscribeBudget` in the control plane, spent through the `rateLimits`
+# table before this Worker is called at all — twenty per account per minute,
+# the same two numbers as the binding here, pinned to each other by a convex
+# test. So callers ARE metered as of `#228`; they are not metered by the thing
+# this flag reports on, and that is the distinction to keep.
+#
+# So the obvious next step for THIS binding — send `limit + 1` requests and
+# demand a `429` — is NOT written here on purpose. It would go red on the first
+# run and stay red, because the thing it asserts is still false and `#228` did
+# not change that; it made it not matter. A permanently red step in a workflow
+# that runs after merge does not gate anything, it just leaves `main` red and
+# buries the signal a real `ai: false` would raise. The probe becomes worth
+# writing the day somebody watches this binding return a `429`, which is the
+# condition `wrangler.jsonc` names for trusting it again.
 #
 # ── WHY THE URL IS A SECRET AND NOT A LINE IN A FILE ────────────────────────
 #
@@ -316,8 +374,14 @@ jobs:
               console.error("[FAIL] /health did not answer { ok: true, ... }: " + process.argv[1]);
               process.exit(1);
             }
+            // `!== true` rather than `=== false`, so a MISSING `ai` fails here
+            // too — that key has been in every version of this Worker, so its
+            // absence is a malformed answer rather than an old one. The message
+            // says which was received, because "reports ai: false" was printed
+            // for an absent key as well and sent the reader looking for a
+            // setting that was not what they had.
             if (d.ai !== true) {
-              console.error("[FAIL] the deployed Worker reports ai: false.");
+              console.error("[FAIL] the deployed Worker did not report ai: true (got " + JSON.stringify(d.ai) + ").");
               console.error("");
               console.error("  WORKERS AI IS NOT ENABLED ON THIS CLOUDFLARE ACCOUNT.");
               console.error("");
@@ -337,6 +401,53 @@ jobs:
               process.exit(1);
             }
             console.log("[ok] the deployed Worker reports ai: true — Workers AI is enabled.");
+            // The header of this file argues why this one is fatal and why a
+            // MISSING key is not. Short version: the config cause is already
+            // excluded by `needs: test`, so a `false` is the platform or the
+            // wrong script, and either way the Worker transcribes nothing.
+            if (d.rateLimit === true) {
+              console.log("[ok] the deployed Worker reports rateLimit: true — the limiter binding is");
+              console.log("     present and callable. NOT that IT meters: this binding does not enforce");
+              console.log("     on this account (see wrangler.jsonc), and is to be treated as absent");
+              console.log("     until somebody watches it return a 429. The ceiling that does enforce");
+              console.log("     is consumeTranscribeBudget in the control plane, per #228.");
+            } else if (d.rateLimit === false) {
+              console.error("[FAIL] the deployed Worker reports rateLimit: false.");
+              console.error("");
+              console.error("  THE DEPLOYED SCRIPT HAS NO CALLABLE RATE-LIMIT BINDING.");
+              console.error("");
+              console.error("  checkRateLimit fails closed, so every caller that gets past the");
+              console.error("  shared secret is being answered 429 and nothing transcribes.");
+              console.error("");
+              console.error("  This is NOT wrangler.jsonc losing the `ratelimits` block: this job");
+              console.error("  needs `test`, and src/wranglerConfig.test.ts reddens when that block");
+              console.error("  is missing or renamed, so the config was already proved green.");
+              console.error("");
+              console.error("  Two causes reach this branch, and neither is the config:");
+              console.error("    1. The platform did not attach a binding we declared. Check the");
+              console.error("       deployed version in the Cloudflare dashboard: Workers ->");
+              console.error("       context-transcribe -> Settings -> Bindings.");
+              console.error("    2. TRANSCRIBE_WORKER_URL points at a Worker this run did not");
+              console.error("       deploy — note that a script merely OLDER than the flag would");
+              console.error("       omit the key rather than report false, so this is a different,");
+              console.error("       post-flag Worker answering at that address.");
+              console.error("");
+              console.error("  Re-running is worth one attempt before either.");
+              process.exit(1);
+            } else {
+              // Absent, null, or any non-boolean. Not narrowed to "absent": the
+              // narrower sentence was measurably false for `null`, `"true"` and
+              // `1`, all of which land here.
+              console.log("[warn] /health answered no readable rateLimit flag (" + JSON.stringify(d.rateLimit) + ").");
+              console.log("       The likeliest cause is a script older than the flag, which is a");
+              console.log("       propagation question rather than a configuration one, so it is");
+              console.log("       not fatal. Re-run if it does not clear.");
+              console.log("       NOTE: this branch tolerates one fault the FAIL branch does not —");
+              console.log("       a /health answered by a script this run did not deploy. Making it");
+              console.log("       fatal would red a deploy on ordinary propagation lag, which the");
+              console.log("       200-retry above does not cover; a stale TRANSCRIBE_WORKER_URL is");
+              console.log("       the residual, and it was equally invisible before this flag.");
+            }
           ' "$body"
 
       - name: Summary
@@ -351,7 +462,15 @@ jobs:
             echo "- **Verified:** the script was modified by this run;"
             echo "  \`TRANSCRIBE_WORKER_SECRET\` is bound; and \`GET /health\` reports"
             echo "  \`ai: true\`, which is the only proof that Workers AI is enabled on"
-            echo "  the account."
+            echo "  the account; and that \`/health\` did not report"
+            echo "  \`rateLimit: false\`, which would have failed this job. A green run"
+            echo "  where the key was ABSENT proves nothing about the limiter — the"
+            echo "  step log says which happened."
+            echo "- **This binding does not meter:** proven by paced probe in"
+            echo "  \`#226\`/\`#227\`; the ceiling that enforces is"
+            echo "  \`consumeTranscribeBudget\` in the control plane (\`#228\`), which"
+            echo "  this workflow does not deploy and cannot probe. Nothing here"
+            echo "  asserts either limiter counts."
             echo "- **Not verified by CI:** that the control plane holds the same"
             echo "  \`TRANSCRIBE_WORKER_SECRET\`. Both halves come from this repository's"
             echo "  GitHub secret, but nothing here compares them — see the equivalent"
