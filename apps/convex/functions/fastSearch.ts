@@ -207,8 +207,20 @@ export const enable = mutation({
     const existing = await bindingFor(ctx, args.workspaceId);
     const now = Date.now();
 
-    if (existing !== null && existing.optedIn) {
+    if (existing !== null && existing.optedIn && existing.status !== "failed") {
       // Already on or on its way. Not an error, and not a second database.
+      //
+      // `failed` is excluded, and that exclusion is the whole point of the
+      // condition rather than a refinement of it. A failed row keeps
+      // `optedIn: true` — nobody opted out, the provision fell over — so
+      // without this clause every retry landed here and returned the failure
+      // it was called to clear: no patch, no schedule, no write of any kind.
+      // The card's "Try again" was inert for the one state that renders it,
+      // and the branch immediately below, whose comment already said "a failed
+      // one being retried", was unreachable from the moment it was written.
+      // Shipped that way, and found only by reading `updatedAt` on a row a
+      // person had pressed the button on repeatedly: it still held the
+      // timestamp of the original failure, hours earlier.
       return { state: fastSearchState(workspace, existing) };
     }
 
