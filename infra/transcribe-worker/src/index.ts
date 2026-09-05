@@ -263,10 +263,19 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     // deploy workflow — is that an upload succeeding says nothing about what is
     // bound at runtime.
     //
-    // It reports whether the binding is USABLE, not merely present. That is the
-    // same test `checkRateLimit` applies before trusting it, and a binding that
+    // It reports whether the binding is CALLABLE, not merely present — the same
+    // test `checkRateLimit` applies before trusting it, because a binding that
     // is present but not callable is precisely the state a presence check would
     // report as healthy while every request 429s.
+    //
+    // AND CALLABLE IS NOT METERED. `#226`/`#227` proved by paced probe against
+    // the deployed Worker, on two `namespace_id` values with the binding
+    // confirmed attached, that this binding does not enforce on this account:
+    // `wrangler.jsonc` says to treat the limit as absent until somebody watches
+    // it return a `429`. A `true` here is the narrow fact that `checkRateLimit`
+    // has something it can call, and no part of a claim that anybody is
+    // metered. It is left declared because failing closed on absence would
+    // refuse every request, which is worse.
     //
     // Unauthenticated for the same reason the whole endpoint is: neither answer
     // depends on a caller, a workspace or a secret, and `rateLimit: false`

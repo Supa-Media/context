@@ -31,9 +31,11 @@
 # So a `false` here means something the config cannot explain — the platform did
 # not attach a binding we declared, or the script answering is not the one this
 # run deployed. Both are broken deploys of exactly the `ai: false` kind: with no
-# usable limiter, `checkRateLimit` fails closed and every authenticated caller
+# CALLABLE limiter, `checkRateLimit` fails closed and every authenticated caller
 # gets a `429`, so the Worker transcribes nothing at all. There is no version of
-# that worth going green over.
+# that worth going green over — and note that this is the reason a binding that
+# meters nothing still has to be present, which the block in `wrangler.jsonc`
+# argues at length.
 #
 # A MISSING (or non-boolean) `rateLimit` key is a warning rather than a failure.
 # The likeliest cause is a script older than the flag, which is a propagation
@@ -51,9 +53,22 @@
 # residual, and it was equally invisible before this flag existed — the flag
 # narrows that hole rather than opening it.
 #
-# What this probe still does NOT prove is that the limiter COUNTS. Sending
-# `limit + 1` requests and demanding a `429` is a different step, it belongs
-# here too, and it is not this one.
+# WHAT A GREEN `rateLimit` DOES NOT MEAN, and this is the important part as of
+# 2026-09-05: it does NOT mean the caller is metered. `#226`/`#227` established
+# by paced probe against the deployed Worker, on two `namespace_id` values, with
+# the binding confirmed attached through the Workers API, that this binding does
+# not enforce on this account — 30 requests on one key a second apart drew zero
+# refusals. `wrangler.jsonc` says so at length and says to treat the limit as
+# absent. This flag reports that the binding is PRESENT AND CALLABLE, which is
+# the property `checkRateLimit` needs before it will trust it, and nothing more.
+#
+# So the obvious next step — send `limit + 1` requests and demand a `429` — is
+# NOT written here on purpose. It would go red on the first run and stay red,
+# because the thing it asserts is currently false, and a permanently red deploy
+# gate is not a probe, it is a broken pipeline. What it would be measuring is
+# already known and already written down. The open decision is where the limit
+# moves so that it can be proven at all, which `wrangler.jsonc` costs out and
+# leaves to a person.
 #
 # ── WHY THE URL IS A SECRET AND NOT A LINE IN A FILE ────────────────────────
 #
@@ -382,11 +397,14 @@ jobs:
             // excluded by `needs: test`, so a `false` is the platform or the
             // wrong script, and either way the Worker transcribes nothing.
             if (d.rateLimit === true) {
-              console.log("[ok] the deployed Worker reports rateLimit: true — the limiter binding is usable.");
+              console.log("[ok] the deployed Worker reports rateLimit: true — the limiter binding is");
+              console.log("     present and callable. NOT that it meters: this binding does not enforce");
+              console.log("     on this account (see wrangler.jsonc), so the limit is to be treated as");
+              console.log("     absent until somebody watches it return a 429.");
             } else if (d.rateLimit === false) {
               console.error("[FAIL] the deployed Worker reports rateLimit: false.");
               console.error("");
-              console.error("  THE DEPLOYED SCRIPT HAS NO USABLE RATE-LIMIT BINDING.");
+              console.error("  THE DEPLOYED SCRIPT HAS NO CALLABLE RATE-LIMIT BINDING.");
               console.error("");
               console.error("  checkRateLimit fails closed, so every caller that gets past the");
               console.error("  shared secret is being answered 429 and nothing transcribes.");
@@ -410,7 +428,7 @@ jobs:
               // Absent, null, or any non-boolean. Not narrowed to "absent": the
               // narrower sentence was measurably false for `null`, `"true"` and
               // `1`, all of which land here.
-              console.log("[warn] /health answered no usable rateLimit flag (" + JSON.stringify(d.rateLimit) + ").");
+              console.log("[warn] /health answered no readable rateLimit flag (" + JSON.stringify(d.rateLimit) + ").");
               console.log("       The likeliest cause is a script older than the flag, which is a");
               console.log("       propagation question rather than a configuration one, so it is");
               console.log("       not fatal. Re-run if it does not clear.");
@@ -437,8 +455,10 @@ jobs:
             echo "  the account; and that \`/health\` did not report"
             echo "  \`rateLimit: false\`, which would have failed this job. A green run"
             echo "  where the key was ABSENT proves nothing about the limiter — the"
-            echo "  step log says which happened. No probe here asserts that the"
-            echo "  limiter COUNTS."
+            echo "  step log says which happened."
+            echo "- **Not metered:** a present limiter binding does not enforce on this"
+            echo "  account, proven by paced probe in \`#226\`/\`#227\`. Nothing here"
+            echo "  asserts the limiter counts, and nothing should until it can."
             echo "- **Not verified by CI:** that the control plane holds the same"
             echo "  \`TRANSCRIBE_WORKER_SECRET\`. Both halves come from this repository's"
             echo "  GitHub secret, but nothing here compares them — see the equivalent"
