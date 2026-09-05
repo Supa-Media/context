@@ -1,0 +1,18 @@
+{
+  "name": "@context/meetings",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Meeting capture core: session state, transcripts, detection, and the Markdown a meeting becomes in the customer's own bucket",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./protocol": "./src/protocol.js",
+    "./detect": "./src/detect.js"
+  },
+  "scripts": {
+    "test": "node test/test.mjs",
+    "typecheck": "echo \"no typecheck (JSDoc-typed ESM, checked by consumers)\" && exit 0",
+    "lint": "echo \"no lint configured yet\" && exit 0"
+  }
+}
