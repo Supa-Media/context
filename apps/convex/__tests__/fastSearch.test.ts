@@ -433,6 +433,76 @@ describe("turning it on", () => {
     expect(rows[0].updatedAt).toBeGreaterThan(1);
   });
 
+  /**
+   * AND THE RETRY MUST NOT ORPHAN THE DATABASE IT IS RETRYING.
+   *
+   * The retry branch keeps `databaseId` on purpose, and its comment says why:
+   * "so the sweep still knows what to delete if this fails again." Nothing was
+   * asserting it. Measured before this test: adding `databaseId: undefined` to
+   * that patch reddened **nothing**, including the test directly above, which
+   * checks the row count, the status, the cleared error and the clock — every
+   * field except the one whose loss is permanent.
+   *
+   * The mutant is live and the damage is not recoverable by anything in this
+   * repository. `provisionIndex` creates a database only
+   * `if (databaseId === undefined)`, so a retry that cleared it would build a
+   * SECOND D1 database and leave the first standing on the account — holding a
+   * derived copy of this customer's note text, with no row pointing at it, so
+   * `releaseIndex` can never find it and turning fast search off can never
+   * delete it. That is exactly the hazard `fastSearchProvision.ts` records
+   * ("a database created but not recorded is one nothing can ever find to
+   * delete") and it defeats the second of the two questions this file exists to
+   * answer: *does off actually delete it?*
+   *
+   * The path is newly reachable. Until the fix directly above, a failed row
+   * returned early and never reached this patch at all — so the guard has been
+   * live for one day and unproved for the whole of it.
+   *
+   * SABOTAGE: `databaseId: undefined` in the retry patch reddens this test and
+   * nothing else.
+   */
+  test("a retry keeps the database it already provisioned, so nothing is orphaned", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "retry-keeps-db");
+    await asUser(t, owner).mutation(api.functions.fastSearch.enable, {
+      workspaceId,
+    });
+
+    // The real partial-failure shape: `provisionIndex` records `databaseId`
+    // BEFORE applying the schema, precisely so a schema failure leaves a row
+    // that still knows what it created. So this is a failure WITH a database.
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("searchIndexes")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(row!._id, {
+        status: "failed",
+        databaseId: "db-already-created",
+        databaseName: "context-search-already-created",
+        errorCode: "REFUSED",
+        error: "The schema could not be applied.",
+        updatedAt: 1,
+      });
+    });
+
+    await asUser(t, owner).mutation(api.functions.fastSearch.enable, {
+      workspaceId,
+    });
+
+    const rows = await t.run(
+      async (ctx) => await ctx.db.query("searchIndexes").collect(),
+    );
+    expect(rows).toHaveLength(1);
+    // The whole assertion. Losing this is losing the only handle on a database
+    // that holds somebody's notes.
+    expect(rows[0].databaseId).toBe("db-already-created");
+    expect(rows[0].databaseName).toBe("context-search-already-created");
+    // And it really did retry, so the case above is not what passed here.
+    expect(rows[0].status).toBe("provisioning");
+    expect(rows[0].updatedAt).toBeGreaterThan(1);
+  });
+
   test("it is audited as a decision", async () => {
     const t = setupTest();
     const { owner, workspaceId } = await context(t, "audited");
