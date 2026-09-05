@@ -81,6 +81,28 @@
  * every request. Twenty requests a minute per identifier, against a workload of
  * three: the arithmetic is in that file.
  *
+ * **⚠️ And it does not work.** Tested against the deployed Worker: 30 requests
+ * on one key paced a second apart — inside the 60s window, slow enough for the
+ * documented eventual consistency to settle — drew zero refusals, as did 45 in
+ * two seconds. The binding is provably attached to the live script and printed
+ * by `wrangler deploy --dry-run`; the call site is unconditional, after the
+ * credential check and before the body read; it fails closed on absence. It was
+ * re-tested on a second `namespace_id` after Cloudflare's docs turned out to
+ * require "a positive integer, unique per account" rather than the arbitrary
+ * string the config comment claimed. Same result. **So the spend ceiling is
+ * still nothing, and the paragraph above describes an intention.**
+ *
+ * What genuinely works is the identifier: the Worker logs `caller` on served
+ * requests as well as refused ones, so a surprising bill can now be traced to
+ * an account, which it could not before. Tracing is not metering.
+ *
+ * Moving the limit here is the option the disclosure above costed, and it is
+ * the live one now — but it means this action taking a `ctx.runMutation` and
+ * contradicting a stated security property on purpose. That is a person's call.
+ * See the comment in `infra/transcribe-worker/wrangler.jsonc` for the full
+ * measurement, and do not let a green suite talk you out of it: those tests
+ * exercise a fake limiter and passed through the entire failure.
+ *
  * **A header, not a body field**, because the Worker has to be able to refuse
  * *before* it reads 8 MiB of audio, and a key that lived in the body could only
  * be read after the thing it was meant to bound.

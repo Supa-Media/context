@@ -92,11 +92,31 @@
   // catch up — drew zero refusals. "1001" is the value Cloudflare's own example
   // uses.
   //
-  // If a paced probe still draws no 429 on this value, the binding is not
-  // functioning on this account and the limit has to move somewhere it can be
-  // proven. Do not conclude it works from a green test run: the unit tests
-  // exercise a fake limiter and passed throughout the failure above, which is
-  // exactly the shape of "a guard nobody has checked is not a guard".
+  // ⚠️ THE PROBE WAS RE-RUN ON "1001" AND STILL DREW NO 429. Same 30 requests,
+  // same one key, same second-apart pacing, against the redeployed Worker with
+  // the Workers API confirming `namespace_id: "1001"` attached. So the id was
+  // not the cause and **this binding does not enforce on this account** — two
+  // values, burst and paced, binding provably present, zero refusals.
+  //
+  // TREAT THIS LIMIT AS ABSENT until somebody watches it return a 429. It is
+  // left declared because `checkRateLimit` fails closed on an absent binding
+  // and would refuse every request, which is worse than the status quo, and
+  // because the attribution beside it — the `X-Caller-Hash` the Worker logs on
+  // served requests as well as refused ones — does work and is what makes a
+  // surprising bill traceable. Appearance of metering is all that is here.
+  //
+  // The limit has to move somewhere it can be proven. The option the original
+  // disclosure costed is a Convex-side limit through the existing `rateLimits`
+  // table, which means `transcribeChunk` gaining a `ctx.runMutation` — and that
+  // deliberately contradicts a stated property (the action holds no db, storage
+  // or scheduler handle, so it is structurally unable to persist a transcript,
+  // and a test sweeps every table to keep it that way). Weakening that is a
+  // decision for a person, not a 3am judgement call, so it is written down here
+  // instead of taken.
+  //
+  // Do not conclude it works from a green test run: the unit tests exercise a
+  // fake limiter and passed throughout the whole failure, which is exactly the
+  // shape of "a guard nobody has checked is not a guard".
   //
   // `simple.period` may be 10 or 60 and nothing else; `simple.limit` is 20 a
   // minute against a workload of 3 a minute per live recording — see
