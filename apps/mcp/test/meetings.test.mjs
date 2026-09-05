@@ -87,6 +87,8 @@ const TOKEN_READ_ONLY = `cat_meet_readonly_${"0".repeat(22)}`;
 const TOKEN_MEMBER = `cat_meet_member_${"0".repeat(24)}`;
 /** An editor: write, but team tier — no private content, ever. */
 const TOKEN_EDITOR = `cat_meet_editor_${"0".repeat(24)}`;
+/** An editor in a context whose meetings folder defaults to `team`, so it CAN finalize. */
+const TOKEN_SHARED = `cat_meet_shared_${"0".repeat(24)}`;
 /** An owner whose bucket accepts a conditional write and ignores it. */
 const TOKEN_LAST_WRITER = `cat_meet_lastwriter_${"0".repeat(20)}`;
 
@@ -106,6 +108,8 @@ const SESSION_SHADOWED = idOf("j");
 const SESSION_DEGRADED = idOf("k");
 /** Still recording while a team-tier connection goes looking for it. */
 const SESSION_IN_FLIGHT = idOf("m");
+/** Finalized by a team connection, in a context whose meetings folder is team. */
+const SESSION_SHARED = idOf("n");
 
 const PRIVACY_MANIFEST =
   "---\nrole: privacy-manifest\n---\n\n" +
@@ -1089,6 +1093,84 @@ export async function runMeetingChecks(check) {
     s3.bucketFor("meet-lastwriter").has(`${MEETING_PREFIX}${SESSION_DEGRADED}.json`)
   );
 
+  /*
+    A team connection that can actually finish a meeting.
+
+    Every other team-tier finalize in this file is *refused* — `0-inbox` inherits
+    `private` from `PRIVACY_MANIFEST`, and a team connection may not create
+    private content — so the suite has never once watched a team connection
+    finalize successfully. That is the mainline flow for a shared workspace,
+    where the meetings folder defaulting to `team` is the obvious setting, and it
+    is where the tier stamp has to survive: `completionReceipt` builds a fresh
+    object, and `finalizeSession` writes it with `writeSession` directly rather
+    than through `updateSession`, which is the only thing that stamps.
+  */
+  controlPlane.addWorkspace("ws_shared", "shared", s3Binding("meet-shared", "EE"));
+  await controlPlane.addGrant({
+    accessToken: TOKEN_SHARED,
+    workspaceId: "ws_shared",
+    role: "editor",
+    scopes: ["context:read", "context:write"],
+    clientId: "mcp_client_meet_shared",
+    userId: "user_meet_shared",
+  });
+  s3.bucketFor("meet-shared").set("privacy.md", {
+    body:
+      "---\nrole: privacy-manifest\n---\n\n" +
+      "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
+      "folder_defaults:\n  0-inbox: team\n\nnote_overrides:\n  # none\n```\n\n" +
+      "<!-- END BRAIN PRIVACY RULES -->\n",
+    etag: "sh0",
+  });
+
+  await meetingRequest(env, TOKEN_SHARED, "/meetings/sessions", {
+    body: {
+      id: SESSION_SHARED,
+      title: "Team standup",
+      startedAt: "2026-09-03T09:00:00.000Z",
+      events: [{ type: "start", at: "2026-09-03T09:00:00.000Z" }],
+    },
+  });
+  const sharedFinalize = await meetingRequest(env, TOKEN_SHARED, `/meetings/sessions/${SESSION_SHARED}/finalize`, {
+    body: { endedAt: "2026-09-03T09:20:00.000Z" },
+  });
+  check(
+    "a team connection can finish a meeting where the folder default allows it",
+    sharedFinalize.status === 200 && typeof sharedFinalize.body?.notePath === "string"
+  );
+
+  const sharedReadBack = await meetingRequest(env, TOKEN_SHARED, `/meetings/sessions/${SESSION_SHARED}`, {
+    method: "GET",
+  });
+  check(
+    "and can still read the meeting it just finished",
+    sharedReadBack.status === 200 && sharedReadBack.body?.session?.state === "complete"
+  );
+  const sharedList = await meetingRequest(env, TOKEN_SHARED, "/meetings/sessions", { method: "GET" });
+  check(
+    "and its own finished meeting is still in its listing",
+    JSON.stringify(sharedList.body ?? {}).includes(SESSION_SHARED)
+  );
+
+  /*
+    The idempotency the contract promises: a replayed finalize answers with the
+    note it already wrote. A receipt the caller can no longer see makes
+    `updateSession` refuse before the "already complete" branch is reached, so a
+    phone retrying after a dropped connection would be told its own finished
+    meeting does not exist.
+  */
+  const sharedReplay = await meetingRequest(env, TOKEN_SHARED, `/meetings/sessions/${SESSION_SHARED}/finalize`, {
+    body: {},
+  });
+  check(
+    "and a replayed finalize is still idempotent rather than a refusal",
+    sharedReplay.status === 200 && sharedReplay.body?.notePath === sharedFinalize.body?.notePath
+  );
+  check(
+    "with exactly one note written for that meeting",
+    keysIn(s3.bucketFor("meet-shared"), "0-inbox/meetings/").length === 1
+  );
+
   /* -------------------- 15. a backend that cannot do any of that ----------- */
 
   const safe = fakeStore({ conditionalWrite: true });
@@ -1110,7 +1192,9 @@ export async function runMeetingChecks(check) {
     left unchecked.
   */
   const unprobed = fakeStore({ conditionalWrite: false });
-  const bare = { id: SESSION_MAIN, transcript: [], attendees: [], appliedAt: {} };
+  // Carries a tier: `writeSession` refuses a record without one, which is the
+  // guard that stops a fresh object literal silently downgrading a meeting.
+  const bare = { id: SESSION_MAIN, scope: "private", transcript: [], attendees: [], appliedAt: {} };
   const firstEtag = await writeSession(unprobed, { ...bare, notes: "first" }, null);
   await writeSession(unprobed, { ...bare, notes: "somebody else" }, firstEtag);
   const staleWrite = await writeSession(unprobed, { ...bare, notes: "mine, from a stale read" }, firstEtag);
@@ -1179,6 +1263,21 @@ export async function runMeetingChecks(check) {
     "while the ack still refuses to promise a guarantee the backend may not keep",
     ackUnsafe.conflictSafe === false
   );
+
+  /*
+    And the stamp is enforced where it can be checked rather than asserted where
+    it cannot. `completionReceipt` builds a fresh object literal and once
+    dropped the tier, which read back as `private` and locked a team connection
+    out of the meeting it had just finished. A comment saying "every write goes
+    through `updateSession`" is what failed; this is the version that cannot.
+  */
+  let refusedUnstamped = false;
+  try {
+    await writeSession(unprobed, { id: SESSION_MAIN, transcript: [], attendees: [], appliedAt: {} }, null);
+  } catch {
+    refusedUnstamped = true;
+  }
+  check("a record carrying no tier is refused rather than written at a downgraded one", refusedUnstamped);
 
   restoreFailures();
   restoreControlPlane();

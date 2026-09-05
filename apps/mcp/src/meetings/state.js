@@ -383,6 +383,20 @@ export async function readSession(store, id, tier) {
  * after a lost race is the same answer plus whatever the other writer added.
  */
 export async function writeSession(store, session, etag) {
+  /*
+    No record reaches the bucket without a tier.
+
+    `updateSession` stamps what it writes, but it is **not** the only writer:
+    `finalizeSession` calls this directly with a `completionReceipt`, and that
+    receipt is a fresh object literal that once dropped the stamp — which made
+    every finished meeting read as private and locked a team connection out of
+    its own. Stating the rule in a comment is what failed the first time, so it
+    is a refusal now: a future writer that forgets the stamp fails loudly here
+    instead of quietly downgrading a meeting's tier.
+  */
+  if (session?.scope !== "private" && session?.scope !== "team") {
+    throw new Error("a meeting session must carry the tier that created it");
+  }
   const body = JSON.stringify({ ...session, updatedAt: new Date().toISOString() });
   /*
     The header goes out whenever there is an etag to send, and is deliberately
@@ -437,12 +451,20 @@ export async function updateSession(store, id, mutate, tier, { attempts = 4 } = 
     const next = await mutate(current ? current.session : null);
     if (next === null) return null;
     /*
-      Stamped here rather than at `openSession`, because this is the one place
-      every write goes through: `createSession` builds a fresh object and
-      `completionReceipt` builds another, so a stamp applied at either would be
-      dropped by the other. An existing stamp wins over the caller's tier, so a
-      team connection writing to a session cannot relabel a private one — it
-      cannot reach one either, and neither rule is load-bearing alone.
+      Stamped here rather than at `openSession`, because `createSession` builds
+      a fresh object and would drop it.
+
+      This is **not** the only write path, and an earlier version of this
+      comment claimed it was — `finalizeSession` writes a `completionReceipt`
+      through `writeSession` directly, and that receipt dropped the stamp,
+      which is exactly the failure the sentence had ruled out in prose. The
+      receipt carries it now, and `writeSession` refuses a record without one,
+      so the invariant is enforced where it can be checked rather than asserted
+      where it cannot.
+
+      An existing stamp wins over the caller's tier, so a team connection
+      writing to a session cannot relabel a private one — it cannot reach one
+      either, and neither rule is load-bearing alone.
     */
     const stamped = { ...next, scope: current ? sessionScopeOf(current.session) : tier === "team" ? "team" : "private" };
     const etag = await writeSession(store, stamped, current ? current.etag : null);
@@ -465,6 +487,15 @@ export function completionReceipt(session, notePath, noteEtag) {
     version: session.version,
     title: session.title,
     state: "complete",
+    /*
+      Carried, not re-derived. This object is built fresh rather than spread
+      from the session, so every field it does not name is dropped — and the
+      tier is the one field whose absence is not cosmetic: an unstamped record
+      reads as `private`, so a team connection that just finished a meeting
+      would be refused its own receipt, its listing, and the idempotent replay
+      the contract promises it.
+    */
+    scope: sessionScopeOf(session),
     startedAt: session.startedAt,
     endedAt: session.endedAt ?? null,
     recordedMs: session.recordedMs ?? 0,
