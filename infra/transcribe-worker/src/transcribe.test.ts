@@ -18,6 +18,8 @@ import {
   decodedByteLength,
   isUnknownModelError,
   MAX_AUDIO_BYTES,
+  MAX_BODY_BYTES,
+  readBoundedBody,
   readTranscribeRequest,
   toTranscription,
 } from "./transcribe";
@@ -110,6 +112,100 @@ describe("reading a transcribe request", () => {
     expect(readTranscribeRequest({ ...good, audioBase64: audioOf(MAX_AUDIO_BYTES) })).toMatchObject({
       ok: true,
     });
+  });
+});
+
+/**
+ * THE BOUND THAT RUNS BEFORE THE ALLOCATION, RATHER THAN AFTER IT.
+ *
+ * The Worker used to read a declared `Content-Length`, refuse it if it was over
+ * the cap, and then call `request.json()`. A body sent with chunked transfer
+ * encoding declares no length at all — `Number(null)` is `0`, which is finite
+ * and not greater than anything — so it fell straight through and an unbounded
+ * body was buffered and parsed into the isolate. `readTranscribeRequest`'s
+ * character cap is not a rescue: it runs on the string that has already been
+ * materialised.
+ *
+ * So the cap is enforced while the body is being read, and a stream that goes
+ * past it is cancelled rather than drained. The source is counted below because
+ * "returns too_large" is only half the property — a bound that refuses the
+ * request after reading all of it has not bounded anything.
+ *
+ * SABOTAGE: `return { ok: true, text: await new Response(body).text() }` and
+ * "stops reading" goes RED while "refuses" stays green, which is exactly the
+ * distinction between the old check and this one.
+ */
+describe("reading a request body under a cap", () => {
+  /** A stream of `total` bytes, reporting how many it was actually asked for. */
+  function source(total: number, piece = 1024) {
+    let produced = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (produced >= total) {
+          controller.close();
+          return;
+        }
+        const size = Math.min(piece, total - produced);
+        produced += size;
+        controller.enqueue(new Uint8Array(size).fill(0x61));
+      },
+    });
+    return { stream, produced: () => produced };
+  }
+
+  function streamOf(text: string) {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(text));
+        controller.close();
+      },
+    });
+  }
+
+  it("returns a body that fits, decoded whole", async () => {
+    const body = JSON.stringify({ audioBase64: audioOf(64), mimeType: "audio/webm" });
+    expect(await readBoundedBody(streamOf(body), MAX_BODY_BYTES)).toEqual({ ok: true, text: body });
+  });
+
+  it("reassembles a body split across chunk boundaries", async () => {
+    // A multi-byte character straddling two chunks must not become two
+    // replacement characters: the decoder is streaming for exactly that reason.
+    const text = '{"mimeType":"audio/webm — rotated"}';
+    const bytes = new TextEncoder().encode(text);
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let at = 0; at < bytes.length; at += 3) controller.enqueue(bytes.slice(at, at + 3));
+        controller.close();
+      },
+    });
+    expect(await readBoundedBody(stream, MAX_BODY_BYTES)).toEqual({ ok: true, text });
+  });
+
+  it("treats an absent body as an empty one rather than throwing", async () => {
+    expect(await readBoundedBody(null, MAX_BODY_BYTES)).toEqual({ ok: true, text: "" });
+  });
+
+  it("refuses a body over the cap", async () => {
+    const { stream } = source(4096);
+    expect(await readBoundedBody(stream, 1024)).toEqual({ ok: false, reason: "too_large" });
+  });
+
+  it("stops reading at the cap instead of buffering the whole body", async () => {
+    // The property the old `Content-Length` check did not have. A caller sending
+    // chunked declares no length, so the only defence is this one — and a
+    // defence that reads everything first is an authenticated caller's OOM.
+    const { stream, produced } = source(1024 * 1024, 1024);
+    expect(await readBoundedBody(stream, 4096)).toEqual({ ok: false, reason: "too_large" });
+    // A little over the cap: the read that trips it has already happened, and a
+    // stream may have one chunk queued behind it. Orders of magnitude under the
+    // megabyte on offer is the point.
+    expect(produced()).toBeLessThanOrEqual(4096 + 2 * 1024);
+  });
+
+  it("accepts a body of exactly the cap", async () => {
+    const { stream } = source(1024, 256);
+    const result = await readBoundedBody(stream, 1024);
+    expect(result).toMatchObject({ ok: true });
   });
 });
 
@@ -210,6 +306,9 @@ describe("turning an engine answer into segments", () => {
   });
 
   it("prefers the caller's durationMs, which knows the chunk and the engine does not", () => {
+    // Reachable in production: `functions/meetings/transcribe.ts` forwards the
+    // chunk's length in the request body. For a while it did not, so this was a
+    // check on a path no caller took and `parsed.durationMs` was always `null`.
     expect(
       toTranscription({ text: "x", transcription_info: { duration: 2.5 } }, 4000)!.segments[0]!
         .endMs,
@@ -242,10 +341,58 @@ describe("turning an engine answer into segments", () => {
     }
   });
 
-  it("says nothing at all rather than nothing plausible when the engine is silent", () => {
-    const result = toTranscription({}, 1000)!;
-    expect(result.text).toBe("");
-    expect(result.segments).toEqual([{ startMs: 0, endMs: 1000, text: "", confidence: null }]);
+  /**
+   * THE SHAPE CHECK, and the reason `null` is worth having at all.
+   *
+   * Being an object is not being an answer. Every case below is a plain object
+   * this Worker can read nothing out of, and every one of them used to produce
+   * `{ text: "", segments: [{ 0, 0, "", null }] }` with a 200 and a clean
+   * `event: "transcribed", segments: 1` in the log. The control plane then
+   * drops the blank segment and hands back `segments: []`, which its own header
+   * documents as meaning *the worker listened and heard nothing* — so a Workers
+   * AI response-shape change would ship as every meeting in the product
+   * silently producing an empty transcript, with `/health` green throughout.
+   *
+   * `docs/decisions/meetings.md` is the rule being kept here: an absent
+   * capability is reported, never faked.
+   *
+   * SABOTAGE: restore the old `typeof raw !== "object"`-only guard and every
+   * case below goes RED, along with the two handler tests in worker.test.ts.
+   */
+  it("refuses an object it can read nothing out of, rather than hearing silence", () => {
+    for (const raw of [
+      {},
+      // A re-shaped envelope: the fields are all there, one level down. This is
+      // what an upstream shape change actually looks like.
+      { result: { text: "hello there", words: [{ word: "hello", start: 0, end: 1 }] } },
+      { success: true, errors: [], messages: [] },
+      // Present, but not of a type anything here can read.
+      { text: 42 },
+      { text: null },
+      { segments: "two of them" },
+      { words: { first: "hello" } },
+      { transcription_info: { language: "en", duration: 3.2 } },
+    ]) {
+      expect(toTranscription(raw, 1000), JSON.stringify(raw)).toBeNull();
+    }
+  });
+
+  it("reads an answer that carries any one of the three fields it understands", () => {
+    // The other half of the check: it must not have become "refuse everything
+    // that is not the turbo model's full shape", which would 502 the fallback
+    // model and every legitimately silent chunk.
+    expect(toTranscription({ text: "" }, 1000)).toEqual({
+      text: "",
+      segments: [{ startMs: 0, endMs: 1000, text: "", confidence: null }],
+    });
+    expect(toTranscription({ segments: [] }, 1000)).toEqual({
+      text: "",
+      segments: [{ startMs: 0, endMs: 1000, text: "", confidence: null }],
+    });
+    expect(toTranscription({ words: [] }, 1000)).toEqual({
+      text: "",
+      segments: [{ startMs: 0, endMs: 1000, text: "", confidence: null }],
+    });
   });
 });
 

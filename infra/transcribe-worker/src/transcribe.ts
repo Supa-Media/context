@@ -71,6 +71,61 @@ export const MAX_AUDIO_BASE64_CHARS = Math.ceil(MAX_AUDIO_BYTES / 3) * 4;
 /** The largest request body worth reading: the audio, plus the JSON round it. */
 export const MAX_BODY_BYTES = MAX_AUDIO_BASE64_CHARS + 4096;
 
+export type BoundedBody = { ok: true; text: string } | { ok: false; reason: "too_large" };
+
+/**
+ * Read a request body, refusing it **while** it arrives rather than after.
+ *
+ * ============================================================================
+ * WHY THIS IS NOT `await request.json()` BEHIND A CONTENT-LENGTH CHECK
+ * ============================================================================
+ *
+ * That is what it was, and the check did not hold. A caller sending chunked
+ * transfer encoding declares no `Content-Length` at all, and `Number(null)` is
+ * `0` — finite, and not greater than any cap — so the request fell through to
+ * `request.json()`, which buffered and parsed an unbounded body into the
+ * isolate. The character cap in `readTranscribeRequest` is not a rescue either:
+ * it runs on a string that has already been allocated, which is the allocation
+ * it was supposed to prevent.
+ *
+ * The route needs a valid bearer token, so the reach of that is an
+ * authenticated caller exhausting the isolate's memory — and this Worker
+ * documents that it has no rate limit, so one signed-in account is enough.
+ *
+ * So the bytes are counted as they are read and the stream is **cancelled** the
+ * moment the cap is passed, which stops the upload instead of draining it. The
+ * decoder is streaming because a multi-byte character can straddle two chunks,
+ * and reassembling one out of two replacement characters is not possible later.
+ *
+ * A `null` body is an empty one: there is nothing to read, and the JSON parse
+ * that follows gives the same 400 an empty body deserves.
+ */
+export async function readBoundedBody(
+  body: ReadableStream<Uint8Array> | null,
+  maxBytes: number,
+): Promise<BoundedBody> {
+  if (body === null) return { ok: true, text: "" };
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let bytes = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > maxBytes) {
+      // Cancel rather than break: a `break` alone leaves the sender free to
+      // keep pushing, which is the resource this refusal is about. A cancel
+      // that fails changes nothing — the answer is already decided, and
+      // letting it throw here would turn a 413 into a 400.
+      await reader.cancel().catch(() => {});
+      return { ok: false, reason: "too_large" };
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return { ok: true, text: text + decoder.decode() };
+}
+
 /**
  * The model. Faster and better-punctuated than the original, and the one that
  * reports per-segment timings.
@@ -148,8 +203,11 @@ export function readTranscribeRequest(body: unknown): TranscribeRequest {
   if (typeof audioBase64 !== "string") return MALFORMED;
   if (typeof mimeType !== "string" || mimeType.trim() === "") return MALFORMED;
 
-  // Length first: this is the bound that stops an unbounded string being
-  // measured, and it is cheaper than measuring one.
+  // Length before content: cheaper than measuring, and it keeps an
+  // over-cap string from being walked. It is the AUDIO cap, not the body
+  // bound — the body was already bounded as it was read, by
+  // `readBoundedBody`, because by the time a string exists here the
+  // allocation a body bound exists to prevent has happened.
   if (audioBase64.length > MAX_AUDIO_BASE64_CHARS) return TOO_LARGE;
   const bytes = decodedByteLength(audioBase64);
   if (bytes === null) return MALFORMED;
@@ -239,6 +297,37 @@ function engineDurationMs(answer: Record<string, unknown>): number {
 }
 
 /**
+ * Whether this object is an answer from an engine this Worker understands.
+ *
+ * Being an object is not being an answer, and the difference is the whole of
+ * why `toTranscription` returns `null` at all. Everything below reads exactly
+ * three fields — `text`, `segments` and `words` — so an object carrying none of
+ * them, or carrying them at a type nothing here can read, is an answer this
+ * Worker cannot read rather than an answer that said nothing.
+ *
+ * That distinction is not academic. `{}` and a re-shaped envelope such as
+ * `{ result: { text, words } }` used to fall all the way through to the flat
+ * branch and come back as one blank segment with a 200. The control plane drops
+ * blank segments, so the caller received `segments: []` — which
+ * `functions/meetings/transcribe.ts` documents as meaning the worker listened
+ * and heard nothing. A Workers AI shape change would therefore have shipped as
+ * every meeting silently transcribing to nothing, with a green `/health` (the
+ * binding is still bound) and an `event: "transcribed"` line per chunk.
+ * `docs/decisions/meetings.md`: an absent capability is reported, never faked.
+ *
+ * It is deliberately a check for *presence at a readable type* rather than for
+ * the turbo model's full shape. The fallback model answers with `words` and no
+ * `segments`, and a genuinely silent chunk answers with `text: ""` — both are
+ * readable answers and neither may be turned into a 502.
+ */
+function isReadableAnswer(answer: Record<string, unknown>): boolean {
+  if (typeof answer["text"] === "string") return true;
+  if (Array.isArray(answer["segments"])) return true;
+  if (Array.isArray(answer["words"])) return true;
+  return false;
+}
+
+/**
  * Turn whatever the engine returned into the transcript contract.
  *
  * `null` means "this is not an engine answer", and the handler turns that into
@@ -252,6 +341,7 @@ function engineDurationMs(answer: Record<string, unknown>): number {
 export function toTranscription(raw: unknown, durationMs: number | null): Transcription | null {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
   const answer = raw as Record<string, unknown>;
+  if (!isReadableAnswer(answer)) return null;
   const flat = typeof answer["text"] === "string" ? (answer["text"] as string).trim() : "";
 
   const segments = readSegments(answer["segments"]);

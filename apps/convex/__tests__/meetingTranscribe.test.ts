@@ -40,6 +40,16 @@
  *   a missing `segments` array read as silence rather than refused        1
  *   an internal mutation added that tallies each chunk into a table       1
  *   the audio cached with `ctx.storage.store` "for the retry"             1
+ *   `durationMs` dropped from the body posted to the worker                3
+ *   `durationMs` used to clamp the worker's times                          1
+ *   the worker URL's scheme accepted unchecked                             4
+ *   loopback matched as a substring of the whole URL                       1
+ *   loopback dropped, leaving https-only                                   1
+ *
+ * The clamp is worth naming. Measured before its check existed, it passed all
+ * 29 tests in this file. `durationMs` is now forwarded to the worker, and
+ * forwarding it is one keystroke from using it in the mapping, so the rule that
+ * it may not trim a time the engine stated is a check rather than a paragraph.
  *
  * Every one was caught. Four of them are caught by exactly one test, so those
  * four tests were sabotaged in turn to prove they are load-bearing rather than
@@ -275,6 +285,112 @@ describe("a deployment with no transcription configured", () => {
   });
 });
 
+/**
+ * THE ONE ENVIRONMENT VARIABLE WHOSE MISCONFIGURATION IS BOTH SILENT AND SEVERE.
+ *
+ * `TRANSCRIBE_WORKER_URL` is operator-controlled, so it is not an attack
+ * surface — but a value typed with `http://` used to be accepted without a
+ * word, and every chunk of every meeting on the deployment then crossed the
+ * public internet in plaintext to a worker that would not have answered anyway.
+ * `docs/decisions/meetings.md` is willing to say out loud that on the paid tier
+ * the audio is processed by a service that is not you and not us; it is not
+ * willing to say it was readable on the way there.
+ *
+ * The refusal is `TRANSCRIPTION_NOT_CONFIGURED` rather than a new code because
+ * that is what it is — a deployment that is not set up — and because the
+ * caller's move is identical: tell the operator, transcribe nothing.
+ *
+ * Sabotage: accept any scheme, and "an http:// worker is refused" goes RED.
+ */
+describe("where the worker may be", () => {
+  /** Configure a worker URL and try one chunk through it. */
+  async function withWorkerUrl(url: string) {
+    const t = setupTest();
+    vi.stubEnv("TRANSCRIBE_WORKER_URL", url);
+    vi.stubEnv("TRANSCRIBE_WORKER_SECRET", WORKER_SECRET);
+    const requests = workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
+    const error = await captureError(() => transcribe(t));
+    return { error, requests };
+  }
+
+  test("an http:// worker is refused, and the audio never leaves", async () => {
+    const { error, requests } = await withWorkerUrl("http://transcribe.context.invalid");
+
+    expect(errorCode(error)).toBe("TRANSCRIPTION_NOT_CONFIGURED");
+    // The refusal has to come before the fetch. A check that runs after it has
+    // already sent the meeting.
+    expect(requests).toHaveLength(0);
+  });
+
+  test("anything that is not http(s), and anything that is not a URL, is refused", async () => {
+    for (const url of [
+      "ftp://transcribe.context.invalid",
+      "file:///etc/passwd",
+      "ws://transcribe.context.invalid",
+      "javascript:void 0",
+      "transcribe.context.invalid",
+      "//transcribe.context.invalid",
+      "https://",
+    ]) {
+      const { error, requests } = await withWorkerUrl(url);
+      expect(errorCode(error), url).toBe("TRANSCRIPTION_NOT_CONFIGURED");
+      expect(requests, url).toHaveLength(0);
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("http on loopback is allowed, because `wrangler dev` is one", async () => {
+    // The reason the previous pass left this open, kept rather than argued
+    // away: `wrangler dev` serves plaintext on 127.0.0.1:8787, and a
+    // self-hoster standing the stack up locally is a supported path
+    // (CLAUDE.md). Loopback never reaches a network, so there is nothing on it
+    // to intercept.
+    for (const url of ["http://127.0.0.1:8787", "http://localhost:8787", "http://[::1]:8787"]) {
+      const t = setupTest();
+      vi.stubEnv("TRANSCRIBE_WORKER_URL", url);
+      vi.stubEnv("TRANSCRIBE_WORKER_SECRET", WORKER_SECRET);
+      const requests = workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
+
+      const { segments } = await transcribe(t);
+
+      expect(segments, url).toHaveLength(1);
+      expect(requests[0].url, url).toBe(`${url}/transcribe`);
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("http on a host that merely looks like loopback is refused", async () => {
+    // `127.0.0.1.attacker.invalid` ends in the loopback address as text and is
+    // an ordinary public name. A `startsWith`/`includes` test would let it
+    // through, which is why the check is on the parsed hostname.
+    for (const url of [
+      "http://127.0.0.1.attacker.invalid",
+      "http://localhost.attacker.invalid",
+      "http://notlocalhost",
+      "http://evil.invalid/?host=127.0.0.1",
+      "http://user:pass@evil.invalid/#localhost",
+    ]) {
+      const { error, requests } = await withWorkerUrl(url);
+      expect(errorCode(error), url).toBe("TRANSCRIPTION_NOT_CONFIGURED");
+      expect(requests, url).toHaveLength(0);
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("the refusal says what is wrong without quoting the value", async () => {
+    const { error } = await withWorkerUrl("http://transcribe.context.invalid");
+    const message = (error as { data?: { message?: string } })?.data?.message ?? "";
+
+    expect(message).toContain("https");
+    // The hostname is deployment-specific and this message goes to the client,
+    // for the same reason the secret never appears in one.
+    expect(message).not.toContain("transcribe.context.invalid");
+  });
+});
+
 describe("the request to the worker", () => {
   test("posts the audio to /transcribe with the secret in a header", async () => {
     const t = setupTest();
@@ -291,7 +407,59 @@ describe("the request to the worker", () => {
     // A credential in a URL ends up in every log and proxy between here and
     // there. CLAUDE.md: no secrets in URLs.
     expect(request.url).not.toContain(WORKER_SECRET);
-    expect(request.body).toEqual({ audioBase64: AUDIO, mimeType: "audio/m4a" });
+    expect(request.body).toEqual({
+      audioBase64: AUDIO,
+      mimeType: "audio/m4a",
+      durationMs: CHUNK.durationMs,
+    });
+  });
+
+  /**
+   * Sabotage: drop `durationMs` from the body.
+   *
+   * The worker accepts it and uses it for exactly one thing: the span of the
+   * single segment it emits when the engine answers with a flat string and no
+   * timings. Without it that falls to the engine's own `transcription_info`,
+   * and when the engine reports none, to `0` — so a whole chunk of speech
+   * arrives as one segment with `startMs === endMs === offsetMs`. Every flag,
+   * whose only job per `docs/decisions/meetings.md` is to land on the right
+   * sentence, then lands beside a zero-length turn.
+   *
+   * It went unnoticed because the worker's own test for that path
+   * (`prefers the caller's durationMs`) calls the function directly: nothing
+   * reaching it in production ever set the field.
+   *
+   * This is NOT the clamping the argument's doc comment refuses. Clamping
+   * would trim a segment the engine timed; this hands the worker the length of
+   * the audio it was given, to use where the engine timed nothing at all.
+   */
+  test("forwards the chunk's own duration, which the worker has no other way to know", async () => {
+    const t = setupTest();
+    configureWorker();
+    const requests = workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
+
+    await transcribe(t, { durationMs: 45_000 });
+
+    expect((requests[0].body as { durationMs?: unknown }).durationMs).toBe(45_000);
+  });
+
+  test("still sends nothing but the audio, its type, and its length", async () => {
+    // The body is the whole of what leaves this control plane. No chunk id, no
+    // offset, no user id, no session: `docs/decisions/meetings.md` says a
+    // stateless transcriber that knew where a chunk sat in a recording would be
+    // holding a fragment of somebody's meeting, and the worker's own header
+    // says it cannot be told.
+    const t = setupTest();
+    configureWorker();
+    const requests = workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
+
+    await transcribe(t);
+
+    expect(Object.keys(requests[0].body as object).sort()).toEqual([
+      "audioBase64",
+      "durationMs",
+      "mimeType",
+    ]);
   });
 
   test("a configured URL with a trailing slash does not produce a double slash", async () => {
@@ -342,6 +510,30 @@ describe("mapping the worker's answer", () => {
 
     expect(segments[0].startMs).toBe(40);
     expect(segments[0].endMs).toBe(900);
+  });
+
+  /**
+   * Sabotage: `Math.min(segment.endMs, args.durationMs)`.
+   *
+   * Measured: with only the argument's doc comment forbidding it, clamping
+   * passed all 29 tests in this file. `durationMs` is now forwarded to the
+   * worker, and forwarding it is one keystroke away from using it here — so
+   * the rule that it may not trim a time the engine stated is a check rather
+   * than a paragraph.
+   *
+   * A segment running past the end of its chunk is a fact about the
+   * transcription: Whisper pads, and a word straddling a rotation boundary is
+   * timed past it. Trimming it would be this action editing somebody's meeting
+   * to make its own arithmetic tidier.
+   */
+  test("a segment that runs past the end of its chunk is not trimmed to fit", async () => {
+    const t = setupTest();
+    configureWorker();
+    workerReturning([{ startMs: 29_500, endMs: 31_200, text: "over the edge" }]);
+
+    const { segments } = await transcribe(t, { offsetMs: 60_000, durationMs: 30_000 });
+
+    expect(segments[0].endMs).toBe(91_200);
   });
 
   test("every segment is a mic segment with no speaker", async () => {

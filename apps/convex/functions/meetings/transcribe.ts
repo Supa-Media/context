@@ -152,6 +152,43 @@ function transcriptionFailed(
   });
 }
 
+/**
+ * The hosts that may carry meeting audio over plaintext `http`.
+ *
+ * `wrangler dev` serves the transcription Worker on `127.0.0.1:8787` with no
+ * TLS, and self-hosting is a supported path (CLAUDE.md) — somebody standing the
+ * whole stack up on their laptop is not misconfigured. Loopback never reaches a
+ * network, so there is nothing on it to intercept, which is the whole of why
+ * this exception is safe and the whole of its boundary.
+ *
+ * Matched against the **parsed** hostname, never as a substring:
+ * `127.0.0.1.attacker.invalid` is an ordinary public name that happens to start
+ * with the loopback address as text.
+ */
+const PLAINTEXT_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * Whether a configured worker URL may be sent somebody's meeting audio.
+ *
+ * This is the one variable here whose misconfiguration is both silent and
+ * severe: an `http://` value typed into a deployment's environment used to be
+ * accepted without a word, and every chunk of every meeting then crossed the
+ * public internet in plaintext. `docs/decisions/meetings.md` will say out loud
+ * that on the paid tier the audio is processed by a service that is not you and
+ * not us; it will not say it was readable on the way there.
+ */
+export function isTranscribeWorkerUrlUsable(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol === "https:") return true;
+  if (url.protocol !== "http:") return false;
+  return PLAINTEXT_HOSTS.has(url.hostname);
+}
+
 /** A non-empty environment variable, or `null`. */
 function configured(name: string): string | null {
   const value = process.env[name];
@@ -192,6 +229,25 @@ function isWorkerSegment(value: unknown): value is WorkerSegment {
   );
 }
 
+/**
+ * The refusal a deployment whose worker URL cannot carry audio gives.
+ *
+ * Same code as `notConfigured`: it is the same kind of problem — a deployment
+ * that is not set up — and the caller's move is identical, which is why
+ * branching the code would only give the client a distinction it cannot act on.
+ * The value is not quoted back, because it is a hostname and this message
+ * reaches the client.
+ */
+function insecureWorkerUrl(): ConvexError<{ code: string; message: string }> {
+  return new ConvexError({
+    code: "TRANSCRIPTION_NOT_CONFIGURED",
+    message:
+      `${TRANSCRIBE_WORKER_URL_ENV_VAR} must be an https:// URL ` +
+      "(http:// is accepted only on loopback, for a local `wrangler dev` worker). " +
+      "Meeting audio is not sent over plaintext.",
+  });
+}
+
 export const transcribeChunk = action({
   args: {
     /** ONE rotated chunk: a complete, self-contained audio file. */
@@ -208,11 +264,25 @@ export const transcribeChunk = action({
     /** Milliseconds from the start of the session at which this chunk begins. */
     offsetMs: v.number(),
     /**
-     * The chunk's wall-clock length. Carried because it is part of the contract
-     * every surface agrees to and the recorder knows it, and deliberately *not*
-     * used to clamp the worker's times: a segment that runs past the end of its
-     * chunk is a fact about the transcription, and silently trimming it would
-     * be this action editing somebody's meeting.
+     * The chunk's wall-clock length, forwarded to the worker.
+     *
+     * Two things it does, which are worth keeping apart because they look
+     * alike and only one of them is allowed.
+     *
+     * It is deliberately **not** used to clamp the worker's times. A segment
+     * that runs past the end of its chunk is a fact about the transcription,
+     * and silently trimming it would be this action editing somebody's
+     * meeting.
+     *
+     * It **is** forwarded, because the worker has no other way to know it. The
+     * worker uses it for one thing: the span of the single segment it emits
+     * when the engine answers with a flat string and no timings at all. With
+     * nothing forwarded that span falls back to the engine's own
+     * `transcription_info`, and then — when the engine reports none — to `0`,
+     * so a whole chunk of speech arrives as one zero-length segment sitting at
+     * `offsetMs`, and a flag whose only job is to land on the right sentence
+     * lands beside it. Handing the worker the length of the audio it was given
+     * is not the same act as trimming a time the engine stated.
      */
     durationMs: v.number(),
   },
@@ -232,6 +302,10 @@ export const transcribeChunk = action({
     // audio to a public endpoint unauthenticated, which is worse than the
     // refusal it replaces.
     if (workerUrl === null || workerSecret === null) throw notConfigured();
+    // A misconfigured scheme is a misconfigured deployment, so it is the same
+    // refusal — and it happens before the fetch, because a check that runs
+    // after one has already sent the meeting.
+    if (!isTranscribeWorkerUrlUsable(workerUrl)) throw insecureWorkerUrl();
 
     let response: Response;
     try {
@@ -241,9 +315,14 @@ export const transcribeChunk = action({
           Authorization: `Bearer ${workerSecret}`,
           "Content-Type": "application/json",
         },
+        // The audio, what it is, and how long it is. Nothing else: no chunk
+        // id, no offset, no session and no user, because a stateless
+        // transcriber that knew where a chunk sat in a recording would be
+        // holding a fragment of somebody's meeting.
         body: JSON.stringify({
           audioBase64: args.audioBase64,
           mimeType: args.mimeType,
+          durationMs: args.durationMs,
         }),
       });
     } catch {
