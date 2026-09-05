@@ -1325,8 +1325,10 @@ export async function runMeetingChecks(check) {
   */
   const boundStore = fakeStore({ conditionalWrite: true });
   const boundSession = { scope: "private", workspaceId: "ws_bounds" };
-  const neverPublish = async () => {
-    throw new Error("this fixture never finalizes");
+  // Nothing in this block finalizes, so this is never invoked; it is here to
+  // fail loudly rather than write a note if that ever stops being true.
+  const refuseToPublish = async () => {
+    throw new Error("the bounds fixture never finalizes");
   };
   const BOUND_SESSION = idOf("z");
 
@@ -1340,7 +1342,7 @@ export async function runMeetingChecks(check) {
       path,
       boundStore,
       boundSession,
-      { publishNote: neverPublish }
+      { publishNote: refuseToPublish }
     );
 
   await sendTo("/meetings/sessions", {
@@ -1353,7 +1355,10 @@ export async function runMeetingChecks(check) {
   // The shape `normalizeSegment` accepts. Getting this wrong is how a bound
   // test passes on a row that was discarded before the bound was consulted.
   const seg = (i, text = "a") => ({ id: `s${i}`, startMs: i * 10, endMs: i * 10 + 5, text });
-  const flags = (n) => Array.from({ length: n }, () => ({ type: "flag", at: 1 }));
+  // Distinct `at`, because `withFlag` dedupes on it: a batch of identical
+  // flags folds to ONE, and a comment claiming otherwise is arithmetic nobody
+  // checked. It was, for one round of review.
+  const flags = (n) => Array.from({ length: n }, (_, i) => ({ type: "flag", at: i }));
 
   /*
     EACH BOUND IS A PAIR: the payload exactly at the limit is accepted and the
@@ -1365,7 +1370,7 @@ export async function runMeetingChecks(check) {
   const atBatch = await sendTo(segmentsPath, {
     segments: Array.from({ length: LIMITS.segmentsPerRequest }, (_, i) => seg(i)),
   });
-  check("a full per-request batch of segments is accepted", atBatch.status < 400);
+  check("a full per-request batch of segments is accepted", atBatch.status === 200);
   const tooManySegments = await sendTo(segmentsPath, {
     segments: Array.from({ length: LIMITS.segmentsPerRequest + 1 }, (_, i) => seg(i)),
   });
@@ -1374,7 +1379,7 @@ export async function runMeetingChecks(check) {
   const atSegmentText = await sendTo(segmentsPath, {
     segments: [seg(0, "a".repeat(LIMITS.segmentTextChars))],
   });
-  check("a segment exactly at the text bound is accepted", atSegmentText.status < 400);
+  check("a segment exactly at the text bound is accepted", atSegmentText.status === 200);
   const tooLongSegment = await sendTo(segmentsPath, {
     segments: [seg(0, "a".repeat(LIMITS.segmentTextChars + 1))],
   });
@@ -1389,23 +1394,30 @@ export async function runMeetingChecks(check) {
   */
   const replay = async (events) => sendTo("/meetings/sessions", { id: BOUND_SESSION, events });
 
-  // Folded, not discarded: this leaves 1,000 flags on the record, half the
-  // `flags` ceiling. A second full replay batch here would trip that instead
-  // and the check below would pass on the wrong guard.
   const atEvents = await replay(flags(LIMITS.eventsPerRequest));
-  check("a full replay batch of events is accepted", atEvents.status < 400);
+  check("a full replay batch of events is accepted", atEvents.status === 200);
+  // Folded, not discarded, and *asserted* rather than assumed: a fixture that
+  // quietly folded to one flag would leave the `flags` ceiling unreachable and
+  // this pair proving nothing about the record it claims to have grown.
+  const afterReplay = JSON.parse(
+    boundStore.objects.get(`${MEETING_PREFIX}${BOUND_SESSION}.json`).body
+  );
+  check(
+    "and every event in it lands on the record",
+    afterReplay.flags.length === LIMITS.eventsPerRequest
+  );
   const tooManyEvents = await replay(flags(LIMITS.eventsPerRequest + 1));
   check("one event over the per-replay bound is refused", tooManyEvents.status >= 400);
 
   const atNotes = await sendTo(notesPath, { notes: "a".repeat(LIMITS.notesChars) });
-  check("notes exactly at the bound are accepted", atNotes.status < 400);
+  check("notes exactly at the bound are accepted", atNotes.status === 200);
   const tooLongNotes = await sendTo(notesPath, { notes: "a".repeat(LIMITS.notesChars + 1) });
   check("notes one character over the bound are refused", tooLongNotes.status >= 400);
 
   const atEnhanced = await replay([
     { type: "enhanced", at: 1, markdown: "a".repeat(LIMITS.enhancedChars) },
   ]);
-  check("an enhanced note exactly at the bound is accepted", atEnhanced.status < 400);
+  check("an enhanced note exactly at the bound is accepted", atEnhanced.status === 200);
   const tooLongEnhanced = await replay([
     { type: "enhanced", at: 1, markdown: "a".repeat(LIMITS.enhancedChars + 1) },
   ]);
@@ -1423,10 +1435,10 @@ export async function runMeetingChecks(check) {
     or not, so deleting the declared check reddens nothing and the pair proves
     one guard twice. A small body under a huge `Content-Length` is the only
     payload that isolates it — and it is the case the guard is for, since the
-    header is the only thing we know before we buffer. The oversized body below
-    is one long string field rather than a segments array, so its refusal can
-    only be the byte bound: an array that large would trip
-    `segmentsPerRequest` first and prove a different guard.
+    header is the only thing we know before we buffer. The oversized body below is one
+    long string field rather than a segments array, and both cases assert `413`
+    exactly: `readJsonBody` is the only thing in the meetings path that returns
+    that status, so neither can be satisfied by a refusal from anywhere else.
   */
   const declaredTooBig = await sendTo(segmentsPath, JSON.stringify({ notes: "small" }), {
     "Content-Length": String(LIMITS.requestBytes + 1),
@@ -1445,11 +1457,18 @@ export async function runMeetingChecks(check) {
     `segmentsPerSession` is 20,000 and `flags` is 2,000, reached over many
     requests rather than in one; driving 20,000 segments through the handler
     would re-serialise the record on every batch and cost more than the check is
-    worth. `attendees` is different again and worth saying out loud: the ingest
-    path *truncates* with `slice(0, LIMITS.attendees)`, so this ceiling is the
-    second line behind that and is not reachable through the handler at all.
+    worth.
 
-    So these three are driven directly at `assertSessionWithinLimits`, which is
+    `attendees` is asymmetric between the two upsert paths, which is worth
+    saying out loud: `foldMetadata` *truncates* with `slice(0, LIMITS.attendees)`
+    when the session already exists, but `createSession` only dedupes, so a
+    session OPENED over the ceiling reaches `assertSessionWithinLimits` and is
+    refused. Both bound it; only one is a refusal, and that half is driven
+    through the handler below. An earlier draft of this comment claimed the
+    ceiling was unreachable through the handler at all, and skipped that check
+    on the strength of it.
+
+    So the ceilings are driven directly at `assertSessionWithinLimits`, which is
     the function all three live in and which `ingest.js` calls at every write.
   */
   const atCeiling = {
@@ -1479,6 +1498,13 @@ export async function runMeetingChecks(check) {
   );
   check("one attendee past the ceiling is refused", overBy("attendees", { name: "one more" }));
   check("one flag past the ceiling is refused", overBy("flags", { at: 1 }));
+
+  const crowded = await sendTo("/meetings/sessions", {
+    id: idOf("y"),
+    startedAt: "2026-09-05T13:00:00.000Z",
+    attendees: Array.from({ length: LIMITS.attendees + 1 }, (_, i) => ({ name: `a${i}` })),
+  });
+  check("and a session opened one attendee over it is refused too", crowded.status >= 400);
 
   const fakeSession = { scope: "private", workspaceId: "ws_fake" };
   const publishNever = async () => {
