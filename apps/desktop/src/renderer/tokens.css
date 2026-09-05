@@ -1,0 +1,116 @@
+/*
+ * The design tokens, taken from `apps/mobile/features/design/tokens.ts`.
+ *
+ * Values only — the argument for each of them lives in that file, and this is a
+ * transcription of the dark palette rather than a second palette. If a colour
+ * here disagrees with the one there, that file wins.
+ *
+ * The desktop app paints one ground on purpose. The phone follows the system
+ * appearance because it is a document editor people read in daylight; this is a
+ * recording panel that sits over a video call, and the mockups are dark.
+ *
+ * The three faces — Onest for display, Instrument Sans for body, JetBrains Mono
+ * for timers and timestamps — are named with real fallback stacks. The font
+ * files are NOT bundled yet (see README, "what is stubbed"): on a machine
+ * without them the app renders in the system UI face at the same sizes, which
+ * is a legible fallback rather than a broken one.
+ */
+
+:root {
+  --ground: #050506;
+  --surface: #0B0B0D;
+  --surface2: #111114;
+  --surface3: #18181C;
+
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.14);
+
+  --text: #F2F2F4;
+  --text2: #A8A8B2;
+  --muted: #75757F;
+  --hero-dim: #5E5E68;
+
+  --accent: #3B82F6;
+  --accent-dim: rgba(59, 130, 246, 0.13);
+  --accent-text: #CFE0FF;
+
+  --ok: #34D399;
+  --ok-text: #6EE7B7;
+  --ok-wash: rgba(52, 211, 153, 0.10);
+  --ok-border: rgba(52, 211, 153, 0.22);
+
+  --crit: #F87171;
+  --crit-text: #FCA5A5;
+  --crit-wash: rgba(248, 113, 113, 0.09);
+  --crit-border: rgba(248, 113, 113, 0.24);
+
+  /* The live-recording dot. Red at full strength wherever it is drawn. */
+  --recording: #DC2626;
+
+  --ink: #08080A;
+  --white: #F2F2F4;
+
+  --radius-md: 8px;
+  --radius-cta: 11px;
+  --radius-card: 12px;
+  --radius-panel: 13px;
+  --radius-console: 16px;
+  --radius-pill: 999px;
+
+  --x1: 4px;
+  --x2: 8px;
+  --x3: 12px;
+  --x4: 16px;
+  --x5: 20px;
+  --x6: 24px;
+  --x7: 28px;
+  --x8: 32px;
+
+  --display: "Onest", ui-sans-serif, system-ui, sans-serif;
+  --body: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--body);
+  color: var(--text);
+  background: var(--ground);
+  /* Every window in this app is chrome the person did not ask to select. */
+  user-select: none;
+  cursor: default;
+  -webkit-font-smoothing: antialiased;
+}
+
+.eyebrow {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.dot {
+  display: block;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--ok);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+}
+
+button {
+  font: inherit;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: default;
+}
