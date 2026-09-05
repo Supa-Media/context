@@ -388,6 +388,51 @@ describe("turning it on", () => {
     expect(rows[0].databaseId).toBe("db-1");
   });
 
+  test("a failed index can actually be retried, which it could not", async () => {
+    // The bug this pins: a failed row keeps `optedIn: true`, because nobody
+    // opted out — the provision fell over. `enable` returned early on
+    // `optedIn` alone, so every press of the card's "Try again" returned the
+    // failure it was called to clear and wrote nothing at all. Asserting the
+    // returned state would not catch it, because a no-op and a real retry can
+    // both read "preparing" to a caller. What separates them is that the row
+    // was WRITTEN: the error cleared and the clock moved.
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "retry");
+    await asUser(t, owner).mutation(api.functions.fastSearch.enable, {
+      workspaceId,
+    });
+
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("searchIndexes")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      // Exactly the shape a refused Cloudflare token leaves behind.
+      await ctx.db.patch(row!._id, {
+        status: "failed",
+        errorCode: "UNAUTHORIZED",
+        error: "The configured Cloudflare token was refused.",
+        updatedAt: 1,
+      });
+    });
+
+    const again = await asUser(t, owner).mutation(
+      api.functions.fastSearch.enable,
+      { workspaceId },
+    );
+    expect(again.state).toBe("preparing");
+
+    const rows = await t.run(
+      async (ctx) => await ctx.db.query("searchIndexes").collect(),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].status).toBe("provisioning");
+    expect(rows[0].error).toBeUndefined();
+    expect(rows[0].errorCode).toBeUndefined();
+    // The clock moved, so a write happened. An early return leaves this at 1.
+    expect(rows[0].updatedAt).toBeGreaterThan(1);
+  });
+
   test("it is audited as a decision", async () => {
     const t = setupTest();
     const { owner, workspaceId } = await context(t, "audited");
