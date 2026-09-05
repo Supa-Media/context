@@ -411,9 +411,14 @@ export const ROUTES = Object.freeze({
  * @typedef {Object} SessionList
  * @property {MeetingSessionSummary[]} sessions  `GET /meetings/sessions`, newest
  *   first. `?limit=` bounds it.
- * @property {number} scanned  Records read to answer it. **A floor, never a
- *   total**: the scan is bounded, so this is not a count of the meetings in the
- *   context and must never be drawn as one.
+ * @property {number} scanned  Records **returned** to this caller — not records
+ *   read. **A floor, never a total**: the scan is bounded, and the count is
+ *   taken after the caller's tier has filtered it, so it is not a count of the
+ *   meetings in the context and must never be drawn as one. Reporting the raw
+ *   scan width would hand a team connection an exact count of the private
+ *   meetings it was just filtered out of. It therefore carries no information
+ *   beyond `sessions.length` today, and a client that needs to know its page
+ *   was thinned needs a cursor rather than this number.
  *
  * @typedef {Object} MeetingSessionSummary
  * @property {string} id

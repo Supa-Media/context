@@ -161,8 +161,17 @@ export function sessionKey(id) {
  *
  * **An unstamped record reads as private.** A record written before this field
  * existed, or one somebody hand-edited, is withheld from the team tier rather
- * than shown to it: the owner still reads their own meeting either way, so the
- * safe reading costs nothing and the unsafe one discloses a private meeting.
+ * than shown to it, because the unsafe reading discloses a private meeting.
+ *
+ * That is the right direction and it is **not** free, so this says what it
+ * costs rather than claiming it costs nothing. A *team*-tier connection with a
+ * meeting in flight when this deploys is locked out of it: its next segment
+ * batch, its finalize and its re-upsert all answer 404, and the words already
+ * in `.meetings/` are unreachable to it. The owner can still rescue that one
+ * meeting at private tier, and the note then lands private rather than team.
+ * Bounded to meetings open at the moment of deploy, one per client, and a new
+ * session is unaffected — a cost worth paying for a default that withholds, but
+ * a cost.
  */
 export function sessionScopeOf(record) {
   return record?.scope === "team" ? "team" : "private";
@@ -529,6 +538,16 @@ export function completionReceipt(session, notePath, noteEtag) {
  * what a busy context could hold. It answers "what has my device sent", which
  * is a client question; `list_meetings` answers the AI client's question from
  * the notes themselves.
+ *
+ * **The page is selected before the tier filter, not after.** Candidates are
+ * ordered and sliced to `wanted`, and only then are the records read and the
+ * ones this caller may not see dropped — so a team connection can get a short
+ * or empty page while team meetings sit further down, with nothing on the wire
+ * saying so. That is deliberate: filtering first would mean reading every
+ * record in the prefix to find enough visible ones, which is an unbounded
+ * number of subrequests inside an invocation that has a ceiling. It is not a
+ * bug to be fixed by paging past the filter; if it ever needs to be exact, it
+ * needs a cursor the caller can carry, not a bigger scan.
  */
 export async function listSessions(store, limit, tier) {
   const wanted = Math.min(Math.max(1, limit || 20), LIMITS.listLimit);
