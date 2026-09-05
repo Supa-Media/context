@@ -159,6 +159,9 @@ confirmation an outward-facing action would otherwise need was given by this
 paragraph. What stops you is unchanged — red CI, a conflict that needs a guess,
 a non-negotiable in the way. What a merge cannot do on its own is a separate
 ask and is not covered: a native build, a store submission, rotating a secret.
+The first two now have a workflow — `deploy-mobile-native.yml` — and it is
+`workflow_dispatch` only, which restates this rather than changing it: shipping
+a binary is still a decision somebody takes, not something a merge does.
 
 **A session that fanned work out to several agents is not finished when the
 agents are.** Subagents do not open pull requests; whoever dispatched them owns

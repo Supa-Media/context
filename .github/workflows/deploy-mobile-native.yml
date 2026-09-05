@@ -1,0 +1,201 @@
+name: Deploy Mobile Native (build + submit)
+
+# A native binary, built on EAS and handed to the App Store — the one step of
+# the mobile lifecycle that has been done by hand from a laptop.
+#
+# ## What this is not
+#
+# `deploy-mobile-update.yml` ships an OTA JS bundle on every merge to `main`,
+# and that covers most days: a change to JS reaches installed builds without
+# anyone touching Xcode. What it cannot do is change the binary — a new native
+# module, a permission string, an entitlement, a bumped `runtimeVersion` — and
+# for those the only route was `eas build` typed locally, which means it
+# happened from whichever machine had `eas` logged in. This is that route,
+# written down and run by the account rather than by a person's laptop.
+#
+# ## Why nothing about a branch triggers it
+#
+# `workflow_dispatch` only, and the reason is the second half of the name: this
+# SUBMITS TO THE APP STORE. A `push: branches: [main]` trigger would send a
+# build to review on every merge, which is a release decision taken by a merge
+# — and the framework's own reusable workflow guards the same hazard with
+# fingerprint detection, which needs an `apps/mobile/.fingerprint` this repo
+# does not keep. `health-check.yml` states the precedent for the shape: a
+# workflow that can reach production, kept safe by nothing about a branch
+# starting it.
+#
+# The consequence is worth stating plainly rather than discovering: **a native
+# change merged to `main` ships nothing until somebody dispatches this.** The
+# OTA workflow will happily publish a JS bundle whose `runtimeVersion` no
+# installed build matches, and that is silent. Dispatch this in the same sitting
+# as merging a native change.
+#
+# ## Why it does not call the framework's reusable workflow
+#
+# `Supa-Media/supa-framework/.github/workflows/build-mobile-native.yml` exists
+# and does more than this. Two things stop it being the right call here today:
+#
+#  - Its `github-secrets` provider loads `toJSON(secrets)` through a composite
+#    action, which requires `secrets: inherit` from the caller. That puts every
+#    secret in the `production` environment — `STORAGE_SECRET_ENCRYPTION_KEY`
+#    and `GATEWAY_SECRET` among them — into the environment of a job that
+#    uploads a source tarball to a third party. This job needs exactly one
+#    secret, and holding one secret is not a smaller version of holding twelve.
+#  - Its change detection reads `apps/mobile/.fingerprint`, which this repo does
+#    not generate, so it would run with `skip-detection: true` and the rest is
+#    four `run:` steps.
+#
+# If either of those changes — a fingerprint file, or a provider that passes
+# named secrets — this should become a caller and lose its steps. Upstream-first
+# still holds; it is the *coupling* that is wrong right now, not the workflow.
+#
+# ## What it needs, and what it cannot check
+#
+# `EXPO_TOKEN` in the `production` environment, which the 1Password sync
+# supplies (`scripts/secrets-allowlist.json`, optional — the OTA workflow needs
+# it too).
+#
+# Everything else lives on EAS, not here: the iOS distribution certificate and
+# provisioning profile, and the App Store Connect API key that `eas submit`
+# authenticates with. A runner cannot verify those exist, and `--non-interactive`
+# turns a missing one into a failed step rather than a prompt. If submit fails
+# on credentials, run `eas credentials` locally once — the fix is on the EAS
+# account, not in this file.
+#
+# `EXPO_PUBLIC_CONVEX_URL` is deliberately NOT read here. A native build's env
+# comes from `eas.json`'s per-profile `env` block, evaluated on EAS, so setting
+# it in the runner would be a value that looks authoritative and is ignored.
+# That is the opposite of the OTA workflow, where the bundle is exported in the
+# runner and the variable is load-bearing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Platform to build"
+        type: choice
+        options: [ios, android, both]
+        default: ios
+      profile:
+        description: "EAS build profile"
+        type: choice
+        options: [production, staging]
+        default: production
+      submit:
+        description: "Submit the build to the store after it finishes"
+        type: boolean
+        default: true
+
+# A second run while one is in flight would build the same commit twice and
+# race two submissions of the same version at App Store Connect. Queue instead;
+# never cancel, because a cancelled run abandons a build that EAS is already
+# paying for and may still submit.
+concurrency:
+  group: deploy-mobile-native-${{ inputs.profile }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ inputs.platform }} (${{ inputs.profile }})
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Everything that can be known before EAS is asked to spend half an hour.
+      # A submit profile missing from eas.json fails `eas submit` *after* the
+      # build, which is the expensive place to find out.
+      - name: Preflight
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          # Passed as env rather than interpolated into the node script below,
+          # so a profile or platform name can never become JavaScript. They are
+          # `choice` inputs today, but that is a property of this file's `on:`
+          # block and not something the script gets to depend on.
+          PROFILE: ${{ inputs.profile }}
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          set -euo pipefail
+          if [ -z "${EXPO_TOKEN:-}" ]; then
+            echo "ERROR: missing required secret 'EXPO_TOKEN' in the 'production' environment."
+            echo "It is in scripts/secrets-allowlist.json; run the Sync Secrets workflow."
+            exit 1
+          fi
+
+          if [ "${{ inputs.submit }}" != "true" ]; then
+            echo "Submit not requested; skipping submit-profile checks."
+            exit 0
+          fi
+
+          node -e '
+            const fs = require("node:fs");
+            const eas = JSON.parse(fs.readFileSync("apps/mobile/eas.json", "utf8"));
+            const profile = process.env.PROFILE;
+            const platform = process.env.PLATFORM;
+            const wanted = platform === "both" ? ["ios", "android"] : [platform];
+            const submit = (eas.submit || {})[profile] || {};
+            const missing = wanted.filter((p) => submit[p] === undefined);
+            if (missing.length > 0) {
+              console.error(
+                `apps/mobile/eas.json has no submit.${profile} config for: ${missing.join(", ")}.\n` +
+                `Add it (iOS needs appleTeamId, Android needs a service-account key), or re-run with submit=false.`
+              );
+              process.exit(1);
+            }
+            console.log(`submit.${profile} covers ${wanted.join(", ")}.`);
+          '
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Waits for the build rather than `--no-wait`, because the submit steps
+      # below use `--latest` and a submission that does not wait would pick up
+      # whatever finished last — quite possibly the previous release.
+      - name: Build iOS
+        if: ${{ inputs.platform == 'ios' || inputs.platform == 'both' }}
+        working-directory: apps/mobile
+        run: eas build --platform ios --profile ${{ inputs.profile }} --non-interactive
+
+      - name: Build Android
+        if: ${{ inputs.platform == 'android' || inputs.platform == 'both' }}
+        working-directory: apps/mobile
+        run: eas build --platform android --profile ${{ inputs.profile }} --non-interactive
+
+      - name: Submit iOS to App Store Connect
+        if: ${{ inputs.submit && (inputs.platform == 'ios' || inputs.platform == 'both') }}
+        working-directory: apps/mobile
+        run: eas submit --platform ios --latest --profile ${{ inputs.profile }} --non-interactive
+
+      - name: Submit Android to Play Console
+        if: ${{ inputs.submit && (inputs.platform == 'android' || inputs.platform == 'both') }}
+        working-directory: apps/mobile
+        run: eas submit --platform android --latest --profile ${{ inputs.profile }} --non-interactive
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Native build"
+            echo ""
+            echo "- **Profile:** ${{ inputs.profile }}"
+            echo "- **Platform:** ${{ inputs.platform }}"
+            echo "- **Submitted:** ${{ inputs.submit }}"
+            echo "- **Commit:** \`${GITHUB_SHA::7}\`"
+            echo ""
+            echo "A submitted build still needs a release created in App Store Connect."
+          } >> "$GITHUB_STEP_SUMMARY"
