@@ -177,7 +177,16 @@ export class DropboxStore {
     if (!options.accessToken || typeof options.accessToken !== "string") {
       throw new Error("DropboxStore requires an accessToken");
     }
-    this.accessToken = options.accessToken;
+    // Non-enumerable, for the reason `S3Store` gives about `secretAccessKey`:
+    // a bearer token on an object other code spreads and stringifies is one
+    // log line away from being a bearer token in a log. Only enumerability
+    // moves; every read of `this.accessToken` is unchanged.
+    Object.defineProperty(this, "accessToken", {
+      value: options.accessToken,
+      enumerable: false,
+      writable: true,
+      configurable: true,
+    });
     this.rootPrefix = normalizeRootPrefix(options.rootPrefix);
     this.fetch = options.fetch || globalThis.fetch.bind(globalThis);
     this.sleep = options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
