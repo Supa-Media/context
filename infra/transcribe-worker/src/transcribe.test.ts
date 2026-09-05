@@ -18,6 +18,8 @@ import {
   decodedByteLength,
   isUnknownModelError,
   MAX_AUDIO_BYTES,
+  MAX_BODY_BYTES,
+  readBoundedBody,
   readTranscribeRequest,
   toTranscription,
 } from "./transcribe";
@@ -110,6 +112,100 @@ describe("reading a transcribe request", () => {
     expect(readTranscribeRequest({ ...good, audioBase64: audioOf(MAX_AUDIO_BYTES) })).toMatchObject({
       ok: true,
     });
+  });
+});
+
+/**
+ * THE BOUND THAT RUNS BEFORE THE ALLOCATION, RATHER THAN AFTER IT.
+ *
+ * The Worker used to read a declared `Content-Length`, refuse it if it was over
+ * the cap, and then call `request.json()`. A body sent with chunked transfer
+ * encoding declares no length at all — `Number(null)` is `0`, which is finite
+ * and not greater than anything — so it fell straight through and an unbounded
+ * body was buffered and parsed into the isolate. `readTranscribeRequest`'s
+ * character cap is not a rescue: it runs on the string that has already been
+ * materialised.
+ *
+ * So the cap is enforced while the body is being read, and a stream that goes
+ * past it is cancelled rather than drained. The source is counted below because
+ * "returns too_large" is only half the property — a bound that refuses the
+ * request after reading all of it has not bounded anything.
+ *
+ * SABOTAGE: `return { ok: true, text: await new Response(body).text() }` and
+ * "stops reading" goes RED while "refuses" stays green, which is exactly the
+ * distinction between the old check and this one.
+ */
+describe("reading a request body under a cap", () => {
+  /** A stream of `total` bytes, reporting how many it was actually asked for. */
+  function source(total: number, piece = 1024) {
+    let produced = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (produced >= total) {
+          controller.close();
+          return;
+        }
+        const size = Math.min(piece, total - produced);
+        produced += size;
+        controller.enqueue(new Uint8Array(size).fill(0x61));
+      },
+    });
+    return { stream, produced: () => produced };
+  }
+
+  function streamOf(text: string) {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(text));
+        controller.close();
+      },
+    });
+  }
+
+  it("returns a body that fits, decoded whole", async () => {
+    const body = JSON.stringify({ audioBase64: audioOf(64), mimeType: "audio/webm" });
+    expect(await readBoundedBody(streamOf(body), MAX_BODY_BYTES)).toEqual({ ok: true, text: body });
+  });
+
+  it("reassembles a body split across chunk boundaries", async () => {
+    // A multi-byte character straddling two chunks must not become two
+    // replacement characters: the decoder is streaming for exactly that reason.
+    const text = '{"mimeType":"audio/webm — rotated"}';
+    const bytes = new TextEncoder().encode(text);
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let at = 0; at < bytes.length; at += 3) controller.enqueue(bytes.slice(at, at + 3));
+        controller.close();
+      },
+    });
+    expect(await readBoundedBody(stream, MAX_BODY_BYTES)).toEqual({ ok: true, text });
+  });
+
+  it("treats an absent body as an empty one rather than throwing", async () => {
+    expect(await readBoundedBody(null, MAX_BODY_BYTES)).toEqual({ ok: true, text: "" });
+  });
+
+  it("refuses a body over the cap", async () => {
+    const { stream } = source(4096);
+    expect(await readBoundedBody(stream, 1024)).toEqual({ ok: false, reason: "too_large" });
+  });
+
+  it("stops reading at the cap instead of buffering the whole body", async () => {
+    // The property the old `Content-Length` check did not have. A caller sending
+    // chunked declares no length, so the only defence is this one — and a
+    // defence that reads everything first is an authenticated caller's OOM.
+    const { stream, produced } = source(1024 * 1024, 1024);
+    expect(await readBoundedBody(stream, 4096)).toEqual({ ok: false, reason: "too_large" });
+    // A little over the cap: the read that trips it has already happened, and a
+    // stream may have one chunk queued behind it. Orders of magnitude under the
+    // megabyte on offer is the point.
+    expect(produced()).toBeLessThanOrEqual(4096 + 2 * 1024);
+  });
+
+  it("accepts a body of exactly the cap", async () => {
+    const { stream } = source(1024, 256);
+    const result = await readBoundedBody(stream, 1024);
+    expect(result).toMatchObject({ ok: true });
   });
 });
 

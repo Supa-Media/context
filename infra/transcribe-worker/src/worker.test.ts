@@ -59,10 +59,13 @@
  *         → "404s every other path and method" (1)
  *     the `if (!env.AI)` branch removed
  *         → "says so, in the one string CI greps for" (1)
+ *     the bounded read replaced by `await request.json()`
+ *         → "413s a body over the cap, without buffering it and without asking
+ *            the engine" (1)
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleRequest } from "./index";
-import { MAX_AUDIO_BYTES, TURBO_MODEL, FALLBACK_MODEL } from "./transcribe";
+import { MAX_AUDIO_BYTES, MAX_BODY_BYTES, TURBO_MODEL, FALLBACK_MODEL } from "./transcribe";
 import type { Env } from "./index";
 
 const SECRET = "test-only-transcribe-secret";
@@ -223,6 +226,89 @@ describe("a deployment with no Workers AI binding", () => {
     } as Env);
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "workers ai is not bound" });
+  });
+});
+
+/**
+ * SABOTAGE: put `body = await request.json()` back and "413s a chunked body
+ * that declares no length" goes RED — the isolate buffers and parses whatever
+ * an authenticated caller feels like sending, and `MAX_AUDIO_BASE64_CHARS`
+ * only gets a say once the string exists.
+ */
+describe("a body that declares no length", () => {
+  /**
+   * A POST whose body is a stream, which is what chunked transfer encoding
+   * looks like on this side: no `Content-Length` header at all.
+   *
+   * `duplex: "half"` is required by the fetch spec for a streaming body and is
+   * not in `@cloudflare/workers-types`' `RequestInit`, hence the assertion.
+   */
+  function chunkedPost(totalBytes: number): { request: Request; produced: () => number } {
+    const PIECE = 64 * 1024;
+    let produced = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (produced >= totalBytes) {
+          controller.close();
+          return;
+        }
+        const size = Math.min(PIECE, totalBytes - produced);
+        produced += size;
+        controller.enqueue(new Uint8Array(size).fill(0x61));
+      },
+    });
+    const request = new Request("https://transcribe.invalid/transcribe", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` },
+      body,
+      duplex: "half",
+    } as unknown as RequestInit);
+    return { request, produced: () => produced };
+  }
+
+  it("declares no length, which is the hole the old check had", () => {
+    // Pinned rather than assumed: the whole finding rests on `Number(null)`
+    // being `0` — finite, and not greater than the cap — for this request.
+    const { request } = chunkedPost(1024);
+    expect(request.headers.get("content-length")).toBeNull();
+  });
+
+  it("413s a body over the cap, without buffering it and without asking the engine", async () => {
+    const ai = fakeAi(TIMED_ANSWER);
+    const { request, produced } = chunkedPost(MAX_BODY_BYTES * 3);
+
+    const response = await handleRequest(request, envWith(ai.binding));
+
+    expect(response.status).toBe(413);
+    expect(ai.calls).toEqual([]);
+    // The bound is real: the isolate never held the body it refused.
+    expect(produced()).toBeLessThan(MAX_BODY_BYTES * 2);
+  });
+
+  it("still reads a well-formed chunked body that fits", async () => {
+    // The other half: refusing everything with no `Content-Length` would refuse
+    // every proxy that re-frames a request, which is most of them.
+    const ai = fakeAi(TIMED_ANSWER);
+    const encoded = new TextEncoder().encode(
+      JSON.stringify({ audioBase64: AUDIO, mimeType: "audio/webm", durationMs: 1500 }),
+    );
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let at = 0; at < encoded.length; at += 7) controller.enqueue(encoded.slice(at, at + 7));
+        controller.close();
+      },
+    });
+    const request = new Request("https://transcribe.invalid/transcribe", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` },
+      body,
+      duplex: "half",
+    } as unknown as RequestInit);
+
+    const response = await handleRequest(request, envWith(ai.binding));
+
+    expect(response.status).toBe(200);
+    expect(ai.calls).toEqual([{ model: TURBO_MODEL, input: { audio: AUDIO } }]);
   });
 });
 

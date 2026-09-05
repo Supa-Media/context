@@ -87,6 +87,7 @@ import {
   isUnknownModelError,
   MAX_AUDIO_BYTES,
   MAX_BODY_BYTES,
+  readBoundedBody,
   readTranscribeRequest,
   toTranscription,
   TURBO_MODEL,
@@ -182,18 +183,35 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     return json(500, { error: "workers ai is not bound" });
   }
 
-  // The declared size, refused before the body is read rather than after. It is
-  // a number the caller supplied, so it is a cheap first pass and not the
-  // bound; `readTranscribeRequest` enforces the real one.
+  // A caller's own declaration of its size, refused without reading anything.
+  // It is a courtesy and NOT the bound: it is a header the caller controls, and
+  // a chunked request carries none at all — `Number(null)` is `0`, finite and
+  // under any cap, which is precisely how an unbounded body used to get in.
   const declared = Number(request.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
     log({ event: "refused", reason: "too_large" });
     return tooLarge();
   }
 
+  // The real bound, enforced while the body arrives: past the cap the stream is
+  // cancelled and nothing is parsed. `request.json()` here would buffer first
+  // and object afterwards, which is not a bound.
+  let bounded;
+  try {
+    bounded = await readBoundedBody(request.body, MAX_BODY_BYTES);
+  } catch {
+    // A body that died mid-flight. Malformed, and no more is said about it.
+    log({ event: "refused", reason: "malformed" });
+    return json(400, { error: "invalid request body" });
+  }
+  if (!bounded.ok) {
+    log({ event: "refused", reason: "too_large" });
+    return tooLarge();
+  }
+
   let body: unknown;
   try {
-    body = await request.json();
+    body = JSON.parse(bounded.text);
   } catch {
     log({ event: "refused", reason: "malformed" });
     return json(400, { error: "invalid request body" });
