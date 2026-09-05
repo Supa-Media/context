@@ -105,14 +105,25 @@
   // served requests as well as refused ones — does work and is what makes a
   // surprising bill traceable. Appearance of metering is all that is here.
   //
-  // The limit has to move somewhere it can be proven. The option the original
-  // disclosure costed is a Convex-side limit through the existing `rateLimits`
-  // table, which means `transcribeChunk` gaining a `ctx.runMutation` — and that
-  // deliberately contradicts a stated property (the action holds no db, storage
-  // or scheduler handle, so it is structurally unable to persist a transcript,
-  // and a test sweeps every table to keep it that way). Weakening that is a
-  // decision for a person, not a 3am judgement call, so it is written down here
-  // instead of taken.
+  // ── THE REAL LIMIT IS NOT IN THIS FILE ────────────────────────────────────
+  //
+  // It is in the control plane, in `consumeTranscribeBudget` in
+  // apps/convex/functions/meetings/transcribe.ts, which spends one row of the
+  // `rateLimits` table per chunk before this Worker is called at all. Twenty
+  // per account per minute — the same two numbers as the block below, kept
+  // identical on purpose, and pinned in both directions by the convex test
+  // `the ceiling is the one the comment argues for, and the Worker's own`.
+  //
+  // The owner took the decision this comment used to leave open: a Convex-side
+  // limit means `transcribeChunk` gaining a `ctx.runMutation`, which gives up a
+  // stated property — that action held no db, storage or scheduler handle, so
+  // it was structurally unable to persist a transcript. What it holds now is
+  // one `ctx.runMutation` to one `internalMutation` whose arguments are
+  // `{ userId }` and nothing else, which writes one table; the widening and the
+  // three tests that bound it are argued in docs/decisions/meetings.md.
+  //
+  // So this block is now belt to that braces, not the braces. If somebody ever
+  // sees a 429 from it, both limits are 20/minute and agree.
   //
   // Do not conclude it works from a green test run: the unit tests exercise a
   // fake limiter and passed throughout the whole failure, which is exactly the

@@ -13,21 +13,49 @@
  * the body posted here carried no caller identifier at all, so a surprising
  * bill had no account behind it to find.
  *
- * The control plane could not fix it on its own. `lib/rateLimit.ts` there needs
- * a `MutationCtx` and writes a `rateLimits` row, and that action deliberately
- * has no `ctx.db`, `ctx.storage`, `ctx.scheduler` or `ctx.runMutation` — the
- * row next to `rateLimits` is the one that would hold a transcript, and a test
- * sweeping every table in the schema exists to keep it that way. So the limit
- * lives here, where it costs no database at all, and the control plane's only
- * new job is to say *who* is asking.
+ * The control plane looked like it could not fix it on its own.
+ * `lib/rateLimit.ts` there needs a `MutationCtx` and writes a `rateLimits` row,
+ * and that action deliberately had no `ctx.db`, `ctx.storage`, `ctx.scheduler`
+ * or `ctx.runMutation` — the row next to `rateLimits` is the one that would
+ * hold a transcript, and a test sweeping every table in the schema existed to
+ * keep it that way. So the limit was put here, where it costs no database at
+ * all, and the control plane's only new job was to say *who* is asking.
  *
- * The Workers native rate limiting binding is what makes that cheap:
+ * The Workers native rate limiting binding is what made that cheap:
  * `wrangler.jsonc` declares it and there is nothing to provision — no KV
  * namespace, no D1 database, no Durable Object, no account resource of any
  * kind. That matters beyond convenience. This Worker's whole auditability
  * claim (see the header of `src/index.ts`) is that there is nowhere here for
  * audio to be kept even by accident, and a rate-limit KV would have been the
  * first storage binding to undermine it.
+ *
+ * ============================================================================
+ * ⚠️ AND IT DOES NOT ENFORCE. THE REAL CEILING IS IN THE CONTROL PLANE NOW.
+ * ============================================================================
+ *
+ * Measured against the deployed Worker, twice, on two different `namespace_id`
+ * values, with the binding provably attached to the live script: 45 requests on
+ * one key in two seconds drew zero 429s, and 30 paced a second apart — inside
+ * the 60s window, slow enough for the documented eventual consistency to settle
+ * — drew zero 429s. The call site below is unconditional and fails closed; the
+ * tests in `rateLimit.test.ts` drive a fake limiter and passed through the
+ * entire failure, which is exactly the shape of "a guard nobody has checked is
+ * not a guard".
+ *
+ * So the ceiling moved to `consumeTranscribeBudget` in
+ * `apps/convex/functions/meetings/transcribe.ts`: twenty chunks per account per
+ * minute, spent through the `rateLimits` table before this Worker is called at
+ * all, so a refused caller costs zero inference. The two numbers below are kept
+ * identical to that limit on purpose, and a convex test pins them to each
+ * other. The cost of the move — the action gaining one `ctx.runMutation` — and
+ * the three tests that bound it are argued in `docs/decisions/meetings.md`.
+ *
+ * **Everything in this file stays anyway.** Not as decoration: `checkRateLimit`
+ * fails closed, so deleting it (or the binding it reads) would refuse every
+ * request rather than quietly un-limiting anything, and the caller identifier
+ * it validates is what puts a name on the spend that does happen. Treat the
+ * limit itself as absent until somebody watches it return a 429; treat the
+ * attribution as working, because it is the half that always did.
  *
  * ============================================================================
  * THE KEY IS OPAQUE, AND THAT IS THE POINT TWICE OVER
@@ -100,7 +128,11 @@ const CALLER_PATTERN = /^[0-9a-f]{64}$/;
  * 20 is over three times the two-device rate — a real user would need seven
  * simultaneous recordings to reach it — while an abuser scripting the endpoint
  * reaches it in seconds and is capped from then on at 20 chunks a minute
- * instead of as many as they can upload.
+ * instead of as many as they can upload. It is also, deliberately, the exact
+ * number `TRANSCRIBE_CHUNKS_PER_WINDOW` carries in the control plane, which is
+ * where the ceiling that actually enforces lives: two ceilings that disagree is
+ * how a justification ends up describing neither, so a convex test asserts
+ * these two constants against those two.
  *
  * Two honest caveats, neither of which changes the choice:
  *

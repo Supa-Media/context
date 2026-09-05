@@ -186,7 +186,7 @@ claim. Collapsing to on-device only would delete diarization and lock the
 product to recent Apple hardware — `SpeechAnalyzer` is iOS/macOS 26 and later,
 and on watchOS it does not exist at all.
 
-### The cloud path knows *who* is asking, opaquely, and that is what buys a limit
+### The cloud path knows *who* is asking, opaquely, and the ceiling is the control plane's
 
 The cloud tier spends real money per request, and for a while nothing bounded
 it. `transcribeChunk` checked `getAuthUserId` and nothing else — deliberately,
@@ -199,43 +199,99 @@ had nothing in it to trace.
 
 Two things follow, and they are the enforceable part.
 
-**The limit lives in the Worker, not in the control plane.** `lib/rateLimit.ts`
-is the tool everywhere else in Convex and it cannot be used here without
-changing what `functions/meetings/transcribe.ts` is: `consumeRateLimit` needs a
-`MutationCtx` and writes a `rateLimits` row, and that action deliberately has no
-`ctx.db`, `ctx.storage`, `ctx.scheduler` or `ctx.runMutation`, because the row
-next to `rateLimits` is the one that would hold a transcript. A test sweeping
-every table in the schema exists to keep it that way, and relaxing it to admit
-"just the one counter" would be relaxing it. So the limit is Cloudflare's native
-rate limiting binding, declared in `wrangler.jsonc`, which provisions **no
-account resource at all** — no KV, no D1, no Durable Object. That second
-property is not a convenience: the Worker's whole auditability claim is that
-there is nowhere in it to keep audio even by accident, and a rate-limit KV would
-have been the first storage binding to weaken it. The check runs after the
-credential check, so an unauthenticated caller cannot spend somebody else's
-allowance, and before the body is read, so a refused caller cannot make the
-Worker buffer 8 MiB first. It **fails closed**: a limiter that is absent,
-throws, or answers something unreadable refuses the request rather than waving
-it through, because a limit that stops applying on a green deploy is the finding
-coming back with nothing to say when it started. The checks are
-`refuses before the body is read, not after`,
+**The ceiling lives in the control plane, and this reverses what this section
+used to say.** It said the limit was the Worker's, using Cloudflare's native
+rate limiting binding, and that the control plane could not host it without
+changing what `functions/meetings/transcribe.ts` is. Both halves of that need
+correcting, and the order matters:
+
+*The Worker's binding does not enforce on this account.* Measured against the
+deployed Worker, twice: 45 requests on one key in two seconds drew zero 429s,
+and 30 paced a second apart — inside the 60s window, slow enough for the
+documented eventual consistency to settle — drew zero 429s. Re-run on a second
+`namespace_id` after Cloudflare's docs turned out to require "a positive
+integer, unique per account" rather than the arbitrary string the config
+comment claimed: same result. The binding was provably attached to the live
+script and printed by `wrangler deploy --dry-run`, the call site is
+unconditional and fails closed. The Worker's unit tests exercise a fake limiter
+and stayed green through the whole failure, which is
+[testing](./testing.md)'s one rule arriving as a bill rather than as a
+principle.
+
+*So the ceiling moved here, and the price was named before it was paid.*
+`transcribeChunk` now holds one `ctx.runMutation`, to one `internalMutation`,
+which calls `consumeRateLimit` and writes one `rateLimits` row. **Twenty chunks
+per account per minute**, against a workload of three a minute per live
+recording (`SEGMENT_MS` is 20s) and six for somebody recording the same meeting
+on two devices — the same ceiling the Worker declares, kept identical so there
+are not two numbers to reconcile. It is consumed **after** authentication, so an
+anonymous caller cannot spend somebody else's allowance or learn from the shape
+of a refusal that an account exists, and **before** everything else — argument
+validation, the environment reads, the fetch — so a refused caller costs zero
+inference. The refusal is a `ConvexError` with code `RATE_LIMITED` and a
+`retryAfterMs`, distinct from `TRANSCRIPTION_FAILED`, because a client that
+could not tell them apart would retry straight back into the limit while
+reporting a broken worker.
+
+**What was given up, stated exactly.** That action held no `ctx.db`, no
+`ctx.storage`, no `ctx.scheduler` and no `ctx.runMutation`, so it was
+*structurally* unable to persist a transcript — a stronger claim than "it does
+not", because it did not depend on anybody reading the code. That is no longer
+true of the handle. Three narrowings replace it, and each is a check rather than
+a sentence:
+
+- The mutation is `internalMutation`, so no client can reach it. The check is
+  `the budget mutation is internal, not public`.
+- Its argument validator is `{ userId: v.id("users") }` and the test asserts
+  that key set **exactly**, so there is no field audio, base64, a transcript, a
+  chunk id or an offset could travel in, and one cannot be added silently. The
+  check is `the budget mutation cannot be handed content`.
+- The table sweep that said *no table is written* now says **`rateLimits` is the
+  only table written**, pinned to a single row, with every other table in the
+  schema still counted and still asserted untouched. That is stronger than the
+  old assertion everywhere except the one point the owner chose to give up: the
+  old one could not tell a first write from a second, so relaxing it to admit
+  the counter would have left nothing to say about the row after it. The checks
+  are `only \`rateLimits\` is written, and nothing is scheduled or stored` and
+  `no row written anywhere carries the audio or the transcript`.
+
+The Worker's binding is **not removed**, and neither is the header it keys on.
+`checkRateLimit` fails closed on an absent binding, so deleting the declaration
+would refuse every request — worse than a limit that does nothing. Treat it as
+absent until somebody watches it return a 429. The remaining checks there are
+unchanged and still worth having, because they describe the shape a limiter
+must have wherever it lives: `refuses before the body is read, not after`,
 `an unauthenticated caller never touches anybody's bucket`,
 `a limiter that throws refuses, it does not wave the caller through` and
-`a binding removed from wrangler.jsonc refuses too`.
+`a binding removed from wrangler.jsonc refuses too`. The control-plane checks
+are `the call after the limit is refused, and buys no inference`,
+`one account's spending does not touch another's`,
+`the budget is per window, so a long meeting keeps transcribing`,
+`an anonymous caller spends nobody's budget, and writes nothing`,
+`an over-budget caller is told about the budget, not about their chunk id` and
+`the ceiling is the one the comment argues for, and the Worker's own`.
 
 **The identifier is an HMAC of the user id under the shared worker secret, and
-never the user id.** It travels in the `X-Caller-Hash` header — a header, not a
-body field, precisely so the Worker can refuse before parsing the audio. Three
-properties are being bought at once, and no simpler construction buys all three:
-it is *stable*, so it can key a limit at all (anything per-request is a fresh
-bucket per request, which is no limit); it is *opaque*, so the Worker, its logs,
-and anyone who intercepts the header hold no account identifier — a plain
-SHA-256 would not do, because with no secret in the construction anybody holding
-a user id can confirm a guess against it; and it is *recomputable by the control
-plane*, which holds both the secret and the users table, so the account behind a
-bill can actually be named. That last one is the reason it is an HMAC rather
-than a random per-user token: a token would need a stored mapping, which is a row
-this action must not write.
+never the user id.** This half was never the broken one and is unchanged. It
+travels in the `X-Caller-Hash` header — a header, not a body field, precisely so
+the Worker can refuse before parsing the audio. Three properties are being
+bought at once, and no simpler construction buys all three: it is *stable*, so
+it can key a limit at all (anything per-request is a fresh bucket per request,
+which is no limit); it is *opaque*, so the Worker, its logs, and anyone who
+intercepts the header hold no account identifier — a plain SHA-256 would not do,
+because with no secret in the construction anybody holding a user id can confirm
+a guess against it; and it is *recomputable by the control plane*, which holds
+both the secret and the users table, so the account behind a bill can actually
+be named. That last one is the reason it is an HMAC rather than a random
+per-user token: a token would need a stored mapping, which is a row this action
+must not write.
+
+Metering and tracing are not the same thing and both are wanted. The ceiling
+above stops a runaway caller; the identifier is what puts a name on the spend
+that did happen, on served requests as well as refused ones. An unbounded spend
+that names nobody is not a stronger privacy position — it is the same disclosure
+with a bill attached — and a bounded spend that names nobody still leaves an
+operator with a number and no account.
 
 The inversion is a linear scan over `users`, spelled out on `callerHash` in
 `functions/meetings/transcribe.ts`, and it is checked rather than merely
@@ -254,17 +310,17 @@ This is a real, deliberate widening of what the Worker is told. *Nothing joins
 the call* and the Worker's own header both say it holds no session, no
 workspace, no context id and no position in a recording, and all of that stays
 true: it now learns that two chunks came from the same caller, and nothing else
-about who that is. The alternative was leaving the budget open, and an
-unbounded spend that names nobody is not a stronger privacy position — it is
-the same disclosure with a bill attached.
+about who that is.
 
-**Two things this does not cover, stated rather than glossed.** The limit is per
-*identifier*, so somebody willing to open many accounts gets many buckets: that
+**Three things this does not cover, stated rather than glossed.** The limit is
+per *account*, so somebody willing to open many accounts gets many buckets: that
 is a signup-gate problem — open email OTP with no invite — and it is not this
-seam's to solve. And Cloudflare's limiter is per-location and eventually
-consistent, so a caller spread across colos gets a multiple of the ceiling; it
-bounds a blast radius and is not an accounting system, which Cloudflare says
-outright.
+seam's to solve. The window is fixed rather than sliding, so a caller can spend
+one window's budget at its end and the next window's at its start: the true
+worst-case burst is 40 chunks in a short span, which `lib/rateLimit.ts` says
+outright and which does not matter at this size. And nothing here meters
+*spend*: this caps requests, not dollars, and a budget that stops at a number of
+dollars does not exist and is not pretended to.
 
 ### A client-supplied id is bounded where it enters — and, since 2026-09-05, where it lands as well
 

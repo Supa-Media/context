@@ -36,10 +36,21 @@
  * `docs/decisions/meetings.md` — *audio is never written to the bucket and never
  * persisted by us. Not as an attachment, not as a cache, not "temporarily" in a
  * queue that has no expiry.* This action therefore has no `ctx.db`, no
- * `ctx.storage`, no `ctx.scheduler` and no `ctx.runMutation`: the audio exists
- * in one request's memory and is gone. It does not log the audio, and it does
- * not log the transcript either — a transcript is note content, and the
- * engineering standards say logs never carry that.
+ * `ctx.storage` and no `ctx.scheduler`: the audio exists in one request's
+ * memory and is gone. It does not log the audio, and it does not log the
+ * transcript either — a transcript is note content, and the engineering
+ * standards say logs never carry that.
+ *
+ * It holds **one** `ctx.runMutation`, and one only, to the internal budget
+ * mutation below. That sentence used to read "and no `ctx.runMutation`" and
+ * stayed here, still asserting it, after the mutation was added a hundred lines
+ * further down — which is the exact failure this file's own comments keep
+ * warning about, found in review rather than by a test. What now keeps it true
+ * is not this paragraph: `only \`rateLimits\` is written, and nothing is
+ * scheduled or stored` counts every table in the schema on every call, and
+ * `the budget mutation cannot be handed content` pins that mutation's argument
+ * validator to exactly one `v.id("users")`. Read those two before trusting
+ * this one.
  *
  * And it never fails quietly. `apps/mobile/features/meetings/capture/audio.ts`
  * makes the point the same way this file does: a meeting that records for forty
@@ -51,57 +62,86 @@
  * `__tests__/meetingTranscribe.test.ts` holds all of that, including the
  * sabotage record.
  *
- * ## The rate limit is the Worker's, and this file's job is to say who is asking
+ * ## The rate limit is this file's, and the Worker's is known not to work
  *
- * This section used to say there was no rate limit at all, and it was right: a
- * signed-in account was the only thing between a caller and our worker's
- * inference budget. Sign-up is open email OTP with no invite gate and
- * `api.auth.signIn` is public, so "a signed-in account" is a barrier of
- * approximately zero; each call carries up to 8 MiB of audio; and the body
- * posted to the worker was `{ audioBase64, mimeType, durationMs }` — no caller
- * at all — so a surprising bill had no account behind it to find.
+ * This section has said three different things, and the honest version records
+ * all three rather than presenting the last one as though it were obvious.
  *
- * **Why the limit is not here.** `lib/rateLimit.ts` is the tool everywhere else
- * in this control plane and it cannot be used in this file without changing
- * what the file is: `consumeRateLimit` needs a `MutationCtx` and writes a
- * `rateLimits` row, so reaching for it means this action starts writing to the
- * database — which `no table is written` in the test above exists to forbid,
- * deliberately, because the row after `rateLimits` is the one holding a
- * transcript. That was the trade the previous version of this paragraph left
- * undecided, and the alternative it named is what was built.
+ * **What it said first.** There was no rate limit at all: a signed-in account
+ * was the only thing between a caller and our worker's inference budget.
+ * Sign-up is open email OTP with no invite gate and `api.auth.signIn` is
+ * public, so "a signed-in account" is a barrier of approximately zero; each
+ * call carries up to 8 MiB of audio; and the body posted to the worker was
+ * `{ audioBase64, mimeType, durationMs }` — no caller at all — so a surprising
+ * bill had no account behind it to find.
  *
- * **What was built.** The limit is enforced in the Worker
- * (`infra/transcribe-worker/src/rateLimit.ts`) with Cloudflare's native rate
- * limiting binding, which is declared in `wrangler.jsonc` and provisions no
- * account resource at all — no KV, no D1, no Durable Object. That mattered
- * twice: nobody had to provision anything, and the Worker's auditability claim
- * (there is nowhere in it to keep audio even by accident) survives, which a
- * rate-limit KV would have been the first binding to weaken. It is keyed by
- * `callerHash` below, which this action sends in the `X-Caller-Hash` header on
- * every request. Twenty requests a minute per identifier, against a workload of
- * three: the arithmetic is in that file.
+ * **What was tried.** The limit was put in the Worker
+ * (`infra/transcribe-worker/src/rateLimit.ts`) using Cloudflare's native rate
+ * limiting binding, declared in `wrangler.jsonc`, keyed by the `callerHash`
+ * this action sends in `X-Caller-Hash`. The attraction was that the binding
+ * provisions **no account resource at all** — no KV, no D1, no Durable Object
+ * — so the Worker's auditability claim (there is nowhere in it to keep audio
+ * even by accident) survived intact.
  *
- * **⚠️ And it does not work.** Tested against the deployed Worker: 30 requests
- * on one key paced a second apart — inside the 60s window, slow enough for the
- * documented eventual consistency to settle — drew zero refusals, as did 45 in
- * two seconds. The binding is provably attached to the live script and printed
- * by `wrangler deploy --dry-run`; the call site is unconditional, after the
- * credential check and before the body read; it fails closed on absence. It was
- * re-tested on a second `namespace_id` after Cloudflare's docs turned out to
- * require "a positive integer, unique per account" rather than the arbitrary
- * string the config comment claimed. Same result. **So the spend ceiling is
- * still nothing, and the paragraph above describes an intention.**
+ * **What was measured.** It does not enforce on this account. 45 requests on
+ * one key in two seconds: zero 429s. 30 requests on one key paced a second
+ * apart — inside the 60s window, slow enough for the documented eventual
+ * consistency to settle: zero 429s. Re-run on a second `namespace_id` after
+ * Cloudflare's docs turned out to require "a positive integer, unique per
+ * account" rather than the arbitrary string the config comment claimed: same
+ * result. The binding was provably attached to the live script and printed by
+ * `wrangler deploy --dry-run`; the call site is unconditional and fails closed.
+ * Two values, burst and paced, binding present, no refusals. The Worker's unit
+ * tests exercise a fake limiter and stayed green through the entire failure,
+ * which is `docs/decisions/testing.md`'s one rule arriving as a bill.
  *
- * What genuinely works is the identifier: the Worker logs `caller` on served
- * requests as well as refused ones, so a surprising bill can now be traced to
- * an account, which it could not before. Tracing is not metering.
+ * **What was chosen instead.** The limit is now here, in the control plane,
+ * through the `rateLimits` table every other limited operation in this
+ * repository uses. `consumeTranscribeBudget` below is an `internalMutation`
+ * that `transcribeChunk` calls before it posts anything, so a refused caller
+ * costs zero inference.
  *
- * Moving the limit here is the option the disclosure above costed, and it is
- * the live one now — but it means this action taking a `ctx.runMutation` and
- * contradicting a stated security property on purpose. That is a person's call.
- * See the comment in `infra/transcribe-worker/wrangler.jsonc` for the full
- * measurement, and do not let a green suite talk you out of it: those tests
- * exercise a fake limiter and passed through the entire failure.
+ * **The property that was given up, precisely.** This action used to hold no
+ * `ctx.db`, no `ctx.storage`, no `ctx.scheduler` and no `ctx.runMutation`, so
+ * it was *structurally* unable to persist a transcript — a stronger statement
+ * than "it does not", because it did not depend on anybody reading the code.
+ * It now holds exactly one `ctx.runMutation`, to one internal mutation, and
+ * that is the whole of the widening.
+ *
+ * **What replaced it, and it is enforced rather than described.** Three
+ * narrowings, each with a test in `__tests__/meetingTranscribe.test.ts`:
+ *
+ *  - `consumeTranscribeBudget` is `internalMutation`, not `mutation`, so no
+ *    client can reach it. `the budget mutation is internal, not public`.
+ *  - Its argument validator is `{ userId: v.id("users") }` and the test asserts
+ *    that key set **exactly**, so an `audioBase64` — or anything else that
+ *    could carry content — cannot be added to it silently. A `v.id` is not a
+ *    field a transcript fits in. `the budget mutation cannot be handed content`.
+ *  - The table sweep that used to say *no table is written* now says
+ *    **`rateLimits` is the only table written**, and every other table in the
+ *    schema is still counted and still asserted untouched. That is stronger
+ *    than the old assertion in every respect except the one the owner chose to
+ *    give up: it now also fails if a *second* write is added, which the old
+ *    all-or-nothing check could not distinguish from the first.
+ *    `only rateLimits is written, and it holds no content`.
+ *
+ * **The numbers, and the workload they are against.** Chunks rotate every
+ * `SEGMENT_MS` = 20s (`apps/mobile/features/meetings/capture/segments.ts`), so
+ * one live recording is 3 requests a minute; a person recording the same
+ * meeting on a phone and a laptop is 6. Twenty a minute is the same ceiling
+ * #222 chose for the Worker, kept deliberately so the two numbers do not have
+ * to be reconciled later, and it leaves better than 3x headroom over the
+ * two-device case while capping a runaway caller at 20 chunks of inference a
+ * minute instead of an unbounded number.
+ *
+ * **The Worker's binding stays, and stays known-broken.** It is not removed,
+ * because `checkRateLimit` fails closed on an absent binding and deleting the
+ * declaration would refuse every request. The `X-Caller-Hash` attribution
+ * stays too, and it is the half that genuinely works: the Worker logs `caller`
+ * on served requests as well as refused ones, so a surprising bill can be
+ * traced to an account. Tracing is not metering, which is why the ceiling now
+ * lives here — but metering without tracing would leave a bill with nobody's
+ * name on it, so both are wanted.
  *
  * **A header, not a body field**, because the Worker has to be able to refuse
  * *before* it reads 8 MiB of audio, and a key that lived in the body could only
@@ -109,21 +149,23 @@
  *
  * **What remains uncovered, stated rather than glossed:**
  *
- *  - The limit is per *identifier*, so somebody willing to open many accounts
- *    gets many buckets. That is a signup-gate problem — open email OTP with no
+ *  - The limit is per *account*, so somebody willing to open many accounts gets
+ *    many buckets. That is a signup-gate problem — open email OTP with no
  *    invite — and it is not this file's to solve. It is written down here so
  *    the next person reads it before concluding the budget is safe.
- *  - Cloudflare's limiter is per-location and eventually consistent, so a
- *    caller spread across colos gets a multiple of the ceiling. It bounds a
- *    blast radius; it is not an accounting system, and Cloudflare says so.
- *  - Nothing here meters *spend*. The Worker's log names the caller on every
- *    request it serves, which is what makes a bill traceable after the fact;
- *    there is no budget that stops at a number.
+ *  - The window is fixed rather than sliding, so the true worst-case burst is
+ *    `limit * 2` across a window boundary — 40 chunks in a short span.
+ *    `lib/rateLimit.ts` says so outright, and at this size it does not matter.
+ *  - Nothing here meters *spend*. This caps requests, not dollars; a budget
+ *    that stops at a number of dollars does not exist and is not pretended to.
  */
 
 import { ConvexError, v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { action } from "../../_generated/server";
+import { internal } from "../../_generated/api";
+import { action, internalMutation } from "../../_generated/server";
+import type { Id } from "../../_generated/dataModel";
+import { consumeRateLimit } from "../lib/rateLimit";
 
 /** Where the transcription Worker lives. No default: see `notConfigured`. */
 export const TRANSCRIBE_WORKER_URL_ENV_VAR = "TRANSCRIBE_WORKER_URL";
@@ -448,6 +490,128 @@ function insecureWorkerUrl(): ConvexError<{ code: string; message: string }> {
   });
 }
 
+/**
+ * How many chunks one account may transcribe per window, and the window.
+ *
+ * Exported because `__tests__/meetingTranscribe.test.ts` spends exactly this
+ * many and then one more: a limit whose test hard-codes its own number is a
+ * test that passes after somebody quietly raises it.
+ *
+ * **Twenty a minute, against a workload of three.** A recording rotates a chunk
+ * every `SEGMENT_MS` = 20s (`apps/mobile/features/meetings/capture/segments.ts`),
+ * so one live meeting is 3 requests a minute. Someone recording the same
+ * meeting on a phone and a laptop is 6, and `MAX_INFLIGHT_CHUNKS` = 3 bounds
+ * how far a slow link can bunch them up. Twenty leaves better than 3x headroom
+ * over the two-device case and is the same ceiling #222 chose for the Worker —
+ * deliberately the same, so there are not two numbers to reconcile if the
+ * Worker's binding ever starts enforcing.
+ */
+export const TRANSCRIBE_CHUNKS_PER_WINDOW = 20;
+export const TRANSCRIBE_WINDOW_MS = 60_000;
+
+/** The `rateLimits` key one account's transcription budget is counted under. */
+function transcribeBudgetKey(userId: Id<"users">): string {
+  return `meetings.transcribeChunk:${userId}`;
+}
+
+/**
+ * Spend one chunk of an account's transcription budget, and say whether it had
+ * one to spend.
+ *
+ * THE ONLY THING `transcribeChunk` IS ALLOWED TO REACH THE DATABASE FOR, and
+ * the shape of this function is the whole of what keeps that true rather than
+ * merely stated. Read the module header for what was given up and why; this is
+ * the narrowness it was traded for:
+ *
+ *  - **`internalMutation`, never `mutation`.** No client can call it, so the
+ *    only caller is the action below and the only argument it can ever be
+ *    given is one this file computed.
+ *  - **`{ userId: v.id("users") }`, and the test asserts that key set exactly.**
+ *    There is no field here that audio, base64, a transcript, a chunk id or an
+ *    offset could travel in, and one cannot be added without the test that pins
+ *    the validator's keys failing. That is the enforceable half of "the audio
+ *    exists in one request's memory and is gone".
+ *  - **It writes `rateLimits` and nothing else**, which is `consumeRateLimit`'s
+ *    entire behaviour, and the sweep in the test file counts every other table
+ *    in the schema to prove it.
+ *
+ * **It returns a verdict rather than throwing**, which is not a style choice.
+ * `consumeRateLimit` throws, and a mutation that throws rolls its transaction
+ * back — which is the right thing for the refusal (a refused caller must not be
+ * charged) and the wrong thing to build a control-flow contract on across a
+ * `ctx.runMutation` boundary. Returning `{ allowed: false }` commits nothing
+ * and hands the action a value it can act on, and the action turns it into the
+ * `RATE_LIMITED` error the client sees.
+ *
+ * **It counts attempts, not successes, and that is a departure from what
+ * `lib/rateLimit.ts` says about itself.** That module's header points out that
+ * a mutation which later throws rolls its increment back, so it counts
+ * *successful* operations — correct for name squatting, where a failed claim
+ * takes nothing out of the namespace. Here the counter commits in its own
+ * transaction, before the fetch, and a chunk the worker then fails to
+ * transcribe still costs its caller a slot. That is the direction this limit
+ * has to fail in: the whole point of it is to bound requests that reach the
+ * Worker, and inference bought by a call that later errors is inference bought.
+ * A caller who could make the worker 500 for free would have no ceiling at all.
+ *
+ * **The `catch` is deliberately total, and it fails closed.** A limiter that
+ * cannot answer is a limiter whose budget we cannot prove we are inside of, and
+ * the safe move then is to refuse — the same direction `checkRateLimit` fails
+ * in the Worker, and the opposite of what the Worker's binding actually did.
+ */
+export const consumeTranscribeBudget = internalMutation({
+  args: { userId: v.id("users") },
+  returns: v.object({
+    allowed: v.boolean(),
+    /** How long until the window rolls over; `null` when nothing was refused. */
+    retryAfterMs: v.union(v.number(), v.null()),
+  }),
+  handler: async (ctx, args): Promise<{ allowed: boolean; retryAfterMs: number | null }> => {
+    try {
+      await consumeRateLimit(ctx, {
+        key: transcribeBudgetKey(args.userId),
+        limit: TRANSCRIBE_CHUNKS_PER_WINDOW,
+        windowMs: TRANSCRIBE_WINDOW_MS,
+      });
+    } catch (error) {
+      const data = error instanceof ConvexError ? (error.data as unknown) : null;
+      const retryAfterMs =
+        typeof data === "object" &&
+        data !== null &&
+        typeof (data as { retryAfterMs?: unknown }).retryAfterMs === "number"
+          ? (data as { retryAfterMs: number }).retryAfterMs
+          : null;
+      return { allowed: false, retryAfterMs };
+    }
+    return { allowed: true, retryAfterMs: null };
+  },
+});
+
+/**
+ * The refusal an account over its transcription budget gets.
+ *
+ * Its own code rather than `TRANSCRIPTION_FAILED`, because the two are not the
+ * same event from the client's seat: a failed chunk is something that went
+ * wrong and may work on the next one, and this is the caller being told they
+ * are asking too fast. A client that could not tell them apart would either
+ * report a broken worker when nothing is broken, or retry into the limit.
+ *
+ * `retryAfterMs` travels with it for the reason `lib/rateLimit.ts` gives: a
+ * client that cannot say when to try again shows the person a dead end. It is
+ * `null` only if the limiter refused without saying — see the total `catch`.
+ */
+function rateLimited(
+  retryAfterMs: number | null,
+): ConvexError<{ code: string; message: string; retryAfterMs: number | null }> {
+  return new ConvexError({
+    code: "RATE_LIMITED",
+    message:
+      `Too many chunks transcribed. ${TRANSCRIBE_CHUNKS_PER_WINDOW} per minute ` +
+      "per account; try again shortly.",
+    retryAfterMs,
+  });
+}
+
 export const transcribeChunk = action({
   args: {
     /** ONE rotated chunk: a complete, self-contained audio file. */
@@ -495,6 +659,21 @@ export const transcribeChunk = action({
     // owns, so there is nothing here to be a member of.
     const userId = await getAuthUserId(ctx);
     if (userId === null) throw notAuthenticated();
+
+    // The ceiling, and the one database write this action is allowed. It goes
+    // second on purpose: after authentication, because an anonymous caller must
+    // not be able to spend somebody else's allowance (or to learn, from a
+    // `RATE_LIMITED` rather than a `NOT_AUTHENTICATED`, that an account exists);
+    // and before *everything* else, because every check below it is cheap only
+    // in inference — a caller who can make this action do argument validation,
+    // environment reads and a URL parse a million times a second is still a
+    // caller we are paying to serve. A refusal here costs zero inference, which
+    // is the whole point of it being here rather than in the Worker.
+    const budget = await ctx.runMutation(
+      internal.functions.meetings.transcribe.consumeTranscribeBudget,
+      { userId },
+    );
+    if (!budget.allowed) throw rateLimited(budget.retryAfterMs);
 
     // After authentication, because the shape of an unauthenticated caller's
     // arguments is not something to tell them about — and before the fetch,
