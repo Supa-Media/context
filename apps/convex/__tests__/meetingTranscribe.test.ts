@@ -40,6 +40,13 @@
  *   a missing `segments` array read as silence rather than refused        1
  *   an internal mutation added that tallies each chunk into a table       1
  *   the audio cached with `ctx.storage.store` "for the retry"             1
+ *   `durationMs` dropped from the body posted to the worker                3
+ *   `durationMs` used to clamp the worker's times                          1
+ *
+ * The clamp is worth naming. Measured before its check existed, it passed all
+ * 29 tests in this file. `durationMs` is now forwarded to the worker, and
+ * forwarding it is one keystroke from using it in the mapping, so the rule that
+ * it may not trim a time the engine stated is a check rather than a paragraph.
  *
  * Every one was caught. Four of them are caught by exactly one test, so those
  * four tests were sabotaged in turn to prove they are load-bearing rather than
@@ -291,7 +298,59 @@ describe("the request to the worker", () => {
     // A credential in a URL ends up in every log and proxy between here and
     // there. CLAUDE.md: no secrets in URLs.
     expect(request.url).not.toContain(WORKER_SECRET);
-    expect(request.body).toEqual({ audioBase64: AUDIO, mimeType: "audio/m4a" });
+    expect(request.body).toEqual({
+      audioBase64: AUDIO,
+      mimeType: "audio/m4a",
+      durationMs: CHUNK.durationMs,
+    });
+  });
+
+  /**
+   * Sabotage: drop `durationMs` from the body.
+   *
+   * The worker accepts it and uses it for exactly one thing: the span of the
+   * single segment it emits when the engine answers with a flat string and no
+   * timings. Without it that falls to the engine's own `transcription_info`,
+   * and when the engine reports none, to `0` — so a whole chunk of speech
+   * arrives as one segment with `startMs === endMs === offsetMs`. Every flag,
+   * whose only job per `docs/decisions/meetings.md` is to land on the right
+   * sentence, then lands beside a zero-length turn.
+   *
+   * It went unnoticed because the worker's own test for that path
+   * (`prefers the caller's durationMs`) calls the function directly: nothing
+   * reaching it in production ever set the field.
+   *
+   * This is NOT the clamping the argument's doc comment refuses. Clamping
+   * would trim a segment the engine timed; this hands the worker the length of
+   * the audio it was given, to use where the engine timed nothing at all.
+   */
+  test("forwards the chunk's own duration, which the worker has no other way to know", async () => {
+    const t = setupTest();
+    configureWorker();
+    const requests = workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
+
+    await transcribe(t, { durationMs: 45_000 });
+
+    expect((requests[0].body as { durationMs?: unknown }).durationMs).toBe(45_000);
+  });
+
+  test("still sends nothing but the audio, its type, and its length", async () => {
+    // The body is the whole of what leaves this control plane. No chunk id, no
+    // offset, no user id, no session: `docs/decisions/meetings.md` says a
+    // stateless transcriber that knew where a chunk sat in a recording would be
+    // holding a fragment of somebody's meeting, and the worker's own header
+    // says it cannot be told.
+    const t = setupTest();
+    configureWorker();
+    const requests = workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
+
+    await transcribe(t);
+
+    expect(Object.keys(requests[0].body as object).sort()).toEqual([
+      "audioBase64",
+      "durationMs",
+      "mimeType",
+    ]);
   });
 
   test("a configured URL with a trailing slash does not produce a double slash", async () => {
@@ -342,6 +401,30 @@ describe("mapping the worker's answer", () => {
 
     expect(segments[0].startMs).toBe(40);
     expect(segments[0].endMs).toBe(900);
+  });
+
+  /**
+   * Sabotage: `Math.min(segment.endMs, args.durationMs)`.
+   *
+   * Measured: with only the argument's doc comment forbidding it, clamping
+   * passed all 29 tests in this file. `durationMs` is now forwarded to the
+   * worker, and forwarding it is one keystroke away from using it here — so
+   * the rule that it may not trim a time the engine stated is a check rather
+   * than a paragraph.
+   *
+   * A segment running past the end of its chunk is a fact about the
+   * transcription: Whisper pads, and a word straddling a rotation boundary is
+   * timed past it. Trimming it would be this action editing somebody's meeting
+   * to make its own arithmetic tidier.
+   */
+  test("a segment that runs past the end of its chunk is not trimmed to fit", async () => {
+    const t = setupTest();
+    configureWorker();
+    workerReturning([{ startMs: 29_500, endMs: 31_200, text: "over the edge" }]);
+
+    const { segments } = await transcribe(t, { offsetMs: 60_000, durationMs: 30_000 });
+
+    expect(segments[0].endMs).toBe(91_200);
   });
 
   test("every segment is a mic segment with no speaker", async () => {

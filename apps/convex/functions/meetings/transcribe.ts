@@ -208,11 +208,25 @@ export const transcribeChunk = action({
     /** Milliseconds from the start of the session at which this chunk begins. */
     offsetMs: v.number(),
     /**
-     * The chunk's wall-clock length. Carried because it is part of the contract
-     * every surface agrees to and the recorder knows it, and deliberately *not*
-     * used to clamp the worker's times: a segment that runs past the end of its
-     * chunk is a fact about the transcription, and silently trimming it would
-     * be this action editing somebody's meeting.
+     * The chunk's wall-clock length, forwarded to the worker.
+     *
+     * Two things it does, which are worth keeping apart because they look
+     * alike and only one of them is allowed.
+     *
+     * It is deliberately **not** used to clamp the worker's times. A segment
+     * that runs past the end of its chunk is a fact about the transcription,
+     * and silently trimming it would be this action editing somebody's
+     * meeting.
+     *
+     * It **is** forwarded, because the worker has no other way to know it. The
+     * worker uses it for one thing: the span of the single segment it emits
+     * when the engine answers with a flat string and no timings at all. With
+     * nothing forwarded that span falls back to the engine's own
+     * `transcription_info`, and then — when the engine reports none — to `0`,
+     * so a whole chunk of speech arrives as one zero-length segment sitting at
+     * `offsetMs`, and a flag whose only job is to land on the right sentence
+     * lands beside it. Handing the worker the length of the audio it was given
+     * is not the same act as trimming a time the engine stated.
      */
     durationMs: v.number(),
   },
@@ -241,9 +255,14 @@ export const transcribeChunk = action({
           Authorization: `Bearer ${workerSecret}`,
           "Content-Type": "application/json",
         },
+        // The audio, what it is, and how long it is. Nothing else: no chunk
+        // id, no offset, no session and no user, because a stateless
+        // transcriber that knew where a chunk sat in a recording would be
+        // holding a fragment of somebody's meeting.
         body: JSON.stringify({
           audioBase64: args.audioBase64,
           mimeType: args.mimeType,
+          durationMs: args.durationMs,
         }),
       });
     } catch {

@@ -306,6 +306,9 @@ describe("turning an engine answer into segments", () => {
   });
 
   it("prefers the caller's durationMs, which knows the chunk and the engine does not", () => {
+    // Reachable in production: `functions/meetings/transcribe.ts` forwards the
+    // chunk's length in the request body. For a while it did not, so this was a
+    // check on a path no caller took and `parsed.durationMs` was always `null`.
     expect(
       toTranscription({ text: "x", transcription_info: { duration: 2.5 } }, 4000)!.segments[0]!
         .endMs,
