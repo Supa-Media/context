@@ -524,7 +524,11 @@ export async function runStoreChecks(check, gateway) {
   ];
 
   const traversalPrefixStore = s3(() => new Response(listXml({})), { rootPrefix: "team-notes" });
-  const traversalPrefixR2 = new R2Store(memoryBucket(), { rootPrefix: "team-notes" });
+  // The bucket is held rather than passed inline, for the reason the key
+  // matrix holds `traversalBucket`: without a handle there is nothing to
+  // assert the backend was never reached on.
+  const traversalPrefixBucket = memoryBucket();
+  const traversalPrefixR2 = new R2Store(traversalPrefixBucket, { rootPrefix: "team-notes" });
   const prefixRejections = [];
   for (const prefix of TRAVERSAL_PREFIXES) {
     for (const [name, run] of [
@@ -548,9 +552,15 @@ export async function runStoreChecks(check, gateway) {
     "a list prefix gets the same treatment as a key, on every adapter",
     prefixRejections.length === 0
   );
+  // All three, like the key matrix above. `traversalDropboxCalls` is asserted
+  // empty at the end of that matrix and nothing touches the instance between
+  // there and here, so counting it again is a claim about this loop and not a
+  // restatement of that one.
   check(
-    "and a refused prefix reaches no backend at all",
-    traversalPrefixStore.fetchImpl.calls.length === 0
+    "and a refused prefix reaches no backend at all, on any of them",
+    traversalPrefixStore.fetchImpl.calls.length === 0 &&
+      traversalPrefixBucket.objects.size === 0 &&
+      traversalDropboxCalls.length === 0
   );
 
   const badRootPrefixes = ["..", "../other-tenant", "team/../../elsewhere", "team/./notes"];
