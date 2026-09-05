@@ -54,10 +54,15 @@ describe("the deployed rate limit binding", () => {
 
   it("is bound under the name src/index.ts reads", () => {
     expect(bindings?.[0]?.name).toBe("TRANSCRIBE_RATE_LIMIT");
-    // A namespace id is required by wrangler and is an arbitrary string this
-    // Worker chooses; it names no account resource and provisions nothing.
-    expect(typeof bindings?.[0]?.namespace_id).toBe("string");
-    expect(String(bindings?.[0]?.namespace_id)).not.toBe("");
+    // The namespace id provisions nothing, but it is not the arbitrary string
+    // the comment here used to call it: Cloudflare documents "a string
+    // containing a positive integer, unique per account". A value outside that
+    // shape still deploys, and a binding that deploys without enforcing is the
+    // failure this Worker actually hit — so the shape is asserted rather than
+    // described. `"0"` and `"1e3"` are integers to `Number` and are not this.
+    const namespaceId = bindings?.[0]?.namespace_id;
+    expect(typeof namespaceId).toBe("string");
+    expect(String(namespaceId)).toMatch(/^[1-9][0-9]*$/);
   });
 
   it("declares exactly the limit rateLimit.ts justifies in prose", () => {
