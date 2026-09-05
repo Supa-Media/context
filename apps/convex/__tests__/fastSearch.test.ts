@@ -34,15 +34,27 @@
  *   `enable` returning early for a `failed` row (the #233 bug)    1 → 2
  *   `enable`'s re-enable patch clearing `databaseId`              0 → 2
  *
- * The last one is zero and stays zero: see "a member cannot count the notes
- * they cannot read" below for why no test can reach it, and what would.
+ * **Each note below names its row.** "The last one" was how two of these read
+ * until rows were appended beneath them, at which point both pointed at
+ * somebody else's measurement — one of them labelling a 0 → 2 row as "zero and
+ * stays zero". A table that is appended to is not a table you can index from
+ * the end.
  *
- * The last one measured **zero** on the first run and is the reason two tests
- * above exist. `fastSearchEntitled` is true for every workspace kind that
- * exists, so deleting it from the composition changed nothing any test could
- * see — the half of the gate that a paid tier will make load-bearing was
- * unchecked, which is the one rule `docs/decisions/testing.md` has. It fails
- * closed on an unrecognized kind, and that is the handle the two tests use.
+ * **`status` gating them on `canChange`** is zero and stays zero: see "a member
+ * cannot count the notes they cannot read" below for why no test can reach it,
+ * and what would.
+ *
+ * **`fastSearchActive` dropping the entitlement half** measured zero on the
+ * first run and is the reason two tests exist for it. `fastSearchEntitled` is
+ * true for every workspace kind that exists, so deleting it from the
+ * composition changed nothing any test could see — the half of the gate that a
+ * paid tier will make load-bearing was unchecked, which is the one rule
+ * `docs/decisions/testing.md` has. It fails closed on an unrecognized kind, and
+ * that is the handle the two tests use.
+ *
+ * **`enable`'s re-enable patch clearing `databaseId`** was zero and is now two:
+ * both routes into that patch are covered below, the failed retry and the
+ * re-enable mid-release.
  */
 
 import { describe, expect, test } from "vitest";
@@ -571,6 +583,18 @@ describe("turning it on", () => {
     expect(back).toHaveLength(1);
     expect(back[0].status).toBe("provisioning");
     expect(back[0].databaseId).toBe("db-mid-release");
+
+    // And the same property the retry test ends on: off can still delete it.
+    // Without the handle this row is deleted outright instead of released.
+    await asUser(t, owner).mutation(api.functions.fastSearch.disable, {
+      workspaceId,
+    });
+    const afterOff = await t.run(
+      async (ctx) => await ctx.db.query("searchIndexes").collect(),
+    );
+    expect(afterOff).toHaveLength(1);
+    expect(afterOff[0].status).toBe("releasing");
+    expect(afterOff[0].databaseId).toBe("db-mid-release");
   });
 
   test("it is audited as a decision", async () => {
