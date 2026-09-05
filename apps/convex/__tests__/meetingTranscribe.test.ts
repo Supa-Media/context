@@ -46,6 +46,21 @@
  *   loopback matched as a substring of the whole URL                       1
  *   loopback dropped, leaving https-only                                   1
  *
+ * Five more when the caller identifier was added, on a suite that went from
+ * 1701 checks to 1709:
+ *
+ *   the `X-Caller-Hash` header dropped from the fetch                      3
+ *   the raw user id sent instead of the HMAC                               3
+ *   the domain-separation prefix dropped                                   4
+ *   the HMAC keyed by a constant rather than the worker secret             3
+ *   the identifier derived per-request, from the chunk id                  4
+ *
+ * Two of those are caught by exactly one test. `is the same for the same
+ * account on every call` is the only thing standing between a stable key and a
+ * fresh rate-limit bucket per request, which is no limit at all, and `is
+ * different for a different account` is the only thing standing between that
+ * and one bucket for the whole product.
+ *
  * The clamp is worth naming. Measured before its check existed, it passed all
  * 29 tests in this file. `durationMs` is now forwarded to the worker, and
  * forwarding it is one keystroke from using it in the mapping, so the rule that
@@ -65,6 +80,7 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
+import { CALLER_HMAC_CONTEXT, callerHash } from "../functions/meetings/transcribe";
 import schema from "../schema";
 import {
   asUser,
@@ -471,6 +487,219 @@ describe("the request to the worker", () => {
     await transcribe(t);
 
     expect(requests[0].url).toBe(`${WORKER_URL}/transcribe`);
+  });
+});
+
+/**
+ * WHO IS SPENDING THE INFERENCE, AND HOW A BILL IS TRACED BACK TO THEM.
+ *
+ * An adversarial review of this branch found that anyone who can receive an
+ * email could spend our Workers AI budget without limit and nothing recorded
+ * who did: `transcribeChunk` checks `getAuthUserId` and nothing else — by
+ * design, because the audio never becomes anything this control plane owns —
+ * but sign-up is open email OTP with no invite gate and `api.auth.signIn` is
+ * public, so "a signed-in account" is a barrier of approximately zero. Each
+ * call carries up to 8 MiB of audio.
+ *
+ * The limit itself lives in the Worker, for the reason the module header gives:
+ * `consumeRateLimit` needs a `MutationCtx` and writes a `rateLimits` row, and
+ * `no table is written` below exists to forbid exactly that. So the control
+ * plane's job is the other half — say WHO is asking, in a form that is stable
+ * enough to key a limit, opaque enough to be safe in a header and a log, and
+ * **recomputable here**, because an attribution nobody knows how to invert is
+ * not attribution.
+ */
+describe("who the worker is told is asking", () => {
+  /**
+   * The identifier, computed independently of the implementation.
+   *
+   * `node:crypto` rather than the exported helper on purpose: this is the
+   * recomputation path an operator would follow from a Worker log line back to
+   * an account, written out in full so that it is checked rather than merely
+   * documented. If this and `callerHash` ever disagree, the documented
+   * procedure is the one that is right.
+   */
+  async function recompute(userId: string, secret: string): Promise<string> {
+    const { createHmac } = await import("node:crypto");
+    return createHmac("sha256", secret)
+      .update(`${CALLER_HMAC_CONTEXT}${userId}`)
+      .digest("hex");
+  }
+
+  /** One chunk from a named user, returning what the worker was sent. */
+  async function transcribeAs(t: TestConvex, email: string) {
+    const userId = await createUser(t, email);
+    const requests = workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
+    await asUser(t, userId).action(api.functions.meetings.transcribe.transcribeChunk, CHUNK);
+    return { userId: String(userId), requests };
+  }
+
+  /**
+   * Sabotage: drop the header from the fetch.
+   *
+   * The worker then has nothing to key a limit by and nothing to name in a log,
+   * which is the finding exactly — and it fails closed there, so this also
+   * stops transcription rather than silently un-limiting it.
+   */
+  test("sends an opaque caller identifier the worker can key a limit by", async () => {
+    const t = setupTest();
+    configureWorker();
+    const { userId, requests } = await transcribeAs(t, "spender@example.invalid");
+
+    const sent = requests[0].headers["x-caller-hash"];
+    expect(sent).toBe(await recompute(userId, WORKER_SECRET));
+    // Fixed width, lowercase hex: the shape the worker's `readCaller` bounds
+    // its rate-limit key to.
+    expect(sent).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  /**
+   * Sabotage: send `userId` itself, or `hashToken(userId)`.
+   *
+   * A raw id hands the worker — and anyone who reads its logs, and anyone who
+   * intercepts the header — an account identifier it has no need for. A plain
+   * digest is barely better: anybody holding a user id can confirm a guess
+   * against it, because there is no secret in the construction. The HMAC is
+   * what makes it opaque to everyone except the party that already holds the
+   * secret AND the users table, which is this control plane.
+   */
+  test("never sends the user id, in the header, the body, or the URL", async () => {
+    const t = setupTest();
+    configureWorker();
+    const { userId, requests } = await transcribeAs(t, "private@example.invalid");
+
+    const everything = JSON.stringify(requests[0]);
+    expect(everything).not.toContain(userId);
+    expect(requests[0].url).not.toContain(userId);
+    // And the body is still exactly what it was: the audio, its type, its
+    // length. The identifier is a header because the worker must be able to
+    // refuse BEFORE it reads 8 MiB, and a body field could not do that.
+    expect(Object.keys(requests[0].body as object).sort()).toEqual([
+      "audioBase64",
+      "durationMs",
+      "mimeType",
+    ]);
+  });
+
+  /**
+   * Sabotage: derive it from anything per-request — the chunk id, a timestamp,
+   * `crypto.randomUUID()`.
+   *
+   * A key that changes per call is a fresh bucket per call, which is no limit
+   * at all, and the suite would otherwise stay green: every other assertion
+   * here is about one request.
+   */
+  test("is the same for the same account on every call", async () => {
+    const t = setupTest();
+    configureWorker();
+    const userId = await createUser(t, "steady@example.invalid");
+    const caller = await asUser(t, userId);
+    const requests = workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
+
+    await caller.action(api.functions.meetings.transcribe.transcribeChunk, CHUNK);
+    await caller.action(api.functions.meetings.transcribe.transcribeChunk, {
+      ...CHUNK,
+      chunkId: "chunk-00000000-0000-4000-8000-000000000000-4",
+      offsetMs: 200_000,
+    });
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0].headers["x-caller-hash"]).toBe(requests[1].headers["x-caller-hash"]);
+  });
+
+  /**
+   * Sabotage: key it on a constant.
+   *
+   * One bucket for the whole product: the first abuser locks every customer
+   * out, and the log names nobody. Caught here and nowhere else, because a
+   * constant is perfectly stable and the test above would pass.
+   */
+  test("is different for a different account", async () => {
+    const t = setupTest();
+    configureWorker();
+    const first = await transcribeAs(t, "one@example.invalid");
+    const second = await transcribeAs(t, "two@example.invalid");
+
+    expect(first.requests[0].headers["x-caller-hash"]).not.toBe(
+      second.requests[0].headers["x-caller-hash"],
+    );
+  });
+
+  /**
+   * Sabotage: key the HMAC with a constant, or with the URL.
+   *
+   * The secret is what makes the identifier unguessable to anyone who does not
+   * already hold it. Two deployments sharing a construction but not a secret
+   * must not produce the same identifier for the same person either.
+   */
+  test("is keyed by the worker secret, so it is not derivable without it", async () => {
+    const t = setupTest();
+    const userId = await createUser(t, "keyed@example.invalid");
+    const caller = await asUser(t, userId);
+
+    vi.stubEnv("TRANSCRIBE_WORKER_URL", WORKER_URL);
+    vi.stubEnv("TRANSCRIBE_WORKER_SECRET", WORKER_SECRET);
+    const first = workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
+    await caller.action(api.functions.meetings.transcribe.transcribeChunk, CHUNK);
+
+    vi.stubEnv("TRANSCRIBE_WORKER_SECRET", `${WORKER_SECRET}-rotated`);
+    const second = workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
+    await caller.action(api.functions.meetings.transcribe.transcribeChunk, CHUNK);
+
+    expect(first[0].headers["x-caller-hash"]).not.toBe(second[0].headers["x-caller-hash"]);
+    expect(second[0].headers["x-caller-hash"]).toBe(
+      await recompute(String(userId), `${WORKER_SECRET}-rotated`),
+    );
+  });
+
+  /**
+   * Sabotage: drop the domain-separation prefix.
+   *
+   * The same secret authorizes the request in the `Authorization` header. An
+   * HMAC over a bare user id under that key is one construction away from
+   * whatever the next thing signed with it is, and a signature that could be
+   * mistaken for another signature is how two protocols become one.
+   */
+  test("is domain-separated, so it cannot be confused with another use of the secret", async () => {
+    expect(CALLER_HMAC_CONTEXT).toContain("transcribe");
+    expect(CALLER_HMAC_CONTEXT).toMatch(/v1/);
+    const t = setupTest();
+    configureWorker();
+    const { userId, requests } = await transcribeAs(t, "separated@example.invalid");
+    const { createHmac } = await import("node:crypto");
+    const undomained = createHmac("sha256", WORKER_SECRET).update(userId).digest("hex");
+    expect(requests[0].headers["x-caller-hash"]).not.toBe(undomained);
+  });
+
+  test("the exported helper is the documented recomputation, so an operator can invert a log line", async () => {
+    // The one function `docs/decisions/meetings.md` tells an operator to run
+    // against every user id to find the account behind a Worker log line.
+    const identifier = await callerHash("some-user-id", WORKER_SECRET);
+    expect(identifier).toBe(await recompute("some-user-id", WORKER_SECRET));
+  });
+
+  test("the identifier never reaches a log line here", async () => {
+    // It is opaque, not public. The worker logs it because that is where a
+    // bill is attributed; this side has no reason to, and a log line naming a
+    // caller alongside a chunk id is a fragment of a recording's provenance.
+    const t = setupTest();
+    configureWorker();
+    const lines: string[] = [];
+    for (const method of ["log", "info", "warn", "error", "debug"] as const) {
+      vi.spyOn(console, method).mockImplementation((...args: unknown[]) => {
+        lines.push(args.map((arg) => String(arg)).join(" "));
+      });
+    }
+    let identifier: string;
+    try {
+      const { userId } = await transcribeAs(t, "quiet@example.invalid");
+      identifier = await recompute(userId, WORKER_SECRET);
+      stubWorker(() => new Response("nope", { status: 502 }));
+      await captureError(() => transcribe(t));
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(lines.join("\n")).not.toContain(identifier);
   });
 });
 

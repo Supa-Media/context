@@ -51,19 +51,52 @@
  * `__tests__/meetingTranscribe.test.ts` holds all of that, including the
  * sabotage record.
  *
- * ## Known gap: there is no rate limit, and adding one is not free
+ * ## The rate limit is the Worker's, and this file's job is to say who is asking
  *
- * A signed-in account is the only thing between a caller and our worker's
- * inference budget. `lib/rateLimit.ts` is the tool for that everywhere else in
- * this control plane, and it cannot be used here without changing what this
- * file is: `consumeRateLimit` needs a `MutationCtx` and writes a `rateLimits`
- * row, so reaching for it means this action starts writing to the database —
- * which the test above exists to forbid, deliberately, because the row after it
- * is the one holding a transcript. The honest options are a limit enforced in
- * the Worker itself, keyed by the user id this action would pass across, or a
- * `rateLimits` write accepted as a bounded exception with a test naming exactly
- * which table it may touch. Neither is decided; the gap is real and is written
- * down rather than left for somebody to discover from a bill.
+ * This section used to say there was no rate limit at all, and it was right: a
+ * signed-in account was the only thing between a caller and our worker's
+ * inference budget. Sign-up is open email OTP with no invite gate and
+ * `api.auth.signIn` is public, so "a signed-in account" is a barrier of
+ * approximately zero; each call carries up to 8 MiB of audio; and the body
+ * posted to the worker was `{ audioBase64, mimeType, durationMs }` — no caller
+ * at all — so a surprising bill had no account behind it to find.
+ *
+ * **Why the limit is not here.** `lib/rateLimit.ts` is the tool everywhere else
+ * in this control plane and it cannot be used in this file without changing
+ * what the file is: `consumeRateLimit` needs a `MutationCtx` and writes a
+ * `rateLimits` row, so reaching for it means this action starts writing to the
+ * database — which `no table is written` in the test above exists to forbid,
+ * deliberately, because the row after `rateLimits` is the one holding a
+ * transcript. That was the trade the previous version of this paragraph left
+ * undecided, and the alternative it named is what was built.
+ *
+ * **What was built.** The limit is enforced in the Worker
+ * (`infra/transcribe-worker/src/rateLimit.ts`) with Cloudflare's native rate
+ * limiting binding, which is declared in `wrangler.jsonc` and provisions no
+ * account resource at all — no KV, no D1, no Durable Object. That mattered
+ * twice: nobody had to provision anything, and the Worker's auditability claim
+ * (there is nowhere in it to keep audio even by accident) survives, which a
+ * rate-limit KV would have been the first binding to weaken. It is keyed by
+ * `callerHash` below, which this action sends in the `X-Caller-Hash` header on
+ * every request. Twenty requests a minute per identifier, against a workload of
+ * three: the arithmetic is in that file.
+ *
+ * **A header, not a body field**, because the Worker has to be able to refuse
+ * *before* it reads 8 MiB of audio, and a key that lived in the body could only
+ * be read after the thing it was meant to bound.
+ *
+ * **What remains uncovered, stated rather than glossed:**
+ *
+ *  - The limit is per *identifier*, so somebody willing to open many accounts
+ *    gets many buckets. That is a signup-gate problem — open email OTP with no
+ *    invite — and it is not this file's to solve. It is written down here so
+ *    the next person reads it before concluding the budget is safe.
+ *  - Cloudflare's limiter is per-location and eventually consistent, so a
+ *    caller spread across colos gets a multiple of the ceiling. It bounds a
+ *    blast radius; it is not an accounting system, and Cloudflare says so.
+ *  - Nothing here meters *spend*. The Worker's log names the caller on every
+ *    request it serves, which is what makes a bill traceable after the fact;
+ *    there is no budget that stops at a number.
  */
 
 import { ConvexError, v } from "convex/values";
@@ -80,6 +113,90 @@ export const TRANSCRIBE_WORKER_URL_ENV_VAR = "TRANSCRIBE_WORKER_URL";
  * because error messages reach the client.
  */
 export const TRANSCRIBE_WORKER_SECRET_ENV_VAR = "TRANSCRIBE_WORKER_SECRET";
+
+/**
+ * The header the caller identifier travels in.
+ *
+ * `infra/transcribe-worker/src/rateLimit.ts` reads it under the same name. A
+ * header rather than a body field so the Worker can refuse before it reads the
+ * audio; not a query parameter, for the reason CLAUDE.md gives about URLs.
+ */
+export const CALLER_HEADER = "X-Caller-Hash";
+
+/**
+ * What the HMAC is computed over, in front of the user id.
+ *
+ * Domain separation, and it is not decoration. The same secret authorizes the
+ * request in the `Authorization` header, so an HMAC over a bare user id under
+ * that key would be one construction away from whatever else is ever signed
+ * with it — and a signature that could be mistaken for another signature is how
+ * two protocols quietly become one. The `v1` is what lets the construction
+ * change later without every historical log line silently re-pointing at a
+ * different account.
+ */
+export const CALLER_HMAC_CONTEXT = "context-transcribe:caller:v1:";
+
+/**
+ * The opaque, stable identifier the Worker keys its rate limit by and names in
+ * its logs.
+ *
+ * `HMAC-SHA256(workerSecret, CALLER_HMAC_CONTEXT + userId)`, hex. Three
+ * properties, each of which is why it is this and not something simpler:
+ *
+ *  - **Stable across calls**, so it can be a rate-limit key at all. A value
+ *    derived from anything per-request would be a fresh bucket per request.
+ *  - **Opaque**, so the Worker holds no account identifier, and so does anyone
+ *    who intercepts the header or reads the Worker's logs. A plain SHA-256 of
+ *    the user id would not do: with no secret in the construction, anybody
+ *    holding a user id could confirm a guess against it.
+ *  - **Recomputable by this control plane**, which is the whole point of
+ *    choosing an HMAC over a random per-user token. See below.
+ *
+ * ## Recomputing it: from a Worker log line back to an account
+ *
+ * The Worker logs `{"event":"rate_limited"|"transcribed","caller":"<hex>", …}`.
+ * To find the account behind one, in a Convex script or the dashboard:
+ *
+ * ```ts
+ * import { callerHash } from "./functions/meetings/transcribe";
+ * const secret = process.env.TRANSCRIBE_WORKER_SECRET!;
+ * for (const user of await ctx.db.query("users").collect()) {
+ *   if ((await callerHash(user._id, secret)) === suspectHexFromTheLog) return user._id;
+ * }
+ * ```
+ *
+ * It is a linear scan, and deliberately so: an index from identifier to user
+ * would be a stored mapping — a row this action does not write and must not, and
+ * a table an attacker who reached the database could read in one query. The scan
+ * costs nothing except when somebody is actually investigating a bill.
+ *
+ * **The secret is required to invert it**, which is the point: rotate
+ * `TRANSCRIBE_WORKER_SECRET` and every previously logged identifier becomes
+ * permanently un-attributable. That is a real cost of rotation and is written
+ * down here so it is a decision rather than a surprise.
+ *
+ * `__tests__/meetingTranscribe.test.ts` computes the same value with
+ * `node:crypto` independently of this function, so the documented procedure is
+ * checked rather than merely described.
+ */
+export async function callerHash(userId: string, workerSecret: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(workerSecret) as BufferSource,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    encoder.encode(`${CALLER_HMAC_CONTEXT}${userId}`) as BufferSource,
+  );
+  return Array.from(new Uint8Array(signature))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 /**
  * One line of transcript, in the shape the meetings contract fixes.
@@ -307,6 +424,10 @@ export const transcribeChunk = action({
     // after one has already sent the meeting.
     if (!isTranscribeWorkerUrlUsable(workerUrl)) throw insecureWorkerUrl();
 
+    // Who is asking, opaquely. The worker keys its rate limit by this and names
+    // it in its logs; see `callerHash` for what it is and how to invert it.
+    const caller = await callerHash(userId, workerSecret);
+
     let response: Response;
     try {
       response = await fetch(transcribeEndpoint(workerUrl), {
@@ -314,11 +435,14 @@ export const transcribeChunk = action({
         headers: {
           Authorization: `Bearer ${workerSecret}`,
           "Content-Type": "application/json",
+          [CALLER_HEADER]: caller,
         },
         // The audio, what it is, and how long it is. Nothing else: no chunk
         // id, no offset, no session and no user, because a stateless
         // transcriber that knew where a chunk sat in a recording would be
-        // holding a fragment of somebody's meeting.
+        // holding a fragment of somebody's meeting. The caller identifier is a
+        // header rather than a field here for the same reason the worker needs
+        // it at all — it must be readable before the body is.
         body: JSON.stringify({
           audioBase64: args.audioBase64,
           mimeType: args.mimeType,
