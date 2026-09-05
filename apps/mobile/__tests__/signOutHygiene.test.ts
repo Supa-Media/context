@@ -158,6 +158,11 @@ function mockConsoleData(): never {
     ingestionAddress: "seyi@context.lc",
     ingestion: { settings: null, loading: false },
     files,
+    // Required on `ConsoleData`, and read by the status strip and the phone's
+    // tree footer for how much of this context is indexed. `status: null` is
+    // "not answered yet", so neither draws a figure — `indexProgressSurfaces`
+    // is where that is the subject rather than a fixture detail.
+    fastSearch: { status: null, loading: false },
     members: { members: [], loading: false },
     loading: false,
     failure: null,
