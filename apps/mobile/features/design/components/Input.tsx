@@ -378,14 +378,26 @@ export function Notice({
   tone = "neutral",
   children,
   style,
+  testID,
 }: {
   tone?: "neutral" | "ok" | "warn";
   children: ReactNode;
   style?: ViewStyle;
+  /**
+   * So a test can assert the whole notice is **absent** rather than merely
+   * empty. A rule of the form "nothing is drawn here" cannot be checked by
+   * reading the rendered text — a placeholder put inside it reads as ordinary
+   * copy — so the container itself has to be findable.
+   */
+  testID?: string;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
-    <View style={[styles.notice, styles[`notice_${tone}` as const], style]} role="status">
+    <View
+      style={[styles.notice, styles[`notice_${tone}` as const], style]}
+      role="status"
+      testID={testID}
+    >
       {children}
     </View>
   );

@@ -224,11 +224,90 @@ describe("the storage segment", () => {
     expect(byId(statusSegments(facts({ storageLabel: null })), "storage")).toBeUndefined();
   });
 
-  test("storage and the conflict check are the trailing pair, in that order", () => {
-    const segments = statusSegments(facts({ conflictCheck: "conditional" }));
+  test("the index, the conflict check and storage are the trailing group, in that order", () => {
+    const segments = statusSegments(
+      facts({
+        conflictCheck: "conditional",
+        index: { label: "62% indexed", detail: "…", tone: "quiet" },
+      }),
+    );
     const ids = segments.map((segment) => segment.id);
-    expect(ids).toEqual(["words", "characters", "save", "conflictCheck", "storage"]);
+    expect(ids).toEqual(["words", "characters", "save", "index", "conflictCheck", "storage"]);
     expect(ids.slice(-TRAILING_SEGMENTS.length)).toEqual([...TRAILING_SEGMENTS]);
+  });
+
+  test("the index does not sit next to the bucket", () => {
+    /*
+      They describe different objects: the bucket is the customer's own, and
+      the fast-search index is a copy in a database Supa Media runs. Run
+      together — "R2 · brain · 62% indexed" — the figure reads as 62% of the
+      bucket, which is a claim about somebody's own storage that nothing has
+      measured. That is the species of invention issue #25 was about, and the
+      cheapest guard against it is the ordering.
+    */
+    const ids = statusSegments(
+      facts({
+        conflictCheck: "conditional",
+        index: { label: "62% indexed", detail: "…", tone: "quiet" },
+      }),
+    ).map((segment) => segment.id);
+    expect(Math.abs(ids.indexOf("index") - ids.indexOf("storage"))).toBeGreaterThan(1);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                                 the index                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How much of this context is in the hosted fast-search index.
+ *
+ * The strip is where a person sees this without opening settings, and the one
+ * rule that is a security property rather than a presentation choice is that a
+ * viewer who was told nothing is shown nothing: the backfill counters are
+ * owner-only because the index counts private notes a member may not read, so
+ * a percentage of that total is the size of what they are not being shown.
+ * `describeIndexProgress` answers `null` for them, and this strip has to omit
+ * the segment rather than substitute a placeholder — an em dash says a figure
+ * exists and is being withheld, which is most of what the figure would say.
+ */
+describe("the index segment", () => {
+  test("draws exactly the words it was handed", () => {
+    const segment = byId(
+      statusSegments(
+        facts({ index: { label: "62% indexed", detail: "620 of 1,000.", tone: "quiet" } }),
+      ),
+      "index",
+    );
+    expect(segment?.text).toBe("62% indexed");
+    expect(segment?.detail).toBe("620 of 1,000.");
+    expect(segment?.tone).toBe("quiet");
+  });
+
+  test("a viewer who was told nothing is shown nothing — no placeholder", () => {
+    // `null` is a member (owner-only census), a context with fast search off,
+    // and a status that has not answered. All three draw no segment.
+    for (const index of [null, undefined]) {
+      const segments = statusSegments(facts({ index }));
+      expect(byId(segments, "index")).toBeUndefined();
+      const rendered = segments.map((s) => `${s.text} ${s.detail ?? ""}`).join(" ");
+      expect(rendered).not.toMatch(/%/);
+      expect(rendered).not.toMatch(/indexed/i);
+      expect(rendered).not.toMatch(/—/);
+    }
+  });
+
+  test("a stopped backfill keeps the tone it arrived with", () => {
+    // Carried, never re-derived from the string. A strip that matched on
+    // "Stopped" goes quiet the day the copy is reworded.
+    expect(
+      byId(
+        statusSegments(
+          facts({ index: { label: "Stopped at 62% indexed", detail: "…", tone: "warn" } }),
+        ),
+        "index",
+      )?.tone,
+    ).toBe("warn");
   });
 });
 

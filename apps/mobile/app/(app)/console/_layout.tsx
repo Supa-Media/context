@@ -61,6 +61,7 @@ import {
 import { forgetLocalCopies, unsentOnDevice } from "../../../features/offline/forget";
 import { signOutWarning } from "../../../features/offline/copy";
 import { storagePillLabel } from "../../../features/console/storage/pill";
+import { describeIndexProgress } from "../../../features/console/search/fastSearch";
 import { selectedContext, type ConsoleData } from "../../../features/console/types";
 import { useKeymap } from "../../../features/design/useKeymap";
 import type { FileBrowser } from "../../../features/console/files/browser";
@@ -550,14 +551,30 @@ export default function ConsoleLayout() {
                 ) : undefined
               }
               /*
-                The binding, in front of the counts. `storagePillLabel` is the
-                same function the pointer layout's chip and the status bar
-                read, so the three cannot come to describe one bucket three
-                ways — which is how "dropbox · undefined" got printed once.
+                The binding, then how much of the context is in the hosted
+                index, then the counts. `storagePillLabel` is the same function
+                the pointer layout's chip and the status bar read, so the three
+                cannot come to describe one bucket three ways — which is how
+                "dropbox · undefined" got printed once — and
+                `describeIndexProgress` is likewise the same function the
+                settings card and the status bar read.
+
+                This line exists on a phone because **the status bar does not**:
+                at `compact` the frame draws a bottom toolbar and no status
+                strip (`features/app/frame.ts`), so without this a phone would
+                only ever learn how far the backfill had got by opening
+                settings. `null` is omitted rather than filled in, which for a
+                member is the owner-only rule doing its work — see
+                `describeIndexProgress`.
               */
               vaultDetail={
                 phone && data.storage !== undefined
-                  ? (storagePillLabel(data.storage) ?? "no bucket connected")
+                  ? [
+                      storagePillLabel(data.storage) ?? "no bucket connected",
+                      describeIndexProgress(data.fastSearch.status)?.label,
+                    ]
+                      .filter((part): part is string => part !== undefined)
+                      .join(" · ")
                   : undefined
               }
               onOpenPinned={(path) => {
@@ -1365,6 +1382,12 @@ function Status({ data }: { data: ConsoleData }) {
     // sites interpolating `provider · bucket` themselves is how one of them
     // printed "dropbox · undefined".
     storageLabel: storagePillLabel(data.storage),
+    // How much of this context is in the hosted index, on every console route
+    // rather than only in settings — which is the whole of what made a stuck
+    // backfill and a working one look the same. `null` for a member, for a
+    // context with fast search off, and before the status has answered, and
+    // the strip then draws no segment rather than a placeholder.
+    index: describeIndexProgress(data.fastSearch.status),
     now: Date.now(),
     // The connection and the writes that have not reached the bucket, from the
     // browser that owns them. They are drawn first: somebody who has lost

@@ -34,6 +34,33 @@ export interface StatusFacts {
   conflictCheck?: ConflictCheck;
   /** "R2 · brain", or null when no bucket is bound. */
   storageLabel: string | null;
+  /**
+   * How much of this context is in the hosted fast-search index — already
+   * worded, already toned — or `null` when this viewer is told nothing.
+   *
+   * **Words in, not a status object**, for exactly the reason `storageLabel`
+   * is a string: they are decided once, by `describeIndexProgress` in
+   * `features/console/search/fastSearch.ts`, and every surface that draws them
+   * reads that one function. Three call sites doing their own arithmetic over
+   * `notesIndexed / notesPending` is how one context comes to be 62% here, 63%
+   * in the settings card and 61% under the file tree — and a progress figure
+   * whose whole job is to be compared with the last one you saw cannot afford
+   * that.
+   *
+   * **`null` means draw nothing, and it is a privacy rule at least as often as
+   * it is a loading one.** The backfill counters are owner-only: the index
+   * counts every note the context has, private notes included, while a member
+   * may read only the `team` tier, so handing them a percentage of that total
+   * is handing them the size of what they are not being shown. A member gets
+   * `null` and this strip omits the segment. An em dash, a `0%` or a skeleton
+   * in its place would say a figure exists and is being kept from them, which
+   * is most of what the figure itself would have said.
+   *
+   * Optional so a console with no fast-search subscription behind it — the
+   * landing page's picture of one — simply has no opinion, exactly as `sync`
+   * is optional there.
+   */
+  index?: { label: string; detail: string; tone: "quiet" | "warn" } | null;
   /** Wall-clock ms, passed in so this stays pure and testable. */
   now: number;
   /** When the open note was last saved in this session. */
@@ -52,7 +79,15 @@ export interface StatusFacts {
 export type StatusTone = "quiet" | "ok" | "warn" | "crit";
 
 export interface StatusSegment {
-  id: "connection" | "queue" | "words" | "characters" | "save" | "conflictCheck" | "storage";
+  id:
+    | "connection"
+    | "queue"
+    | "words"
+    | "characters"
+    | "save"
+    | "index"
+    | "conflictCheck"
+    | "storage";
   text: string;
   tone: StatusTone;
   /** Longer explanation for a tooltip / a tap. */
@@ -245,9 +280,16 @@ function conflictCheckSegment(check: ConflictCheck | undefined): StatusSegment |
 /**
  * Everything the strip shows, in reading order.
  *
- * The trailing two — `conflictCheck` and `storage` — are the facts about
- * *where the note lives and what its storage guarantees*, which is why they sit
+ * The trailing three — `index`, `conflictCheck` and `storage` — are the facts
+ * about *this context* rather than about the open note, which is why they sit
  * apart from the counts in the rendered bar.
+ *
+ * `index` leads that group and is deliberately **not** adjacent to `storage`.
+ * The two describe different objects: the bucket is the customer's, and the
+ * fast-search index is a copy in a database Supa Media runs. "R2 · brain · 62%
+ * indexed" run together reads as 62% of the bucket, which is a claim about
+ * somebody's own storage that nothing has measured — the exact species of
+ * invention issue #25 was about.
  */
 export function statusSegments(facts: StatusFacts): StatusSegment[] {
   const segments: StatusSegment[] = [];
@@ -294,6 +336,33 @@ export function statusSegments(facts: StatusFacts): StatusSegment[] {
   const save = saveSegment(facts);
   if (save) segments.push(save);
 
+  /*
+    How much of this context is in the hosted index.
+
+    Absent unless there is something honest to say — the label is `null` for a
+    member (owner-only census), for a context with fast search off (no index,
+    so no proportion of one), and before the status has answered. There is no
+    placeholder: the segment is simply not there, which is the same treatment
+    `storage` gets for a missing label one block down.
+
+    `quiet` while it is progressing, because a backfill running is the
+    ordinary case and a toned chip on it is a badge somebody clears by turning
+    on a copy of their private notes. The one exception is a backfill that
+    stopped: `failed` is the state with a Try again behind it in settings, and
+    the strip saying so in the same tone as a word count would be hiding it.
+  */
+  if (facts.index !== undefined && facts.index !== null) {
+    segments.push({
+      id: "index",
+      text: facts.index.label,
+      // The tone arrives with the words. Deriving it here — matching on
+      // "Stopped", say — would go quiet the day that copy is reworded, in the
+      // direction where a failed backfill stops looking like one.
+      tone: facts.index.tone,
+      detail: facts.index.detail,
+    });
+  }
+
   const check = conflictCheckSegment(facts.conflictCheck ?? editor.conflictCheck);
   if (check) segments.push(check);
 
@@ -311,6 +380,7 @@ export function statusSegments(facts: StatusFacts): StatusSegment[] {
 
 /** The ids rendered against the trailing edge of the bar. */
 export const TRAILING_SEGMENTS: ReadonlyArray<StatusSegment["id"]> = [
+  "index",
   "conflictCheck",
   "storage",
 ];

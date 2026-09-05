@@ -198,3 +198,117 @@ describe("a mutation that rejects", () => {
     expect(text()).not.toContain("functions/fastSearch");
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/*                          how much of it is indexed                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The percentage, on the card, mounted.
+ *
+ * `fastSearchSettings.test.ts` pins the arithmetic and the copy. What only
+ * exists here is whether the card *draws* it — and, far more importantly,
+ * whether it draws anything at all for a viewer the server declined to tell.
+ *
+ * That last one is the most important assertion in this feature. `notesIndexed`
+ * and `notesPending` are dropped for anyone who is not the owner because the
+ * index counts every note the context has, private ones included, while a
+ * member may read only the `team` tier: a total, or any percentage of it, is
+ * the size of what they are not being shown, and it moves as private notes are
+ * written. So the rule the card is held to is not "shows a dash" or "shows 0%"
+ * but **renders nothing** — asserted over the whole rendered text, not over one
+ * element, so a placeholder introduced anywhere on the card fails it.
+ */
+function accessibleName(testId: string): string | null {
+  const node = document.body.querySelector(`[data-testid="${testId}"]`);
+  return node?.getAttribute("aria-label") ?? null;
+}
+
+describe("the percentage on the card", () => {
+  test("an owner mid-backfill is shown how far through it is, and how many notes", () => {
+    const body = mount({
+      status: { state: "preparing", canChange: true, notesIndexed: 620, notesPending: 380 },
+      loading: false,
+      disable: async () => {},
+    });
+    expect(body).toContain("62% indexed");
+    // The count stays: a percentage alone cannot say whether 62% is six notes
+    // or six thousand.
+    expect(body).toContain("620 notes indexed · 380 waiting");
+  });
+
+  test("the visible fragment is not what a screen reader is given", () => {
+    // "62% indexed" says nothing about what is indexed or what the denominator
+    // is. The accessible name is the sentence — and it names the index rather
+    // than letting the figure read as a fact about the customer's own bucket.
+    mount({
+      status: { state: "preparing", canChange: true, notesIndexed: 620, notesPending: 380 },
+      loading: false,
+      disable: async () => {},
+    });
+    const name = accessibleName("fast-search-progress");
+    expect(name).toContain("fast-search index");
+    expect(name).toContain("620 of the 1,000");
+    expect(name).not.toBe("62% indexed");
+  });
+
+  test("A MEMBER IS SHOWN NO PERCENTAGE ANYWHERE ON THE CARD", () => {
+    /*
+      The privacy rule, mounted. The server sends a member `state` and
+      `canChange` and drops the counters; the card must therefore draw no
+      figure, no `0%`, no em dash and no skeleton implying one is coming.
+
+      Asserted across every state, because "off" and "unavailable" are the
+      states somebody would reach for a placeholder in, and asserted over the
+      card's entire text rather than over the progress element — a percentage
+      reintroduced in the blurb, the pill or a new row fails this too.
+    */
+    for (const state of ["off", "preparing", "on", "failed", "unavailable"] as const) {
+      const body = mount({ status: { state, canChange: false }, loading: false });
+      expect(body).not.toMatch(/\d+\s*%/);
+      expect(body).not.toMatch(/indexed/i);
+      // Not an em-dash sweep over the whole card: the consent paragraph uses
+      // one as punctuation. So the *containers* that would carry a placeholder
+      // are asserted absent instead — an em dash, a "0%" or a skeleton put
+      // inside either of them fails here, where a text sweep would read it as
+      // ordinary copy.
+      expect(document.body.querySelector('[data-testid="fast-search-progress"]')).toBeNull();
+      expect(document.body.querySelector('[data-testid="fast-search-index"]')).toBeNull();
+      act(() => root?.unmount());
+      host?.remove();
+    }
+  });
+
+  test("an owner whose backfill has not moved is told so in words, not as 0%", () => {
+    // The state the missing backfill was actually in. A figure sitting at zero
+    // reads as a number somebody is computing; this reads as the fact it is.
+    const body = mount({
+      status: { state: "preparing", canChange: true, notesIndexed: 0, notesPending: 1284 },
+      loading: false,
+      disable: async () => {},
+    });
+    expect(body).toContain("Nothing indexed yet");
+    expect(body).not.toMatch(/0\s*%/);
+  });
+
+  test("a context with fast search off is not drawn as 0% indexed", () => {
+    // Off is a working state. A percentage on it is a badge somebody clears by
+    // turning on a copy of their private notes.
+    const body = mount({
+      status: { state: "off", canChange: true, notesIndexed: 0, notesPending: 0 },
+      loading: false,
+      enable: async () => {},
+    });
+    expect(body).not.toMatch(/\d+\s*%/);
+    expect(document.body.querySelector('[data-testid="fast-search-progress"]')).toBeNull();
+  });
+
+  test("a finished index keeps its 100% rather than going quiet", () => {
+    const body = mount({
+      status: { state: "on", canChange: true, notesIndexed: 1284, notesPending: 0 },
+      loading: false,
+      disable: async () => {},
+    });
+    expect(body).toContain("100% indexed");
+  });
+});
