@@ -94,6 +94,16 @@ jobs:
           EMAIL_WORKER_SECRET: ${{ secrets.EMAIL_WORKER_SECRET }}
           DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
           DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+          # The transcription Worker `functions/meetings/transcribe.ts` posts a
+          # chunk of meeting audio to, and the shared secret that proves the
+          # post came from this control plane. Both or neither: the action
+          # refuses to run with one of them, because a URL with no secret would
+          # post somebody's meeting audio unauthenticated. Absent from the
+          # GitHub environment, they are skipped like everything else here and
+          # the action answers TRANSCRIPTION_NOT_CONFIGURED rather than
+          # silently transcribing nothing.
+          TRANSCRIBE_WORKER_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
+          TRANSCRIBE_WORKER_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
         run: |
           set -euo pipefail
           # Plain strings rather than arrays: an empty array under `set -u` is
@@ -104,7 +114,8 @@ jobs:
           for var in GATEWAY_SECRET ADMIN_EMAILS AUTH_EMAIL_FROM \
                      STORAGE_SECRET_ENCRYPTION_KEY STORAGE_SECRET_ENCRYPTION_KEY_ID \
                      RESEND_API_KEY APP_ORIGIN EMAIL_WORKER_SECRET \
-                     DROPBOX_APP_KEY DROPBOX_APP_SECRET; do
+                     DROPBOX_APP_KEY DROPBOX_APP_SECRET \
+                     TRANSCRIBE_WORKER_URL TRANSCRIBE_WORKER_SECRET; do
             value="${!var:-}"
             if [ -z "$value" ]; then
               # Never pushed as an empty string — see the header.

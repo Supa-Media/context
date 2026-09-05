@@ -59,6 +59,7 @@ import type * as functions_lib_shareTitle from "../functions/lib/shareTitle.js";
 import type * as functions_lib_usage from "../functions/lib/usage.js";
 import type * as functions_lib_verification from "../functions/lib/verification.js";
 import type * as functions_lib_workspaceAuth from "../functions/lib/workspaceAuth.js";
+import type * as functions_meetings_transcribe from "../functions/meetings/transcribe.js";
 import type * as functions_names from "../functions/names.js";
 import type * as functions_provisioning from "../functions/provisioning.js";
 import type * as functions_shareCard from "../functions/shareCard.js";
@@ -126,6 +127,7 @@ declare const fullApi: ApiFromModules<{
   "functions/lib/usage": typeof functions_lib_usage;
   "functions/lib/verification": typeof functions_lib_verification;
   "functions/lib/workspaceAuth": typeof functions_lib_workspaceAuth;
+  "functions/meetings/transcribe": typeof functions_meetings_transcribe;
   "functions/names": typeof functions_names;
   "functions/provisioning": typeof functions_provisioning;
   "functions/shareCard": typeof functions_shareCard;
