@@ -36,10 +36,21 @@
  * `docs/decisions/meetings.md` — *audio is never written to the bucket and never
  * persisted by us. Not as an attachment, not as a cache, not "temporarily" in a
  * queue that has no expiry.* This action therefore has no `ctx.db`, no
- * `ctx.storage`, no `ctx.scheduler` and no `ctx.runMutation`: the audio exists
- * in one request's memory and is gone. It does not log the audio, and it does
- * not log the transcript either — a transcript is note content, and the
- * engineering standards say logs never carry that.
+ * `ctx.storage` and no `ctx.scheduler`: the audio exists in one request's
+ * memory and is gone. It does not log the audio, and it does not log the
+ * transcript either — a transcript is note content, and the engineering
+ * standards say logs never carry that.
+ *
+ * It holds **one** `ctx.runMutation`, and one only, to the internal budget
+ * mutation below. That sentence used to read "and no `ctx.runMutation`" and
+ * stayed here, still asserting it, after the mutation was added a hundred lines
+ * further down — which is the exact failure this file's own comments keep
+ * warning about, found in review rather than by a test. What now keeps it true
+ * is not this paragraph: `only \`rateLimits\` is written, and nothing is
+ * scheduled or stored` counts every table in the schema on every call, and
+ * `the budget mutation cannot be handed content` pins that mutation's argument
+ * validator to exactly one `v.id("users")`. Read those two before trusting
+ * this one.
  *
  * And it never fails quietly. `apps/mobile/features/meetings/capture/audio.ts`
  * makes the point the same way this file does: a meeting that records for forty
