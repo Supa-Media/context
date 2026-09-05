@@ -41,6 +41,7 @@ import {
   messageFor,
   type D1Config,
 } from "./lib/d1";
+import { PROJECTION_CHAIN } from "./lib/fastSearch";
 
 /**
  * Read both halves of the credential, or `null` if either is missing.
@@ -138,6 +139,33 @@ export const provisionIndex = internalAction({
         databaseName,
         schemaVersion: D1_SCHEMA_VERSION,
         notesIndexed: 0,
+      });
+
+      /*
+       * AND THEN SOMETHING ACTUALLY COPIES THE NOTES.
+       *
+       * This used to end here: schema applied, `backfilling` recorded, return.
+       * Every trigger that filled the database was a search — the gateway's,
+       * behind its own response — so an owner who turned the switch on and
+       * closed the app sat at "0 notes indexed / Preparing" indefinitely, and
+       * three real contexts were doing exactly that.
+       *
+       * **After the status is recorded**, because the first thing the pass
+       * does is ask the row whether it is `backfilling`; scheduled before,
+       * it would race its own precondition.
+       *
+       * **Scheduled, not called.** It opens a bucket credential, which is a
+       * thing only the enumerated barrier may do, and the scheduler discards
+       * the result so nothing can flow back here — CLAUDE.md, "scheduling is
+       * not calling", the same shape that reaches this action from `enable`.
+       */
+      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+        workspaceId: args.workspaceId,
+        // Scope-blind: an index describes the bucket, and the tier a note is
+        // copied at is read from `privacy.md` per note. Nothing about this
+        // pass consults the scope it is handed.
+        scope: "private",
+        operation: { kind: "projectIndex", passes: PROJECTION_CHAIN },
       });
       return { status: "backfilling" };
     } catch (error) {

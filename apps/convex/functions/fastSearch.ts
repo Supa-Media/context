@@ -40,6 +40,8 @@ import {
 import { recordAudit } from "./lib/audit";
 import { requireWorkspaceAccess, requireWorkspaceRole } from "./lib/workspaceAuth";
 import {
+  BACKFILL_STALL_MS,
+  PROJECTION_CHAIN,
   backfillPercent,
   fastSearchEntitled,
   fastSearchState,
@@ -372,6 +374,9 @@ export const disable = mutation({
 
 // -- internals ------------------------------------------------------------
 
+/** Contexts one sweep may restart. See `sweepStalledBackfills`. */
+const SWEEP_BATCH = 50;
+
 /** The binding, for the provisioner and for the gateway's session resolution. */
 export const bindingForWorkspace = internalQuery({
   args: { workspaceId: v.id("workspaces") },
@@ -580,5 +585,72 @@ export const forgetIndex = internalMutation({
     }
     await ctx.db.delete(existing._id);
     return { forgotten: true };
+  },
+});
+
+/**
+ * Restart the copy for every context whose backfill has stopped moving.
+ *
+ * **This is what picks up a context that was left behind rather than one
+ * enabled from now on.** `provisionIndex` schedules the first chain, and a
+ * chain schedules its own next link — but neither reaches a row that reached
+ * `backfilling` before any of that existed. Those rows are not reachable
+ * through `enable` either: it returns early for a row that is already opted in
+ * and not `failed`, so pressing the switch again does nothing at all. Without
+ * a sweep they would wait forever for a search that may never come, which is
+ * the state three production contexts were in when this was written.
+ *
+ * It is also the retry. A chain can be lost the way any scheduled job can —
+ * a deploy, an eviction, a failure while recording a failure — and the row it
+ * left behind looks exactly like the ones above.
+ *
+ * ## How it knows not to start a second chain
+ *
+ * `updatedAt` is a heartbeat: every link that moves anything writes counters
+ * onto the row, so a working chain looks recent and a dead one looks stale.
+ * Reading the row rather than the scheduler's own table is deliberate — the
+ * case this exists for is a context with nothing scheduled *and no record that
+ * anything ever was*, which a scheduler-table check cannot see.
+ *
+ * Two passes on one database is not a correctness failure (the census is a
+ * `COUNT(*)` over a keyed table, and every projection deletes before it
+ * inserts), but it is the one thing that can leave a note duplicate chunk
+ * rows, so the quiet window exists to avoid causing it on purpose.
+ *
+ * ## What it does not do
+ *
+ * It holds no decision, which is the rule for everything a cron reaches. It
+ * does not decide whether a context may have a projection — that is
+ * `searchProjectionState`, re-asked by the pass itself before it opens
+ * anything — and it does not retry a `failed` row, because a failure is a
+ * sentence somebody is being shown and "Try again" is theirs to press.
+ */
+export const sweepStalledBackfills = internalMutation({
+  args: {},
+  returns: v.object({ started: v.number() }),
+  handler: async (ctx): Promise<{ started: number }> => {
+    const now = Date.now();
+    const rows = await ctx.db
+      .query("searchIndexes")
+      .withIndex("by_status", (q) => q.eq("status", "backfilling"))
+      // Bounded, like every other sweep here: a backlog drains over several
+      // runs rather than in one transaction big enough to hit a limit.
+      .take(SWEEP_BATCH);
+
+    let started = 0;
+    for (const row of rows) {
+      // A `backfilling` row that is not opted in should not exist — `disable`
+      // moves it to `releasing` — but a status index is a poor place to trust
+      // an invariant that lives on another field.
+      if (!row.optedIn) continue;
+      if (now - row.updatedAt < BACKFILL_STALL_MS) continue;
+      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+        workspaceId: row.workspaceId,
+        scope: "private",
+        operation: { kind: "projectIndex", passes: PROJECTION_CHAIN },
+      });
+      started += 1;
+    }
+    return { started };
   },
 });

@@ -247,3 +247,40 @@ export function searchProjectionState(
       return null;
   }
 }
+
+
+/**
+ * Projection passes one trigger may chain behind itself.
+ *
+ * A backstop, not the thing that ends the chain. What ends it is a pass that
+ * moved nothing, a row that stopped being `backfilling`, and a projection that
+ * reached `ready` — each with a test. This bound exists for the case all three
+ * miss: a bucket that changes faster than a pass can copy it must not schedule
+ * itself forever on somebody else's request quota.
+ *
+ * Larger than the R2 index's twelve because a link copies at most a window's
+ * worth of notes and a real brain is thousands of them, and because what the
+ * bound cuts short is picked up by the sweep rather than lost.
+ *
+ * Here rather than in `functions/files.ts` so the two schedulers and the pass
+ * share one number without `fastSearch.ts` having to import the module that
+ * holds the credential barrier.
+ */
+export const PROJECTION_CHAIN = 24;
+
+/**
+ * How quiet a `backfilling` row must be before the sweep restarts its chain.
+ *
+ * Every link that moves anything writes counters onto the row, so `updatedAt`
+ * is a heartbeat: a chain that is working looks recent, and a chain that died
+ * — a deploy that lost the job, an eviction, a failure while recording one —
+ * looks stale. Using the row rather than the scheduler's own table is what
+ * lets this notice the case it was written for, which is a context that has
+ * nothing scheduled *and never did*.
+ *
+ * Long enough that a slow link cannot be overtaken by a second chain: two
+ * passes on one database is not a correctness failure, but it is the one thing
+ * that leaves a note with duplicate chunk rows, so it is worth not causing on
+ * purpose.
+ */
+export const BACKFILL_STALL_MS = 15 * 60 * 1_000;

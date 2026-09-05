@@ -92,6 +92,11 @@ export function stubD1(): StubD1 {
       return [];
     }
     if (sql.includes("COUNT(*)")) return [{ n: notes.size }];
+    // The tables here exist by construction, so applying the schema is a
+    // no-op — but it must be an *answered* no-op: `provisionIndex` runs
+    // `SCHEMA_STATEMENTS` through the same endpoint, and a stub that refused
+    // them would record a provision failure instead of `backfilling`.
+    if (sql.startsWith("CREATE ")) return [];
     if (sql.includes("SELECT path, version FROM notes")) {
       return params
         .filter((path) => notes.has(String(path)))
@@ -158,4 +163,69 @@ export function stubD1(): StubD1 {
   }
 
   return stub;
+}
+
+/**
+ * The stub behind Cloudflare's D1 query endpoint, layered over a bucket.
+ *
+ * `runFileOperation` builds the real `createD1Client` out of a credential it
+ * read from `appSecrets`, so an action-level test cannot hand it a client — it
+ * has to answer the wire. This routes `api.cloudflare.com` at the stub above
+ * and everything else (the bucket) at `next`, which is how one `fetch` stub
+ * serves both halves of a pass.
+ *
+ * It answers the provider's envelope exactly, including the part that catches
+ * people out: a **refused statement comes back 200 with `success: false`**, so
+ * a client that only looked at the status would read a failure as a result.
+ */
+export function d1AndBucketFetch(
+  stub: StubD1,
+  next: (input: URL | RequestInfo, init?: RequestInit) => Promise<Response>,
+): (input: URL | RequestInfo, init?: RequestInit) => Promise<Response> {
+  return async (input, init = {}) => {
+    const url = typeof input === "string" ? input : String((input as URL).toString());
+    if (!url.startsWith("https://api.cloudflare.com/")) return await next(input, init);
+
+    const body = init.body ? JSON.parse(String(init.body)) : {};
+    if (!url.endsWith("/query")) {
+      // Creating or deleting the database itself, which answers a different
+      // envelope: `{result: {uuid, name}}` rather than a rows array.
+      return new Response(
+        JSON.stringify({
+          success: true,
+          result: { uuid: "example-database-0000", name: String(body.name ?? "") },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    if (stub.fail !== null) {
+      return new Response(
+        JSON.stringify({
+          // Provider text naming an account and a database, deliberately: none
+          // of it may reach a log, an error, or the row a person reads.
+          errors: [
+            {
+              code: 7403,
+              message: `D1 database example-database on account example-account is not authorized`,
+            },
+          ],
+          success: false,
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    let results: unknown[] = [];
+    try {
+      results = await stub.client.query(body.sql, body.params ?? []);
+    } catch {
+      return new Response(JSON.stringify({ success: false, errors: [] }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response(
+      JSON.stringify({ success: true, result: [{ results, success: true }] }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  };
 }
