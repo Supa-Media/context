@@ -384,7 +384,25 @@ export async function readSession(store, id, tier) {
  */
 export async function writeSession(store, session, etag) {
   const body = JSON.stringify({ ...session, updatedAt: new Date().toISOString() });
-  if (etag && conflictSafeWrites(store)) {
+  /*
+    The header goes out whenever there is an etag to send, and is deliberately
+    **not** gated on the probed capability.
+
+    `withProbedCapabilities` lowers a store to the answer its binding was probed
+    for, and the control plane starts every binding at `false` until a probe
+    turns it on — so gating here would take conditional writes off every bucket
+    that has not been probed yet, including the ones that honour `If-Match`
+    perfectly well. That is not the safe direction: without the header a lost
+    race is not reported as `false`, `updateSession`'s retry never fires, and
+    the writer holding a stale read overwrites the other one silently. Losing
+    words is the one failure this module may not have.
+
+    Sending it costs nothing where it is not honoured — B2 and Wasabi accept the
+    header and write anyway, which is exactly the behaviour that made a probe
+    necessary in the first place. So the probed answer decides what the ack
+    *claims* (`conflictSafe`), and never whether the guard is attempted.
+  */
+  if (etag) {
     const put = await store.put(sessionKey(session.id), body, { onlyIf: { etagMatches: etag } });
     return put ? put.etag : false;
   }

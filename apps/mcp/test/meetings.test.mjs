@@ -73,7 +73,7 @@ import {
   createS3Backend,
 } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
-import { MEETING_PREFIX, conflictSafeWrites } from "../src/meetings/state.js";
+import { MEETING_PREFIX, conflictSafeWrites, writeSession } from "../src/meetings/state.js";
 import { SessionRefusal, sessionForContext, splitWorkspacePath } from "../src/session.js";
 import { handleMeetings } from "../src/meetings/ingest.js";
 
@@ -1096,6 +1096,30 @@ export async function runMeetingChecks(check) {
   check("a store that honours a conditional write says so", conflictSafeWrites(safe) === true);
   check("and one that does not, does not", conflictSafeWrites(unsafe) === false);
 
+  /*
+    A bucket that honours `If-Match` but has not been probed yet.
+
+    `withProbedCapabilities` lowers a store's declared capability to the one the
+    binding was *probed* for, and the control plane "starts a binding at `false`,
+    and only a real probe may turn it on" — so unproven is every bucket's
+    opening state, not a legacy edge. That answer is the right one to *report*
+    on the ack and the wrong one to gate the write on: the header costs nothing
+    to send, a backend that ignores it ignores it either way, and the existing
+    sabotage for this ("`writeSession` drops `onlyIf`") only ever ran against
+    stores that declare `true`. The population the guard covers was the thing
+    left unchecked.
+  */
+  const unprobed = fakeStore({ conditionalWrite: false });
+  const bare = { id: SESSION_MAIN, transcript: [], attendees: [], appliedAt: {} };
+  const firstEtag = await writeSession(unprobed, { ...bare, notes: "first" }, null);
+  await writeSession(unprobed, { ...bare, notes: "somebody else" }, firstEtag);
+  const staleWrite = await writeSession(unprobed, { ...bare, notes: "mine, from a stale read" }, firstEtag);
+  check("a write guards the read it came from even before the bucket is probed", staleWrite === false);
+  check(
+    "so a meeting is not overwritten by a writer holding a stale etag",
+    JSON.parse(unprobed.objects.get(`${MEETING_PREFIX}${SESSION_MAIN}.json`).body).notes === "somebody else"
+  );
+
   const fakeSession = { scope: "private", workspaceId: "ws_fake" };
   const publishNever = async () => {
     throw new Error("this fixture never finalizes");
@@ -1127,9 +1151,33 @@ export async function runMeetingChecks(check) {
     "a second write to a conflict-safe store guards the read it came from",
     safe.puts.length === 2 && safe.puts[0].onlyIf === null && safe.puts[1].onlyIf !== null
   );
+  /*
+    This assertion used to read "a store that cannot guard one is never asked to
+    pretend", and required `onlyIf` to be absent from every write to a store
+    declaring `conditionalWrite: false`. It was correct while that flag meant
+    "this adapter does not send `If-Match`". It stopped being correct when
+    `withProbedCapabilities` made the flag mean "no probe has confirmed this
+    backend honours `If-Match`" — a set that includes every freshly bound
+    bucket, because the control plane starts each one at `false`.
+
+    Under the old rule those buckets got no guard at all: a lost race was not
+    reported, the retry never fired, and a stale writer overwrote a live meeting
+    in silence. Nothing was "pretending" — a backend that ignores the header
+    ignores it and the write succeeds either way — so the header was free and
+    the rule was costing exactly the guarantee it was written to protect.
+
+    What the author was defending is real and is still asserted, two checks
+    above: the *ack* tells the client `conflictSafe: false`. That is where
+    honesty about the backend belongs. Whether the guard is attempted is a
+    different question from what the client is promised.
+  */
   check(
-    "and a store that cannot guard one is never asked to pretend",
-    unsafe.puts.every((put) => put.onlyIf === null)
+    "a bucket that has not been probed is still guarded, not silently unguarded",
+    unsafe.puts.length === 2 && unsafe.puts[0].onlyIf === null && unsafe.puts[1].onlyIf !== null
+  );
+  check(
+    "while the ack still refuses to promise a guarantee the backend may not keep",
+    ackUnsafe.conflictSafe === false
   );
 
   restoreFailures();
