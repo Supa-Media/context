@@ -81,6 +81,7 @@
  */
 
 import { isAuthorized } from "./auth";
+import type { BoundedBody } from "./transcribe";
 import {
   decodedByteLength,
   FALLBACK_MODEL,
@@ -196,7 +197,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   // The real bound, enforced while the body arrives: past the cap the stream is
   // cancelled and nothing is parsed. `request.json()` here would buffer first
   // and object afterwards, which is not a bound.
-  let bounded;
+  let bounded: BoundedBody;
   try {
     bounded = await readBoundedBody(request.body, MAX_BODY_BYTES);
   } catch {

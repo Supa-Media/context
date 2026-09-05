@@ -115,8 +115,10 @@ export async function readBoundedBody(
     bytes += value.byteLength;
     if (bytes > maxBytes) {
       // Cancel rather than break: a `break` alone leaves the sender free to
-      // keep pushing, which is the resource this refusal is about.
-      await reader.cancel();
+      // keep pushing, which is the resource this refusal is about. A cancel
+      // that fails changes nothing — the answer is already decided, and
+      // letting it throw here would turn a 413 into a 400.
+      await reader.cancel().catch(() => {});
       return { ok: false, reason: "too_large" };
     }
     text += decoder.decode(value, { stream: true });
