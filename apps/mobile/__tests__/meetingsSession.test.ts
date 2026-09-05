@@ -7,6 +7,7 @@ import {
   isLive,
   projectLog,
   seedProjection,
+  transcriptionFor,
 } from "../features/meetings/session";
 import { fakeSegment } from "../features/meetings/capture/fake";
 import type { MeetingEvent, MeetingProjection } from "../features/meetings";
@@ -38,6 +39,20 @@ import type { MeetingEvent, MeetingProjection } from "../features/meetings";
  * canonical one. The last test in this file **fails the day that export
  * appears**, and says to delete the local copy. A duplicate with no alarm on it
  * is a duplicate that lives forever.
+ *
+ * ## The sabotage record
+ *
+ * Broken on purpose, the whole mobile suite run (3050 tests), and reverted:
+ *
+ *  - **`seedSession` dropping `transcription`**: 4 across two files, and
+ *    `tsc --noEmit` refuses it outright — the contract makes the field required
+ *    rather than optional precisely so that forgetting it is a compile error
+ *    and not a note that quietly says nothing about where the audio went.
+ *  - **`transcriptionFor` mapping `nowhere` to `on-device`**: 2, one here and
+ *    one in `meetingsController.test.ts`. It is the mapping that cannot be
+ *    caught by reading it: `nowhere` and `on-device` are both "no audio left
+ *    this machine" to a careless eye, and only one of them is true of a meeting
+ *    nobody recorded.
  */
 
 const SEED = {
@@ -46,6 +61,7 @@ const SEED = {
   startedAt: "2026-09-05T18:00:00.000Z",
   source: { kind: "in-person" as const },
   device: { platform: "ios" as const },
+  transcription: "cloud" as const,
   version: PROTOCOL_VERSION,
 };
 
@@ -68,6 +84,39 @@ describe("a session starts idle and holds nothing invented", () => {
     expect(session.notePath).toBeNull();
     expect(session.endedAt).toBeNull();
     expect(session.recordedMs).toBe(0);
+    // How it was made, carried from the start rather than reconstructed at the
+    // end: the note's frontmatter is written from this field, and a session
+    // that never held it would produce a note that cannot say where the audio
+    // went.
+    expect(session.transcription).toBe("cloud");
+  });
+
+  test("a meeting nobody transcribed says so explicitly, rather than leaving it out", () => {
+    const { session } = seedProjection({ ...SEED, transcription: null });
+    expect(session.transcription).toBeNull();
+    expect("transcription" in session).toBe(true);
+  });
+});
+
+describe("the recorder's vocabulary becomes the contract's, in one place", () => {
+  /*
+    `transcribesAt` answers "where does this happen" and the frontmatter answers
+    a reader's question about a meeting they are looking at, so the words differ
+    on purpose: `device` there is `on-device` here. One function does the
+    translation because the mapping that matters — `nowhere` meaning *no engine*
+    — is the one a second copy gets wrong, and getting it wrong writes "your
+    audio stayed on this machine" onto a meeting nothing ever recorded.
+  */
+  test("device transcription is the note's on-device", () => {
+    expect(transcriptionFor("device")).toBe("on-device");
+  });
+
+  test("cloud transcription keeps its name, because that is the disclosure", () => {
+    expect(transcriptionFor("cloud")).toBe("cloud");
+  });
+
+  test("a recorder that transcribes nowhere produces no engine at all", () => {
+    expect(transcriptionFor("nowhere")).toBeNull();
   });
 });
 

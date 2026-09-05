@@ -14,12 +14,17 @@ import { audioRecorder } from "./audio";
  *
  * ## What ships today, honestly
  *
- * `notesOnlyRecorder()` on every platform. It captures **nothing**: it reports
- * `capability: "notes-only"` with a reason, runs the clock, and emits no
- * segments. A meeting recorded with it is the person's own typed notes and
- * nothing else, which is a real and useful product — the reference experience
- * is a notepad first — and it is drawn as exactly that rather than as a
- * recording that silently produced no transcript.
+ * Real capture on iOS (`audio.ts`, `expo-audio`) and in a browser
+ * (`audio.web.ts`, `getUserMedia` + `MediaRecorder`), both transcribing in the
+ * cloud through the one `ChunkTranscriber` seam. Android is still
+ * `notesOnlyRecorder("android")`, and so is any browser missing either half of
+ * the capability — see `notesOnly.ts` for why each says what it says.
+ *
+ * A notes-only recorder captures **nothing**: it reports `audio: false` with a
+ * reason, runs the clock, and emits no segments. A meeting recorded with it is
+ * the person's own typed notes and nothing else, which is a real and useful
+ * product — the reference experience is a notepad first — and it is drawn as
+ * exactly that rather than as a recording that silently produced no transcript.
  *
  * That is the rule this repo already applies to `writeClipboard` returning
  * `false` on native and `useUnsavedGuard`'s documented native no-op: an absent
@@ -41,14 +46,23 @@ import { audioRecorder } from "./audio";
  * note, which is what makes "audio is transient" a property of the code rather
  * than a promise in a document.
  *
- * ## What a real implementation needs
+ * ## Where the pieces are
  *
- * Written out in full in `./audio.ts`, which is documentation with a working
- * refusal in it rather than a half-built module. Short version: `expo-audio` is
- * already in `native-deps.json` `core`, so it needs no gate and no
- * `runtimeVersion` bump; what it needs is the two Info.plist strings and the
- * background mode in `app.config.js`, the Android record permission, and a
- * transcriber to point the chunks at.
+ *  - `./audio.ts` — the phone. `expo-audio`, statically imported because it is
+ *    in `native-deps.json` `core`; the audio session (including the
+ *    `mixWithOthers` line that keeps a Zoom call's microphone), rotation, and
+ *    the interruption handling.
+ *  - `./audio.web.ts` — the browser. Metro resolves it for the web build, which
+ *    is why nothing above this file branches on a platform.
+ *  - `./segments.ts` — the wall clock and the chunk-id scheme both halves share.
+ *  - `./transcriber.ts` — the seam the chunks go out through, and the module
+ *    seam a test substitutes so no test here touches the network.
+ *  - `./notesOnly.ts` — the honest refusal, for Android and for a browser that
+ *    cannot record.
+ *
+ * Still open: Android (a foreground service, which is a native target), and
+ * on-device transcription for the free tier (a second `ChunkTranscriber`, and a
+ * `gated` native dependency).
  */
 
 /** Where the words are produced. The product's two tiers, as a type. */
@@ -127,10 +141,29 @@ export function createRecorder(
 
 /*
   Re-exported here so `capture/` is one import for everything above it: the
-  interface, the recorder this build has, the honest fallback, and the module
-  that documents what a real one needs. The split into three files is about
-  keeping `audio.ts` importable without a cycle back through this barrel, not
-  about three places to import from.
+  interface, the recorder this build has, the honest fallback, the fake a test
+  drives by hand, and the module that documents what a real one needs. The split
+  into files is about keeping `audio.ts` importable without a cycle back through
+  this barrel, not about several places to import from — and this being the only
+  door is what makes "nothing above `capture/` can reach the audio" a boundary
+  rather than a preference. `meetingsCaptureWiring.test.ts` fails if any module
+  outside `capture/` imports past it.
+
+  **`setTranscriber` is deliberately not here.** It installs an object that is
+  handed every chunk's bytes — `fakeTranscriber` retains all of them by design —
+  so re-exporting it beside the types put a way to capture raw audio one import
+  away from every module in the app, in the same file that says in prose that
+  nothing above here could. `setTranscriptionClient` genuinely has to be
+  reachable from above (only React can see the app's Convex client) and hands
+  out nothing; the other does not, and a test reaches `capture/transcriber` by
+  its own path instead.
 */
 export { notesOnlyRecorder } from "./notesOnly";
 export { audioRecorder } from "./audio";
+export { fakeRecorder, fakeSegment, type FakeRecorder } from "./fake";
+export { SEGMENT_MS } from "./segments";
+export {
+  setTranscriptionClient,
+  type ChunkTranscriber,
+  type TranscribeChunkArgs,
+} from "./transcriber";

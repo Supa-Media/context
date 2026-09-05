@@ -43,6 +43,7 @@ const SEED = {
   startedAt: "2026-09-05T18:00:00.000Z",
   source: { kind: "in-person" as const },
   device: { platform: "ios" as const },
+  transcription: "cloud" as const,
   version: PROTOCOL_VERSION,
 };
 

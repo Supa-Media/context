@@ -129,7 +129,7 @@ not you and not us.** What remains true on both tiers is the part that actually
 distinguishes this product — the *notes* land in storage you own, we hold no
 copy, and revoking our credential leaves you with everything.
 
-Three rules follow, and they are the enforceable part:
+Four rules follow, and they are the enforceable part:
 
 1. **Audio is never written to the bucket and never persisted by us.** Not as an
    attachment, not as a cache, not "temporarily" in a queue that has no expiry.
@@ -141,15 +141,210 @@ Three rules follow, and they are the enforceable part:
    audio ever left their laptop, which is not a question they should have to
    reconstruct from their billing history. The check is
    `a finalized note names the engine that produced it`.
+
+   Four things that follow, because each is a way of writing this key that
+   would not keep the promise. **The key is always written**, and a meeting
+   nothing transcribed says `transcription: none` — an absent key and an old
+   note are the same thing to a reader, so omitting it on the notes-only case
+   is the one shape that answers nobody. **`null` is the third legal value and
+   is explicit** on `MeetingSession`, never an absent field:
+   `TRANSCRIPTION_ENGINES` names the two engines, and "no engine" is the
+   absence of a member rather than a member of the list. **An engine nobody
+   recognises is refused rather than coerced** — `source.kind` falls back to
+   `unknown` and `device.platform` to `web` because those are a detector's
+   evidence, while this field has no honest fallback: `null` would claim
+   nothing was transcribed and `cloud` would claim something left the machine.
+   And **a session's engine is set when it opens and is never rewritten**: it
+   may be raised from `none` to an engine, but audio that has been streamed to
+   a service cannot un-leave the machine, so a client talking a note out of
+   saying `cloud` is refused. `device:` beside it is `name (platform)` when the
+   device named itself and the bare platform when it did not — the platform is
+   the floor, the name answers "which of my two Macs", and the app version is
+   not a device.
 3. **The choice is visible before the recording, not in a settings page.** A tier
    that silently upgrades the transcription path is a tier that silently changes
    where the audio goes.
+4. **The cloud path is `https`, and a deployment that says otherwise is refused
+   rather than obeyed.** The transcription Worker's address is an environment
+   variable, so an `http://` typed into it is the one misconfiguration here that
+   is both silent and severe: every chunk of every meeting on that deployment
+   crosses the public internet in the clear, and nothing complains. We are
+   willing to say out loud that the audio is processed by somebody who is not
+   you and not us; we are not willing to say it was readable on the way there.
+   The single exception is **loopback**, because `wrangler dev` serves plaintext
+   on `127.0.0.1` and self-hosting the whole stack locally is a supported path —
+   and loopback reaches no network, so there is nothing on it to intercept. It
+   is matched on the parsed hostname, never as a substring, because
+   `127.0.0.1.attacker.invalid` is an ordinary public name. The checks are
+   `an http:// worker is refused, and the audio never leaves`,
+   `http on loopback is allowed, because `wrangler dev` is one`, and
+   `http on a host that merely looks like loopback is refused`.
 
 Collapsing the two tiers to one cloud engine would be simpler, cheaper to
 operate and better at diarization, and it would delete the free tier's actual
 claim. Collapsing to on-device only would delete diarization and lock the
 product to recent Apple hardware — `SpeechAnalyzer` is iOS/macOS 26 and later,
 and on watchOS it does not exist at all.
+
+### The cloud path knows *who* is asking, opaquely, and that is what buys a limit
+
+The cloud tier spends real money per request, and for a while nothing bounded
+it. `transcribeChunk` checked `getAuthUserId` and nothing else — deliberately,
+since the audio never becomes anything the control plane owns and there is no
+workspace to authorize against — but sign-up is open email OTP with no invite
+gate, so "a signed-in account" is a barrier of approximately zero. Each call
+carries up to 8 MiB of audio. And the body posted to the Worker was
+`{ audioBase64, mimeType, durationMs }`: no caller at all, so a surprising bill
+had nothing in it to trace.
+
+Two things follow, and they are the enforceable part.
+
+**The limit lives in the Worker, not in the control plane.** `lib/rateLimit.ts`
+is the tool everywhere else in Convex and it cannot be used here without
+changing what `functions/meetings/transcribe.ts` is: `consumeRateLimit` needs a
+`MutationCtx` and writes a `rateLimits` row, and that action deliberately has no
+`ctx.db`, `ctx.storage`, `ctx.scheduler` or `ctx.runMutation`, because the row
+next to `rateLimits` is the one that would hold a transcript. A test sweeping
+every table in the schema exists to keep it that way, and relaxing it to admit
+"just the one counter" would be relaxing it. So the limit is Cloudflare's native
+rate limiting binding, declared in `wrangler.jsonc`, which provisions **no
+account resource at all** — no KV, no D1, no Durable Object. That second
+property is not a convenience: the Worker's whole auditability claim is that
+there is nowhere in it to keep audio even by accident, and a rate-limit KV would
+have been the first storage binding to weaken it. The check runs after the
+credential check, so an unauthenticated caller cannot spend somebody else's
+allowance, and before the body is read, so a refused caller cannot make the
+Worker buffer 8 MiB first. It **fails closed**: a limiter that is absent,
+throws, or answers something unreadable refuses the request rather than waving
+it through, because a limit that stops applying on a green deploy is the finding
+coming back with nothing to say when it started. The checks are
+`refuses before the body is read, not after`,
+`an unauthenticated caller never touches anybody's bucket`,
+`a limiter that throws refuses, it does not wave the caller through` and
+`a binding removed from wrangler.jsonc refuses too`.
+
+**The identifier is an HMAC of the user id under the shared worker secret, and
+never the user id.** It travels in the `X-Caller-Hash` header — a header, not a
+body field, precisely so the Worker can refuse before parsing the audio. Three
+properties are being bought at once, and no simpler construction buys all three:
+it is *stable*, so it can key a limit at all (anything per-request is a fresh
+bucket per request, which is no limit); it is *opaque*, so the Worker, its logs,
+and anyone who intercepts the header hold no account identifier — a plain
+SHA-256 would not do, because with no secret in the construction anybody holding
+a user id can confirm a guess against it; and it is *recomputable by the control
+plane*, which holds both the secret and the users table, so the account behind a
+bill can actually be named. That last one is the reason it is an HMAC rather
+than a random per-user token: a token would need a stored mapping, which is a row
+this action must not write.
+
+The inversion is a linear scan over `users`, spelled out on `callerHash` in
+`functions/meetings/transcribe.ts`, and it is checked rather than merely
+described — the test recomputes it with `node:crypto` independently of the
+implementation. **Rotating `TRANSCRIBE_WORKER_SECRET` makes every previously
+logged identifier permanently un-attributable.** That is a real cost of rotation
+and is written down here so it is a decision somebody takes rather than a
+surprise somebody discovers. The checks are
+`sends an opaque caller identifier the worker can key a limit by`,
+`never sends the user id, in the header, the body, or the URL`,
+`is the same for the same account on every call`,
+`is different for a different account` and
+`is keyed by the worker secret, so it is not derivable without it`.
+
+This is a real, deliberate widening of what the Worker is told. *Nothing joins
+the call* and the Worker's own header both say it holds no session, no
+workspace, no context id and no position in a recording, and all of that stays
+true: it now learns that two chunks came from the same caller, and nothing else
+about who that is. The alternative was leaving the budget open, and an
+unbounded spend that names nobody is not a stronger privacy position — it is
+the same disclosure with a bill attached.
+
+**Two things this does not cover, stated rather than glossed.** The limit is per
+*identifier*, so somebody willing to open many accounts gets many buckets: that
+is a signup-gate problem — open email OTP with no invite — and it is not this
+seam's to solve. And Cloudflare's limiter is per-location and eventually
+consistent, so a caller spread across colos gets a multiple of the ceiling; it
+bounds a blast radius and is not an accounting system, which Cloudflare says
+outright.
+
+### A client-supplied id is bounded where it enters, not where it lands
+
+`chunkId` arrives from a recorder and becomes a transcript segment id
+(`${chunkId}-${index}`), and `normalizeSegment` in
+`packages/meetings/src/transcript.js` accepts an unbounded segment id: it trims,
+checks for non-empty, and stores. So the bound belongs on the argument — it is
+the contract's own input, it arrives from a client, and every consumer
+downstream would otherwise have to distrust a value we handed it.
+
+1 to 128 characters of `A-Za-z0-9_-`. The recorders mint `<Date.now()>-<index>`,
+around seventeen characters, so the bound is enormously generous against the
+real workload while refusing the two shapes that cause trouble: an id large
+enough to matter written verbatim into a note, once per segment, in the
+customer's own bucket; and characters that mean something to a Markdown
+renderer, a path resolver or a shell. The refusal is its own code —
+`INVALID_CHUNK_ID`, not the deployment-problem code the other refusals share —
+because it is the only one here a *client author* can act on, and it never
+quotes the rejected value back, because that is how a refusal becomes a
+reflection. It is checked after authentication, like everything else: the shape
+of an unauthenticated caller's arguments is not something to tell them about.
+The checks are `refuses an id longer than the bound, before spending any
+inference`, `refuses characters that mean something to a renderer, a path, or a
+shell`, `the refusal names the field without quoting what was sent` and
+`an anonymous caller with a bad chunk id is still just anonymous`.
+### The device is never waiting on the network, and a backlog is dropped rather than kept
+
+Capture rotates on a fixed wall clock, and the first version of it closed a
+chunk, **awaited the transcription round trip**, and only then reopened the
+microphone. That is 1.5-4s of every twenty seconds never recorded, cut mid-word,
+on both platforms — 8-20% of a meeting — while the offset arithmetic went on
+asserting the chunks were contiguous, so the transcript's timestamps claimed
+audio that had never existed. On a slow link it was worse than lossy: if a round
+trip outran `SEGMENT_MS` the interval kept firing, the backlog grew with no
+ceiling, and the offsets diverged from wall clock permanently while the recorder
+still reported `state: "recording"`.
+
+So **the send is not on the chain that owns the device.** A rotation closes the
+file, reopens recording, and hands the bytes off; segments arrive whenever they
+arrive, which costs nothing because a `TranscriptSegment` carries its own id and
+`startMs`. Out-of-order arrival is acceptable; silently missing audio is not.
+
+That leaves a bound to choose, and what happens at it is the actual decision:
+**at `MAX_INFLIGHT_CHUNKS` a chunk is dropped, with an honest sentence on the
+screen, rather than queued.** Queueing means holding somebody's audio past the
+moment it would otherwise have been deleted — on the phone, keeping the `.m4a`
+in the cache — and "the file dies before the request that carries its contents"
+is what makes *audio is never persisted by us* a property of the code rather
+than a line in this document. A bounded queue also only moves the same decision
+`MAX_INFLIGHT_CHUNKS` chunks later, by which time the backlog is minutes rather
+than seconds and nobody has been told anything.
+
+Two rules follow from the same place, and both were wrong before they were
+written down. **The offset is session time and it moves whatever else fails** —
+a chunk the device would not close, a chunk with nowhere to send, the seconds an
+interruption cost: all of it is time that passed, so every later chunk starts
+that much further along, and a flag's `at` lands on the sentence it was pressed
+during. **A chunk id, conversely, is spent only when there is a request to carry
+it**, so a run of bad chunks leaves no gaps in the sequence.
+
+And **releasing the device may never depend on the send.** `stop()` awaited the
+last chunk's transcription before releasing, so ending a meeting with no signal
+— the ordinary case, not the edge one — left the microphone open: iOS's red bar
+for the life of the process, the browser's recording dot for the life of the
+tab. The release is unconditional now, and waiting for outstanding sends happens
+after it, where it costs a spinner rather than a microphone.
+
+The same rule reaches the other end of a recording. Nothing swept the recording
+directory at startup, so a crash or a force-quit mid-chunk left up to
+`SEGMENT_MS` of somebody's meeting in the app's cache permanently — while the
+code claimed in prose that it could not. The sweep runs when the capture module
+is first evaluated, which is the one moment in a runtime where no recorder
+exists for it to race.
+
+The checks are `rotation reopens the microphone without waiting for the
+answer`, `a backlog is bounded, and what it drops it says`, `a chunk that will
+not close does not take the next twenty seconds too`, `an interruption's lost
+time lands in the offset`, `a chunk whose path the file system refuses still
+releases the device`, and `a recording a previous run left behind is swept at
+startup`.
 
 ### The recorder is one interface with two implementations, and nothing above it knows which
 
@@ -464,8 +659,9 @@ Detection may *suggest*, and the suggestion is a prompt with a "not now" — a
 detector that silently starts recording would be the same product with the
 indicator removed.
 
-**"Wherever they are looking" is mounted once, at the root of the app.** The
-phone's bar lived inside the meetings navigator, which made it visible on the
+**"Wherever they are looking" is mounted once, at the root of the app — and so
+is everything the recording depends on.** The phone's bar lived inside the
+meetings navigator, which made it visible on the
 meetings screens and nowhere else — so a person who started a recording and went
 to read a note had a microphone open and no indicator, which is precisely the
 mode this section says is a bug. It is now mounted beside the `(app)` stack,
@@ -480,8 +676,23 @@ bars over each other, because that layout renders inside this one. And it
 console's toolbar is a pill of the same height in the same slot, and a recording
 bar lying on top of it would take a screen's navigation away for the length of a
 meeting. The frame publishes the height it occupies and the bar clears it, which
-is also why a screen with no chrome there pays nothing for the possibility. The
-checks are `the persistent recording bar is mounted here, and draws nothing when
-idle`, `the frame publishes the height of its floating toolbar, and takes it
-back`, and `with the console's toolbar underneath, it clears it rather than
-covering it`.
+is also why a screen with no chrome there pays nothing for the possibility.
+
+The half that took longer to see is that **a recording visible from anywhere has
+to be *working* from anywhere**, and two of the parts it depends on were still
+wired to the navigator that unmounts. The Convex client the recorders ship
+chunks through was installed by the meetings layout, so leaving the section
+mid-meeting recorded audio, encoded it, deleted it and threw it away while the
+bar went on drawing a live timer. And the recorder itself was built inside that
+layout's effect, so coming back handed the controller a fresh idle one — End
+then stopped that, while the object actually holding the microphone kept its
+rotation timer and its listeners forever. A recording outlives those screens, so
+anything it depends on is mounted where the bar is, or held across a
+reconfiguration.
+
+The checks are `the persistent recording bar is mounted here, and draws nothing
+when idle`, `the frame publishes the height of its floating toolbar, and takes
+it back`, `with the console's toolbar underneath, it clears it rather than
+covering it`, `leaving the meetings section does not switch transcription off`,
+and `re-configuring mid-meeting keeps the recorder that is holding the
+microphone`.

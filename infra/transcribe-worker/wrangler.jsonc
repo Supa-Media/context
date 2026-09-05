@@ -1,0 +1,121 @@
+{
+  // context-transcribe: one chunk of meeting audio in, text out, nothing kept.
+  //
+  // The cloud half of the transcription seam in docs/decisions/meetings.md. The
+  // free tier transcribes on-device and audio never leaves the machine; on the
+  // paid tier it does, and the product says so out loud. What makes that
+  // survivable is that this Worker is trivially auditable: it has no KV, no R2,
+  // no D1, no Durable Object, no queue and no storage credential, so there is
+  // nowhere here for audio to be kept even by accident.
+  //
+  // ── WORKERS AI IS A BINDING, NOT THE REST API ─────────────────────────────
+  //
+  // The `ai` block below is the whole integration. It matters that it is a
+  // binding rather than a `fetch` to api.cloudflare.com:
+  //
+  //   - a binding needs no API token, so this Worker holds no credential that
+  //     could be exfiltrated and reused against the account;
+  //   - the account's deploy token does not carry the Workers AI scope, so the
+  //     REST path would not work even if we wanted it;
+  //   - the call never leaves Cloudflare's network, so the audio takes one hop
+  //     fewer than it otherwise would.
+  //
+  // ── DEPLOYMENT IS NOT COMPLETE WHEN `wrangler deploy` SUCCEEDS ────────────
+  //
+  // Workers AI is an ACCOUNT-LEVEL feature, and `wrangler deploy` succeeds
+  // whether or not it is enabled: an unprovisioned binding is simply absent at
+  // runtime. A pipeline with no probe therefore goes green while every single
+  // transcription returns 500 — the same shape as the four green deploys that
+  // deployed nothing, recorded in the header of deploy-email-worker.yml.
+  //
+  // So `GET /health` answers `{ ok: true, ai: <boolean> }` honestly and
+  // unauthenticated, and .github/workflows/deploy-transcribe-worker.yml FAILS
+  // THE JOB when `ai` is false. If it fails, Workers AI must be enabled on the
+  // Cloudflare account — nothing in this repository can do that.
+  //
+  // ── THE ADDRESS IS NOT IN THIS FILE ───────────────────────────────────────
+  //
+  // `workers_dev` is true, so the deployed Worker answers on the account's
+  // workers.dev subdomain. That hostname is deployment-specific and is NOT
+  // written down here: this repository is public, and a self-hoster's Worker
+  // has a different address. It reaches the control plane as the
+  // `TRANSCRIBE_WORKER_URL` secret, the same way `CONTROL_PLANE_URL` reaches
+  // the MCP gateway, and the deploy workflow reads it from there to run the
+  // health probe against the thing it just deployed.
+  //
+  // No custom domain and no route are attached here, matching infra/router and
+  // infra/email-worker: attaching one requires the zone to already be on
+  // Cloudflare DNS, which a CI deploy cannot do and should not silently try to.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "context-transcribe",
+  "main": "src/index.ts",
+  // A stable past date rather than "today": a future-dated (or clock-skewed)
+  // CI runner rejects a compatibility_date that resolves to the future.
+  "compatibility_date": "2026-07-01",
+
+  // The account's workers.dev subdomain is provisioned, and this is how the
+  // control plane reaches this Worker. See the note above on why the resulting
+  // hostname is a secret rather than a line in this file.
+  "workers_dev": true,
+
+  "ai": {
+    "binding": "AI"
+  },
+
+  // ── THE RATE LIMIT, AND WHY IT IS *THIS* KIND OF RATE LIMIT ───────────────
+  //
+  // A signed-in account used to be the only thing between a caller and this
+  // account's Workers AI budget, and sign-up is open email OTP with no invite
+  // gate — so it was a barrier of approximately zero, with 8 MiB of audio per
+  // request and nothing recording who spent it. src/rateLimit.ts is the whole
+  // argument; this block is the enforcement.
+  //
+  // The Workers native rate limiting binding is declared entirely here and
+  // PROVISIONS NOTHING: no KV namespace, no D1 database, no Durable Object, no
+  // account resource at all. That is not only a convenience. This Worker's
+  // auditability claim, stated at the top of this file and again in
+  // src/index.ts, is that there is nowhere here for audio to be kept even by
+  // accident — and a rate-limit KV would have been the first storage binding
+  // to weaken it.
+  //
+  // `namespace_id` is an arbitrary identifier scoped to this Worker. It names
+  // nothing on the account, and it is not a secret.
+  //
+  // `simple.period` may be 10 or 60 and nothing else; `simple.limit` is 20 a
+  // minute against a workload of 3 a minute per live recording — see
+  // src/rateLimit.ts for the arithmetic. src/wranglerConfig.test.ts pins these
+  // two numbers to the constants that comment reasons about, because a
+  // justification that drifts from the deployed value reads correctly while
+  // being wrong.
+  //
+  // Removing this block does NOT quietly remove the limit: `checkRateLimit`
+  // fails closed on an absent binding, so the Worker refuses every request
+  // instead. A bad deploy that says so is the point.
+  "ratelimits": [
+    {
+      "name": "TRANSCRIBE_RATE_LIMIT",
+      "namespace_id": "1",
+      "simple": {
+        "limit": 20,
+        "period": 60
+      }
+    }
+  ],
+
+  // No `vars`. There is nothing to configure: the models are constants in
+  // src/transcribe.ts (so that the entry module exports only handlers — see
+  // src/entryExports.test.ts), and everything else about a request arrives in
+  // the request.
+  //
+  // TRANSCRIBE_WORKER_SECRET is a secret, set with `wrangler secret put` by
+  // .github/workflows/deploy-transcribe-worker.yml and never committed. It is
+  // this Worker's own credential and is NOT `GATEWAY_SECRET` or
+  // `EMAIL_WORKER_SECRET`: the three callers have different powers, and sharing
+  // one value would mean a compromise of the least privileged is a compromise
+  // of the most. This one is the least privileged of the three — it buys
+  // inference on our account and reaches no bucket, no context and no user.
+
+  "observability": {
+    "enabled": true
+  }
+}

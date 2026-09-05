@@ -110,6 +110,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A meeting note is a note, and `privacy.md` decides it with no bypass
 - Nothing joins the call
 - Transcription is cloud on the paid tier and on-device on the free tier, and that seam is disclosed, not glossed
+- The cloud path knows _who_ is asking, opaquely, and that is what buys a limit
+- A client-supplied id is bounded where it enters, not where it lands
 - The recorder is one interface with two implementations, and nothing above it knows which
 - The watch is a remote control, never a recorder
 - Detection judgement is a pure function, and the desktop app only collects evidence

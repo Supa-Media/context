@@ -23,6 +23,15 @@
  *   `closeSpan` adding wall-clock time instead of the open span              5
  *   `withAttendee` mutating the list it was given                            3
  *   the `notes` event tidying the human's Markdown                           2
+ *   `normalizeTranscription` coercing an unknown engine to null              3
+ *
+ * The last row is the one that is deliberately unlike its neighbours in the
+ * source: `source.kind` and `device.platform` fall back, and this field
+ * refuses. Coerced to `null`, a client with a typo in the word `cloud` gets a
+ * note saying nothing was transcribed about a meeting that was streamed to a
+ * service — which is why the sabotage is worth keeping in this list rather than
+ * being read as "the reducer is strict about one more thing". Two of the three
+ * checks it fails are `createSession`'s; the third is the normalizer's own.
  *
  * The first row is the finding, and it is about this file rather than the
  * source. On the first attempt it scored **zero** — because a reducer with no
@@ -41,6 +50,7 @@ import {
   applyLog,
   createSession,
   newMeetingId,
+  normalizeTranscription,
   recordedMsAt,
 } from "../src/session.js";
 import {
@@ -119,6 +129,39 @@ export function runSessionChecks(check) {
   );
   check("an unknown source kind falls back rather than being stored", createSession({ id: FIXTURE_ID, source: { kind: "hologram" } }).source.kind === "unknown");
   check("an unknown device platform falls back too", createSession({ id: FIXTURE_ID, device: { platform: "toaster" } }).device.platform === "web");
+
+  /*
+    ...but the transcription engine does NOT fall back, and that asymmetry is
+    the point. `source.kind` and `device.platform` are evidence a detector
+    offered, and a wrong guess costs a label. This field is the note's answer to
+    "did my audio leave this machine", and every fallback available is a
+    sentence the product would be making up about somebody's recording: `null`
+    claims nothing was transcribed, an engine claims something was.
+  */
+  check("a session nobody transcribed carries null, explicitly", fresh.transcription === null);
+  check(
+    "...which is what an absent field means, because a notes-only meeting is ordinary",
+    createSession({ id: FIXTURE_ID }).transcription === null
+  );
+  check(
+    "an on-device engine is kept",
+    createSession({ id: FIXTURE_ID, transcription: "on-device" }).transcription === "on-device"
+  );
+  check(
+    "...and so is a cloud one, which is the disclosure that matters",
+    createSession({ id: FIXTURE_ID, transcription: "cloud" }).transcription === "cloud"
+  );
+  check(
+    "an engine this contract never heard of is refused rather than guessed",
+    attempt(() => createSession({ id: FIXTURE_ID, transcription: "quantum" })).error instanceof MeetingEventError
+  );
+  check(
+    "...and so is one that is not even a string",
+    attempt(() => createSession({ id: FIXTURE_ID, transcription: 7 })).error instanceof MeetingEventError
+  );
+  check("normalizeTranscription reads an absent value as no engine", normalizeTranscription(undefined) === null);
+  check("...and an explicit null the same way", normalizeTranscription(null) === null);
+  check("...and refuses an empty string, which is not an answer", attempt(() => normalizeTranscription("")).threw);
 
   /* ------------------------------ purity -------------------------------- */
 

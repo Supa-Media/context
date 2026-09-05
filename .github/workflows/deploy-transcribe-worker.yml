@@ -1,0 +1,359 @@
+# Deploy `context-transcribe` — the Cloudflare Worker that transcribes one chunk
+# of meeting audio with a Workers AI binding — on every merge to `main`.
+#
+# Modelled on deploy-email-worker.yml: the suite is a hard gate, a preflight
+# names a missing secret instead of letting wrangler fail opaquely, the Worker's
+# secret is pushed from GitHub on every deploy, and the job does not report
+# success until it has proved the thing it deployed can actually work.
+#
+# ── THE ONE STEP THAT MATTERS: "Verify Workers AI is bound AND ENABLED" ─────
+#
+# Workers AI is an ACCOUNT-LEVEL feature. `wrangler deploy` succeeds whether or
+# not it is enabled on the account — an unprovisioned binding is simply absent
+# at runtime — so a pipeline without a live probe goes green while every single
+# transcription returns 500. That is the same failure this repository has now
+# met several times and which deploy-email-worker.yml's header records at
+# length: a green deploy of something that cannot work.
+#
+# `GET /health` answers `{ ok: true, ai: <boolean> }` from inside the deployed
+# Worker, so it is the only thing that can settle the question. `ai: false`
+# FAILS THIS JOB, with a runbook in the failure message, because enabling
+# Workers AI is a thing a human does in the Cloudflare dashboard and a red build
+# is the correct representation of "configured wrong".
+#
+# ── WHY THE URL IS A SECRET AND NOT A LINE IN A FILE ────────────────────────
+#
+# The probe needs the Worker's address, which is the account's workers.dev
+# subdomain. This repository is public and self-hosting is a supported path, so
+# a deployment-specific hostname does not belong in it — the same treatment
+# `CONTROL_PLANE_URL` gets for the MCP gateway. It arrives as
+# `TRANSCRIBE_WORKER_URL`, which is also what the control plane uses to reach
+# this Worker, so the probe checks the address production actually calls rather
+# than one this workflow constructed.
+name: Deploy Transcribe Worker (production)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/transcribe-worker/**"
+      - ".github/workflows/deploy-transcribe-worker.yml"
+  workflow_dispatch:
+
+# Never on `pull_request`: a deploy triggered by a fork's pull request would run
+# untrusted code with the account's Cloudflare credentials.
+concurrency:
+  group: deploy-transcribe-worker-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  # Must match `name` in infra/transcribe-worker/wrangler.jsonc. Cross-checked
+  # below rather than parsed out of it: wrangler.jsonc is JSONC and its comments
+  # are load-bearing documentation, so a JSON.parse here would either fail or
+  # invite someone to strip them.
+  WORKER_NAME: context-transcribe
+
+jobs:
+  test:
+    name: Test transcribe worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --filter "./infra/transcribe-worker..." --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: infra/transcribe-worker
+        run: pnpm typecheck
+
+      # The suite holds this Worker's two properties: one credential opens it,
+      # and the audio never reaches a log or an error. It gates the deploy for
+      # that reason.
+      - name: Test
+        working-directory: infra/transcribe-worker
+        run: pnpm test
+
+  deploy:
+    name: Deploy + verify context-transcribe
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      # A rename in wrangler.jsonc that this workflow did not follow would make
+      # every verification below check a Worker nobody deployed.
+      - name: Verify this workflow and wrangler.jsonc agree
+        run: |
+          set -euo pipefail
+          config=infra/transcribe-worker/wrangler.jsonc
+          if ! grep -qE "^\s*\"name\"\s*:\s*\"$WORKER_NAME\"" "$config"; then
+            echo "ERROR: $config does not declare name \"$WORKER_NAME\"."
+            echo "Update WORKER_NAME in this workflow to match, or vice versa —"
+            echo "every verification step below keys off it."
+            exit 1
+          fi
+          if ! grep -qE '"binding"\s*:\s*"AI"' "$config"; then
+            echo "ERROR: $config does not declare the Workers AI binding as \"AI\"."
+            echo "src/index.ts reads env.AI; a renamed binding means every request"
+            echo "answers 500 while this deploy stays green."
+            exit 1
+          fi
+          echo "OK — workflow and wrangler.jsonc agree on $WORKER_NAME and the AI binding."
+
+      - name: Verify required secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TRANSCRIBE_WORKER_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
+          TRANSCRIBE_WORKER_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for var in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID TRANSCRIBE_WORKER_SECRET TRANSCRIBE_WORKER_URL; do
+            if [ -z "${!var:-}" ]; then
+              echo "ERROR: missing required secret '$var' in the 'production' environment."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo ""
+            echo "TRANSCRIBE_WORKER_SECRET is this Worker's own credential — NOT"
+            echo "GATEWAY_SECRET and NOT EMAIL_WORKER_SECRET. The same value must also"
+            echo "be set on the Convex deployment, or every transcribe call is 401."
+            echo ""
+            echo "TRANSCRIBE_WORKER_URL is this Worker's address. It is a secret rather"
+            echo "than a line in the repository because the repository is public and the"
+            echo "hostname is deployment-specific."
+            exit 1
+          fi
+          echo "OK — every required secret is present."
+
+      # Prove the token can write to the account wrangler will deploy into,
+      # BEFORE the opaque wrangler failure ("Could not route ... [code: 7003]",
+      # which says nothing about the cause). Prints the account NAME it resolves
+      # to — never the secret — so a token pointed at the wrong Cloudflare
+      # account is immediately obvious.
+      - name: Verify Cloudflare credentials (preflight)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          resp="$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID")"
+          node -e '
+            const d = JSON.parse(process.argv[1] || "{}");
+            if (d.success) {
+              console.log("[ok] token can access account: " + ((d.result && d.result.name) || "(unknown)"));
+            } else {
+              console.error("[FAIL] CLOUDFLARE_API_TOKEN cannot access CLOUDFLARE_ACCOUNT_ID.");
+              console.error("       Cloudflare errors: " + JSON.stringify(d.errors));
+              process.exit(1);
+            }
+          ' "$resp"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --filter "./infra/transcribe-worker..." --frozen-lockfile
+
+      # Push the Worker's secret from GitHub on every deploy, so the live Worker
+      # is reproducible from this repository rather than from whatever somebody
+      # once typed at a terminal. `wrangler secret put` is idempotent and reads
+      # the value from STDIN, so it is never placed on a command line, in the
+      # process table, or in a log.
+      - name: Sync the Worker's secret
+        working-directory: infra/transcribe-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TRANSCRIBE_WORKER_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$TRANSCRIBE_WORKER_SECRET" | pnpm exec wrangler secret put TRANSCRIBE_WORKER_SECRET
+          echo "OK — the Worker's secret matches this repository's."
+
+      - name: Deploy context-transcribe
+        working-directory: infra/transcribe-worker
+        run: pnpm exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # ── Verification 1: something was actually deployed, by this run. ──────
+      #
+      # A `wrangler deploy` that no-ops, or that deployed into a different
+      # account, leaves the script either absent or untouched.
+      - name: Verify the Worker exists and was just modified
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          resp="$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts")"
+          node -e '
+            const d = JSON.parse(process.argv[1] || "{}");
+            const name = process.argv[2];
+            if (!d.success) {
+              console.error("[FAIL] could not list Workers: " + JSON.stringify(d.errors));
+              process.exit(1);
+            }
+            const script = (d.result || []).find((s) => s.id === name);
+            if (!script) {
+              console.error("[FAIL] no Worker named " + name + " exists in this account.");
+              console.error("       wrangler deploy reported success, so it deployed somewhere else.");
+              process.exit(1);
+            }
+            const age = (Date.now() - Date.parse(script.modified_on)) / 60000;
+            if (!Number.isFinite(age) || age > 30) {
+              console.error("[FAIL] " + name + " was last modified " + Math.round(age) +
+                " minutes ago — this run did not deploy it.");
+              process.exit(1);
+            }
+            console.log("[ok] " + name + " was modified " + Math.round(age) + " minute(s) ago.");
+          ' "$resp" "$WORKER_NAME"
+
+      # ── Verification 2: the secret is bound, not merely uploaded. ──────────
+      #
+      # Only the NAME and type are read. The value is never fetched, printed, or
+      # compared — the API does not return it, and this step must never become
+      # the reason someone wishes it did.
+      - name: Verify TRANSCRIBE_WORKER_SECRET is bound to the Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          resp="$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$WORKER_NAME/secrets")"
+          node -e '
+            const d = JSON.parse(process.argv[1] || "{}");
+            if (!d.success) {
+              console.error("[FAIL] could not list the Worker secrets: " + JSON.stringify(d.errors));
+              process.exit(1);
+            }
+            const names = (d.result || []).map((s) => s.name);
+            if (!names.includes("TRANSCRIBE_WORKER_SECRET")) {
+              console.error("[FAIL] TRANSCRIBE_WORKER_SECRET is not bound to this Worker.");
+              console.error("       Bound secrets: " + (names.join(", ") || "(none)"));
+              console.error("       Without it every transcribe call is answered 401.");
+              process.exit(1);
+            }
+            console.log("[ok] TRANSCRIBE_WORKER_SECRET is bound.");
+          ' "$resp"
+
+      # ── Verification 3: WORKERS AI IS ACTUALLY ENABLED ON THIS ACCOUNT. ────
+      #
+      # THE STEP THIS WHOLE WORKFLOW EXISTS FOR.
+      #
+      # Everything above proves a script was uploaded and a secret attached to
+      # it. None of it says the account has Workers AI, and `wrangler deploy`
+      # never will: an unprovisioned binding is absent at runtime, not at deploy
+      # time. `/health` reports `ai` from inside the deployed Worker, which is
+      # the only place the truth exists.
+      #
+      # It is unauthenticated on purpose — it depends on no caller, no
+      # workspace and no secret, so it reveals nothing — which is what lets this
+      # probe run without putting a credential on the wire.
+      #
+      # Retried, because a fresh deploy takes a few seconds to become globally
+      # routable and a 404 here would otherwise be reported as a broken account.
+      - name: Verify Workers AI is bound AND ENABLED on the account
+        env:
+          TRANSCRIBE_WORKER_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
+        run: |
+          set -euo pipefail
+          base="${TRANSCRIBE_WORKER_URL%/}"
+          url="$base/health"
+
+          body=""
+          code=""
+          for attempt in $(seq 1 10); do
+            code="$(curl -s -o /tmp/transcribe-health.json -w '%{http_code}' --max-time 20 "$url" || true)"
+            if [ "$code" = "200" ]; then
+              break
+            fi
+            echo "Attempt $attempt: GET /health returned $code, waiting for the deploy to propagate."
+            sleep 10
+          done
+
+          if [ "$code" != "200" ]; then
+            echo "[FAIL] GET \$TRANSCRIBE_WORKER_URL/health returned $code; expected 200."
+            echo "       Either the Worker is not routable at that address, or"
+            echo "       TRANSCRIBE_WORKER_URL points somewhere else. The URL is not"
+            echo "       printed here: it is a secret because this repository is public."
+            exit 1
+          fi
+
+          body="$(cat /tmp/transcribe-health.json)"
+          rm -f /tmp/transcribe-health.json
+          node -e '
+            let d;
+            try { d = JSON.parse(process.argv[1] || ""); } catch { d = null; }
+            if (!d || d.ok !== true) {
+              console.error("[FAIL] /health did not answer { ok: true, ... }: " + process.argv[1]);
+              process.exit(1);
+            }
+            if (d.ai !== true) {
+              console.error("[FAIL] the deployed Worker reports ai: false.");
+              console.error("");
+              console.error("  WORKERS AI IS NOT ENABLED ON THIS CLOUDFLARE ACCOUNT.");
+              console.error("");
+              console.error("  The script deployed, the secret is bound, and every single");
+              console.error("  POST /transcribe will answer 500 {\"error\":\"workers ai is not");
+              console.error("  bound\"} until somebody turns it on. Nothing in this repository");
+              console.error("  can do that.");
+              console.error("");
+              console.error("  Fix, in the Cloudflare dashboard:");
+              console.error("    Account -> AI -> Workers AI -> enable it for this account,");
+              console.error("    then re-run this workflow (Actions -> Deploy Transcribe");
+              console.error("    Worker (production) -> Run workflow).");
+              console.error("");
+              console.error("  If it is already enabled, check that wrangler.jsonc still");
+              console.error("  declares { \"ai\": { \"binding\": \"AI\" } } — src/index.ts reads");
+              console.error("  env.AI and a renamed binding looks identical from here.");
+              process.exit(1);
+            }
+            console.log("[ok] the deployed Worker reports ai: true — Workers AI is enabled.");
+          ' "$body"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Transcribe worker deploy (production)"
+            echo ""
+            echo "- **Worker:** \`$WORKER_NAME\`"
+            echo "- **Does:** one chunk of audio in, \`{ text, segments }\` out. No KV,"
+            echo "  no R2, no D1, no state. The audio is never written and never logged."
+            echo "- **Verified:** the script was modified by this run;"
+            echo "  \`TRANSCRIBE_WORKER_SECRET\` is bound; and \`GET /health\` reports"
+            echo "  \`ai: true\`, which is the only proof that Workers AI is enabled on"
+            echo "  the account."
+            echo "- **Not verified by CI:** that the control plane holds the same"
+            echo "  \`TRANSCRIBE_WORKER_SECRET\`. Both halves come from this repository's"
+            echo "  GitHub secret, but nothing here compares them — see the equivalent"
+            echo "  step in \`deploy-email-worker.yml\` for what that gap cost once."
+            echo "- **Commit:** \`${GITHUB_SHA::7}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

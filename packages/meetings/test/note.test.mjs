@@ -39,6 +39,21 @@
  *   the human's notes reflowed on render                                      3
  *   `## My notes` resolved to its last occurrence instead of its first        1
  *
+ * And the second round, for the frontmatter that says how a meeting was made:
+ *
+ *   `transcription` dropped from `FRONTMATTER_KEYS`                           7
+ *   `deviceLabel` dropping the device's own name                              2
+ *   `transcriptionLabel` calling a meeting nobody transcribed `on-device`     1
+ *   an engine the contract does not know rendered as `cloud`                  1
+ *
+ * The last two score 1 each and are the two worth having. Both are a note
+ * *lying about where somebody's audio went* rather than a note that is missing
+ * something, which is the failure this key exists to prevent and the one no
+ * count would have told you was there. The first row is large for a boring
+ * reason — the key order, the key count, and the round trip all read the same
+ * block — and the `mcp` suite fails exactly one check for it:
+ * `a finalized note names the engine that produced it`.
+ *
  * Two of these found a real hole rather than confirming a guard, and both are
  * the same hole. `fencedLines` and `isHeading` each scored **zero** at first,
  * because with real turns below, "the last `## Transcript` wins" resolved
@@ -59,6 +74,9 @@ import {
   SUMMARY_PLACEHOLDER,
   TRANSCRIPT_HEADING,
   TRANSCRIPT_PLACEHOLDER,
+  TRANSCRIPTION_NONE,
+  TRANSCRIPTION_UNKNOWN,
+  deviceLabel,
   formatDuration,
   parseMeetingNote,
   renderMeetingNote,
@@ -73,7 +91,15 @@ const NOW = "2026-03-04T09:40:00.000Z";
 
 /** A finished meeting, rendered at a fixed clock so nothing here is flaky. */
 function finished(overrides = {}) {
-  const base = createSession({ id: FIXTURE_ID, title: "Weekly sync", startedAt: at(0) });
+  const base = createSession({
+    id: FIXTURE_ID,
+    title: "Weekly sync",
+    startedAt: at(0),
+    // A meeting whose audio left the machine, recorded on a device that named
+    // itself: the case the frontmatter has to be able to say out loud.
+    transcription: "cloud",
+    device: { platform: "macos", name: "Studio Mac", appVersion: "1.2.3" },
+  });
   const session = applyLog(base, [
     { type: "start", at: at(0) },
     { type: "attendee", attendee: { name: "Attendee One", email: "one@example.test" } },
@@ -105,7 +131,21 @@ export function runNoteChecks(check) {
   const writtenKeys = lines.slice(1, lines.indexOf("---", 1)).map((line) => line.slice(0, line.indexOf(":")));
   check("frontmatter keys are in the documented order", deepEqual(
     writtenKeys,
-    ["updated", "type", "meeting-id", "started", "ended", "duration", "source", "attendees", "status"]
+    [
+      "updated",
+      "type",
+      "meeting-id",
+      "started",
+      "ended",
+      "duration",
+      "source",
+      // Between `source` and the people: where the audio came from, what turned
+      // it into text, and what was in the room, read as three adjacent lines.
+      "transcription",
+      "device",
+      "attendees",
+      "status",
+    ]
   ));
   check("...which is exactly what FRONTMATTER_KEYS says it is", deepEqual(writtenKeys, [...FRONTMATTER_KEYS]));
   check("the title is an H1", note.includes("\n# Weekly sync\n"));
@@ -212,6 +252,56 @@ export function runNoteChecks(check) {
   check("started and ended round-trip", parsed.frontmatter.started === at(0) && parsed.frontmatter.ended === at(30));
   check("duration is the audio, in words", parsed.frontmatter.duration === "30m");
   check("source is the detected kind", parsed.frontmatter.source === "unknown");
+
+  /*
+    HOW THIS NOTE WAS MADE.
+
+    The decision: "Every note records how it was made ... A person reading a
+    meeting from eight months ago can tell whether its audio ever left their
+    laptop, which is not a question they should have to reconstruct from their
+    billing history." So the key is written on every note, including — and
+    especially — the ones nothing transcribed, because an absent key and a
+    meeting nobody recorded look identical to a reader.
+  */
+  check("the note names the engine that produced it", parsed.frontmatter.transcription === "cloud");
+  check(
+    "...and says so plainly for the other tier too",
+    parseMeetingNote(renderMeetingNote(finished({ transcription: "on-device" }), { now: NOW }))
+      .frontmatter.transcription === "on-device"
+  );
+  check(
+    "a meeting nothing transcribed says none, rather than leaving the key out",
+    parseMeetingNote(renderMeetingNote(finished({ transcription: null }), { now: NOW }))
+      .frontmatter.transcription === TRANSCRIPTION_NONE
+  );
+  check(
+    "...and a value this contract does not know is named as unknown, never guessed as an engine",
+    parseMeetingNote(renderMeetingNote(finished({ transcription: "quantum" }), { now: NOW }))
+      .frontmatter.transcription === TRANSCRIPTION_UNKNOWN
+  );
+  check(
+    "...which is a note that still gets written, because a field may not cost a meeting",
+    renderMeetingNote(finished({ transcription: "quantum" }), { now: NOW }).includes("- pricing page")
+  );
+  check(
+    "the device that recorded it is named beside it",
+    parsed.frontmatter.device === "Studio Mac (macos)"
+  );
+  check(
+    "...falling back to the platform when the device never named itself",
+    parseMeetingNote(renderMeetingNote(finished({ device: { platform: "ios" } }), { now: NOW }))
+      .frontmatter.device === "ios"
+  );
+  check("deviceLabel keeps the platform as the floor", deviceLabel({ platform: "web" }) === "web");
+  check("...and the name as the useful half", deviceLabel({ platform: "ios", name: "a phone" }) === "a phone (ios)");
+  check(
+    "...but never the build version, which is not a device",
+    !deviceLabel({ platform: "ios", name: "a phone", appVersion: "9.9.9" }).includes("9.9.9")
+  );
+  check(
+    "a device that says nothing at all still leaves a readable line",
+    deviceLabel(undefined) === "unknown"
+  );
   check("status is the session state", parsed.frontmatter.status === "complete");
   check("attendees come back as a list", deepEqual(parsed.frontmatter.attendees, ["Attendee One", "Attendee Two"]));
   check("...and an empty list stays a list", deepEqual(parseMeetingNote(renderMeetingNote(finished({ attendees: [] }), { now: NOW })).frontmatter.attendees, []));
@@ -248,10 +338,10 @@ export function runNoteChecks(check) {
   const hostileNote = renderMeetingNote(hostile, { now: NOW });
   const hostileParsed = parseMeetingNote(hostileNote);
   check("a hostile title does not break the frontmatter", hostileParsed.frontmatter["meeting-id"] === FIXTURE_ID);
-  check("...the frontmatter still closes where it should", hostileNote.split("\n").indexOf("---", 1) === 10);
+  check("...the frontmatter still closes where it should", hostileNote.split("\n").indexOf("---", 1) === 12);
   check("...the title survives as the H1, verbatim", hostileParsed.title === 'Q3: "review" — #1');
   check("...and hostile attendee names round-trip exactly", deepEqual(hostileParsed.frontmatter.attendees, ['Attendee, "One"', "- Attendee: Two #2"]));
-  check("...with every frontmatter key still readable", deepEqual(Object.keys(hostileParsed.frontmatter).length, 9));
+  check("...with every frontmatter key still readable", deepEqual(Object.keys(hostileParsed.frontmatter).length, 11));
 
   /* --------------------- the human's notes are theirs ------------------- */
 

@@ -21,6 +21,13 @@ import { useMeetingsSetup } from "../../../features/meetings/useMeetings";
  *     rather than on each screen so that the list, a live meeting and a
  *     finished note share one configuration.
  *
+ * **It does not install the transcription client either.** That used to be
+ * inside `useMeetingsSetup`, which put it on the half of the app that does *not*
+ * outlive a recording: this layout unmounts the moment somebody leaves
+ * `/meetings/*`, and from the next chunk on the recorders had nowhere to send.
+ * `useTranscriptionClient` is now called beside the bar, in
+ * `app/(app)/_layout.tsx`, for the same reason the bar is there.
+ *
  * **It does not mount the recording bar.** It used to, which made a recording
  * visible on meetings screens and nowhere else; the bar is now mounted once at
  * `app/(app)/_layout.tsx`, above every route in the section. Mounting it in both

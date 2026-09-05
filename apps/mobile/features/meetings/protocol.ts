@@ -37,6 +37,7 @@ export {
   PROTOCOL_VERSION,
   ROUTES,
   TRANSCRIPT_CHANNELS,
+  TRANSCRIPTION_ENGINES,
   WATCH_FLAG_LABEL_MAX,
   isMeetingId,
 } from "@context/meetings/protocol";
@@ -57,6 +58,7 @@ export type {
   MeetingSession,
   MeetingSource,
   MeetingState,
+  TranscriptionEngine,
   TranscriptSegment,
   WatchCommand,
   WatchState,

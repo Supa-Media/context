@@ -1,0 +1,59 @@
+# The transcribe worker's own CI.
+#
+# Same gap `mcp.yml`, `router.yml` and `email-worker.yml` were written to close:
+# the Supa framework's reusable pipeline filters on apps/mobile, apps/convex and
+# packages/shared, so nothing under infra/ is covered. Without this job the
+# tests that hold this Worker's two properties — one credential opens it, and
+# the audio never reaches a log or an error — would only ever run on a
+# developer's machine, and `docs/decisions/testing.md` is one rule: a guard
+# nobody has checked is not a guard.
+name: Transcribe Worker
+
+# No `paths:` filter on pull_request. A filtered-out required check never
+# reports and leaves the PR pending forever; see the note in mcp.yml.
+#
+# And no `branches:` filter on pull_request either — a base-branch filter means
+# a pull request stacked on another branch runs no checks at all, which is how
+# #169 merged with zero check runs. `scripts/check-workflow-triggers.mjs`
+# enforces both. The `push:` filter below stays on `main`.
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "infra/transcribe-worker/**"
+      - ".github/workflows/transcribe-worker.yml"
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: transcribe-worker-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test Transcribe Worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --filter @context/transcribe-worker... --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: infra/transcribe-worker
+        run: npx tsc --noEmit
+
+      - name: Transcription tests
+        working-directory: infra/transcribe-worker
+        run: npx vitest run

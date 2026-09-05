@@ -48,6 +48,32 @@ export const MEETING_SOURCE_KINDS = Object.freeze([
 export const TRANSCRIPT_CHANNELS = Object.freeze(["mic", "system", "mixed"]);
 
 /**
+ * The engines that may have produced a meeting's words.
+ *
+ * A note has to say how it was made — `transcription: on-device` means the
+ * audio never left the machine, `transcription: cloud` means it was streamed to
+ * a service that is neither the customer nor us. That is the one place this
+ * product's promise needs a footnote, and the footnote belongs in the document
+ * somebody opens eight months later rather than in their billing history.
+ *
+ * **The third legal value is `null`, and it is not in this list.** `null` is
+ * *no engine* — a meeting somebody typed and never recorded, which is a real
+ * and common session rather than a missing field — so it is the absence of a
+ * member, not a member. Putting it in a frozen list of engines would make every
+ * membership check answer "yes, null is an engine", which is exactly the null
+ * sentinel this repo does not do. `MeetingSession.transcription` is therefore
+ * `TranscriptionEngine|null`, required and explicit: a session carries the
+ * answer, and "nobody said" is not one of the answers it may carry.
+ *
+ * @type {readonly TranscriptionEngine[]}
+ */
+export const TRANSCRIPTION_ENGINES = Object.freeze(["on-device", "cloud"]);
+
+/**
+ * @typedef {"on-device"|"cloud"} TranscriptionEngine
+ */
+
+/**
  * The platforms a client may say it is. `watchos` is here because the watch is
  * a remote control that identifies itself, not because it records.
  *
@@ -146,6 +172,12 @@ export const DEVICE_PLATFORMS = Object.freeze([
  * @property {string|null} enhanced      Generated Markdown, null until enhanced.
  * @property {string|null} templateId    Enhancement template used.
  * @property {MeetingDevice} device
+ * @property {TranscriptionEngine|null} transcription  Which engine produced the
+ *   words, and `null` when nothing did. Never absent: an absent key and
+ *   `transcription: none` are the same sentence to a reader, and only one of
+ *   them is a promise the note is keeping. It is set when the session is opened
+ *   — like `device`, and for the same reason — because the recorder that is
+ *   about to run is what knows where the audio is going.
  * @property {string|null} notePath      Bucket path once written, else null.
  * @property {string|null} failureReason Why the session is in `failed`, and null
  *   in every other state: it is set on the way into `failed` and cleared on the
@@ -431,6 +463,9 @@ export const ROUTES = Object.freeze({
  * @property {MeetingSource} source
  * @property {Attendee[]} attendees
  * @property {MeetingDevice} device
+ * @property {TranscriptionEngine|null} transcription  As on the session: a
+ *   client listing what it recorded can tell where each meeting's audio went
+ *   without opening the note.
  * @property {number} segmentCount   The transcript is never in a summary.
  * @property {string|null} notePath
  * @property {string|null} failureReason

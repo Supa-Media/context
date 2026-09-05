@@ -106,6 +106,10 @@ export function fakeGateway(
       source: session.source,
       attendees: session.attendees,
       device: session.device,
+      // Carried, like the device: a summary is what a client lists without
+      // opening a note, and "where did this meeting's audio go" is exactly the
+      // question a list should be able to answer.
+      transcription: session.transcription,
       segmentCount: segments.get(session.id)?.size ?? session.transcript.length,
       notePath: session.notePath,
       failureReason: session.failureReason,
