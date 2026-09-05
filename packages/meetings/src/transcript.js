@@ -31,6 +31,22 @@ export const DEFAULT_TURN_GAP_MS = 8000;
 export const UNKNOWN_SPEAKER = "Speaker";
 
 /**
+ * The longest a segment id may be.
+ *
+ * An id is a merge key, not content. The gateway caps a segment's *text* and
+ * the size of one request, and caps how many segments a session may hold — but
+ * nothing checks the size of the stored record, so an unbounded id let a
+ * `context:write` grant inflate one session far past what those caps imply.
+ * The record lives under `.meetings/`, which `isPlumbing` hides from every note
+ * surface at every tier including the owner's, so that growth is invisible to
+ * the person whose storage bill it lands on.
+ *
+ * 200 is far above any real scheme — the gateway's own ids are a `mtg_` chunk
+ * id plus an index — and far below anything that matters in aggregate.
+ */
+export const MAX_SEGMENT_ID_CHARS = 200;
+
+/**
  * Coerce one segment into the shape the rest of the package may assume, or
  * return `null`.
  *
@@ -47,6 +63,9 @@ export function normalizeSegment(input) {
 
   const id = typeof raw.id === "string" ? raw.id.trim() : "";
   if (!id) return null;
+  // Refused, never truncated: two ids differing only past the cut would merge
+  // into one segment, and losing a turn is worse than losing the batch row.
+  if (id.length > MAX_SEGMENT_ID_CHARS) return null;
 
   const startMs = toMs(raw.startMs);
   const endMs = toMs(raw.endMs);
