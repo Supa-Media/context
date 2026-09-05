@@ -42,10 +42,13 @@
   //
   // A `true` says the binding is present and callable and NOTHING about whether
   // it meters. It does not meter here — the block below carries the probe that
-  // established that, and the instruction to treat the limit as absent. The
-  // flag exists so that "is it even attached?" stops being answerable only from
-  // the account, which is the question the two investigations below opened
-  // with; it is not evidence for the question they closed.
+  // established that, the instruction to treat its limit as absent, and the
+  // pointer to the control-plane ceiling that replaced it. The flag exists so
+  // that "is it even attached?" stops being answerable only from the account,
+  // which is the question those investigations opened with; it is not evidence
+  // for the question they closed. It is still worth failing on, because an
+  // absent binding does not un-limit anything — it makes `checkRateLimit` fail
+  // closed and refuse every request.
   //
   // ── THE ADDRESS IS NOT IN THIS FILE ───────────────────────────────────────
   //

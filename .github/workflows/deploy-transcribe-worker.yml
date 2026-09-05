@@ -58,17 +58,25 @@
 # by paced probe against the deployed Worker, on two `namespace_id` values and
 # with the binding confirmed attached, that this binding does not enforce on
 # this account — 30 requests on one key a second apart drew zero refusals.
-# `wrangler.jsonc` says so at length and says to treat the limit as absent. This
-# flag reports that the binding is PRESENT AND CALLABLE, which is the property
-# `checkRateLimit` needs before it will trust it, and nothing more.
+# `wrangler.jsonc` says so at length and says to treat this binding's limit as
+# absent. This flag reports that the binding is PRESENT AND CALLABLE, which is
+# the property `checkRateLimit` needs before it will trust it, and nothing more.
 #
-# So the obvious next step — send `limit + 1` requests and demand a `429` — is
-# NOT written here on purpose. It would go red on the first run and stay red,
-# because the thing it asserts is currently false, and a permanently red deploy
-# gate is not a probe, it is a broken pipeline. What it would be measuring is
-# already known and already written down. The open decision is where the limit
-# moves so that it can be proven at all, which `wrangler.jsonc` costs out and
-# leaves to a person.
+# THE CEILING THAT DOES ENFORCE IS NOT IN THIS WORKER. `#228` moved it to
+# `consumeTranscribeBudget` in the control plane, spent through the `rateLimits`
+# table before this Worker is called at all — twenty per account per minute,
+# the same two numbers as the binding here, pinned to each other by a convex
+# test. So callers ARE metered as of `#228`; they are not metered by the thing
+# this flag reports on, and that is the distinction to keep.
+#
+# So the obvious next step for THIS binding — send `limit + 1` requests and
+# demand a `429` — is NOT written here on purpose. It would go red on the first
+# run and stay red, because the thing it asserts is still false and `#228` did
+# not change that; it made it not matter. A permanently red step in a workflow
+# that runs after merge does not gate anything, it just leaves `main` red and
+# buries the signal a real `ai: false` would raise. The probe becomes worth
+# writing the day somebody watches this binding return a `429`, which is the
+# condition `wrangler.jsonc` names for trusting it again.
 #
 # ── WHY THE URL IS A SECRET AND NOT A LINE IN A FILE ────────────────────────
 #
@@ -398,9 +406,10 @@ jobs:
             // wrong script, and either way the Worker transcribes nothing.
             if (d.rateLimit === true) {
               console.log("[ok] the deployed Worker reports rateLimit: true — the limiter binding is");
-              console.log("     present and callable. NOT that it meters: this binding does not enforce");
-              console.log("     on this account (see wrangler.jsonc), so the limit is to be treated as");
-              console.log("     absent until somebody watches it return a 429.");
+              console.log("     present and callable. NOT that IT meters: this binding does not enforce");
+              console.log("     on this account (see wrangler.jsonc), and is to be treated as absent");
+              console.log("     until somebody watches it return a 429. The ceiling that does enforce");
+              console.log("     is consumeTranscribeBudget in the control plane, per #228.");
             } else if (d.rateLimit === false) {
               console.error("[FAIL] the deployed Worker reports rateLimit: false.");
               console.error("");
@@ -456,9 +465,11 @@ jobs:
             echo "  \`rateLimit: false\`, which would have failed this job. A green run"
             echo "  where the key was ABSENT proves nothing about the limiter — the"
             echo "  step log says which happened."
-            echo "- **Not metered:** a present limiter binding does not enforce on this"
-            echo "  account, proven by paced probe in \`#226\`/\`#227\`. Nothing here"
-            echo "  asserts the limiter counts, and nothing should until it can."
+            echo "- **This binding does not meter:** proven by paced probe in"
+            echo "  \`#226\`/\`#227\`; the ceiling that enforces is"
+            echo "  \`consumeTranscribeBudget\` in the control plane (\`#228\`), which"
+            echo "  this workflow does not deploy and cannot probe. Nothing here"
+            echo "  asserts either limiter counts."
             echo "- **Not verified by CI:** that the control plane holds the same"
             echo "  \`TRANSCRIBE_WORKER_SECRET\`. Both halves come from this repository's"
             echo "  GitHub secret, but nothing here compares them — see the equivalent"

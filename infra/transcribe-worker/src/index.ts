@@ -85,9 +85,12 @@
  * not zero, and during it transcription fails loudly rather than transcribing
  * unattributed. That is the right way round: a chunk that fails is a chunk the
  * person is told about, and an accepted unidentified request is the finding.
- * "Unattributed" and not "unmetered": nothing here meters, per `#227` and the
- * `ratelimits` block in `wrangler.jsonc`. What the header buys is a caller a
- * bill can be traced to, which is a different and smaller thing.
+ * "Unattributed" and not "unmetered": nothing in THIS Worker meters, per `#227`
+ * and the `ratelimits` block in `wrangler.jsonc`, and since `#228` the ceiling
+ * that does is `consumeTranscribeBudget` in the control plane — spent before
+ * this Worker is called, so it is not what this header buys either. What the
+ * header buys is a caller a bill can be traced to, which is a different and
+ * smaller thing than either limit.
  *
  * ── Why /health is open, and why it is the most load-bearing line here ──────
  *
@@ -276,14 +279,16 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     // is present but not callable is precisely the state a presence check would
     // report as healthy while every request 429s.
     //
-    // AND CALLABLE IS NOT METERED. `#226`/`#227` proved by paced probe against
-    // the deployed Worker, on two `namespace_id` values with the binding
-    // confirmed attached, that this binding does not enforce on this account:
-    // `wrangler.jsonc` says to treat the limit as absent until somebody watches
-    // it return a `429`. A `true` here is the narrow fact that `checkRateLimit`
-    // has something it can call, and no part of a claim that anybody is
-    // metered. It is left declared because failing closed on absence would
-    // refuse every request, which is worse.
+    // AND CALLABLE IS NOT METERED — not by this binding. `#226`/`#227` proved by
+    // paced probe against the deployed Worker, on two `namespace_id` values with
+    // the binding confirmed attached, that it does not enforce on this account,
+    // and `wrangler.jsonc` says to treat its limit as absent until somebody
+    // watches it return a `429`. `#228` then moved the ceiling that does enforce
+    // to `consumeTranscribeBudget` in the control plane, which is spent before
+    // this Worker is called at all. So a `true` here is the narrow fact that
+    // `checkRateLimit` has something it can call — not a claim about either
+    // ceiling. The binding is left declared because failing closed on absence
+    // would refuse every request, which is worse than a limit that no-ops.
     //
     // Unauthenticated for the same reason the whole endpoint is: neither answer
     // depends on a caller, a workspace or a secret, and `rateLimit: false`
