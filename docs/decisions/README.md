@@ -104,6 +104,21 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A note link is a path with a keyword in front, because a scheme has a host
 - A reference follows the note it points at, and a link is something you follow
 
+## [Meetings](./meetings.md)
+
+- One file per meeting, and `read_meeting` is what that costs
+- A meeting note is a note, and `privacy.md` decides it with no bypass
+- Nothing joins the call
+- Transcription is cloud on the paid tier and on-device on the free tier, and that seam is disclosed, not glossed
+- The recorder is one interface with two implementations, and nothing above it knows which
+- The watch is a remote control, never a recorder
+- Detection judgement is a pure function, and the desktop app only collects evidence
+- Ingestion is idempotent by construction, because losing signal is the normal case
+- The human's words are never rewritten, and the generated half is disposable
+- A meeting lands at an ordinary path, and nothing about it is namespaced
+- What is deliberately not built
+- Consent is the customer's, and the product may never make recording invisible
+
 ## [Obsidian plugins](./obsidian-plugins.md)
 
 - The bucket is the vault, so compatibility starts as a duty not to break things
