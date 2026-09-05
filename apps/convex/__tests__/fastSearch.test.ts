@@ -28,11 +28,12 @@
  *   `disable` deleting the row before the database                    2
  *   `recordProvisionResult` applying to an opted-out row              1
  *   `forgetIndex` deleting a row that was re-enabled                  1
- *   `fastSearchActive` dropping the entitlement half             0 → 2
+ *   `fastSearchEntitled` returning true for every kind          0 → 2
  *   `status` returning the backfill counters to every member          1
  *   `status` gating them on `canChange` instead of ownership          0
  *   `enable` returning early for a `failed` row (the #233 bug)    1 → 2
  *   `enable`'s re-enable patch clearing `databaseId`              0 → 2
+ *   `enable` returning early for a `releasing` row                   2
  *
  * **Each note below names its row.** "The last one" was how two of these read
  * until rows were appended beneath them, at which point both pointed at
@@ -44,8 +45,11 @@
  * cannot count the notes they cannot read" below for why no test can reach it,
  * and what would.
  *
- * **`fastSearchActive` dropping the entitlement half** measured zero on the
- * first run and is the reason two tests exist for it. `fastSearchEntitled` is
+ * **`fastSearchEntitled` returning true for every kind** measured zero on the
+ * first run and is the reason two tests exist for it. The row used to be
+ * labelled "`fastSearchActive` dropping the entitlement half", which is a
+ * different edit and measures **1**, not 2 — the number was always right for
+ * the sabotage actually run, and only the label was unreproducible. `fastSearchEntitled` is
  * true for every workspace kind that exists, so deleting it from the
  * composition changed nothing any test could see — the half of the gate that a
  * paid tier will make load-bearing was unchecked, which is the one rule
@@ -55,6 +59,11 @@
  * **`enable`'s re-enable patch clearing `databaseId`** was zero and is now two:
  * both routes into that patch are covered below, the failed retry and the
  * re-enable mid-release.
+ *
+ * **`enable` returning early for a `releasing` row** is why those are two tests
+ * and not one. It reddens the re-enable-mid-release test and `forgetIndex
+ * refuses a row that was re-enabled`, and leaves the retry test green — so
+ * neither of the two covers the other's route into the patch.
  */
 
 import { describe, expect, test } from "vitest";
