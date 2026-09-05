@@ -299,64 +299,6 @@ describe("resolving a name that may receive mail", () => {
   });
 });
 
-/* -------------------------------------------------------------------------- */
-
-/**
- * THE SOLE-OWNER CHECK, WHICH NOTHING WAS ASSERTING.
- *
- * `resolvePersonalContextForIngestion` refuses a personal context that does not
- * have exactly one owner, and says why: *"zero means damaged data
- * (`removeMember` refuses to delete an owner), two would mean the sole-owner
- * invariant broke somewhere else. Either way there is no single accountable
- * person, so refuse."*
- *
- * Measured before this block existed: degrading `owners.length !== 1` to
- * `owners.length < 1` — which admits the two-owner case and silently picks
- * `owners[0]` as the accountable person for somebody else's mail — reddened
- * **nothing**. The mutant is live: with two owners the two expressions differ,
- * and `ownerUserId` is what the capture is attributed to and what the
- * ingestion policy is read for.
- *
- * The state is unreachable through the product's own mutations *today*, and
- * that is the argument for the test rather than against it. `setMemberRole`'s
- * validator is `v.union(v.literal("editor"), v.literal("member"))`, so it
- * cannot mint a second owner at all, and its own refusal says ownership
- * transfer "is a separate step, and is not built yet". **The day it is built is
- * the day this guard starts mattering, and an unproved guard is one nobody will
- * notice has stopped working.** So the row is inserted directly, which is the
- * only way to reach a state the mutations are supposed to prevent.
- *
- * The refusal must also be byte-identical to the one for a name nobody claimed,
- * for the reason the shared-context block below gives: a rejection that
- * differed at all is an enumeration oracle from any mail client.
- */
-describe("a personal context without exactly one owner cannot receive mail", () => {
-  test("two owners is refused, and refused indistinguishably", async () => {
-    const { t, workspaceId } = await ready();
-    const intruder = await createUser(t, "second-owner@example.test");
-    await t.run(async (ctx) => {
-      await ctx.db.insert("workspaceMembers", {
-        workspaceId,
-        userId: intruder,
-        role: "owner",
-        joinedAt: Date.now(),
-      });
-    });
-
-    const body = await (await resolve(t, "seyi")).json();
-    expect(body).toEqual({ ingestion: null });
-
-    expect(await responseFingerprint(await resolve(t, "seyi"))).toBe(
-      await responseFingerprint(await resolve(t, "nobody-has-this-name")),
-    );
-  });
-
-  test("and one owner still works, so the case above fails for its own reason", async () => {
-    const { t } = await ready();
-    const body = await (await resolve(t, "seyi")).json();
-    expect(body.ingestion).not.toBeNull();
-  });
-});
 
 /* -------------------------------------------------------------------------- */
 
@@ -528,6 +470,8 @@ describe("a personal context that has been shared keeps its capture address", ()
   });
 
   test("a personal context with no owner row is refused, byte-identically", async () => {
+    // The zero-owner half of `owners.length !== 1`. The two-owner half is the
+    // describe block immediately below, and neither covers the other.
     // The fail-closed floor of the new rule. The sole owner is what makes a
     // personal context accountable — whose allow-list, whose inbox — so a
     // membership set with no resolvable owner, reachable only by data damage
@@ -554,6 +498,80 @@ describe("a personal context that has been shared keeps its capture address", ()
     );
   });
 });
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE OTHER HALF OF THE SOLE-OWNER RULE, WHICH NOTHING WAS ASSERTING.
+ *
+ * The zero-owner case is the test directly above. This is the two-owner case,
+ * and it was uncovered: degrading `owners.length !== 1` to `owners.length < 1`
+ * reddened **nothing**, because `0 < 1` is still true and the test above still
+ * passed. The two halves belong together and each names the other.
+ *
+ * WHAT THE GUARD ACTUALLY PREVENTS. Not a misattributed capture: the resolver's
+ * `ownerUserId` has no production consumer downstream of resolution, the
+ * ingestion policy is read by workspace (`getIngestionSettingsRow(ctx,
+ * personal.workspace._id)`), and the note's owner label is the workspace slug
+ * (`owner: resolution.context.path`). What it prevents is larger. A personal
+ * context whose sole-owner invariant has broken keeps a **live capture
+ * address**: resolve answers with an ingestion object and writes an
+ * `ingestionTickets` row, and spending that ticket at
+ * `/gateway/ingest/binding` returns the decrypted storage credential. That is
+ * the second internet-facing path to a credential that `http.ts` names, and
+ * `owners.length !== 1` is one of the things holding it shut. Hence the
+ * no-ticket assertion below, which is the one that names the harm.
+ *
+ * WHY TEST A STATE THE PRODUCT CANNOT REACH. It cannot reach it *today*, and
+ * that is the argument for the test rather than against it. The whole write
+ * surface for `workspaceMembers` is two inserts and one role patch, and none
+ * can mint a second owner: `createWorkspace` writes the single owner,
+ * `invitations` and `setMemberRole` both validate the role as
+ * `editor | member`, and `setMemberRole`'s own refusal says ownership transfer
+ * "is a separate step, and is not built yet". **The day it is built is the day
+ * this guard starts mattering, and an unproved guard is one nobody notices has
+ * stopped working.**
+ *
+ * SABOTAGE: `!== 1` → `< 1` reddens this block and not the one above; deleting
+ * the check reddens both.
+ */
+describe("a personal context with two owners cannot receive mail either", () => {
+  async function withTwoOwners() {
+    const { t, ownerId, workspaceId } = await ready();
+    const intruder = await createUser(t, "second-owner@example.test");
+    await addMember(t, workspaceId, intruder, "owner", ownerId);
+    return { t, ownerId, workspaceId };
+  }
+
+  test("it is refused, and refused indistinguishably", async () => {
+    const { t } = await withTwoOwners();
+
+    expect(await (await resolve(t, "seyi")).json()).toEqual({ ingestion: null });
+    // A rejection that differed at all would let anyone enumerate which names
+    // on this domain are damaged, from any mail client.
+    expect(await responseFingerprint(await resolve(t, "seyi"))).toBe(
+      await responseFingerprint(await resolve(t, "nobody-has-this-name")),
+    );
+  });
+
+  test("and no ticket is minted, so nothing can be spent for a credential", async () => {
+    const { t } = await withTwoOwners();
+    await resolve(t, "seyi");
+
+    const tickets = await t.run((ctx) => ctx.db.query("ingestionTickets").collect());
+    expect(tickets).toEqual([]);
+  });
+
+  test("one owner still resolves, so the refusal above is the rule and not the fixture", async () => {
+    const { t } = await ready();
+
+    // Asserted on the shape rather than `not.toBeNull()`: an error body has no
+    // `ingestion` key at all, and `undefined` would satisfy the looser form.
+    const body = await (await resolve(t, "seyi")).json();
+    expect(body.ingestion.context).toEqual({ kind: "personal", path: "seyi" });
+  });
+});
+
 
 /* -------------------------------------------------------------------------- */
 
