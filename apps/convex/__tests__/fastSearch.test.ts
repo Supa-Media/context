@@ -37,7 +37,9 @@
  *   `status` returning `percentIndexed` to every member                1
  *   `backfillPercent` reading an absent `notesPending` as 0            2
  *   `backfillPercent` rounding instead of flooring                     1
- *   `backfillPercent` answering `undefined` for a total of 0           1
+ *   `backfillPercent` answering 100 for a total of 0                   3
+ *   `backfillPercent` answering 0 for a total of 0                     2
+ *   `backfillPercent` letting an unfinished index read 100             3
  *   `searchProjectionState` dropping the `fastSearchActive` gate    0 → 1
  *   `searchProjectionState` dropping the `databaseId` check         0 → 1
  *   `searchProjectionState` treating every status as `ready`            2
@@ -76,11 +78,15 @@
  *
  * **`backfillPercent` reading an absent `notesPending` as 0** measures 2 and is
  * the mutant worth naming, because it is the one a reasonable person writes.
- * `provisionIndex` records `notesIndexed: 0` and no `notesPending` at all, so
- * `pending ?? 0` makes the total zero, and an owner whose backfill has not read
- * a single note is shown **100%**. The two tests it reddens are the
+ * The row really can hold a numerator and no total: `provisionIndex` records
+ * `notesIndexed: 0` with no `notesPending` at all, and `recordProvisionResult`
+ * can move the one without the other. Under `pending ?? 0` a row reading
+ * `notesIndexed: 41` with nothing pending is a **finished backfill of 41
+ * notes**, reported to the owner as such. The two tests it reddens are the
  * absent-counter unit case and `an owner sees no percentage before anything has
- * reported one`.
+ * reported one`, whose second half exists for exactly that row — the first half
+ * no longer separates them, because `0` and no total both answer absent now for
+ * the different reason recorded two rows below.
  *
  * **`searchProjectionState` dropping the `fastSearchActive` gate** and
  * **dropping the `databaseId` check** were both zero against the behavioural
@@ -233,48 +239,79 @@ describe("the two conditions", () => {
    * describes and is displayed beside a different one. Computed from the two
    * counters that were written together, it cannot be stale relative to them.
    */
-  test("the percentage is a floor over the counters, and undefined when there are none", () => {
-    // Nothing has reported a total, so there is no denominator to divide by.
-    // THE MUTANT THIS CATCHES is `pending ?? 0`, which is what a row looks like
-    // the moment `provisionIndex` writes `notesIndexed: 0` with no pending at
-    // all: it would report a finished backfill that has read nothing.
-    expect(backfillPercent(undefined, undefined)).toBeUndefined();
-    expect(backfillPercent(0, undefined)).toBeUndefined();
-    expect(backfillPercent(undefined, 0)).toBeUndefined();
-    expect(backfillPercent(41, undefined)).toBeUndefined();
+  test("the percentage is a floor over the counters, and absent when there is nothing to say", () => {
+    // Nothing has reported a total, so there is no denominator. THE MUTANT THIS
+    // CATCHES is `pending ?? 0`, which is what a row looks like the moment
+    // `provisionIndex` writes `notesIndexed: 0` with no pending at all.
+    expect(backfillPercent(undefined, undefined, false)).toBeUndefined();
+    expect(backfillPercent(0, undefined, false)).toBeUndefined();
+    expect(backfillPercent(undefined, 0, false)).toBeUndefined();
+    expect(backfillPercent(41, undefined, true)).toBeUndefined();
 
-    // A real report about a context with no notes in it. There is nothing left
-    // to index, which is what 100 means — `undefined` would spin a bar forever
-    // on an empty brain.
-    expect(backfillPercent(0, 0)).toBe(100);
+    // A real report about a context with no notes in it. "0 of 0" is not a
+    // percentage of anything: `0` draws an accusing empty bar and `100` claims
+    // a backfill that never had work to do. Absent, the console says "no notes
+    // to index" in words. Absent even when the index is ready.
+    expect(backfillPercent(0, 0, false)).toBeUndefined();
+    expect(backfillPercent(0, 0, true)).toBeUndefined();
 
     // Started, and nothing read yet. Honestly zero rather than absent: the
-    // denominator exists.
-    expect(backfillPercent(0, 500)).toBe(0);
+    // denominator exists, so there is something to say.
+    expect(backfillPercent(0, 500, false)).toBe(0);
 
-    expect(backfillPercent(41, 7)).toBe(85);
-    expect(backfillPercent(48, 0)).toBe(100);
+    expect(backfillPercent(41, 7, false)).toBe(85);
 
-    // FLOOR, NOT ROUND, and this is the whole of why. 9,999 of 10,000 rounds to
-    // 100 and reads as done while a note is still missing; floored it is 99 and
-    // can only reach 100 when `pending` is exactly zero.
-    expect(backfillPercent(9_999, 1)).toBe(99);
-    expect(backfillPercent(1, 2)).toBe(33);
+    // 100 BELONGS TO `ready`. `48 of 48` on a row that is still backfilling is
+    // capped at 99, because whether a backfill is finished is the control
+    // plane's status and never an inference from `pending === 0` — `pending` is
+    // a floor whenever a walk was cut short. Uncapped, this draws a completed
+    // bar beside a card that says the index is still being built.
+    expect(backfillPercent(48, 0, false)).toBe(99);
+    expect(backfillPercent(48, 0, true)).toBe(100);
+
+    // FLOOR, NOT ROUND. 9,999 of 10,000 rounds to 100 and reads as done while a
+    // note is still missing.
+    expect(backfillPercent(9_999, 1, true)).toBe(99);
+    expect(backfillPercent(1, 2, true)).toBe(33);
 
     // A total that shrank mid-backfill: the denominator comes from the same
     // report as the numerator, so deleted notes leave both smaller together and
     // the ratio moves up rather than off the end of the scale.
-    expect(backfillPercent(90, 10)).toBe(90);
-    expect(backfillPercent(90, 0)).toBe(100);
-    expect(backfillPercent(80, 0)).toBe(100);
+    expect(backfillPercent(90, 10, true)).toBe(90);
+    expect(backfillPercent(90, 0, true)).toBe(100);
+    expect(backfillPercent(80, 0, false)).toBe(99);
 
     // Nonsense from the wire renders rather than throwing — refusing a bad
-    // report is `recordProjectionProgress`'s job, not a display function's —
-    // and a negative counter is clamped rather than allowed to invert the sign.
-    expect(backfillPercent(-5, 100)).toBe(0);
-    expect(backfillPercent(50, -5)).toBe(100);
-    expect(backfillPercent(Number.NaN, 10)).toBeUndefined();
-    expect(backfillPercent(10, Number.POSITIVE_INFINITY)).toBeUndefined();
+    // report is `recordProjectionProgress`'s job, not a display function's.
+    expect(backfillPercent(-5, 100, false)).toBe(0);
+    expect(backfillPercent(50, -5, true)).toBe(100);
+    expect(backfillPercent(Number.NaN, 10, true)).toBeUndefined();
+    expect(backfillPercent(10, Number.POSITIVE_INFINITY, true)).toBeUndefined();
+  });
+
+  /**
+   * THE CONSOLE RANGE-CHECKS WHAT ARRIVES AND FALLS BACK TO ITS OWN ARITHMETIC.
+   *
+   * A fallback that fires is a second implementation of this function running
+   * in production, disagreeing with the first about exactly the edge cases the
+   * comments above spend their length on. So the property is asserted over a
+   * spread of inputs rather than left to the examples: when present, always a
+   * finite integer in 0–100.
+   */
+  test("whenever it answers a number, it is one the console will not reject", () => {
+    const counts = [0, 1, 2, 7, 41, 500, 9_999, 1_000_000, -5, 0.5];
+    for (const indexed of counts) {
+      for (const pending of counts) {
+        for (const finished of [false, true]) {
+          const percent = backfillPercent(indexed, pending, finished);
+          if (percent === undefined) continue;
+          expect(Number.isFinite(percent), `${indexed}/${pending}`).toBe(true);
+          expect(percent).toBeGreaterThanOrEqual(0);
+          expect(percent).toBeLessThanOrEqual(100);
+          if (!finished) expect(percent).toBeLessThanOrEqual(99);
+        }
+      }
+    }
   });
 
   /**
@@ -572,6 +609,76 @@ describe("only an owner decides", () => {
   });
 
   /**
+   * THE TWO RULES THE CONSOLE READS RATHER THAN RE-DERIVES.
+   *
+   * It treats an absent field as "this viewer does not get this" and draws
+   * nothing; any number is a state it renders. So both of these are sentences
+   * somebody sees, decided here rather than there — a client that re-derived
+   * them would be a second implementation to disagree with.
+   *
+   * **A context with no notes gets no figure.** "0 of 0" is not a percentage of
+   * anything: `0` draws an accusing empty bar and `100` claims a backfill that
+   * never had work to do. The console says "no notes to index" in words.
+   *
+   * **100 belongs to `ready`.** Whether a backfill is finished is `state`, which
+   * this control plane owns, and never an inference from `notesPending === 0` —
+   * a pass can reach zero pending with a listing still to redo, and `pending` is
+   * a floor whenever a walk was cut short. Uncapped, `48 of 48` on a backfilling
+   * row draws a completed bar beside a card that says the index is still being
+   * built.
+   *
+   * SABOTAGE: 100 for a total of 0 reddens this and the unit case (2); 0 for a
+   * total of 0, likewise (2); dropping the `finished` cap, likewise (2).
+   */
+  test("an empty context gets no figure, and 100 waits for ready", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "percent-edges");
+    await asUser(t, owner).mutation(api.functions.fastSearch.enable, {
+      workspaceId,
+    });
+    const row = await bindingRow(t, workspaceId);
+    const read = async () =>
+      await asUser(t, owner).query(api.functions.fastSearch.status, { workspaceId });
+
+    // Nothing to index at all.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(row!._id, {
+        status: "backfilling",
+        databaseId: "db-edges",
+        notesIndexed: 0,
+        notesPending: 0,
+      });
+    });
+    expect((await read()).percentIndexed).toBeUndefined();
+    // ...and still nothing once it is serving. An empty index is not 100% of
+    // anything; it is a context with no notes.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(row!._id, { status: "ready" });
+    });
+    expect((await read()).percentIndexed).toBeUndefined();
+
+    // Every note read, and the control plane has not said finished.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(row!._id, {
+        status: "backfilling",
+        notesIndexed: 48,
+        notesPending: 0,
+      });
+    });
+    const preparing = await read();
+    expect(preparing.state).toBe("preparing");
+    expect(preparing.percentIndexed).toBe(99);
+
+    // And the state is what moves it, which is the control plane's to say.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(row!._id, { status: "ready" });
+    });
+    const on = await read();
+    expect(on.state).toBe("on");
+    expect(on.percentIndexed).toBe(100);
+  });
+
+  /**
    * The row as `provisionIndex` actually leaves it: `notesIndexed: 0`, and no
    * `notesPending` at all, because nothing has listed the bucket yet.
    *
@@ -597,6 +704,21 @@ describe("only an owner decides", () => {
     expect(status.notesIndexed).toBe(0);
     expect(status.notesPending).toBeUndefined();
     expect(status.percentIndexed).toBeUndefined();
+
+    // And the shape that separates "no denominator" from "an empty context":
+    // `recordProvisionResult` can move `notesIndexed` while leaving
+    // `notesPending` absent, so a row really can hold a numerator and no total.
+    // `pending ?? 0` reads this as a finished backfill of 41 notes.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(row!._id, { notesIndexed: 41 });
+    });
+    const partial = await asUser(t, owner).query(
+      api.functions.fastSearch.status,
+      { workspaceId },
+    );
+    expect(partial.notesIndexed).toBe(41);
+    expect(partial.notesPending).toBeUndefined();
+    expect(partial.percentIndexed).toBeUndefined();
   });
 
   /**

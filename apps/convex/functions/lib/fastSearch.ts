@@ -146,6 +146,12 @@ export function fastSearchState(
  *
  * ## The edge cases, each decided rather than fallen into
  *
+ * Three of these are the console's rendering contract as much as this
+ * function's arithmetic, and the console does not re-derive them: it range-
+ * checks what arrives and otherwise draws exactly what is sent, treating an
+ * absent field as "this viewer does not get this" and any number as a state to
+ * render. So each of the three is a sentence somebody reads.
+ *
  *  - **Either counter absent → `undefined`.** Nothing has reported a total, so
  *    there is no denominator. This is the important one: the row is created
  *    with `notesIndexed: 0` and no `notesPending` at all, so anything that
@@ -154,16 +160,26 @@ export function fastSearchState(
  *    the one direction that tells somebody their notes are written down when
  *    they are not — the same rule `docs/decisions/search.md` states for the
  *    manifest's `listedAt: null`.
- *  - **A total of zero → 100.** Both counters present and both zero is a real
- *    report about a context with no notes in it. There is nothing left to
- *    index, which is what 100 means; `undefined` here would spin a progress
- *    bar forever on an empty brain.
+ *  - **A total of zero → `undefined`.** Both counters present and both zero is
+ *    a real report about a context with no notes in it, and "0 of 0" is not a
+ *    percentage of anything: `0` renders as an accusing empty bar and `100`
+ *    claims a backfill that never had work to do. Absent, the console says
+ *    "no notes to index" in words, which is the true sentence.
+ *  - **100 belongs to `ready`, and nothing else may claim it.** Whether a
+ *    backfill is finished is the control plane's `status`, never an inference
+ *    from `pending === 0` — a pass can reach zero pending with a listing still
+ *    to redo, and `pending` is a floor whenever a walk was cut short. So a row
+ *    that is not serving is capped at **99** however the arithmetic comes out,
+ *    and the state carries "done". Without the cap, `48 of 48` on a
+ *    `backfilling` row draws a completed bar beside a card that says the index
+ *    is still being built.
  *  - **A total that shrank → a larger percentage, never one above 100.** The
  *    denominator is computed from the same report as the numerator, so notes
  *    deleted mid-backfill leave both smaller together and the ratio simply
- *    moves up. `Math.floor` is what keeps it honest at the top: it can only
- *    reach 100 when `pending` is exactly zero, so 9,999 of 10,000 reads 99 and
- *    never "done".
+ *    moves up. That, the clamp on each counter and `Math.floor` are why the
+ *    result is always a finite integer in 0–100: the console range-checks and
+ *    falls back to its own arithmetic on anything else, and a fallback that
+ *    fires is a second implementation of this function running in production.
  *  - **A negative counter is clamped to zero**, not trusted and not refused:
  *    the counters arrive from the gateway and this function's job is to render
  *    a number, not to police the wire. `recordProjectionProgress` is where a
@@ -178,6 +194,8 @@ export function fastSearchState(
 export function backfillPercent(
   notesIndexed: number | undefined,
   notesPending: number | undefined,
+  /** Is the index actually serving? Only a `ready` one may read 100. */
+  finished: boolean,
 ): number | undefined {
   if (typeof notesIndexed !== "number" || typeof notesPending !== "number") {
     return undefined;
@@ -188,9 +206,11 @@ export function backfillPercent(
   const indexed = Math.max(0, notesIndexed);
   const pending = Math.max(0, notesPending);
   const total = indexed + pending;
-  if (total === 0) return 100;
-  return Math.floor((indexed * 100) / total);
+  if (total === 0) return undefined;
+  const percent = Math.floor((indexed * 100) / total);
+  return finished ? percent : Math.min(99, percent);
 }
+
 /**
  * Whether the gateway may write a projection into this context's database, and
  * what it should be told the state is.

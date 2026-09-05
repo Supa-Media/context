@@ -100,6 +100,21 @@ export interface FastSearchStatus {
    * round trip. `undefined` for anyone but an owner — the test that says so is
    * the one that matters most in `fastSearch.test.ts`.
    *
+   * **Absent and `0` are different answers**, and the console reads them that
+   * way: absent means "this viewer does not get this" and draws nothing, while
+   * any number is a state to render. So a member gets no field rather than a
+   * zero, and so does a context with no notes at all — "0 of 0" is not a
+   * percentage of anything, and the console says so in words.
+   *
+   * **100 belongs to `ready`.** Whether a backfill is finished is `state`, which
+   * this control plane owns; it is never inferred from `notesPending === 0`, and
+   * a row that is not serving is capped at 99 so a completed bar cannot appear
+   * beside a card that says the index is still being built.
+   *
+   * Always a finite integer in 0–100 when present, because the console range-
+   * checks and falls back to computing the ratio itself — and a fallback that
+   * fires is a second implementation of `backfillPercent` running in production.
+   *
    * Derived on every read and never stored: see `backfillPercent` for why a
    * stored ratio goes stale against a corpus that moves, and for what each
    * edge case answers.
@@ -186,9 +201,10 @@ export const status = query({
     const binding = await bindingFor(ctx, args.workspaceId);
 
     const isOwner = membership.role === "owner";
+    const state = fastSearchState(workspace, binding);
 
     return {
-      state: fastSearchState(workspace, binding),
+      state,
       canChange: isOwner && fastSearchEntitled(workspace),
       notesIndexed: isOwner ? binding?.notesIndexed : undefined,
       notesPending: isOwner ? binding?.notesPending : undefined,
@@ -196,8 +212,11 @@ export const status = query({
       // percentage is not even computed for a member — there is no expression
       // here that could survive a refactor that dropped the gate on the line
       // above and be returned by accident.
+      // `state === "on"` and not `binding.status === "ready"`: an opted-out or
+      // unentitled row must never read 100 either, and `fastSearchState` is
+      // where "is this actually serving" is decided once.
       percentIndexed: isOwner
-        ? backfillPercent(binding?.notesIndexed, binding?.notesPending)
+        ? backfillPercent(binding?.notesIndexed, binding?.notesPending, state === "on")
         : undefined,
       error: binding?.error,
       optedInAt: binding?.optedInAt,
