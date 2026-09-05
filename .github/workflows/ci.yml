@@ -31,6 +31,43 @@ jobs:
       lint-continue-on-error: false
     secrets: inherit
 
+  # ── THE THREE PLACES A SECRET IS NAMED MUST AGREE ────────────────────────
+  #
+  # A secret is named in `.env.example` (what local dev injects), in
+  # `scripts/secrets-allowlist.json` (what the 1Password sync copies into
+  # GitHub), and in a workflow as `secrets.NAME` (what a deploy reads). Nothing
+  # checked that those matched until now, and both directions failed silently:
+  # `ADMIN_EMAILS` was read by the control plane, set by hand, and synced by
+  # nothing, so a rebuild of the GitHub environment would have dropped it.
+  #
+  # It also refuses a `.env.example` that reads a production credential. Every
+  # reference in that file said `/production` until 2026-09-05, which put the
+  # live `STORAGE_SECRET_ENCRYPTION_KEY` — the key that opens every customer's
+  # storage credential — on the laptop of anyone who ran `pnpm setup:secrets`.
+  #
+  # No install: the checker is plain Node over files in this repo, like
+  # `check-gateway-imports.mjs`. It cannot see the 1Password vault and does not
+  # pretend to — that is what the sync workflow's dry-run is for.
+  secrets-wiring:
+    name: Secret wiring is consistent
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      # The self-test first, so a checker whose regexes silently match nothing
+      # fails here rather than passing every repository it is pointed at.
+      - name: The checker catches what it claims to
+        run: node scripts/check-secrets-allowlist.mjs --self-test
+
+      - name: Every secret is named in the same three places
+        run: node scripts/check-secrets-allowlist.mjs
+
   # ── THE COMMITTED EDITOR BUNDLE IS CHECKED HERE AND NOWHERE ELSE ──────────
   #
   # `apps/mobile/features/console/files/webview/bundle.generated.ts` is ~500kb
