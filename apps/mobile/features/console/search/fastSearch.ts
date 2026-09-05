@@ -75,6 +75,29 @@ export interface FastSearchStatus {
    */
   notesIndexed?: number;
   notesPending?: number;
+  /**
+   * The server's own "how far through is the backfill", 0–100.
+   *
+   * **Owner-only, on exactly the same grounds as the two counters above**, and
+   * for a sharper reason than either: a percentage *is* the subtraction. A
+   * member who may read only the `team` tier and is handed "62%" over a list
+   * of notes they can see has been told how much of the context they are not
+   * being shown, and can watch that move as private notes are written.
+   *
+   * Optional, and it is optional in two senses that are deliberately not
+   * distinguished here: the deployment may not send it at all (it is being
+   * added to `fastSearch.status` alongside this), and it is dropped for a
+   * non-owner. Both come out of the wire as `undefined` and both mean the same
+   * thing to this file — do not derive a percentage for this viewer from the
+   * counters either, because `notesIndexed` is withheld from the same people.
+   *
+   * `indexProgress` prefers this over its own arithmetic when it is present
+   * and sane, and falls back to `notesIndexed / (notesIndexed + notesPending)`
+   * when it is not. It is range-checked rather than trusted: a total that
+   * shrinks mid-backfill (notes deleted while the pass is running) can produce
+   * a figure above 100, and printing that would be worse than deriving one.
+   */
+  percentIndexed?: number;
   /** Our sentence for a failed provision, from the closed set in `fastSearchProvision.ts`. */
   error?: string;
   optedInAt?: number;
@@ -225,6 +248,259 @@ export function indexedLabel(status: FastSearchStatus | null): string | null {
   } indexed`;
   const pending = status.notesPending ?? 0;
   return pending > 0 ? `${indexed} · ${pending.toLocaleString("en-US")} waiting` : indexed;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                          how much of it is indexed                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How far through the backfill this context is, as something a surface can
+ * draw.
+ *
+ * ## Why this is a shape and not a number
+ *
+ * "0 notes indexed" on one settings card was the whole of what the console
+ * said about a backfill, and it is what made a **stuck** backfill and a
+ * **working** one look identical for hours. The fix is a percentage — but a
+ * percentage has four states that a bare number cannot tell apart, and
+ * flattening any of them puts the original bug back in a new costume:
+ *
+ *  - **nothing at all to say** (`null`) — the viewer is not the owner, or
+ *    nobody has counted. Absent is not zero, the rule every measurement in
+ *    this console follows;
+ *  - **there is nothing to index** — a context with no notes. A percentage of
+ *    nothing is not `0%`; it is not a percentage. `0%` here accuses an empty
+ *    context of being a stalled one;
+ *  - **nothing is indexed yet, and notes are waiting** — which is *exactly*
+ *    what the missing backfill looked like, and is the one case that must
+ *    never be drawn as `0%`. A number that never moves reads as a number
+ *    somebody is computing; a sentence saying nothing has arrived reads as the
+ *    fact it is;
+ *  - **some of it is in** — the only case with a percentage in it.
+ *
+ * ## The denominator is a floor, and `pending: 0` does not mean "finished"
+ *
+ * `notesIndexed + notesPending` is what the backfill *knows about*, not what
+ * the bucket holds — the walk that discovers the rest may not have run. So a
+ * `preparing` context whose queue happens to be empty is `counting`, not
+ * `complete`: printing `100%` under a heading that says "Preparing the index"
+ * claims a backfill has finished when the state says it has not, which is the
+ * same false-confidence bug pointing the other way. Only `on` means finished,
+ * because only `on` is the control plane saying so.
+ *
+ * ## Off has no percentage, and that is not an omission
+ *
+ * `off` and `unavailable` have no index, so there is no proportion of one.
+ * They also draw no chip, for the reason `fastSearchPill` gives: a badge on a
+ * working state is something people clear by turning on a copy of their
+ * private notes. `0% indexed` beside "Fast search is off" would be that badge
+ * with a number in it.
+ */
+export type IndexProgress =
+  /** An index exists and this context has nothing to put in it. */
+  | { kind: "empty" }
+  /** Notes are waiting and none of them have arrived. Never `0%`. */
+  | { kind: "none"; pending: number }
+  /** Some are in, nothing is waiting, and the state says it is not done. */
+  | { kind: "counting"; indexed: number }
+  /** `percent` is 1–99: never 0 while something is in, never 100 while something waits. */
+  | { kind: "partial"; percent: number; indexed: number; total: number }
+  /** Everything counted is in, and the control plane says the backfill is over. */
+  | { kind: "complete"; indexed: number };
+
+/**
+ * A count off the wire, or `null` where it is not a count.
+ *
+ * `NaN`, `Infinity` and a negative all reach this from the same place — a
+ * control plane newer than this bundle, or a row patched by hand — and each of
+ * them produces a percentage that is worse than no percentage.
+ *
+ * **It takes a `number`, never `number | undefined`, and that is the guard
+ * rather than a signature detail.** `notesIndexed` is absent for a non-owner,
+ * so the one line that would leak a census is
+ * `wholeCount(status.notesIndexed ?? 0)` — the "absent is zero" reflex this
+ * whole console is written against. Typed this way, writing it is a compile
+ * error rather than a review note, which is the same trick
+ * `features/offline/keys.ts` uses to make filing a cached copy under no
+ * clearance impossible rather than merely discouraged.
+ */
+function wholeCount(raw: number): number | null {
+  if (!Number.isFinite(raw) || raw < 0) return null;
+  return Math.floor(raw);
+}
+
+/**
+ * The digits, from the server's figure where there is one and from the counts
+ * where there is not.
+ *
+ * Two roundings are refused rather than allowed, and they are the two that
+ * matter:
+ *
+ *  - **never `0%` while a note is in the index.** `1` note of `20,000` rounds
+ *    to zero, and a percentage sitting at 0 is the exact appearance the
+ *    missing backfill had. It reads as "nothing is happening" about something
+ *    that is;
+ *  - **never `100%` while a note is waiting.** `9,999` of `10,000` rounds to
+ *    100, and a person who reads 100 stops looking for the note that is
+ *    missing.
+ *
+ * The server's own figure is range-checked rather than trusted, because the
+ * total it was computed against can shrink under it: notes deleted while a
+ * pass is running leave `indexed` above the new total, and `104%` is a bug
+ * report rather than progress.
+ */
+function progressPercent(
+  status: FastSearchStatus,
+  indexed: number,
+  total: number,
+): number {
+  const fromServer = status.percentIndexed;
+  const raw =
+    fromServer !== undefined && Number.isFinite(fromServer) && fromServer >= 0 && fromServer <= 100
+      ? fromServer
+      : (indexed / total) * 100;
+  return Math.min(99, Math.max(1, Math.round(raw)));
+}
+
+/**
+ * Read the progress off a status, or `null` where there is none to read.
+ *
+ * The **owner-only** guard is the first thing in it and is the one line in
+ * this file that is a security control rather than a presentation choice.
+ * `notesIndexed` is `undefined` for a non-owner because the index counts every
+ * note the context has, private ones included, while a member may read only
+ * the `team` tier — so the total, and any percentage of it, is the size of
+ * what they are not being shown. Deriving a percentage from anything else for
+ * that viewer would reintroduce exactly what the server withheld.
+ */
+export function indexProgress(status: FastSearchStatus | null): IndexProgress | null {
+  if (status === null) return null;
+  // Owner-only, and absent is "this viewer does not get this" — never zero.
+  if (status.notesIndexed === undefined) return null;
+  // No index exists in these two, so there is no proportion of one.
+  if (status.state === "off" || status.state === "unavailable") return null;
+
+  const indexed = wholeCount(status.notesIndexed);
+  if (indexed === null) return null;
+  // An absent queue is a queue of none — the server writes `notesIndexed`
+  // first — but a *malformed* one is not something to guess at.
+  const pending = status.notesPending === undefined ? 0 : wholeCount(status.notesPending);
+  if (pending === null) return null;
+
+  if (indexed + pending === 0) return { kind: "empty" };
+  if (indexed === 0) return { kind: "none", pending };
+  if (pending === 0) {
+    return status.state === "on"
+      ? { kind: "complete", indexed }
+      : { kind: "counting", indexed };
+  }
+  return {
+    kind: "partial",
+    percent: progressPercent(status, indexed, indexed + pending),
+    indexed,
+    total: indexed + pending,
+  };
+}
+
+/** 1284 → "1,284". The same grouping `indexedLabel` uses. */
+function group(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+/**
+ * What every surface draws, or `null` where every surface draws nothing.
+ *
+ * Shaped like `describeFastSearch` — one call, all the words — and it is one
+ * function rather than arithmetic at each call site for a narrower reason than
+ * tidiness. Three surfaces rounding the same ratio three ways would show a
+ * person `62%` in the settings card, `63%` in the status bar and `61%` under
+ * the file tree for one context at one moment, and the first thing anybody
+ * does with a progress figure is compare it with the last one they saw. It is
+ * also the single place the owner-only rule is applied, so a fourth surface
+ * added next year inherits it instead of re-deriving it.
+ *
+ * `tone` travels **with** the words rather than being sniffed back out of them
+ * by a caller. A strip that decided its own tone by matching on "Stopped"
+ * would go quiet the day this copy is reworded, silently, in the direction
+ * where a failed backfill stops looking like one.
+ *
+ * `label` is a fragment ("62% indexed") and `detail` is the sentence. The
+ * detail says what the denominator *is* — the notes the backfill has counted,
+ * not the notes the bucket holds — because a percentage over a floor that can
+ * grow is a percentage that can go *down*, and somebody watching that happen
+ * is owed the reason.
+ *
+ * `null` means **render nothing**: not an em dash, not a `0%`, not a skeleton
+ * implying a number is on its way. A caller that substitutes a placeholder has
+ * undone the guard, because the commonest cause of `null` is a member the
+ * server declined to tell.
+ */
+export function describeIndexProgress(
+  status: FastSearchStatus | null,
+): { label: string; detail: string; tone: "quiet" | "warn" } | null {
+  const progress = indexProgress(status);
+  if (progress === null || status === null) return null;
+  const failed = status.state === "failed";
+  const tone = failed ? ("warn" as const) : ("quiet" as const);
+  const stopped = failed
+    ? " The backfill stopped before it finished; nothing else is being copied."
+    : "";
+
+  switch (progress.kind) {
+    case "empty":
+      // Not "0% indexed". Nothing is missing, so nothing is behind.
+      return {
+        label: failed
+          ? "Nothing was indexed"
+          : status.state === "on"
+            ? "No notes to index"
+            : "Nothing indexed yet",
+        detail: `This context has no notes to copy into the fast-search index.${stopped}`,
+        tone,
+      };
+    case "none":
+      // The case this whole feature exists for: a queue with nothing coming
+      // out of it. Said in words, because "0%" is exactly what it looked like
+      // when nobody could tell a stuck backfill from a working one.
+      return {
+        label: failed ? "Nothing was indexed" : "Nothing indexed yet",
+        detail:
+          `None of the ${group(progress.pending)} notes counted so far have reached the ` +
+          `fast-search index yet.${stopped}`,
+        tone,
+      };
+    case "counting":
+      return {
+        label: failed
+          ? `Stopped after ${group(progress.indexed)} indexed`
+          : `${group(progress.indexed)} indexed so far`,
+        detail:
+          `${group(progress.indexed)} notes are in the fast-search index and none are ` +
+          `waiting, but this context is still being prepared — more notes may still be ` +
+          `found.${stopped}`,
+        tone,
+      };
+    case "partial":
+      return {
+        label: failed
+          ? `Stopped at ${progress.percent}% indexed`
+          : `${progress.percent}% indexed`,
+        detail:
+          `${group(progress.indexed)} of the ${group(progress.total)} notes counted so far ` +
+          `are in the fast-search index. That total is what the backfill has counted, not ` +
+          `everything in your bucket, so it can still grow.${stopped}`,
+        tone,
+      };
+    case "complete":
+      return {
+        label: "100% indexed",
+        detail:
+          `Every one of the ${group(progress.indexed)} notes in this context is in the ` +
+          `fast-search index.`,
+        tone,
+      };
+  }
 }
 
 /**
