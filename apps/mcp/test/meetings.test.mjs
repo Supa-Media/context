@@ -87,7 +87,7 @@ import {
   createS3Backend,
 } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
-import { MEETING_PREFIX, conflictSafeWrites } from "../src/meetings/state.js";
+import { MEETING_PREFIX, conflictSafeWrites, writeSession } from "../src/meetings/state.js";
 import { SessionRefusal, sessionForContext, splitWorkspacePath } from "../src/session.js";
 import { handleMeetings } from "../src/meetings/ingest.js";
 
@@ -101,6 +101,8 @@ const TOKEN_READ_ONLY = `cat_meet_readonly_${"0".repeat(22)}`;
 const TOKEN_MEMBER = `cat_meet_member_${"0".repeat(24)}`;
 /** An editor: write, but team tier — no private content, ever. */
 const TOKEN_EDITOR = `cat_meet_editor_${"0".repeat(24)}`;
+/** An editor in a context whose meetings folder defaults to `team`, so it CAN finalize. */
+const TOKEN_SHARED = `cat_meet_shared_${"0".repeat(24)}`;
 /** An owner whose bucket accepts a conditional write and ignores it. */
 const TOKEN_LAST_WRITER = `cat_meet_lastwriter_${"0".repeat(20)}`;
 
@@ -120,6 +122,10 @@ const SESSION_TYPED_ONLY = idOf("h");
 const SESSION_SHADOWED = idOf("j");
 /** Recorded into a bucket whose backend ignores `If-Match`. */
 const SESSION_DEGRADED = idOf("k");
+/** Still recording while a team-tier connection goes looking for it. */
+const SESSION_IN_FLIGHT = idOf("m");
+/** Finalized by a team connection, in a context whose meetings folder is team. */
+const SESSION_SHARED = idOf("n");
 
 const PRIVACY_MANIFEST =
   "---\nrole: privacy-manifest\n---\n\n" +
@@ -722,6 +728,124 @@ export async function runMeetingChecks(check) {
   check("and cannot learn it exists by listing", !memberList.includes(notePath));
   check("being told only that there is nothing it may see", memberList.includes("no meetings recorded yet"));
 
+  /*
+    The same two refusals, asked of the HTTP surface instead of the tool surface.
+
+    `read_meeting` and `list_meetings` above filter with `canSee`, so a team-tier
+    connection is told "not found" about a private meeting. The ingestion routes
+    read `.meetings/sessions/<id>.json` straight out of the store, and that
+    record is the same meeting: its title, who was in the room, the path of the
+    private note it became, and — while it is still recording — every word of
+    the transcript. A boundary that holds on one of the two surfaces exposing a
+    thing is not a boundary.
+
+    The finalized meeting first. Its receipt keeps the summary for good, so this
+    half of the disclosure is permanent rather than a window during the call.
+  */
+  const memberSessionRead = await meetingRequest(env, TOKEN_MEMBER, `/meetings/sessions/${SESSION_MAIN}`, {
+    method: "GET",
+  });
+  check(
+    "a team-tier connection cannot read a private meeting's session record either",
+    memberSessionRead.status === 404 && memberSessionRead.body?.error === "meeting_forbidden"
+  );
+  const memberSessionList = await meetingRequest(env, TOKEN_MEMBER, "/meetings/sessions", { method: "GET" });
+  const listedForMember = JSON.stringify(memberSessionList.body ?? {});
+  check("and cannot learn the private note's path by listing sessions", !listedForMember.includes(notePath));
+  check("nor its title and who was in the room", !listedForMember.includes("Ada Lovelace"));
+  // The count is part of the listing: reporting the raw scan width would hand a
+  // team connection an exact number of the private meetings it was filtered out
+  // of, which is the same disclosure arriving as an integer.
+  check(
+    "nor a count of the meetings it was filtered out of",
+    memberSessionList.body?.scanned === (memberSessionList.body?.sessions || []).length
+  );
+
+  /*
+    Now a meeting that is still recording, which is where the transcript lives:
+    a receipt has already dropped it, so the finalized session above understates
+    what an in-flight one discloses.
+  */
+  await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: {
+      id: SESSION_IN_FLIGHT,
+      title: "Compensation review",
+      startedAt: "2026-09-03T11:00:00.000Z",
+      events: [{ type: "start", at: "2026-09-03T11:00:00.000Z" }],
+    },
+  });
+  await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_IN_FLIGHT}/segments`, {
+    body: { segments: [segment("seg-live", 0, "we are raising her band to four")] },
+  });
+
+  const memberLiveRead = await meetingRequest(
+    env,
+    TOKEN_MEMBER,
+    `/meetings/sessions/${SESSION_IN_FLIGHT}?transcript=true`,
+    { method: "GET" }
+  );
+  check(
+    "a meeting still recording is not readable by a team-tier connection",
+    memberLiveRead.status === 404 && memberLiveRead.body?.error === "meeting_forbidden"
+  );
+  check(
+    "so what was said in the room does not leave it",
+    !JSON.stringify(memberLiveRead.body ?? {}).includes("raising her band")
+  );
+
+  /*
+    And the integrity half, which is worse than the disclosure. An editor holds
+    `context:write` at the team tier, so the scope gate lets it through, and the
+    notes route replaces the human's Markdown — the body of the private note
+    this meeting is about to become. Finding the id is the listing above; this
+    is what the id is worth.
+  */
+  const editorTampers = await meetingRequest(env, TOKEN_EDITOR, `/meetings/sessions/${SESSION_IN_FLIGHT}/notes`, {
+    body: { notes: "TAMPERED BY AN EDITOR" },
+  });
+  check(
+    "a team-tier editor cannot rewrite a private meeting's notes",
+    editorTampers.status === 404 && editorTampers.body?.error === "meeting_forbidden"
+  );
+  // Read the record out of the bucket rather than off the ack: `sessionSummary`
+  // does not carry `notes`, so a response that looks clean is not evidence the
+  // stored meeting is.
+  const tamperedRecord = JSON.parse(recorder.get(`${MEETING_PREFIX}${SESSION_IN_FLIGHT}.json`).body);
+  check("and the stored meeting is untouched by the attempt", tamperedRecord.notes !== "TAMPERED BY AN EDITOR");
+
+  /*
+    And an upsert of the same id, which is the dangerous shape of the same move.
+
+    A session the caller may not see reads as absent, so an upsert would take
+    `null` for "no such session", open a fresh one and write it with no etag —
+    an unconditional put over the owner's in-flight meeting. Withholding a
+    record and then letting somebody create over it is worse than showing it:
+    the transcript would be gone rather than read.
+  */
+  const editorUpserts = await meetingRequest(env, TOKEN_EDITOR, "/meetings/sessions", {
+    body: {
+      id: SESSION_IN_FLIGHT,
+      title: "Hijacked",
+      startedAt: "2026-09-03T11:00:00.000Z",
+    },
+  });
+  check(
+    "a team-tier connection cannot create over a private meeting it cannot see",
+    editorUpserts.status === 404 && editorUpserts.body?.error === "meeting_forbidden"
+  );
+  const survivingRecord = JSON.parse(recorder.get(`${MEETING_PREFIX}${SESSION_IN_FLIGHT}.json`).body);
+  check(
+    "so the meeting it could not read is still the meeting that was recorded",
+    survivingRecord.title === "Compensation review" && survivingRecord.transcript.length === 1
+  );
+  const ownerChecksBack = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_IN_FLIGHT}`, {
+    method: "GET",
+  });
+  check(
+    "while the owner still reads their own meeting in full",
+    ownerChecksBack.status === 200 && JSON.stringify(ownerChecksBack.body ?? {}).includes("Compensation review")
+  );
+
   // A team connection that *can* write is still refused this destination: the
   // meetings folder inherits `private`, and a team connection may not create
   // private content. Its session is opened first, so the refusal is the write
@@ -1040,12 +1164,116 @@ export async function runMeetingChecks(check) {
     s3.bucketFor("meet-lastwriter").has(`${MEETING_PREFIX}${SESSION_DEGRADED}.json`)
   );
 
+  /*
+    A team connection that can actually finish a meeting.
+
+    Every other team-tier finalize in this file is *refused* — `0-inbox` inherits
+    `private` from `PRIVACY_MANIFEST`, and a team connection may not create
+    private content — so the suite has never once watched a team connection
+    finalize successfully. That is the mainline flow for a shared workspace,
+    where the meetings folder defaulting to `team` is the obvious setting, and it
+    is where the tier stamp has to survive: `completionReceipt` builds a fresh
+    object, and `finalizeSession` writes it with `writeSession` directly rather
+    than through `updateSession`, which is the only thing that stamps.
+  */
+  controlPlane.addWorkspace("ws_shared", "shared", s3Binding("meet-shared", "EE"));
+  await controlPlane.addGrant({
+    accessToken: TOKEN_SHARED,
+    workspaceId: "ws_shared",
+    role: "editor",
+    scopes: ["context:read", "context:write"],
+    clientId: "mcp_client_meet_shared",
+    userId: "user_meet_shared",
+  });
+  s3.bucketFor("meet-shared").set("privacy.md", {
+    body:
+      "---\nrole: privacy-manifest\n---\n\n" +
+      "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
+      "folder_defaults:\n  0-inbox: team\n\nnote_overrides:\n  # none\n```\n\n" +
+      "<!-- END BRAIN PRIVACY RULES -->\n",
+    etag: "sh0",
+  });
+
+  await meetingRequest(env, TOKEN_SHARED, "/meetings/sessions", {
+    body: {
+      id: SESSION_SHARED,
+      title: "Team standup",
+      startedAt: "2026-09-03T09:00:00.000Z",
+      events: [{ type: "start", at: "2026-09-03T09:00:00.000Z" }],
+    },
+  });
+  const sharedFinalize = await meetingRequest(env, TOKEN_SHARED, `/meetings/sessions/${SESSION_SHARED}/finalize`, {
+    body: { endedAt: "2026-09-03T09:20:00.000Z" },
+  });
+  check(
+    "a team connection can finish a meeting where the folder default allows it",
+    sharedFinalize.status === 200 && typeof sharedFinalize.body?.notePath === "string"
+  );
+
+  const sharedReadBack = await meetingRequest(env, TOKEN_SHARED, `/meetings/sessions/${SESSION_SHARED}`, {
+    method: "GET",
+  });
+  check(
+    "and can still read the meeting it just finished",
+    sharedReadBack.status === 200 && sharedReadBack.body?.session?.state === "complete"
+  );
+  const sharedList = await meetingRequest(env, TOKEN_SHARED, "/meetings/sessions", { method: "GET" });
+  check(
+    "and its own finished meeting is still in its listing",
+    JSON.stringify(sharedList.body ?? {}).includes(SESSION_SHARED)
+  );
+
+  /*
+    The idempotency the contract promises: a replayed finalize answers with the
+    note it already wrote. A receipt the caller can no longer see makes
+    `updateSession` refuse before the "already complete" branch is reached, so a
+    phone retrying after a dropped connection would be told its own finished
+    meeting does not exist.
+  */
+  const sharedReplay = await meetingRequest(env, TOKEN_SHARED, `/meetings/sessions/${SESSION_SHARED}/finalize`, {
+    body: {},
+  });
+  check(
+    "and a replayed finalize is still idempotent rather than a refusal",
+    sharedReplay.status === 200 && sharedReplay.body?.notePath === sharedFinalize.body?.notePath
+  );
+  check(
+    "with exactly one note written for that meeting",
+    keysIn(s3.bucketFor("meet-shared"), "0-inbox/meetings/").length === 1
+  );
+
   /* -------------------- 15. a backend that cannot do any of that ----------- */
 
   const safe = fakeStore({ conditionalWrite: true });
   const unsafe = fakeStore({ conditionalWrite: false });
   check("a store that honours a conditional write says so", conflictSafeWrites(safe) === true);
   check("and one that does not, does not", conflictSafeWrites(unsafe) === false);
+
+  /*
+    A bucket that honours `If-Match` but has not been probed yet.
+
+    `withProbedCapabilities` lowers a store's declared capability to the one the
+    binding was *probed* for, and the control plane "starts a binding at `false`,
+    and only a real probe may turn it on" — so unproven is every bucket's
+    opening state, not a legacy edge. That answer is the right one to *report*
+    on the ack and the wrong one to gate the write on: the header costs nothing
+    to send, a backend that ignores it ignores it either way, and the existing
+    sabotage for this ("`writeSession` drops `onlyIf`") only ever ran against
+    stores that declare `true`. The population the guard covers was the thing
+    left unchecked.
+  */
+  const unprobed = fakeStore({ conditionalWrite: false });
+  // Carries a tier: `writeSession` refuses a record without one, which is the
+  // guard that stops a fresh object literal silently downgrading a meeting.
+  const bare = { id: SESSION_MAIN, scope: "private", transcript: [], attendees: [], appliedAt: {} };
+  const firstEtag = await writeSession(unprobed, { ...bare, notes: "first" }, null);
+  await writeSession(unprobed, { ...bare, notes: "somebody else" }, firstEtag);
+  const staleWrite = await writeSession(unprobed, { ...bare, notes: "mine, from a stale read" }, firstEtag);
+  check("a write guards the read it came from even before the bucket is probed", staleWrite === false);
+  check(
+    "so a meeting is not overwritten by a writer holding a stale etag",
+    JSON.parse(unprobed.objects.get(`${MEETING_PREFIX}${SESSION_MAIN}.json`).body).notes === "somebody else"
+  );
 
   const fakeSession = { scope: "private", workspaceId: "ws_fake" };
   const publishNever = async () => {
@@ -1078,10 +1306,49 @@ export async function runMeetingChecks(check) {
     "a second write to a conflict-safe store guards the read it came from",
     safe.puts.length === 2 && safe.puts[0].onlyIf === null && safe.puts[1].onlyIf !== null
   );
+  /*
+    This assertion used to read "a store that cannot guard one is never asked to
+    pretend", and required `onlyIf` to be absent from every write to a store
+    declaring `conditionalWrite: false`. It was correct while that flag meant
+    "this adapter does not send `If-Match`". It stopped being correct when
+    `withProbedCapabilities` made the flag mean "no probe has confirmed this
+    backend honours `If-Match`" — a set that includes every freshly bound
+    bucket, because the control plane starts each one at `false`.
+
+    Under the old rule those buckets got no guard at all: a lost race was not
+    reported, the retry never fired, and a stale writer overwrote a live meeting
+    in silence. Nothing was "pretending" — a backend that ignores the header
+    ignores it and the write succeeds either way — so the header was free and
+    the rule was costing exactly the guarantee it was written to protect.
+
+    What the author was defending is real and is still asserted, two checks
+    above: the *ack* tells the client `conflictSafe: false`. That is where
+    honesty about the backend belongs. Whether the guard is attempted is a
+    different question from what the client is promised.
+  */
   check(
-    "and a store that cannot guard one is never asked to pretend",
-    unsafe.puts.every((put) => put.onlyIf === null)
+    "a bucket that has not been probed is still guarded, not silently unguarded",
+    unsafe.puts.length === 2 && unsafe.puts[0].onlyIf === null && unsafe.puts[1].onlyIf !== null
   );
+  check(
+    "while the ack still refuses to promise a guarantee the backend may not keep",
+    ackUnsafe.conflictSafe === false
+  );
+
+  /*
+    And the stamp is enforced where it can be checked rather than asserted where
+    it cannot. `completionReceipt` builds a fresh object literal and once
+    dropped the tier, which read back as `private` and locked a team connection
+    out of the meeting it had just finished. A comment saying "every write goes
+    through `updateSession`" is what failed; this is the version that cannot.
+  */
+  let refusedUnstamped = false;
+  try {
+    await writeSession(unprobed, { id: SESSION_MAIN, transcript: [], attendees: [], appliedAt: {} }, null);
+  } catch {
+    refusedUnstamped = true;
+  }
+  check("a record carrying no tier is refused rather than written at a downgraded one", refusedUnstamped);
 
   restoreFailures();
   restoreControlPlane();
