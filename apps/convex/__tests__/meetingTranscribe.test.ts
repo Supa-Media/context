@@ -46,20 +46,27 @@
  *   loopback matched as a substring of the whole URL                       1
  *   loopback dropped, leaving https-only                                   1
  *
- * Five more when the caller identifier was added, on a suite that went from
- * 1701 checks to 1709:
+ * Ten more when the caller identifier and the chunk-id bound were added, on a
+ * suite that went from 1701 checks to 1715:
  *
  *   the `X-Caller-Hash` header dropped from the fetch                      3
  *   the raw user id sent instead of the HMAC                               3
  *   the domain-separation prefix dropped                                   4
  *   the HMAC keyed by a constant rather than the worker secret             3
  *   the identifier derived per-request, from the chunk id                  4
+ *   the `chunkId` check removed (a bare `v.string()` again)                3
+ *   `CHUNK_ID_PATTERN` bounded in length only, any character allowed       2
+ *   `CHUNK_ID_PATTERN` charset kept, the length bound removed              1
+ *   the `chunkId` check moved in front of the auth check                   1
+ *   the refusal interpolating the rejected `chunkId` back into its message 1
  *
- * Two of those are caught by exactly one test. `is the same for the same
+ * Three of those are caught by exactly one test. `is the same for the same
  * account on every call` is the only thing standing between a stable key and a
- * fresh rate-limit bucket per request, which is no limit at all, and `is
- * different for a different account` is the only thing standing between that
- * and one bucket for the whole product.
+ * fresh rate-limit bucket per request, which is no limit at all; `is different
+ * for a different account` is the only thing standing between that and one
+ * bucket for the whole product; and `an anonymous caller with a bad chunk id
+ * is still just anonymous` is the only thing keeping argument validation
+ * behind the auth check.
  *
  * The clamp is worth naming. Measured before its check existed, it passed all
  * 29 tests in this file. `durationMs` is now forwarded to the worker, and
@@ -80,7 +87,11 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
-import { CALLER_HMAC_CONTEXT, callerHash } from "../functions/meetings/transcribe";
+import {
+  CALLER_HMAC_CONTEXT,
+  MAX_CHUNK_ID_LENGTH,
+  callerHash,
+} from "../functions/meetings/transcribe";
 import schema from "../schema";
 import {
   asUser,
@@ -700,6 +711,117 @@ describe("who the worker is told is asking", () => {
       vi.restoreAllMocks();
     }
     expect(lines.join("\n")).not.toContain(identifier);
+  });
+});
+
+/**
+ * THE CHUNK ID IS A CLIENT-SUPPLIED STRING THAT BECOMES A SEGMENT ID.
+ *
+ * `packages/meetings/src/transcript.js`'s `normalizeSegment` accepts an
+ * unbounded segment id — it trims, checks for non-empty, and stores — and the
+ * ids this action mints are `${chunkId}-${index}`. So `chunkId` is where that
+ * bound belongs: it is this contract's own argument, arriving from a client,
+ * and bounding it here is cheaper and more honest than teaching every consumer
+ * downstream to distrust what we handed it.
+ *
+ * Real ids are `<Date.now()>-<index>` (`capture/segments.ts`), so the bound is
+ * enormously generous relative to the workload and still refuses the shapes
+ * that cause trouble: a megabyte of id in a bucket-bound note, and characters
+ * that mean something to a Markdown renderer or a path.
+ */
+describe("the chunk id a client may send", () => {
+  /** Try one chunk id; return the refusal and whether the worker was called. */
+  async function withChunkId(chunkId: string) {
+    const t = setupTest();
+    configureWorker();
+    const requests = workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
+    const error = await captureError(() => transcribe(t, { chunkId }));
+    return { error, requests };
+  }
+
+  test("accepts the ids the recorders actually mint", async () => {
+    for (const chunkId of ["1764500000000-0", "1764500000000-137", CHUNK.chunkId, "a"]) {
+      const t = setupTest();
+      configureWorker();
+      workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
+      const result = await transcribe(t, { chunkId });
+      expect(result.segments[0].id, chunkId).toBe(`${chunkId}-0`);
+    }
+  });
+
+  /**
+   * Sabotage: leave `chunkId` as a bare `v.string()`.
+   *
+   * An unbounded id is written verbatim into a note in the customer's own
+   * bucket, once per segment, by a consumer that does not check.
+   */
+  test("refuses an id longer than the bound, before spending any inference", async () => {
+    const { error, requests } = await withChunkId("a".repeat(MAX_CHUNK_ID_LENGTH + 1));
+
+    expect(errorCode(error)).toBe("INVALID_CHUNK_ID");
+    // Before the fetch, like every other refusal here: a check that runs after
+    // one has already bought the inference it was meant to refuse.
+    expect(requests).toHaveLength(0);
+  });
+
+  test("accepts an id exactly at the bound", async () => {
+    // The off-by-one in the safe direction is still a bug: it refuses a
+    // legitimate client for no reason.
+    const t = setupTest();
+    configureWorker();
+    workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
+    const chunkId = "a".repeat(MAX_CHUNK_ID_LENGTH);
+    const result = await transcribe(t, { chunkId });
+    expect(result.segments[0].id).toBe(`${chunkId}-0`);
+  });
+
+  test("refuses characters that mean something to a renderer, a path, or a shell", async () => {
+    for (const chunkId of [
+      "",
+      "  ",
+      "chunk 1",
+      "../../etc/passwd",
+      "chunk/1",
+      "chunk\n1",
+      "chunk ",
+      "[link](https://example.invalid)",
+      "chunk#1",
+      "chunk%2e%2e",
+      "<script>",
+      "‮evil",
+    ]) {
+      const { error, requests } = await withChunkId(chunkId);
+      expect(errorCode(error), JSON.stringify(chunkId)).toBe("INVALID_CHUNK_ID");
+      expect(requests, JSON.stringify(chunkId)).toHaveLength(0);
+    }
+  });
+
+  test("the refusal names the field without quoting what was sent", async () => {
+    // The value is caller-supplied text and this message goes back to a client;
+    // echoing it is how a refusal becomes a reflection.
+    const marker = "‮reflected-marker-value";
+    const { error } = await withChunkId(marker);
+    const message = (error as { data?: { message?: string } })?.data?.message ?? "";
+    expect(message.toLowerCase()).toContain("chunk");
+    expect(message).not.toContain(marker);
+  });
+
+  test("an anonymous caller with a bad chunk id is still just anonymous", async () => {
+    // Authentication comes first, always: the shape of an unauthenticated
+    // caller's arguments is not something to tell them about.
+    const t = setupTest();
+    configureWorker();
+    const requests = workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
+
+    const error = await captureError(() =>
+      t.action(api.functions.meetings.transcribe.transcribeChunk, {
+        ...CHUNK,
+        chunkId: "a".repeat(MAX_CHUNK_ID_LENGTH + 1),
+      }),
+    );
+
+    expect(errorCode(error)).toBe("NOT_AUTHENTICATED");
+    expect(requests).toHaveLength(0);
   });
 });
 

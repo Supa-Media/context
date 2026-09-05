@@ -199,6 +199,34 @@ export async function callerHash(userId: string, workerSecret: string): Promise<
 }
 
 /**
+ * The longest chunk id a client may send.
+ *
+ * The segment ids this action mints are `${chunkId}-${index}`, and
+ * `packages/meetings/src/transcript.js`'s `normalizeSegment` accepts an
+ * unbounded segment id — it trims, checks non-empty, and stores. So this
+ * argument is where the bound belongs: it is this contract's own input, it
+ * arrives from a client, and every downstream consumer would otherwise have to
+ * distrust a value we handed it.
+ *
+ * 128 is enormously generous against the real thing. The recorders mint
+ * `<Date.now()>-<index>` (`apps/mobile/features/meetings/capture/segments.ts`),
+ * which is around seventeen characters, and a UUID-shaped session key with an
+ * index still fits in half of this.
+ */
+export const MAX_CHUNK_ID_LENGTH = 128;
+
+/**
+ * The characters a chunk id may be made of.
+ *
+ * Alphanumerics, hyphen and underscore — enough for every id any recorder mints
+ * and for a UUID, and nothing that means something to a Markdown renderer, a
+ * path resolver or a shell. The id ends up written verbatim into a note in the
+ * customer's own bucket, once per segment; a permissive charset here is a
+ * permissive charset there.
+ */
+const CHUNK_ID_PATTERN = new RegExp(`^[A-Za-z0-9_-]{1,${MAX_CHUNK_ID_LENGTH}}$`);
+
+/**
  * One line of transcript, in the shape the meetings contract fixes.
  *
  * `speaker` is `v.null()` rather than a nullable string on purpose. Whisper
@@ -230,6 +258,24 @@ export interface TranscriptSegment {
 
 function notAuthenticated(): ConvexError<{ code: string; message: string }> {
   return new ConvexError({ code: "NOT_AUTHENTICATED", message: "Not authenticated" });
+}
+
+/**
+ * The refusal a chunk id outside `CHUNK_ID_PATTERN` gets.
+ *
+ * Its own code, unlike the two deployment problems that share one: this is the
+ * only refusal here a *client author* can act on, and the action they take —
+ * fix the id they are generating — is nothing like "tell an operator". The
+ * value is not quoted back: it is caller-supplied text and this message reaches
+ * the client, which is how a refusal becomes a reflection.
+ */
+function invalidChunkId(): ConvexError<{ code: string; message: string }> {
+  return new ConvexError({
+    code: "INVALID_CHUNK_ID",
+    message:
+      `chunkId must be 1 to ${MAX_CHUNK_ID_LENGTH} characters ` +
+      "of A-Z, a-z, 0-9, hyphen or underscore.",
+  });
 }
 
 /**
@@ -412,6 +458,11 @@ export const transcribeChunk = action({
     // owns, so there is nothing here to be a member of.
     const userId = await getAuthUserId(ctx);
     if (userId === null) throw notAuthenticated();
+
+    // After authentication, because the shape of an unauthenticated caller's
+    // arguments is not something to tell them about — and before the fetch,
+    // because a check that runs after one has already bought the inference.
+    if (!CHUNK_ID_PATTERN.test(args.chunkId)) throw invalidChunkId();
 
     const workerUrl = configured(TRANSCRIBE_WORKER_URL_ENV_VAR);
     const workerSecret = configured(TRANSCRIBE_WORKER_SECRET_ENV_VAR);
