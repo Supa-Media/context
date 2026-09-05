@@ -19,6 +19,7 @@ import { runLinkChecks } from "./links.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
 import { runMeetingChecks } from "./meetings.test.mjs";
 import { runSearchD1Checks } from "./searchD1.test.mjs";
+import { runSearchProjectionChecks } from "./searchProjection.test.mjs";
 import {
   CONTROL_PLANE_ORIGIN,
   GATEWAY_SECRET,
@@ -3909,6 +3910,11 @@ await runTenancyChecks(check);
 await runCrossContextChecks(check);
 await runUsageReportingChecks(check);
 await runSearchD1Checks(check);
+// The copy itself: notes reaching the database fast search provisions. Its own
+// control plane, S3 backend and Cloudflare stub, so — like the tenancy suite —
+// it swaps globalThis.fetch and restores it, and must not run while anything
+// above still owns that global.
+await runSearchProjectionChecks(check);
 
 // Meeting ingestion: the routes a phone and a desktop app send a meeting to,
 // the one note it becomes, and the neighbour who knows its session id. Its own

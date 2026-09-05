@@ -363,3 +363,72 @@ That split is for *statistics*, not for access. The visibility stored in the
 projection is `privacy.md` as it was at index time and can go stale, so the live
 `canSee` still filters every result before it leaves — exactly as it does for
 the R2 index. The split buys correct ranking; the filter buys correctness.
+
+### The gateway copies the notes, and a search is what starts it
+
+The projection was provisioned and never filled: three databases held the whole
+schema and `SELECT COUNT(*) FROM notes` returned 0, because
+`apps/mcp/src/search/d1/project.js` had no importer anywhere. The card said
+"your notes are being copied into it" and no code made that true.
+
+**The copy lives in the gateway, and it had to.** The gateway is the only
+component that ever reads note content: the control plane holds the encrypted
+storage credential and hands it out per request, and `POST /gateway/binding`
+returns it only against *two* proofs — the gateway secret **and** the end
+user's own access token, with the workspace derived from the grant that token
+resolves to rather than from anything the caller names. That is what makes bulk
+extraction impossible by construction, and it is the property a "control plane
+tells the gateway to go fill workspace X" route would spend: the gateway would
+need a credential for a workspace nobody is connecting to, which is precisely
+the call shape `controlPlane.js` refuses to have. So there is no push route,
+and the reason is not that it would be awkward.
+
+What copies, then, is the maintenance pass that already exists. The R2 shard
+index is synced behind the response by `searchVisibleNotes`; the projection is
+**the same event with a second destination**, taking the census, the notes that
+moved and the notes that are gone from the diff that pass already computed. No
+second listing, no second diff, no second answer to "what changed" — the same
+objection this file makes to a second search path and a second maintenance
+path. Four consequences are load-bearing:
+
+- **The tier a note is projected at comes from the gateway's own privacy
+  engine**, injected as a parameter exactly as `isVisible` is injected into
+  `searchIndexedNotes`, so there is one `effectiveVisibility` and not two. A
+  visibility the projection does not recognise is skipped rather than guessed:
+  the safe guess and the useful guess differ, and the useful one publishes a
+  private note's vocabulary into the corpus every member is scored against.
+- **It runs on the search's own subrequest budget and behind the response.**
+  Running out of budget is the ordinary end of a pass, not a failure — the
+  cursor in D1's own `index_state` records where it stopped. A provider refusal
+  is caught, the search still answers from the R2 index, and the code is
+  reported to `POST /gateway/search-index/progress`. Silence there is the
+  original bug: a projection that cannot reach its database leaves search
+  working, so nothing else in the system would ever notice, and the workspace
+  sits at "Preparing" forever.
+- **A pass chains itself while it is making progress**, inside the one
+  invocation `waitUntil` is keeping alive. One slice per search is arithmetic
+  nobody would sign off on: a context that has just opted in would copy twenty
+  notes and then wait for somebody to search again. Every link spends at least
+  one operation and the chain stops the moment a pass moves nothing, so it
+  cannot become the loop `DEFERRED_SYNC_FLOOR` warns about.
+- **While the control plane says the projection is still filling, a pass runs
+  on every search** — buying its census from `.index/v2/docmap.json` rather
+  than from a listing. Tying it to the R2 sync alone starves it: an index that
+  converges in one pass then needs none for `INDEX_RECONCILE_INTERVAL_MS`, so
+  the backfill would advance once a minute at best and a failed pass would
+  never be retried. Once the row says `ready`, the projection rides the R2 sync
+  alone and a converged context pays nothing.
+
+**What this does not do is start without a request.** A workspace whose owner
+flips the switch and then closes the app has nothing copied until something
+reaches the gateway for that context — which is a property of the two-proof
+binding, not an oversight, and it is why the gateway cannot be the whole
+answer. The other half belongs where it already is: the control plane's
+scheduled `maintainIndex` opens a bucket credential of its own and runs the
+gateway's `syncShardedIndex` (`functions/lib/fileOps.ts`), so it is the one
+component that can enumerate opted-in contexts and start work for a person who
+is not connected. `projectPass`, `loadCensus` and `createD1Client` take a
+store, a census, a `visibilityOf` and a budget and know nothing about the
+gateway's request; wiring them into that action is the same import
+`syncShardedIndex` already is, and until it happens a freshly enabled context
+fills on its owner's next search rather than on the schedule.
