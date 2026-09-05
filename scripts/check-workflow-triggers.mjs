@@ -39,7 +39,7 @@
  *
  * ── WHY IT PARSES RATHER THAN GREPS ───────────────────────────────────────
  *
- * `grep -l pull_request .github/workflows/*.yml` matches all six deploy
+ * `grep -l pull_request .github/workflows/*.yml` matches all seven deploy
  * workflows, because each explains in prose why it has no such trigger. A
  * grep-shaped guard would read those comments as configuration and report the
  * opposite of the truth. So the `on:` block is parsed, and `problems.length ===
@@ -79,7 +79,7 @@
  * stated here rather than discovered later: the name→deploys direction is
  * exact, and the deploys→name direction is worth precisely what DEPLOY_COMMANDS
  * matches. What holds the convention up today is not the regex list, it is that
- * all six deploys are correctly named right now — a fact this checker re-proves
+ * all seven deploys are correctly named right now — a fact this checker re-proves
  * on every run — and that a seventh has to be written by somebody.
  *
  * `health-check.yml` is in neither set and that is not an oversight: it can
@@ -122,18 +122,18 @@ const DIR = ".github/workflows";
  *   npm publish
  *   npx vercel --prod
  *   aws s3 sync ...
- *   eas build --auto-submit
+ *   fastlane deliver
  *   wrangler \                            (a line continuation, then `deploy`)
  *   CMD=deploy; wrangler $CMD
  *
  * Do not try to close that list; the next shape is always one substitution away,
  * and a checker that pretends otherwise is the "guard nobody has checked" this
  * repository keeps meeting. The real bound is stated instead, and it is a fact
- * about today rather than a property of the code: all six deploy workflows are
+ * about today rather than a property of the code: all seven deploy workflows are
  * correctly named `deploy-*.yml`, so every one of them is classified by NAME
  * before any command is read, and rules B and C apply to them whatever they run.
  * What this list actually buys is the other direction — a NEW workflow that
- * deploys in one of these six obvious ways cannot quietly avoid the name.
+ * deploys in one of these eight obvious ways cannot quietly avoid the name.
  */
 const DEPLOY_COMMANDS = [
   /\bwrangler\s+(?:pages\s+)?deploy\b/,
@@ -141,6 +141,13 @@ const DEPLOY_COMMANDS = [
   /\bconvex\s+deploy\b/,
   /\beas\s+deploy\b/,
   /\beas\s+update\b/,
+  // `eas build` signs a binary with the account's distribution certificate and
+  // `eas submit` hands it to a store. Both were unmatched until
+  // deploy-mobile-native.yml was written, and the list above used
+  // `eas build --auto-submit` as its example of the gap — accurate, and the
+  // reason a workflow that submits to the App Store could have worn any name.
+  /\beas\s+build\b/,
+  /\beas\s+submit\b/,
   /\buses:\s*\S*deploy[^\s]*\.ya?ml/,
 ];
 
@@ -560,6 +567,21 @@ function selfTest() {
       "a deploying workflow that does not carry the name",
       [{ name: "ship.yml", text: "on:\n  push:\n    branches: [main]\n  pull_request:\njobs:\n  d:\n    steps:\n      - run: npx convex deploy\n" }],
       ["NAME ship.yml", "B ship.yml"],
+    ],
+    [
+      // The gap deploy-mobile-native.yml closed. A store submission is the most
+      // outward-facing thing this repository can do, and until `eas submit`
+      // joined DEPLOY_COMMANDS a workflow doing it was classified as ordinary
+      // CI — free to grow a `pull_request` trigger and hand a fork's branch the
+      // account's App Store credentials.
+      "a store submission that does not carry the name",
+      [{ name: "release.yml", text: "on:\n  push:\n    branches: [main]\n  pull_request:\njobs:\n  d:\n    steps:\n      - run: eas submit --platform ios --latest --non-interactive\n" }],
+      ["NAME release.yml", "B release.yml"],
+    ],
+    [
+      "a native build that does not carry the name",
+      [{ name: "release.yml", text: "on:\n  push:\n    branches: [main]\n  pull_request:\njobs:\n  d:\n    steps:\n      - run: eas build --platform ios --profile production --non-interactive\n" }],
+      ["NAME release.yml", "B release.yml"],
     ],
     [
       "the name used as an exemption by a workflow that deploys nothing",
