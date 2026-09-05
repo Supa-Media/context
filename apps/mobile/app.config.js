@@ -47,6 +47,22 @@ module.exports = ({ config }) => ({
        * export-compliance question by hand.
        */
       ITSAppUsesNonExemptEncryption: false,
+      /**
+       * Capture has to survive the phone being put down.
+       *
+       * Without this iOS suspends the app the moment it leaves the foreground
+       * and the recording simply stops — which is the whole meeting, because
+       * nobody watches a phone for an hour. It is *not* a permission string, so
+       * it is not a duplicate of the plugin block below: this is an
+       * entitlement-shaped capability and the plugins own no key for it.
+       *
+       * It only reaches a device in a **new binary**, so nothing in the JS may
+       * assume it. `capture/audio.ts` asks for the background-capable audio
+       * session and falls back to a foreground-only one when this binary has no
+       * entitlement for it — a runtime capability check, never a version
+       * comparison against a manifest that ships over the air.
+       */
+      UIBackgroundModes: ["audio"],
     },
   },
   android: {
@@ -134,8 +150,17 @@ module.exports = ({ config }) => ({
     [
       "expo-audio",
       {
+        /*
+          What the person is actually agreeing to, in the sentence iOS shows
+          them. "…to record an audio note" described a voice memo, which is not
+          this: this records a meeting and sends the audio out to be
+          transcribed. A prompt that misdescribes what is being recorded is an
+          App Review problem and a consent problem at once, and consent is the
+          one decision in this feature with no mechanical test — so the words
+          are the control.
+        */
         microphonePermission:
-          "Context uses the microphone to record an audio note.",
+          "Context uses the microphone to record your meetings. Audio is transcribed and then discarded — only the text is saved, into storage you own.",
       },
     ],
     "expo-video",

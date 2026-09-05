@@ -6,15 +6,26 @@ import type { MeetingRecorder, RecorderState } from "./index";
  * The reason differs by platform because the *work* differs by platform, and a
  * single vague sentence would hide that from whoever picks this up next:
  *
- *  - On a phone the native side is paid for — `expo-audio` is in the baseline —
- *    and what is missing is the permission strings and a transcriber.
- *  - On the web it is a different feature entirely. `getUserMedia` can capture
- *    the microphone in a browser after a permission prompt, but the thing
- *    people actually want on a desktop is the *other* side of the call, and a
- *    browser tab cannot hear system audio: `getDisplayMedia({ audio: true })`
- *    only offers it for a shared tab or screen, only on some browsers, and only
- *    with the person picking the source every time. So the desktop web build is
- *    a notepad, deliberately, and the desktop app is where system audio lives.
+ *  - On **Android** the native side is only half paid for. `expo-audio` is in
+ *    the baseline and `RECORD_AUDIO` comes with its plugin, but recording while
+ *    the app is backgrounded on Android 14+ additionally needs a foreground
+ *    service with the `microphone` type actually started — a notification the
+ *    person can see, which is the platform being right about consent. That is a
+ *    native target rather than a config line, and shipping the half without it
+ *    would give somebody a recorder that stops the moment they look away.
+ *  - On the **web** this is now the *fallback* rather than the whole story.
+ *    `audio.web.ts` records the microphone through `getUserMedia`, so this
+ *    branch is what a browser gets when it has no `MediaRecorder` or no
+ *    `mediaDevices` at all — an old embedded webview, or a page served over
+ *    plain HTTP, where the API is genuinely absent.
+ *
+ * The web sentence is unchanged and still true, and the distinction inside it
+ * is worth keeping straight: what a browser cannot hear is **system** audio.
+ * `getDisplayMedia({ audio: true })` only offers a shared tab or screen, only
+ * on some browsers, and only with the person picking a source every time. So
+ * even where capture works, the web build hears the room and your own side of a
+ * call — not the far side of one on headphones. System audio is the desktop
+ * app's job, and no copy anywhere may imply otherwise.
  */
 export function notesOnlyRecorder(platform: "ios" | "android" | "web"): MeetingRecorder {
   let state: RecorderState = "idle";

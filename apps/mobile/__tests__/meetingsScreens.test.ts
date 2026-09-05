@@ -490,9 +490,15 @@ describe("web-target honesty", () => {
   test("the browser build runs a typed session and says the audio is not there", async () => {
     /*
       The web build must not crash on a missing native capability and must not
-      draw a transcript chip over silence. `notesOnlyRecorder("web")` is what
-      `createRecorder` returns in a browser today, and the chip carries its own
-      sentence rather than a generic one.
+      draw a transcript chip over silence.
+
+      `createRecorder` in a browser now returns a real recorder
+      (`capture/audio.web.ts`, `getUserMedia` + `MediaRecorder`), and
+      `notesOnlyRecorder("web")` is what it falls back to when the browser has
+      no `MediaRecorder`, no `mediaDevices`, or a `Blob` whose bytes cannot be
+      read — an old embedded webview, or a page served over plain HTTP. That
+      state is still reachable, so the screen still has to draw it, and the chip
+      carries its own sentence rather than a generic one.
     */
     await configure({ recorder: notesOnlyRecorder("web") });
     let id = "";

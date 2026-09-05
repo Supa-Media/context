@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Platform } from "react-native";
-import { useQueries, type RequestForQueries } from "convex/react";
+import { useConvex, useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { MCP_ENDPOINT } from "../console/placeholderData";
 import { defaultContext } from "../console/nav";
 import { useReachability } from "../offline/reachability";
 import { openStore } from "../offline/store";
-import { createRecorder } from "./capture";
+import { createRecorder, setTranscriptionClient } from "./capture";
 import {
   createHttpGateway,
   gatewayOriginFrom,
@@ -114,6 +114,27 @@ export function useMeetingsSetup(options: { gateway?: MeetingsGateway } = {}): v
 
   const reachability = useReachability();
   const snapshot = useMeetingsSnapshot();
+
+  /*
+    The one place the recorders can be handed a Convex client.
+
+    Cloud transcription is a Convex action, and `capture/` is outside React by
+    design — a recording outlives the screen that started it. `SupaConvexProvider`
+    keeps the app's single `ConvexReactClient` as a module singleton and does not
+    export it, so this hook, which is already inside the provider, is what puts it
+    where `audio.ts` and `audio.web.ts` can reach it. Building a second client
+    here would be a second websocket, a second auth state and a second set of
+    credentials on the device.
+
+    It is cleared on unmount for the same reason it is set: a recorder still
+    holding the previous session's client after a sign-out or a context switch
+    would be shipping one person's audio under another person's credentials.
+  */
+  const convex = useConvex();
+  useEffect(() => {
+    setTranscriptionClient(convex);
+    return () => setTranscriptionClient(null);
+  }, [convex]);
 
   const gateway = useMemo(
     () => options.gateway ?? defaultGateway(),
