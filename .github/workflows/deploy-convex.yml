@@ -86,6 +86,10 @@ jobs:
           STORAGE_SECRET_ENCRYPTION_KEY: ${{ secrets.STORAGE_SECRET_ENCRYPTION_KEY }}
           STORAGE_SECRET_ENCRYPTION_KEY_ID: ${{ secrets.STORAGE_SECRET_ENCRYPTION_KEY_ID }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          # The From: address on sign-in codes and invitations. Missing from this
+          # list until 2026-09-05, so it was the one Convex variable the deploy
+          # did not keep in step with GitHub.
+          AUTH_EMAIL_FROM: ${{ secrets.AUTH_EMAIL_FROM }}
           APP_ORIGIN: ${{ secrets.APP_ORIGIN }}
           EMAIL_WORKER_SECRET: ${{ secrets.EMAIL_WORKER_SECRET }}
           DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
@@ -97,7 +101,7 @@ jobs:
           # the ordinary case on a deployment that sets nothing here.
           synced=""
           skipped=""
-          for var in GATEWAY_SECRET ADMIN_EMAILS \
+          for var in GATEWAY_SECRET ADMIN_EMAILS AUTH_EMAIL_FROM \
                      STORAGE_SECRET_ENCRYPTION_KEY STORAGE_SECRET_ENCRYPTION_KEY_ID \
                      RESEND_API_KEY APP_ORIGIN EMAIL_WORKER_SECRET \
                      DROPBOX_APP_KEY DROPBOX_APP_SECRET; do
