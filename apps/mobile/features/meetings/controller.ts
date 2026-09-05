@@ -212,10 +212,13 @@ export class MeetingsController {
    * every screen in this feature calls it on mount, and re-reading the store
    * because somebody navigated between two of them would drop the live
    * session's projection on the floor.
+   *
+   * **A recording keeps the recorder it started with**, which is the half that
+   * was missing. See `retainedRecorder`.
    */
   async configure(input: ConfigureInput): Promise<void> {
     if (this.config?.workspaceId === input.workspaceId) {
-      this.config = { ...input };
+      this.config = { ...input, recorder: this.retainedRecorder(input.recorder) };
       return;
     }
 
@@ -247,6 +250,29 @@ export class MeetingsController {
       durabilityReason: input.store.durable ? null : NOT_DURABLE_REASON,
       capture: input.recorder.capability,
     });
+  }
+
+  /**
+   * The recorder to keep when something reconfigures mid-meeting.
+   *
+   * A recording outlives the screens that started it — that is the whole reason
+   * the bar is mounted at the root and this state is not a provider — but the
+   * *recorder* was being minted inside the effect that configures, so every
+   * remount handed a fresh one in and the same-workspace fast path swapped it
+   * into `config`. The sequence is ordinary rather than exotic: start a meeting,
+   * leave the section (its layout unmounts), tap the bar, come back. `end()`
+   * then stopped the new, idle object, and the one actually holding the
+   * microphone kept its rotation timer, its open input and its `onSegment`
+   * binding forever — shipping chunks into a session that had ended.
+   *
+   * So while something is live, the recorder that is live is the one that
+   * stays. Everything else in the configuration is still taken from the newer
+   * input: a fresh gateway or store is harmless, a fresh recorder is not.
+   */
+  private retainedRecorder(incoming: MeetingRecorder): MeetingRecorder {
+    const current = this.config?.recorder;
+    if (current === undefined || current === incoming) return incoming;
+    return this.snapshot.live === null ? incoming : current;
   }
 
   /** Forget the configuration, for a sign-out or a context switch. */
