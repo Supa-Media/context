@@ -41,11 +41,13 @@
  * environment's own branch policy and reviewers — settings that live in GitHub
  * and not in this repository. So the actor this guard actually bounds is one of
  * ours, and saying "fork" made it sound like protection from outsiders while
- * describing the one case that cannot happen. This
- * checker's more important assertion is therefore the negative one — no deploy
- * workflow may grow a `pull_request` trigger — and it is the reason this is a
- * guard rather than a one-off edit. Widening the test workflows is the kind of
- * change whose obvious next step ("make them all consistent") is a breach.
+ * describing the one case that cannot happen.
+ *
+ * That hazard is why this checker's more important assertion is the negative
+ * one — no deploy workflow may grow a `pull_request` trigger — and it is the
+ * reason this is a guard rather than a one-off edit. Widening the test
+ * workflows is the kind of change whose obvious next step ("make them all
+ * consistent") is a breach.
  *
  * ── WHY IT PARSES RATHER THAN GREPS ───────────────────────────────────────
  *
@@ -406,7 +408,7 @@ export function analyse(files) {
     // they can refute in ten seconds — and the natural next move after refuting
     // a guard's stated reason is to delete the guard.
     if (isDeploy && pr) {
-      fail("B", name, "is a deploy workflow with a `pull_request` trigger. A pull request from a branch pushed to this repository runs unreviewed code with the account's credentials — a same-repo run is trusted by Actions, unlike a fork's; deploy workflows are `push`-only.");
+      fail("B", name, "is a deploy workflow with a `pull_request` trigger. A pull request opened here runs unreviewed code with the account's credentials — a same-repo run is trusted by Actions, unlike a fork's; deploy workflows are `push`-only.");
     }
 
     // B — `workflow_run` fires after another workflow finishes, with the base
@@ -586,8 +588,8 @@ function selfTest() {
       // The gap deploy-mobile-native.yml closed. A store submission is the most
       // outward-facing thing this repository can do, and until `eas submit`
       // joined DEPLOY_COMMANDS a workflow doing it was classified as ordinary
-      // CI — free to grow a `pull_request` trigger and run a signed build with
-      // the account's App Store credentials from any branch pushed here.
+      // CI — free to grow a `pull_request` trigger and run a signed build from
+      // a branch pushed here, reaching whatever that job's environment admits.
       //
       // Not a fork's branch: this used to say that, and it is the one actor
       // that cannot do it. A pull request from a fork inherits no secrets at
@@ -605,8 +607,16 @@ function selfTest() {
       // names that environment and then held by the environment's own branch
       // policy and reviewers — GitHub settings this repository cannot show. It
       // is also the key to the signing credentials rather than the credentials,
-      // which live on EAS. What the deploy NAME buys is that rules B and C apply
-      // at all; what stands behind them is configured elsewhere.
+      // which live on EAS.
+      //
+      // What the deploy NAME buys, precisely: it turns rule B ON
+      // (`if (isDeploy && pr)`) and rule D OFF (`if (!isDeploy && …)`), which is
+      // why the NAME rule calls wearing the name without deploying "an
+      // exemption in disguise". Rule C is orthogonal — `if (triggers.has("push"))`
+      // with no `isDeploy` guard, so it applies to every workflow, and the
+      // self-test cases above expect `C mcp.yml` for an ordinary CI file. An
+      // earlier version of this paragraph said the name gated B *and C*; the
+      // suite forty lines up already disproved it.
       "a store submission that does not carry the name",
       [{ name: "release.yml", text: "on:\n  push:\n    branches: [main]\n  pull_request:\njobs:\n  d:\n    steps:\n      - run: eas submit --platform ios --latest --non-interactive\n" }],
       ["NAME release.yml", "B release.yml"],
