@@ -78,8 +78,25 @@
   // accident — and a rate-limit KV would have been the first storage binding
   // to weaken it.
   //
-  // `namespace_id` is an arbitrary identifier scoped to this Worker. It names
-  // nothing on the account, and it is not a secret.
+  // `namespace_id` is NOT arbitrary, and the comment that used to sit here said
+  // it was. Cloudflare requires "a string containing a positive integer, unique
+  // per account" — the scope is the ACCOUNT, not this Worker, so a second
+  // Worker reusing the number would share one bucket with this one. Nothing
+  // else on the account declares a `ratelimit` binding today, which was checked
+  // against the Workers API rather than assumed.
+  //
+  // It is "1001" because "1" did not enforce. Deployed with `namespace_id: 1`
+  // the binding was present on the live script and printed by `wrangler deploy
+  // --dry-run`, and 30 requests on one key paced a second apart — inside the
+  // 60s window, and slow enough for the documented eventual consistency to
+  // catch up — drew zero refusals. "1001" is the value Cloudflare's own example
+  // uses.
+  //
+  // If a paced probe still draws no 429 on this value, the binding is not
+  // functioning on this account and the limit has to move somewhere it can be
+  // proven. Do not conclude it works from a green test run: the unit tests
+  // exercise a fake limiter and passed throughout the failure above, which is
+  // exactly the shape of "a guard nobody has checked is not a guard".
   //
   // `simple.period` may be 10 or 60 and nothing else; `simple.limit` is 20 a
   // minute against a workload of 3 a minute per live recording — see
@@ -94,7 +111,7 @@
   "ratelimits": [
     {
       "name": "TRANSCRIBE_RATE_LIMIT",
-      "namespace_id": "1",
+      "namespace_id": "1001",
       "simple": {
         "limit": 20,
         "period": 60
