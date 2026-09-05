@@ -34,9 +34,49 @@
  *
  *   POST /transcribe   `{ audioBase64, mimeType }` → `{ text, segments }`.
  *                      Bearer `TRANSCRIBE_WORKER_SECRET`, compared in constant
- *                      time; anything else is a bare 401.
+ *                      time; anything else is a bare 401. Plus an
+ *                      `X-Caller-Hash` header naming which account is asking —
+ *                      opaquely; see RATE LIMITING below and `src/rateLimit.ts`.
  *   GET  /health       `{ ok: true, ai: <boolean> }`. Unauthenticated.
  *   anything else      404.
+ *
+ * ============================================================================
+ * RATE LIMITING
+ * ============================================================================
+ *
+ * The secret proves the *control plane* is calling. It says nothing about which
+ * account is behind the call, and until `src/rateLimit.ts` existed nothing
+ * here did: a signed-in account was the only thing between a caller and this
+ * account's Workers AI budget, sign-up is open email OTP with no invite gate,
+ * each request may carry 8 MiB of audio, and no log named the spender.
+ *
+ * So the control plane now sends an opaque per-account identifier — an HMAC of
+ * the user id under the shared secret, never the id — and this Worker limits
+ * on it with the Workers native rate limiting binding, which provisions no
+ * account resource and so leaves the "nowhere here to keep audio" claim above
+ * intact. `src/rateLimit.ts` carries the argument and the arithmetic.
+ *
+ * Three properties of where the check sits, all of them load-bearing:
+ *
+ *   - **After authentication**, so an unauthenticated caller cannot consume
+ *     somebody else's bucket by guessing at their identifier;
+ *   - **before the body is read**, so an over-limit caller cannot make this
+ *     Worker buffer 8 MiB first — which is why the identifier travels in a
+ *     header and not in the body it would otherwise have to be parsed out of;
+ *   - **before any inference is bought**, which is the whole point.
+ *
+ * Over the limit is a bare 429 with no body — no retry-after, no count, no
+ * distinction from a limiter that could not answer — and one log line carrying
+ * the identifier, so the account behind a surprising bill is nameable.
+ *
+ * ── One deployment fact, because it is a real cost of failing closed ────────
+ *
+ * A request with no identifier is refused, not admitted, so this Worker cannot
+ * serve a control plane that predates the header. `main` deploys the Convex
+ * functions and this Worker from one push, so the window is small — but it is
+ * not zero, and during it transcription fails loudly rather than transcribing
+ * unmetered. That is the right way round: a chunk that fails is a chunk the
+ * person is told about, and an accepted unidentified request is the finding.
  *
  * ── Why /health is open, and why it is the most load-bearing line here ──────
  *
@@ -81,6 +121,8 @@
  */
 
 import { isAuthorized } from "./auth";
+import { CALLER_HEADER, checkRateLimit, readCaller } from "./rateLimit";
+import type { RateLimiter } from "./rateLimit";
 import type { BoundedBody } from "./transcribe";
 import {
   decodedByteLength,
@@ -107,6 +149,16 @@ export interface Env {
   AI?: { run(model: string, input: { audio: string }): Promise<unknown> };
   /** This Worker's own shared secret. Pushed by the deploy workflow. */
   TRANSCRIBE_WORKER_SECRET?: string;
+  /**
+   * The per-caller limiter, declared in `wrangler.jsonc`.
+   *
+   * Optional for the same reason `AI` is: a binding removed from the config
+   * deploys successfully and is simply absent at runtime. Unlike `AI`, absence
+   * here refuses every request rather than answering one — `checkRateLimit`
+   * fails closed, and a limit that stopped applying quietly would be the
+   * finding this Worker was changed to close.
+   */
+  TRANSCRIBE_RATE_LIMIT?: RateLimiter;
 }
 
 /** The 502 body. One string, composed here, never by an upstream. */
@@ -116,7 +168,14 @@ const ENGINE_UNREADABLE = "the transcription engine returned an unreadable answe
 /* --------------------------------- logging -------------------------------- */
 
 interface LogFields {
-  event: "transcribed" | "engine_failed" | "engine_unreadable" | "refused" | "unauthorized" | "ai_not_bound";
+  event:
+    | "transcribed"
+    | "engine_failed"
+    | "engine_unreadable"
+    | "refused"
+    | "unauthorized"
+    | "rate_limited"
+    | "ai_not_bound";
   /** Which model was asked. A constant from ./transcribe.ts, never user text. */
   model?: string;
   /** Decoded size of the audio. A number about it, never any of it. */
@@ -126,7 +185,22 @@ interface LogFields {
   /** Wall-clock milliseconds spent in the engine. */
   ms?: number;
   /** A refusal reason from this file's own closed set. */
-  reason?: "malformed" | "too_large";
+  reason?: "malformed" | "too_large" | "no_caller" | "over_limit" | "limiter_unavailable";
+  /**
+   * The opaque per-account identifier the control plane sent.
+   *
+   * The one field here that is about a person, and it is the reason it may be
+   * logged at all: `CLAUDE.md` says structured logs carry request, workspace
+   * and grant identifiers, and this is an identifier in exactly that sense — a
+   * fixed-width HMAC that names an account only to whoever holds the secret and
+   * the users table, which is the control plane and nobody else. It is not a
+   * user id, not an email, not a workspace, and not a session.
+   *
+   * It is logged on every request that got past authentication, not only on
+   * refusals: an attribution that appears only when somebody is *already* over
+   * the limit cannot tell you who spent the money below it.
+   */
+  caller?: string;
 }
 
 /**
@@ -176,11 +250,43 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     return new Response(null, { status: 401 });
   }
 
+  // ── The limit. After authentication, before the body, before inference. ──
+  //
+  // After authentication so that an unauthenticated caller cannot spend
+  // anybody's bucket — including by guessing an identifier that is not theirs.
+  // Before `readBoundedBody` so that an over-limit caller cannot make this
+  // Worker buffer 8 MiB first, which is why the identifier is a header.
+  const caller = readCaller(request.headers.get(CALLER_HEADER));
+  if (caller === null) {
+    // No identifier means no key, and no key means no limit. Refused rather
+    // than admitted: this is the one caller we have, it always sends the
+    // header, and "we could not tell who this is" must never mean "so go
+    // ahead". A 400 rather than a 429 because it is a request-shape fact the
+    // caller already knows about itself, so it is an oracle for nothing.
+    log({ event: "refused", reason: "no_caller" });
+    return json(400, { error: "invalid request" });
+  }
+
+  const verdict = await checkRateLimit(env.TRANSCRIBE_RATE_LIMIT, caller);
+  if (verdict !== "allowed") {
+    // The two reasons are told apart in the log and nowhere else. An operator
+    // needs to know whether somebody is hammering us or the limiter is down
+    // and nobody can transcribe; the caller gets one status either way.
+    log({
+      event: "rate_limited",
+      caller,
+      reason: verdict === "refused" ? "over_limit" : "limiter_unavailable",
+    });
+    // No body. No retry-after, no remaining count, no distinction: a caller who
+    // could read the shape of the bucket could shape their traffic around it.
+    return new Response(null, { status: 429 });
+  }
+
   if (!env.AI) {
     // The specific string CI greps for. Without this branch the Worker would
     // throw a `TypeError`, which Cloudflare reports as a generic "worker script
     // threw an exception" with no cause anywhere.
-    log({ event: "ai_not_bound" });
+    log({ event: "ai_not_bound", caller });
     return json(500, { error: "workers ai is not bound" });
   }
 
@@ -190,7 +296,7 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   // under any cap, which is precisely how an unbounded body used to get in.
   const declared = Number(request.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
-    log({ event: "refused", reason: "too_large" });
+    log({ event: "refused", caller, reason: "too_large" });
     return tooLarge();
   }
 
@@ -202,11 +308,11 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     bounded = await readBoundedBody(request.body, MAX_BODY_BYTES);
   } catch {
     // A body that died mid-flight. Malformed, and no more is said about it.
-    log({ event: "refused", reason: "malformed" });
+    log({ event: "refused", caller, reason: "malformed" });
     return json(400, { error: "invalid request body" });
   }
   if (!bounded.ok) {
-    log({ event: "refused", reason: "too_large" });
+    log({ event: "refused", caller, reason: "too_large" });
     return tooLarge();
   }
 
@@ -214,13 +320,13 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   try {
     body = JSON.parse(bounded.text);
   } catch {
-    log({ event: "refused", reason: "malformed" });
+    log({ event: "refused", caller, reason: "malformed" });
     return json(400, { error: "invalid request body" });
   }
 
   const parsed = readTranscribeRequest(body);
   if (!parsed.ok) {
-    log({ event: "refused", reason: parsed.reason });
+    log({ event: "refused", caller, reason: parsed.reason });
     return parsed.reason === "too_large" ? tooLarge() : json(400, { error: "invalid request body" });
   }
 
@@ -234,14 +340,14 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     // one is not on this account at all. Anything else is a real failure and is
     // reported as one — see `isUnknownModelError` for why this stays narrow.
     if (!isUnknownModelError(error)) {
-      log({ event: "engine_failed", model: TURBO_MODEL });
+      log({ event: "engine_failed", caller, model: TURBO_MODEL });
       return json(502, { error: ENGINE_FAILED, model: TURBO_MODEL });
     }
     model = FALLBACK_MODEL;
     try {
       answer = await env.AI.run(FALLBACK_MODEL, { audio: parsed.audioBase64 });
     } catch {
-      log({ event: "engine_failed", model: FALLBACK_MODEL });
+      log({ event: "engine_failed", caller, model: FALLBACK_MODEL });
       return json(502, { error: ENGINE_FAILED, model: FALLBACK_MODEL });
     }
   }
@@ -250,12 +356,13 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   if (!transcription) {
     // Not an empty transcript. A chunk that silently produced no words is worse
     // than an error, because the audio is gone and nothing says so.
-    log({ event: "engine_unreadable", model });
+    log({ event: "engine_unreadable", caller, model });
     return json(502, { error: ENGINE_UNREADABLE, model });
   }
 
   log({
     event: "transcribed",
+    caller,
     model,
     bytes: decodedByteLength(parsed.audioBase64) ?? 0,
     segments: transcription.segments.length,

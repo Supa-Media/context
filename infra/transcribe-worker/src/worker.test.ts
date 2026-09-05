@@ -62,6 +62,56 @@
  *     the bounded read replaced by `await request.json()`
  *         → "413s a body over the cap, without buffering it and without asking
  *            the engine" (1)
+ *
+ * ── The rate limit, added when the review found there was none ─────────────
+ *
+ * Twelve more, run the same way and measured rather than expected. The suite
+ * was 61 checks before and is 90 after; each line is the count that reddened
+ * and nothing else reddened in its place.
+ *
+ *   src/rateLimit.ts
+ *     `catch { return "allowed" }`
+ *         → "fails closed when the limiter itself throws", "…when the limiter
+ *           rejects", "a limiter that throws refuses…", "tells a broken
+ *           limiter apart…" (4)
+ *     an absent binding read as `allowed`
+ *         → "fails closed when the binding is not there at all", "a binding
+ *           removed from wrangler.jsonc refuses too" (2)
+ *     `CALLER_PATTERN` widened to `/^[0-9a-f]+$/`
+ *         → "refuses an identifier that is not exactly the shape we mint",
+ *           "refuses an identifier that is not the shape the control plane
+ *           mints" (2)
+ *
+ *   src/index.ts
+ *     a missing identifier bucketed under a constant instead of refused
+ *         → "a request with no caller identifier is refused, not bucketed
+ *           together" (2)
+ *     the `unavailable` verdict treated as `allowed`
+ *         → three, including "tells a broken limiter apart from a busy caller"
+ *     the limiter keyed on a constant rather than the caller
+ *         → "lets a caller under the limit through, keyed by the header it
+ *           sent" (1) — and nothing else, which is why that assertion checks
+ *           the KEY and not only the status
+ *     the limit moved BELOW `readBoundedBody`
+ *         → "refuses before the body is read, not after", plus three body
+ *           tests (4)
+ *     the limit moved ABOVE `isAuthorized`
+ *         → "an unauthenticated caller never touches anybody's bucket", plus
+ *           both credential tests (3)
+ *     `caller` dropped from the `rate_limited` log
+ *         → "names the account in the log, because a bill has to be
+ *           traceable" (1)
+ *     `caller` dropped from the `transcribed` log
+ *         → "names the account on the request that SUCCEEDS" (1) — the one
+ *           that costs money, and the one a refusal-only log cannot attribute
+ *
+ *   wrangler.jsonc
+ *     `simple.limit` raised to 20000, constants untouched
+ *         → "declares exactly the limit rateLimit.ts justifies in prose" (1)
+ *     the whole `ratelimits` block deleted
+ *         → four in wranglerConfig.test.ts. Nothing in this file: no unit test
+ *           can see a wrangler binding, which is the entire reason that file
+ *           exists.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleRequest } from "./index";
@@ -89,14 +139,51 @@ function fakeAi(answer: unknown | ((model: string) => unknown)) {
   };
 }
 
-function envWith(ai: unknown): Env {
-  return { TRANSCRIBE_WORKER_SECRET: SECRET, AI: ai } as Env;
+/**
+ * A caller identifier in exactly the shape the control plane mints: hex
+ * SHA-256, lowercase. Not derived from anything — this repository is public and
+ * a real one would be a fact about an account.
+ */
+const CALLER = "b3".repeat(32);
+
+/**
+ * A rate limiter that always allows, recording the keys it was asked about.
+ *
+ * The default for every test below that is not *about* the limit, so those
+ * tests keep testing what they were written to test. The limit's own behaviour
+ * — allowed, refused, and the binding throwing or missing — is `src/
+ * rateLimit.test.ts` for the unit and "the rate limit" here for the wiring.
+ */
+function allowingLimiter() {
+  const keys: string[] = [];
+  return {
+    keys,
+    binding: {
+      limit(options: { key: string }) {
+        keys.push(options.key);
+        return Promise.resolve({ success: true });
+      },
+    },
+  };
+}
+
+function envWith(ai: unknown, limiter: unknown = allowingLimiter().binding): Env {
+  return { TRANSCRIBE_WORKER_SECRET: SECRET, AI: ai, TRANSCRIBE_RATE_LIMIT: limiter } as Env;
+}
+
+/** The headers every legitimate request carries. */
+function authHeaders(): Record<string, string> {
+  return {
+    "content-type": "application/json",
+    authorization: `Bearer ${SECRET}`,
+    "x-caller-hash": CALLER,
+  };
 }
 
 function post(body: unknown, headers: Record<string, string> = {}): Request {
   return new Request("https://transcribe.invalid/transcribe", {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}`, ...headers },
+    headers: { ...authHeaders(), ...headers },
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
 }
@@ -164,6 +251,283 @@ describe("the credential", () => {
  * SABOTAGE: route on `startsWith` instead of an exact path and
  * `/transcribe/../health` — or `/transcribeXYZ` — becomes a live route.
  */
+/**
+ * THE LIMIT, WIRED IN. `src/rateLimit.test.ts` proves the unit; this proves the
+ * three things about it that are properties of the HANDLER and cannot be seen
+ * from the unit at all.
+ *
+ * Until this existed, a signed-in account was the only thing between a caller
+ * and this account's Workers AI budget, and sign-up is open email OTP with no
+ * invite gate. Each request may carry 8 MiB of audio.
+ *
+ * SABOTAGE, each caught by the named test:
+ *
+ *   move the limit check below `readBoundedBody`
+ *       → "refuses before the body is read, not after" (an 8 MiB upload is
+ *         buffered for a caller who was never going to be served)
+ *   move it above `isAuthorized`
+ *       → "an unauthenticated caller never touches anybody's bucket"
+ *   treat the `unavailable` verdict as `allowed`
+ *       → "a limiter that throws refuses, it does not wave the caller through"
+ *   `readCaller(...) ?? "anonymous"`
+ *       → "a request with no caller identifier is refused, not bucketed
+ *         together"
+ *   drop `caller` from the 429 log
+ *       → "names the account in the log, because a bill has to be traceable"
+ */
+describe("the rate limit", () => {
+  /** A limiter with a fixed verdict, recording every key it was asked about. */
+  function limiterAnswering(success: boolean) {
+    const keys: string[] = [];
+    return {
+      keys,
+      binding: {
+        limit(options: { key: string }) {
+          keys.push(options.key);
+          return Promise.resolve({ success });
+        },
+      },
+    };
+  }
+
+  /** Every line `log()` wrote during `run`. */
+  async function loggedDuring(run: () => Promise<Response>): Promise<{
+    response: Response;
+    lines: string[];
+  }> {
+    const lines: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    });
+    try {
+      return { response: await run(), lines };
+    } finally {
+      vi.restoreAllMocks();
+    }
+  }
+
+  it("lets a caller under the limit through, keyed by the header it sent", async () => {
+    const ai = fakeAi(TIMED_ANSWER);
+    const limiter = limiterAnswering(true);
+
+    const response = await handleRequest(
+      post({ audioBase64: AUDIO, mimeType: "audio/webm" }),
+      envWith(ai.binding, limiter.binding),
+    );
+
+    expect(response.status).toBe(200);
+    // Keyed by the caller and by nothing else. A constant key would rate limit
+    // the entire product as if it were one account.
+    expect(limiter.keys).toEqual([CALLER]);
+  });
+
+  it("refuses a caller over the limit with a bare 429, before any inference", async () => {
+    const ai = fakeAi(TIMED_ANSWER);
+
+    const response = await handleRequest(
+      post({ audioBase64: AUDIO, mimeType: "audio/webm" }),
+      envWith(ai.binding, limiterAnswering(false).binding),
+    );
+
+    expect(response.status).toBe(429);
+    // No body: no retry-after, no remaining count, nothing a caller could
+    // shape their traffic around.
+    expect(await response.text()).toBe("");
+    // The whole point. A refusal that runs after the engine call costs exactly
+    // what it was meant to save.
+    expect(ai.calls).toEqual([]);
+  });
+
+  it("a limiter that throws refuses, it does not wave the caller through", async () => {
+    const ai = fakeAi(TIMED_ANSWER);
+    const broken = {
+      limit(): Promise<{ success: boolean }> {
+        throw new Error("rate limiter unavailable");
+      },
+    };
+
+    const response = await handleRequest(
+      post({ audioBase64: AUDIO, mimeType: "audio/webm" }),
+      envWith(ai.binding, broken),
+    );
+
+    expect(response.status).toBe(429);
+    expect(ai.calls).toEqual([]);
+  });
+
+  it("a binding removed from wrangler.jsonc refuses too", async () => {
+    // `wrangler deploy` succeeds with the block deleted, exactly as it does
+    // with Workers AI unprovisioned. Failing open there would restore the
+    // finding silently, on a green deploy.
+    const ai = fakeAi(TIMED_ANSWER);
+    // Built by hand rather than through `envWith`, whose default exists to keep
+    // every OTHER test testing what it was written to test — and a default
+    // cannot express "the key is not there".
+    const env = { TRANSCRIBE_WORKER_SECRET: SECRET, AI: ai.binding } as Env;
+    expect(env.TRANSCRIBE_RATE_LIMIT).toBeUndefined();
+
+    const response = await handleRequest(
+      post({ audioBase64: AUDIO, mimeType: "audio/webm" }),
+      env,
+    );
+
+    expect(response.status).toBe(429);
+    expect(ai.calls).toEqual([]);
+  });
+
+  it("a request with no caller identifier is refused, not bucketed together", async () => {
+    // Bucketing every unidentified request under one key would be worse than
+    // no limit: one abuser would exhaust the shared bucket and lock out
+    // everybody, and the abuser would still be nameless.
+    const ai = fakeAi(TIMED_ANSWER);
+    const limiter = limiterAnswering(true);
+    const request = new Request("https://transcribe.invalid/transcribe", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` },
+      body: JSON.stringify({ audioBase64: AUDIO, mimeType: "audio/webm" }),
+    });
+
+    const response = await handleRequest(request, envWith(ai.binding, limiter.binding));
+
+    expect(response.status).toBe(400);
+    expect(ai.calls).toEqual([]);
+    expect(limiter.keys).toEqual([]);
+  });
+
+  it("refuses an identifier that is not the shape the control plane mints", async () => {
+    const ai = fakeAi(TIMED_ANSWER);
+    const limiter = limiterAnswering(true);
+
+    for (const value of ["", "not-a-hash", "A".repeat(64), "a".repeat(65), "a".repeat(8192)]) {
+      const response = await handleRequest(
+        post({ audioBase64: AUDIO, mimeType: "audio/webm" }, { "x-caller-hash": value }),
+        envWith(ai.binding, limiter.binding),
+      );
+      expect(response.status, value.slice(0, 16)).toBe(400);
+    }
+    // An unbounded key is an unbounded string handed to the limiter, and a
+    // caller free to vary its key has no limit at all — so neither reaches it.
+    expect(limiter.keys).toEqual([]);
+    expect(ai.calls).toEqual([]);
+  });
+
+  it("refuses before the body is read, not after", async () => {
+    // The reason the identifier is a header. A limit that ran after the body
+    // would let a refused caller push 8 MiB into the isolate first, which is
+    // most of what the request costs us.
+    const ai = fakeAi(TIMED_ANSWER);
+    let produced = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (produced >= MAX_BODY_BYTES * 3) {
+          controller.close();
+          return;
+        }
+        produced += 64 * 1024;
+        controller.enqueue(new Uint8Array(64 * 1024).fill(0x61));
+      },
+    });
+    const request = new Request("https://transcribe.invalid/transcribe", {
+      method: "POST",
+      headers: authHeaders(),
+      body,
+      duplex: "half",
+    } as unknown as RequestInit);
+
+    const response = await handleRequest(
+      request,
+      envWith(ai.binding, limiterAnswering(false).binding),
+    );
+
+    // 429 rather than 413: the refusal happened before anything was measured.
+    expect(response.status).toBe(429);
+    // One chunk, which is the stream priming itself on construction — the
+    // handler never pulled. Move the limit below `readBoundedBody` and this
+    // climbs past `MAX_BODY_BYTES`, because the body gets drained to the cap
+    // before anybody asks whether this caller was going to be served.
+    expect(produced).toBeLessThanOrEqual(64 * 1024);
+    expect(ai.calls).toEqual([]);
+  });
+
+  it("an unauthenticated caller never touches anybody's bucket", async () => {
+    // The limit sits AFTER the credential check on purpose. In front of it, a
+    // caller with no secret could spend a stranger's allowance simply by
+    // sending their identifier — and identifiers travel in headers.
+    const ai = fakeAi(TIMED_ANSWER);
+    const limiter = limiterAnswering(true);
+
+    const response = await handleRequest(
+      post({ audioBase64: AUDIO, mimeType: "audio/webm" }, { authorization: "Bearer wrong" }),
+      envWith(ai.binding, limiter.binding),
+    );
+
+    expect(response.status).toBe(401);
+    expect(limiter.keys).toEqual([]);
+    expect(ai.calls).toEqual([]);
+  });
+
+  it("names the account in the log, because a bill has to be traceable", async () => {
+    const { response, lines } = await loggedDuring(() =>
+      handleRequest(
+        post({ audioBase64: AUDIO, mimeType: "audio/webm" }),
+        envWith(fakeAi(TIMED_ANSWER).binding, limiterAnswering(false).binding),
+      ),
+    );
+
+    expect(response.status).toBe(429);
+    const refusal = lines.map((line) => JSON.parse(line)).find((l) => l.event === "rate_limited");
+    expect(refusal).toBeDefined();
+    expect(refusal.caller).toBe(CALLER);
+    // The operator's half of the distinction the caller is denied.
+    expect(refusal.reason).toBe("over_limit");
+  });
+
+  it("tells a broken limiter apart from a busy caller, in the log only", async () => {
+    const broken = { limit: () => Promise.reject(new Error("down")) };
+    const { response, lines } = await loggedDuring(() =>
+      handleRequest(
+        post({ audioBase64: AUDIO, mimeType: "audio/webm" }),
+        envWith(fakeAi(TIMED_ANSWER).binding, broken),
+      ),
+    );
+
+    // Identical on the wire — "we are down" is not something to tell a caller.
+    expect(response.status).toBe(429);
+    expect(await response.text()).toBe("");
+    const refusal = lines.map((line) => JSON.parse(line)).find((l) => l.event === "rate_limited");
+    // Distinct in the log, because "somebody is hammering us" and "nobody can
+    // transcribe" are different pages to wake somebody for.
+    expect(refusal.reason).toBe("limiter_unavailable");
+  });
+
+  it("names the account on the request that SUCCEEDS, which is the one that costs money", async () => {
+    // Logging the identifier only on refusals would attribute nothing: the bill
+    // is made of the requests that were served.
+    const { response, lines } = await loggedDuring(() =>
+      handleRequest(
+        post({ audioBase64: AUDIO, mimeType: "audio/webm" }),
+        envWith(fakeAi(TIMED_ANSWER).binding),
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    const done = lines.map((line) => JSON.parse(line)).find((l) => l.event === "transcribed");
+    expect(done.caller).toBe(CALLER);
+  });
+
+  it("never echoes the identifier back to the caller", async () => {
+    // It is opaque, not secret — but a response that quotes it back is one more
+    // place it turns up, and this Worker quotes nothing back on principle.
+    for (const env of [
+      envWith(fakeAi(TIMED_ANSWER).binding),
+      envWith(fakeAi(TIMED_ANSWER).binding, limiterAnswering(false).binding),
+    ]) {
+      const response = await handleRequest(post({ audioBase64: AUDIO, mimeType: "audio/webm" }), env);
+      expect(await response.text()).not.toContain(CALLER);
+    }
+  });
+});
+
 describe("routing", () => {
   it("answers /health honestly, and without a credential", async () => {
     // This is how CI learns whether Workers AI is actually enabled on the
@@ -223,6 +587,9 @@ describe("a deployment with no Workers AI binding", () => {
   it("says so, in the one string CI greps for", async () => {
     const response = await handleRequest(post({ audioBase64: AUDIO, mimeType: "audio/webm" }), {
       TRANSCRIBE_WORKER_SECRET: SECRET,
+      // Present and allowing, so this test still fails on the AI branch it is
+      // about rather than on the limit that now sits in front of it.
+      TRANSCRIBE_RATE_LIMIT: allowingLimiter().binding,
     } as Env);
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "workers ai is not bound" });
@@ -259,7 +626,7 @@ describe("a body that declares no length", () => {
     });
     const request = new Request("https://transcribe.invalid/transcribe", {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` },
+      headers: authHeaders(),
       body,
       duplex: "half",
     } as unknown as RequestInit);
@@ -300,7 +667,7 @@ describe("a body that declares no length", () => {
     });
     const request = new Request("https://transcribe.invalid/transcribe", {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` },
+      headers: authHeaders(),
       body,
       duplex: "half",
     } as unknown as RequestInit);

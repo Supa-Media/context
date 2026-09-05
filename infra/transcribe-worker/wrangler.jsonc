@@ -62,6 +62,46 @@
     "binding": "AI"
   },
 
+  // ── THE RATE LIMIT, AND WHY IT IS *THIS* KIND OF RATE LIMIT ───────────────
+  //
+  // A signed-in account used to be the only thing between a caller and this
+  // account's Workers AI budget, and sign-up is open email OTP with no invite
+  // gate — so it was a barrier of approximately zero, with 8 MiB of audio per
+  // request and nothing recording who spent it. src/rateLimit.ts is the whole
+  // argument; this block is the enforcement.
+  //
+  // The Workers native rate limiting binding is declared entirely here and
+  // PROVISIONS NOTHING: no KV namespace, no D1 database, no Durable Object, no
+  // account resource at all. That is not only a convenience. This Worker's
+  // auditability claim, stated at the top of this file and again in
+  // src/index.ts, is that there is nowhere here for audio to be kept even by
+  // accident — and a rate-limit KV would have been the first storage binding
+  // to weaken it.
+  //
+  // `namespace_id` is an arbitrary identifier scoped to this Worker. It names
+  // nothing on the account, and it is not a secret.
+  //
+  // `simple.period` may be 10 or 60 and nothing else; `simple.limit` is 20 a
+  // minute against a workload of 3 a minute per live recording — see
+  // src/rateLimit.ts for the arithmetic. src/wranglerConfig.test.ts pins these
+  // two numbers to the constants that comment reasons about, because a
+  // justification that drifts from the deployed value reads correctly while
+  // being wrong.
+  //
+  // Removing this block does NOT quietly remove the limit: `checkRateLimit`
+  // fails closed on an absent binding, so the Worker refuses every request
+  // instead. A bad deploy that says so is the point.
+  "ratelimits": [
+    {
+      "name": "TRANSCRIBE_RATE_LIMIT",
+      "namespace_id": "1",
+      "simple": {
+        "limit": 20,
+        "period": 60
+      }
+    }
+  ],
+
   // No `vars`. There is nothing to configure: the models are constants in
   // src/transcribe.ts (so that the entry module exports only handlers — see
   // src/entryExports.test.ts), and everything else about a request arrives in
