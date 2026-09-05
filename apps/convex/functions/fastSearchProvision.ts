@@ -38,24 +38,9 @@ import {
   databaseNameFor,
   deleteDatabase,
   exec,
+  messageFor,
   type D1Config,
 } from "./lib/d1";
-
-/** Operator-facing sentences, one per code. Ours, from a closed set. */
-const MESSAGES: Record<string, string> = {
-  NOT_CONFIGURED:
-    "Fast search is not configured on this deployment yet. An administrator needs to set SEARCH_D1_API_TOKEN and SEARCH_D1_ACCOUNT_ID.",
-  UNAUTHORIZED:
-    "The configured Cloudflare token was refused. It needs D1:Edit on the account in SEARCH_D1_ACCOUNT_ID.",
-  NOT_FOUND: "The search database could not be found.",
-  RATE_LIMITED: "Cloudflare is rate limiting this account. This will retry.",
-  UNAVAILABLE: "Cloudflare could not be reached. This will retry.",
-  REFUSED: "Cloudflare refused to create the search database.",
-};
-
-function messageFor(code: string): string {
-  return MESSAGES[code] ?? MESSAGES.REFUSED;
-}
 
 /**
  * Read both halves of the credential, or `null` if either is missing.

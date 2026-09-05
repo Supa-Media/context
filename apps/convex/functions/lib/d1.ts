@@ -387,3 +387,29 @@ export async function exec(
     await query(config, databaseId, sql, []);
   }
 }
+
+/**
+ * The operator-facing sentence for a failure code. **Ours, from a closed set.**
+ *
+ * Here rather than beside the provisioner because there are two writers of
+ * `searchIndexes.error` now — `provisionIndex` creating the database, and the
+ * projection pass filling it — and a second copy of these sentences is two
+ * spellings of the same failure for one person to compare. The rule they both
+ * obey is `classify`'s: a provider message can name the account, the database,
+ * or the token, so none of it is ever repeated back.
+ */
+export const D1_MESSAGES: Readonly<Record<string, string>> = {
+  NOT_CONFIGURED:
+    "Fast search is not configured on this deployment yet. An administrator needs to set SEARCH_D1_API_TOKEN and SEARCH_D1_ACCOUNT_ID.",
+  UNAUTHORIZED:
+    "The configured Cloudflare token was refused. It needs D1:Edit on the account in SEARCH_D1_ACCOUNT_ID.",
+  NOT_FOUND: "The search database could not be found.",
+  RATE_LIMITED: "Cloudflare is rate limiting this account. This will retry.",
+  UNAVAILABLE: "Cloudflare could not be reached. This will retry.",
+  REFUSED: "Cloudflare refused the search database request.",
+};
+
+/** `REFUSED` for a code from outside the set, which is the least specific truth. */
+export function messageFor(code: string): string {
+  return D1_MESSAGES[code] ?? D1_MESSAGES.REFUSED!;
+}
