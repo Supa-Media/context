@@ -39,6 +39,24 @@
 
 export const CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4";
 
+/**
+ * The `appSecrets` names both halves of the write credential are stored under.
+ *
+ * Here rather than beside the provisioner because there are two callers now and
+ * they must not be able to drift: `fastSearchProvision` opens them to create and
+ * delete a database, and `controlPlane.openStorageBinding` opens them to hand
+ * the gateway what it needs to write a projection into one. A second literal
+ * spelling of a secret name is a deployment that is configured and a code path
+ * that reads nothing, reported as "not configured yet".
+ *
+ * `SEARCH_D1_READ_TOKEN` — the `D1:Read` half this module's header describes —
+ * has no constant because nothing reads it yet. See the caveat on
+ * `openStorageBinding`: the token below carries `D1:Edit` on the whole account,
+ * which is more than any one context's projection needs.
+ */
+export const D1_TOKEN_SECRET = "SEARCH_D1_API_TOKEN";
+export const D1_ACCOUNT_SECRET = "SEARCH_D1_ACCOUNT_ID";
+
 /** Bumped when `SCHEMA_STATEMENTS` changes in a way an existing index needs. */
 export const D1_SCHEMA_VERSION = 1;
 

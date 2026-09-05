@@ -30,7 +30,9 @@ import { internal } from "../_generated/api";
 import { internalAction, type ActionCtx } from "../_generated/server";
 import {
   D1Error,
+  D1_ACCOUNT_SECRET,
   D1_SCHEMA_VERSION,
+  D1_TOKEN_SECRET,
   SCHEMA_STATEMENTS,
   createDatabase,
   databaseNameFor,
@@ -38,9 +40,6 @@ import {
   exec,
   type D1Config,
 } from "./lib/d1";
-
-export const D1_TOKEN_SECRET = "SEARCH_D1_API_TOKEN";
-export const D1_ACCOUNT_SECRET = "SEARCH_D1_ACCOUNT_ID";
 
 /** Operator-facing sentences, one per code. Ours, from a closed set. */
 const MESSAGES: Record<string, string> = {

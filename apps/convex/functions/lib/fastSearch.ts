@@ -128,3 +128,122 @@ export function fastSearchState(
       return "preparing";
   }
 }
+
+/**
+ * How far the backfill has got, as a whole-number percentage — **or nothing**.
+ *
+ * ## Why it is derived and never stored
+ *
+ * A percentage is a ratio against a total, and the total is `indexed +
+ * pending` as of the report that carried both. Storing the percentage would
+ * store a ratio against the total that was true when it was written, and this
+ * total moves in both directions: notes are written during a backfill, and
+ * notes are deleted during one. A stored 42% survives a corpus that halved and
+ * says something that was never true of the corpus it is displayed beside.
+ * Derived from the two counters, the ratio cannot go stale relative to them —
+ * because they are the only thing it is computed from, and they are written
+ * together.
+ *
+ * ## The edge cases, each decided rather than fallen into
+ *
+ * Three of these are the console's rendering contract as much as this
+ * function's arithmetic, and the console does not re-derive them: it range-
+ * checks what arrives and otherwise draws exactly what is sent, treating an
+ * absent field as "this viewer does not get this" and any number as a state to
+ * render. So each of the three is a sentence somebody reads.
+ *
+ *  - **Either counter absent → `undefined`.** Nothing has reported a total, so
+ *    there is no denominator. This is the important one: the row is created
+ *    with `notesIndexed: 0` and no `notesPending` at all, so anything that
+ *    treated an absent pending as zero would report **100%** to an owner whose
+ *    backfill has not read a single note. An unknown reported as a number is
+ *    the one direction that tells somebody their notes are written down when
+ *    they are not — the same rule `docs/decisions/search.md` states for the
+ *    manifest's `listedAt: null`.
+ *  - **A total of zero → `undefined`.** Both counters present and both zero is
+ *    a real report about a context with no notes in it, and "0 of 0" is not a
+ *    percentage of anything: `0` renders as an accusing empty bar and `100`
+ *    claims a backfill that never had work to do. Absent, the console says
+ *    "no notes to index" in words, which is the true sentence.
+ *  - **100 belongs to `ready`, and nothing else may claim it.** Whether a
+ *    backfill is finished is the control plane's `status`, never an inference
+ *    from `pending === 0` — a pass can reach zero pending with a listing still
+ *    to redo, and `pending` is a floor whenever a walk was cut short. So a row
+ *    that is not serving is capped at **99** however the arithmetic comes out,
+ *    and the state carries "done". Without the cap, `48 of 48` on a
+ *    `backfilling` row draws a completed bar beside a card that says the index
+ *    is still being built.
+ *  - **A total that shrank → a larger percentage, never one above 100.** The
+ *    denominator is computed from the same report as the numerator, so notes
+ *    deleted mid-backfill leave both smaller together and the ratio simply
+ *    moves up. That, the clamp on each counter and `Math.floor` are why the
+ *    result is always a finite integer in 0–100: the console range-checks and
+ *    falls back to its own arithmetic on anything else, and a fallback that
+ *    fires is a second implementation of this function running in production.
+ *  - **A negative counter is clamped to zero**, not trusted and not refused:
+ *    the counters arrive from the gateway and this function's job is to render
+ *    a number, not to police the wire. `recordProjectionProgress` is where a
+ *    malformed report is refused.
+ *
+ * **It inherits the counters' owner-only gate wherever it is served.** This
+ * function is pure and knows nothing about roles; `fastSearch.status` is the
+ * caller that must apply it, for the reason written there: a percentage is the
+ * census, in one number instead of two, and a member who may read only the
+ * `team` tier must not be handed a figure computed over private notes.
+ */
+export function backfillPercent(
+  notesIndexed: number | undefined,
+  notesPending: number | undefined,
+  /** Is the index actually serving? Only a `ready` one may read 100. */
+  finished: boolean,
+): number | undefined {
+  if (typeof notesIndexed !== "number" || typeof notesPending !== "number") {
+    return undefined;
+  }
+  if (!Number.isFinite(notesIndexed) || !Number.isFinite(notesPending)) {
+    return undefined;
+  }
+  const indexed = Math.max(0, notesIndexed);
+  const pending = Math.max(0, notesPending);
+  const total = indexed + pending;
+  if (total === 0) return undefined;
+  const percent = Math.floor((indexed * 100) / total);
+  return finished ? percent : Math.min(99, percent);
+}
+
+/**
+ * Whether the gateway may write a projection into this context's database, and
+ * what it should be told the state is.
+ *
+ * `null` is every reason not to, and the caller cannot tell them apart —
+ * unentitled, never opted in, opted out and releasing, still provisioning,
+ * failed, or provisioned with no database id recorded yet. That is the same
+ * "every negative is the same negative" the binding route already holds, and
+ * it matters more here than usual: the answer decides whether a D1 write
+ * credential leaves this deployment.
+ *
+ * The two states it does report are the two in which a database exists with a
+ * schema on it. `provisioning` is excluded because the schema may not be
+ * applied yet, and `failed` because a projection into a half-built database is
+ * how a failure becomes data.
+ */
+export type SearchProjectionState = "backfilling" | "ready";
+
+export function searchProjectionState(
+  workspace: Doc<"workspaces">,
+  binding: Doc<"searchIndexes"> | null,
+): SearchProjectionState | null {
+  if (!fastSearchActive(workspace, binding)) return null;
+  // `fastSearchActive` is true, so `binding` is non-null and `optedIn`.
+  if (typeof binding!.databaseId !== "string" || binding!.databaseId.length === 0) {
+    return null;
+  }
+  switch (binding!.status) {
+    case "backfilling":
+      return "backfilling";
+    case "ready":
+      return "ready";
+    default:
+      return null;
+  }
+}

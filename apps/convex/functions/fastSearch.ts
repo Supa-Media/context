@@ -40,9 +40,12 @@ import {
 import { recordAudit } from "./lib/audit";
 import { requireWorkspaceAccess, requireWorkspaceRole } from "./lib/workspaceAuth";
 import {
+  backfillPercent,
   fastSearchEntitled,
   fastSearchState,
+  searchProjectionState,
   type FastSearchState,
+  type SearchProjectionState,
 } from "./lib/fastSearch";
 
 async function requireUserId(ctx: QueryCtx): Promise<Id<"users">> {
@@ -81,6 +84,42 @@ export interface FastSearchStatus {
    */
   notesIndexed?: number;
   notesPending?: number;
+  /**
+   * The same census as one number, and therefore **under the same gate**.
+   *
+   * The two counters above are owner-only because a member may read only the
+   * `team` tier, so a total that includes private notes lets them derive how
+   * much they are not being shown. A percentage IS that total, divided — it
+   * moves when a private note is written and it stops moving when the backfill
+   * ends, which is the whole of what the counters leak. It leaks it while
+   * looking like a progress bar rather than like a count, which is precisely
+   * how a gate gets left off the second field.
+   *
+   * Both forms are returned rather than one, because the console renders a bar
+   * and a "41 of 48" line from the same read and neither should be a second
+   * round trip. `undefined` for anyone but an owner — the test that says so is
+   * the one that matters most in `fastSearch.test.ts`.
+   *
+   * **Absent and `0` are different answers**, and the console reads them that
+   * way: absent means "this viewer does not get this" and draws nothing, while
+   * any number is a state to render. So a member gets no field rather than a
+   * zero, and so does a context with no notes at all — "0 of 0" is not a
+   * percentage of anything, and the console says so in words.
+   *
+   * **100 belongs to `ready`.** Whether a backfill is finished is `state`, which
+   * this control plane owns; it is never inferred from `notesPending === 0`, and
+   * a row that is not serving is capped at 99 so a completed bar cannot appear
+   * beside a card that says the index is still being built.
+   *
+   * Always a finite integer in 0–100 when present, because the console range-
+   * checks and falls back to computing the ratio itself — and a fallback that
+   * fires is a second implementation of `backfillPercent` running in production.
+   *
+   * Derived on every read and never stored: see `backfillPercent` for why a
+   * stored ratio goes stale against a corpus that moves, and for what each
+   * edge case answers.
+   */
+  percentIndexed?: number;
   /** Set only in `failed`. Our sentence, never a provider's. */
   error?: string;
   optedInAt?: number;
@@ -147,6 +186,8 @@ export const status = query({
     // Owner only — a census of notes a member may not read. See the type above.
     notesIndexed: v.optional(v.number()),
     notesPending: v.optional(v.number()),
+    // Owner only for the same reason, and it is the same number: see the type.
+    percentIndexed: v.optional(v.number()),
     error: v.optional(v.string()),
     optedInAt: v.optional(v.number()),
   }),
@@ -160,12 +201,23 @@ export const status = query({
     const binding = await bindingFor(ctx, args.workspaceId);
 
     const isOwner = membership.role === "owner";
+    const state = fastSearchState(workspace, binding);
 
     return {
-      state: fastSearchState(workspace, binding),
+      state,
       canChange: isOwner && fastSearchEntitled(workspace),
       notesIndexed: isOwner ? binding?.notesIndexed : undefined,
       notesPending: isOwner ? binding?.notesPending : undefined,
+      // `isOwner &&` rather than a ternary over the computed value, so the
+      // percentage is not even computed for a member — there is no expression
+      // here that could survive a refactor that dropped the gate on the line
+      // above and be returned by accident.
+      // `state === "on"` and not `binding.status === "ready"`: an opted-out or
+      // unentitled row must never read 100 either, and `fastSearchState` is
+      // where "is this actually serving" is decided once.
+      percentIndexed: isOwner
+        ? backfillPercent(binding?.notesIndexed, binding?.notesPending, state === "on")
+        : undefined,
       error: binding?.error,
       optedInAt: binding?.optedInAt,
     };
@@ -328,6 +380,49 @@ export const bindingForWorkspace = internalQuery({
 });
 
 /**
+ * May the gateway write a projection into this context's database, and where?
+ *
+ * The narrowest possible answer: a database id and a state, or `null`. Not the
+ * row — `openStorageBinding` has no business with `optedInBy`, an error
+ * sentence or a schema version, and a caller that receives a whole row is a
+ * caller that will one day forward one.
+ *
+ * **This is where the policy lives, not at the route.** `searchProjectionState`
+ * composes entitlement, the owner's opt-in, a recorded database id and a status
+ * that means the schema is on it. Every reason to say no returns the same
+ * `null`, which matters here more than usual: this answer decides whether a D1
+ * write credential leaves the deployment, and the difference between "that
+ * context opted out" and "that context does not exist" is not something the
+ * gateway needs or should be able to observe.
+ *
+ * `workspaceId` is not the caller's to choose. Its one caller derives it from
+ * the grant a presented access token resolved to and passes the id off that
+ * row — the same two-factor property `openStorageBinding`'s header is about,
+ * and the reason this query is internal and reachable from exactly one place.
+ */
+export const projectionTargetForWorkspace = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      databaseId: v.string(),
+      state: v.union(v.literal("backfilling"), v.literal("ready")),
+    }),
+  ),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ databaseId: string; state: SearchProjectionState } | null> => {
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (workspace === null) return null;
+    const binding = await bindingFor(ctx, args.workspaceId);
+    const state = searchProjectionState(workspace, binding);
+    if (state === null) return null;
+    return { databaseId: binding!.databaseId as string, state };
+  },
+});
+
+/**
  * Record what provisioning did.
  *
  * Every field the provisioner may move, in one mutation, so a half-applied
@@ -379,6 +474,92 @@ export const recordProvisionResult = internalMutation({
       error: args.error,
       notesIndexed: args.notesIndexed ?? existing.notesIndexed,
       notesPending: args.notesPending ?? existing.notesPending,
+      updatedAt: Date.now(),
+    });
+    return { applied: true };
+  },
+});
+
+/**
+ * The gateway reporting how far its projection has got.
+ *
+ * `/gateway/search-index/progress` is the wire; this is the policy, and the
+ * split is the point. **The control plane owns this row.** The gateway knows
+ * how many notes it has written and nothing else — not whether the owner has
+ * since turned the feature off, not whether a release is in flight, not whether
+ * the row it is reporting about is the row it was handed a credential for ten
+ * minutes ago. So the report is data, and every question about whether it may
+ * be applied is answered here.
+ *
+ * Three refusals, and each is a way somebody's decision could be undone by a
+ * job that outlived it:
+ *
+ *  - **Not opted in.** `searchProjectionState` is the same composed gate the
+ *    binding response uses, so a context that never asked, one whose owner
+ *    opted out, and one that is not entitled are refused by the function that
+ *    decided the credential should never have been handed over either. Two
+ *    call sites, one rule; a second copy of it is a second place for them to
+ *    disagree about what "on" means.
+ *  - **Never resurrect a `releasing` row.** That row is `optedIn: false` and
+ *    exists only so the delete can find its database. A progress report is the
+ *    late arrival of exactly the shape `recordProvisionResult` already refuses:
+ *    a success for something somebody asked us to destroy. Writing counters
+ *    onto it would be harmless; moving it to `ready` would put a database
+ *    mid-delete back into service, so both are refused together rather than
+ *    the interesting one alone.
+ *  - **`ready` is a transition, not an assignment.** It is reached only from
+ *    `backfilling` — a `failed` or `provisioning` row is not something a
+ *    backfill report may declare finished, and neither is a row that is not
+ *    serving. Idempotent from `ready`, because a gateway that finishes twice
+ *    must not be an error.
+ *
+ * The counters are stored raw and the percentage is derived on read
+ * (`backfillPercent`), so a total that shrinks mid-backfill cannot leave a
+ * ratio behind that was true of a corpus that no longer exists.
+ *
+ * `applied` is for tests and for this deployment's own logs. The route answers
+ * identically either way, because a caller holding the gateway secret must not
+ * be able to use this as an oracle for which contexts have opted in.
+ */
+export const recordProjectionProgress = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    notesIndexed: v.number(),
+    notesPending: v.number(),
+    /** The gateway saying the backfill is finished. */
+    ready: v.boolean(),
+  },
+  returns: v.object({ applied: v.boolean() }),
+  handler: async (ctx, args): Promise<{ applied: boolean }> => {
+    // Re-checked here and not only at the door. The door is one caller; this is
+    // the invariant, and a count that is not a non-negative integer would be
+    // rendered as a percentage of something.
+    if (
+      !Number.isInteger(args.notesIndexed) ||
+      !Number.isInteger(args.notesPending) ||
+      args.notesIndexed < 0 ||
+      args.notesPending < 0
+    ) {
+      return { applied: false };
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (workspace === null) return { applied: false };
+    const binding = await bindingFor(ctx, args.workspaceId);
+    // The same gate that decided the credential could be handed over. A row
+    // that is `releasing`, `failed`, `provisioning`, opted out or unentitled is
+    // refused here, by the one function that knows what "serving" means.
+    const state = searchProjectionState(workspace, binding);
+    if (state === null) return { applied: false };
+
+    await ctx.db.patch(binding!._id, {
+      notesIndexed: args.notesIndexed,
+      notesPending: args.notesPending,
+      // Only `backfilling` → `ready`. `state` is one of two values here, so a
+      // report of `ready` against an already-ready row keeps it ready and a
+      // report without `ready` never demotes one — a gateway that reports
+      // progress after finishing must not restart the spinner.
+      status: args.ready ? "ready" : binding!.status,
       updatedAt: Date.now(),
     });
     return { applied: true };

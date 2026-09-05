@@ -296,6 +296,136 @@ invisible to the whole suite. It fails closed on an unrecognized kind, which is
 both a real property and the only handle a test has on that half until a paid
 tier arrives.
 
+### The gateway writes the projection, so the credential rides on the binding
+
+The switch above provisioned a database per opted-in context and **nothing put
+anything in it** — three databases in production, schema applied, zero rows,
+verified live. The projection had no owner, because of where note text can be
+read: the control plane holds the encrypted storage credential and hands it
+out, and never fetches a bucket object. Giving it the ability to run a backfill
+would make it a second component reading customers' notes, for a job the
+gateway is already positioned to do behind its own response.
+
+So the gateway projects, and it needs two things from here: a database to write
+into, and a token that may write into it. They arrive as an optional
+`searchIndex` sibling on the `/gateway/binding` response — `{ databaseId,
+accountId, apiToken, state }` — present only where a context has an opted-in,
+provisioned index, and **absent is the normal case rather than an error**. The
+key is missing rather than null, so a gateway on an older build reads the bytes
+it always did.
+
+- **A sibling, not a route.** `structure.test.ts`'s `CREDENTIAL_HTTP_ROUTES` has
+  two entries and says a third needs its argument made again in that comment.
+  Here it does not have to be made: the same two proofs are spent, and the
+  workspace is resolved once — from the grant — for both halves of one answer.
+  A second route would resolve it a second time, which is a second place for the
+  selection to be wrong.
+- **The two-factor property is inherited, and the sabotage measures the
+  difference.** Keying the index lookup on the caller's own
+  `expectedWorkspaceId` where it sits changes no behaviour, because the
+  membership check has already returned `null` for every id the token does not
+  cover; exactly one test reddens, the structural rule that the argument may
+  never select. Hoist the same lookup above that check and it is the real thing
+  — a compromised gateway reading any opted-in context's database id and the
+  write token, one id at a time — and five tests redden. Which is why the
+  cross-tenant test asserts on the **bytes of the whole response**: under that
+  mutant the binding half is still a correct `null`, and everything that leaks
+  leaks beside it.
+- **One gate decides both.** `searchProjectionState` composes entitlement, the
+  owner's opt-in, a recorded `databaseId` and a status meaning the schema is on
+  it. The binding response and the progress route are its two callers; a second
+  copy is a second place for them to disagree about what "on" means.
+
+**The unresolved part, stated rather than buried.** `SEARCH_D1_API_TOKEN`
+carries `D1:Edit` on the whole Cloudflare account, because that is what creating
+and deleting databases needs and there is one token. Handed to the gateway it is
+wider than the job — every opted-in context's database, not only the one the
+response names. What bounds it today is that the gateway already holds, one
+request at a time, the bucket credentials for the canonical notes those copies
+derive from; what would remove it is a per-database token, which Cloudflare can
+mint and which this control plane would then have to create, store, rotate and
+revoke per context. That is a design decision with a real cost, not an
+implementation detail to invent quietly. `SEARCH_D1_READ_TOKEN` — the `D1:Read`
+half `lib/d1.ts` already names — is the other half of the same conversation.
+
+### Progress is reported to the control plane, which owns the row
+
+`POST /gateway/search-index/progress` takes `{ workspaceId, notesIndexed,
+notesPending, state? }` behind the gateway secret alone. **Proof #2 is absent
+and that is a decision**, the same one `/gateway/ingest/*` makes: a backfill
+runs behind a response and outlives the request that started it, so there is no
+user access token because there is nobody present.
+
+The residual is bounded and worth writing down. A holder of the gateway secret
+can write two integers onto a row it names, and move one that is already
+backfilling to `ready`. It can read nothing, obtain no credential, and learn
+nothing about which contexts exist or have opted in — **every input is answered
+with the same bytes**, for the reason `/gateway/usage` gives about naming a
+context in a request that cannot read one.
+
+What makes that acceptable is that the gateway reports and does not decide. It
+knows how many notes it wrote; it does not know whether the owner turned the
+feature off while it was writing them. So:
+
+- **A report for a context that is not opted in is refused**, through the same
+  `searchProjectionState` that decided the credential could be handed over.
+- **A `releasing` row is never resurrected.** Its counters stay empty and its
+  status stays `releasing`. Writing counters onto it would be harmless; moving
+  it to `ready` would put a database mid-delete back into service, so both are
+  refused together rather than the interesting one alone.
+- **`ready` is a transition from `backfilling`, never an assignment**, and a
+  later report without it does not demote a finished index back to preparing.
+
+### The backfill percentage is derived, and inherits the census's owner-only gate
+
+`notesIndexed` and `notesPending` are owner-only because the index counts private
+notes and a member reads only the `team` tier: a total including what they cannot
+read tells them how much is withheld, and polled, tells them when a private note
+was written. **A percentage is that total, divided.** It carries the same
+information at a coarser resolution and moves for the same reasons; what is
+different is that it looks like a progress bar rather than like a count, which is
+exactly how a second field gets added without the gate the first one has. So
+`percentIndexed` is gated identically, and the test asserts the owner half in the
+same breath — a gate asserted alone passes just as well when the field is broken
+for everyone.
+
+Derived on every read, never stored, because the denominator moves in both
+directions during a backfill and a stored ratio outlives the corpus it describes.
+
+The field's name and its edge cases are a **rendering contract**, not an internal
+choice: the console range-checks what arrives and otherwise draws it, treating an
+absent field as "this viewer does not get this" and any number as a state. So
+each edge below is a sentence somebody reads, and a client that re-derived any of
+them would be a second implementation to disagree with.
+
+- **Either counter absent → no figure.** The row can hold a numerator and no
+  total: `provisionIndex` writes `notesIndexed: 0` with no `notesPending` at all,
+  and `recordProvisionResult` can move one without the other. Reading an absent
+  pending as zero turns `41 indexed, none pending` into a **finished backfill of
+  41 notes**. An unknown reported as a number is the one direction that tells
+  somebody their notes are written down when they are not — the rule
+  `listedAt: null` already follows above.
+- **A total of zero → no figure**, not `0` and not `100`. "0 of 0" is not a
+  percentage of anything: `0` draws an accusing empty bar, `100` claims a
+  backfill that never had work to do, and the console says "no notes to index" in
+  words when the field is absent. Absent even once the index is `ready`.
+- **100 belongs to `ready`.** Whether a backfill is finished is the `state` this
+  control plane owns, never an inference from `notesPending === 0` — a pass can
+  reach zero pending with a listing still to redo, and every count here is a
+  floor whenever a walk was cut short, in the census's own language. A row that
+  is not serving is capped at **99** however the arithmetic comes out, so a
+  completed bar cannot appear beside a card that says the index is still being
+  built.
+- **Floor, not round**, so 9,999 of 10,000 reads 99 rather than "done". A total
+  that shrinks mid-backfill needs no special case: numerator and denominator come
+  from the same report, so deleted notes leave both smaller and the ratio simply
+  moves up. That, plus a clamp on each counter, is why the answer is always a
+  finite integer in 0–100 when present.
+
+The tests that fail if any of this is reversed: `__tests__/controlPlane.test.ts`
+(the two new `/gateway/binding` and progress sections, each carrying its own
+sabotage record) and `__tests__/fastSearch.test.ts`.
+
 ### The switch lives in a context's settings, and the server owns who may throw it
 
 `enable` and `disable` shipped before anything called them, which made the
