@@ -66,6 +66,13 @@ try {
   process.exit(1);
 }
 
+// Which esbuild answered matters: it decides the minified bytes, and it is
+// resolved from the workspace root rather than declared anywhere, so it can
+// move without a single line of this repository changing.
+const esbuildVersion =
+  JSON.parse(readFileSync(require.resolve("esbuild/package.json"), "utf8")).version ??
+  "unknown";
+
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
 /** The npm package a `node_modules/...` input belongs to, scope included. */
@@ -149,6 +156,18 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = ${JSON.stringify
 
 /** Every npm package that went into the bundle, at the version it was built from. */
 export const BUNDLE_DEPENDENCIES: Readonly<Record<string, string>> = ${JSON.stringify(sorted(dependencies), null, 2)};
+
+/**
+ * The bundler that produced the bytes below.
+ *
+ * Recorded because the bytes depend on it and nothing else here does. Adding
+ * esbuild as a devDependency of a *different* workspace package once moved the
+ * root resolution, and the committed bundle stopped matching its sources while
+ * \`BUNDLE_SOURCES\` and \`BUNDLE_DEPENDENCIES\` were byte-identical — so the
+ * integrity job fired with no way for a reviewer to see it was a compiler bump
+ * rather than the injected code it exists to catch.
+ */
+export const BUNDLE_BUILDER: Readonly<{ esbuild: string }> = ${JSON.stringify({ esbuild: esbuildVersion }, null, 2)};
 
 /**
  * The bundle itself.

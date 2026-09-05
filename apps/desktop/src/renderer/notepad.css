@@ -1,0 +1,235 @@
+/* The notepad, from `DesktopNotepad`. The rail is beside the note, never over it. */
+
+body {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.bar {
+  height: 45px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--x4);
+  /* `titleBarStyle: hiddenInset` puts the real traffic lights here. */
+  padding-left: 84px;
+  -webkit-app-region: drag;
+}
+
+.bar button,
+.bar input {
+  -webkit-app-region: no-drag;
+}
+
+.bar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--x3);
+  min-width: 0;
+}
+
+.bar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--x2);
+}
+
+.timer {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  background: var(--ok-wash);
+  border: 1px solid var(--ok-border);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ok-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Paused is not recording, and the chrome says so rather than only the button. */
+body[data-state="paused"] .timer {
+  background: transparent;
+  border-color: var(--line-strong);
+  color: var(--muted);
+}
+
+body[data-state="paused"] .timer .dot {
+  background: var(--muted);
+}
+
+.where {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ghost {
+  height: 30px;
+  padding: 0 var(--x3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line-strong);
+  background: var(--surface3);
+  color: var(--text2);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.solid {
+  height: 30px;
+  padding: 0 14px;
+  border-radius: var(--radius-md);
+  background: var(--white);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.body {
+  flex-grow: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.notes {
+  flex-grow: 1;
+  padding: 30px 40px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border-right: 1px solid var(--line);
+  min-width: 0;
+}
+
+.doc-title {
+  font-family: var(--display);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  outline: none;
+  padding: 0;
+  user-select: text;
+}
+
+.editor {
+  flex-grow: 1;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--body);
+  font-size: 15.5px;
+  line-height: 1.62;
+  user-select: text;
+  caret-color: var(--accent);
+}
+
+.editor::placeholder {
+  color: var(--hero-dim);
+}
+
+.foot {
+  margin: 0;
+  font-size: 12.5px;
+  color: #3E3E46;
+}
+
+.rail {
+  width: 320px;
+  flex-shrink: 0;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.rail-head {
+  padding: 18px var(--x5) var(--x3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.engine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.engine .dot {
+  width: 5px;
+  height: 5px;
+}
+
+/* An engine that sends audio off the machine does not get the green dot. */
+.rail[data-leaves="true"] .engine .dot {
+  background: var(--accent);
+}
+
+.rail-body {
+  flex-grow: 1;
+  padding: 0 var(--x5) var(--x5);
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  overflow-y: auto;
+  user-select: text;
+}
+
+.segment {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.segment .when {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--hero-dim);
+}
+
+.segment .said {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text2);
+}
+
+.listening {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  opacity: 0.55;
+  font-size: 12.5px;
+  color: var(--hero-dim);
+}
+
+.empty {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--hero-dim);
+}
+
+.rail-foot {
+  margin: 0;
+  padding: 14px var(--x5);
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}

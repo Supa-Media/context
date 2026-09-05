@@ -46,6 +46,8 @@ jest.mock("react-native-safe-area-context", () => ({
 const { AppFrame, useFrame } =
   require("../features/app/AppFrame") as typeof import("../features/app/AppFrame");
 const { layout } = require("../features/design/tokens") as typeof import("../features/design/tokens");
+const { bottomChromeHeight } =
+  require("../features/app/bottomChrome") as typeof import("../features/app/bottomChrome");
 const { viewportHeight } = require("../features/design/css") as typeof import("../features/design/css");
 
 /* -------------------------------------------------------------------------- */
@@ -329,6 +331,34 @@ describe("a phone", () => {
    * The same rule the keyboard accessory bar already had, one step out. See
    * `toolbarHidden` in `AppFrame`.
    */
+  /**
+   * ANYTHING FLOATING ABOVE THIS FRAME HAS TO KNOW THE TOOLBAR IS THERE.
+   *
+   * The persistent recording bar is mounted at the root of `(app)` — above every
+   * route, so a recording is visible from wherever somebody is — which puts it
+   * above this frame in the tree and out of reach of any context it provides. It
+   * is a pill of exactly these dimensions in exactly this slot, so without this
+   * height it would lie on top of the console's toolbar for the length of a
+   * meeting. `features/app/bottomChrome.ts` is the seam; this is the assertion
+   * that the frame actually publishes through it.
+   */
+  test("the frame publishes the height of its floating toolbar, and takes it back", () => {
+    const app = mountFrame(390);
+    expect(bottomChromeHeight()).toBe(layout.bottomBarHeight);
+
+    // Hidden under a panel is not there: the bar it would have to clear is not
+    // on the screen, so nothing is reserved for it.
+    app.press("frame-drawer-toggle");
+    expect(bottomChromeHeight()).toBe(0);
+    app.press("frame-scrim");
+    expect(bottomChromeHeight()).toBe(layout.bottomBarHeight);
+
+    app.unmount();
+    // A frame that has gone away leaves nothing behind, or every screen after
+    // this one draws its bar 76pt up for a toolbar that is not there.
+    expect(bottomChromeHeight()).toBe(0);
+  });
+
   test("no toolbar under an open panel, and it comes back when the panel goes", () => {
     const app = mountFrame(390);
     expect(app.find("bottom")).not.toBeNull();

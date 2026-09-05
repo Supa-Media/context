@@ -274,6 +274,15 @@ const ROUTES: Record<string, Coverage> = {
   },
 
   "(auth)/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("(auth)/_layout.tsx")) },
+  /*
+    A gate, and now also where the persistent recording bar is mounted — one
+    bar, above every route in the section, because a recording has to be visible
+    from wherever somebody is. The `gate` assertion is exactly the guard that
+    keeps it honest: while nothing is recording the bar draws nothing, so this
+    layout still paints no content of its own, and a bar that started painting a
+    band unconditionally would be a strip over somebody's screen on every route
+    under `(app)` — and this is the test that would say so.
+  */
   "(app)/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("(app)/_layout.tsx")) },
   "connect/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("connect/_layout.tsx")) },
   "invite/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("invite/_layout.tsx")) },
@@ -300,6 +309,41 @@ const ROUTES: Record<string, Coverage> = {
         null,
         createElement(Text, null, "the staff console's content"),
       ),
+  },
+
+  /*
+    Meeting capture. Three route files, and each is covered as itself rather
+    than through a chrome component: none of them is a live controller from its
+    first line — the meetings state is an external store
+    (`features/meetings/controller.ts`), which answers "nothing configured"
+    without a session or a Convex deployment, so the routes mount here exactly
+    as they do on a phone.
+
+    The layout no longer mounts the recording bar: one bar for the whole app
+    lives in `(app)/_layout.tsx`, above every route rather than above the
+    meetings section only, and two mounts would draw two bars over each other
+    here. It stays a `gate` rather than a `shell` because that is what it is —
+    a `Stack` and a background colour — and the `gate` assertion still keeps it
+    drawing no content of its own.
+  */
+  "(app)/meetings/_layout.tsx": {
+    kind: "gate",
+    mount: () => createElement(requireRoute("(app)/meetings/_layout.tsx")),
+  },
+  "(app)/meetings/index.tsx": {
+    kind: "screen",
+    mount: () => createElement(requireRoute("(app)/meetings/index.tsx")),
+  },
+  /*
+    With `useLocalSearchParams` mocked empty there is no id at all, so this
+    renders the dead-link answer — the same thing `note/[...address].tsx` is
+    mounted for here, and the only thing this route paints with no recording
+    behind it. (It is deliberately *not* the "not on this device" line: that one
+    is a claim about the store, and the store has not been read.)
+  */
+  "(app)/meetings/[id].tsx": {
+    kind: "screen",
+    mount: () => createElement(requireRoute("(app)/meetings/[id].tsx")),
   },
 
   "(app)/console/_layout.tsx": { kind: "framed" },

@@ -148,7 +148,40 @@ export function storeForBinding(binding, env, options = {}) {
   if (!entry) throw new StorageUnavailable("unknown provider");
 
   assertNoForeignCredential(binding, entry.kind);
-  return entry.build(binding, env, options);
+  return withProbedCapabilities(entry.build(binding, env, options), binding);
+}
+
+/**
+ * The capability the *bucket* was probed for, applied to the store built for it.
+ *
+ * Every adapter declares `conditionalWrite: true`, because every adapter sends
+ * `If-Match`. That is a statement about the adapter, not about the backend:
+ * Backblaze B2 and Wasabi accept the header and write anyway, which is why the
+ * capability is probed at connect time (`probeStore`) and recorded on the
+ * binding (`summarizeProbe` takes it from what the probe *observed*, never from
+ * what the adapter claimed).
+ *
+ * This file dropped that answer on the floor. Every store it built claimed
+ * conflict safety, so on a B2 or Wasabi binding a conditional write was sent,
+ * ignored, and reported as honoured — `writeSession` guarded a read that was
+ * not guarded, and every meeting ack told a client `conflictSafe: true` about a
+ * bucket that is last-writer-wins. CLAUDE.md's "probe capability at connect time
+ * and degrade honestly — never silently drop it" was being silently dropped at
+ * the one line where the two halves meet. The console's file browser already
+ * applied it by hand after calling this function, which is the second copy of a
+ * rule that belongs here once.
+ *
+ * **It only ever lowers.** A binding claiming `true` cannot talk an adapter that
+ * does not send the header into pretending it does, and a binding carrying no
+ * probed answer at all — an older control plane, a hand-built row — is treated
+ * as "not proven", which is the direction that costs a retry rather than a
+ * silently lost write.
+ */
+function withProbedCapabilities(store, binding) {
+  const declared = store?.capabilities?.conditionalWrite === true;
+  const probed = binding.capabilities?.conditionalWrite === true;
+  store.capabilities = { ...store.capabilities, conditionalWrite: declared && probed };
+  return store;
 }
 
 /**

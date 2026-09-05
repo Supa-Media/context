@@ -38,10 +38,17 @@ const SLUG_PATTERN = /^[a-z0-9-]{2,32}$/;
  * for the reason that file gives for keeping its own: no context can be called
  * any of these — `functions/lib/names.ts` reserves them — but a screen that
  * assumed the two lists stayed in sync would print a URL that resolves to a
- * route. Only the four that could pass `SLUG_PATTERN` need to be here; `t` is
+ * route. Only the five that could pass `SLUG_PATTERN` need to be here; `t` is
  * too short and `.well-known` has a dot in it, so both are already refused.
  */
-const RESERVED_FIRST_SEGMENTS = new Set(["mcp", "inbox", "oauth", "granola-webhook"]);
+const RESERVED_FIRST_SEGMENTS = new Set([
+  "mcp",
+  "inbox",
+  "oauth",
+  "granola-webhook",
+  // Meeting ingestion, `/meetings/sessions` on the gateway.
+  "meetings",
+]);
 
 /**
  * `https://mcp.context.lc/mcp` + `seyi` → `https://mcp.context.lc/@seyi/mcp`.

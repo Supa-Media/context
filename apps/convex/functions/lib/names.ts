@@ -153,6 +153,11 @@ export const RESERVED_NAMES: ReadonlySet<string> = new Set([
   // the second has a character this namespace does not allow.
   "granola-webhook",
   "mcp",
+  // Meeting ingestion runs at `/meetings/sessions` on the gateway. Claimed as a
+  // handle, `@meetings` would be a context nobody can address by name — and,
+  // because ingestion is on the apex, `meetings@` the company's own domain: the
+  // mailbox every device that records a meeting looks like it is talking to.
+  "meetings",
   "oauth",
   "static",
   "status",

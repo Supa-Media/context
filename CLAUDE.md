@@ -151,6 +151,20 @@ change that would break a non-negotiable, or work framed as a spike — each a
 statement of what is blocking, not a request for permission. Longer form:
 [repository-and-review](./docs/decisions/repository-and-review.md).
 
+**Merging deploys, and that is the point rather than a reason to hold.** `main`
+pushes the Convex functions, the gateway Worker and an OTA update on its own,
+so an agent that merges is shipping — which is what "finished" has always meant
+here. It is never grounds for stopping at a green branch to check first: the
+confirmation an outward-facing action would otherwise need was given by this
+paragraph. What stops you is unchanged — red CI, a conflict that needs a guess,
+a non-negotiable in the way. What a merge cannot do on its own is a separate
+ask and is not covered: a native build, a store submission, rotating a secret.
+
+**A session that fanned work out to several agents is not finished when the
+agents are.** Subagents do not open pull requests; whoever dispatched them owns
+the merge, and "all five reported back" is the middle of the task, not the end
+of it.
+
 ## Durable decisions
 
 Each names what a "simplification" of it would cost and the test that fails if

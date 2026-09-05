@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:"
+    />
+    <title>Context — notepad</title>
+    <link rel="stylesheet" href="./tokens.css" />
+    <link rel="stylesheet" href="./notepad.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <div class="bar-left">
+        <div class="timer"><span class="dot"></span><span id="elapsed">00:00</span></div>
+        <span class="where" id="where"></span>
+      </div>
+      <div class="bar-right">
+        <button class="ghost" id="pause">Pause</button>
+        <button class="solid" id="end">End &amp; write up</button>
+      </div>
+    </header>
+    <main class="body">
+      <section class="notes">
+        <input id="title" class="doc-title" spellcheck="false" />
+        <textarea
+          id="notes"
+          class="editor"
+          spellcheck="true"
+          placeholder="Your own notes. Type anything — this is the half nothing rewrites."
+        ></textarea>
+        <p class="foot">Your words stay yours. The write-up is generated beside them, never over them.</p>
+      </section>
+      <aside class="rail">
+        <div class="rail-head">
+          <span class="eyebrow">Live transcript</span>
+          <div class="engine"><span class="dot"></span><span id="engine">on device</span></div>
+        </div>
+        <div class="rail-body" id="transcript"></div>
+        <p class="rail-foot" id="rail-foot">
+          Audio never leaves this machine. Only text is written to your bucket.
+        </p>
+      </aside>
+    </main>
+    <script type="module" src="./notepad.js"></script>
+  </body>
+</html>

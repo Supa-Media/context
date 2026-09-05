@@ -1,8 +1,11 @@
 import { useMemo } from "react";
+import { StyleSheet, View } from "react-native";
 import { Redirect, Stack, usePathname } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useConvexAuth, useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { useColors } from "../../features/design/theme";
+import { RecordingBar } from "../../features/meetings/components/RecordingBar";
 import { useAttemptedHref } from "../../features/auth/attemptedHref";
 import { resolveProtectedRoute } from "../../features/auth/redirect";
 import { EMPTY_QUERY_SPEC } from "../../features/console/querySpec";
@@ -41,6 +44,22 @@ import {
  * onboarding on a cold load. It also never redirects away from `/welcome` or
  * `/invite` — those screens' own gates own that.
  *
+ * ## The recording bar is mounted here, and this is the only place it is
+ *
+ * A recording has to be visible from wherever somebody is — "a recording
+ * session with no visible indicator is a bug, not a mode"
+ * (`docs/decisions/meetings.md`) — and a bar mounted inside the meetings
+ * navigator is visible only on meetings screens. Here it is above every route
+ * in the section.
+ *
+ * It costs this layout nothing: the bar renders `null` while nothing is
+ * recording, and the recording lives in an external store rather than a
+ * provider, so no context is added and no screen has to know the feature
+ * exists. It is mounted **after** the `Stack` because later siblings paint over
+ * earlier ones — every react-native-web `View` opens a stacking context, so a
+ * `zIndex` set inside the stack would mean nothing out here
+ * (`docs/decisions/app-and-console.md`).
+ *
  * ## Why `useQueries` and not two `useQuery` calls
  *
  * This layout used to hold a single `useQuery` guarded by the `"skip"`
@@ -63,6 +82,7 @@ import {
  */
 export default function AppLayout() {
   const colors = useColors();
+  const insets = useSafeAreaInsets();
   const pathname = usePathname();
   /**
    * The attempted URL is carried into `/login?next=…` so a link somebody was
@@ -110,14 +130,21 @@ export default function AppLayout() {
   if (onboarding.action === "redirect") return <Redirect href={onboarding.href} />;
 
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: colors.ground },
-      }}
-    />
+    <View style={[styles.fill, { backgroundColor: colors.ground }]}>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: colors.ground },
+        }}
+      />
+      <RecordingBar bottomInset={insets.bottom} />
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  fill: { flex: 1 },
+});
 
 /**
  * Convex hands back `undefined` while loading and an `Error` when a query

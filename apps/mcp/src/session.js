@@ -213,6 +213,13 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   "t",
   ".well-known",
   "granola-webhook",
+  // Meeting ingestion. `POST /meetings/sessions` read as "the context called
+  // meetings, at the path /sessions" until this line, which is no route at all
+  // — and `index.js` worked around it by taking the raw pathname off the
+  // selector for meeting paths only. Worse than a dead route: whoever claimed
+  // the username `meetings` would have been the workspace every meeting client
+  // in the product appeared to be addressing.
+  "meetings",
 ]);
 
 /* --------------------------- session resolution --------------------------- */

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; media-src 'self' blob:"
+    />
+    <title>Context — capture</title>
+  </head>
+  <!--
+    A hidden window that holds two MediaRecorders and nothing else. It renders
+    no interface on purpose: the moment it has something to show, it is a window
+    somebody could be looking at while a microphone is open.
+  -->
+  <body>
+    <script type="module" src="./capture.js"></script>
+  </body>
+</html>

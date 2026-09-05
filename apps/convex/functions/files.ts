@@ -523,17 +523,22 @@ export const runFileOperation = internalAction({
       //
       // `timeoutFetch` is forwarded because a console request has somebody
       // waiting on it; the gateway does not need one.
-      store = storeForBinding(credential, undefined, {
-        fetchImpl: timeoutFetch,
-      }) as unknown as FileStore;
+      //
       // `S3Store` *declares* conditional writes because it sends `If-Match`.
       // Whether the backend honours it is a different question, and it was
       // already answered — at connect time, by `probeStore`, against this
       // actual bucket. Backblaze B2 and Wasabi accept the header and write
-      // anyway. Taking the declaration here would make every save look
-      // conflict-safe on exactly the backends where it is not; the observed
-      // capability makes `writeFile` fall back to a read-compare and say so.
-      store.capabilities = { conditionalWrite: credential.capabilities.conditionalWrite };
+      // anyway. Taking the declaration would make every save look conflict-safe
+      // on exactly the backends where it is not; the observed capability makes
+      // `writeFile` fall back to a read-compare and say so.
+      //
+      // That used to be applied here, on the next line, by hand — and only
+      // here, so the gateway's own stores claimed a guarantee they did not
+      // have. `storeForBinding` reads the binding's probed capability itself
+      // now, for every caller and every backend.
+      store = storeForBinding(credential, undefined, {
+        fetchImpl: timeoutFetch,
+      }) as unknown as FileStore;
     } catch {
       // The constructor's message can quote the endpoint the customer typed.
       // Nothing it says helps here, and re-throwing it would put provider text

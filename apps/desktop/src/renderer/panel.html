@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      No remote anything. A capture app that can be told to load a script from a
+      URL is a capture app somebody else can extend, and this window renders
+      window titles and calendar summaries — text other people wrote.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:"
+    />
+    <title>Context</title>
+    <link rel="stylesheet" href="./tokens.css" />
+    <link rel="stylesheet" href="./panel.css" />
+  </head>
+  <body class="panel-body">
+    <main id="panel" class="panel"></main>
+    <script type="module" src="./panel.js"></script>
+  </body>
+</html>

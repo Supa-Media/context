@@ -76,6 +76,20 @@ import {
   writesAnywhere,
 } from "./session.js";
 import { enforceOrigin, isTransportPath } from "./origin.js";
+import {
+  handleMeetings,
+  isMeetingPath,
+  matchMeetingRoute,
+  meetingScopeRefusal,
+  scopeForMeetingRequest,
+} from "./meetings/ingest.js";
+import { MeetingRefusal } from "./meetings/state.js";
+// The meeting core is imported by relative path rather than by package name:
+// this worker has no npm dependencies and no bundler resolution to lean on, so
+// the same specifier works under plain `node` in the suite and under wrangler
+// in production.
+import { parseMeetingNote, splitTranscript } from "../../../packages/meetings/src/note.js";
+import { MEETINGS_FOLDER, isMeetingNotePath } from "../../../packages/meetings/src/paths.js";
 import { indexByName, rewriteLinks } from "./links.js";
 import { createSearchBudget, NOTE_INDEX_CHAR_CAP } from "./search/maintain.js";
 import {
@@ -489,6 +503,15 @@ async function route(request, env, ctx) {
     // The workspace selector comes off the front first, so every route below
     // sees the same path whether or not the caller named a context. The slug
     // selects; it never authorizes. See splitWorkspacePath.
+    //
+    // Meeting ingestion used to be lifted out of this line — `isMeetingPath` on
+    // the raw pathname, before the selector — because `meetings` was not one of
+    // `session.js`'s RESERVED_FIRST_SEGMENTS, so `POST /meetings/sessions` read
+    // as a workspace called "meetings" selecting the path `/sessions`. That was
+    // one route defending itself against a list it was missing from, and it left
+    // the actual hole open: the name was still claimable, in a namespace where a
+    // name is also a mailbox on the apex. `meetings` is in that list now, and in
+    // the control plane's RESERVED_NAMES beside it, so this needs no exception.
     const { slug, path: afterSlug } = splitWorkspacePath(url.pathname);
 
     // Token-in-path fallback: /t/<token>/mcp, or /@slug/t/<token>/mcp.
@@ -520,7 +543,13 @@ async function route(request, env, ctx) {
     // two reasons: the preflight is refused on the same terms as the request it
     // precedes, and the refusal is produced before any token, slug, or control
     // plane answer exists to vary it.
-    if (isTransportPath(path)) {
+    //
+    // The meeting routes are guarded on the same terms. They are authenticated,
+    // state-changing and reachable from a browser, which is the whole of
+    // `isTransportPath`'s reasoning about `/inbox` — and the list itself lives
+    // in `origin.js`, so this asks the question here rather than editing
+    // another module's idea of what speaks the MCP transport.
+    if (isTransportPath(path) || isMeetingPath(path)) {
       const refusal = enforceOrigin(request, env);
       if (refusal) return refusal;
     }
@@ -565,8 +594,15 @@ async function route(request, env, ctx) {
       return new Response(null, { status: 405 });
     }
 
-    if (path === "/mcp" || path === "/inbox") {
-      if (request.method !== "POST") return new Response(null, { status: 405 });
+    // A meeting route resolves a session exactly as `/mcp` does — same token,
+    // same grant, same clamps — so it shares this block rather than growing a
+    // second copy of it. What it does not share is the method: the contract
+    // reads a session back over GET, so the POST-only gate below is asked of
+    // the MCP transport paths only, and `handleMeetings` answers a wrong method
+    // with a meeting error naming the route.
+    const meetingRoute = matchMeetingRoute(path);
+    if (path === "/mcp" || path === "/inbox" || meetingRoute) {
+      if (!meetingRoute && request.method !== "POST") return new Response(null, { status: 405 });
       const controlPlane = createControlPlane(env);
       let session;
       try {
@@ -583,8 +619,22 @@ async function route(request, env, ctx) {
           : unauthorizedResponse(origin, slug, error);
       }
 
-      const needed = path === "/inbox" ? SCOPE_CAPTURE : SCOPE_READ;
+      // A meeting write is a write, and it is checked here — before a store
+      // exists and before any lookup — so the refusal is decided without
+      // reading anything and therefore discloses nothing about what this
+      // context holds. `hasScope` reads the already-clamped set, so a `member`
+      // of somebody else's brain is refused by their role and not only by the
+      // grant.
+      const needed = meetingRoute
+        ? scopeForMeetingRequest(request.method)
+        : path === "/inbox"
+          ? SCOPE_CAPTURE
+          : SCOPE_READ;
       if (!hasScope(session, needed)) {
+        // A meeting client is owed one of the contract's error codes, not the
+        // OAuth challenge the MCP transport answers with; it names the one
+        // missing scope for the same incremental-consent reason.
+        if (meetingRoute) return meetingScopeRefusal(needed);
         return forbiddenResponse(origin, null, {
           description: `This connection does not hold the ${needed} scope.`,
           // Incremental consent: name the one scope that was missing, so the
@@ -678,6 +728,17 @@ async function route(request, env, ctx) {
       // nothing calls. That makes "a capture-only credential reaches exactly
       // one context" structural instead of a sentence someone has to keep true.
       if (path === "/inbox") return handleInbox(request, env, store, session);
+
+      // Meetings are anchored to the context the request addressed, for the
+      // reason capture is: the store is built without an opener, so a recorder
+      // left running on a laptop reaches exactly one context and a meeting
+      // cannot be filed into a brain the URL did not name. The acting identity
+      // rides on the store so the audit line for a written meeting says who,
+      // and not merely at what tier.
+      if (meetingRoute) {
+        store.actor = actorFor(session);
+        return handleMeetings(request, path, store, session, { publishNote: publishMeetingNote });
+      }
 
       /**
        * Open one of the *other* contexts this connection covers.
@@ -1924,6 +1985,43 @@ function baseToolDefinitions() {
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
+      name: "list_meetings",
+      description:
+        "List the meetings the user recorded — what they were called, when, how long they ran and " +
+        "who was there, newest first. Reach for this whenever a question turns on something that " +
+        "was said in a call rather than written down. Each entry carries the note path to pass to " +
+        "read_meeting.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          limit: { type: "integer", minimum: 1, maximum: 25, description: "Default 10" },
+        },
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    {
+      name: "read_meeting",
+      description:
+        "Read one recorded meeting: its summary, and the notes the user typed while it was " +
+        "happening. The full transcript of what was said is held at the end of the same note and " +
+        "is left out by default because it is long — pass transcript: true when the exact words " +
+        "matter: a quote, who said what, or something the summary skipped.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "A meeting note path from list_meetings" },
+          transcript: {
+            type: "boolean",
+            description: "Include the verbatim transcript. Omitted by default; it is long.",
+          },
+        },
+        required: ["path"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    {
       name: "read_image",
       description:
         "Fetch one image that a note references. Images live in an opaque store that is never listed or searched, so an image is reachable only through a note you can already read: pass that note's path and the image reference as it appears in it. Returns the image inline.",
@@ -2266,6 +2364,10 @@ async function callTool(name, args, store, scope) {
       return toolListNotes(store, scope, rules, overrides, args.prefix);
     case "read_note":
       return toolReadNote(store, scope, rules, overrides, args.path);
+    case "list_meetings":
+      return toolListMeetings(store, scope, rules, overrides, args.limit);
+    case "read_meeting":
+      return toolReadMeeting(store, scope, rules, overrides, args);
     case "read_image":
       return toolReadImage(store, scope, rules, overrides, args);
     case "write_note":
@@ -4980,6 +5082,161 @@ function formatInboxAttendee(value) {
 async function sha256Hex(value) {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/* -------------------------------- meetings -------------------------------- */
+
+/**
+ * Write one meeting note into the customer's bucket.
+ *
+ * `src/meetings/` decides what a meeting is, what Markdown it renders to, and
+ * which path it claims. This decides what *writing a note* means here, and it
+ * is deliberately the only thing the meeting handlers are given: a second
+ * answer to "what visibility does a new note get" is where privacy bugs come
+ * from, so the meeting path gets the same three rules every other write obeys.
+ *
+ *  - **A meeting note is a note.** Its visibility is `privacy.md`'s to decide,
+ *    by folder default and exact override, exactly as `write_note`'s is. There
+ *    is no meeting-shaped bypass and nothing here consults the session's own
+ *    idea of who was in the room.
+ *  - **A personal connection's new note is private**, and the override is
+ *    written *before* the content, so there is no window in which the words are
+ *    in the bucket at a wider visibility than they will end up at.
+ *  - **A team connection may only create team content, in a folder whose
+ *    default is already team.** The same two refusals `toolWriteNote` gives,
+ *    for the same reason: a connection that cannot see private content must not
+ *    be able to create it either, and a destination outside the team-writable
+ *    surface is refused without saying what is there.
+ *
+ * The audit record carries the acting identity through `store.actor`, the path,
+ * the visibility and how many segments the transcript held — and no title, no
+ * attendees and no transcript. What was said in a meeting is note content, and
+ * `.audit/` is a record of actions on paths.
+ */
+async function publishMeetingNote(store, scope, { path, markdown, segmentCount }) {
+  const notePath = normalizePath(path);
+  if (!notePath || !notePath.endsWith(".md")) {
+    throw new MeetingRefusal(400, "invalid", "that is not a note path");
+  }
+  if (isPlumbing(notePath)) throw new MeetingRefusal(400, "invalid", "that path is reserved");
+
+  const privacy = await loadPrivacyState(store);
+  if (privacy.error) {
+    // Failing closed, and saying so as a retryable failure: the note is not
+    // written, the client keeps its log, and nothing is filed at a visibility
+    // this gateway could not work out.
+    throw new MeetingRefusal(
+      503,
+      "unavailable",
+      "this context's privacy manifest could not be read, so nothing was written"
+    );
+  }
+  const { rules, overrides } = privacy;
+  const visibility = scope === "private" ? "private" : "team";
+  if (scope === "team") {
+    if (visibilityOf(notePath, rules) !== "team" || overrideFor(overrides, notePath) === "private") {
+      throw new MeetingRefusal(
+        403,
+        "forbidden",
+        "this connection cannot write a meeting note to that destination"
+      );
+    }
+  }
+
+  if (visibility === "private") await persistExactVisibility(store, notePath, "private", rules);
+  const put = await store.put(notePath, markdown);
+  if (visibility === "team") await persistExactVisibility(store, notePath, "team", rules);
+  await recordChange(store, "meeting_note", scope, [notePath], {
+    etag: put.etag,
+    visibility,
+    team_visible: visibility === "team",
+    segments: segmentCount,
+  });
+  return { path: notePath, etag: put.etag, visibility };
+}
+
+/**
+ * The meetings this connection can see, newest first.
+ *
+ * Read off the **notes**, never off an index: the files are canonical and
+ * `isMeetingNotePath` recognises one, so there is no second list to fall out of
+ * step with what is actually in the bucket. A meeting whose note its owner
+ * moved out of the folder stops being listed here and is still a note — which
+ * is the correct behaviour for a product whose whole claim is that the files
+ * are theirs.
+ *
+ * `canSee` filters before anything is read, so a team connection cannot learn
+ * that a private meeting exists by counting.
+ */
+async function toolListMeetings(store, scope, rules, overrides, limitArg) {
+  const limit = Number.isInteger(limitArg) ? limitArg : 10;
+  if (limit < 1 || limit > 25) return toolError("limit must be between 1 and 25");
+  const visible = (await listAllKeys(store, `${MEETINGS_FOLDER}/`))
+    .filter(({ key }) => isMeetingNotePath(key) && canSee(key, scope, rules, overrides))
+    // The path opens with the meeting's own UTC date, so newest-first is the
+    // reverse key order and costs no reads.
+    .sort((a, b) => b.key.localeCompare(a.key))
+    .slice(0, limit);
+  if (!visible.length) return toolText("(no meetings recorded yet)");
+
+  const rows = await mapInBatches(visible, 10, async ({ key }) => {
+    const object = await store.get(key);
+    if (!object) return null;
+    const note = parseMeetingNote(await object.text());
+    const front = note.frontmatter || {};
+    const attendees = Array.isArray(front.attendees)
+      ? front.attendees.join(", ")
+      : String(front.attendees || "");
+    const parts = [
+      String(front.started || "").slice(0, 10) || "undated",
+      note.title || "(untitled meeting)",
+    ];
+    if (front.duration) parts.push(String(front.duration));
+    if (attendees) parts.push(attendees);
+    return `${parts.join(" · ")}\n  ${key}`;
+  });
+
+  return toolText(
+    `${rows.filter(Boolean).join("\n")}\n\n` +
+      "Pass a path to read_meeting. Transcripts are held in the same note and omitted " +
+      "unless you ask for them."
+  );
+}
+
+/**
+ * One meeting note, with the transcript left behind unless it is asked for.
+ *
+ * One meeting is one file — the owner decided that, and the transcript is
+ * appended to the end of the same note under `## Transcript` rather than living
+ * in a sibling. The consequence is handled here rather than pushed onto the
+ * caller: forty minutes of speech is about forty kilobytes, so returning the
+ * whole file by default would spend a model's context on a verbatim record
+ * nobody asked for. `splitTranscript` finds the boundary in one linear pass,
+ * and the answer says how much was dropped and how to ask for it — a model that
+ * is not told the transcript exists cannot decide it needs it.
+ *
+ * Every refusal is the same two words `read_note` uses, for the same reason: a
+ * meeting nobody may see and a path that never existed are one answer.
+ */
+async function toolReadMeeting(store, scope, rules, overrides, args) {
+  const path = normalizePath(args.path);
+  if (!path) return toolError("invalid path");
+  if (!canSee(path, scope, rules, overrides)) return toolError("not found");
+  const object = await store.get(path);
+  if (!object) return toolError("not found");
+  const text = await object.text();
+  const header =
+    `etag: ${object.etag}\npath: ${path}\n` +
+    `visibility: ${effectiveVisibility(path, rules, overrides)}`;
+
+  if (args.transcript === true) return toolText(`${header}\n\n${text}`);
+  const { head, transcript } = splitTranscript(text);
+  if (transcript === null) return toolText(`${header}\n\n${head.trimEnd()}`);
+  return toolText(
+    `${header}\n\n${head.trimEnd()}\n\n` +
+      `[transcript omitted: ${transcript.length} characters of what was said. ` +
+      "Call read_meeting again with transcript: true to include it.]"
+  );
 }
 
 /* --------------------------- Granola webhooks ---------------------------- */
