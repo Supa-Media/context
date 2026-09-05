@@ -109,6 +109,27 @@ const stateValidator = v.union(
  * Readable by any member — knowing how a context's search is served is not
  * privileged — but `canChange` is false for anyone but an owner, and the
  * mutations below re-derive that server-side rather than trusting it.
+ *
+ * THE BACKFILL COUNTERS ARE OWNER-ONLY, and they are the exception that shows
+ * why the sentence above needs a limit. "How search is served" covers `state`
+ * and `canChange`; it does not cover `notesIndexed` and `notesPending`, which
+ * are not a property of the search at all but a CENSUS OF THE NOTES — and the
+ * index they count holds private notes, as `fastSearch.test.ts` says in its
+ * first paragraph. A member who cannot read a private note has no business
+ * reading a total that includes it, still less watching that total move as
+ * private notes are written and deleted; SECURITY.md counts inferring that a
+ * private note exists as a bug in its own right.
+ *
+ * Gated on `role === "owner"` and deliberately NOT on `canChange`, which is
+ * ownership AND entitlement: an owner whose context is not entitled still owns
+ * the notes and still gets their own progress figures. Today the two cannot
+ * come apart — `fastSearchEntitled` is true for both workspace kinds and the
+ * schema refuses a third — so that choice is unpinnable by any test, which
+ * `fastSearch.test.ts` records rather than pretending otherwise.
+ *
+ * `error` is served to every member and that is fine, though the schema calls
+ * it owner-facing: it is always `messageFor(code)` from a closed set of our own
+ * sentences, never a provider's text and never a path or a credential.
  */
 export const status = query({
   args: { workspaceId: v.id("workspaces") },
@@ -129,11 +150,13 @@ export const status = query({
     );
     const binding = await bindingFor(ctx, args.workspaceId);
 
+    const isOwner = membership.role === "owner";
+
     return {
       state: fastSearchState(workspace, binding),
-      canChange: membership.role === "owner" && fastSearchEntitled(workspace),
-      notesIndexed: binding?.notesIndexed,
-      notesPending: binding?.notesPending,
+      canChange: isOwner && fastSearchEntitled(workspace),
+      notesIndexed: isOwner ? binding?.notesIndexed : undefined,
+      notesPending: isOwner ? binding?.notesPending : undefined,
       error: binding?.error,
       optedInAt: binding?.optedInAt,
     };

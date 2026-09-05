@@ -314,7 +314,11 @@ Three rules the console follows and does not re-derive:
 
 - **`canChange` is the server's answer.** `fastSearch.status` is readable by any
   member — how a context's search is served is not privileged — and it says
-  whether *this* caller may change it. The console attaches the mutations only
+  whether *this* caller may change it. "How search is served" is `state` and
+  `canChange` and stops there: the backfill counters are a census of the notes,
+  the index counts private ones, and a member who cannot read a note must not
+  read a total that includes it or watch that total move. They are owner-only,
+  in the query rather than in the console. The console attaches the mutations only
   where it said yes, so a member sees the state and no switch rather than a
   button whose only outcome is `INSUFFICIENT_ROLE`.
 - **An unanswered status is not `off`.** `status: null` is "not asked, or not
