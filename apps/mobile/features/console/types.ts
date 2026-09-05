@@ -4,6 +4,7 @@ import type { ViewerIdentity } from "./identity";
 import type { IngestionState } from "./ingestion/settings";
 import type { MapGraph } from "./map/layout";
 import type { MembersView } from "./members/members";
+import type { FastSearchView } from "./search/fastSearch";
 import type { ConnectFormValues } from "./storage/connect";
 
 /**
@@ -251,6 +252,17 @@ export interface ConsoleData {
    * the actual editor without being able to offer a control that would lie.
    */
   files: FileBrowser;
+  /**
+   * How the selected context's search is served, and the owner-only switch
+   * that decides it.
+   *
+   * Its `enable`/`disable` are absent for anyone the server would refuse and
+   * in the demo — the same rule as `storageActions`, expressed the same way.
+   * `status` is `null` until the subscription answers, and that is deliberately
+   * not an `off`: a console that reads a pending answer as "off" tells an
+   * owner their index is gone on every reload.
+   */
+  fastSearch: FastSearchView;
   /**
    * Who can reach the selected context, and the owner-only controls to change
    * it. Its `actions` are absent for anyone who is not the owner, and in the

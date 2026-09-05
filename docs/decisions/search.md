@@ -296,6 +296,49 @@ invisible to the whole suite. It fails closed on an unrecognized kind, which is
 both a real property and the only handle a test has on that half until a paid
 tier arrives.
 
+### The switch lives in a context's settings, and the server owns who may throw it
+
+`enable` and `disable` shipped before anything called them, which made the
+opt-in a decision nobody could take: `npx convex run` is unauthenticated, so
+the owner-only mutation had no caller at all and the feature was configured and
+unreachable. The switch is now the `Search` section of
+`/console/@:slug/settings`, beside storage and ingestion, which is one screen in
+Expo Router's shared tree and therefore the same control on a phone and in a
+browser rather than two that can drift.
+
+Per context and not per account, for the reason the whole settings pane is per
+context: two brains can be answered from two different places, and a switch
+above the context picker would claim there is one setting for all of them.
+
+Three rules the console follows and does not re-derive:
+
+- **`canChange` is the server's answer.** `fastSearch.status` is readable by any
+  member — how a context's search is served is not privileged — and it says
+  whether *this* caller may change it. The console attaches the mutations only
+  where it said yes, so a member sees the state and no switch rather than a
+  button whose only outcome is `INSUFFICIENT_ROLE`.
+- **An unanswered status is not `off`.** `status: null` is "not asked, or not
+  answered yet" and draws no switch, the same three-valued treatment
+  `ConsoleData.storage` needs for its binding; collapsing it to `off` would tell
+  an owner their index is gone on every reload.
+- **A state this build does not know closes the card down.** A newer control
+  plane naming a fifth state falls to `unavailable` — an explanation and no
+  control — never to `off`, which would offer to provision against a vocabulary
+  we do not share, and never to `on`, which would claim a copy of somebody's
+  notes exists.
+
+Turning it **on** is one press and turning it **off** is two, which is the
+reverse of the usual instinct and follows from what each costs: on is undone by
+off, while off deletes an index that took a backfill to build. The armed state
+says what the second press destroys and what survives it, at the moment of the
+press.
+
+The tests that fail if this is reversed:
+`apps/mobile/__tests__/fastSearchSettings.test.ts` for the rules above and
+`apps/mobile/__tests__/fastSearchCard.test.ts` for the presses. Sabotaged one at
+a time: dropping `canChange` from the guard, falling back to `off` on an unknown
+state, and making Off a single press were each caught.
+
 ### Corpus statistics are per tenant, which is why it is a database each
 
 One D1 database per context, never a shared table with a tenant column, and the

@@ -17,6 +17,7 @@ import { capabilitiesForRole } from "./capabilities";
 import { visibilityTierForRole } from "./visibility";
 import { useIngestionSettings } from "./ingestion/useIngestionSettings";
 import { useMembers } from "./members/useMembers";
+import { useFastSearch } from "./search/useFastSearch";
 import { toBindStorageArgs, type Provider } from "./storage/connect";
 import { atName, contextTone, describeScopes, formatCount, grantTone, lastUsedLabel } from "./format";
 import { ownPersonalContext, viewerIdentity } from "./identity";
@@ -410,6 +411,13 @@ export function useLiveConsoleData(): ConsoleData {
     role: selected?.role,
   });
 
+  // Read for every member — how a context's search is served is not privileged
+  // — and the switch attached only where the server said `canChange`. That is
+  // the hook's own rule rather than this file's, so `isOwner` is deliberately
+  // not passed: `status` answers the authorization question with the server's
+  // answer, and a second one derived here could disagree with it.
+  const fastSearch = useFastSearch({ workspaceId: selectedContextId });
+
   const files = useFileBrowser({
     slug: selected?.slug,
     workspaceId: selectedContextId,
@@ -534,6 +542,7 @@ export function useLiveConsoleData(): ConsoleData {
     ingestion,
     files,
     members,
+    fastSearch,
     // A query that threw is not "still loading". Leaving the console spinning
     // forever on an answer that already arrived — and is an error — is the
     // quieter version of the blank page this replaced.
