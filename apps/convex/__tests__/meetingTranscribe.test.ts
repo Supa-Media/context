@@ -93,6 +93,8 @@ import {
   callerHash,
 } from "../functions/meetings/transcribe";
 import schema from "../schema";
+// The other half of the id bound, from the package that enforces it at the merge.
+import { MAX_SEGMENT_ID_CHARS } from "../../../packages/meetings/src/transcript.js";
 import {
   asUser,
   captureError,
@@ -717,9 +719,7 @@ describe("who the worker is told is asking", () => {
 /**
  * THE CHUNK ID IS A CLIENT-SUPPLIED STRING THAT BECOMES A SEGMENT ID.
  *
- * `packages/meetings/src/transcript.js`'s `normalizeSegment` accepts an
- * unbounded segment id — it trims, checks for non-empty, and stores — and the
- * ids this action mints are `${chunkId}-${index}`. So `chunkId` is where that
+ * The ids this action mints are `${chunkId}-${index}`, and `chunkId` is where that
  * bound belongs: it is this contract's own argument, arriving from a client,
  * and bounding it here is cheaper and more honest than teaching every consumer
  * downstream to distrust what we handed it.
@@ -1219,5 +1219,38 @@ describe("the audio goes nowhere", () => {
     // The transcript is note content, and the standards say logs never carry
     // it either.
     expect(logged).not.toContain("something said out loud");
+  });
+});
+
+/**
+ * THE TWO ID BOUNDS ARE COUPLED, AND NOTHING ELSE SAYS SO.
+ *
+ * `MAX_CHUNK_ID_LENGTH` bounds what a client may send here.
+ * `MAX_SEGMENT_ID_CHARS` bounds what `normalizeSegment` will merge, over in
+ * `packages/meetings`, which has its own test runner and would not notice a
+ * change made in this file.
+ *
+ * The segment ids this action mints are `${chunkId}-${index}`, so the longest
+ * one is `MAX_CHUNK_ID_LENGTH` plus a separator plus the index digits. If that
+ * ever exceeds `MAX_SEGMENT_ID_CHARS`, every segment from this path is refused
+ * at the merge — and refused *silently* from the user's seat, because the ack
+ * carries a `rejected` count that no client reads yet. The meeting would simply
+ * produce an empty transcript, which `capture/audio.ts` calls the one outcome
+ * this feature exists to prevent.
+ *
+ * So the relationship is asserted rather than described. `segmentsPerRequest` is
+ * 1,000, so four index digits is the most a real batch produces; eight is twice
+ * that and still leaves the assertion generous.
+ */
+describe("the chunk id bound and the segment id bound", () => {
+  const INDEX_DIGITS = 8;
+
+  test("a chunk id at its own limit still fits inside the segment id limit", () => {
+    const longestMintedId = MAX_CHUNK_ID_LENGTH + "-".length + INDEX_DIGITS;
+    expect(longestMintedId).toBeLessThanOrEqual(MAX_SEGMENT_ID_CHARS);
+  });
+
+  test("and the headroom is real rather than exact, so neither may be raised blind", () => {
+    expect(MAX_SEGMENT_ID_CHARS - MAX_CHUNK_ID_LENGTH).toBeGreaterThanOrEqual(32);
   });
 });

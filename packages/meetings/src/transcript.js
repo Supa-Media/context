@@ -41,8 +41,38 @@ export const UNKNOWN_SPEAKER = "Speaker";
  * surface at every tier including the owner's, so that growth is invisible to
  * the person whose storage bill it lands on.
  *
- * 200 is far above any real scheme — the gateway's own ids are a `mtg_` chunk
- * id plus an index — and far below anything that matters in aggregate.
+ * **Why 200, and what it is coupled to.** The longest id any real client mints
+ * is the transcription path's: `functions/meetings/transcribe.ts` builds
+ * `` `${chunkId}-${index}` `` from a `chunkId` its own validator caps at
+ * `MAX_CHUNK_ID_LENGTH` = 128, so ~133 characters. The recorders mint far
+ * shorter ones (`<Date.now()>-<index>`, and the desktop's session id plus a
+ * padded index, ~31). 200 leaves 67 characters of headroom over the longest
+ * real scheme and is far below anything that matters in aggregate.
+ *
+ * **That coupling is not enforced by the type system and it is one edit from
+ * biting.** Raise `MAX_CHUNK_ID_LENGTH` past 192 and every segment from the
+ * transcription path starts being refused here — silently, from the user's
+ * seat, because the ack reports `rejected` and no client reads that field yet.
+ * A meeting would simply produce an empty transcript, which is the one outcome
+ * `capture/audio.ts` says this feature exists to prevent. The two constants
+ * live in different packages with separate test runners, so
+ * `apps/convex/__tests__/meetingTranscribe.test.ts` asserts the relationship
+ * between them; that assertion is the guard, not this paragraph.
+ *
+ * **Why a refusal is in the shared core at all**, when `state.js` says refusing
+ * is the gateway's job and a phone folding its own log offline "has no business
+ * refusing its owner's meeting": because this is not a policy about a caller,
+ * it is the merge key's own grammar. A key too long to be a key is malformed in
+ * the same way an empty one is, and the check sits beside that one. Every
+ * *authorization* refusal stays where that comment puts it.
+ *
+ * **One edge, stated rather than glossed.** `mergeSegments` re-normalizes the
+ * rows it already holds, so a record that somehow already contains an oversized
+ * id loses that row on the next unrelated append, and `countUnusable` looks only
+ * at the incoming batch — so nothing counts it. In-flight records are
+ * short-lived and no shipped client mints such an id, so this is a caveat and
+ * not a live loss; it is written down because it is the one case where this
+ * guard does what its own rationale calls worse than the alternative.
  */
 export const MAX_SEGMENT_ID_CHARS = 200;
 
