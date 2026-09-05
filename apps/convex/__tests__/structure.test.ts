@@ -1748,17 +1748,23 @@ export const peek = action({
  */
 describe("the gateway's HTTP routes", () => {
   /**
-   * The twelve routes the contracts document, by the path each is served at.
+   * The fourteen routes the contracts document, by the path each is served at.
    *
-   * Nine from `apps/mcp/src/controlPlane.js` (the MCP gateway) and three from
+   * Eleven from `apps/mcp/src/controlPlane.js` (the MCP gateway) and three from
    * `infra/email-worker/src/controlPlane.ts` (the Email Worker). A worker that
    * POSTs to a path this deployment does not serve gets a 404 and fails closed,
    * which is exactly what happened before the ingest three existed — so pinning
    * the paths here is what keeps "the contract" and "the routes" the same list.
+   *
+   * `/gateway/usage` had been served and called for some time without being
+   * pinned here, which is the failure this list exists to prevent, one route
+   * later. It is listed now, along with the search-index progress route.
    */
   const CONTRACT_ROUTES: Record<string, string> = {
     "/gateway/session": "gatewaySession",
     "/gateway/binding": "gatewayBinding",
+    "/gateway/search-index/progress": "gatewaySearchIndexProgress",
+    "/gateway/usage": "gatewayUsage",
     "/gateway/clients/register": "gatewayClientsRegister",
     "/gateway/clients/get": "gatewayClientsGet",
     "/gateway/authorize/start": "gatewayAuthorizeStart",

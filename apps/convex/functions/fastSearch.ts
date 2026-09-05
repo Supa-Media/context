@@ -461,6 +461,92 @@ export const recordProvisionResult = internalMutation({
   },
 });
 
+/**
+ * The gateway reporting how far its projection has got.
+ *
+ * `/gateway/search-index/progress` is the wire; this is the policy, and the
+ * split is the point. **The control plane owns this row.** The gateway knows
+ * how many notes it has written and nothing else — not whether the owner has
+ * since turned the feature off, not whether a release is in flight, not whether
+ * the row it is reporting about is the row it was handed a credential for ten
+ * minutes ago. So the report is data, and every question about whether it may
+ * be applied is answered here.
+ *
+ * Three refusals, and each is a way somebody's decision could be undone by a
+ * job that outlived it:
+ *
+ *  - **Not opted in.** `searchProjectionState` is the same composed gate the
+ *    binding response uses, so a context that never asked, one whose owner
+ *    opted out, and one that is not entitled are refused by the function that
+ *    decided the credential should never have been handed over either. Two
+ *    call sites, one rule; a second copy of it is a second place for them to
+ *    disagree about what "on" means.
+ *  - **Never resurrect a `releasing` row.** That row is `optedIn: false` and
+ *    exists only so the delete can find its database. A progress report is the
+ *    late arrival of exactly the shape `recordProvisionResult` already refuses:
+ *    a success for something somebody asked us to destroy. Writing counters
+ *    onto it would be harmless; moving it to `ready` would put a database
+ *    mid-delete back into service, so both are refused together rather than
+ *    the interesting one alone.
+ *  - **`ready` is a transition, not an assignment.** It is reached only from
+ *    `backfilling` — a `failed` or `provisioning` row is not something a
+ *    backfill report may declare finished, and neither is a row that is not
+ *    serving. Idempotent from `ready`, because a gateway that finishes twice
+ *    must not be an error.
+ *
+ * The counters are stored raw and the percentage is derived on read
+ * (`backfillPercent`), so a total that shrinks mid-backfill cannot leave a
+ * ratio behind that was true of a corpus that no longer exists.
+ *
+ * `applied` is for tests and for this deployment's own logs. The route answers
+ * identically either way, because a caller holding the gateway secret must not
+ * be able to use this as an oracle for which contexts have opted in.
+ */
+export const recordProjectionProgress = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    notesIndexed: v.number(),
+    notesPending: v.number(),
+    /** The gateway saying the backfill is finished. */
+    ready: v.boolean(),
+  },
+  returns: v.object({ applied: v.boolean() }),
+  handler: async (ctx, args): Promise<{ applied: boolean }> => {
+    // Re-checked here and not only at the door. The door is one caller; this is
+    // the invariant, and a count that is not a non-negative integer would be
+    // rendered as a percentage of something.
+    if (
+      !Number.isInteger(args.notesIndexed) ||
+      !Number.isInteger(args.notesPending) ||
+      args.notesIndexed < 0 ||
+      args.notesPending < 0
+    ) {
+      return { applied: false };
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (workspace === null) return { applied: false };
+    const binding = await bindingFor(ctx, args.workspaceId);
+    // The same gate that decided the credential could be handed over. A row
+    // that is `releasing`, `failed`, `provisioning`, opted out or unentitled is
+    // refused here, by the one function that knows what "serving" means.
+    const state = searchProjectionState(workspace, binding);
+    if (state === null) return { applied: false };
+
+    await ctx.db.patch(binding!._id, {
+      notesIndexed: args.notesIndexed,
+      notesPending: args.notesPending,
+      // Only `backfilling` → `ready`. `state` is one of two values here, so a
+      // report of `ready` against an already-ready row keeps it ready and a
+      // report without `ready` never demotes one — a gateway that reports
+      // progress after finishing must not restart the spinner.
+      status: args.ready ? "ready" : binding!.status,
+      updatedAt: Date.now(),
+    });
+    return { applied: true };
+  },
+});
+
 /** The release finished: the remote database is gone, so the row goes too. */
 export const forgetIndex = internalMutation({
   args: { workspaceId: v.id("workspaces") },

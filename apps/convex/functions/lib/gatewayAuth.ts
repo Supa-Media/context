@@ -327,6 +327,25 @@ export function timestampField(
     : null;
 }
 
+/**
+ * A non-negative integer count, or `null` for anything else.
+ *
+ * Strict on purpose. A count arrives from the gateway and is written straight
+ * onto a row an owner reads as progress, so `-1`, `1.5`, `NaN`, `Infinity` and
+ * `"12"` are all refusals rather than things to coerce — a coerced count is a
+ * progress bar that runs backwards, and `Infinity` stored is a row that can
+ * never be rendered again.
+ */
+export function countField(
+  body: Record<string, unknown>,
+  key: string,
+): number | null {
+  const value = body[key];
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : null;
+}
+
 /** A 64-character lowercase-hex token hash, or `null`. */
 export function tokenHashField(
   body: Record<string, unknown>,

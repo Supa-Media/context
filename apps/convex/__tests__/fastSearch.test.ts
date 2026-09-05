@@ -41,6 +41,7 @@
  *   `searchProjectionState` dropping the `fastSearchActive` gate    0 → 1
  *   `searchProjectionState` dropping the `databaseId` check         0 → 1
  *   `searchProjectionState` treating every status as `ready`            2
+ *   `recordProjectionProgress` trusting the door to validate counts   0 → 1
  *
  * **Each note below names its row.** "The last one" was how two of these read
  * until rows were appended beneath them, at which point both pointed at
@@ -98,6 +99,13 @@
  * v.string()` refuses `undefined`, the call throws, and `openStorageBinding`'s
  * catch turns that into no index. The behaviour was right and the guard was
  * unproved, which is the same thing this file says about a green suite.
+ *
+ * **`recordProjectionProgress` trusting the door to validate counts** was zero
+ * against the route tests, because `countField` refuses the same values one
+ * layer up and nothing was calling the mutation directly. The door is one
+ * caller; the mutation is the invariant, and a guard only the door can reach is
+ * a guard that the second caller will not have. The test below calls it
+ * directly, which is the only thing that can tell the two layers apart.
  *
  * **`enable` returning early for a `releasing` row** is why those are two tests
  * and not one. It reddens the re-enable-mid-release test and `forgetIndex
@@ -1020,6 +1028,62 @@ describe("opting out while provisioning is in flight", () => {
     );
     expect(applied.applied).toBe(false);
     expect(await bindingRow(t, workspaceId)).toBeNull();
+  });
+
+  /**
+   * THE MUTATION IS THE INVARIANT, NOT THE ROUTE.
+   *
+   * `/gateway/search-index/progress` refuses a malformed count with
+   * `countField` before this is ever called, so every route test passes with
+   * this guard deleted. That is the shape this repository keeps finding: a
+   * green suite over an unchecked guard, and the second caller — a cron, a
+   * console repair, whatever needs to reconcile a stuck backfill — is the one
+   * that will not have the door's validation in front of it.
+   *
+   * Called directly, which is the only way to tell the two layers apart.
+   *
+   * SABOTAGE: delete the integer check from `recordProjectionProgress` and this
+   * fails (1); every route test stays green.
+   */
+  test("the progress mutation refuses a malformed count on its own", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "progress-direct");
+    await asUser(t, owner).mutation(api.functions.fastSearch.enable, {
+      workspaceId,
+    });
+    const row = await bindingRow(t, workspaceId);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(row!._id, {
+        status: "backfilling",
+        databaseId: "db-direct",
+        notesIndexed: 10,
+        notesPending: 5,
+      });
+    });
+
+    for (const counts of [
+      { notesIndexed: -1, notesPending: 0 },
+      { notesIndexed: 0, notesPending: -1 },
+      { notesIndexed: 1.5, notesPending: 0 },
+      { notesIndexed: 0, notesPending: 0.25 },
+    ]) {
+      const result = await t.mutation(
+        internal.functions.fastSearch.recordProjectionProgress,
+        { workspaceId, ready: false, ...counts },
+      );
+      expect(result.applied, `${JSON.stringify(counts)} was applied`).toBe(false);
+      const after = await bindingRow(t, workspaceId);
+      expect(after?.notesIndexed).toBe(10);
+      expect(after?.notesPending).toBe(5);
+    }
+
+    // Non-vacuity: a well-formed report on the same row is applied.
+    const ok = await t.mutation(
+      internal.functions.fastSearch.recordProjectionProgress,
+      { workspaceId, notesIndexed: 12, notesPending: 3, ready: false },
+    );
+    expect(ok.applied).toBe(true);
+    expect((await bindingRow(t, workspaceId))?.notesIndexed).toBe(12);
   });
 
   test("forgetIndex refuses a row that was re-enabled", async () => {

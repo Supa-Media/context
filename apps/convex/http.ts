@@ -100,6 +100,7 @@ import { logIngest } from "./functions/lib/ingestLog";
 import {
   badRequest,
   consentUrlFor,
+  countField,
   json,
   nullableStringField,
   randomOpaqueToken,
@@ -306,6 +307,87 @@ export const gatewayBinding = gatewayRoute(async (ctx, body) => {
   // key being **absent**, not present and null. A gateway on an older build
   // reads the same bytes it always did.
   return json({ binding: opened.binding, searchIndex: opened.searchIndex });
+});
+
+/* -------------------------------------------------------------------------- */
+/* 2b. POST /gateway/search-index/progress — the backfill reporting in        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The gateway telling us how far its projection has got.
+ *
+ * ## Proof #1 only, and what that costs
+ *
+ * The gateway secret and nothing else. There is no user access token here
+ * because there is nobody present: a backfill runs behind a response and
+ * outlives the request that started it, which is the same reason
+ * `/gateway/ingest/*` cannot present a user's proof either.
+ *
+ * So a holder of the gateway secret can, for a workspace it names: write two
+ * integers onto a row, and move one that is already backfilling to `ready`. It
+ * cannot read anything, cannot learn whether the id it named exists, cannot
+ * learn whether that context opted in, and cannot obtain a credential. **This
+ * route returns the same bytes for every input** — an accepted report and a
+ * refused one are indistinguishable — for the reason `/gateway/usage`'s header
+ * gives about naming a context in a request that cannot read one.
+ *
+ * The refusals are not here. They are in `recordProjectionProgress`, which owns
+ * the row: a context that is not opted in, a row mid-release, an unentitled
+ * one, and a `failed` or `provisioning` one are all refused there, by the same
+ * composed gate that decided whether the credential could be handed over in the
+ * first place. A route that decided for itself would be a second opinion about
+ * what "on" means.
+ *
+ * ## Why the counters are validated at the door as well
+ *
+ * `notesIndexed` and `notesPending` are rendered to an owner as a percentage.
+ * A negative, a fraction, an `Infinity` or a string is refused rather than
+ * coerced, here *and* in the mutation — the door is one caller and the mutation
+ * is the invariant.
+ *
+ * `state` is optional and its only accepted value is `"ready"`. Anything else,
+ * including a state this build does not know, is the same answer as no state at
+ * all: a vocabulary we do not share must never move a row.
+ */
+export const gatewaySearchIndexProgress = gatewayRoute(async (ctx, body) => {
+  // Built once, returned on every path. Assembling the answer in one place is
+  // what makes "every input is answered identically" a property of the code
+  // rather than of three `return`s that happen to agree today.
+  const answered = () => json({ ok: true });
+
+  const workspaceId = stringField(body, "workspaceId");
+  const notesIndexed = countField(body, "notesIndexed");
+  const notesPending = countField(body, "notesPending");
+  const state = nullableStringField(body, "state");
+  if (
+    workspaceId === null ||
+    notesIndexed === null ||
+    notesPending === null ||
+    !state.ok ||
+    (state.value !== null && state.value !== "ready")
+  ) {
+    return answered();
+  }
+
+  try {
+    await ctx.runMutation(
+      internal.functions.fastSearch.recordProjectionProgress,
+      {
+        // Cast at the boundary and checked by the validator on the other side
+        // of `runMutation`, exactly as `/gateway/usage` does it: a malformed id
+        // is a rejected call, not a stored row.
+        workspaceId: workspaceId as Id<"workspaces">,
+        notesIndexed,
+        notesPending,
+        ready: state.value === "ready",
+      },
+    );
+  } catch {
+    // A malformed id, or anything else. Swallowed and answered identically,
+    // because the difference between "that is not an id" and "that context did
+    // not want this" is the oracle this route must not be.
+  }
+  return answered();
 });
 
 /* -------------------------------------------------------------------------- */
@@ -926,6 +1008,11 @@ export const gatewayUsage = gatewayRoute(async (ctx, body) => {
 // put a token in a URL — in a log, in a referrer, in browser history.
 http.route({ path: "/gateway/session", method: "POST", handler: gatewaySession });
 http.route({ path: "/gateway/binding", method: "POST", handler: gatewayBinding });
+http.route({
+  path: "/gateway/search-index/progress",
+  method: "POST",
+  handler: gatewaySearchIndexProgress,
+});
 http.route({
   path: "/gateway/clients/register",
   method: "POST",
