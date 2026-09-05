@@ -34,13 +34,25 @@
  * credential for a workspace nobody is connecting to, which is the property
  * that makes bulk extraction impossible by construction (`controlPlane.js`).
  *
- * So a context whose owner flips the switch and closes the app fills on their
- * next search. The half that does not need anybody present belongs to the
- * control plane's scheduled `maintainIndex`, which opens a credential of its
- * own and already runs `syncShardedIndex` from this same directory
- * (`functions/lib/fileOps.ts`) — everything here takes a store, a census, a
- * `visibilityOf` and a budget, and knows nothing about a gateway request, so
- * it is the same import. See `docs/decisions/search.md`.
+ * So a context whose owner flips the switch and closes the app would fill on
+ * their next search, and only then — which is the state that reads as broken,
+ * because "Preparing, 0 notes indexed" looks identical whether a backfill is
+ * converging or has never once run.
+ *
+ * **That half is now built, and it is not here.** The control plane runs this
+ * same `projectPass` over a store it opens itself, through `projectSearchIndex`
+ * in `functions/lib/fileOps.ts` — the import this paragraph used to propose,
+ * taken. It is scheduled when an owner turns the switch on, chains itself while
+ * a pass is making progress, and an hourly `sweepStalledBackfills` cron
+ * restarts any `backfilling` row nothing has written to for fifteen minutes.
+ * That sweep is what recovers a context provisioned before any of this existed,
+ * which `enable` cannot: it returns early for a row already opted in and not
+ * failed, so pressing the switch on one does nothing.
+ *
+ * Nothing above changes for this file. Both callers run the same pass over the
+ * same cursor in `index_state`, because everything here takes a store, a
+ * census, a `visibilityOf` and a budget and knows nothing about a gateway
+ * request. See `docs/decisions/search.md`.
  *
  * ## Why it cannot slow a search down, and cannot fail one
  *
