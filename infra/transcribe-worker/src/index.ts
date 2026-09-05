@@ -38,8 +38,14 @@
  *                      `X-Caller-Hash` header naming which account is asking —
  *                      opaquely; see RATE LIMITING below and `src/rateLimit.ts`.
  *   GET  /health       `{ ok: true, ai: <boolean>, rateLimit: <boolean> }`,
- *                      one flag per binding this Worker cannot work without.
- *                      Unauthenticated; see the handler for why that is safe.
+ *                      one flag per binding `wrangler.jsonc` declares — the two
+ *                      that can be absent at runtime with the deploy still
+ *                      green. NOT every input this Worker needs:
+ *                      `TRANSCRIBE_WORKER_SECRET` is also required and is
+ *                      deliberately not reported, because it is a credential
+ *                      and this endpoint is unauthenticated.
+ *                      See the handler for why the two that are reported are
+ *                      safe to report.
  *   anything else      404.
  *
  * ============================================================================
@@ -243,17 +249,33 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     // on `ai: false`, and that is the only proof the account has it.
     //
     // `rateLimit` because the limiter has the same "declared in `wrangler.jsonc`,
-    // absent at runtime" failure shape and had no way to be observed at all. It
-    // is reported rather than enforced here: `checkRateLimit` fails closed, so a
-    // Worker with no limiter refuses every caller — loud, not silent — and the
-    // question this answers is the other one, asked when the limiter is
-    // suspected of not doing its job: does the deployed script even have it?
+    // absent at runtime" failure shape, and until this flag existed the only
+    // ways to answer "does the deployed script have it?" were a credentialed
+    // query against the Cloudflare account — which the deploy workflow already
+    // makes, for secrets — or inference from a `429`, which `checkRateLimit`
+    // produces for four different reasons.
+    //
+    // Reported HERE rather than read from that account API for the same reason
+    // `ai` is: this answer comes from inside the running script, and the account
+    // API answers what the platform believes it attached. The whole premise of
+    // the `ai` probe is that those two can differ on a green deploy.
+    //
+    // It reports whether the binding is USABLE, not merely present. That is the
+    // same test `checkRateLimit` applies before trusting it, and a binding that
+    // is present but not callable is precisely the state a presence check would
+    // report as healthy while every request 429s.
     //
     // Unauthenticated for the same reason the whole endpoint is: neither answer
     // depends on a caller, a workspace or a secret, and `rateLimit: false`
-    // describes a Worker that refuses everyone rather than one that lets
-    // everyone through.
-    return json(200, { ok: true, ai: Boolean(env.AI), rateLimit: Boolean(env.TRANSCRIBE_RATE_LIMIT) });
+    // describes a Worker that refuses every authenticated caller rather than one
+    // that lets anyone through. `TRANSCRIBE_WORKER_SECRET` is the input this
+    // endpoint does NOT report, and the reason is that it is a credential —
+    // "one flag per binding" is a description of these two, not a rule to extend.
+    return json(200, {
+      ok: true,
+      ai: Boolean(env.AI),
+      rateLimit: typeof env.TRANSCRIBE_RATE_LIMIT?.limit === "function",
+    });
   }
   if (request.method !== "POST" || path !== "/transcribe") {
     return json(404, { error: "not found" });

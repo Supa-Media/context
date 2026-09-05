@@ -21,15 +21,28 @@
 # because enabling Workers AI is a thing a human does in the Cloudflare
 # dashboard and a red build is the correct representation of "configured wrong".
 #
-# `rateLimit` is REPORTED AND NOT ASSERTED, deliberately. The binding declares
-# no account resource, so unlike Workers AI it cannot be enabled-or-not behind
-# our back — an absent one means this repository's own `wrangler.jsonc` lost it,
-# and `checkRateLimit` then refuses every caller, which is loud on its own. What
-# the line buys is that every deploy leaves a dated record of whether the
-# deployed script carried the limiter, so "is it even bound?" is answerable from
-# the build log instead of from the account. A real assertion on the limiter is
-# a different step — sending `limit + 1` requests and demanding a `429` — and it
-# belongs here too; it is not this line.
+# `rateLimit: false` FAILS THIS JOB TOO, and the reason it is not merely logged
+# is worth stating, because the obvious reason is wrong. It is NOT "the
+# `ratelimits` block went missing from wrangler.jsonc": that cause cannot reach
+# this step at all, because `deploy` has `needs: test`, and
+# src/wranglerConfig.test.ts reddens when the block is absent or renamed. By the
+# time this probe runs, CI has already proved the config declares the binding.
+#
+# So a `false` here means something the config cannot explain — the platform did
+# not attach a binding we declared, or the script answering is not the one this
+# run deployed. Both are broken deploys of exactly the `ai: false` kind: with no
+# usable limiter, `checkRateLimit` fails closed and every authenticated caller
+# gets a `429`, so the Worker transcribes nothing at all. There is no version of
+# that worth going green over.
+#
+# A MISSING `rateLimit` key is a warning rather than a failure, and only that:
+# it means the script answering predates the flag, which is a propagation
+# question and not a configuration one. `ai` gets no such allowance because that
+# key has always been there, so its absence is a malformed answer.
+#
+# What this probe still does NOT prove is that the limiter COUNTS. Sending
+# `limit + 1` requests and demanding a `429` is a different step, it belongs
+# here too, and it is not this one.
 #
 # ── WHY THE URL IS A SECRET AND NOT A LINE IN A FILE ────────────────────────
 #
@@ -347,20 +360,36 @@ jobs:
               process.exit(1);
             }
             console.log("[ok] the deployed Worker reports ai: true — Workers AI is enabled.");
-            // Recorded, not asserted — the header of this file gives the reason.
-            // A `false` here means wrangler.jsonc lost the `ratelimits` block, and
-            // `checkRateLimit` fails closed, so the deployed Worker is refusing
-            // every caller with a 429. That is a broken deploy and this line is
-            // where the build log says so.
+            // The header of this file argues why this one is fatal and why a
+            // MISSING key is not. Short version: the config cause is already
+            // excluded by `needs: test`, so a `false` is the platform or the
+            // wrong script, and either way the Worker transcribes nothing.
             if (d.rateLimit === true) {
-              console.log("[ok] the deployed Worker reports rateLimit: true — the limiter binding is attached.");
+              console.log("[ok] the deployed Worker reports rateLimit: true — the limiter binding is usable.");
             } else if (d.rateLimit === false) {
-              console.log("[warn] the deployed Worker reports rateLimit: false — no limiter binding.");
-              console.log("       checkRateLimit fails closed, so POST /transcribe is answering 429");
-              console.log("       for every caller. Check the `ratelimits` block in wrangler.jsonc.");
+              console.error("[FAIL] the deployed Worker reports rateLimit: false.");
+              console.error("");
+              console.error("  THE DEPLOYED SCRIPT HAS NO USABLE RATE-LIMIT BINDING.");
+              console.error("");
+              console.error("  checkRateLimit fails closed, so every caller that gets past the");
+              console.error("  shared secret is being answered 429 and nothing transcribes.");
+              console.error("");
+              console.error("  This is NOT wrangler.jsonc losing the `ratelimits` block: this job");
+              console.error("  needs `test`, and src/wranglerConfig.test.ts reddens when that block");
+              console.error("  is missing or renamed, so the config was already proved green.");
+              console.error("");
+              console.error("  Fix, in order:");
+              console.error("    1. Re-run this workflow — the likeliest cause is that the script");
+              console.error("       answering /health is not the one this run deployed.");
+              console.error("    2. If it persists, check the binding on the deployed version in");
+              console.error("       the Cloudflare dashboard: Workers -> context-transcribe ->");
+              console.error("       Settings -> Bindings. A declared binding the platform did not");
+              console.error("       attach is the remaining explanation.");
+              process.exit(1);
             } else {
-              console.log("[warn] /health did not report rateLimit at all — a deployment older");
-              console.log("       than the flag, or a /health that stopped reporting it.");
+              console.log("[warn] /health did not report rateLimit at all — the script answering");
+              console.log("       predates the flag. A propagation question, not a configuration");
+              console.log("       one, so it is not fatal; re-run if it does not clear.");
             }
           ' "$body"
 
@@ -376,8 +405,9 @@ jobs:
             echo "- **Verified:** the script was modified by this run;"
             echo "  \`TRANSCRIBE_WORKER_SECRET\` is bound; and \`GET /health\` reports"
             echo "  \`ai: true\`, which is the only proof that Workers AI is enabled on"
-            echo "  the account. \`/health\` also reports whether the rate-limit binding"
-            echo "  is attached; that one is recorded in the step log, not asserted."
+            echo "  the account; and \`rateLimit: true\`, which proves the deployed"
+            echo "  script carries a USABLE limiter binding — not that the limiter"
+            echo "  counts, which no probe here asserts yet."
             echo "- **Not verified by CI:** that the control plane holds the same"
             echo "  \`TRANSCRIBE_WORKER_SECRET\`. Both halves come from this repository's"
             echo "  GitHub secret, but nothing here compares them — see the equivalent"

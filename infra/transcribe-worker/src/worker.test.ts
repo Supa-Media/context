@@ -66,7 +66,7 @@
  * ── The rate limit, added when the review found there was none ─────────────
  *
  * Twelve more, run the same way and measured rather than expected. The suite
- * was 61 checks before and is 90 after; each line is the count that reddened
+ * was 61 checks before and is 91 after; each line is the count that reddened
  * and nothing else reddened in its place.
  *
  *   src/rateLimit.ts
@@ -112,6 +112,24 @@
  *         → four in wranglerConfig.test.ts. Nothing in this file: no unit test
  *           can see a wrangler binding, which is the entire reason that file
  *           exists.
+ *
+ * ── `/health` reporting the limiter binding, 2026-09-05 ────────────────────
+ *
+ * Three more, measured. The suite is 91 either side: the new assertions live
+ * inside an existing `it`, so this is coverage the count cannot show — which
+ * is exactly why the record is kept by sabotage and not by counting.
+ *
+ *   src/index.ts
+ *     `rateLimit` hard-coded to `true`
+ *         → "reports the rate-limit binding on /health…" and "answers /health
+ *           honestly, and without a credential" (2)
+ *     `rateLimit` wired to `Boolean(env.AI)`
+ *         → "reports the rate-limit binding on /health…" (1)
+ *     `typeof env.TRANSCRIBE_RATE_LIMIT?.limit === "function"` weakened to
+ *     `Boolean(env.TRANSCRIBE_RATE_LIMIT)`
+ *         → "reports the rate-limit binding on /health…" (1), the bound-but-
+ *           not-callable case — the one state a presence check calls healthy
+ *           while every authenticated request answers 429
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { handleRequest } from "./index";
@@ -554,22 +572,26 @@ describe("routing", () => {
    * The same reasoning as `ai`, applied to the binding it was not applied to.
    *
    * `wrangler deploy` succeeds with `ratelimits` removed from `wrangler.jsonc`
-   * exactly as it succeeds with Workers AI unprovisioned, and the deployed
-   * script then has no limiter — which `checkRateLimit` turns into `429` for
-   * every caller, so the failure is loud rather than silent. That is the good
-   * case. The point of reporting it is the OTHER direction: when the limiter
-   * is not doing its job, the first question anybody asks is whether the
-   * deployed script even has the binding, and until now the only two ways to
-   * answer were `wrangler deployments` on the account and inference from a
-   * `429` that also has three other causes.
+   * exactly as it succeeds with Workers AI unprovisioned. Until this flag
+   * existed, "does the deployed script have the limiter?" could only be
+   * answered by a credentialed query against the Cloudflare account, or
+   * inferred from a `429` that `checkRateLimit` produces for four reasons.
    *
    * It reveals nothing a caller could use. The answer depends on no caller, no
    * workspace and no secret; it is the same class of fact as `ai`, which this
    * endpoint has always answered unauthenticated; and because `checkRateLimit`
-   * FAILS CLOSED, `rateLimit: false` describes a Worker that refuses everyone,
-   * which is not an invitation.
+   * FAILS CLOSED, `rateLimit: false` describes a Worker that refuses every
+   * authenticated caller, which is not an invitation.
    *
-   * SABOTAGE: hard-code `rateLimit: true`, and the second case below fails.
+   * The third case is the one a presence check gets wrong. `checkRateLimit`
+   * asks `typeof limiter.limit === "function"` before trusting the binding, so
+   * `/health` asks the same question: an object that is bound but not callable
+   * is a Worker answering `429` to everything while a `Boolean(env.…)` flag
+   * calls it healthy.
+   *
+   * SABOTAGE (measured 2026-09-05): hard-code `rateLimit: true` → 2 red
+   * (this test and "answers /health honestly"); `Boolean(env.AI)` → 1 red;
+   * `Boolean(env.TRANSCRIBE_RATE_LIMIT)` → 1 red, the third case only.
    */
   it("reports the rate-limit binding on /health the same way it reports Workers AI", async () => {
     const withLimiter = await handleRequest(
@@ -586,6 +608,16 @@ describe("routing", () => {
     // `ai` still true: the two bindings are reported independently, so a
     // deploy that lost one is not mistaken for a deploy that lost the other.
     expect(await withoutLimiter.json()).toEqual({ ok: true, ai: true, rateLimit: false });
+
+    // Bound, and useless. `checkRateLimit` answers `unavailable` for this env
+    // and the handler 429s, so reporting it as healthy would be the one lie
+    // this flag is able to tell.
+    const unusable = await handleRequest(new Request("https://transcribe.invalid/health"), {
+      TRANSCRIBE_WORKER_SECRET: SECRET,
+      AI: fakeAi(TIMED_ANSWER).binding,
+      TRANSCRIBE_RATE_LIMIT: {} as never,
+    } as Env);
+    expect(await unusable.json()).toEqual({ ok: true, ai: true, rateLimit: false });
   });
 
   it("404s every other path and method", async () => {

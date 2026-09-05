@@ -34,9 +34,11 @@
   // false. If it fails, Workers AI must be enabled on the Cloudflare account —
   // nothing in this repository can do that.
   //
-  // `rateLimit` reports the binding declared below by the same reasoning, and
-  // the deploy records it rather than failing on it: see that block, and the
-  // workflow's header for why the two are asserted differently.
+  // `rateLimit` reports the binding declared below, by the same reasoning and
+  // with the same consequence: the deploy FAILS THE JOB on `rateLimit: false`
+  // too. What differs is the remedy, not the severity — see the `ratelimits`
+  // block below, and the workflow's header for why a MISSING key there is a
+  // warning while a false one is fatal.
   //
   // ── THE ADDRESS IS NOT IN THIS FILE ───────────────────────────────────────
   //
@@ -144,6 +146,12 @@
   // Removing this block does NOT quietly remove the limit: `checkRateLimit`
   // fails closed on an absent binding, so the Worker refuses every request
   // instead. A bad deploy that says so is the point.
+  //
+  // It also does not get as far as a deploy. `src/wranglerConfig.test.ts`
+  // reddens when this block is missing or renamed, and the deploy job needs
+  // that suite — which is why `GET /health`'s `rateLimit: false` means the
+  // platform did not attach a binding we declared, or the script answering is
+  // not the one just deployed, and never that this file lost the block.
   "ratelimits": [
     {
       "name": "TRANSCRIBE_RATE_LIMIT",
