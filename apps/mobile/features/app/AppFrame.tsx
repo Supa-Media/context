@@ -37,6 +37,7 @@ import {
   type FrameState,
   type Regions,
 } from "./frame";
+import { setBottomChromeHeight } from "./bottomChrome";
 
 /**
  * The application frame.
@@ -491,6 +492,21 @@ export function AppFrame({
   const toolbarHidden = accessoryOpen || regions.scrim;
 
   /*
+    Tell anything mounted *above* this frame how much floating chrome is lying
+    along the bottom edge, so it can stack rather than land on top of it. The
+    only such thing today is the persistent recording bar, which is mounted at
+    the root of `(app)` precisely so that it is visible on screens — like this
+    one — that know nothing about meetings. See `bottomChrome.ts`; the condition
+    is the same one the toolbar itself renders under, so a bar hidden by the
+    keyboard accessory stops being reserved for at the same moment.
+  */
+  const bottomBarShowing = regions.bottomBar && bottomBar != null && !toolbarHidden;
+  useEffect(() => {
+    setBottomChromeHeight(bottomBarShowing ? layout.bottomBarHeight : 0);
+    return () => setBottomChromeHeight(0);
+  }, [bottomBarShowing]);
+
+  /*
     A pointer layout is not "no insets" — it is "the frame already paid the
     top". `styles.frame` carries `paddingTop: insets.top` there, so a surface
     inside owes nothing at that edge; the bottom is a different matter, because
@@ -877,7 +893,7 @@ export function AppFrame({
           in either screenshot, and two floating bars in the same 66pt of glass
           is worse than either.
         */}
-        {regions.bottomBar && bottomBar && !toolbarHidden ? (
+        {bottomBarShowing ? (
           <View
             style={[
               styles.bottomBar,

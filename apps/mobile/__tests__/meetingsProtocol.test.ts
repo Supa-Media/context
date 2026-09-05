@@ -49,19 +49,22 @@ describe("the contract crosses the package boundary intact", () => {
   test("the values are real, not an undefined shaped like a module", () => {
     expect(PROTOCOL_VERSION).toBe(1);
     expect(MEETING_ID_PREFIX).toBe("mtg_");
-    expect(typeof ROUTES.session).toBe("string");
+    expect(typeof ROUTES.sessions).toBe("string");
+    expect(typeof ROUTES.session).toBe("function");
     expect(typeof ROUTES.segments).toBe("function");
   });
 
   test("the routes are the gateway's, addressed under one session", () => {
     const id = "mtg_abcdefghjkmnpqrstv";
-    expect(ROUTES.segments(id)).toBe(`${ROUTES.session}/${id}/segments`);
-    expect(ROUTES.notes(id)).toBe(`${ROUTES.session}/${id}/notes`);
-    expect(ROUTES.finalize(id)).toBe(`${ROUTES.session}/${id}/finalize`);
-    // `list` and `session` are the same path with different verbs, which is
-    // worth pinning: a client that split them would be talking to a route the
-    // gateway does not have.
-    expect(ROUTES.list).toBe(ROUTES.session);
+    expect(ROUTES.session(id)).toBe(`${ROUTES.sessions}/${id}`);
+    expect(ROUTES.segments(id)).toBe(`${ROUTES.session(id)}/segments`);
+    expect(ROUTES.notes(id)).toBe(`${ROUTES.session(id)}/notes`);
+    expect(ROUTES.finalize(id)).toBe(`${ROUTES.session(id)}/finalize`);
+    // The collection and one session are different paths. They were the same
+    // string under two names — `session` and `list` — and one GET cannot be
+    // both "read this meeting back" and "list the recent ones".
+    expect(ROUTES.session(id)).not.toBe(ROUTES.sessions);
+    expect((ROUTES as Record<string, unknown>).list).toBeUndefined();
   });
 
   test("every state names its legal moves, and `complete` is terminal", () => {
@@ -75,8 +78,17 @@ describe("the contract crosses the package boundary intact", () => {
     ];
     for (const state of states) expect(Array.isArray(MEETING_TRANSITIONS[state])).toBe(true);
     expect(MEETING_TRANSITIONS.complete).toEqual([]);
-    // The one re-entry, and the reason `capture` failures do not end a meeting.
+    // The re-entries, and the reason `capture` failures do not end a meeting.
     expect(MEETING_TRANSITIONS.failed).toContain("recording");
+    // A failed recording holds a partial transcript, and a partial transcript
+    // is somebody's meeting: it can still be written out.
+    expect(MEETING_TRANSITIONS.failed).toContain("finalizing");
+    // A finalize the gateway has not answered yet is not a finished meeting.
+    // Without this the app had to fabricate a `fail` to get back to recording.
+    expect(MEETING_TRANSITIONS.finalizing).toContain("recording");
+    // A meeting nobody recorded is still a meeting. Typed notes are the half
+    // that cannot be regenerated, so `idle` finalizes without a forged `start`.
+    expect(MEETING_TRANSITIONS.idle).toContain("finalizing");
   });
 
   test("the four error codes are the four the client classifies on", () => {

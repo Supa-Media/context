@@ -1,8 +1,6 @@
 import { Stack } from "expo-router";
 import { View, StyleSheet } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "../../../features/design/theme";
-import { RecordingBar } from "../../../features/meetings/components/RecordingBar";
 import { useMeetingsSetup } from "../../../features/meetings/useMeetings";
 
 /**
@@ -14,7 +12,7 @@ import { useMeetingsSetup } from "../../../features/meetings/useMeetings";
  * check here would be a second copy of a rule with one correct implementation.
  * `workspace/_layout.tsx` says the same thing about itself.
  *
- * It does three things:
+ * It does two things:
  *
  *  1. A `Stack` painting the app's own ground, so nothing flashes white on the
  *     way in.
@@ -22,23 +20,15 @@ import { useMeetingsSetup } from "../../../features/meetings/useMeetings";
  *     default context and reads whatever is already on the device. It is here
  *     rather than on each screen so that the list, a live meeting and a
  *     finished note share one configuration.
- *  3. The persistent recording bar, mounted **after** the stack so it paints
- *     over it. That ordering is the mechanism, not the `zIndex`: every
- *     react-native-web `View` opens a stacking context, so a `zIndex` set
- *     inside the stack means nothing out here, and "later sibling wins" is what
- *     actually decides it. See `docs/decisions/app-and-console.md`.
  *
- * **The bar is only app-wide once `app/(app)/_layout.tsx` mounts it too** — one
- * line, `<RecordingBar />` beside that layout's `Stack`. Nothing else has to
- * change, because the recording lives in an external store rather than in a
- * provider (`features/meetings/controller.ts`). That file is the app shell's
- * rather than this feature's, so the line is left for whoever owns it, and
- * until then a recording is visible across every meetings screen and reachable
- * from anywhere through `/meetings`.
+ * **It does not mount the recording bar.** It used to, which made a recording
+ * visible on meetings screens and nowhere else; the bar is now mounted once at
+ * `app/(app)/_layout.tsx`, above every route in the section. Mounting it in both
+ * places is not belt and braces — it is two bars drawn over each other on every
+ * screen in this section, because this layout renders *inside* that one.
  */
 export default function MeetingsLayout() {
   const colors = useColors();
-  const insets = useSafeAreaInsets();
   useMeetingsSetup();
 
   return (
@@ -49,7 +39,6 @@ export default function MeetingsLayout() {
           contentStyle: { backgroundColor: colors.ground },
         }}
       />
-      <RecordingBar bottomInset={insets.bottom} />
     </View>
   );
 }

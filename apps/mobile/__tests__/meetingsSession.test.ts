@@ -159,8 +159,23 @@ describe("the reducer refuses rather than guessing", () => {
     refuses(seedProjection(SEED), { type: "pause", at: at(1) });
   });
 
-  test("you cannot end a session that never started", () => {
-    refuses(seedProjection(SEED), { type: "end", at: at(1) });
+  /*
+    Not a refusal any more, and the reason is worth keeping here rather than
+    only in the contract: a meeting nobody recorded is still a meeting. Somebody
+    who said no to the microphone and typed for forty minutes has notes that
+    nothing can regenerate, and refusing to finalize until a `start` had been
+    forged was the app inventing a recording to be allowed to save the words.
+    `MEETING_TRANSITIONS.idle` now lists `finalizing`.
+  */
+  test("a session that never started ends anyway, carrying what was typed", () => {
+    const typed = applyMeetingEvent(seedProjection(SEED), {
+      type: "notes",
+      markdown: "- they said yes",
+    });
+    const ended = applyMeetingEvent(typed, { type: "end", at: at(1) });
+    expect(ended.session.state).toBe("finalizing");
+    expect(ended.session.notes).toBe("- they said yes");
+    expect(ended.session.recordedMs).toBe(0);
   });
 
   test("a complete session is terminal in every direction", () => {
@@ -172,7 +187,7 @@ describe("the reducer refuses rather than guessing", () => {
     refuses(done, { type: "start", at: at(6) });
     refuses(done, { type: "pause", at: at(6) });
     refuses(done, { type: "end", at: at(6) });
-    refuses(done, { type: "fail", reason: "no" });
+    refuses(done, { type: "fail", at: at(6), reason: "no" });
   });
 
   test("resuming something already recording changes nothing about it", () => {
@@ -237,22 +252,29 @@ describe("recordedMs excludes pauses, and survives the app being killed", () => 
     expect(elapsedMs(running, Date.parse(at(5)))).toBe(0);
   });
 
-  test("a failure leaves the interval open, because a failure is not an end", () => {
+  test("a failure closes the interval at the moment it failed, and not after", () => {
     /*
-      `failed -> recording` is the one re-entry the protocol allows, and it is
-      how a dropped recorder is retried. Closing the interval on `fail` would
-      silently drop the seconds between the failure and the retry.
+      The clock stops where the recorder died. This test asserted the opposite
+      until `fail` carried an `at`: with no timestamp the interval had to be
+      left open, so a phone that failed at minute 4 and was picked up at minute
+      30 counted twenty-six minutes of silence as recorded audio. `failed ->
+      recording` is still how a dropped recorder is retried, and the retry opens
+      a new interval.
     */
     const failed = fold([
       { type: "start", at: at(0) },
-      { type: "fail", reason: "the microphone was taken" },
+      { type: "fail", at: at(4), reason: "the microphone was taken" },
     ]);
     expect(failed.session.state).toBe("failed");
-    expect(elapsedMs(failed, Date.parse(at(10)))).toBe(10 * 60_000);
+    expect(failed.session.failureReason).toBe("the microphone was taken");
+    expect(elapsedMs(failed, Date.parse(at(10)))).toBe(4 * 60_000);
 
     const retried = applyMeetingEvent(failed, { type: "start", at: at(10) });
     expect(retried.session.state).toBe("recording");
+    // The reason describes the `failed` state and nothing else, so leaving it
+    // is leaving a session that says it failed while it is recording.
     expect(retried.session.failureReason).toBeNull();
+    expect(elapsedMs(retried, Date.parse(at(15)))).toBe(9 * 60_000);
   });
 });
 
@@ -280,6 +302,37 @@ describe("the human's notes are theirs", () => {
     ]);
     expect(projection.session.state).toBe("finalizing");
     expect(projection.session.notePath).toBeNull();
+  });
+});
+
+describe("a flagged moment", () => {
+  /*
+    The wrist's verb, and the only one that exists because of the wrist. It
+    marks a moment mid-sentence, so the offset is milliseconds from the start of
+    the session computed where the button was pressed — a watch drains a queued
+    command late, and a flag stamped on arrival marks the wrong sentence.
+  */
+  test("lands on the session, oldest first, without moving the state", () => {
+    const projection = fold([
+      { type: "start", at: at(0) },
+      { type: "flag", at: 61_000, label: "  ask   about pricing " },
+      { type: "flag", at: 5_000 },
+    ]);
+    expect(projection.session.state).toBe("recording");
+    expect(projection.session.flags).toEqual([
+      { at: 5_000 },
+      { at: 61_000, label: "ask about pricing" },
+    ]);
+  });
+
+  test("the same press folded twice is one flag", () => {
+    const once = fold([
+      { type: "start", at: at(0) },
+      { type: "flag", at: 5_000, label: "here" },
+    ]);
+    const twice = applyMeetingEvent(once, { type: "flag", at: 5_000, label: "here" });
+    expect(twice).toBe(once);
+    expect(twice.session.flags).toHaveLength(1);
   });
 });
 

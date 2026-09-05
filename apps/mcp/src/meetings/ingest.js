@@ -43,6 +43,7 @@
 import { ERRORS, ROUTES, isMeetingId } from "../../../../packages/meetings/src/protocol.js";
 import { renderMeetingNote } from "../../../../packages/meetings/src/note.js";
 import { meetingNotePath } from "../../../../packages/meetings/src/paths.js";
+import { normalizeFlag } from "../../../../packages/meetings/src/session.js";
 import { SCOPE_READ, SCOPE_WRITE, hasScope } from "../session.js";
 import {
   LIMITS,
@@ -64,17 +65,20 @@ import {
   writeSession,
 } from "./state.js";
 
-const BASE = ROUTES.session;
+const BASE = ROUTES.sessions;
 
 /**
  * The sub-route names, read off the contract rather than spelled again here.
  *
  * `ROUTES.segments("<id>")` is the only statement of what that path looks like;
  * taking the suffix from it means a rename in `protocol.js` moves this route
- * with it instead of leaving two spellings that agree until they do not.
+ * with it instead of leaving two spellings that agree until they do not. The
+ * part that is cut off is `ROUTES.session("id")` — the contract's own spelling
+ * of "one session" — so the collection, one session and its sub-routes cannot
+ * drift from each other here either.
  */
 function suffixOf(route) {
-  return route("id").slice(`${BASE}/id`.length);
+  return route("id").slice(ROUTES.session("id").length);
 }
 
 const SUB_ROUTES = new Map([
@@ -86,10 +90,16 @@ const SUB_ROUTES = new Map([
 /**
  * Does this path address meeting ingestion at all?
  *
- * Exported for `index.js`, which asks it of the *raw* pathname before the
- * workspace selector is taken off the front — see the comment at that call
- * site: `meetings` is not in `session.js`'s reserved first segments, and this
- * worker does not get to assume another module's list covers its routes.
+ * Exported for `index.js`, which asks it of the path *after* the workspace
+ * selector has come off — so `/@seyi/meetings/sessions` is a meeting path in
+ * `@seyi`'s context, and `/meetings/sessions` is one in the caller's own.
+ * `index.js` uses it to decide that these routes are guarded on the same
+ * `Origin` terms as the MCP transport: they are authenticated, state-changing
+ * and reachable from a browser.
+ *
+ * It used to be asked of the raw pathname instead, because `meetings` was not
+ * one of `session.js`'s reserved first segments; it is now, so the selector
+ * leaves the path alone by itself.
  */
 export function isMeetingPath(path) {
   return path === BASE || path.startsWith(`${BASE}/`);
@@ -172,15 +182,15 @@ export function meetingScopeRefusal(needed) {
 }
 
 /**
- * The ack every route answers with, in the contract's `IngestAck` shape plus
- * two fields the contract has no room for and a client needs:
+ * The ack every route answers with, in the contract's `IngestAck` shape.
  *
- *  - `conflictSafe` — whether this bucket honours a conditional write at all.
- *    B2 and Wasabi do not, and a client whose session is being written
- *    last-writer-wins should be told rather than left to assume the guarantee
- *    it read about in the docs. Never dropping the guarantee silently is the
- *    standard; this is how it is not silent.
- *  - `rejected` — rows of a segment batch the merge could not use.
+ * `conflictSafe` and `rejected` are the contract's now — they were sent from
+ * here before `IngestAck` had room for them, which made two of the three things
+ * this response says undocumented. The first is the one that matters: B2 and
+ * Wasabi accept a conditional put and ignore it, and a client whose session is
+ * being written last-writer-wins is told rather than left to assume the
+ * guarantee it read about. Never dropping the guarantee silently is the
+ * standard; this line is how it is not silent.
  */
 function ack(store, session, extra = {}) {
   const summary = sessionSummary(session);
@@ -243,6 +253,25 @@ function foldMetadata(session, body) {
     if (!Array.isArray(body.attendees)) throw invalid("attendees must be an array");
     for (const attendee of body.attendees.slice(0, LIMITS.attendees)) {
       next = fold(next, { type: "attendee", attendee });
+    }
+  }
+  /*
+    Flags fold the same way, and for the same reason attendees do: a client that
+    holds the session holds its flags, and a re-send after a reconnect carries
+    them in the body rather than as events. Without this, a moment the wearer
+    marked reached the gateway only if it happened to be in the request that
+    *created* the session — every later press was accepted with a 200 and
+    dropped.
+  */
+  if (body.flags !== undefined && body.flags !== null) {
+    if (!Array.isArray(body.flags)) throw invalid("flags must be an array");
+    for (const flag of body.flags.slice(0, LIMITS.flags)) {
+      // A row the core cannot read is skipped rather than failing the request,
+      // for `normalizeSegment`'s reason one field over: a client re-sending
+      // everything it holds, with one unreadable entry in it, should land the
+      // rest — and `meeting_invalid` is the code clients do not retry, so
+      // refusing here parks a whole meeting over one bad number.
+      if (normalizeFlag(flag)) next = fold(next, { type: "flag", at: flag.at, label: flag.label });
     }
   }
   const markdown = notesFrom(body);

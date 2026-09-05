@@ -504,17 +504,15 @@ async function route(request, env, ctx) {
     // sees the same path whether or not the caller named a context. The slug
     // selects; it never authorizes. See splitWorkspacePath.
     //
-    // Meeting ingestion is taken off that path deliberately. `meetings` is not
-    // one of `session.js`'s RESERVED_FIRST_SEGMENTS, and that file says outright
-    // it does not get to assume somebody else's list stayed in sync with its
-    // own — so `POST /meetings/sessions` would otherwise read as a workspace
-    // called "meetings" selecting the path `/sessions`, which is no route at
-    // all. A context genuinely named `meetings` loses nothing: it is addressed
-    // as `/@meetings/…`, which still parses, and `/meetings/sessions` was never
-    // a route it could reach.
-    const { slug, path: afterSlug } = isMeetingPath(url.pathname)
-      ? { slug: null, path: url.pathname }
-      : splitWorkspacePath(url.pathname);
+    // Meeting ingestion used to be lifted out of this line — `isMeetingPath` on
+    // the raw pathname, before the selector — because `meetings` was not one of
+    // `session.js`'s RESERVED_FIRST_SEGMENTS, so `POST /meetings/sessions` read
+    // as a workspace called "meetings" selecting the path `/sessions`. That was
+    // one route defending itself against a list it was missing from, and it left
+    // the actual hole open: the name was still claimable, in a namespace where a
+    // name is also a mailbox on the apex. `meetings` is in that list now, and in
+    // the control plane's RESERVED_NAMES beside it, so this needs no exception.
+    const { slug, path: afterSlug } = splitWorkspacePath(url.pathname);
 
     // Token-in-path fallback: /t/<token>/mcp, or /@slug/t/<token>/mcp.
     //

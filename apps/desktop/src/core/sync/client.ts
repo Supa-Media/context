@@ -40,7 +40,7 @@ export interface GatewayConfig {
 export function routeFor(entry: Pick<OutboxEntry, "kind" | "sessionId">): string {
   switch (entry.kind) {
     case "session":
-      return ROUTES.session;
+      return ROUTES.sessions;
     case "segments":
       return ROUTES.segments(entry.sessionId);
     case "notes":

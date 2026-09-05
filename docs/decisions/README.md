@@ -113,6 +113,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The recorder is one interface with two implementations, and nothing above it knows which
 - The watch is a remote control, never a recorder
 - Detection judgement is a pure function, and the desktop app only collects evidence
+- The state table is the client's, and a move it refuses is a client faking one
+- `written` is the gateway's word, and a client may never say it
+- A meeting route is a reserved name, not somebody's handle
+- An ack says whether the write was conflict-safe, because some buckets are not
 - Ingestion is idempotent by construction, because losing signal is the normal case
 - The human's words are never rewritten, and the generated half is disposable
 - A meeting lands at an ordinary path, and nothing about it is namespaced

@@ -29,6 +29,12 @@ import {
   type FrameState,
 } from "../features/app/frame";
 import { layout } from "../features/design/tokens";
+import {
+  bottomChromeHeight,
+  floatingStackBottom,
+  setBottomChromeHeight,
+  subscribeBottomChrome,
+} from "../features/app/bottomChrome";
 
 /**
  * Every density, enumerated so that adding one is a compile error here.
@@ -433,5 +439,57 @@ describe("toggling", () => {
     expect(closesOnSelect("compact")).toBe(true);
     expect(closesOnSelect("medium")).toBe(false);
     expect(closesOnSelect("wide")).toBe(false);
+  });
+});
+
+describe("two floating things at the same edge", () => {
+  /*
+    The console's toolbar and the persistent recording bar are both pills in the
+    same 66pt of glass, and both are drawn at the bottom of the screen. The bar
+    is mounted at the root of `(app)` so a recording is visible from wherever
+    somebody is; the toolbar belongs to whichever console screen is underneath
+    it. `AppFrame` already says what happens when two of them meet — "two
+    floating bars in the same 66pt of glass is worse than either" — and answers
+    it for the keyboard accessory by hiding the toolbar. Hiding a screen's
+    navigation for the length of a meeting is not an answer, so the bar stacks.
+  */
+  test("with nothing underneath, a bar sits where the reference puts it", () => {
+    // A browser or an un-notched phone: the measured 25pt, not flush.
+    expect(floatingStackBottom(0, 0)).toBe(layout.floatingGap);
+    // A notched phone: the home indicator's own inset, which is already a gap.
+    // `max`, never a sum — a bar hovering 59pt up is the bug the token warns of.
+    expect(floatingStackBottom(34, 0)).toBe(34);
+  });
+
+  test("with the console's toolbar underneath, it clears it rather than covering it", () => {
+    const clear = layout.bottomBarHeight + layout.floatingInset;
+    expect(floatingStackBottom(34, layout.bottomBarHeight)).toBe(34 + clear);
+    expect(floatingStackBottom(0, layout.bottomBarHeight)).toBe(layout.floatingGap + clear);
+    // Which is exactly the room the frame reserves above its own toolbar, so
+    // the two are the same distance apart as the toolbar is from the glass.
+    expect(floatingStackBottom(34, layout.bottomBarHeight) - 34 - layout.bottomBarHeight).toBe(
+      layout.floatingInset,
+    );
+  });
+
+  test("a screen with no chrome at that edge pays nothing for the possibility", () => {
+    // Map, Connections, Settings and every meetings screen. A constant offset
+    // "just in case" would leave a hand's width of empty ground under the bar.
+    expect(floatingStackBottom(34, 0)).toBe(floatingStackBottom(34, -1));
+    expect(bottomChromeHeight()).toBe(0);
+  });
+
+  test("the published height is a number a frame owns, and it is idempotent", () => {
+    const seen: number[] = [];
+    const stop = subscribeBottomChrome(() => seen.push(bottomChromeHeight()));
+    setBottomChromeHeight(layout.bottomBarHeight);
+    setBottomChromeHeight(layout.bottomBarHeight);
+    setBottomChromeHeight(0);
+    stop();
+    // Two notifications, not three: the frame publishes from an effect that
+    // runs on every render, and a store that notified unconditionally would
+    // re-render every subscriber on every keystroke in the editor.
+    expect(seen).toEqual([layout.bottomBarHeight, 0]);
+    expect(bottomChromeHeight()).toBe(0);
   });
 });

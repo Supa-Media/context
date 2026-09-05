@@ -46,7 +46,7 @@ const config = (fetchImpl, token = TOKEN) => ({
 
 export async function runGatewayChecks(check) {
   // -- routes come from the contract ----------------------------------------
-  check("a session posts to the contract's session route", routeFor(entry("session")) === ROUTES.session);
+  check("a session posts to the contract's collection route", routeFor(entry("session")) === ROUTES.sessions);
   check("segments post to the contract's segments route", routeFor(entry("segments")) === ROUTES.segments(sessionId));
   check("notes post to the contract's notes route", routeFor(entry("notes")) === ROUTES.notes(sessionId));
   check("finalize posts to the contract's finalize route", routeFor(entry("finalize")) === ROUTES.finalize(sessionId));
@@ -57,7 +57,7 @@ export async function runGatewayChecks(check) {
     const result = await postEntry(config(impl), entry("session", { id: sessionId }));
     check("a 2xx is an ingest", result.ok === true);
     const call = impl.calls[0] ?? { url: "", init: { headers: {}, body: "{}" } };
-    check("the URL is base plus the contract's path", call.url === `https://gateway.example.test${ROUTES.session}`);
+    check("the URL is base plus the contract's path", call.url === `https://gateway.example.test${ROUTES.sessions}`);
     check("the credential is NOT in the URL", !call.url.includes(TOKEN));
     check("the credential is in the Authorization header", call.init.headers.authorization === `Bearer ${TOKEN}`);
     check("the body is the entry's body", JSON.parse(call.init.body).id === sessionId);
@@ -150,7 +150,7 @@ export async function runGatewayChecks(check) {
     check(
       "the order on the wire is the contract's",
       impl.calls.map((call) => call.url.replace("https://gateway.example.test", "")).join(" ") ===
-        `${ROUTES.session} ${ROUTES.segments(sessionId)} ${ROUTES.notes(sessionId)} ${ROUTES.finalize(sessionId)}`,
+        `${ROUTES.sessions} ${ROUTES.segments(sessionId)} ${ROUTES.notes(sessionId)} ${ROUTES.finalize(sessionId)}`,
     );
   }
 

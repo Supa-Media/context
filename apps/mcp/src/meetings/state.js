@@ -64,7 +64,7 @@
  * `isMeetingNotePath` finds them, so there is no second index to drift.
  */
 
-import { ERRORS, isMeetingId } from "../../../../packages/meetings/src/protocol.js";
+import { CLIENT_EVENT_TYPES, ERRORS, isMeetingId } from "../../../../packages/meetings/src/protocol.js";
 import { applyEvent, applyLog, createSession } from "../../../../packages/meetings/src/session.js";
 import { normalizeSegment } from "../../../../packages/meetings/src/transcript.js";
 
@@ -95,6 +95,12 @@ export const LIMITS = Object.freeze({
   /** Events one replay may carry. A reconnecting client sends its log, not its life. */
   eventsPerRequest: 1_000,
   attendees: 200,
+  /**
+   * Moments a wearer marked. A press every two seconds for an hour is under
+   * this, so the bound is on a stuck button and a hostile client rather than on
+   * anybody's meeting.
+   */
+  flags: 2_000,
   /** Records read to answer one recent-sessions listing. */
   listScan: 200,
   listLimit: 50,
@@ -109,21 +115,14 @@ export const LIMITS = Object.freeze({
  * finished that was never written — the session would answer `complete` with a
  * note path pointing at nothing, and the recording would be lost in silence,
  * which is the one outcome this whole feature exists to prevent.
+ *
+ * The list itself is the contract's `CLIENT_EVENT_TYPES` rather than a copy of
+ * it here. A copy is what lets an event added to the union next year arrive
+ * refused by a gateway nobody remembered to edit — or, in the direction that
+ * actually costs something, lets `written` be added back to a list this file
+ * owns alone.
  */
-const CLIENT_EVENT_TYPES = new Set([
-  "start",
-  "pause",
-  "resume",
-  "segment",
-  "segments",
-  "notes",
-  "title",
-  "attendee",
-  "source",
-  "end",
-  "enhanced",
-  "fail",
-]);
+const CLIENT_EVENTS = new Set(CLIENT_EVENT_TYPES);
 
 /**
  * A refusal a meeting client may see.
@@ -192,7 +191,7 @@ export function foldLog(session, events) {
   }
   for (const event of events) {
     assertEventWithinLimits(event);
-    if (!CLIENT_EVENT_TYPES.has(event.type)) throw invalid(`a client may not send a ${event.type} event`);
+    if (!CLIENT_EVENTS.has(event.type)) throw invalid(`a client may not send a ${event.type} event`);
   }
   try {
     return applyLog(session, events);
@@ -268,6 +267,7 @@ export function assertSessionWithinLimits(session) {
     throw invalid(`a session holds at most ${LIMITS.segmentsPerSession} segments`);
   }
   if (session.attendees.length > LIMITS.attendees) throw invalid("too many attendees");
+  if ((session.flags?.length ?? 0) > LIMITS.flags) throw invalid("too many flags");
   return session;
 }
 
@@ -304,6 +304,9 @@ export async function readSession(store, id) {
   }
   record.transcript = Array.isArray(record.transcript) ? record.transcript : [];
   record.attendees = Array.isArray(record.attendees) ? record.attendees : [];
+  // A record written before the contract carried flags reads as one with none,
+  // rather than as one the reducer cannot fold a `flag` into.
+  record.flags = Array.isArray(record.flags) ? record.flags : [];
   record.appliedAt = record.appliedAt && typeof record.appliedAt === "object" ? record.appliedAt : {};
   return { session: record, etag: object.etag };
 }
@@ -365,6 +368,10 @@ export function completionReceipt(session, notePath, noteEtag) {
     source: session.source ?? { kind: "unknown" },
     attendees: (session.attendees ?? []).map((attendee) => ({ name: attendee.name })),
     segmentCount: (session.transcript ?? []).length,
+    // Dropped for the reason the transcript is: the flags are *in* the note now,
+    // as `> [!flag]` beside the turns they were pressed during, and the note is
+    // canonical. A second copy in `.meetings/` is somebody's storage bill.
+    flags: [],
     device: session.device ?? { platform: "web" },
     notePath,
     noteEtag,

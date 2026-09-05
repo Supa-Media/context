@@ -38,6 +38,13 @@ import type { MeetingSession, TranscriptSegment } from "./protocol";
  * holding a segment is not the same as the customer's bucket holding the note,
  * and only `notePath` says the second. So nothing here is drawn as "saved":
  * `copy.ts` renders a synced-but-unfinalised meeting as still on the device.
+ *
+ * That distinction — "the finalize was accepted and the note is not there yet",
+ * which is `acked.finalized` with a null `notePath` — is **client-local by the
+ * contract**, and `protocol.js` says so outright under "what is client-local".
+ * It is this device's knowledge of a request it made, not a state of the
+ * meeting: it is never sent, there is no `MeetingState` for it, and `notePath`
+ * from the gateway stays the only answer to "is this meeting in the bucket".
  */
 
 /** A fingerprint of the metadata the `session` route carries. */
@@ -94,6 +101,9 @@ export function metadataFingerprint(session: MeetingSession): MetadataFingerprin
     session.id,
     session.version,
     session.title,
+    // Flags ride on the session route, so a moment the wearer marked has to
+    // change this or it never syncs.
+    session.flags,
     session.state,
     session.startedAt,
     session.endedAt,
@@ -279,7 +289,12 @@ export function parseRecord(raw: string | null, workspaceId: string): MeetingRec
   return {
     version: MEETING_RECORD_VERSION,
     workspaceId,
-    session: record.session,
+    /*
+      A record written before the contract carried flags reads as one with
+      none. Not a version bump: bumping discards the record, and discarding a
+      record is discarding somebody's meeting to avoid an empty array.
+    */
+    session: { ...record.session, flags: record.session.flags ?? [] },
     acked,
     runningSince: typeof record.runningSince === "string" ? record.runningSince : null,
     updatedAt: typeof record.updatedAt === "number" ? record.updatedAt : 0,

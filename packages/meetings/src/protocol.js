@@ -16,6 +16,54 @@ export const PROTOCOL_VERSION = 1;
 // --- the meeting -----------------------------------------------------------
 
 /**
+ * The kinds of meeting a note may say it was.
+ *
+ * A frozen list rather than only a JSDoc union, because a union is invisible at
+ * runtime and every consumer that had to check one wrote its own copy —
+ * `SOURCE_KINDS` in session.js was one, and a list kept in two files is a list
+ * that drifts. Order is the union's; the first entry is not a default and
+ * `unknown` is.
+ *
+ * @type {readonly MeetingSource["kind"][]}
+ */
+export const MEETING_SOURCE_KINDS = Object.freeze([
+  "in-person",
+  "zoom",
+  "meet",
+  "teams",
+  "slack-huddle",
+  "webex",
+  "discord",
+  "facetime",
+  "phone",
+  "unknown",
+]);
+
+/**
+ * What a transcript segment may be labelled as coming from. See
+ * `MEETING_SOURCE_KINDS` for why this is exported rather than only described.
+ *
+ * @type {readonly TranscriptSegment["channel"][]}
+ */
+export const TRANSCRIPT_CHANNELS = Object.freeze(["mic", "system", "mixed"]);
+
+/**
+ * The platforms a client may say it is. `watchos` is here because the watch is
+ * a remote control that identifies itself, not because it records.
+ *
+ * @type {readonly MeetingDevice["platform"][]}
+ */
+export const DEVICE_PLATFORMS = Object.freeze([
+  "ios",
+  "android",
+  "web",
+  "macos",
+  "windows",
+  "linux",
+  "watchos",
+]);
+
+/**
  * Where the audio came from. `kind` is what the note says; `app` and `url` are
  * the evidence the detector had, kept so a wrong guess can be explained.
  *
@@ -56,6 +104,27 @@ export const PROTOCOL_VERSION = 1;
  */
 
 /**
+ * A moment the wearer marked, mid-sentence, without breaking eye contact.
+ *
+ * `flag` is the verb that only exists because of the wrist, and this is where
+ * one lands. `WatchCommand` had it and `WatchState` counted them and nothing
+ * carried one: there was no `flag` event and no field on the session, so a
+ * press could not reach the note it was pressed for.
+ *
+ * **`at` is milliseconds from the start of the session, computed at press time
+ * on the device that pressed.** Not on arrival: the transport between a watch
+ * and a phone is intermittent by design, so a queued command can drain a minute
+ * late — and a flag timestamped on arrival lands on the wrong sentence, which
+ * is the one thing a flag has to get right. It is the same clock
+ * `TranscriptSegment.startMs` uses, which is what lets the note put a flag
+ * beside the turn it belongs to.
+ *
+ * @typedef {Object} MeetingFlag
+ * @property {number} at        Milliseconds from session start, at press time.
+ * @property {string} [label]   At most `WATCH_FLAG_LABEL_MAX` characters.
+ */
+
+/**
  * `notes` is what the human typed — it is theirs and is never rewritten by the
  * enhancement pass. `enhanced` is the generated note, and it is regenerable, so
  * losing it is never data loss.
@@ -72,11 +141,53 @@ export const PROTOCOL_VERSION = 1;
  * @property {Attendee[]} attendees
  * @property {string} notes              The human's own Markdown.
  * @property {TranscriptSegment[]} transcript
+ * @property {MeetingFlag[]} flags       Moments the wearer marked, oldest first.
+ *   Additive and deduped on `at`, so a replayed log does not double them.
  * @property {string|null} enhanced      Generated Markdown, null until enhanced.
  * @property {string|null} templateId    Enhancement template used.
  * @property {MeetingDevice} device
  * @property {string|null} notePath      Bucket path once written, else null.
- * @property {string|null} failureReason
+ * @property {string|null} failureReason Why the session is in `failed`, and null
+ *   in every other state: it is set on the way into `failed` and cleared on the
+ *   way out, so a session that says it failed and a session that carries a
+ *   reason are the same session. A client that wants to keep a capture problem
+ *   visible after the meeting recovered — a refused microphone, an interrupted
+ *   recorder — is holding a fact about the *device*, which is client-local
+ *   state and does not belong on the session that lands in somebody's bucket.
+ * @property {string|null} [recordingSince] The open recording span: when the
+ *   current stretch of capture began, or null when nothing is running. Derived
+ *   state — a holder that loses it rebuilds it by replaying the log — and the
+ *   reason `recordedMs` can count audio rather than wall clock across a pause.
+ *   The gateway persists it with the session because it is the thing that holds
+ *   the fold *between* requests; a client that carries it beside the session
+ *   instead is doing the same thing under another name.
+ * @property {Object<string, number>} [appliedAt] Per event type, the newest `at`
+ *   already folded in, so an event no newer than that is dropped rather than
+ *   re-run. Also derived, also persisted, and the whole of why replaying an
+ *   offline log twice is a no-op.
+ */
+
+/*
+ * WHAT IS CLIENT-LOCAL, AND IS NOT A SESSION FIELD
+ *
+ * A client knows things about its own requests that are not facts about the
+ * meeting, and the two have to stay apart or the record that lands in the
+ * customer's bucket starts describing a phone.
+ *
+ * The one worth naming, because a person genuinely sees it: **"the gateway
+ * accepted the finalize, and the note is not in the bucket yet."** That is a
+ * real state on a device — the phone draws the meeting as still on the device
+ * rather than saved — and it is not a `MeetingState`. It is the client's own
+ * bookkeeping about a request it made: it has no place in `MeetingSession`, it
+ * is never sent, and there is deliberately no transition for it. `notePath` is
+ * the only answer to "is this meeting in the bucket", it comes from the
+ * gateway, and a client that inferred it from its own request would be claiming
+ * a write it never saw land.
+ *
+ * The same goes for a capture problem — a refused microphone, a recorder
+ * interrupted by a phone call. That is a fact about the device, not about the
+ * meeting, and putting it in `failureReason` would either lose it one event
+ * later or leave a session marked `failed` that is not.
  */
 
 /**
@@ -87,15 +198,41 @@ export const PROTOCOL_VERSION = 1;
  * Legal transitions. A client that cannot make its move here has a bug, and the
  * reducer refuses rather than guessing.
  *
+ * Three of these moves are here because a client genuinely needs them, and each
+ * was reached by a client faking an event to get around the table — which is
+ * the shape of a table that is wrong rather than of a client that is:
+ *
+ *  - **`idle -> finalizing`.** A meeting nobody recorded is still a meeting: the
+ *    person typed notes and never got audio, because they said no to the
+ *    microphone or because there was never anything to capture. Their typed
+ *    words are the one thing in a meeting that cannot be regenerated, so
+ *    refusing to write them out until a synthetic `start` has been forged would
+ *    lose the only copy of the only irreplaceable half. The note renders with
+ *    `_No transcript was captured._`, which `note.js` already writes on purpose.
+ *  - **`finalizing -> recording`.** A finalize the gateway has not answered yet
+ *    is not a finished meeting. The person is still in the room and presses
+ *    record again; the alternative was a client fabricating a `fail` to get
+ *    back, which puts a failure nobody had into the record. Safe by
+ *    construction: `complete` is a separate state and is terminal, and finalize
+ *    reuses the note path it already claimed, so a re-finalize rewrites one note.
+ *  - **`failed -> finalizing`.** A recording that failed mid-meeting holds a
+ *    partial transcript, and that partial transcript is somebody's meeting.
+ *    Without this move the only way out of `failed` is to record again, so a
+ *    session that cannot record again can never be written out at all — the one
+ *    outcome a meeting recorder may not have.
+ *
+ * `complete` stays terminal, and nothing returns from it: once the note is in
+ * the customer's bucket, the note is the meeting and it is edited as a note.
+ *
  * @type {Readonly<Record<MeetingState, readonly MeetingState[]>>}
  */
 export const MEETING_TRANSITIONS = Object.freeze({
-  idle: ["recording", "failed"],
+  idle: ["recording", "finalizing", "failed"],
   recording: ["paused", "finalizing", "failed"],
   paused: ["recording", "finalizing", "failed"],
-  finalizing: ["complete", "failed"],
+  finalizing: ["recording", "complete", "failed"],
   complete: [],
-  failed: ["recording"],
+  failed: ["recording", "finalizing"],
 });
 
 /**
@@ -103,11 +240,22 @@ export const MEETING_TRANSITIONS = Object.freeze({
  * idempotent or additive: replaying the log must land on the same session,
  * because an offline client replays its log on reconnect.
  *
+ * **`written` is the one event a client may never send.** It is the gateway's
+ * own: the gateway is the only party that can know a note exists, and `written`
+ * is the event that moves a session to `complete`. A client able to send it
+ * could mark a meeting finished that was never written out — the session would
+ * answer `complete` with a note path pointing at nothing, and the recording
+ * would be lost in silence, which is the one outcome this feature exists to
+ * prevent. Clients *fold* the `written` the gateway sends back; the gateway
+ * refuses one that arrives from a client, and that refusal is a security
+ * control rather than a tidiness rule.
+ *
  * @typedef {{type:"start", at:string}
  *   | {type:"pause", at:string}
  *   | {type:"resume", at:string}
  *   | {type:"segment", segment:TranscriptSegment}
  *   | {type:"segments", segments:TranscriptSegment[]}
+ *   | {type:"flag", at:number, label?:string}
  *   | {type:"notes", markdown:string}
  *   | {type:"title", title:string}
  *   | {type:"attendee", attendee:Attendee}
@@ -115,14 +263,61 @@ export const MEETING_TRANSITIONS = Object.freeze({
  *   | {type:"end", at:string}
  *   | {type:"enhanced", markdown:string, templateId:string}
  *   | {type:"written", notePath:string}
- *   | {type:"fail", reason:string}} MeetingEvent
+ *   | {type:"fail", at:string, reason:string}} MeetingEvent
  */
+
+/**
+ * The events a client is allowed to send, which is every one above except
+ * `written`.
+ *
+ * Exported frozen and consulted by the gateway rather than restated there: the
+ * refusal above is only worth as much as the list it is checked against, and a
+ * list kept in two files is a list that will one day have `written` in it in
+ * one of them.
+ *
+ * @type {readonly string[]}
+ */
+export const CLIENT_EVENT_TYPES = Object.freeze([
+  "start",
+  "pause",
+  "resume",
+  "segment",
+  "segments",
+  "flag",
+  "notes",
+  "title",
+  "attendee",
+  "source",
+  "end",
+  "enhanced",
+  "fail",
+]);
+
+/** The events only the gateway may emit. See `CLIENT_EVENT_TYPES`. */
+export const GATEWAY_EVENT_TYPES = Object.freeze(["written"]);
 
 // --- identity --------------------------------------------------------------
 
 /** Session ids are `mtg_` plus 20 lowercase base32 characters. */
 export const MEETING_ID_PREFIX = "mtg_";
-const MEETING_ID_RE = /^mtg_[0-9a-hjkmnp-tv-z]{20}$/;
+
+/**
+ * Crockford's base32 without `i`, `l`, `o` and `u`, so an id read aloud or
+ * re-typed off a screen survives.
+ *
+ * Exported because two clients mint ids and both had their own copy of this
+ * string — session.js's `MEETING_ID_ALPHABET` and the phone's `ALPHABET` — each
+ * with a comment saying nothing would notice them drifting from the regex
+ * below. Now nothing can: the regex is built from this.
+ */
+export const MEETING_ID_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz";
+
+/** Characters after the prefix. */
+export const MEETING_ID_LENGTH = 20;
+
+const MEETING_ID_RE = new RegExp(
+  `^${MEETING_ID_PREFIX}[${MEETING_ID_ALPHABET}]{${MEETING_ID_LENGTH}}$`
+);
 
 /**
  * @param {unknown} value
@@ -136,39 +331,153 @@ export function isMeetingId(value) {
 
 /**
  * Gateway routes, relative to the workspace root the caller is authenticated
- * for. All are POST except `session`, which is also a GET.
+ * for.
+ *
+ * The collection and one session are **different paths**, because they answer
+ * different questions and one GET cannot do both. `sessions` is the collection:
+ * POST upserts one session into it, GET lists the recent ones. `session(id)`
+ * is one session: GET reads it back. Reading one wants the id in the path, and
+ * this file said so in two names that were the same string until the day
+ * somebody believed it.
  *
  * Ingestion is idempotent end to end: the same session id upserts, the same
  * segment id replaces, and finalize on an already-complete session returns the
  * note path it already wrote rather than writing a second note.
  */
 export const ROUTES = Object.freeze({
-  /** POST: upsert session metadata. GET: read one back. */
-  session: "/meetings/sessions",
+  /** POST /meetings/sessions — upsert one session. GET — list recent ones. */
+  sessions: "/meetings/sessions",
+  /** GET /meetings/sessions/:id — read one session back. */
+  session: (id) => `/meetings/sessions/${id}`,
   /** POST /meetings/sessions/:id/segments — append transcript segments. */
   segments: (id) => `/meetings/sessions/${id}/segments`,
   /** POST /meetings/sessions/:id/notes — replace the human's Markdown. */
   notes: (id) => `/meetings/sessions/${id}/notes`,
   /** POST /meetings/sessions/:id/finalize — end, enhance, write to the bucket. */
   finalize: (id) => `/meetings/sessions/${id}/finalize`,
-  /** GET /meetings/sessions — list recent sessions for this workspace. */
-  list: "/meetings/sessions",
 });
 
 /**
+ * WHAT GOES ON THE WIRE.
+ *
+ * The routes above name the paths; these name the bodies, which were left to be
+ * read out of a gateway implementation until now — so a second client had to
+ * guess at the one thing a contract exists to settle.
+ *
+ * Every POST answers with an `IngestAck`, or with one of the `ERRORS` codes and
+ * a `error_description`. Every body is a JSON object; an empty body is "no
+ * fields", which is exactly what a bare finalize is.
+ *
+ * @typedef {Partial<MeetingSession> & {id: string, events?: MeetingEvent[], markdown?: string}} SessionUpsert
+ *   `POST /meetings/sessions`. The id is required and is the client's own — the
+ *   same id upserts. Everything else is optional and a field the body does not
+ *   carry leaves the stored value alone, because a phone re-sending what it
+ *   knows after a reconnect must not erase a title the watch set.
+ *
+ *   `state` is deliberately **not** one of them: every state move needs the
+ *   client's own timestamp to be replay-safe, so moves arrive in `events` —
+ *   the log the client is keeping anyway — as `start`, `pause`, `resume`,
+ *   `end` and `fail`. `markdown` is accepted as a synonym for `notes`, because
+ *   that is what the event calls it.
+ *
+ * @typedef {Object} SegmentsBody
+ * @property {TranscriptSegment[]} segments  `POST …/segments`. Merged by id, so
+ *   re-sending a batch after a timeout nobody saw the answer to is free.
+ *
+ * @typedef {Object} NotesBody
+ * @property {string} [notes]     `POST …/notes`. The human's Markdown, wholesale.
+ * @property {string} [markdown]  The event's name for the same field; either.
+ *
+ * @typedef {Object} FinalizeBody
+ * @property {string} [endedAt]      `POST …/finalize`. Defaults to the gateway's
+ *   clock only when the client sent no `end` event and no time of its own.
+ * @property {string} [enhanced]     The generated summary. The gateway does not
+ *   enhance — it has no model and no key — so this arrives from the client that
+ *   did, and a meeting with none gets the note's own placeholder.
+ * @property {string} [templateId]
+ * @property {MeetingEvent[]} [events]
+ * @property {string} [title]
+ * @property {MeetingSource} [source]
+ * @property {Attendee[]} [attendees]
+ * @property {string} [notes]
+ *
+ * @typedef {Object} SessionRead
+ * @property {MeetingSessionSummary} session  `GET /meetings/sessions/:id`.
+ * @property {string} [etag]                  Of the session record, not of a note.
+ * @property {TranscriptSegment[]} [transcript]  Only with `?transcript=true`:
+ *   forty minutes of speech is about forty kilobytes, and a client checking
+ *   whether its session is still alive should not have to download the meeting.
+ *
+ * @typedef {Object} SessionList
+ * @property {MeetingSessionSummary[]} sessions  `GET /meetings/sessions`, newest
+ *   first. `?limit=` bounds it.
+ * @property {number} scanned  Records read to answer it. **A floor, never a
+ *   total**: the scan is bounded, so this is not a count of the meetings in the
+ *   context and must never be drawn as one.
+ *
+ * @typedef {Object} MeetingSessionSummary
+ * @property {string} id
+ * @property {number} version
+ * @property {string} title
+ * @property {MeetingState} state
+ * @property {string} startedAt
+ * @property {string|null} endedAt
+ * @property {number} recordedMs
+ * @property {MeetingSource} source
+ * @property {Attendee[]} attendees
+ * @property {MeetingDevice} device
+ * @property {number} segmentCount   The transcript is never in a summary.
+ * @property {string|null} notePath
+ * @property {string|null} failureReason
+ */
+
+/**
+ * What every route answers with.
+ *
+ * `conflictSafe` is the part that is easy to leave out and must not be. R2 and
+ * AWS S3 honour a conditional put; Backblaze B2 and Wasabi accept the header
+ * and write anyway, so on those backends a session is written last-writer-wins.
+ * The rule is that the guarantee is never *silently* dropped — so the ack says,
+ * on every request, whether this bucket can do it at all, and a client that is
+ * not getting conflict safety is told rather than left to assume the guarantee
+ * it read about. An ack with no way to report a degraded write is an ack that
+ * makes the gateway claim a guarantee it does not have.
+ *
  * @typedef {Object} IngestAck
  * @property {string} sessionId
  * @property {MeetingState} state
  * @property {number} segmentCount     Segments the gateway now holds.
  * @property {string|null} notePath
+ * @property {boolean} conflictSafe    Whether this bucket honours a conditional
+ *   write. False is not an error: it is this context's storage, degraded
+ *   honestly and said out loud.
+ * @property {number} [rejected]       Rows of a segment batch the merge could
+ *   not use — no id, no text, a clock that ran backwards. Present only when
+ *   some were dropped, so a client can tell forty-nine stored from fifty.
  * @property {string} [etag]           Bucket etag of the written note.
  */
 
-/** Every gateway error carries one of these, so clients can retry correctly. */
+/**
+ * Every gateway error carries one of these, so clients can retry correctly.
+ *
+ * **There is deliberately no not-found code, and there must not be one.** A
+ * session id from another workspace, an id that never existed, and an id whose
+ * record its owner deleted are one answer: HTTP 404 carrying `forbidden`. They
+ * are not distinguishable to the gateway even in principle — the store it holds
+ * was built for exactly one workspace, so another workspace's id is simply an
+ * id its bucket does not have — and a code that told them apart would turn the
+ * route into an existence oracle over every meeting anybody has ever recorded.
+ * A client cannot act on the difference either: the response to all three is to
+ * stop sending this session.
+ */
 export const ERRORS = Object.freeze({
   /** Malformed body. Do not retry unchanged. */
   invalid: "meeting_invalid",
-  /** Session id belongs to another workspace, or the grant cannot write. */
+  /**
+   * Not yours, or not writable by this grant — and also the answer for an id
+   * that does not exist here. See above: unknown, another workspace's, and
+   * deleted are one code with one status.
+   */
   forbidden: "meeting_forbidden",
   /** Bucket write lost a conditional put. Re-read and retry. */
   conflict: "meeting_conflict",
@@ -248,11 +557,30 @@ export const DETECTOR_THRESHOLDS = Object.freeze({
  * The watch is a remote control, never a recorder: it has no microphone worth
  * using and no room for a transcript. It sends commands and renders state.
  *
+ * **Every command about an existing session names it.** A watch shows the
+ * session it last heard about, and a wrist is reachable when a pocket is not:
+ * the transport drops, the phone starts a second meeting, and the pause the
+ * wearer presses on a stale face would land on a meeting they are not looking
+ * at. So `sessionId` is on the command, the phone refuses one that does not
+ * name the session it is actually running, and "the phone is the authority"
+ * becomes something the wire can be checked against rather than a sentence in a
+ * design document. `start` carries none because there is nothing to name yet —
+ * the phone mints the id.
+ *
+ * **The verb is `end`, not `stop`.** The wrist and the event log now say one
+ * word for one transition; `stop` was a second name for `MeetingEvent`'s `end`
+ * across a boundary, which is the drift this file exists to prevent. The watch
+ * UI may still say "Stop" to a wearer — a label is not a protocol.
+ *
+ * A command is a **request**. The phone's state machine may refuse it per
+ * `MEETING_TRANSITIONS`, and a refusal is the correct outcome, never a state
+ * the watch performs on its own.
+ *
  * @typedef {{type:"start", title?:string}
- *   | {type:"stop"}
- *   | {type:"pause"}
- *   | {type:"resume"}
- *   | {type:"flag", at:number, label?:string}} WatchCommand
+ *   | {type:"end", sessionId:string}
+ *   | {type:"pause", sessionId:string}
+ *   | {type:"resume", sessionId:string}
+ *   | {type:"flag", sessionId:string, at:number, label?:string}} WatchCommand
  */
 
 /**
@@ -264,9 +592,17 @@ export const DETECTOR_THRESHOLDS = Object.freeze({
  * @property {MeetingState} state
  * @property {string} title
  * @property {number} elapsedMs
- * @property {number} flags        Moments the wearer marked.
+ * @property {number} flags        How many moments the wearer has marked — a
+ *   count, not a list: the wearer needs to know the press registered, not to
+ *   read back what they flagged. It is `MeetingSession.flags.length`.
  * @property {boolean} reachable   Phone is in range and recording is live.
  */
 
-/** Session-scoped moments the wearer flagged, folded into the note as `> [!flag]`. */
+/**
+ * The longest label a flag may carry.
+ *
+ * A flag is folded into the note as a `> [!flag]` callout beside the turn it
+ * was pressed during — `MeetingFlag`, and `note.js` renders it — so the label
+ * is a few words on a wrist, not a note of its own.
+ */
 export const WATCH_FLAG_LABEL_MAX = 40;

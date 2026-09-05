@@ -1,6 +1,11 @@
 import { MeetingGatewayError, type MeetingsGateway } from "./gateway";
 import { ERRORS } from "./protocol";
-import type { IngestAck, MeetingSession, TranscriptSegment } from "./protocol";
+import type {
+  IngestAck,
+  MeetingSession,
+  MeetingSessionSummary,
+  TranscriptSegment,
+} from "./protocol";
 
 /**
  * A gateway that keeps meetings in a `Map`, and refuses on request.
@@ -78,6 +83,32 @@ export function fakeGateway(
       state: session.state,
       segmentCount: segments.get(session.id)?.size ?? 0,
       notePath: session.notePath,
+      /*
+        A bucket that honours a conditional write, because that is the ordinary
+        case and a fake that reported the degraded one everywhere would make
+        every test assert the exception. `conflictSafe` is part of `IngestAck`
+        now rather than an undocumented extra the real gateway happened to send.
+      */
+      conflictSafe: true,
+    };
+  }
+
+  /** What the listing route answers with: no transcript, and a count instead. */
+  function summarize(session: MeetingSession): MeetingSessionSummary {
+    return {
+      id: session.id,
+      version: session.version,
+      title: session.title,
+      state: session.state,
+      startedAt: session.startedAt,
+      endedAt: session.endedAt,
+      recordedMs: session.recordedMs,
+      source: session.source,
+      attendees: session.attendees,
+      device: session.device,
+      segmentCount: segments.get(session.id)?.size ?? session.transcript.length,
+      notePath: session.notePath,
+      failureReason: session.failureReason,
     };
   }
 
@@ -155,9 +186,9 @@ export function fakeGateway(
 
     async list() {
       gate("list");
-      return [...held.values()].sort(
-        (a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt),
-      );
+      return [...held.values()]
+        .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))
+        .map(summarize);
     },
   };
 }

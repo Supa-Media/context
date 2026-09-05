@@ -8,10 +8,17 @@
 // clients that merge the same segments in different orders land on the same
 // array — which is what makes the rendered note stable.
 
+import { TRANSCRIPT_CHANNELS } from "./protocol.js";
+
 /** @typedef {import("./protocol.js").TranscriptSegment} TranscriptSegment */
 
-/** Channels an engine is allowed to label a segment with. */
-const CHANNELS = new Set(["mic", "system", "mixed"]);
+/**
+ * Channels an engine is allowed to label a segment with — the contract's list,
+ * as a `Set` for the membership check. It was spelled out again here, which is
+ * one more place for the union in protocol.js to be right about and this file
+ * to be wrong.
+ */
+const CHANNELS = new Set(TRANSCRIPT_CHANNELS);
 
 /**
  * Consecutive segments from the same speaker closer together than this are one

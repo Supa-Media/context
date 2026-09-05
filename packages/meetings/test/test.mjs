@@ -24,7 +24,20 @@ import { runSessionChecks } from "./session.test.mjs";
 import { runTranscriptChecks } from "./transcript.test.mjs";
 
 import * as index from "../src/index.js";
-import { ERRORS, MEETING_TRANSITIONS, PROTOCOL_VERSION, ROUTES, isMeetingId } from "../src/protocol.js";
+import { readFileSync } from "node:fs";
+
+import {
+  CLIENT_EVENT_TYPES,
+  DEVICE_PLATFORMS,
+  ERRORS,
+  GATEWAY_EVENT_TYPES,
+  MEETING_SOURCE_KINDS,
+  MEETING_TRANSITIONS,
+  PROTOCOL_VERSION,
+  ROUTES,
+  TRANSCRIPT_CHANNELS,
+  isMeetingId,
+} from "../src/protocol.js";
 
 let failures = 0;
 function check(label, cond) {
@@ -46,10 +59,87 @@ check("every state in the transition table can be reached or is terminal", (() =
 })());
 check("every transition target is itself a known state", Object.values(MEETING_TRANSITIONS).every((targets) => targets.every((target) => target in MEETING_TRANSITIONS)));
 check("complete is terminal", MEETING_TRANSITIONS.complete.length === 0);
-check("failed can only be restarted", MEETING_TRANSITIONS.failed.join(",") === "recording");
+check(
+  "a failed recording can be restarted, or written out with what it captured",
+  MEETING_TRANSITIONS.failed.join(",") === "recording,finalizing"
+);
+check(
+  "a meeting nobody recorded can still be finalized, so typed notes are never stranded",
+  MEETING_TRANSITIONS.idle.includes("finalizing")
+);
+check(
+  "and a finalize the gateway has not answered can be taken back to recording",
+  MEETING_TRANSITIONS.finalizing.includes("recording")
+);
 check("every wire error is a distinct string", new Set(Object.values(ERRORS)).size === Object.keys(ERRORS).length);
-check("the session route is a path", ROUTES.session.startsWith("/meetings/"));
+check(
+  "`written` is the gateway's own event and is not one a client may send",
+  !CLIENT_EVENT_TYPES.includes("written") && GATEWAY_EVENT_TYPES.includes("written")
+);
+check(
+  "...and the two lists together are the whole union, so nothing is unclassified",
+  [...CLIENT_EVENT_TYPES, ...GATEWAY_EVENT_TYPES].sort().join(",") ===
+    [
+      "attendee",
+      "end",
+      "enhanced",
+      "fail",
+      "flag",
+      "notes",
+      "pause",
+      "resume",
+      "segment",
+      "segments",
+      "source",
+      "start",
+      "title",
+      "written",
+    ].join(",")
+);
+check("the collection route is a path", ROUTES.sessions.startsWith("/meetings/"));
+check("reading one session puts the id in the path", ROUTES.session("mtg_x") === `${ROUTES.sessions}/mtg_x`);
+check(
+  "...so the collection and one session are not the same route",
+  ROUTES.session("mtg_x") !== ROUTES.sessions
+);
 check("the per-session routes are built from the id", ROUTES.segments("mtg_x").endsWith("/mtg_x/segments"));
+check(
+  "...and hang off the one-session route rather than restating it",
+  ["segments", "notes", "finalize"].every((name) =>
+    ROUTES[name]("mtg_x").startsWith(`${ROUTES.session("mtg_x")}/`)
+  )
+);
+/*
+  The runtime lists and the JSDoc unions are two statements of one fact, and the
+  whole reason the lists exist is that three consumers were each keeping a third
+  copy. So this reads the union out of protocol.js's own source and compares it
+  to what the module exports: a union member added without touching the array —
+  or the other way round — fails here rather than as a segment quietly relabelled
+  `mixed` on somebody's phone.
+*/
+const PROTOCOL_SOURCE = readFileSync(new URL("../src/protocol.js", import.meta.url), "utf8");
+
+/** The `"a"|"b"|"c"` union declared for `@property ... <name>`, as an array. */
+function unionFor(property) {
+  const declaration = new RegExp(`@property \\{([^}]*)\\} ${property}\\b`).exec(PROTOCOL_SOURCE);
+  if (declaration === null) return [];
+  return [...declaration[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+}
+
+for (const [property, exported] of [
+  ["kind", MEETING_SOURCE_KINDS],
+  ["channel", TRANSCRIPT_CHANNELS],
+  ["platform", DEVICE_PLATFORMS],
+]) {
+  const declared = unionFor(property);
+  check(`the ${property} union is not empty, so this check is checking something`, declared.length > 0);
+  check(
+    `...and the exported list is exactly the ${property} union, in order`,
+    declared.join(",") === [...exported].join(",")
+  );
+  check(`...frozen, so a consumer cannot edit the contract's list`, Object.isFrozen(exported));
+}
+
 check("isMeetingId refuses the ambiguous letters", !isMeetingId(`mtg_${"i".repeat(20)}`) && !isMeetingId(`mtg_${"l".repeat(20)}`));
 check("...and anything of the wrong length", !isMeetingId(`mtg_${"a".repeat(19)}`) && !isMeetingId(`mtg_${"a".repeat(21)}`));
 

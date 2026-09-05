@@ -24,18 +24,28 @@
  */
 
 export {
+  CLIENT_EVENT_TYPES,
   DETECTOR_THRESHOLDS,
+  DEVICE_PLATFORMS,
   ERRORS,
+  GATEWAY_EVENT_TYPES,
+  MEETING_ID_ALPHABET,
+  MEETING_ID_LENGTH,
   MEETING_ID_PREFIX,
+  MEETING_SOURCE_KINDS,
   MEETING_TRANSITIONS,
   PROTOCOL_VERSION,
   ROUTES,
+  TRANSCRIPT_CHANNELS,
   WATCH_FLAG_LABEL_MAX,
   isMeetingId,
 } from "@context/meetings/protocol";
 
 export type {
   Attendee,
+  MeetingSessionSummary,
+  SessionList,
+  SessionRead,
   CalendarEvent,
   DetectionResult,
   DetectionSignals,
@@ -43,6 +53,7 @@ export type {
   IngestAck,
   MeetingDevice,
   MeetingEvent,
+  MeetingFlag,
   MeetingSession,
   MeetingSource,
   MeetingState,

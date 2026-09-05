@@ -1,4 +1,4 @@
-import { MEETING_ID_PREFIX, isMeetingId } from "./protocol";
+import { MEETING_ID_ALPHABET, MEETING_ID_LENGTH, MEETING_ID_PREFIX, isMeetingId } from "./protocol";
 
 /**
  * Meeting ids, made on the device.
@@ -11,11 +11,14 @@ import { MEETING_ID_PREFIX, isMeetingId } from "./protocol";
  * minted by the server would mean a meeting has no name until the first request
  * succeeds, which is exactly the request that fails on a train.
  *
- * The alphabet is Crockford's base32 without `i`, `l`, `o` and `u`, which is
- * what `MEETING_ID_RE` in `protocol.js` accepts. `newMeetingId` validates its
- * own output against `isMeetingId` before returning it, so a mistake here is
- * caught on this device rather than as a `meeting_invalid` from the gateway
- * after somebody has already recorded an hour.
+ * The alphabet and the length are the contract's — `MEETING_ID_ALPHABET` and
+ * `MEETING_ID_LENGTH`, which is also what `protocol.js` builds the regex from,
+ * so there is one statement of what an id is rather than three. This file kept
+ * its own copy of both, with a comment admitting nothing would notice them
+ * drifting. `newMeetingId` still validates its own output against `isMeetingId`
+ * before returning it, so a mistake here is caught on this device rather than
+ * as a `meeting_invalid` from the gateway after somebody has already recorded
+ * an hour.
  *
  * ## About the randomness
  *
@@ -40,8 +43,8 @@ import { MEETING_ID_PREFIX, isMeetingId } from "./protocol";
  * the suite grows a native transform, this is a two-line change.
  */
 
-const ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz";
-const LENGTH = 20;
+const ALPHABET = MEETING_ID_ALPHABET;
+const LENGTH = MEETING_ID_LENGTH;
 
 /** Fills a byte array. Injected so a test can mint a known id. */
 export type RandomBytes = (length: number) => Uint8Array;
@@ -57,9 +60,11 @@ export function newMeetingId(randomBytes: RandomBytes = defaultRandomBytes): str
     id += ALPHABET[(bytes[index] ?? 0) & 31];
   }
   if (!isMeetingId(id)) {
-    // Unreachable while `ALPHABET` and `LENGTH` match the protocol's regex, and
-    // that is precisely what this asserts: the two are declared in different
-    // repositories' worth of file and nothing else would notice them drifting.
+    // Unreachable now that the alphabet, the length and the regex all come from
+    // one place. Kept because the mask below is an assumption about the
+    // alphabet's *size* that no import can carry: 256 is a multiple of 32, and
+    // an alphabet that stopped being 32 characters long would silently start
+    // producing ids the gateway refuses.
     throw new Error("newMeetingId produced an id the protocol would refuse");
   }
   return id;

@@ -17,10 +17,25 @@
 //                     is dropped rather than re-run. Both are derived state: a
 //                     client that loses them can rebuild them by replaying.
 //
+// The contract names both of them now — they were this file's private
+// bookkeeping while the gateway was persisting them with every session, which
+// is a field on the wire whichever file declares it.
+//
 // An illegal transition throws. It is a client bug, and a reducer that guessed
 // would turn it into a wrong note that nobody notices.
 
-import { MEETING_ID_PREFIX, MEETING_TRANSITIONS, PROTOCOL_VERSION, ERRORS, isMeetingId } from "./protocol.js";
+import {
+  DEVICE_PLATFORMS,
+  ERRORS,
+  MEETING_ID_ALPHABET,
+  MEETING_ID_LENGTH,
+  MEETING_ID_PREFIX,
+  MEETING_SOURCE_KINDS,
+  MEETING_TRANSITIONS,
+  PROTOCOL_VERSION,
+  WATCH_FLAG_LABEL_MAX,
+  isMeetingId,
+} from "./protocol.js";
 import { mergeSegments } from "./transcript.js";
 
 /** @typedef {import("./protocol.js").MeetingSession} MeetingSession */
@@ -29,36 +44,20 @@ import { mergeSegments } from "./transcript.js";
 /** @typedef {import("./protocol.js").MeetingSource} MeetingSource */
 /** @typedef {import("./protocol.js").Attendee} Attendee */
 
-/**
- * Session ids are `mtg_` plus 20 of these. Crockford's base32 without `i`, `l`,
- * `o` and `u`, so an id read aloud or re-typed off a screen survives.
- *
- * protocol.js states this as a regex and does not export the alphabet, so the
- * two are kept honest by a test that generates ids across the whole alphabet
- * and asserts `isMeetingId`.
- */
-export const MEETING_ID_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz";
-
-/** Characters after the prefix. Matches the regex in protocol.js. */
-export const MEETING_ID_LENGTH = 20;
-
 /** What a meeting is called before anybody, or any detector, names it. */
 export const DEFAULT_TITLE = "Untitled meeting";
 
-const SOURCE_KINDS = new Set([
-  "in-person",
-  "zoom",
-  "meet",
-  "teams",
-  "slack-huddle",
-  "webex",
-  "discord",
-  "facetime",
-  "phone",
-  "unknown",
-]);
+/*
+  The three lists this file used to keep its own copies of. They are the
+  contract's now — `MEETING_SOURCE_KINDS`, `DEVICE_PLATFORMS` and the id
+  alphabet — and are turned into `Set`s here only because that is what a
+  membership check wants. `Object.freeze` does not stop a `Set` being added to,
+  so the frozen thing stays the array in protocol.js and this is a local view of
+  it.
+*/
+const SOURCE_KINDS = new Set(MEETING_SOURCE_KINDS);
 
-const PLATFORMS = new Set(["ios", "android", "web", "macos", "windows", "linux", "watchos"]);
+const PLATFORMS = new Set(DEVICE_PLATFORMS);
 
 /** Thrown when a client asks for a move `MEETING_TRANSITIONS` does not allow. */
 export class MeetingTransitionError extends Error {
@@ -204,6 +203,42 @@ function withAttendee(list, attendee) {
 }
 
 /**
+ * One flagged moment, or `null` when there is no usable offset in it.
+ *
+ * @param {unknown} flag
+ * @returns {import("./protocol.js").MeetingFlag|null}
+ */
+export function normalizeFlag(flag) {
+  const raw = flag && typeof flag === "object" ? /** @type {Record<string, unknown>} */ (flag) : {};
+  const at = raw.at;
+  if (typeof at !== "number" || !Number.isFinite(at) || at < 0) return null;
+  /** @type {import("./protocol.js").MeetingFlag} */
+  const out = { at: Math.round(at) };
+  const label = typeof raw.label === "string" ? raw.label.replace(/\s+/g, " ").trim() : "";
+  if (label) out.label = label.slice(0, WATCH_FLAG_LABEL_MAX);
+  return out;
+}
+
+/**
+ * Additive, deduped on `at`, oldest first.
+ *
+ * Deduped rather than appended because a client replays its log: the same press
+ * arriving twice is one moment, and the offset is what identifies it. Two
+ * presses inside the same millisecond would be one flag, which is a wrist, a
+ * finger and a millisecond away from being a problem.
+ *
+ * The first one seen wins, so a replay cannot rewrite a label either.
+ *
+ * @param {import("./protocol.js").MeetingFlag[]} list
+ * @param {import("./protocol.js").MeetingFlag} flag
+ */
+function withFlag(list, flag) {
+  const existing = list ?? [];
+  if (existing.some((entry) => entry.at === flag.at)) return existing;
+  return [...existing, flag].sort((a, b) => a.at - b.at);
+}
+
+/**
  * @param {unknown} device
  * @returns {import("./protocol.js").MeetingDevice}
  */
@@ -250,6 +285,10 @@ export function createSession(input = {}) {
     attendees,
     notes: typeof input.notes === "string" ? input.notes : "",
     transcript: mergeSegments([], Array.isArray(input.transcript) ? input.transcript : []),
+    flags: (Array.isArray(input.flags) ? input.flags : []).reduce((list, flag) => {
+      const normalized = normalizeFlag(flag);
+      return normalized ? withFlag(list, normalized) : list;
+    }, /** @type {import("./protocol.js").MeetingFlag[]} */ ([])),
     enhanced: typeof input.enhanced === "string" ? input.enhanced : null,
     templateId: typeof input.templateId === "string" ? input.templateId : null,
     device: normalizeDevice(input.device),
@@ -344,6 +383,12 @@ export function applyEvent(session, event) {
           // failure keeps the original, because that is what the note is filed
           // under and the path must not move.
           startedAt: session.state === "idle" ? at : session.startedAt,
+          // A meeting that is recording again has not ended and is not failed.
+          // `failureReason` describes the `failed` state and nothing else, and
+          // `endedAt` would otherwise sit in the frontmatter of a note whose
+          // meeting was still going on.
+          endedAt: null,
+          failureReason: null,
           recordingSince: at,
         },
         "start",
@@ -364,7 +409,7 @@ export function applyEvent(session, event) {
       if (alreadyApplied(session, "resume", at)) return session;
       const state = transitionTo(session, "recording");
       if (session.state === "recording") return stamp(session, "resume", at);
-      return stamp({ ...session, state, recordingSince: at }, "resume", at);
+      return stamp({ ...session, state, failureReason: null, recordingSince: at }, "resume", at);
     }
 
     case "end": {
@@ -375,7 +420,13 @@ export function applyEvent(session, event) {
       if (session.state === "complete") return session;
       const state = transitionTo(session, "finalizing");
       if (session.state === "finalizing") return stamp({ ...session, endedAt: at }, "end", at);
-      return stamp({ ...session, state, endedAt: at, ...closeSpan(session, at) }, "end", at);
+      // A failed recording being written out with what it captured is no longer
+      // in `failed`, so it no longer carries a reason for being there.
+      return stamp(
+        { ...session, state, endedAt: at, failureReason: null, ...closeSpan(session, at) },
+        "end",
+        at
+      );
     }
 
     case "segment":
@@ -384,6 +435,18 @@ export function applyEvent(session, event) {
     case "segments": {
       if (!Array.isArray(event.segments)) throw new MeetingEventError("segments.segments must be an array");
       return { ...session, transcript: mergeSegments(session.transcript, event.segments) };
+    }
+
+    case "flag": {
+      // No state moves and no transition is consulted: a flag is a mark on the
+      // timeline, not a thing that happens to the recording. It is legal while
+      // recording, while paused, and on a session that never recorded at all —
+      // the wearer pressed the button, and refusing to carry that because the
+      // state machine was somewhere else would lose the one thing the wrist is
+      // for.
+      const flag = normalizeFlag(event);
+      if (!flag) throw new MeetingEventError("flag.at must be milliseconds from the session start");
+      return { ...session, flags: withFlag(session.flags ?? [], flag) };
     }
 
     case "notes": {
@@ -431,16 +494,27 @@ export function applyEvent(session, event) {
     }
 
     case "fail": {
+      const at = toIso(event.at, "fail.at");
       if (typeof event.reason !== "string" || !event.reason) {
         throw new MeetingEventError("fail.reason must be a non-empty string");
       }
-      // `fail` carries no timestamp, so it cannot be deduped by clock. A replay
-      // of a failure the session already recovered from is recognised by the
-      // reason it left behind — which is why `failureReason` survives a restart
-      // rather than being cleared by it.
-      if (session.state !== "failed" && session.failureReason === event.reason) return session;
+      // Deduped by its own clock like every other state-changing event. It used
+      // to carry no timestamp, so a replay could only be recognised by the
+      // reason it left behind — which meant `failureReason` had to survive a
+      // restart to keep the reducer honest, and a session that had recovered
+      // still said why it had once failed.
+      if (alreadyApplied(session, "fail", at)) return session;
       const state = transitionTo(session, "failed");
-      return { ...session, state, failureReason: event.reason, recordingSince: null };
+      if (session.state === "failed") return stamp({ ...session, failureReason: event.reason }, "fail", at);
+      // The open span is closed *at the failure*, not dropped and not left
+      // open: the audio captured up to the moment the recorder died is audio
+      // that was captured, and the seconds between the failure and a retry are
+      // not.
+      return stamp(
+        { ...session, state, failureReason: event.reason, ...closeSpan(session, at) },
+        "fail",
+        at
+      );
     }
 
     default:

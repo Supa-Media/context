@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { fonts, layout, radii } from "../../design/tokens";
+import { floatingStackBottom, useBottomChromeHeight } from "../../app/bottomChrome";
 import { useThemedStyles, type Colors, type Shadows } from "../../design/theme";
 import { Text } from "../../design/components/Text";
 import { meetings, recordElapsedMs } from "../controller";
@@ -19,14 +20,20 @@ import { Waveform } from "./Waveform";
  * "should I show the bar" logic anywhere in the app, and no screen has to know
  * this feature exists to be correct about it.
  *
- * ## Where it is mounted, and the one line that is missing
+ * ## Where it is mounted
  *
- * `app/(app)/meetings/_layout.tsx` mounts it today, so it is up across every
- * meetings screen. **To make it genuinely app-wide it needs one line in
- * `app/(app)/_layout.tsx`** — `<RecordingBar />` beside that layout's `Stack`.
- * That file belongs to the app's shell rather than to this feature, so it is
- * left for whoever owns it; nothing else has to change, because the state is an
- * external store (`controller.ts`) rather than a provider.
+ * `app/(app)/_layout.tsx`, once, beside that layout's `Stack` — above every
+ * route in the section, which is what makes it app-wide. It needs nothing
+ * passed to it, because the recording lives in an external store
+ * (`controller.ts`) rather than in a provider.
+ *
+ * Two things did have to change with it, and both were found rather than
+ * assumed. The meetings navigator mounted a second copy, which is two bars over
+ * each other the moment you are on a meetings screen; it does not any more. And
+ * `AppFrame` floats the console's toolbar in this same 66pt of glass, so the
+ * bar stacks above whatever chrome is already at that edge rather than covering
+ * a screen's navigation for the length of a meeting — `floatingStackBottom`,
+ * over the height the frame publishes in `features/app/bottomChrome.ts`.
  *
  * ## What it shows, and what it deliberately does not
  *
@@ -43,9 +50,10 @@ import { Waveform } from "./Waveform";
  *
  * The floating-chrome geometry the rest of the phone layout already uses:
  * `bottomBarHeight` tall, inset by `bottomBarInset` on each side so the screen
- * shows either side of it, `floatingGap` from the bottom edge. It sits *above*
- * the safe-area inset rather than inside it, because a control under the home
- * indicator is a control a swipe takes instead of a tap.
+ * shows either side of it, `floatingGap` from the bottom edge — or the home
+ * indicator's own inset where that is larger, which is `floatingGapFor`'s
+ * `max`. It sits *above* the safe-area inset rather than inside it, because a
+ * control under the home indicator is a control a swipe takes instead of a tap.
  */
 export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
   const snapshot = useMeetingsSnapshot();
@@ -53,6 +61,9 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
   const router = useRouter();
   const live = snapshot.live;
   const now = useTick(live !== null);
+  // Whatever the screen underneath is already floating at this edge, so the two
+  // stack instead of overlapping. Zero on every screen that has no chrome there.
+  const chrome = useBottomChromeHeight();
 
   const open = useCallback(() => {
     if (live === null) return;
@@ -66,10 +77,7 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
 
   return (
     <View
-      style={[
-        styles.slot,
-        { bottom: Math.max(bottomInset, layout.floatingGap) },
-      ]}
+      style={[styles.slot, { bottom: floatingStackBottom(bottomInset, chrome) }]}
       // The bar floats over whatever is behind it, so the region has to be
       // announced as one thing rather than as three loose controls on top of
       // somebody else's screen.

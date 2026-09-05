@@ -1,5 +1,11 @@
 import { ERRORS, ROUTES } from "./protocol";
-import type { IngestAck, MeetingSession, TranscriptSegment } from "./protocol";
+import type {
+  IngestAck,
+  MeetingSession,
+  MeetingSessionSummary,
+  SessionList,
+  TranscriptSegment,
+} from "./protocol";
 
 /**
  * The gateway, as one object the meetings feature can hold.
@@ -66,8 +72,14 @@ export interface MeetingsGateway {
   putNotes(sessionId: string, markdown: string): Promise<IngestAck>;
   /** End, enhance, write to the bucket. Returns the note path it wrote, or already wrote. */
   finalize(sessionId: string): Promise<IngestAck>;
-  /** Recent sessions this workspace holds. */
-  list(): Promise<MeetingSession[]>;
+  /**
+   * Recent sessions this workspace holds, newest first.
+   *
+   * Summaries, not sessions: the listing route carries no transcript, and the
+   * contract says so — `SessionList` of `MeetingSessionSummary`. Typing this as
+   * `MeetingSession[]` claimed a `transcript` field that never arrives.
+   */
+  list(): Promise<MeetingSessionSummary[]>;
 }
 
 export interface HttpGatewayOptions {
@@ -149,13 +161,13 @@ export function createHttpGateway(options: HttpGatewayOptions): MeetingsGateway 
   }
 
   return {
-    putSession: (session) => send(ROUTES.session, "POST", session),
+    putSession: (session) => send(ROUTES.sessions, "POST", session),
     putSegments: (sessionId, segments) =>
       send(ROUTES.segments(sessionId), "POST", { segments }),
     putNotes: (sessionId, markdown) => send(ROUTES.notes(sessionId), "POST", { markdown }),
     finalize: (sessionId) => send(ROUTES.finalize(sessionId), "POST", {}),
     list: async () => {
-      const answer = await send<{ sessions?: MeetingSession[] }>(ROUTES.list, "GET");
+      const answer = await send<Partial<SessionList>>(ROUTES.sessions, "GET");
       return answer.sessions ?? [];
     },
   };

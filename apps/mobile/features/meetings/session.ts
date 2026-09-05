@@ -1,8 +1,9 @@
-import { MEETING_TRANSITIONS } from "./protocol";
+import { MEETING_TRANSITIONS, WATCH_FLAG_LABEL_MAX } from "./protocol";
 import type {
   Attendee,
   MeetingDevice,
   MeetingEvent,
+  MeetingFlag,
   MeetingSession,
   MeetingSource,
   MeetingState,
@@ -48,10 +49,18 @@ import type {
  * **`recordedMs` is "audio actually captured, excluding pauses".** It is
  * therefore derived from the log rather than counted by a timer: a timer stops
  * when the app is killed and a log does not, and the number has to survive
- * exactly that. Each `pause`/`end` closes the interval opened by the preceding
- * `start`/`resume` and adds its length. `runningSince` is the open interval's
- * start and is *not* part of `MeetingSession` — it is bookkeeping this fold
- * carries beside the session, so the wire shape stays the protocol's.
+ * exactly that. Each `pause`/`end`/`fail` closes the interval opened by the
+ * preceding `start`/`resume` and adds its length. `runningSince` is the open
+ * interval's start, carried beside the session by this fold.
+ *
+ * The contract now names that field — `MeetingSession.recordingSince` — as
+ * derived state a holder may keep with the session, which is what the gateway
+ * does so it can hold the fold between requests. This projection keeps it
+ * beside the session instead, under the name the device's stored records
+ * already use; the two are the same thing, and this one goes away with the file
+ * when `@context/meetings` starts exporting `applyEvent`. What is *not* on the
+ * session either way is anything about this client's own requests — see
+ * `record.ts`, and "what is client-local" in `protocol.js`.
  *
  * ## The clock is an argument, never `Date.now()`
  *
@@ -97,6 +106,7 @@ export function seedSession(input: SeedInput): MeetingSession {
     attendees: input.attendees ?? [],
     notes: "",
     transcript: [],
+    flags: [],
     enhanced: null,
     templateId: null,
     device: input.device,
@@ -139,6 +149,12 @@ export function applyMeetingEvent(
           state: "recording",
           // `startedAt` is the seed's and is not moved by a restart: it is when
           // the meeting began, not when capture last resumed.
+          //
+          // `endedAt` is, though: a meeting that is recording again has not
+          // ended, and the contract's `finalizing -> recording` is exactly the
+          // move that gets here — a finalize the gateway has not answered, with
+          // the person still in the room.
+          endedAt: null,
           failureReason: null,
         },
         runningSince: event.at,
@@ -155,7 +171,10 @@ export function applyMeetingEvent(
 
     case "resume": {
       if (!can(session.state, "recording")) return projection;
-      return { session: { ...session, state: "recording" }, runningSince: event.at };
+      return {
+        session: { ...session, state: "recording", failureReason: null },
+        runningSince: event.at,
+      };
     }
 
     case "end": {
@@ -165,9 +184,32 @@ export function applyMeetingEvent(
           ...session,
           state: "finalizing",
           endedAt: event.at,
+          failureReason: null,
           recordedMs: closed(projection, event.at),
         },
         runningSince: null,
+      };
+    }
+
+    case "flag": {
+      /*
+        Additive, deduped on the offset, and it moves no state: a flag is a mark
+        on the timeline rather than something that happens to the recording. The
+        offset is milliseconds from the start of the session and is computed
+        where the button was pressed — a watch drains its queue late, and a flag
+        stamped on arrival marks the wrong sentence.
+      */
+      if (session.flags.some((flag) => flag.at === event.at)) return projection;
+      const label = event.label?.replace(/\s+/g, " ").trim();
+      const flag: MeetingFlag = label
+        ? { at: event.at, label: label.slice(0, WATCH_FLAG_LABEL_MAX) }
+        : { at: event.at };
+      return {
+        ...projection,
+        session: {
+          ...session,
+          flags: [...session.flags, flag].sort((a, b) => a.at - b.at),
+        },
       };
     }
 
@@ -226,15 +268,23 @@ export function applyMeetingEvent(
     case "fail": {
       if (!can(session.state, "failed")) return projection;
       /*
-        The open interval is deliberately left open. A failure is not an end —
-        `MEETING_TRANSITIONS` allows `failed -> recording`, which is how a
-        refused finalize or a dropped recorder is retried — so closing the
-        interval here would silently drop the seconds between the failure and
-        the retry from `recordedMs`.
+        The open interval is closed at the failure's own timestamp.
+
+        It used to be left open, on the argument that closing it would drop the
+        seconds between the failure and the retry — which had it backwards:
+        leaving it open *counts* those seconds, and nothing was recording during
+        them. `fail` carries an `at` now, exactly so this can be the honest
+        answer: the audio captured up to the moment the recorder died is
+        counted, and the gap until somebody presses record again is not.
       */
       return {
-        ...projection,
-        session: { ...session, state: "failed", failureReason: event.reason },
+        session: {
+          ...session,
+          state: "failed",
+          failureReason: event.reason,
+          recordedMs: closed(projection, event.at),
+        },
+        runningSince: null,
       };
     }
 

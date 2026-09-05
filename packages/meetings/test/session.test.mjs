@@ -35,7 +35,6 @@
 
 import {
   DEFAULT_TITLE,
-  MEETING_ID_ALPHABET,
   MeetingEventError,
   MeetingTransitionError,
   applyEvent,
@@ -44,7 +43,13 @@ import {
   newMeetingId,
   recordedMsAt,
 } from "../src/session.js";
-import { MEETING_TRANSITIONS, PROTOCOL_VERSION, isMeetingId } from "../src/protocol.js";
+import {
+  MEETING_ID_ALPHABET,
+  MEETING_ID_LENGTH,
+  MEETING_TRANSITIONS,
+  PROTOCOL_VERSION,
+  isMeetingId,
+} from "../src/protocol.js";
 import { FIXTURE_ID, at, attempt, countingRandom, deepEqual, deepFreeze, fixedRandom, segment } from "./fixtures.mjs";
 
 /** The log of an ordinary meeting: start, one pause, end, enhance, write. */
@@ -66,6 +71,12 @@ export function runSessionChecks(check) {
   /* ------------------------------ ids ---------------------------------- */
 
   check("the id alphabet is exactly 32 characters", MEETING_ID_ALPHABET.length === 32);
+  check(
+    "...and it is the contract's, not this file's copy of it",
+    // `newMeetingId` spells ids out of the alphabet protocol.js validates them
+    // against, so an id built from every position of it must pass.
+    MEETING_ID_ALPHABET.length === 32 && MEETING_ID_LENGTH === 20
+  );
   check(
     "...with no duplicates",
     new Set(MEETING_ID_ALPHABET).size === MEETING_ID_ALPHABET.length
@@ -158,13 +169,64 @@ export function runSessionChecks(check) {
   const complete = applyEvent(finalizing, { type: "written", notePath: "a.md" });
   check(
     "a complete meeting refuses to fail",
-    attempt(() => applyEvent(complete, { type: "fail", reason: "storage_down" })).error instanceof MeetingTransitionError
+    attempt(() => applyEvent(complete, { type: "fail", at: at(40), reason: "storage_down" })).error instanceof MeetingTransitionError
   );
   check("complete is terminal in the protocol table", MEETING_TRANSITIONS.complete.length === 0);
   check(
-    "a failed meeting can be restarted, and only restarted",
-    applyEvent(applyEvent(recording, { type: "fail", reason: "mic_lost" }), { type: "start", at: at(5) }).state === "recording"
+    "a failed meeting can be restarted",
+    applyEvent(applyEvent(recording, { type: "fail", at: at(4), reason: "mic_lost" }), { type: "start", at: at(5) }).state === "recording"
   );
+
+  /*
+    The three moves the transition table grew, each because a client was
+    reaching for it. They are asserted through the reducer rather than only
+    against the table, because a table that allows a move a reducer refuses is
+    the same bug one layer down.
+  */
+  {
+    // A meeting nobody recorded: typed notes and no audio. Their words are the
+    // half that cannot be regenerated, so this must not need a forged `start`.
+    const typedOnly = applyLog(fresh, [
+      { type: "notes", markdown: "- they said yes" },
+      { type: "end", at: at(12) },
+    ]);
+    check("a meeting nobody recorded still finalizes", typedOnly.state === "finalizing");
+    check("...keeping the human's words", typedOnly.notes === "- they said yes");
+    check("...and counting no audio at all", typedOnly.recordedMs === 0);
+    check(
+      "...and it writes out to one note like any other",
+      applyEvent(typedOnly, { type: "written", notePath: "a.md" }).state === "complete"
+    );
+  }
+
+  {
+    // A finalize the gateway has not answered is not a finished meeting: the
+    // person is still in the room. Before this the only way back was a `fail`
+    // the client invented.
+    const back = applyEvent(finalizing, { type: "start", at: at(31) });
+    check("a finalize that has not landed can be taken back to recording", back.state === "recording");
+    check(
+      "...without moving the start of the meeting, which the note path is filed under",
+      back.startedAt === finalizing.startedAt
+    );
+    check(
+      "...and a session that already wrote its note still refuses",
+      attempt(() => applyEvent(complete, { type: "start", at: at(40) })).error instanceof MeetingTransitionError
+    );
+  }
+
+  {
+    // A recording that failed mid-meeting holds a partial transcript, and a
+    // partial transcript is somebody's meeting.
+    const partial = applyLog(fresh, [
+      { type: "start", at: at(0) },
+      { type: "segment", segment: segment({ id: "p", startMs: 0, endMs: 4000, text: "half of it" }) },
+      { type: "fail", at: at(4), reason: "microphone_lost" },
+      { type: "end", at: at(5) },
+    ]);
+    check("a failed recording can be written out with what it captured", partial.state === "finalizing");
+    check("...transcript and all", partial.transcript.length === 1);
+  }
   check(
     "an unknown event type is refused rather than ignored",
     attempt(() => applyEvent(fresh, { type: "teleport" })).error instanceof MeetingEventError
@@ -181,6 +243,65 @@ export function runSessionChecks(check) {
     "a written with an empty path is refused",
     attempt(() => applyEvent(finalizing, { type: "written", notePath: "" })).error instanceof MeetingEventError
   );
+
+  /* -------------------------------- flags ------------------------------- */
+
+  /*
+    A wrist flag now has a path into a note: an event, a field, and a fold. It
+    used to have a verb on the watch, a count in `WatchState`, and nowhere to go.
+  */
+  {
+    const flagged = applyLog(fresh, [
+      { type: "start", at: at(0) },
+      { type: "flag", at: 61_000, label: "  ask   about   pricing  " },
+      { type: "flag", at: 5_000 },
+    ]);
+    check("a flag lands on the session", flagged.flags.length === 2);
+    check("...oldest first, whatever order they arrived in", flagged.flags[0].at === 5_000);
+    check("...with the label collapsed to one line", flagged.flags[1].label === "ask about pricing");
+    check("...and no state moved, because a flag is a mark and not an event in the meeting", flagged.state === "recording");
+    check(
+      "a label longer than the wrist's limit is cut, not refused",
+      applyEvent(fresh, { type: "flag", at: 1, label: "x".repeat(200) }).flags[0].label.length === 40
+    );
+    check(
+      "a flag with no label carries none rather than an empty one",
+      applyEvent(fresh, { type: "flag", at: 1, label: "   " }).flags[0].label === undefined
+    );
+    check(
+      "the same press folded twice is one flag",
+      applyEvent(flagged, { type: "flag", at: 5_000 }).flags.length === 2
+    );
+    check(
+      "...and a replay cannot rewrite the label of one already folded",
+      applyEvent(flagged, { type: "flag", at: 5_000, label: "rewritten" }).flags.length === 2 &&
+        applyEvent(flagged, { type: "flag", at: 5_000, label: "rewritten" }).flags[0].label === undefined
+    );
+    check(
+      "an offset that is not milliseconds from the start is refused",
+      attempt(() => applyEvent(fresh, { type: "flag", at: "01:05" })).error instanceof MeetingEventError &&
+        attempt(() => applyEvent(fresh, { type: "flag", at: -1 })).error instanceof MeetingEventError
+    );
+    check(
+      "a flag on a meeting nobody recorded is still a flag",
+      applyEvent(fresh, { type: "flag", at: 0 }).flags.length === 1
+    );
+    const flagLog = [
+      { type: "start", at: at(0) },
+      { type: "flag", at: 5_000 },
+      { type: "flag", at: 61_000, label: "pricing" },
+      { type: "end", at: at(2) },
+    ];
+    const flagOnce = applyLog(fresh, flagLog);
+    check(
+      "a log with flags in it replays clean",
+      attempt(() => deepEqual(applyLog(flagOnce, flagLog), flagOnce)).value === true
+    );
+    check(
+      "a flag does not write through the session it was given",
+      !attempt(() => applyEvent(deepFreeze(flagOnce), { type: "flag", at: 90_000 })).threw
+    );
+  }
 
   /* ------------------------------ recordedMs ---------------------------- */
 
@@ -238,7 +359,7 @@ export function runSessionChecks(check) {
 
   const restartLog = [
     { type: "start", at: at(0) },
-    { type: "fail", reason: "microphone_lost" },
+    { type: "fail", at: at(4), reason: "microphone_lost" },
     { type: "start", at: at(2) },
     { type: "segment", segment: segment({ id: "a" }) },
     { type: "end", at: at(20) },
@@ -249,9 +370,35 @@ export function runSessionChecks(check) {
   check("replaying a log with a failure in it does not throw", !replayedRestart.threw);
   check("a log with a failure and a restart replays clean", replayedRestart.same);
   check("...ending complete, not failed", restartedOnce.state === "complete");
-  check("...counting only the audio after the restart", restartedOnce.recordedMs === 18 * 60_000);
+  check(
+    "...counting the audio captured before the failure as well as after the restart",
+    // Four minutes to the failure, eighteen from the restart to the end. The
+    // span used to be dropped at the failure, which lost the first four.
+    restartedOnce.recordedMs === 22 * 60_000
+  );
   check("...keeping the original startedAt, because the note path is filed under it", restartedOnce.startedAt === at(0));
-  check("...and remembering why it failed once", restartedOnce.failureReason === "microphone_lost");
+  check(
+    "...and clearing the reason once it recovered, because a reason is what `failed` means",
+    restartedOnce.failureReason === null
+  );
+  check(
+    "a session that is still failed says why",
+    applyEvent(recording, { type: "fail", at: at(4), reason: "microphone_lost" }).failureReason ===
+      "microphone_lost"
+  );
+  check(
+    "a fail with no timestamp is refused, like every other state-changing event",
+    attempt(() => applyEvent(recording, { type: "fail", reason: "microphone_lost" })).error instanceof
+      MeetingEventError
+  );
+  check(
+    "replaying one failure twice does not re-fail a session that recovered",
+    (() => {
+      const failed = applyEvent(recording, { type: "fail", at: at(4), reason: "mic_lost" });
+      const back = applyEvent(failed, { type: "start", at: at(5) });
+      return applyEvent(back, { type: "fail", at: at(4), reason: "mic_lost" }) === back;
+    })()
+  );
 
   const pauseHeavy = [
     { type: "start", at: at(0) },

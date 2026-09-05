@@ -149,6 +149,53 @@ export function runStoreFactoryChecks(check) {
     );
   }
 
+  /* -------------------- the capability the binding was probed for ----------- */
+
+  /*
+    Every adapter declares `conditionalWrite: true`, because every adapter sends
+    `If-Match`. Whether the *backend* honours it is a different question, and it
+    was answered at connect time by `probeStore` against that actual bucket:
+    Backblaze B2 and Wasabi accept the header and write anyway. The answer is on
+    the binding, and this factory used to drop it — so on those backends the
+    gateway believed it had conflict detection it did not have, and said so in
+    every meeting ack. "Never silently drop the guarantee", silently dropped.
+
+    The direction matters: the binding may only ever *lower* the claim. A
+    control plane that said `true` about an adapter which does not send the
+    header could not talk it into pretending.
+  */
+  for (const [label, binding, env] of [
+    ["s3", S3_BINDING, undefined],
+    ["dropbox", DROPBOX_BINDING, undefined],
+    ["a native r2", NATIVE_BINDING, NATIVE_ENV],
+  ]) {
+    check(
+      `a ${label} binding probed as conflict-safe builds a store that says so`,
+      attempt(binding, env).store?.capabilities?.conditionalWrite === true
+    );
+    check(
+      `a ${label} binding whose bucket cannot do a conditional write builds a store that says that`,
+      attempt({ ...binding, capabilities: { conditionalWrite: false } }, env).store?.capabilities
+        ?.conditionalWrite === false
+    );
+  }
+  check(
+    "a binding with no probed answer at all is treated as not conflict-safe",
+    ["capabilitiesMissing", "capabilitiesEmpty", "capabilitiesNotAnObject"].every((shape) => {
+      const binding =
+        shape === "capabilitiesMissing"
+          ? { ...S3_BINDING, capabilities: undefined }
+          : shape === "capabilitiesEmpty"
+            ? { ...S3_BINDING, capabilities: {} }
+            : { ...S3_BINDING, capabilities: "yes" };
+      return attempt(binding).store?.capabilities?.conditionalWrite === false;
+    })
+  );
+  check(
+    "and the store is otherwise the one it always was",
+    attempt({ ...S3_BINDING, capabilities: { conditionalWrite: false } }).store instanceof S3Store
+  );
+
   /* ------------------- a provider that does not match its fields ------------ */
 
   // Every one of these is refused by the *adapter*; what is asserted is that it

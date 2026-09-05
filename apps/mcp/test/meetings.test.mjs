@@ -74,6 +74,7 @@ import {
 } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { MEETING_PREFIX, conflictSafeWrites } from "../src/meetings/state.js";
+import { SessionRefusal, sessionForContext, splitWorkspacePath } from "../src/session.js";
 import { handleMeetings } from "../src/meetings/ingest.js";
 
 const S3_ENDPOINT = "https://s3.example-meetings.test";
@@ -86,6 +87,8 @@ const TOKEN_READ_ONLY = `cat_meet_readonly_${"0".repeat(22)}`;
 const TOKEN_MEMBER = `cat_meet_member_${"0".repeat(24)}`;
 /** An editor: write, but team tier — no private content, ever. */
 const TOKEN_EDITOR = `cat_meet_editor_${"0".repeat(24)}`;
+/** An owner whose bucket accepts a conditional write and ignores it. */
+const TOKEN_LAST_WRITER = `cat_meet_lastwriter_${"0".repeat(20)}`;
 
 /** Ids in the contract's shape: `mtg_` plus 20 lowercase base32 characters. */
 const idOf = (letter) => `mtg_${letter.repeat(20)}`;
@@ -95,6 +98,12 @@ const SESSION_STORAGE_FAILURE = idOf("c");
 const SESSION_CONFLICT = idOf("d");
 const SESSION_TEAM = idOf("e");
 const SESSION_FORGED = idOf("g");
+/** A meeting nobody recorded: typed notes, and no `start` event ever sent. */
+const SESSION_TYPED_ONLY = idOf("h");
+/** Opened while a workspace calls itself `meetings`. It must still be ours. */
+const SESSION_SHADOWED = idOf("j");
+/** Recorded into a bucket whose backend ignores `If-Match`. */
+const SESSION_DEGRADED = idOf("k");
 
 const PRIVACY_MANIFEST =
   "---\nrole: privacy-manifest\n---\n\n" +
@@ -497,6 +506,36 @@ export async function runMeetingChecks(check) {
 
   /* ------------------------------ 6. finalize ------------------------------ */
 
+  /*
+    A moment the wearer marked. It arrives on the session route like the rest of
+    the session's own fields, on a request that is *not* the one that created the
+    session — which is the case that was accepted with a 200 and dropped on the
+    floor until `foldMetadata` learned to fold flags.
+  */
+  const flagged = await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: {
+      id: SESSION_MAIN,
+      flags: [
+        { at: 4_000, label: "come back to this" },
+        { at: 4_000, label: "the same press" },
+        // A row the core cannot read. Skipped like an unusable segment, because
+        // `meeting_invalid` is the code a client does not retry: refusing the
+        // request would park the whole meeting over one bad number.
+        { at: "four seconds in" },
+      ],
+    },
+  });
+  check("a flag sent after the session was opened is accepted", flagged.status === 200);
+  check("and lands in the record, deduped on its offset", rawRecord().flags.length === 1);
+  check(
+    "...carrying the label the wearer's watch sent",
+    rawRecord().flags[0].label === "come back to this"
+  );
+  check(
+    "...and a flag row the core cannot read costs that row, not the request",
+    flagged.body?.state === "recording" && rawRecord().flags.length === 1
+  );
+
   const finalized = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_MAIN}/finalize`, {
     body: {
       endedAt: "2026-09-01T09:42:00.000Z",
@@ -517,6 +556,7 @@ export async function runMeetingChecks(check) {
   check("carrying the summary the client generated", noteBody.includes("cut milestone three and ship the first half"));
   check("the human's own notes", noteBody.includes("decided: cut milestone three"));
   check("and what was said", noteBody.includes("Shall we start with the roadmap"));
+  check("and the moment the wearer marked, beside the turn they marked it during", noteBody.includes("> [!flag] 00:04 — come back to this"));
   check("with the meeting id in its frontmatter", noteBody.includes(`meeting-id: ${SESSION_MAIN}`));
   check("and a status that says the meeting is over, not mid-write", noteBody.includes("status: complete"));
 
@@ -524,6 +564,7 @@ export async function runMeetingChecks(check) {
   check("the in-flight record becomes a completion receipt", receipt.state === "complete");
   check("naming the note it wrote", receipt.notePath === notePath);
   check("keeping the count", receipt.segmentCount === 3);
+  check("and keeping no second copy of the flags either, because they are in the note", receipt.flags.length === 0);
   check(
     "and keeping no second copy of what was said",
     receipt.transcript.length === 0 &&
@@ -796,7 +837,139 @@ export async function runMeetingChecks(check) {
     typeof bounded.body?.scanned === "number" && bounded.body.scanned >= 2
   );
 
-  /* -------------------- 13. a backend that cannot do any of that ----------- */
+  /*
+    A meeting nobody recorded: typed notes, no `start`, no audio. The transition
+    table used to refuse `idle -> finalizing`, so this route answered 400 for a
+    client that had done nothing wrong — and the only thing that meeting held
+    was the half nobody can regenerate.
+  */
+  await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: {
+      id: SESSION_TYPED_ONLY,
+      title: "Notes only",
+      startedAt: "2026-09-01T14:00:00.000Z",
+      device: { platform: "ios" },
+      notes: "- they said yes",
+    },
+  });
+  const typedOnly = await meetingRequest(
+    env,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_TYPED_ONLY}/finalize`,
+    { body: {} }
+  );
+  check(
+    "a meeting nobody recorded finalizes without a forged start",
+    typedOnly.status === 200 && typedOnly.body?.state === "complete"
+  );
+  const typedNote = recorder.get(typedOnly.body?.notePath || "")?.body || "";
+  check("...writing the words the person actually typed", typedNote.includes("- they said yes"));
+  check(
+    "...and saying plainly that there was no transcript",
+    typedNote.includes("_No transcript was captured._")
+  );
+
+  /* ------------- 13. `meetings` is a route, and a name nobody gets --------- */
+
+  /*
+    `POST /meetings/sessions` parsed as "the context called meetings, at the
+    path /sessions" until `meetings` joined `RESERVED_FIRST_SEGMENTS`. The
+    gateway worked around that by lifting meeting paths out of the selector
+    before it ran, which defended the route and left the hole: the name stayed
+    claimable, and a name in this namespace is also a mailbox on the apex
+    (CLAUDE.md, "Ingestion is on the apex, which makes the reserved-name list a
+    security control"). `apps/convex/__tests__/names.test.ts` reads the
+    gateway's list out of its own source and refuses to hand out anything in it,
+    so the two halves of this cannot drift.
+
+    What is checked here is the gateway half, with the workaround gone: the
+    first segment is a route whoever else may have registered.
+  */
+  {
+    const meetingsWorkspace = splitWorkspacePath("/meetings/sessions");
+    check(
+      "a meeting path names no workspace, whatever anybody registered",
+      meetingsWorkspace.slug === null && meetingsWorkspace.path === "/meetings/sessions"
+    );
+    check(
+      "and `@meetings` is not a context anybody can address either",
+      splitWorkspacePath("/@meetings/mcp").slug === null
+    );
+    check(
+      "nor through a tool call's own context argument, even with a row that names it",
+      (() => {
+        const forged = {
+          workspaceId: "ws_recorder",
+          workspaces: [{ workspaceId: "ws_shadow", slug: "meetings", role: "owner" }],
+        };
+        try {
+          sessionForContext(forged, "@meetings");
+          return false;
+        } catch (error) {
+          return error instanceof SessionRefusal && error.status === 403;
+        }
+      })()
+    );
+
+    /*
+      And the end of the attack, end to end: a workspace registered under that
+      slug — which the control plane will not issue any more, and which this
+      stub is made to issue anyway — must not take the ingestion route away from
+      the people using it. Before the reserved entry the selector would resolve
+      `meetings`, the owner is not a member of it, and every recorder in the
+      product would have been answered 403 by somebody else's handle.
+    */
+    controlPlane.addWorkspace("ws_shadow", "meetings", s3Binding("meet-shadow", "CC"));
+    const stillOurs = await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+      body: { id: SESSION_SHADOWED, startedAt: "2026-09-01T16:00:00.000Z", title: "Not shadowed" },
+    });
+    check(
+      "a workspace registered as `meetings` does not take the ingestion route",
+      stillOurs.status === 200 && stillOurs.body?.sessionId === SESSION_SHADOWED
+    );
+    check(
+      "...and the session lands in the caller's own bucket, not in that one",
+      recorder.has(`${MEETING_PREFIX}${SESSION_SHADOWED}.json`) &&
+        !s3.bucketFor("meet-shadow").has(`${MEETING_PREFIX}${SESSION_SHADOWED}.json`)
+    );
+  }
+
+  /* --------- 14. a bucket that cannot do a conditional write, for real ----- */
+
+  /*
+    The fixture below proves the *state layer* reports a store's capability. This
+    proves the capability survives the trip from the control plane's probe to
+    the client's ack, which is where it was being lost: `storeForBinding` built
+    every store with the adapter's own `conditionalWrite: true` and never read
+    the binding, so a B2 or Wasabi context was told it had conflict safety it
+    does not have.
+  */
+  controlPlane.addWorkspace("ws_lastwriter", "lastwriter", {
+    ...s3Binding("meet-lastwriter", "DD"),
+    capabilities: { conditionalWrite: false },
+  });
+  await controlPlane.addGrant({
+    accessToken: TOKEN_LAST_WRITER,
+    workspaceId: "ws_lastwriter",
+    role: "owner",
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: "mcp_client_meet_lastwriter",
+    userId: "user_meet_lastwriter",
+  });
+  s3.bucketFor("meet-lastwriter").set("privacy.md", { body: PRIVACY_MANIFEST, etag: "l0" });
+  const degraded = await meetingRequest(env, TOKEN_LAST_WRITER, "/meetings/sessions", {
+    body: { id: SESSION_DEGRADED, startedAt: "2026-09-01T17:00:00.000Z", title: "On a bucket that cannot" },
+  });
+  check(
+    "a context on a bucket that ignores If-Match is told so on every ack",
+    degraded.status === 200 && degraded.body?.conflictSafe === false
+  );
+  check(
+    "...and the meeting is still accepted, because degrading honestly is not refusing",
+    s3.bucketFor("meet-lastwriter").has(`${MEETING_PREFIX}${SESSION_DEGRADED}.json`)
+  );
+
+  /* -------------------- 15. a backend that cannot do any of that ----------- */
 
   const safe = fakeStore({ conditionalWrite: true });
   const unsafe = fakeStore({ conditionalWrite: false });

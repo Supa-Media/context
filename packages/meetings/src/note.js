@@ -301,6 +301,52 @@ export function renderTurn(turn) {
 }
 
 /**
+ * One flagged moment, as an Obsidian-style callout.
+ *
+ * A callout rather than a line of bold text because this note is read in
+ * somebody's vault: `> [!flag]` renders as a marked block there and as an
+ * ordinary blockquote everywhere else, which is the plain-file behaviour we
+ * want — degraded, never broken.
+ *
+ * @param {import("./protocol.js").MeetingFlag} flag
+ * @returns {string}
+ */
+export function renderFlag(flag) {
+  const clock = formatClock(flag.at);
+  return flag.label ? `> [!flag] ${clock} — ${flag.label}` : `> [!flag] ${clock}`;
+}
+
+/**
+ * Flags, filed against the turn they were pressed during.
+ *
+ * The turn a flag belongs to is the last one that had started when the button
+ * was pressed — the wearer marks the sentence they are hearing. A flag pressed
+ * before anybody spoke belongs to no turn and is rendered first, which is index
+ * `-1` here; it is a real case, because the wrist is how a meeting gets started
+ * and a mark can come before the first word is transcribed.
+ *
+ * @param {import("./protocol.js").MeetingFlag[]} flags
+ * @param {import("./transcript.js").TranscriptTurn[]} turns
+ * @returns {Map<number, import("./protocol.js").MeetingFlag[]>}
+ */
+function flagsByTurn(flags, turns) {
+  /** @type {Map<number, import("./protocol.js").MeetingFlag[]>} */
+  const byTurn = new Map();
+  for (const flag of [...(flags ?? [])].sort((a, b) => a.at - b.at)) {
+    if (!flag || typeof flag.at !== "number" || !Number.isFinite(flag.at)) continue;
+    let index = -1;
+    for (let i = 0; i < turns.length; i += 1) {
+      if (turns[i].startMs <= flag.at) index = i;
+      else break;
+    }
+    const list = byTurn.get(index);
+    if (list) list.push(flag);
+    else byTurn.set(index, [flag]);
+  }
+  return byTurn;
+}
+
+/**
  * The whole note.
  *
  * @param {MeetingSession} session
@@ -338,10 +384,25 @@ export function renderMeetingNote(session, options = {}) {
   out.push(`# ${title}`, "");
   out.push(SUMMARY_HEADING, "", ...summary.split("\n"), "");
   out.push(NOTES_HEADING, "", ...notes.split("\n"), "");
+  /*
+    The transcript, with the wearer's flags in it.
+
+    A flag sits *after* the turn it was pressed during — you press during a
+    sentence, and the mark reads as a note on what was just said — except for
+    one pressed before anybody spoke, which has no turn to follow and leads.
+    A meeting with flags and no transcript still writes them: the press
+    happened, and the heading stays the last one this renderer wrote.
+  */
+  const byTurn = flagsByTurn(session.flags ?? [], turns);
   const body = [];
-  for (const turn of turns) {
+  const push = (line) => {
     if (body.length) body.push("");
-    body.push(renderTurn(turn));
+    body.push(line);
+  };
+  for (const flag of byTurn.get(-1) ?? []) push(renderFlag(flag));
+  for (let i = 0; i < turns.length; i += 1) {
+    push(renderTurn(turns[i]));
+    for (const flag of byTurn.get(i) ?? []) push(renderFlag(flag));
   }
   out.push(TRANSCRIPT_HEADING, "", ...(body.length ? body : [TRANSCRIPT_PLACEHOLDER]), "");
   return out.join("\n");

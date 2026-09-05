@@ -28,7 +28,11 @@ import { positive } from "./fakes.mjs";
 export async function runContractChecks(check, skip) {
   check("the app builds against protocol version 1", PROTOCOL_VERSION === 1);
   check("the ids this client mints are the ids the contract accepts", isMeetingId(newMeetingId()));
-  check("the routes are the contract's", ROUTES.session === "/meetings/sessions");
+  check("the routes are the contract's", ROUTES.sessions === "/meetings/sessions");
+  check(
+    "and reading one session is a different path from listing them",
+    ROUTES.session("mtg_x") === "/meetings/sessions/mtg_x"
+  );
   check("a complete meeting is terminal", MEETING_TRANSITIONS.complete.length === 0);
   check("the idle detector state matches the contract's shape", IDLE_DETECTOR_STATE.active === false && IDLE_DETECTOR_STATE.since === null);
 

@@ -42,8 +42,9 @@ renderer produces a byte-stable note from a fixture session.
 
 ## Stage 2 — the gateway routes
 
-The five routes in `ROUTES`, behind the existing grant machinery: session
-upsert, segment append, notes replace, finalize, list. Conflict-safe writes with
+The routes in `ROUTES`, behind the existing grant machinery: session upsert,
+read one session back, list recent sessions, segment append, notes replace,
+finalize. Reading one and listing are different paths — one GET cannot be both. Conflict-safe writes with
 `meeting_conflict` on a lost conditional put. Audit events recording the acting
 identity and the path, never content.
 

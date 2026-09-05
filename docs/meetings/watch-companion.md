@@ -167,15 +167,21 @@ watch's job is to stop lying:
   alerting updates are prioritised, and the system shows a "last connected"
   message.
 - **Commands are not queued.** A `start` delivered twenty minutes late starts a
-  recording nobody asked for; a late `stop` ends one that is already finished.
+  recording nobody asked for; a late `end` ends one that is already finished.
   When unreachable, the transport controls are disabled rather than optimistic.
+  Every command about an existing session also carries its `sessionId`, so a
+  command from a stale watch face is refused by the phone rather than applied to
+  whatever meeting is running now — the contract's own answer to the same
+  problem, one layer below this one.
 - **`flag` is the exception, and is queued.** A flag is a timestamp, and a
   timestamp is still true when it arrives late. It goes on `transferUserInfo`,
   which is FIFO and survives the gap. The critical detail: **`WatchCommand.flag.at`
   is computed on the watch at the moment of the press**, from the elapsed time
   in the last `WatchState` it holds plus the time since, and never on arrival at
   the phone. A queued flag stamped on delivery points at the wrong sentence,
-  which is worse than no flag.
+  which is worse than no flag. The contract says the same thing now, and carries
+  it through: a `flag` event with that offset, a `MeetingSession.flags` field,
+  and a `> [!flag]` callout beside the turn it belongs to in the note.
 - On reconnect the phone pushes a fresh `WatchState`; the watch does not
   reconstruct anything.
 

@@ -118,6 +118,67 @@ export function runNoteChecks(check) {
 
   check("turns are timestamped and attributed", note.includes("**[00:00] Attendee One** — so the pricing page needs another pass"));
   check("...and a later speaker gets their own turn at their own offset", note.includes("**[01:05] Attendee Two** — agreed, I will take it"));
+
+  /* ------------------------------- the flags ---------------------------- */
+
+  /*
+    The wrist's whole purpose: a moment marked mid-sentence, without breaking
+    eye contact. It has to land beside the sentence it was pressed during, or
+    the press was a note about the wrong thing.
+  */
+  {
+    const flagged = renderMeetingNote(
+      finished({
+        flags: [
+          { at: 66_000, label: "who owns it" },
+          { at: 5_000 },
+          { at: 0, label: "before anybody spoke" },
+        ],
+      }),
+      { now: NOW }
+    );
+    const body = flagged.slice(flagged.indexOf(TRANSCRIPT_HEADING));
+    const order = body
+      .split("\n")
+      .filter((line) => line.startsWith("**[") || line.startsWith("> [!flag]"));
+    check(
+      "a flag lands after the turn it was pressed during",
+      deepEqual(order, [
+        "**[00:00] Attendee One** — so the pricing page needs another pass",
+        "> [!flag] 00:00 — before anybody spoke",
+        "> [!flag] 00:05",
+        "**[01:05] Attendee Two** — agreed, I will take it",
+        "> [!flag] 01:06 — who owns it",
+      ])
+    );
+    check("a flag with no label is still a marked moment", body.includes("> [!flag] 00:05\n"));
+    check(
+      "and the human's notes are still theirs, untouched by any of it",
+      parseMeetingNote(flagged).notes === "- pricing page\n- who owns it?"
+    );
+    check(
+      "a flag never leaks out of the transcript section",
+      flagged.slice(0, flagged.indexOf(TRANSCRIPT_HEADING)).indexOf("[!flag]") === -1
+    );
+  }
+
+  {
+    // A flag pressed before anybody spoke has no turn to follow, and a meeting
+    // with flags and no transcript still has to write them: the press happened.
+    const noTurns = renderMeetingNote(
+      finished({ transcript: [], flags: [{ at: 2_000, label: "started late" }] }),
+      { now: NOW }
+    );
+    check("a meeting with flags and no transcript writes the flags", noTurns.includes("> [!flag] 00:02 — started late"));
+    check(
+      "...and the transcript heading is still the last one we wrote",
+      noTurns.indexOf(TRANSCRIPT_HEADING) === noTurns.lastIndexOf(TRANSCRIPT_HEADING)
+    );
+    check(
+      "...so a transcript that was never captured still says so when there is nothing at all",
+      renderMeetingNote(finished({ transcript: [], flags: [] }), { now: NOW }).includes(TRANSCRIPT_PLACEHOLDER)
+    );
+  }
   check(
     "a meeting with no transcript still gets the section, with a placeholder",
     parseMeetingNote(renderMeetingNote(finished({ transcript: [] }), { now: NOW })).transcript === TRANSCRIPT_PLACEHOLDER

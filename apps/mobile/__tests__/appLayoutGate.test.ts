@@ -64,8 +64,23 @@ jest.mock("expo-router", () => {
     Stack: () => h("div", { "data-testid": "stack" }),
     usePathname: () => mockPathname,
     useUnstableGlobalHref: () => mockHref ?? mockPathname,
+    // The recording bar navigates to the meeting it is showing, so it asks for
+    // a router on every render — including the ones where it draws nothing.
+    useRouter: () => ({ push: () => {}, replace: () => {}, back: () => {} }),
   };
 });
+
+/*
+  The layout mounts the persistent recording bar beside its `Stack` — one bar for
+  the whole section, because a recording has to be visible from wherever
+  somebody is. That needs the safe-area inset, and `useSafeAreaInsets` throws
+  without a provider it is not this test's business to mount: the gate is what is
+  under test, and a notched phone is `safeArea.test.ts`'s subject. Same numbers
+  as that file uses, so the two do not describe different phones.
+*/
+jest.mock("react-native-safe-area-context", () => ({
+  useSafeAreaInsets: () => ({ top: 47, bottom: 34, left: 0, right: 0 }),
+}));
 
 jest.mock("convex/react", () => {
   const actual = jest.requireActual("convex/react") as Record<string, unknown>;
@@ -302,6 +317,27 @@ describe("the (app) gate on a cold start", () => {
     expect(error).toBeNull();
     expect(html).toContain('data-href="/login"');
     expect(html).not.toContain("context.lc");
+  });
+
+  test("the persistent recording bar is mounted here, and draws nothing when idle", () => {
+    /*
+      One bar for the whole section — a recording has to be visible from
+      wherever somebody is, and a bar mounted inside the meetings navigator is
+      visible only on meetings screens. It is here, and this is the only place
+      it is: mounting it in both layouts draws two bars over each other on every
+      meetings screen, because that layout renders inside this one.
+
+      What is asserted is that it costs this gate nothing while nothing is
+      recording: no crash, and not a pixel of chrome over somebody's screen.
+      The bar's own behaviour is `meetingsScreens.test.ts`'s.
+    */
+    mockAuthState = { isLoading: false, isAuthenticated: true };
+    mockPathname = "/console";
+
+    const { html, error } = render(signedInClient([{ workspaceId: "w1", slug: "seyi" }]));
+    expect(error).toBeNull();
+    expect(html).toContain('data-testid="stack"');
+    expect(html).not.toContain("recording-bar");
   });
 
   test("still reads the context list once there is a session", () => {
