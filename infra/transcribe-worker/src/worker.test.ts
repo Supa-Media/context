@@ -576,7 +576,9 @@ describe("routing", () => {
    * exactly as it succeeds with Workers AI unprovisioned. Until this flag
    * existed, "does the deployed script have the limiter?" could only be
    * answered by a credentialed query against the Cloudflare account, or
-   * inferred from a `429` that `checkRateLimit` produces for four reasons.
+   * inferred from a `429`, which the handler returns on all five of
+   * `checkRateLimit`'s non-`allowed` paths — four flavours of `unavailable`
+   * plus a genuine `refused`.
    *
    * It reveals nothing a caller could use. The answer depends on no caller, no
    * workspace and no secret; it is the same class of fact as `ai`, which this

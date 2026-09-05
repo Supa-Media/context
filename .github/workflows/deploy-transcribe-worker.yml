@@ -350,8 +350,14 @@ jobs:
               console.error("[FAIL] /health did not answer { ok: true, ... }: " + process.argv[1]);
               process.exit(1);
             }
+            // `!== true` rather than `=== false`, so a MISSING `ai` fails here
+            // too — that key has been in every version of this Worker, so its
+            // absence is a malformed answer rather than an old one. The message
+            // says which was received, because "reports ai: false" was printed
+            // for an absent key as well and sent the reader looking for a
+            // setting that was not what they had.
             if (d.ai !== true) {
-              console.error("[FAIL] the deployed Worker reports ai: false.");
+              console.error("[FAIL] the deployed Worker did not report ai: true (got " + JSON.stringify(d.ai) + ").");
               console.error("");
               console.error("  WORKERS AI IS NOT ENABLED ON THIS CLOUDFLARE ACCOUNT.");
               console.error("");
