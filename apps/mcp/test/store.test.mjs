@@ -524,11 +524,26 @@ export async function runStoreChecks(check, gateway) {
   ];
 
   const traversalPrefixStore = s3(() => new Response(listXml({})), { rootPrefix: "team-notes" });
-  // The bucket is held rather than passed inline, for the reason the key
-  // matrix holds `traversalBucket`: without a handle there is nothing to
-  // assert the backend was never reached on.
+  // R2's backend is watched by RECORDING ITS LIST CALLS, not by checking the
+  // bucket is empty. An earlier revision did the latter, copying the key
+  // matrix's `traversalBucket.objects.size === 0` — and that expression is
+  // load-bearing there only because that matrix runs `put`. Here nothing
+  // writes, so an empty bucket is true however badly the guard fails: measured,
+  // deleting `assertSafePrefix` from `R2Store.list` left the size check green.
+  // A tautology inside a check named "on any of them" is the defect this whole
+  // section is about, so it is a call log instead.
+  const traversalPrefixR2Lists = [];
   const traversalPrefixBucket = memoryBucket();
-  const traversalPrefixR2 = new R2Store(traversalPrefixBucket, { rootPrefix: "team-notes" });
+  const traversalPrefixR2 = new R2Store(
+    {
+      ...traversalPrefixBucket,
+      list: async (options) => {
+        traversalPrefixR2Lists.push(options);
+        return traversalPrefixBucket.list(options);
+      },
+    },
+    { rootPrefix: "team-notes" },
+  );
   const prefixRejections = [];
   for (const prefix of TRAVERSAL_PREFIXES) {
     for (const [name, run] of [
@@ -559,7 +574,7 @@ export async function runStoreChecks(check, gateway) {
   check(
     "and a refused prefix reaches no backend at all, on any of them",
     traversalPrefixStore.fetchImpl.calls.length === 0 &&
-      traversalPrefixBucket.objects.size === 0 &&
+      traversalPrefixR2Lists.length === 0 &&
       traversalDropboxCalls.length === 0
   );
 
