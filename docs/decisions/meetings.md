@@ -186,6 +186,111 @@ claim. Collapsing to on-device only would delete diarization and lock the
 product to recent Apple hardware — `SpeechAnalyzer` is iOS/macOS 26 and later,
 and on watchOS it does not exist at all.
 
+### The cloud path knows *who* is asking, opaquely, and that is what buys a limit
+
+The cloud tier spends real money per request, and for a while nothing bounded
+it. `transcribeChunk` checked `getAuthUserId` and nothing else — deliberately,
+since the audio never becomes anything the control plane owns and there is no
+workspace to authorize against — but sign-up is open email OTP with no invite
+gate, so "a signed-in account" is a barrier of approximately zero. Each call
+carries up to 8 MiB of audio. And the body posted to the Worker was
+`{ audioBase64, mimeType, durationMs }`: no caller at all, so a surprising bill
+had nothing in it to trace.
+
+Two things follow, and they are the enforceable part.
+
+**The limit lives in the Worker, not in the control plane.** `lib/rateLimit.ts`
+is the tool everywhere else in Convex and it cannot be used here without
+changing what `functions/meetings/transcribe.ts` is: `consumeRateLimit` needs a
+`MutationCtx` and writes a `rateLimits` row, and that action deliberately has no
+`ctx.db`, `ctx.storage`, `ctx.scheduler` or `ctx.runMutation`, because the row
+next to `rateLimits` is the one that would hold a transcript. A test sweeping
+every table in the schema exists to keep it that way, and relaxing it to admit
+"just the one counter" would be relaxing it. So the limit is Cloudflare's native
+rate limiting binding, declared in `wrangler.jsonc`, which provisions **no
+account resource at all** — no KV, no D1, no Durable Object. That second
+property is not a convenience: the Worker's whole auditability claim is that
+there is nowhere in it to keep audio even by accident, and a rate-limit KV would
+have been the first storage binding to weaken it. The check runs after the
+credential check, so an unauthenticated caller cannot spend somebody else's
+allowance, and before the body is read, so a refused caller cannot make the
+Worker buffer 8 MiB first. It **fails closed**: a limiter that is absent,
+throws, or answers something unreadable refuses the request rather than waving
+it through, because a limit that stops applying on a green deploy is the finding
+coming back with nothing to say when it started. The checks are
+`refuses before the body is read, not after`,
+`an unauthenticated caller never touches anybody's bucket`,
+`a limiter that throws refuses, it does not wave the caller through` and
+`a binding removed from wrangler.jsonc refuses too`.
+
+**The identifier is an HMAC of the user id under the shared worker secret, and
+never the user id.** It travels in the `X-Caller-Hash` header — a header, not a
+body field, precisely so the Worker can refuse before parsing the audio. Three
+properties are being bought at once, and no simpler construction buys all three:
+it is *stable*, so it can key a limit at all (anything per-request is a fresh
+bucket per request, which is no limit); it is *opaque*, so the Worker, its logs,
+and anyone who intercepts the header hold no account identifier — a plain
+SHA-256 would not do, because with no secret in the construction anybody holding
+a user id can confirm a guess against it; and it is *recomputable by the control
+plane*, which holds both the secret and the users table, so the account behind a
+bill can actually be named. That last one is the reason it is an HMAC rather
+than a random per-user token: a token would need a stored mapping, which is a row
+this action must not write.
+
+The inversion is a linear scan over `users`, spelled out on `callerHash` in
+`functions/meetings/transcribe.ts`, and it is checked rather than merely
+described — the test recomputes it with `node:crypto` independently of the
+implementation. **Rotating `TRANSCRIBE_WORKER_SECRET` makes every previously
+logged identifier permanently un-attributable.** That is a real cost of rotation
+and is written down here so it is a decision somebody takes rather than a
+surprise somebody discovers. The checks are
+`sends an opaque caller identifier the worker can key a limit by`,
+`never sends the user id, in the header, the body, or the URL`,
+`is the same for the same account on every call`,
+`is different for a different account` and
+`is keyed by the worker secret, so it is not derivable without it`.
+
+This is a real, deliberate widening of what the Worker is told. *Nothing joins
+the call* and the Worker's own header both say it holds no session, no
+workspace, no context id and no position in a recording, and all of that stays
+true: it now learns that two chunks came from the same caller, and nothing else
+about who that is. The alternative was leaving the budget open, and an
+unbounded spend that names nobody is not a stronger privacy position — it is
+the same disclosure with a bill attached.
+
+**Two things this does not cover, stated rather than glossed.** The limit is per
+*identifier*, so somebody willing to open many accounts gets many buckets: that
+is a signup-gate problem — open email OTP with no invite — and it is not this
+seam's to solve. And Cloudflare's limiter is per-location and eventually
+consistent, so a caller spread across colos gets a multiple of the ceiling; it
+bounds a blast radius and is not an accounting system, which Cloudflare says
+outright.
+
+### A client-supplied id is bounded where it enters, not where it lands
+
+`chunkId` arrives from a recorder and becomes a transcript segment id
+(`${chunkId}-${index}`), and `normalizeSegment` in
+`packages/meetings/src/transcript.js` accepts an unbounded segment id: it trims,
+checks for non-empty, and stores. So the bound belongs on the argument — it is
+the contract's own input, it arrives from a client, and every consumer
+downstream would otherwise have to distrust a value we handed it.
+
+1 to 128 characters of `A-Za-z0-9_-`. The recorders mint `<Date.now()>-<index>`,
+around seventeen characters, so the bound is enormously generous against the
+real workload while refusing the two shapes that cause trouble: an id large
+enough to matter written verbatim into a note, once per segment, in the
+customer's own bucket; and characters that mean something to a Markdown
+renderer, a path resolver or a shell. The refusal is its own code —
+`INVALID_CHUNK_ID`, not the deployment-problem code the other refusals share —
+because it is the only one here a *client author* can act on, and it never
+quotes the rejected value back, because that is how a refusal becomes a
+reflection. It is checked after authentication, like everything else: the shape
+of an unauthenticated caller's arguments is not something to tell them about.
+The checks are `refuses an id longer than the bound, before spending any
+inference`, `refuses characters that mean something to a renderer, a path, or a
+shell`, `the refusal names the field without quoting what was sent` and
+`an anonymous caller with a bad chunk id is still just anonymous`.
+
 ### The recorder is one interface with two implementations, and nothing above it knows which
 
 Both engines sit behind one recorder interface: start, feed audio, emit
