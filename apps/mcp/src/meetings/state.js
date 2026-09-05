@@ -149,6 +149,49 @@ export function sessionKey(id) {
   return `${MEETING_PREFIX}${id}.json`;
 }
 
+/**
+ * The tier a session belongs to.
+ *
+ * A meeting becomes a note, and `publishMeetingNote` gives that note the tier of
+ * the connection that filed it: a personal connection's meeting is private, a
+ * team connection's is team. The record it becomes that note *from* has to obey
+ * the same rule, or the words are readable in flight at a tier they will not be
+ * readable at once they land — and `.meetings/sessions/<id>.json` holds the
+ * title, the attendees, the note path and, until finalize, the transcript.
+ *
+ * **An unstamped record reads as private.** A record written before this field
+ * existed, or one somebody hand-edited, is withheld from the team tier rather
+ * than shown to it: the owner still reads their own meeting either way, so the
+ * safe reading costs nothing and the unsafe one discloses a private meeting.
+ */
+export function sessionScopeOf(record) {
+  return record?.scope === "team" ? "team" : "private";
+}
+
+/**
+ * May a caller at this tier see this record at all?
+ *
+ * Not "may they read some of it" — a session a team connection may not see is
+ * answered as absent, which is the same 404 another workspace's id gets. The
+ * argument is required and an absent one fails closed, so a future caller that
+ * forgets the tier withholds rather than discloses.
+ */
+export function canSeeSession(record, tier) {
+  return sessionScopeOf(record) === "private" ? tier === "private" : true;
+}
+
+/**
+ * The one answer for a session this caller may not have.
+ *
+ * Another workspace's id, an id nobody ever recorded, an id its owner deleted,
+ * and an id this connection's tier may not see are the same 404. Spelled once
+ * here because `ingest.js` and `updateSession` both have to give it and two
+ * spellings would be two answers.
+ */
+export function sessionNotFound() {
+  return new MeetingRefusal(404, "forbidden", "no such meeting session in this context");
+}
+
 /* ------------------------------ the reducer ------------------------------- */
 
 /**
@@ -287,7 +330,14 @@ export function conflictSafeWrites(store) {
   return store?.capabilities?.conditionalWrite === true;
 }
 
-export async function readSession(store, id) {
+/**
+ * The record as it is stored, before anyone asks whether this caller may see it.
+ *
+ * Not exported: reading a session without the tier is exactly the mistake this
+ * whole seam exists to prevent, and the two callers below are the two that have
+ * a reason to — one to withhold it, one to refuse to write over it.
+ */
+async function readRecord(store, id) {
   const object = await store.get(sessionKey(id));
   if (!object) return null;
   let record;
@@ -309,6 +359,19 @@ export async function readSession(store, id) {
   record.flags = Array.isArray(record.flags) ? record.flags : [];
   record.appliedAt = record.appliedAt && typeof record.appliedAt === "object" ? record.appliedAt : {};
   return { session: record, etag: object.etag };
+}
+
+/**
+ * One session, if this caller's tier may see it.
+ *
+ * A record it may not see is `null` — the same answer as one that is not there,
+ * so a team connection cannot tell a private meeting from a meeting that was
+ * never recorded.
+ */
+export async function readSession(store, id, tier) {
+  const record = await readRecord(store, id);
+  if (!record) return null;
+  return canSeeSession(record.session, tier) ? record : null;
 }
 
 /**
@@ -337,13 +400,35 @@ export async function writeSession(store, session, etag) {
  * read on every attempt, so it must not close over anything the previous read
  * produced.
  */
-export async function updateSession(store, id, mutate, { attempts = 4 } = {}) {
+export async function updateSession(store, id, mutate, tier, { attempts = 4 } = {}) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const current = await readSession(store, id);
+    const existing = await readRecord(store, id);
+    /*
+      A record this caller may not see is refused, never written over.
+
+      `readSession` answers "hidden" as "absent", which is right for a read and
+      catastrophic for a write: the mutator would take `null` for "no such
+      session", build a fresh one, and `writeSession` would put it with a null
+      etag — an unconditional overwrite that destroys the owner's in-flight
+      meeting, transcript and all. Refusing costs one bit to a caller who
+      already holds a 100-bit id they could not have listed; overwriting costs
+      the meeting.
+    */
+    if (existing && !canSeeSession(existing.session, tier)) throw sessionNotFound();
+    const current = existing;
     const next = await mutate(current ? current.session : null);
     if (next === null) return null;
-    const etag = await writeSession(store, next, current ? current.etag : null);
-    if (etag !== false) return { session: next, etag };
+    /*
+      Stamped here rather than at `openSession`, because this is the one place
+      every write goes through: `createSession` builds a fresh object and
+      `completionReceipt` builds another, so a stamp applied at either would be
+      dropped by the other. An existing stamp wins over the caller's tier, so a
+      team connection writing to a session cannot relabel a private one — it
+      cannot reach one either, and neither rule is load-bearing alone.
+    */
+    const stamped = { ...next, scope: current ? sessionScopeOf(current.session) : tier === "team" ? "team" : "private" };
+    const etag = await writeSession(store, stamped, current ? current.etag : null);
+    if (etag !== false) return { session: stamped, etag };
   }
   throw new MeetingRefusal(409, "conflict", "this session changed while you were writing to it");
 }
@@ -396,7 +481,7 @@ export function completionReceipt(session, notePath, noteEtag) {
  * is a client question; `list_meetings` answers the AI client's question from
  * the notes themselves.
  */
-export async function listSessions(store, limit) {
+export async function listSessions(store, limit, tier) {
   const wanted = Math.min(Math.max(1, limit || 20), LIMITS.listLimit);
   const keys = [];
   let cursor;
@@ -427,14 +512,22 @@ export async function listSessions(store, limit) {
       if (!object) continue;
       try {
         const record = JSON.parse(await object.text());
-        if (record && typeof record === "object" && isMeetingId(record.id)) records.push(record);
+        if (record && typeof record === "object" && isMeetingId(record.id) && canSeeSession(record, tier)) {
+          records.push(record);
+        }
       } catch {
         // One unreadable record does not take the listing down with it.
       }
     }
   }
   records.sort((a, b) => String(b.startedAt || "").localeCompare(String(a.startedAt || "")));
-  return { records, scanned: keys.length };
+  /*
+    `scanned` counts what this caller may see, not how many keys the prefix
+    holds. Reporting the raw scan width would hand a team connection an exact
+    count of the private meetings it was just filtered out of — the disclosure
+    the filter exists to prevent, arriving as a number instead of a list.
+  */
+  return { records, scanned: records.length };
 }
 
 /** What a client is told about a session — everything except the transcript. */

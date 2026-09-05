@@ -104,6 +104,8 @@ const SESSION_TYPED_ONLY = idOf("h");
 const SESSION_SHADOWED = idOf("j");
 /** Recorded into a bucket whose backend ignores `If-Match`. */
 const SESSION_DEGRADED = idOf("k");
+/** Still recording while a team-tier connection goes looking for it. */
+const SESSION_IN_FLIGHT = idOf("m");
 
 const PRIVACY_MANIFEST =
   "---\nrole: privacy-manifest\n---\n\n" +
@@ -650,6 +652,124 @@ export async function runMeetingChecks(check) {
   const memberList = await callTool(env, TOKEN_MEMBER, "list_meetings");
   check("and cannot learn it exists by listing", !memberList.includes(notePath));
   check("being told only that there is nothing it may see", memberList.includes("no meetings recorded yet"));
+
+  /*
+    The same two refusals, asked of the HTTP surface instead of the tool surface.
+
+    `read_meeting` and `list_meetings` above filter with `canSee`, so a team-tier
+    connection is told "not found" about a private meeting. The ingestion routes
+    read `.meetings/sessions/<id>.json` straight out of the store, and that
+    record is the same meeting: its title, who was in the room, the path of the
+    private note it became, and — while it is still recording — every word of
+    the transcript. A boundary that holds on one of the two surfaces exposing a
+    thing is not a boundary.
+
+    The finalized meeting first. Its receipt keeps the summary for good, so this
+    half of the disclosure is permanent rather than a window during the call.
+  */
+  const memberSessionRead = await meetingRequest(env, TOKEN_MEMBER, `/meetings/sessions/${SESSION_MAIN}`, {
+    method: "GET",
+  });
+  check(
+    "a team-tier connection cannot read a private meeting's session record either",
+    memberSessionRead.status === 404 && memberSessionRead.body?.error === "meeting_forbidden"
+  );
+  const memberSessionList = await meetingRequest(env, TOKEN_MEMBER, "/meetings/sessions", { method: "GET" });
+  const listedForMember = JSON.stringify(memberSessionList.body ?? {});
+  check("and cannot learn the private note's path by listing sessions", !listedForMember.includes(notePath));
+  check("nor its title and who was in the room", !listedForMember.includes("Ada Lovelace"));
+  // The count is part of the listing: reporting the raw scan width would hand a
+  // team connection an exact number of the private meetings it was filtered out
+  // of, which is the same disclosure arriving as an integer.
+  check(
+    "nor a count of the meetings it was filtered out of",
+    memberSessionList.body?.scanned === (memberSessionList.body?.sessions || []).length
+  );
+
+  /*
+    Now a meeting that is still recording, which is where the transcript lives:
+    a receipt has already dropped it, so the finalized session above understates
+    what an in-flight one discloses.
+  */
+  await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+    body: {
+      id: SESSION_IN_FLIGHT,
+      title: "Compensation review",
+      startedAt: "2026-09-03T11:00:00.000Z",
+      events: [{ type: "start", at: "2026-09-03T11:00:00.000Z" }],
+    },
+  });
+  await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_IN_FLIGHT}/segments`, {
+    body: { segments: [segment("seg-live", 0, "we are raising her band to four")] },
+  });
+
+  const memberLiveRead = await meetingRequest(
+    env,
+    TOKEN_MEMBER,
+    `/meetings/sessions/${SESSION_IN_FLIGHT}?transcript=true`,
+    { method: "GET" }
+  );
+  check(
+    "a meeting still recording is not readable by a team-tier connection",
+    memberLiveRead.status === 404 && memberLiveRead.body?.error === "meeting_forbidden"
+  );
+  check(
+    "so what was said in the room does not leave it",
+    !JSON.stringify(memberLiveRead.body ?? {}).includes("raising her band")
+  );
+
+  /*
+    And the integrity half, which is worse than the disclosure. An editor holds
+    `context:write` at the team tier, so the scope gate lets it through, and the
+    notes route replaces the human's Markdown — the body of the private note
+    this meeting is about to become. Finding the id is the listing above; this
+    is what the id is worth.
+  */
+  const editorTampers = await meetingRequest(env, TOKEN_EDITOR, `/meetings/sessions/${SESSION_IN_FLIGHT}/notes`, {
+    body: { notes: "TAMPERED BY AN EDITOR" },
+  });
+  check(
+    "a team-tier editor cannot rewrite a private meeting's notes",
+    editorTampers.status === 404 && editorTampers.body?.error === "meeting_forbidden"
+  );
+  // Read the record out of the bucket rather than off the ack: `sessionSummary`
+  // does not carry `notes`, so a response that looks clean is not evidence the
+  // stored meeting is.
+  const tamperedRecord = JSON.parse(recorder.get(`${MEETING_PREFIX}${SESSION_IN_FLIGHT}.json`).body);
+  check("and the stored meeting is untouched by the attempt", tamperedRecord.notes !== "TAMPERED BY AN EDITOR");
+
+  /*
+    And an upsert of the same id, which is the dangerous shape of the same move.
+
+    A session the caller may not see reads as absent, so an upsert would take
+    `null` for "no such session", open a fresh one and write it with no etag —
+    an unconditional put over the owner's in-flight meeting. Withholding a
+    record and then letting somebody create over it is worse than showing it:
+    the transcript would be gone rather than read.
+  */
+  const editorUpserts = await meetingRequest(env, TOKEN_EDITOR, "/meetings/sessions", {
+    body: {
+      id: SESSION_IN_FLIGHT,
+      title: "Hijacked",
+      startedAt: "2026-09-03T11:00:00.000Z",
+    },
+  });
+  check(
+    "a team-tier connection cannot create over a private meeting it cannot see",
+    editorUpserts.status === 404 && editorUpserts.body?.error === "meeting_forbidden"
+  );
+  const survivingRecord = JSON.parse(recorder.get(`${MEETING_PREFIX}${SESSION_IN_FLIGHT}.json`).body);
+  check(
+    "so the meeting it could not read is still the meeting that was recorded",
+    survivingRecord.title === "Compensation review" && survivingRecord.transcript.length === 1
+  );
+  const ownerChecksBack = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_IN_FLIGHT}`, {
+    method: "GET",
+  });
+  check(
+    "while the owner still reads their own meeting in full",
+    ownerChecksBack.status === 200 && JSON.stringify(ownerChecksBack.body ?? {}).includes("Compensation review")
+  );
 
   // A team connection that *can* write is still refused this destination: the
   // meetings folder inherits `private`, and a team connection may not create
