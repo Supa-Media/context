@@ -131,6 +131,22 @@ import {
  *    `READ_HOPS`.
  *  - `report` trusting its listeners again: 1 — **"a throwing error listener
  *    does not take the microphone with it"**.
+ *
+ * ### And two holes the fixes themselves opened
+ *
+ * Found by sabotaging the fixes rather than by reading them, which is the
+ * argument for doing it at all.
+ *
+ *  - `pause` writing `state = "paused"` unconditionally: 3 — **"a pause after
+ *    capture was given up does not put the microphone back in reach"**, **"a
+ *    pause that is itself given up on stays given up"** and **"a pause after
+ *    the end stays ended"**. `abandon` moves the recorder to `stopped` from
+ *    inside `closeChunk`, which `pause` calls, so a pause could put a released
+ *    device back within reach of `resume`.
+ *  - `handleFailure` reporting `INTERRUPTED` without checking that the close it
+ *    just did left the session running: 1 — **"a failure with nowhere to send
+ *    says so once, and not that it will be back"**. Two sentences for one
+ *    event, the second of them false.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -1244,5 +1260,83 @@ describe("the device and a send do not fight over one file", () => {
     expect(errors).toEqual([]);
     // And it is gone once the send has finished with it.
     expect(mockOpened.filter((uri) => !mockDeleted.includes(uri))).toEqual([]);
+  });
+});
+
+describe("giving capture up is not undone by the verbs", () => {
+  /**
+   * `abandon` moves the recorder to `stopped` from inside `closeChunk`, and
+   * `closeChunk` is called by `pause`, `stop`, the rotation and the failure
+   * path. So the verbs have to notice: `pause` setting `state = "paused"`
+   * unconditionally afterwards would put a released device back within reach of
+   * `resume`, which would reopen the microphone with nowhere to send.
+   */
+  test("a pause after capture was given up does not put the microphone back in reach", async () => {
+    const { recorder } = harness({ noTranscriber: true });
+    await recorder.start();
+    await advance(SEGMENT_MS);
+    expect(recorder.state).toBe("stopped");
+
+    await recorder.pause();
+    expect(recorder.state).toBe("stopped");
+
+    await recorder.resume();
+    expect(recorder.state).toBe("stopped");
+    expect(mockDevices).toHaveLength(1);
+    expect(mockDevices[0].released).toBe(true);
+  });
+
+  /** The same hole reached the other way: the pause is what gives capture up. */
+  test("a pause that is itself given up on stays given up", async () => {
+    const { recorder } = harness({ noTranscriber: true });
+    await recorder.start();
+    await advance(5_000);
+
+    await recorder.pause();
+
+    expect(recorder.state).toBe("stopped");
+    expect(mockDevices[0].released).toBe(true);
+
+    await recorder.resume();
+    expect(mockDevices).toHaveLength(1);
+    expect(recorder.state).toBe("stopped");
+  });
+
+  /** And a pause after the meeting ended does not reopen anything either. */
+  test("a pause after the end stays ended", async () => {
+    const { recorder } = harness();
+    await recorder.start();
+    await recorder.stop();
+
+    await recorder.pause();
+
+    expect(recorder.state).toBe("stopped");
+    await recorder.resume();
+    expect(mockDevices).toHaveLength(1);
+  });
+
+  /**
+   * And a failure that turns out to have nowhere to send is one thing on the
+   * screen, not two. Reporting the interruption after the session has already
+   * been given up leaves the person reading "capture picks up when it is free"
+   * about a recorder that has stopped.
+   */
+  test("a failure with nowhere to send says so once, and not that it will be back", async () => {
+    const { recorder, errors } = harness({ noTranscriber: true });
+    await recorder.start();
+    await advance(1_000);
+
+    mockDevices[0].emitStatus({
+      isFinished: false,
+      hasError: true,
+      error: "interrupted",
+      url: null,
+    });
+    await advance(RESUME_RETRY_MS);
+
+    expect(errors.map((error) => error.recoverable)).toEqual([false]);
+    expect(errors[0].message).toMatch(/not being transcribed/i);
+    expect(recorder.state).toBe("stopped");
+    expect(mockDevices).toHaveLength(1);
   });
 });

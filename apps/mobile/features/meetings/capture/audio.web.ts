@@ -447,7 +447,8 @@ function mediaRecorderRecorder(): MeetingRecorder {
 
     async pause() {
       stopRotation();
-      if (state === "recording") {
+      const wasCapturing = state === "recording";
+      if (wasCapturing) {
         await queue(() => closeChunk(Math.max(0, Date.now() - chunkStartedAtMs)));
       }
       /*
@@ -457,7 +458,9 @@ function mediaRecorderRecorder(): MeetingRecorder {
         forever and a second interruption was never reported at all.
       */
       interrupted = false;
-      state = "paused";
+      // Not unconditionally: `stop()` may have run first, or the `closeChunk`
+      // above may have given capture up. See `audio.ts`, same hole.
+      if (state !== "stopped") state = "paused";
     },
 
     async resume() {

@@ -97,6 +97,11 @@ import {
  *    upstream error never reaches the screen in its own words"**.
  *  - `report` trusting its listeners again: 1 — **"a throwing error listener
  *    does not take the stream with it"**.
+ *  - `pause` writing `state = "paused"` unconditionally: 3 — the three under
+ *    **"giving capture up is not undone by the verbs"**. A hole the fixes
+ *    themselves opened: `abandon` moves the recorder to `stopped` from inside
+ *    `closeChunk`, which `pause` calls, so a pause could put a released stream
+ *    back within reach of `resume`.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -831,5 +836,55 @@ describe("the stream is a guard, not a hope", () => {
 
     void recorder.stop();
     await advance(0);
+  });
+});
+
+describe("giving capture up is not undone by the verbs", () => {
+  /** Same hole as the phone's, for the same reason. See `audio.ts`. */
+  test("a pause after capture was given up does not put the stream back in reach", async () => {
+    const { recorder } = harness({ noTranscriber: true });
+    await recorder.start();
+    await advance(SEGMENT_MS);
+    expect(recorder.state).toBe("stopped");
+
+    await recorder.pause();
+    expect(recorder.state).toBe("stopped");
+
+    const opened = instances.length;
+    await recorder.resume();
+    expect(recorder.state).toBe("stopped");
+    expect(instances).toHaveLength(opened);
+    expect(tracks.every((track) => track.stopped)).toBe(true);
+  });
+
+  /** The same hole reached the other way: the pause is what gives capture up. */
+  test("a pause that is itself given up on stays given up", async () => {
+    const { recorder } = harness({ noTranscriber: true });
+    await recorder.start();
+    await advance(5_000);
+
+    await recorder.pause();
+
+    expect(recorder.state).toBe("stopped");
+    expect(tracks.every((track) => track.stopped)).toBe(true);
+
+    const opened = instances.length;
+    await recorder.resume();
+    expect(recorder.state).toBe("stopped");
+    expect(instances).toHaveLength(opened);
+  });
+
+  /** And a pause after the meeting ended does not reopen anything either. */
+  test("a pause after the end stays ended", async () => {
+    const { recorder } = harness();
+    await recorder.start();
+    await recorder.stop();
+    const opened = instances.length;
+
+    await recorder.pause();
+
+    expect(recorder.state).toBe("stopped");
+    await recorder.resume();
+    expect(instances).toHaveLength(opened);
   });
 });

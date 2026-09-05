@@ -604,6 +604,13 @@ function expoAudioRecorder(): MeetingRecorder {
       that is. (`audio.web.ts` always did this; the phone did not.)
     */
     await closeChunk(Math.max(0, Date.now() - chunkStartedAtMs));
+    /*
+      That close can give capture up — a chunk with nowhere to send releases the
+      device — and telling somebody "capture picks up when it is free" about a
+      recorder that has stopped is two sentences for one event, the second of
+      them false.
+    */
+    if (state !== "recording") return;
     report({ recoverable: true, message: INTERRUPTED });
     scheduleResume();
   }
@@ -682,7 +689,8 @@ function expoAudioRecorder(): MeetingRecorder {
     async pause() {
       stopRotation();
       cancelResume();
-      if (state === "recording") {
+      const wasCapturing = state === "recording";
+      if (wasCapturing) {
         await queue(() => closeChunk(Math.max(0, Date.now() - chunkStartedAtMs)));
       }
       /*
@@ -694,7 +702,17 @@ function expoAudioRecorder(): MeetingRecorder {
       */
       interrupted = false;
       interruptedAtMs = 0;
-      state = "paused";
+      /*
+        Not unconditionally, and this is the second lock `resume` already has.
+        There are two ways to arrive here with the device already back: `stop()`
+        ran first, or the `closeChunk` above gave capture up — a chunk with
+        nowhere to send releases the device. Writing `paused` over either would
+        put a released device back within reach of `resume`, which would reopen
+        the microphone for a session that has nowhere to send the next chunk
+        either. `wasCapturing` rather than a second read of `state`, because
+        `closeChunk` can move it from under this method.
+      */
+      if (state !== "stopped") state = "paused";
     },
 
     async resume() {
