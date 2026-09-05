@@ -42,6 +42,9 @@
  *   the audio cached with `ctx.storage.store` "for the retry"             1
  *   `durationMs` dropped from the body posted to the worker                3
  *   `durationMs` used to clamp the worker's times                          1
+ *   the worker URL's scheme accepted unchecked                             4
+ *   loopback matched as a substring of the whole URL                       1
+ *   loopback dropped, leaving https-only                                   1
  *
  * The clamp is worth naming. Measured before its check existed, it passed all
  * 29 tests in this file. `durationMs` is now forwarded to the worker, and
@@ -279,6 +282,112 @@ describe("a deployment with no transcription configured", () => {
     const message = (error as { data?: { message?: string } })?.data?.message ?? "";
     expect(message.toLowerCase()).toContain("transcription");
     expect(message).not.toContain(WORKER_SECRET);
+  });
+});
+
+/**
+ * THE ONE ENVIRONMENT VARIABLE WHOSE MISCONFIGURATION IS BOTH SILENT AND SEVERE.
+ *
+ * `TRANSCRIBE_WORKER_URL` is operator-controlled, so it is not an attack
+ * surface — but a value typed with `http://` used to be accepted without a
+ * word, and every chunk of every meeting on the deployment then crossed the
+ * public internet in plaintext to a worker that would not have answered anyway.
+ * `docs/decisions/meetings.md` is willing to say out loud that on the paid tier
+ * the audio is processed by a service that is not you and not us; it is not
+ * willing to say it was readable on the way there.
+ *
+ * The refusal is `TRANSCRIPTION_NOT_CONFIGURED` rather than a new code because
+ * that is what it is — a deployment that is not set up — and because the
+ * caller's move is identical: tell the operator, transcribe nothing.
+ *
+ * Sabotage: accept any scheme, and "an http:// worker is refused" goes RED.
+ */
+describe("where the worker may be", () => {
+  /** Configure a worker URL and try one chunk through it. */
+  async function withWorkerUrl(url: string) {
+    const t = setupTest();
+    vi.stubEnv("TRANSCRIBE_WORKER_URL", url);
+    vi.stubEnv("TRANSCRIBE_WORKER_SECRET", WORKER_SECRET);
+    const requests = workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
+    const error = await captureError(() => transcribe(t));
+    return { error, requests };
+  }
+
+  test("an http:// worker is refused, and the audio never leaves", async () => {
+    const { error, requests } = await withWorkerUrl("http://transcribe.context.invalid");
+
+    expect(errorCode(error)).toBe("TRANSCRIPTION_NOT_CONFIGURED");
+    // The refusal has to come before the fetch. A check that runs after it has
+    // already sent the meeting.
+    expect(requests).toHaveLength(0);
+  });
+
+  test("anything that is not http(s), and anything that is not a URL, is refused", async () => {
+    for (const url of [
+      "ftp://transcribe.context.invalid",
+      "file:///etc/passwd",
+      "ws://transcribe.context.invalid",
+      "javascript:void 0",
+      "transcribe.context.invalid",
+      "//transcribe.context.invalid",
+      "https://",
+    ]) {
+      const { error, requests } = await withWorkerUrl(url);
+      expect(errorCode(error), url).toBe("TRANSCRIPTION_NOT_CONFIGURED");
+      expect(requests, url).toHaveLength(0);
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("http on loopback is allowed, because `wrangler dev` is one", async () => {
+    // The reason the previous pass left this open, kept rather than argued
+    // away: `wrangler dev` serves plaintext on 127.0.0.1:8787, and a
+    // self-hoster standing the stack up locally is a supported path
+    // (CLAUDE.md). Loopback never reaches a network, so there is nothing on it
+    // to intercept.
+    for (const url of ["http://127.0.0.1:8787", "http://localhost:8787", "http://[::1]:8787"]) {
+      const t = setupTest();
+      vi.stubEnv("TRANSCRIBE_WORKER_URL", url);
+      vi.stubEnv("TRANSCRIBE_WORKER_SECRET", WORKER_SECRET);
+      const requests = workerReturning([{ startMs: 0, endMs: 10, text: "ok" }]);
+
+      const { segments } = await transcribe(t);
+
+      expect(segments, url).toHaveLength(1);
+      expect(requests[0].url, url).toBe(`${url}/transcribe`);
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("http on a host that merely looks like loopback is refused", async () => {
+    // `127.0.0.1.attacker.invalid` ends in the loopback address as text and is
+    // an ordinary public name. A `startsWith`/`includes` test would let it
+    // through, which is why the check is on the parsed hostname.
+    for (const url of [
+      "http://127.0.0.1.attacker.invalid",
+      "http://localhost.attacker.invalid",
+      "http://notlocalhost",
+      "http://evil.invalid/?host=127.0.0.1",
+      "http://user:pass@evil.invalid/#localhost",
+    ]) {
+      const { error, requests } = await withWorkerUrl(url);
+      expect(errorCode(error), url).toBe("TRANSCRIPTION_NOT_CONFIGURED");
+      expect(requests, url).toHaveLength(0);
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("the refusal says what is wrong without quoting the value", async () => {
+    const { error } = await withWorkerUrl("http://transcribe.context.invalid");
+    const message = (error as { data?: { message?: string } })?.data?.message ?? "";
+
+    expect(message).toContain("https");
+    // The hostname is deployment-specific and this message goes to the client,
+    // for the same reason the secret never appears in one.
+    expect(message).not.toContain("transcribe.context.invalid");
   });
 });
 

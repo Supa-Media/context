@@ -129,7 +129,7 @@ not you and not us.** What remains true on both tiers is the part that actually
 distinguishes this product — the *notes* land in storage you own, we hold no
 copy, and revoking our credential leaves you with everything.
 
-Three rules follow, and they are the enforceable part:
+Four rules follow, and they are the enforceable part:
 
 1. **Audio is never written to the bucket and never persisted by us.** Not as an
    attachment, not as a cache, not "temporarily" in a queue that has no expiry.
@@ -144,6 +144,21 @@ Three rules follow, and they are the enforceable part:
 3. **The choice is visible before the recording, not in a settings page.** A tier
    that silently upgrades the transcription path is a tier that silently changes
    where the audio goes.
+4. **The cloud path is `https`, and a deployment that says otherwise is refused
+   rather than obeyed.** The transcription Worker's address is an environment
+   variable, so an `http://` typed into it is the one misconfiguration here that
+   is both silent and severe: every chunk of every meeting on that deployment
+   crosses the public internet in the clear, and nothing complains. We are
+   willing to say out loud that the audio is processed by somebody who is not
+   you and not us; we are not willing to say it was readable on the way there.
+   The single exception is **loopback**, because `wrangler dev` serves plaintext
+   on `127.0.0.1` and self-hosting the whole stack locally is a supported path —
+   and loopback reaches no network, so there is nothing on it to intercept. It
+   is matched on the parsed hostname, never as a substring, because
+   `127.0.0.1.attacker.invalid` is an ordinary public name. The checks are
+   `an http:// worker is refused, and the audio never leaves`,
+   `http on loopback is allowed, because `wrangler dev` is one`, and
+   `http on a host that merely looks like loopback is refused`.
 
 Collapsing the two tiers to one cloud engine would be simpler, cheaper to
 operate and better at diarization, and it would delete the free tier's actual

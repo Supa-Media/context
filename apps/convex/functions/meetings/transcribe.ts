@@ -152,6 +152,43 @@ function transcriptionFailed(
   });
 }
 
+/**
+ * The hosts that may carry meeting audio over plaintext `http`.
+ *
+ * `wrangler dev` serves the transcription Worker on `127.0.0.1:8787` with no
+ * TLS, and self-hosting is a supported path (CLAUDE.md) — somebody standing the
+ * whole stack up on their laptop is not misconfigured. Loopback never reaches a
+ * network, so there is nothing on it to intercept, which is the whole of why
+ * this exception is safe and the whole of its boundary.
+ *
+ * Matched against the **parsed** hostname, never as a substring:
+ * `127.0.0.1.attacker.invalid` is an ordinary public name that happens to start
+ * with the loopback address as text.
+ */
+const PLAINTEXT_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * Whether a configured worker URL may be sent somebody's meeting audio.
+ *
+ * This is the one variable here whose misconfiguration is both silent and
+ * severe: an `http://` value typed into a deployment's environment used to be
+ * accepted without a word, and every chunk of every meeting then crossed the
+ * public internet in plaintext. `docs/decisions/meetings.md` will say out loud
+ * that on the paid tier the audio is processed by a service that is not you and
+ * not us; it will not say it was readable on the way there.
+ */
+export function isTranscribeWorkerUrlUsable(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol === "https:") return true;
+  if (url.protocol !== "http:") return false;
+  return PLAINTEXT_HOSTS.has(url.hostname);
+}
+
 /** A non-empty environment variable, or `null`. */
 function configured(name: string): string | null {
   const value = process.env[name];
@@ -190,6 +227,25 @@ function isWorkerSegment(value: unknown): value is WorkerSegment {
     confidence === null ||
     (typeof confidence === "number" && Number.isFinite(confidence))
   );
+}
+
+/**
+ * The refusal a deployment whose worker URL cannot carry audio gives.
+ *
+ * Same code as `notConfigured`: it is the same kind of problem — a deployment
+ * that is not set up — and the caller's move is identical, which is why
+ * branching the code would only give the client a distinction it cannot act on.
+ * The value is not quoted back, because it is a hostname and this message
+ * reaches the client.
+ */
+function insecureWorkerUrl(): ConvexError<{ code: string; message: string }> {
+  return new ConvexError({
+    code: "TRANSCRIPTION_NOT_CONFIGURED",
+    message:
+      `${TRANSCRIBE_WORKER_URL_ENV_VAR} must be an https:// URL ` +
+      "(http:// is accepted only on loopback, for a local `wrangler dev` worker). " +
+      "Meeting audio is not sent over plaintext.",
+  });
 }
 
 export const transcribeChunk = action({
@@ -246,6 +302,10 @@ export const transcribeChunk = action({
     // audio to a public endpoint unauthenticated, which is worse than the
     // refusal it replaces.
     if (workerUrl === null || workerSecret === null) throw notConfigured();
+    // A misconfigured scheme is a misconfigured deployment, so it is the same
+    // refusal — and it happens before the fetch, because a check that runs
+    // after one has already sent the meeting.
+    if (!isTranscribeWorkerUrlUsable(workerUrl)) throw insecureWorkerUrl();
 
     let response: Response;
     try {
