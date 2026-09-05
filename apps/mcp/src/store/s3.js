@@ -65,9 +65,27 @@ export class S3Store {
     this.region = region || "auto";
     this.bucket = bucket;
     this.accessKeyId = accessKeyId;
-    // Held in memory for the life of one request only; never logged, never
-    // written to the bucket, never placed in a URL.
-    this.secretAccessKey = secretAccessKey;
+    /*
+      Held in memory for the life of one request only; never logged, never
+      written to the bucket, never placed in a URL.
+
+      **Non-enumerable, which is what makes the sentence above true rather than
+      intended.** As a plain property it was emitted in full by
+      `JSON.stringify(store)`, `{ ...store }` and `console.log(store)` — and the
+      D1 write token attached beside it in `session.js` is hidden precisely
+      because it is "radioactive on exactly the terms `secretAccessKey` is". The
+      newer field got the guard the older one it named as the standard did not
+      have. Nothing here logged a store, so this was latent; a guard against the
+      log line somebody adds later is the only kind this can be.
+
+      Writable and configurable are unchanged, so only enumerability moves.
+    */
+    Object.defineProperty(this, "secretAccessKey", {
+      value: secretAccessKey,
+      enumerable: false,
+      writable: true,
+      configurable: true,
+    });
     this.rootPrefix = normalizeRootPrefix(config.rootPrefix);
     // Path style is the default, and virtual-hosted addressing is opt-in.
     // The old heuristic — "the host does not start with the bucket name" — is

@@ -20,6 +20,7 @@ import { runUsageReportingChecks } from "./usageReporting.test.mjs";
 import { runMeetingChecks } from "./meetings.test.mjs";
 import { runSearchD1Checks } from "./searchD1.test.mjs";
 import { runSearchProjectionChecks } from "./searchProjection.test.mjs";
+import { runCredentialShapeChecks } from "./credentialShape.test.mjs";
 import {
   CONTROL_PLANE_ORIGIN,
   GATEWAY_SECRET,
@@ -3915,6 +3916,7 @@ await runSearchD1Checks(check);
 // it swaps globalThis.fetch and restores it, and must not run while anything
 // above still owns that global.
 await runSearchProjectionChecks(check);
+await runCredentialShapeChecks(check);
 
 // Meeting ingestion: the routes a phone and a desktop app send a meeting to,
 // the one note it becomes, and the neighbour who knows its session id. Its own
