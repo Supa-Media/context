@@ -38,6 +38,9 @@
  *   `backfillPercent` reading an absent `notesPending` as 0            2
  *   `backfillPercent` rounding instead of flooring                     1
  *   `backfillPercent` answering `undefined` for a total of 0           1
+ *   `searchProjectionState` dropping the `fastSearchActive` gate    0 → 1
+ *   `searchProjectionState` dropping the `databaseId` check         0 → 1
+ *   `searchProjectionState` treating every status as `ready`            2
  *
  * **Each note below names its row.** "The last one" was how two of these read
  * until rows were appended beneath them, at which point both pointed at
@@ -78,6 +81,24 @@
  * absent-counter unit case and `an owner sees no percentage before anything has
  * reported one`.
  *
+ * **`searchProjectionState` dropping the `fastSearchActive` gate** and
+ * **dropping the `databaseId` check** were both zero against the behavioural
+ * tests in `controlPlane.test.ts` alone, for two different and instructive
+ * reasons, which is why the unit tests below exist.
+ *
+ * The opt-in gate was masked by the status switch: the only shape a live opt-out
+ * leaves behind is `optedIn: false, status: "releasing"`, and `releasing` falls
+ * to `default` anyway — so the row that would prove the gate is one `disable`
+ * cannot produce, and only a constructed document reaches it. The entitlement
+ * half is the same seam this file already records for `fastSearchActive`: true
+ * for every `kind` the schema permits, so an unrecognized one is the only handle
+ * a test has on it.
+ *
+ * The `databaseId` check was masked by the return validator — `databaseId:
+ * v.string()` refuses `undefined`, the call throws, and `openStorageBinding`'s
+ * catch turns that into no index. The behaviour was right and the guard was
+ * unproved, which is the same thing this file says about a green suite.
+ *
  * **`enable` returning early for a `releasing` row** is why those are two tests
  * and not one. It reddens the re-enable-mid-release test and `forgetIndex
  * refuses a row that was re-enabled`, and leaves the retry test green — so
@@ -103,6 +124,7 @@ import {
   fastSearchEntitled,
   fastSearchOptedIn,
   fastSearchState,
+  searchProjectionState,
 } from "../functions/lib/fastSearch";
 
 async function context(t: TestConvex, slug: string) {
@@ -245,6 +267,75 @@ describe("the two conditions", () => {
     expect(backfillPercent(50, -5)).toBe(100);
     expect(backfillPercent(Number.NaN, 10)).toBeUndefined();
     expect(backfillPercent(10, Number.POSITIVE_INFINITY)).toBeUndefined();
+  });
+
+  /**
+   * WHAT THE GATEWAY IS ALLOWED TO WRITE INTO, AND WHEN.
+   *
+   * `searchProjectionState` decides whether a D1 write credential leaves this
+   * deployment on a `/gateway/binding` response, so every reason to say no is
+   * one `null` and the caller cannot tell them apart.
+   *
+   * These are unit tests rather than route tests because two of the four
+   * conditions cannot be reached through the product: `disable` always leaves
+   * `status: "releasing"`, which the status switch refuses anyway, and the
+   * schema refuses a workspace `kind` that is not entitled. A constructed
+   * document is the only handle on either, exactly as it is for
+   * `fastSearchEntitled` above.
+   */
+  test("a projection target needs all four conditions, and any one missing is the same no", () => {
+    const workspace = workspaceDoc();
+    const provisioned = { status: "ready" as const, databaseId: "db-1" };
+
+    expect(searchProjectionState(workspace, bindingDoc(provisioned))).toBe("ready");
+    expect(
+      searchProjectionState(
+        workspace,
+        bindingDoc({ status: "backfilling", databaseId: "db-1" }),
+      ),
+    ).toBe("backfilling");
+
+    // 1. Never asked. The default for every context, and the reason almost
+    //    every binding response carries no `searchIndex` at all.
+    expect(searchProjectionState(workspace, null)).toBeNull();
+
+    // 2. Asked, then withdrawn. The one shape `disable` cannot leave behind —
+    //    it sets `releasing` too — so this is the gate on its own, and without
+    //    it a re-opened row would serve a key to a database somebody asked us
+    //    to delete.
+    expect(
+      searchProjectionState(workspace, bindingDoc({ ...provisioned, optedIn: false })),
+    ).toBeNull();
+    // And the shape it does leave behind, which two conditions refuse.
+    expect(
+      searchProjectionState(
+        workspace,
+        bindingDoc({ optedIn: false, status: "releasing", databaseId: "db-1" }),
+      ),
+    ).toBeNull();
+
+    // 3. Not entitled. Invisible today for the reason this file already
+    //    records: `fastSearchEntitled` is true for every kind that exists, and
+    //    an unrecognized one is the only handle on the half a paid tier makes
+    //    load-bearing.
+    const unknown = { kind: "some-future-kind" } as unknown as Doc<"workspaces">;
+    expect(searchProjectionState(unknown, bindingDoc(provisioned))).toBeNull();
+
+    // 4. No database recorded. Nothing to write into — and the difference
+    //    between naming no database and naming none of them is a projection
+    //    that lands somewhere nobody chose.
+    expect(searchProjectionState(workspace, bindingDoc({ status: "ready" }))).toBeNull();
+    expect(
+      searchProjectionState(workspace, bindingDoc({ status: "ready", databaseId: "" })),
+    ).toBeNull();
+
+    // The two half-built statuses. `provisioning` may have no schema on it yet
+    // and `failed` is how a failure becomes data.
+    for (const status of ["provisioning", "failed"] as const) {
+      expect(
+        searchProjectionState(workspace, bindingDoc({ status, databaseId: "db-1" })),
+      ).toBeNull();
+    }
   });
 
   test("the state distinguishes the kinds of off", () => {

@@ -350,6 +350,14 @@ const PLAINTEXT_CREDENTIAL_FIELDS = [
   // that sit still.
   "secretaccesskey",
   "accesstoken",
+  // THE D1 WRITE TOKEN, which `/gateway/binding` now returns beside the bucket
+  // key as `searchIndex.apiToken`. It is the platform's own credential rather
+  // than a customer's, and it is wider than one context — `D1:Edit` on the whole
+  // account — which is exactly why a public function returning a field by this
+  // name should fail rather than be reviewed. Like `accesstoken` it never
+  // appears as a schema column, because at rest it is one `appSecrets` row's
+  // `encryptedValue` and the bare token exists only in flight.
+  "apitoken",
 ];
 
 const PUBLIC_FORBIDDEN_FIELDS = [
@@ -1043,9 +1051,11 @@ describe("no public function can reach a storage secret", () => {
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedrefreshtoken");
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedaccesstoken");
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedverifier");
-    // And the decrypted token, which no schema column will ever name.
+    // And the decrypted tokens, which no schema column will ever name.
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("accesstoken");
     expect(BARRIER_FORBIDDEN_FIELDS).toContain("accesstoken");
+    expect(PUBLIC_FORBIDDEN_FIELDS).toContain("apitoken");
+    expect(BARRIER_FORBIDDEN_FIELDS).toContain("apitoken");
   });
 
   test("no public function declares a credential field in its return validator", () => {

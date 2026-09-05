@@ -51,6 +51,7 @@ import {
   redirectUriMatches,
 } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
+import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET } from "./lib/d1";
 import { getMembership } from "./lib/workspaceAuth";
 
 /** What a live grant resolves to. Shared by the session and binding routes. */
@@ -609,6 +610,100 @@ export interface DropboxGatewayBinding {
 export type GatewayBinding = S3GatewayBinding | DropboxGatewayBinding;
 
 /**
+ * The D1 write credential, for the one workspace this binding was opened for.
+ *
+ * ## Why the gateway is the thing that gets it
+ *
+ * The projection is a copy of note *text*, and the gateway is the only
+ * component in this system that ever reads note text. The control plane holds
+ * the encrypted storage credential and hands it out; it does not fetch bucket
+ * objects, and giving it that ability to run a backfill would be a second
+ * internet-facing component reading customers' notes. So the projection is the
+ * gateway's job, and this is the pair of things it cannot get anywhere else: a
+ * database to write into, and a token that may write into it.
+ *
+ * ## `apiToken` is radioactive, exactly like `secretAccessKey`
+ *
+ * Never logged, never cached across requests, never in an error. It is fetched
+ * per request from `appSecrets` and decrypted server-side, on the same route
+ * and under the same two proofs as the bucket key beside it — which is the
+ * reason it is a sibling of the binding rather than a route of its own: a
+ * second route would be a second internet-facing path to a credential, and
+ * `structure.test.ts` is explicit that adding one is a conversation.
+ *
+ * ## THE CAVEAT, STATED RATHER THAN HIDDEN
+ *
+ * `SEARCH_D1_API_TOKEN` carries `D1:Edit` on the **whole Cloudflare account**,
+ * because that is what creating and deleting databases needs and there is one
+ * token. Handed to the gateway it is therefore wider than the job: it can reach
+ * every opted-in context's database, not only the one this response names. That
+ * is a real widening of what a compromised gateway holds, and it is written
+ * here rather than left to be discovered.
+ *
+ * What bounds it today: the gateway already holds every bucket credential it is
+ * handed, one request at a time, so the marginal reach is over derived copies
+ * of notes whose canonical originals it can already read. What would remove it
+ * is a per-database token, which Cloudflare's API can mint — and which nobody
+ * should invent quietly, because it adds a credential this control plane has to
+ * create, store, rotate and revoke per context, and that is a design decision
+ * with a cost, not an implementation detail.
+ */
+export interface GatewaySearchIndex {
+  databaseId: string;
+  accountId: string;
+  /** Radioactive: write with it, never log it, never cache it. */
+  apiToken: string;
+  state: "backfilling" | "ready";
+}
+
+/**
+ * What `/gateway/binding` answers with: the storage binding, and — only where
+ * an owner asked for one and it exists — the index credential beside it.
+ *
+ * One shape rather than two calls, because both answers are about the same
+ * workspace and that workspace is resolved once, from the grant. A second route
+ * would resolve it a second time, which is a second place for the selection to
+ * be wrong.
+ */
+export interface OpenedGatewayBinding {
+  binding: GatewayBinding;
+  /** Absent is the normal case: no opt-in, or one not yet provisioned. */
+  searchIndex?: GatewaySearchIndex;
+}
+
+/** The credentialed S3 payload, as a validator. Declared once, used twice. */
+const s3BindingValidator = v.object({
+  workspaceId: v.id("workspaces"),
+  provider: v.string(),
+  endpoint: v.string(),
+  region: v.string(),
+  bucket: v.string(),
+  rootPrefix: v.optional(v.string()),
+  accessKeyId: v.string(),
+  secretAccessKey: v.string(),
+  forcePathStyle: v.optional(v.boolean()),
+  capabilities: v.object({ conditionalWrite: v.boolean() }),
+  status: v.string(),
+});
+
+/** The Dropbox payload. A separate shape, never the S3 one with holes. */
+const dropboxBindingValidator = v.object({
+  workspaceId: v.id("workspaces"),
+  provider: v.literal("dropbox"),
+  accessToken: v.string(),
+  rootPrefix: v.optional(v.string()),
+  capabilities: v.object({ conditionalWrite: v.boolean() }),
+  status: v.string(),
+});
+
+const searchIndexValidator = v.object({
+  databaseId: v.string(),
+  accountId: v.string(),
+  apiToken: v.string(),
+  state: v.union(v.literal("backfilling"), v.literal("ready")),
+});
+
+/**
  * Open one workspace's storage credential for the gateway. INTERNAL ACTION,
  * and the second half of the two-factor check.
  *
@@ -649,30 +744,13 @@ export const openStorageBinding = internalAction({
   returns: v.union(
     v.null(),
     v.object({
-      workspaceId: v.id("workspaces"),
-      provider: v.string(),
-      endpoint: v.string(),
-      region: v.string(),
-      bucket: v.string(),
-      rootPrefix: v.optional(v.string()),
-      accessKeyId: v.string(),
-      secretAccessKey: v.string(),
-      forcePathStyle: v.optional(v.boolean()),
-      capabilities: v.object({ conditionalWrite: v.boolean() }),
-      status: v.string(),
-    }),
-    v.object({
-      workspaceId: v.id("workspaces"),
-      provider: v.literal("dropbox"),
-      accessToken: v.string(),
-      rootPrefix: v.optional(v.string()),
-      capabilities: v.object({ conditionalWrite: v.boolean() }),
-      status: v.string(),
+      binding: v.union(s3BindingValidator, dropboxBindingValidator),
+      searchIndex: v.optional(searchIndexValidator),
     }),
   ),
   // Annotated, not inferred: this handler references its own module through
   // `internal.functions.controlPlane.…`, which is an inference cycle.
-  handler: async (ctx, args): Promise<GatewayBinding | null> => {
+  handler: async (ctx, args): Promise<OpenedGatewayBinding | null> => {
     const session: {
       workspaceId: Id<"workspaces">;
       workspaces: Array<{ workspaceId: Id<"workspaces"> }>;
@@ -716,6 +794,75 @@ export const openStorageBinding = internalAction({
     if (credential === null) return null;
     if (!isUsable(credential.status as BindingStatus)) return null;
 
+    /*
+      THE INDEX CREDENTIAL, FOR THE SAME WORKSPACE AND NOBODY ELSE'S.
+
+      `workspaceId` here is `covered.workspaceId` — the id read off the row the
+      grant resolved to, several lines above, which is the only id in this
+      handler that a caller cannot choose. Passing anything else, in particular
+      `args.expectedWorkspaceId`, would hand the gateway a way to name whose
+      index it gets, and `structure.test.ts` fails the build if that argument is
+      ever used to select rather than to compare.
+
+      Absent is the ordinary answer and never an error. A context that never
+      opted in, one that opted out, one still provisioning, one whose provision
+      failed, and a deployment with no D1 token configured at all are one
+      outcome: no `searchIndex` key, and a binding that works exactly as it did
+      before this existed. "Off is a working state, not a degraded one"
+      (`docs/decisions/search.md`).
+
+      Two `runAction`s rather than a shared helper, and the duplication is
+      deliberate: `structure.test.ts` attributes a module-level helper's calls to
+      every export in the file, so a `configFor()` sitting outside this handler
+      would make every function in `controlPlane.ts` read as decrypt-capable and
+      hide this edge in a crowd. The one call that matters is visible here.
+    */
+    let searchIndex: GatewaySearchIndex | undefined;
+    try {
+      const target = await ctx.runQuery(
+        internal.functions.fastSearch.projectionTargetForWorkspace,
+        { workspaceId },
+      );
+      if (target !== null) {
+        const apiToken = await ctx.runAction(
+          internal.functions.admin.readIntegrationSecret,
+          { name: D1_TOKEN_SECRET },
+        );
+        const accountId = await ctx.runAction(
+          internal.functions.admin.readIntegrationSecret,
+          { name: D1_ACCOUNT_SECRET },
+        );
+        // Both or neither, matching `fastSearchProvision.configFor`: half a
+        // configuration reads exactly like none, because there is one cure.
+        if (
+          typeof apiToken === "string" &&
+          apiToken.length > 0 &&
+          typeof accountId === "string" &&
+          accountId.length > 0
+        ) {
+          searchIndex = {
+            databaseId: target.databaseId,
+            accountId,
+            apiToken,
+            state: target.state,
+          };
+        }
+      }
+    } catch {
+      /*
+        Swallowed, and it must be. The binding is what a person's tool call is
+        waiting on; the projection is an accelerator behind it. A failed
+        keyset, an unreadable envelope or a deployment mid-rotation must cost
+        the search its fast path, never cost somebody their notes.
+
+        Nothing about the failure is reported, for the same reason as the
+        `getBindingForGateway` catch above: a caller holding the gateway secret
+        must not be able to tell "no index" from "an index we could not open".
+        The token cannot appear here either — this catch names no error.
+      */
+      searchIndex = undefined;
+    }
+
     // Built per provider, never spread. A workspace rebound from a bucket to
     // Dropbox can still have an `accessKeyId` sitting on its row; spread into
     // this payload it would reach the gateway as a credential for storage this
@@ -724,35 +871,41 @@ export const openStorageBinding = internalAction({
     // silent, but the payload should never have carried it.
     if (credential.provider === "dropbox") {
       return {
-        // The context this credential was opened for, which is the selected one
-        // and not the session's default. The gateway compares it against what
-        // *it* resolved and refuses a mismatch, so answering with the default
-        // here would make every cross-context call fail as a disagreement about
-        // which tenant it is — fail-closed, and completely.
-        workspaceId,
-        provider: credential.provider,
-        accessToken: credential.accessToken,
-        rootPrefix: credential.rootPrefix,
-        capabilities: credential.capabilities,
-        status: "active",
+        binding: {
+          // The context this credential was opened for, which is the selected
+          // one and not the session's default. The gateway compares it against
+          // what *it* resolved and refuses a mismatch, so answering with the
+          // default here would make every cross-context call fail as a
+          // disagreement about which tenant it is — fail-closed, and completely.
+          workspaceId,
+          provider: credential.provider,
+          accessToken: credential.accessToken,
+          rootPrefix: credential.rootPrefix,
+          capabilities: credential.capabilities,
+          status: "active",
+        },
+        searchIndex,
       };
     }
 
     return {
-      workspaceId,
-      provider: credential.provider,
-      endpoint: credential.endpoint,
-      region: credential.region,
-      bucket: credential.bucket,
-      rootPrefix: credential.rootPrefix,
-      accessKeyId: credential.accessKeyId,
-      secretAccessKey: credential.secretAccessKey,
-      forcePathStyle: credential.forcePathStyle,
-      capabilities: credential.capabilities,
-      // The contract's vocabulary, not the row's. `connected` is our word for
-      // "a probe reached it"; `active` is the gateway's word for "you may
-      // build a store from this".
-      status: "active",
+      binding: {
+        workspaceId,
+        provider: credential.provider,
+        endpoint: credential.endpoint,
+        region: credential.region,
+        bucket: credential.bucket,
+        rootPrefix: credential.rootPrefix,
+        accessKeyId: credential.accessKeyId,
+        secretAccessKey: credential.secretAccessKey,
+        forcePathStyle: credential.forcePathStyle,
+        capabilities: credential.capabilities,
+        // The contract's vocabulary, not the row's. `connected` is our word for
+        // "a probe reached it"; `active` is the gateway's word for "you may
+        // build a store from this".
+        status: "active",
+      },
+      searchIndex,
     };
   },
 });

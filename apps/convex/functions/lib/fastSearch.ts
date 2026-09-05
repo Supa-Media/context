@@ -191,3 +191,39 @@ export function backfillPercent(
   if (total === 0) return 100;
   return Math.floor((indexed * 100) / total);
 }
+/**
+ * Whether the gateway may write a projection into this context's database, and
+ * what it should be told the state is.
+ *
+ * `null` is every reason not to, and the caller cannot tell them apart —
+ * unentitled, never opted in, opted out and releasing, still provisioning,
+ * failed, or provisioned with no database id recorded yet. That is the same
+ * "every negative is the same negative" the binding route already holds, and
+ * it matters more here than usual: the answer decides whether a D1 write
+ * credential leaves this deployment.
+ *
+ * The two states it does report are the two in which a database exists with a
+ * schema on it. `provisioning` is excluded because the schema may not be
+ * applied yet, and `failed` because a projection into a half-built database is
+ * how a failure becomes data.
+ */
+export type SearchProjectionState = "backfilling" | "ready";
+
+export function searchProjectionState(
+  workspace: Doc<"workspaces">,
+  binding: Doc<"searchIndexes"> | null,
+): SearchProjectionState | null {
+  if (!fastSearchActive(workspace, binding)) return null;
+  // `fastSearchActive` is true, so `binding` is non-null and `optedIn`.
+  if (typeof binding!.databaseId !== "string" || binding!.databaseId.length === 0) {
+    return null;
+  }
+  switch (binding!.status) {
+    case "backfilling":
+      return "backfilling";
+    case "ready":
+      return "ready";
+    default:
+      return null;
+  }
+}

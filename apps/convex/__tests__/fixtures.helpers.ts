@@ -263,6 +263,53 @@ export async function seedStorageBinding(
 }
 
 /**
+ * Obviously fake halves of the platform's own D1 credential.
+ *
+ * Not a customer's anything — `appSecrets` holds Context.LC's own integration
+ * credentials — but still a credential, so the values here are the sort of
+ * thing no Cloudflare account would ever accept, and the tests that use them
+ * are largely about proving they do not escape.
+ */
+export const FAKE_D1 = {
+  apiToken: "example-d1-api-token-not-a-real-one-000000",
+  accountId: "example00cloudflare00account00id",
+};
+
+/**
+ * Store one platform integration secret, sealed the way the console seals it.
+ *
+ * Inserted rather than driven through `setSecret`, which needs an admin session
+ * and an `ADMIN_EMAILS` allowlist — machinery `admin.test.ts` owns and that a
+ * gateway test should not depend on. The envelope is produced by the real
+ * `encryptSecret` under the real `platform: "integration"` context, so the
+ * decrypt exercised downstream is the real one and a test cannot pass because
+ * the sealing was faked.
+ */
+export async function seedAppSecret(
+  t: TestConvex,
+  name: string,
+  value: string,
+): Promise<void> {
+  const envelope = await encryptSecret(value, requireKeyset(), {
+    platform: "integration",
+  });
+  const now = Date.now();
+  await t.run(async (ctx) => {
+    const setter = await ctx.db.insert("users", { createdAt: now });
+    await ctx.db.insert("appSecrets", {
+      name,
+      encryptedValue: envelope,
+      // A hash, not a prefix: what appears in a screenshot is not a fragment of
+      // the real value. Any 8 hex will do here; nothing under test reads it.
+      fingerprint: "0000beef",
+      updatedBy: setter,
+      updatedAt: now,
+      createdAt: now,
+    });
+  });
+}
+
+/**
  * The gateway secret the test deployment expects. Obviously fake, and mirrored
  * in `vitest.config.ts` — the tests need to know it in order to prove it never
  * escapes into a response or an audit row.

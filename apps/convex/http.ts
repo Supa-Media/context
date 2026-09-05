@@ -269,6 +269,21 @@ export const gatewaySession = gatewayRoute(async (ctx, body) => {
  *
  * This is the one route whose response contains a decrypted secret. It is
  * fetched per request and never cached, on either side.
+ *
+ * ## The optional `searchIndex` sibling
+ *
+ * Present only where this workspace has an opted-in, provisioned fast-search
+ * index; **absent is the normal case and is not an error**. It carries a D1
+ * database id, an account id and a write token, because the gateway is the only
+ * component that reads note text and therefore the only one that can project it.
+ * It is a sibling of `binding` rather than a route of its own precisely so it
+ * spends the same two proofs — a second route handing out a credential would be
+ * a third entry in `CREDENTIAL_HTTP_ROUTES`, which that comment says is a
+ * conversation.
+ *
+ * The workspace it describes is the one the *grant* resolved to, exactly like
+ * the binding beside it. There is no shape of this request that names whose
+ * index comes back.
  */
 export const gatewayBinding = gatewayRoute(async (ctx, body) => {
   const accessToken = stringField(body, "accessToken");
@@ -278,14 +293,19 @@ export const gatewayBinding = gatewayRoute(async (ctx, body) => {
   // the gateway secret which of its two proofs was the bad one.
   if (accessToken === null || !expected.ok) return json({ binding: null });
 
-  const binding = await ctx.runAction(
+  const opened = await ctx.runAction(
     internal.functions.controlPlane.openStorageBinding,
     {
       hashedAccessToken: await hashToken(accessToken),
       expectedWorkspaceId: expected.value,
     },
   );
-  return json({ binding });
+  if (opened === null) return json({ binding: null });
+  // `searchIndex` is `undefined` for every context that has no usable index,
+  // and `JSON.stringify` drops an undefined value — so the normal case is the
+  // key being **absent**, not present and null. A gateway on an older build
+  // reads the same bytes it always did.
+  return json({ binding: opened.binding, searchIndex: opened.searchIndex });
 });
 
 /* -------------------------------------------------------------------------- */

@@ -43,7 +43,9 @@ import {
   backfillPercent,
   fastSearchEntitled,
   fastSearchState,
+  searchProjectionState,
   type FastSearchState,
+  type SearchProjectionState,
 } from "./lib/fastSearch";
 
 async function requireUserId(ctx: QueryCtx): Promise<Id<"users">> {
@@ -356,6 +358,49 @@ export const bindingForWorkspace = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args): Promise<Doc<"searchIndexes"> | null> =>
     await bindingFor(ctx, args.workspaceId),
+});
+
+/**
+ * May the gateway write a projection into this context's database, and where?
+ *
+ * The narrowest possible answer: a database id and a state, or `null`. Not the
+ * row — `openStorageBinding` has no business with `optedInBy`, an error
+ * sentence or a schema version, and a caller that receives a whole row is a
+ * caller that will one day forward one.
+ *
+ * **This is where the policy lives, not at the route.** `searchProjectionState`
+ * composes entitlement, the owner's opt-in, a recorded database id and a status
+ * that means the schema is on it. Every reason to say no returns the same
+ * `null`, which matters here more than usual: this answer decides whether a D1
+ * write credential leaves the deployment, and the difference between "that
+ * context opted out" and "that context does not exist" is not something the
+ * gateway needs or should be able to observe.
+ *
+ * `workspaceId` is not the caller's to choose. Its one caller derives it from
+ * the grant a presented access token resolved to and passes the id off that
+ * row — the same two-factor property `openStorageBinding`'s header is about,
+ * and the reason this query is internal and reachable from exactly one place.
+ */
+export const projectionTargetForWorkspace = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      databaseId: v.string(),
+      state: v.union(v.literal("backfilling"), v.literal("ready")),
+    }),
+  ),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ databaseId: string; state: SearchProjectionState } | null> => {
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (workspace === null) return null;
+    const binding = await bindingFor(ctx, args.workspaceId);
+    const state = searchProjectionState(workspace, binding);
+    if (state === null) return null;
+    return { databaseId: binding!.databaseId as string, state };
+  },
 });
 
 /**
