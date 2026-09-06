@@ -1942,29 +1942,33 @@ export async function runMeetingChecks(check) {
 
     The `..` check is `segment.includes("..")` on the raw string, and the
     gateway's `normalizePath` is `clean.includes("..")` — so the two agree, and
-    the comment above is right that they do. **The layer that actually refuses
-    the write is neither of them.** `describeKeyProblem`, at the adapter
-    boundary, percent-DECODES each segment before comparing: a segment of
-    `%2e%2e` is a `".." path segment` there and nowhere earlier.
+    the comment above is right that they do. **The layer that refuses the key
+    is neither of them.** `describeKeyProblem`, at the adapter boundary,
+    percent-DECODES each segment before comparing: a segment of `%2e%2e` is a
+    `".." path segment` there and nowhere earlier.
 
-    So `%2e%2e` walks the whole path the raw form used to: accepted by the
-    folder validator, claimed into the session record, past `normalizePath` and
-    past `isPlumbing`, through `persistExactVisibility` — which writes an
-    override into the customer's `privacy.md` for a key that cannot exist — and
-    only then refused by `store.put`. The throw is a bare `Error`, not a
-    `MeetingRefusal`, so `releaseClaim` returns without releasing: the path
-    stays claimed and every later finalize fails the same way.
+    WHAT IT COSTS, MEASURED RATHER THAN INHERITED FROM THE CASE ABOVE. A first
+    draft of this block reused that case's story and every load-bearing clause
+    of it was wrong. The refusal happens in `store.get` inside
+    `unclaimedNotePath`, which runs INSIDE the claim mutator — so:
+
+      - the session record is never written (`state: "recording"`,
+        `notePath: null`, `version: 1` after the failure),
+      - nothing is claimed, so `releaseClaim` is never reached and its
+        400/403 gate is beside the point,
+      - `publishMeetingNote` is never entered, so `normalizePath`,
+        `isPlumbing` and `persistExactVisibility` are all downstream of a call
+        that did not happen — which is why `privacy.md` is untouched,
+      - and a later finalize returns **200** at the default folder. Nothing is
+        lost and the meeting is not stuck.
+
+    The defect is the ANSWER. A deterministic failure comes back
+    `503 meeting_unavailable`, "retry with backoff" — so a client repeating the
+    same body retries forever, instead of the 200 with `folderRejected` that
+    this whole fallback exists to give it.
 
     Four shapes measured, all accepted by the folder validator and all refused
     by `assertSafeKey`: `%2e%2e`, `%2E%2E`, `ok/%2e%2e`, `%2e`.
-
-    And the answer is **503 `meeting_unavailable`, "retry with backoff"** —
-    which is worse than the 400 the raw form used to give, not better. A 400 is
-    a code the client stops on; a 503 is one it keeps trying, forever, against a
-    failure that is deterministic. Traced rather than assumed: the response was
-    dumped, and so was `privacy.md`, which is NOT polluted — the visibility
-    write does not happen on this path, contrary to a first reading of the
-    order in `publishMeetingNote`.
   */
   const encodedBefore = keysIn(recorder, "0-inbox/meetings/").length;
   await openFor(SESSION_ENCODED, "Aimed at an encoded name", "2026-09-06T17:00:00.000Z");
@@ -1975,7 +1979,7 @@ export async function runMeetingChecks(check) {
     { body: { folder: "1-projects/%2e%2e" } }
   );
   check(
-    "a folder whose segment decodes to `..` does not wedge the meeting either",
+    "a folder whose segment decodes to `..` is answered, not retried forever",
     encoded.status === 200 && encoded.body?.state === "complete"
   );
   check(
@@ -1985,7 +1989,7 @@ export async function runMeetingChecks(check) {
   );
   check("...and the client is told", encoded.body?.folderRejected === true);
   check(
-    "...with nothing written at the encoded name, privacy.md included",
+    "...with nothing written at the encoded name, and privacy.md untouched",
     ![...recorder.keys()].some((key) => key.includes("%2e")) &&
       !(recorder.get("privacy.md")?.body ?? "").includes("%2e")
   );

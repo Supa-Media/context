@@ -250,13 +250,18 @@ export function normalizeMeetingFolder(folder) {
       Both of those compare raw text, and they agree with each other — which is
       what the paragraph above is about. The adapter's `describeKeyProblem`
       does not: it percent-decodes each segment before comparing, so `%2e%2e`
-      is a `".."` segment there and nowhere earlier. That gap let the encoded
-      form walk the whole path the raw form used to — accepted here, claimed
-      into the session record, past `normalizePath` and `isPlumbing` — and be
-      refused only by `store.put`, whose bare `Error` is not the
-      `MeetingRefusal` that releases a claim. The answer was 503 "retry with
-      backoff": a client stops on the 400 the raw form gave and retries this
-      one forever.
+      is a `".."` segment there and nowhere earlier.
+
+      **The cost is smaller than the raw case above, and the first draft of
+      this comment overstated it by reusing that case's story.** Measured
+      through the real worker: the refusal happens in `store.get` inside
+      `unclaimedNotePath`, which runs INSIDE the claim mutator — so the session
+      record is never written, no path is claimed, `publishMeetingNote` is
+      never entered, and a later finalize succeeds at the default folder.
+      Nothing is lost. What is wrong is the answer: a deterministic failure
+      comes back 503 "retry with backoff", so a client repeating the same body
+      retries forever instead of getting the 200 and `folderRejected` this
+      fallback exists to give it.
 
       Decoded locally rather than imported. This package is the contract and
       the gateway is one of its consumers, so a dependency in that direction is
