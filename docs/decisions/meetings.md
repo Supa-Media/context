@@ -795,17 +795,39 @@ meeting?" from a note screen, the honest answer was "type the URL". A feature
 nobody can reach is not shipped, and this is the class of defect that hides
 best: every unit test of it passes.
 
-**It is a pinned row at the head of the console's rail, at every density.**
-`AppFrame` says of that slot that it is "reachable at every density — a column
-on a pointer layout, a sheet the top bar brings in on a phone" and that it "is
-not optional and must not become so", because what is reachable through it is
-reachable through nothing else. The other two candidates are refused by their
-own files: the bottom toolbar's rule is that "navigation is not its job", and it
-has no room either — at 390pt the pill is 286 wide, 262 inside its padding,
-which six targets already divide into 43.7pt against a 44pt floor; and the
-settings pane's *This context, from further out* card is explicitly for things
-that are **not** "a place you navigate to in order to read a note", which a
-meeting screen is.
+**It is a pinned row at the head of the console's rail, and — since the phone
+lost its left panel — the last key on the phone's bottom row.** The settings
+pane is still refused by its own file: its *This context, from further out* card
+is explicitly for things that are **not** "a place you navigate to in order to
+read a note", which a meeting screen is.
+
+**The bottom toolbar's refusal expired, and the arithmetic that carried it is
+corrected here rather than dropped.** This paragraph used to say that the rail
+was the answer "at every density", quoting `AppFrame` on that slot being
+"reachable at every density — a column on a pointer layout, a sheet the top bar
+brings in on a phone", and it refused the toolbar twice: once on its own rule
+that "navigation is not its job", and once on room — "at 390pt the pill is 286
+wide, 262 inside its padding, which six targets already divide into 43.7pt
+against a 44pt floor". Both halves have moved, and neither moved because
+somebody wanted this entry on the bar:
+
+- A phone has **no rail at all** now ([app-and-console](./app-and-console.md);
+  `features/app/frame.ts`), so "at every density" is false about the rail and
+  the premise under the `AppFrame` quotation — reachable through this node and
+  no other — went with the panels.
+- `layout.bottomBarInset` went **52 → 24** in the same change, which is what the
+  seventh key was bought with. The 286 above is `390 − 2 × 52`; the pill is
+  `390 − 2 × 24 = 342` wide now, 318 inside `bottomBarPad`, and **seven targets
+  are 45.4pt** against the same 44pt floor — where at 52 seven were 37.4 and
+  even six were 43.7, under it. So a seventh did not fit and does.
+
+`BottomBar` amended its own rule in that change too, and narrowly: it carries
+exactly **one** destination, in the last position, behind a separator that keeps
+the six note verbs reading as a group. It does not carry the contexts — those
+are a list that grows, and a list belongs on the strip that scrolls. One
+destination on the surface each density actually has is not two entry points to
+maintain; it is the same entry on the two different bars a phone and a desktop
+have.
 
 This is not the `App` group returning ([app-and-console](./app-and-console.md),
 *The rail splits on kind*). That group held Map and Connections — facts *about a
@@ -818,10 +840,9 @@ second panel.
 that is about the bar rather than about taste. While a panel is over the editor
 the frame publishes a chrome height of zero, so the recording bar drops to
 `floatingStackBottom(insets.bottom, 0)` and lies across the bottom ~100pt of
-whatever is under it — the rail sheet included. A destination the recording it
-leads to can cover is not a destination. (The same arithmetic puts that bar over
-the account block, which is a pre-existing hole in *sign-out* and is not fixed
-here.)
+whatever is under it. A destination the recording it leads to can cover is not a
+destination. (The same arithmetic puts that bar over the account block, which is
+a pre-existing hole in *sign-out* and is not fixed here.)
 
 **And it navigates. It does not record.** *Consent is the customer's* says a
 detector that silently started recording "would be the same product with the

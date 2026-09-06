@@ -145,21 +145,34 @@ export function ConsoleRail({
 
         ## Why it is in the rail at all
 
-        `AppFrame` says of this slot that it is "reachable at every density — a
-        column on a pointer layout, a sheet the top bar brings in on a phone"
-        and that it "is not optional and must not become so", because what is
-        reachable through it is reachable through nothing else. That is the
-        whole requirement here: meeting capture shipped with a list screen, a
-        live screen and a working recorder, and **nothing in the app navigated
-        to any of it**.
+        Meeting capture shipped with a list screen, a live screen and a working
+        recorder, and **nothing in the app navigated to any of it**. This is a
+        way in on the densities that have a rail.
 
-        The two other candidates were both refused by their own files. The
-        bottom toolbar's rule is that "navigation is not its job", and it has
-        no room either — at 390pt its pill is 286 wide, 262 inside its padding,
-        which six targets already divide into 43.7pt against a 44pt floor. And
-        the settings pane's "This context, from further out" card is explicitly
-        for things that are *not* "a place you navigate to in order to read a
-        note", which a meeting screen is.
+        The settings pane was refused by its own file and still is: its "This
+        context, from further out" card is explicitly for things that are *not*
+        "a place you navigate to in order to read a note", which a meeting
+        screen is.
+
+        **The bottom toolbar's refusal has expired, and it expired on
+        arithmetic.** This used to read: "the bottom toolbar's rule is that
+        'navigation is not its job', and it has no room either — at 390pt its
+        pill is 286 wide, 262 inside its padding, which six targets already
+        divide into 43.7pt against a 44pt floor. A seventh does not fit." Both
+        halves have moved. `layout.bottomBarInset` went **52 → 24** when the
+        phone lost its left panel, which is what bought the seventh key: the
+        286 in that sentence was `390 − 2 × 52`, and it is `390 − 2 × 24 = 342`
+        now, 318 inside `bottomBarPad`, so seven targets are **45.4pt** rather
+        than 37.4 and clear the 44pt floor. `BottomBar`'s own rule was amended
+        in the same change — it carries exactly one destination, last, behind a
+        separator — and `layout.bottomBarInset` carries the arithmetic so no
+        file has to quote it twice.
+
+        So a phone reaches meetings through that seventh key, and this row is
+        the answer for medium and wide, where there is no bottom bar at all
+        (`features/app/frame.ts`: the bottom bar and the status bar are never
+        both present). The two are not a duplicate; they are one destination on
+        the surface each density actually has.
 
         This is not the `App` group coming back. That group held Map and
         Connections — facts *about a context*, which is why they moved into that
@@ -175,11 +188,11 @@ export function ConsoleRail({
 
         At the head rather than beside sign-out because of what floats at the
         other edge. The persistent recording bar is anchored to the bottom of
-        the glass, and while a panel is over the editor the frame publishes a
-        chrome height of zero (`features/app/bottomChrome.ts`), so the bar drops
-        to `floatingStackBottom(insets.bottom, 0)` and lies across the bottom
-        ~100pt of whatever is under it — this sheet included. A destination that
-        the recording it leads to can cover is not a destination.
+        the glass, and where the frame publishes a chrome height of zero
+        (`features/app/bottomChrome.ts`) the bar drops to
+        `floatingStackBottom(insets.bottom, 0)` and lies across the bottom
+        ~100pt of whatever is under it. A destination that the recording it
+        leads to can cover is not a destination.
       */}
       {onOpenMeetings === undefined ? null : (
         <View style={[styles.head, icons && styles.headIcons]} testID="rail-head">
