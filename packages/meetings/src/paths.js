@@ -61,6 +61,22 @@ const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
  */
 const RESERVED_PLUMBING_NAMES = new Set(["privacy.md", "scopes.yml"]);
 
+/**
+ * One path segment with its percent escapes resolved, or the segment itself.
+ *
+ * Mirrors the adapter's own `decodeSegment`: a malformed escape is left
+ * literal rather than thrown on, because that is what the layer this has to
+ * agree with does.
+ */
+function decodeSegment(segment) {
+  if (!segment.includes("%")) return segment;
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
 /** Long enough to stay readable in a file listing, short enough for any OS. */
 export const MAX_SLUG_LENGTH = 48;
 
@@ -227,6 +243,38 @@ export function normalizeMeetingFolder(folder) {
       and permanently.
     */
     if (segment.includes("..")) return null;
+    /*
+      And the same rule on the DECODED segment, because the layer that actually
+      refuses the write is neither this one nor `normalizePath`.
+
+      Both of those compare raw text, and they agree with each other — which is
+      what the paragraph above is about. The adapter's `describeKeyProblem`
+      does not: it percent-decodes each segment before comparing, so `%2e%2e`
+      is a `".."` segment there and nowhere earlier. That gap let the encoded
+      form walk the whole path the raw form used to — accepted here, claimed
+      into the session record, past `normalizePath` and `isPlumbing` — and be
+      refused only by `store.put`, whose bare `Error` is not the
+      `MeetingRefusal` that releases a claim. The answer was 503 "retry with
+      backoff": a client stops on the 400 the raw form gave and retries this
+      one forever.
+
+      Decoded locally rather than imported. This package is the contract and
+      the gateway is one of its consumers, so a dependency in that direction is
+      the wrong way round — the same reason `RESERVED_PLUMBING_NAMES` is
+      restated here. A malformed escape stays literal, exactly as it does at
+      the adapter, so the two answer alike on `%zz` as well.
+
+      EQUALITY, not `includes`, and the asymmetry with the raw rule above is
+      deliberate. The raw rule is broad because `normalizePath` refuses `..`
+      anywhere in the string, so a raw `a..b` really is refused downstream.
+      Nothing downstream refuses `a%2e%2eb`: the adapter decodes and compares
+      for equality, and `a..b` is a legal segment. A decoded `includes` here
+      would refuse a folder no layer objects to — measured, and it reddened
+      nothing, which is the tell that it was guarding a case that does not
+      exist.
+    */
+    const decoded = decodeSegment(segment);
+    if (decoded === "." || decoded === "..") return null;
     if (segment.toLowerCase().endsWith(".md")) return null;
     if (RESERVED_PLUMBING_NAMES.has(segment.toLowerCase())) return null;
     if (CONTROL_CHARACTERS.test(segment)) return null;

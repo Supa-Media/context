@@ -226,6 +226,7 @@ const SESSION_RETITLED = idOf("y");
 const SESSION_WEDGED = idOf("x");
 /** Aimed at a folder with `..` inside a segment: legal to `normalizeRoot`, refused by `normalizePath`. */
 const SESSION_DOTTED = idOf("f");
+const SESSION_ENCODED = idOf("6");
 /**
  * The id a read-only grant tries to open a session under, and must not.
  *
@@ -1934,6 +1935,59 @@ export async function runMeetingChecks(check) {
   check(
     "...with nothing left anywhere at the name it asked for",
     ![...recorder.keys()].some((key) => key.includes("foo..bar"))
+  );
+
+  /*
+    AND THE SAME THING PERCENT-ENCODED, WHICH THE RULE ABOVE DOES NOT COVER.
+
+    The `..` check is `segment.includes("..")` on the raw string, and the
+    gateway's `normalizePath` is `clean.includes("..")` — so the two agree, and
+    the comment above is right that they do. **The layer that actually refuses
+    the write is neither of them.** `describeKeyProblem`, at the adapter
+    boundary, percent-DECODES each segment before comparing: a segment of
+    `%2e%2e` is a `".." path segment` there and nowhere earlier.
+
+    So `%2e%2e` walks the whole path the raw form used to: accepted by the
+    folder validator, claimed into the session record, past `normalizePath` and
+    past `isPlumbing`, through `persistExactVisibility` — which writes an
+    override into the customer's `privacy.md` for a key that cannot exist — and
+    only then refused by `store.put`. The throw is a bare `Error`, not a
+    `MeetingRefusal`, so `releaseClaim` returns without releasing: the path
+    stays claimed and every later finalize fails the same way.
+
+    Four shapes measured, all accepted by the folder validator and all refused
+    by `assertSafeKey`: `%2e%2e`, `%2E%2E`, `ok/%2e%2e`, `%2e`.
+
+    And the answer is **503 `meeting_unavailable`, "retry with backoff"** —
+    which is worse than the 400 the raw form used to give, not better. A 400 is
+    a code the client stops on; a 503 is one it keeps trying, forever, against a
+    failure that is deterministic. Traced rather than assumed: the response was
+    dumped, and so was `privacy.md`, which is NOT polluted — the visibility
+    write does not happen on this path, contrary to a first reading of the
+    order in `publishMeetingNote`.
+  */
+  const encodedBefore = keysIn(recorder, "0-inbox/meetings/").length;
+  await openFor(SESSION_ENCODED, "Aimed at an encoded name", "2026-09-06T17:00:00.000Z");
+  const encoded = await meetingRequest(
+    env,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_ENCODED}/finalize`,
+    { body: { folder: "1-projects/%2e%2e" } }
+  );
+  check(
+    "a folder whose segment decodes to `..` does not wedge the meeting either",
+    encoded.status === 200 && encoded.body?.state === "complete"
+  );
+  check(
+    "...it falls back like every other folder this gateway will not file into",
+    encoded.body?.notePath?.startsWith("0-inbox/meetings/") === true &&
+      keysIn(recorder, "0-inbox/meetings/").length === encodedBefore + 1
+  );
+  check("...and the client is told", encoded.body?.folderRejected === true);
+  check(
+    "...with nothing written at the encoded name, privacy.md included",
+    ![...recorder.keys()].some((key) => key.includes("%2e")) &&
+      !(recorder.get("privacy.md")?.body ?? "").includes("%2e")
   );
 
   /*
