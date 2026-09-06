@@ -416,7 +416,14 @@ describe("the sheet never offers a folder the gateway would refuse", () => {
     const refusedByGateway = REACHABLE_FOLDERS.filter(
       (folder) => normalizeMeetingFolder(folder) === null,
     );
-    expect(refusedByGateway.length).toBeGreaterThan(1);
+    /*
+      An exact count, not a floor. `toBeGreaterThan(1)` against a table holding
+      twelve gateway refusals would not notice eleven of them quietly ceasing
+      to be refusals — and this test's whole job is to prove the table is not
+      passing vacuously. Adding a shape to the table is meant to make you come
+      here and say which side it is on.
+    */
+    expect(refusedByGateway).toHaveLength(12);
 
     for (const folder of refusedByGateway) {
       const choice = offers(

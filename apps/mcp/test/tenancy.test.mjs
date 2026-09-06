@@ -121,8 +121,9 @@ async function postForm(env, path, fields, init = {}) {
   const response = await worker.fetch(
     new Request(`https://mcp.context.test${path}`, {
       method: "POST",
-      // `init.headers` last, so a caller can add an Authorization header
-      // without losing the content type the endpoint requires.
+      // `init.headers` last, so a caller can add an Authorization header —
+      // and, deliberately, override the content type, which is what a test of
+      // a wrong media type would need. It is the caller's to lose.
       headers: { "Content-Type": "application/x-www-form-urlencoded", ...(init.headers ?? {}) },
       body: form(fields),
     }),
@@ -1318,18 +1319,21 @@ export async function runTenancyChecks(check) {
   check("...and the correct secret exchanges the code", rightSecret.status === 200);
 
   /*
-    A wrong secret of the SAME LENGTH, because the compare short-circuits on
-    length before the constant-time loop and a test using a longer string
-    proves only that branch.
+    THERE IS NO SAME-LENGTH CASE TO WRITE, and the first version of this block
+    wrote one anyway with a false reason attached: "the compare short-circuits
+    on length before the constant-time loop, so a longer string proves only
+    that branch." Both operands of that comparison are `sha256Hex` output —
+    64 characters for any plaintext whatsoever — so the length of the secret
+    somebody presents never reaches it. MEASURED: inverting
+    `if (hashed.length !== …) return false;` to `return true` reddens 0 of
+    1,720. The branch is unreachable, `conf-wrong` above already goes through
+    the constant-time loop, and the extra check proved nothing it did not.
+
+    Recorded rather than quietly deleted, because the next person to read that
+    line will have the same idea. The guard itself stays: it costs nothing and
+    a stored value that is not a 64-character hash is a thing to refuse rather
+    than to compare.
   */
-  const sameLength =
-    confidential.client_secret.slice(0, -1) +
-    (confidential.client_secret.endsWith("a") ? "b" : "a");
-  const nearMiss = await spend("conf-near", { client_secret: sameLength });
-  check(
-    "a wrong secret of the right length is refused by the comparison itself",
-    nearMiss.status === 401 && sameLength.length === confidential.client_secret.length
-  );
 
   /*
     HTTP Basic, which `authenticateClient` accepts as a fallback for clients
