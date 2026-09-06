@@ -55,6 +55,13 @@ export function createControlPlaneStub(options = {}) {
      * does not set it is testing nothing.
      */
     bindingWorkspaceId: null,
+    /**
+     * Answer 429 to a registration, as the real control plane does when the
+     * registrant has spent its window. The gateway must turn that into a 429
+     * of its own rather than let the `/oauth/` catch flatten it to 503, which
+     * is the difference between "you went too fast" and "we are broken".
+     */
+    registrationRateLimited: false,
   };
 
   /** workspaceId → { slug } */
@@ -245,6 +252,13 @@ export function createControlPlaneStub(options = {}) {
       }
 
       case "/gateway/clients/register": {
+        // `calls` above already recorded what was forwarded; a test reads the
+        // registrant key off that. This flag models the one answer the real
+        // control plane gives that the gateway has to translate rather than
+        // relay: a registration refused for going too fast.
+        if (flags.registrationRateLimited) {
+          return { status: 429, json: async () => ({ error: "rate_limited" }), text: async () => "" };
+        }
         clients.set(body.clientId, {
           clientId: body.clientId,
           clientName: body.clientName,

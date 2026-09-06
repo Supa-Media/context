@@ -1028,6 +1028,114 @@ export async function runTenancyChecks(check) {
   check("registration returns a client_id", typeof registered.client_id === "string");
   check("a public client gets no secret", registered.client_secret === undefined);
 
+  /*
+    WHAT THE REGISTRATION RATE LIMIT IS KEYED ON, AND THAT IT IS NOT AN ADDRESS.
+
+    Registration is the only unauthenticated write in the control plane, and
+    every call mints a permanent row nothing sweeps. The limit lives there; what
+    lives here is the bucket name, and two properties of it that the control
+    plane cannot check for itself: that a key is sent at all, and that it is not
+    the caller's IP address.
+
+    A key that silently stopped being sent would not fail anything — the control
+    plane would just put every registration on the internet into one shared
+    bucket, which is a global limit wearing a per-registrant limit's clothes.
+  */
+  const registerFrom = async (address) => {
+    const before = controlPlane.calls.length;
+    await worker.fetch(
+      new Request("https://mcp.context.test/oauth/register", {
+        method: "POST",
+        headers: address
+          ? { "Content-Type": "application/json", "CF-Connecting-IP": address }
+          : { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_name: "Keyed",
+          redirect_uris: ["https://client.test/callback"],
+          token_endpoint_auth_method: "none",
+        }),
+      }),
+      env,
+      { waitUntil() {} }
+    );
+    const call = controlPlane.calls
+      .slice(before)
+      .find((entry) => entry.path === "/gateway/clients/register");
+    return call?.body?.registrantKey;
+  };
+
+  const keyFromOne = await registerFrom("203.0.113.7");
+  const keyFromOneAgain = await registerFrom("203.0.113.7");
+  const keyFromAnother = await registerFrom("203.0.113.8");
+  check("a registration carries a registrant key", typeof keyFromOne === "string");
+  check("...stable for the same address, so a flood lands in one bucket", keyFromOne === keyFromOneAgain);
+  check("...and different for another, so it costs its own source", keyFromOne !== keyFromAnother);
+  check(
+    "...and it is not the address, which the control plane has no reason to hold",
+    !keyFromOne.includes("203.0.113.7") && keyFromOne !== "203.0.113.7"
+  );
+  /*
+    `X-Forwarded-For` is deliberately not read: a client sets it, so keying on
+    it would let one source spend everybody else's budget — or its own, over and
+    over, by changing it. Cloudflare overwrites `CF-Connecting-IP` on the way
+    in, which is the whole reason that is the header.
+  */
+  const forged = await worker.fetch(
+    new Request("https://mcp.context.test/oauth/register", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Forwarded-For": "203.0.113.9",
+        "CF-Connecting-IP": "203.0.113.7",
+      },
+      body: JSON.stringify({
+        client_name: "Forged",
+        redirect_uris: ["https://client.test/callback"],
+        token_endpoint_auth_method: "none",
+      }),
+    }),
+    env,
+    { waitUntil() {} }
+  );
+  const forgedKey = controlPlane.calls
+    .filter((entry) => entry.path === "/gateway/clients/register")
+    .at(-1)?.body?.registrantKey;
+  check("a client-supplied forwarding header cannot move the bucket", forgedKey === keyFromOne);
+  check("...and the registration still succeeds", forged.status === 201);
+
+  /*
+    No header at all — a self-hosted gateway behind something that does not set
+    one. It sends no key, which the control plane reads as the shared
+    unattributed bucket. The positive twin matters more than usual here: this
+    must still REGISTER, because refusing would break self-hosting, which
+    CLAUDE.md names as a supported path.
+  */
+  check("a gateway with no address header sends no key", (await registerFrom(null)) === undefined);
+
+  /*
+    And the one answer the gateway has to translate rather than relay. The
+    `/oauth/` catch upstairs turns every control-plane failure into 503
+    `server_error`; a client cannot tell "retry in an hour" from "retry now",
+    and 503 invites the second.
+  */
+  controlPlane.flags.registrationRateLimited = true;
+  const limited = await worker.fetch(
+    new Request("https://mcp.context.test/oauth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.7" },
+      body: JSON.stringify({
+        client_name: "Too many",
+        redirect_uris: ["https://client.test/callback"],
+        token_endpoint_auth_method: "none",
+      }),
+    }),
+    env,
+    { waitUntil() {} }
+  );
+  controlPlane.flags.registrationRateLimited = false;
+  check("a rate-limited registration is 429, not 503", limited.status === 429);
+  check("...and says when to come back", limited.headers.get("Retry-After") === "3600");
+
   const badRedirect = await worker.fetch(
     new Request("https://mcp.context.test/oauth/register", {
       method: "POST",

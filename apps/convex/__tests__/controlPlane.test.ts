@@ -1840,6 +1840,71 @@ describe("/gateway/clients/register and /gateway/clients/get", () => {
     });
   });
 
+  /*
+    REGISTRATION IS THE ONLY UNAUTHENTICATED WRITE IN THE CONTROL PLANE.
+
+    RFC 7591 says the endpoint is open, and it is, deliberately. What it must
+    not be is unbounded: the gateway mints a fresh `clientId` on every call, so
+    the idempotency above does not bound anything reached from the public
+    endpoint — a caller gets a new id and a new permanent row every time.
+    `crons.ts` sweeps authorization requests, invitations, ingestion tickets,
+    provisioning and stalled backfills, and never clients, so the rows are for
+    ever.
+
+    The limiter counts SUCCESSFUL mutations, which is the right unit here: the
+    harm is rows that exist, not attempts that failed. Its own header says it
+    is not a defence against somebody hammering an endpoint to make it fail,
+    and this does not claim to be one.
+  */
+  test("a registrant cannot mint unbounded clients", async () => {
+    const t = setupTest();
+    // Restated, not imported: `grants.ts` does not export it, and a test that
+    // reads the limit from the module it is testing cannot notice the limit
+    // being changed. If this number and that one part company, this test says
+    // so by failing.
+    const OAUTH_REGISTER_LIMIT = 20;
+    for (let i = 0; i < OAUTH_REGISTER_LIMIT; i += 1) {
+      expect((await registerClient(t, `mcp_flood_${i}`, { registrantKey: "ip-a" })).status).toBe(200);
+    }
+    expect((await registerClient(t, "mcp_one_too_many", { registrantKey: "ip-a" })).status).toBe(429);
+    expect(await t.run((ctx) => ctx.db.query("oauthClients").collect())).toHaveLength(
+      OAUTH_REGISTER_LIMIT,
+    );
+  });
+
+  test("...and the bucket is per registrant, so one flood is not a global outage", async () => {
+    const OAUTH_REGISTER_LIMIT = 20;
+    /*
+      The positive twin, and the reason the limit is keyed rather than global.
+      A single bucket for the whole internet turns "unbounded growth" into
+      "anybody can switch registration off for everybody", which is a worse
+      trade for a control plane: growth is permanent, an outage is not, but an
+      outage somebody else chooses for you is not a fix.
+    */
+    const t = setupTest();
+    for (let i = 0; i < OAUTH_REGISTER_LIMIT; i += 1) {
+      await registerClient(t, `mcp_flood_${i}`, { registrantKey: "ip-a" });
+    }
+    expect((await registerClient(t, "mcp_blocked", { registrantKey: "ip-a" })).status).toBe(429);
+    expect((await registerClient(t, "mcp_innocent", { registrantKey: "ip-b" })).status).toBe(200);
+  });
+
+  test("omitting the registrant key does not buy an unlimited bucket", async () => {
+    const OAUTH_REGISTER_LIMIT = 20;
+    /*
+      `registrantKey` is optional so an older gateway keeps working, and AN
+      OPTIONAL FIELD IS THE ONE A VALIDATOR CANNOT GUARD. If omitting it meant
+      "unlimited", the whole limit would be one absent field away from off, and
+      the caller who wants it off is exactly the one who would omit it.
+      Everything with no key shares one bucket.
+    */
+    const t = setupTest();
+    for (let i = 0; i < OAUTH_REGISTER_LIMIT; i += 1) {
+      expect((await registerClient(t, `mcp_anon_${i}`)).status).toBe(200);
+    }
+    expect((await registerClient(t, "mcp_anon_extra")).status).toBe(429);
+  });
+
   test("is idempotent on clientId, so a redeploy does not orphan grants", async () => {
     const t = setupTest();
     await registerClient(t, "mcp_same");

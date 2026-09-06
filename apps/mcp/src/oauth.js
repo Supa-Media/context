@@ -35,7 +35,7 @@
  *  - **No `plain` PKCE.** See `verifyPkce`.
  */
 
-import { isLoopbackHost, sha256Hex } from "./controlPlane.js";
+import { ControlPlaneError, isLoopbackHost, sha256Hex } from "./controlPlane.js";
 import { SUPPORTED_SCOPES } from "./session.js";
 
 /** Access tokens are short-lived; the refresh token is the durable half. */
@@ -98,6 +98,19 @@ function metadataResponse(body) {
 }
 
 /** RFC 6749 §5.2 / RFC 7591 §3.2.2 error body. Always 400 unless stated. */
+/**
+ * A stable, non-identifying bucket name for whoever is registering.
+ *
+ * `undefined` when Cloudflare did not set the header, which the control plane
+ * reads as "share the unattributed bucket" rather than as "no limit" — see the
+ * comment at the call site for why that direction is the only safe one.
+ */
+async function registrantKey(request) {
+  const address = request.headers.get("CF-Connecting-IP");
+  if (!address) return undefined;
+  return (await sha256Hex(address)).slice(0, 32);
+}
+
 function oauthError(error, description, status = 400, extraHeaders = {}) {
   return jsonResponse({ error, error_description: description }, status, extraHeaders);
 }
@@ -428,7 +441,8 @@ export async function handleRegister(request, env, controlPlane) {
   const clientId = `mcp_${randomToken(18)}`;
   const clientSecret = normalizedAuthMethod === "none" ? null : `mcs_${randomToken(32)}`;
 
-  await controlPlane.registerClient({
+  try {
+    await controlPlane.registerClient({
     clientId,
     clientName,
     redirectUris,
@@ -443,7 +457,49 @@ export async function handleRegister(request, env, controlPlane) {
     responseTypes,
     scope: typeof body.scope === "string" ? body.scope : SUPPORTED_SCOPES.join(" "),
     applicationType: body.application_type === "native" ? "native" : "web",
-  });
+    /*
+      WHAT THE REGISTRATION RATE LIMIT IS KEYED ON.
+
+      Registration is the only unauthenticated write in the control plane —
+      RFC 7591 requires that — and every call mints a permanent row that
+      nothing sweeps. A limit keyed on nothing would be one bucket for the
+      whole internet, so a flood would switch registration off for everybody
+      rather than cost its own source; a limit keyed on this costs the source.
+
+      `CF-Connecting-IP` is set by Cloudflare on the way in and overwrites
+      anything the client sent, so it is not forgeable here — unlike
+      `X-Forwarded-For`, which is why that one is not read.
+
+      **Hashed, so the control plane never stores an address.** The limiter
+      only needs a stable bucket name, and an IP in a table is personal data
+      this product has no reason to hold. Truncated because a bucket does not
+      need 256 bits and a shorter key is a smaller row.
+
+      Absent — a self-hosted gateway behind something that does not set it —
+      sends nothing, and the control plane shares one bucket among those. That
+      fails toward "throttled together" rather than "unlimited", which is the
+      direction an optional field has to fail in.
+    */
+    registrantKey: await registrantKey(request),
+    });
+  } catch (error) {
+    /*
+      A refusal because they went too fast is not this server being broken.
+      The `/oauth/` catch upstairs answers every control-plane failure with
+      503 `server_error`, which is right for a bucket that is down and wrong
+      for a limit: a client cannot tell "retry in an hour" from "retry now",
+      and 503 invites the second. Answered here, before that catch sees it.
+    */
+    if (error instanceof ControlPlaneError && error.status === 429) {
+      return oauthError(
+        "temporarily_unavailable",
+        "too many client registrations from here; retry later",
+        429,
+        { "Retry-After": "3600" }
+      );
+    }
+    throw error;
+  }
 
   const registered = {
     client_id: clientId,
