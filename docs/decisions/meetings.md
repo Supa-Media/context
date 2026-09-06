@@ -1112,3 +1112,91 @@ is for —
 knowing about: its first version read the children of the head's *own parent*,
 which travels with the block, so moving the entry down beside sign-out passed
 every test in the file. It is anchored on the rail's root now.
+
+**And then a phone lost the rail, and this section's answer went with it.** The
+paragraphs above are correct about the seventh key, and the seventh key starts a
+*new* meeting: it raises the destination sheet. Nothing else on a phone reached
+`/meetings`. The recording bar returns you only to a *live* meeting, the rail's
+`onOpenMeetings` was the only navigation to that list in the app, and
+`regionsFor` answers `rail: "hidden"` at compact. So a **finished** meeting was
+unreachable on the density that records them — flagged in review before the
+merge and merged anyway — and a person recorded a meeting on their phone, ended
+it, and had no route to it: *"the note sort of just disappeared… I don't know if
+it succeeded, if it failed. Just nothing at all."*
+
+Three things close it, and they are not three versions of one fix. The first two
+were both needed, and the third is the one the person actually reached for.
+
+**The way to the list is a row on the destination sheet**, beside the heading
+and above the fork, offered whether or not the viewer owns a brain to record
+into. The alternatives were weighed and each cost something this one does not:
+an eighth key does not fit (`bottomBarGeometry`, seven targets at 45.29pt
+against a 44pt floor, verified to 309pt), and a menu on the pinned account mark
+puts the only sign-out a phone has one press further away — the one control
+`ConsoleRail` says somebody "reaches for deliberately and must not miss". A
+long press on the microphone was refused outright as a *first* route: an
+invisible gesture is not discoverability, which is the failure being closed. So
+the meetings key opens the meetings surface, and both of the things a person
+does with meetings are on it.
+
+**Ending a meeting navigates to it.** `controller.end` touches no router and
+should not — the controller owns no navigation — but nothing else did either, so
+End on the persistent bar left somebody standing on whatever screen they were
+reading. The bar now lands them on the meeting, after the end resolves so
+`/meetings/:id` draws the note screen rather than flashing the live one, and not
+at all when that meeting is already underneath. This is stronger than any list
+entry: the thing they just made is in front of them, and it *says what state it
+is in* — `MeetingNoteScreen` draws "Not in your bucket yet" whenever `notePath`
+is `null`, which is the ordinary outcome while the gateway credential is
+unwired, and it never draws a tick over a note nobody wrote. That half was
+already right and now has a test driven through a gateway that will not answer.
+
+**And a meeting can be got off the device.** The sharpest need turned out to be
+neither of the above: the owner found their recording, it was intact, the screen
+correctly said it had not left the device — and that was everything the screen
+could do. No copy, no share, no export, and no route to the bucket, because the
+credential is unwired. A meeting somebody can see and cannot use is the data-loss
+experience with no data lost. So the note screen has **Copy note**, and what
+lands on the clipboard is `renderMeetingNote(session)` — the gateway's own
+renderer, imported through one crossing point (`features/meetings/note.ts`, on
+`protocol.ts`'s rule) — so what gets pasted into a vault is the file the customer
+would have had, frontmatter included. A screen-shaped summary would be a second
+answer to what a meeting note is, drifting from the one in the bucket, over a
+format that is stable by non-negotiable 3. It is drawn in every state, because
+the meeting that reached the bucket can be opened from five other places and the
+one that has not cannot be opened from any. And it never claims a copy it did not
+make: `writeClipboard` answers a boolean, both outcomes are said on the screen,
+and neither fades — a failure that cleared itself after a second and a half
+would be the silence this whole seam is about.
+
+The checks are `a phone can reach its meetings from the key it records with`,
+`and can reach them without owning a brain to record into`,
+`pressing End lands on the meeting that just ended`,
+`and does not push a second copy of a screen you are already on`,
+`and that meeting says plainly it has not reached the bucket`,
+`what lands on the clipboard is the note the gateway would have written`,
+`a clipboard that refuses is said, not papered over`, and
+`the way out is there for the meeting that has not left the device`. The class
+this belongs to has its own guard —
+[app-and-console](./app-and-console.md), *a route with no way in is a route
+nobody has*.
+
+### A meeting with no readable date is shown without one, not dropped
+
+`groupMeetings` filed meetings by local calendar day and skipped any whose
+`startedAt` would not parse. The reason given was right and the action was not:
+such a meeting has no honest day to go under — today is the tempting invention
+and the worst one — but *dropping* it is the unreachable-route defect one layer
+down. `isSession` asks `startedAt` for a string rather than a date, so the record
+loads, is **not** counted among the `unreadable`, and opens perfectly at
+`/meetings/:id`, while the only list that could lead somebody to it drew
+"Nothing recorded on this device yet" over it.
+
+It gets a section of its own, headed with what is true of it, last, after every
+real day so it never displaces somebody's actual week. Nothing this app writes
+can produce such a record; a hand-edited one or one from another build can, which
+is why the screen's test seeds it through the store rather than the controller.
+
+The checks are `a meeting whose timestamp will not parse is shown without a day,
+not dropped`, `and it goes last, so it never displaces a day that is real`, and
+`a meeting with no readable date is on the list, not silently missing`.
