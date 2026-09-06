@@ -49,6 +49,30 @@
  * refused, and this must not invent a count that says otherwise. An empty
  * folder and a folder full of notes somebody may not read look identical here,
  * which is the point.
+ *
+ * ## The foot, and why only the root page has one
+ *
+ * `foot` is where `storage · index · counts` lands on a phone — the line that
+ * used to be the file tree's footer (`explorer-vault-detail`) and lost its home
+ * when a phone stopped having a file tree. `BrowsePane` supplies it for the
+ * **context root and nothing else**, and that is a decision rather than an
+ * accident of where it was easy to put:
+ *
+ *  - Those three facts are about the *context*, not about a folder. The root is
+ *    the one folder page that **is** the context — this file already takes a
+ *    `contextLabel` for exactly that reason — so under its heading they read as
+ *    a caption on the thing they describe.
+ *  - The counts are `loadedCounts` over every listing that has been read, not
+ *    over this folder. Printed under `3-resources`' own eight rows they would
+ *    be read as a count *of* `3-resources`, and would be wrong — a line that is
+ *    accurate and misread is worse than one that is absent.
+ *  - A caption repeated under forty folder pages is chrome, and the same
+ *    argument the breadcrumb's `pathOnly` makes about not saying a thing twice
+ *    applies to saying it forty times.
+ *
+ * It is a string rather than a node, and it is composed by `contextFoot.ts`
+ * rather than here, because this file has no business knowing what a storage
+ * binding or a backfill is — the same split `Explorer` made for the same line.
  */
 
 import { StyleSheet, View, useWindowDimensions } from "react-native";
@@ -66,6 +90,7 @@ export function FolderView({
   listing,
   canSetVisibility,
   contextLabel,
+  foot,
   onSelect,
 }: {
   entry: FileEntry;
@@ -87,6 +112,14 @@ export function FolderView({
    * A context's root folder *is* the context, so it says so.
    */
   contextLabel: string;
+  /**
+   * `storage · index · counts`, for the one folder page that is the context.
+   *
+   * Absent everywhere else, and absent on a pointer layout, where the status
+   * strip and the top bar's chip already carry the same three facts. See the
+   * file header for why the root page and not every folder page.
+   */
+  foot?: string;
   onSelect: (path: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -155,6 +188,21 @@ export function FolderView({
           </Text>
         ) : null}
       </View>
+
+      {/*
+        The context's own caption, under its listing.
+
+        Below the rows rather than above them, for the reason the tree put it at
+        its foot: it is a caption on what you have just read, and a phone's
+        first screen belongs to the notes rather than to a line about them. It
+        scrolls with the page — this whole view is inside `BrowsePane`'s
+        scroller on a phone — so it costs nothing permanent.
+      */}
+      {foot === undefined ? null : (
+        <Text variant="treeMeta" style={styles.foot} testID="context-foot">
+          {foot}
+        </Text>
+      )}
     </View>
   );
 }
@@ -251,4 +299,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   pipPrivate: { backgroundColor: colors.muted },
 
   aside: { paddingVertical: space.x2 },
+  /** The caption at the foot of the context's own page. See the file header. */
+  foot: { marginTop: space.x4, color: colors.muted },
 });

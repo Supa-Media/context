@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon, type IconName } from "../../design/components/Icon";
@@ -10,6 +10,7 @@ import { layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useFrame } from "../../app/AppFrame";
 import { loadedFolders, type FileBrowser } from "./browser";
+import { loadedCounts } from "./contextFoot";
 import { Confirm, DeleteForever, MovePicker, NamePrompt } from "./Dialogs";
 import { ShareDialog } from "./ShareDialog";
 import { consoleOrigin } from "./shareOrigin";
@@ -84,39 +85,12 @@ import type { Visibility } from "./types";
 export function Explorer({
   files,
   contextLabel,
-  vault,
-  vaultDetail,
   onOpenPinned,
   onOverlayChange,
 }: {
   files: FileBrowser;
   /** "@seyi" — named in the empty state so it is obvious whose tree this is. */
   contextLabel: string;
-  /**
-   * The vault-switcher slot: what this context is called, and how to change it.
-   *
-   * Obsidian's file explorer ends with the vault's name, a chevron to change
-   * it, a gear, and one muted line saying how much is in it. This is that
-   * block, and on a phone it is where the context switcher lives — it is a fact
-   * *about the context you are in*, beside its name, at the foot of the panel
-   * that lists it, rather than floating over the note you are reading.
-   *
-   * A node rather than props because `Explorer` has no business knowing what a
-   * storage binding or a membership is; it knows it has a footer, that the
-   * name line goes in it, and that the detail line goes under it. Absent on a
-   * pointer layout, where the top bar has the room and this is a 26pt strip at
-   * the bottom of a column rather than a panel's own foot.
-   */
-  vault?: ReactNode;
-  /**
-   * The first half of the footer's muted line — "R2 · brain".
-   *
-   * A string rather than part of the `vault` node because the second half is
-   * the tree's own: how many notes and folders have actually been read. Obsidian
-   * prints one line there ("4,707 files, 4,060 folders") and so do we, with the
-   * binding in front of it, so the footer is three lines and not four.
-   */
-  vaultDetail?: string;
   /**
    * "Open in new tab" — opens the note *pinned*, where a plain open leaves a
    * preview tab the next click replaces. Absent where there are no tabs, and
@@ -432,7 +406,7 @@ export function Explorer({
     };
   }, [files, drag]);
 
-  const counts = countLoaded(files);
+  const counts = loadedCounts(files.listings);
 
   /**
    * Putting the filter away, which must also clear it.
@@ -631,32 +605,31 @@ export function Explorer({
       </ScrollView>
 
       {/*
-        Obsidian's vault switcher, which is three lines and one block.
+        The foot: one muted line saying how much of this tree has been read.
 
-        The reference (`docs/design/obsidian-parity`, the file-explorer shot)
-        ends the sidebar with, in this order: a row of icon actions; the vault's
-        name with a chevron on the left and a gear on the right; and one muted
-        line saying how much is in it. Not a floating pill above a separate
-        count strip, which is what this was — two objects, two alignments, and
-        the context's name nowhere near the tree it names.
+        **It used to be three lines and one block — Obsidian's vault switcher —
+        and the two lines above this one are gone with the density that had
+        them.** The reference (`docs/design/obsidian-parity`, the file-explorer
+        shot) ends the sidebar with a row of icon actions, then the vault's name
+        with a chevron and a gear, then the count line; a phone drew all three
+        because the tree was the whole sheet and its foot was the only place a
+        fact about the *context* could sit beside the context's own name.
 
-        `vault` is the name line, `vaultDetail` the binding, and the counts are
-        ours. One `Text` for the last two so the footer is three lines rather
-        than four.
+        A phone has no file tree at all now (`features/app/frame.ts`), so this
+        component is a pointer-layout column and nothing else, and the `vault`
+        and `vaultDetail` slots had no supplier left. The three facts they
+        carried did not go with them: the binding and the tier are the top bar's
+        chips here, how much is indexed is the status strip's segment, and on a
+        phone all three are the foot of the context's own page — see
+        `files/contextFoot.ts` and `FolderView`.
 
-        **No pane switcher between the verbs and the brain.** The reference has
-        a `Files` pill there because Obsidian's sidebar holds several panes and
-        that pill is how you change which one. Ours holds one: Connections and
-        Map are settings, not panes of this panel. A control that names the only
-        thing there is teaches people it does nothing, and it cost a whole band
-        of the footer to say so. If a second pane ever exists it comes back with
-        it.
+        `loadedCounts` is shared with that page rather than computed here, so
+        "how much of this context have I got" has one answer.
       */}
       <View style={[styles.foot, touch && styles.footTouch]}>
         {touch ? <View style={styles.iconRow}>{actions}</View> : null}
-        {vault === undefined ? null : <View style={styles.vault}>{vault}</View>}
-        <Text variant="treeMeta" numberOfLines={1} testID="explorer-vault-detail">
-          {[vaultDetail, counts].filter((part) => part !== undefined && part !== "").join(" · ")}
+        <Text variant="treeMeta" numberOfLines={1} testID="explorer-counts">
+          {counts}
         </Text>
       </View>
 
@@ -886,30 +859,6 @@ function IconButton({
   );
 }
 
-/**
- * What the foot says.
- *
- * Only what has actually been read. A tree that lazily loads one folder at a
- * time cannot honestly print a total for the bucket, and inventing one is the
- * same failure the console's stat tiles were removed for. It used to end with
- * the word "read" to say so out loud; that word is gone because the line now
- * carries the binding in front of it and Obsidian's own is "4,707 files, 4,060
- * folders". The honesty is unchanged — the numbers are still only what has been
- * loaded, and "Nothing read yet" is still what an unread tree says.
- */
-function countLoaded(files: FileBrowser): string {
-  let notes = 0;
-  let folders = 0;
-  for (const listing of Object.values(files.listings)) {
-    for (const entry of listing?.entries ?? []) {
-      if (entry.kind === "folder") folders += 1;
-      else notes += 1;
-    }
-  }
-  if (notes === 0 && folders === 0) return "Nothing read yet";
-  return `${notes} note${notes === 1 ? "" : "s"}, ${folders} folder${folders === 1 ? "" : "s"}`;
-}
-
 /** The inline control: private ↔ team, through the privacy manifest. */
 function cycleVisibility(files: FileBrowser, row: TreeRow): void {
   if (row.readOnly) return;
@@ -1099,5 +1048,4 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingBottom: 2,
   },
   /** The name line: whatever `_layout` passes, taking the width it needs. */
-  vault: { flexDirection: "row", alignItems: "center", gap: 6 },
 });

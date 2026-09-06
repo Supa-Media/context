@@ -8,6 +8,7 @@ import { layout, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { Breadcrumb } from "../files/Breadcrumb";
 import { ConflictResolver } from "../files/ConflictResolver";
+import { contextFootLine } from "../files/contextFoot";
 import { FolderView } from "../files/FolderView";
 import { knownNotePaths } from "../files/paths";
 import { NoteEditor } from "../files/NoteEditor";
@@ -313,6 +314,70 @@ export function BrowsePane({
       />
     ) : null;
 
+  /**
+   * Where a phone starts, when nothing has been opened yet.
+   *
+   * `Empty` says "choose a note … right-click any row", which was true while
+   * the tree was a drawer one press away. There are no rows on a phone now
+   * until you are standing in a folder, so that sentence named a gesture with
+   * nothing to perform it on and the pane was a dead end: `/console/@seyi` with
+   * no `?note=` had no route to a single note in the context.
+   *
+   * The context's root folder *is* the context, so it is the page. This is a
+   * render fallback and deliberately **not** a `select("")` — a selection
+   * written here would be a third writer of the thing `useNoteAddress` owns
+   * two directions of, and `noteAddress.ts` exists because that relationship
+   * oscillates when more than one thing drives it.
+   *
+   * `null` before the root's listing has arrived, and the pane then draws
+   * nothing rather than the empty state: a bucket that has not answered is not
+   * a context with nothing in it, which is the rule `ConsoleData.storage` needs
+   * three values for one layer up. A pointer layout keeps `Empty`, where
+   * "choose a note" names a tree that is on the screen.
+   */
+  const landing = compact ? entryAt(files.listings, "") : null;
+
+  /**
+   * Whether what is about to be drawn is the context's own page.
+   *
+   * One expression rather than a check at each of the two `FolderView`s: they
+   * are the same page reached two ways — selected, or landed on — and two
+   * copies of "is this the root" is how a caption ends up on one and not the
+   * other.
+   */
+  const atContextRoot = compact && (selected === null ? landing !== null : selected.path === "");
+
+  /**
+   * `R2 · brain · 62% indexed · 12 notes, 8 folders`, for the context's own
+   * page.
+   *
+   * **This line lost its home and is being given one.** It was the file tree's
+   * footer, and it was on a phone *because* a phone has no status strip — at
+   * `compact` the frame draws a bottom toolbar and no status bar
+   * (`features/app/frame.ts`), so without it the only way to learn how far a
+   * backfill had got was to open settings, which is the state that made a stuck
+   * backfill and a working one look identical for hours. A phone has no file
+   * tree at all now, so the line went with the tree and the phone lost the
+   * feature outright; nothing about the reason it existed changed.
+   *
+   * The foot of the context root page is where it lands, and `FolderView`'s
+   * header carries the argument for why the root page and not every folder
+   * page. Composed by `contextFootLine` so the words are still decided in one
+   * place — `describeIndexProgress` is the owner-only gate as well as the
+   * phrasing, and a second composition here is how a member ends up shown a
+   * figure the server withheld.
+   *
+   * Compact only. A pointer layout says all three of these in the status strip
+   * and the top bar's chip already.
+   */
+  const contextFoot = atContextRoot
+    ? contextFootLine({
+        storage: data.storage,
+        fastSearch: data.fastSearch.status,
+        listings: files.listings,
+      })
+    : undefined;
+
   const openDocument =
     selected === null ? (
       /*
@@ -337,7 +402,18 @@ export function BrowsePane({
         back here, under its notice, instead of on a blank page.
       */
       pendingNote == null && files.opening === null ? (
-        <Empty contextLabel={contextLabel} />
+        !compact ? (
+          <Empty contextLabel={contextLabel} />
+        ) : landing === null ? null : (
+          <FolderView
+            entry={landing}
+            listing={files.listings[""]}
+            canSetVisibility={files.canSetVisibility}
+            contextLabel={contextLabel}
+            foot={contextFoot}
+            onSelect={files.select}
+          />
+        )
       ) : null
     ) : selected.kind === "folder" ? (
       <FolderView
@@ -345,6 +421,9 @@ export function BrowsePane({
         listing={files.listings[selected.path]}
         canSetVisibility={files.canSetVisibility}
         contextLabel={contextLabel}
+        // `undefined` for every folder but the root — see `atContextRoot` and
+        // `FolderView`'s header.
+        foot={contextFoot}
         onSelect={files.select}
       />
     ) : files.conflict?.path === selected.path ? (

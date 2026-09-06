@@ -4,14 +4,13 @@ import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { PressRow } from "../../../features/design/components/Button";
 import { Dot } from "../../../features/design/components/Dot";
-import { Icon } from "../../../features/design/components/Icon";
 import { Pill } from "../../../features/design/components/Pill";
 import { Palette } from "../../../features/design/components/Palette";
 import { StatusBar } from "../../../features/design/components/StatusBar";
 import { Text } from "../../../features/design/components/Text";
 import { ToastHost } from "../../../features/design/components/Toast";
-import { layout, radii, space } from "../../../features/design/tokens";
-import { useColors, useThemedStyles, type Colors } from "../../../features/design/theme";
+import { layout, radii } from "../../../features/design/tokens";
+import { useThemedStyles, type Colors } from "../../../features/design/theme";
 import { AppFrame, FrameIconButton, useFrame } from "../../../features/app/AppFrame";
 import { densityFor } from "../../../features/app/frame";
 import { BottomBar } from "../../../features/console/BottomBar";
@@ -54,7 +53,6 @@ import { ContextStrip } from "../../../features/console/ContextStrip";
 import { useContextHref, useContextPlaces } from "../../../features/console/useLastPlace";
 import { useMeetingFlow } from "../../../features/meetings/useMeetingFlow";
 import {
-  browseHref,
   hrefFor,
   resolveContextRoute,
   routeForPath,
@@ -590,52 +588,25 @@ export default function ConsoleLayout() {
               files={data.files}
               contextLabel={contextLabel}
               /*
-                Obsidian's vault-switcher slot, and on a phone it is where the
-                two chips from the old top-right pill now live. Absent on a
-                pointer layout, where the top bar still carries them — see
-                `topTrailing`.
-              */
-              vault={
-                phone ? (
-                  <VaultSwitcher
-                    label={contextLabel}
-                    kind={current?.kind ?? ""}
-                    tone={current?.status ?? "warn"}
-                    onOpenSettings={
-                      current === null
-                        ? undefined
-                        : () => router.push(settingsHref(current.slug))
-                    }
-                  />
-                ) : undefined
-              }
-              /*
-                The binding, then how much of the context is in the hosted
-                index, then the counts. `storagePillLabel` is the same function
-                the pointer layout's chip and the status bar read, so the three
-                cannot come to describe one bucket three ways — which is how
-                "dropbox · undefined" got printed once — and
-                `describeIndexProgress` is likewise the same function the
-                settings card and the status bar read.
+                **No `vault` and no `vaultDetail` any more, and the line they
+                composed has not been deleted — it has moved.**
 
-                This line exists on a phone because **the status bar does not**:
-                at `compact` the frame draws a bottom toolbar and no status
-                strip (`features/app/frame.ts`), so without this a phone would
-                only ever learn how far the backfill had got by opening
-                settings. `null` is omitted rather than filled in, which for a
-                member is the owner-only rule doing its work — see
-                `describeIndexProgress`.
+                They were the phone's: the context's name with a chevron and a
+                gear, and under it `binding · index · counts`. The line existed
+                on a phone because **the status bar does not** — at `compact` the
+                frame draws a bottom toolbar and no status strip
+                (`features/app/frame.ts`), so without it the only way to learn
+                how far a backfill had got was to open settings, which is the
+                state that made a stuck backfill and a working one look the same
+                for hours.
+
+                A phone has no file tree now, so that footer has no supplier and
+                the three facts needed a surface that still exists. They are the
+                foot of the context's own page — `features/console/files/contextFoot.ts`
+                composes them and `FolderView` draws them — and this component
+                is a pointer-layout column, where the top bar's chips and the
+                status strip already say all three.
               */
-              vaultDetail={
-                phone && data.storage !== undefined
-                  ? [
-                      storagePillLabel(data.storage) ?? "no bucket connected",
-                      describeIndexProgress(data.fastSearch.status)?.label,
-                    ]
-                      .filter((part): part is string => part !== undefined)
-                      .join(" · ")
-                  : undefined
-              }
               onOpenPinned={(path) => {
                 data.files.select(path);
                 tabs.pin(path);
@@ -1273,81 +1244,6 @@ function StorageChip({
   );
 }
 
-/**
- * Obsidian's vault switcher, at the foot of the file tree.
- *
- * One line: which context you are in, a chevron that changes it, and a gear
- * that configures it. It is the block the reference ends its sidebar with, and
- * it is where the `@seyi personal` chip from the top bar has gone.
- *
- * **The chevron is the only way to the rail on a phone with a tree open, and
- * that is deliberate rather than incidental.** The rail carries the other
- * contexts, the app-level panes and sign-out; the top bar used to carry a
- * switcher chip that opened it, and the whole point of this change is that the
- * top bar carries a toggle and one group of actions and nothing else. So the
- * control moved rather than went — it is here, beside the name it changes,
- * which is what a workspace switcher is. `frame.ts` keeps the top bar's chip
- * for the routes that have no tree (Map, Connections), where this footer does
- * not exist.
- *
- * The gear is `StorageChip`'s old press target: a fact you can act on. It opens
- * this context's settings, which is where the bucket is bound.
- */
-function VaultSwitcher({
-  label,
-  kind,
-  tone,
-  onOpenSettings,
-}: {
-  label: string;
-  kind: string;
-  tone: "ok" | "warn" | "crit";
-  /** Absent only while there is no selected context to have settings. */
-  onOpenSettings?: () => void;
-}) {
-  const colors = useColors();
-  const styles = useThemedStyles(makeStyles);
-  const frame = useFrame();
-
-  return (
-    <>
-      <PressRow
-        accessibilityLabel={`${label}, ${kind}. Switch context`}
-        onPress={frame.toggleRail}
-        radius={radii.md}
-        style={styles.vaultName}
-        hoverStyle={styles.storagePressHover}
-        testID="vault-switcher"
-      >
-        <Dot tone={tone} />
-        <Text variant="wsSwitch" numberOfLines={1} style={styles.vaultLabel}>
-          {label}
-        </Text>
-        <Text variant="wsSwitch" style={styles.switcherKind} numberOfLines={1}>
-          {kind}
-        </Text>
-        <Icon
-          name={frame.state.navOpen ? "chevronUp" : "chevronDown"}
-          size={14}
-          color={colors.muted}
-        />
-      </PressRow>
-      {onOpenSettings === undefined ? null : (
-        <PressRow
-          accessibilityLabel="Open storage settings"
-          onPress={onOpenSettings}
-          radius={radii.control}
-          style={styles.vaultGear}
-          hoverStyle={styles.storagePressHover}
-          testID="vault-settings"
-        >
-          <Icon name="gear" size={18} color={colors.text2} />
-        </PressRow>
-      )}
-    </>
-  );
-}
-
 /** No context selected, or a browser with no offline layer under it. */
 const NO_QUEUE = { pending: 0, conflicted: 0, rejected: 0 };
 
@@ -1565,28 +1461,4 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * breadcrumb used to need beside Share, and the same failure if it is
    * dropped.
    */
-  vaultName: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    flexGrow: 1,
-    flexShrink: 1,
-    minWidth: 0,
-    minHeight: layout.minTouchTarget,
-    paddingHorizontal: space.x1,
-    borderRadius: radii.md,
-  },
-  vaultLabel: { flexShrink: 1, minWidth: 0 },
-  /** The gear, at the trailing edge, at a size a thumb can hit. */
-  vaultGear: {
-    flexGrow: 0,
-    flexShrink: 0,
-    marginLeft: "auto",
-    width: layout.minTouchTarget,
-    height: layout.minTouchTarget,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radii.control,
-  },
-
 });
