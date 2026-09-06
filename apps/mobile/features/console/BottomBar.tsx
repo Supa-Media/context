@@ -80,9 +80,10 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../design
  * sliver of note it buys is worth less than a destination. On a 390pt phone —
  * the narrow case, not the reference's 440 — seven targets inside a pill inset
  * by 52 are 37.4pt wide against a 44pt floor, and six are 43.7, which is under
- * it too. At 24 they are 45.4. `layout.bottomBarInset` carries the arithmetic
- * and `bottomBar.test.ts` recomputes both rows from the tokens rather than
- * quoting either number.
+ * it too. At 24 they are 45.29 — 317 divided seven ways, not 318, because the
+ * separator is a child of the same row and takes its point off the targets.
+ * `layout.bottomBarInset` carries the arithmetic and `bottomBar.test.ts`
+ * recomputes both rows from the tokens rather than quoting either number.
  *
  * That is deliberately **not** the flush, hairline-topped bar an earlier plan
  * called for. The reference is unambiguous on this point — reading view and
@@ -228,7 +229,8 @@ export interface BottomBarAction {
    *
    * A rule is the cheapest possible answer: no gap (which would cost width the
    * targets need — see `bottomBarInset`'s arithmetic, where seven targets clear
-   * 44pt by 1.4), no heading, and nothing that has to be announced. It is
+   * 44pt by 1.29 on a 390pt phone, the rule's own point already deducted), no
+   * heading, and nothing that has to be announced. It is
    * `aria-hidden`, because a screen reader is already told each control's whole
    * name and a decoration between two of them adds nothing but noise.
    *
@@ -438,11 +440,16 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   /**
    * The rule between the note's verbs and the key that leaves the note.
    *
-   * A hairline and 1pt of width, so it costs the targets either side almost
-   * nothing: `bottomBarInset`'s arithmetic gives seven targets 45.4pt against a
-   * 44pt floor on a 390pt phone, and there is not a gap's worth of room in
-   * that. `flexShrink: 0` because it is a hairline and a hairline that shrinks
-   * is a hairline that disappears; the targets are what absorb a narrow screen.
+   * **It consumes width.** `flexShrink: 0` in the same flex row as the targets
+   * means its `layout.bottomBarRule` point is subtracted from what the seven of
+   * them divide, not painted over them: 317 ÷ 7 = 45.29 on a 390pt phone, not
+   * 318 ÷ 7 = 45.4. This comment said 45.4 and was the one place that should
+   * have caught the omission, since the width it was forgetting is the width it
+   * is describing. `bottomBarGeometry` subtracts it explicitly for that reason.
+   *
+   * It stays a hairline and stays unshrinkable — a hairline that shrinks is a
+   * hairline that disappears — and a *gap* instead of a rule is what there is
+   * no room for; the targets are what absorb a narrow screen.
    *
    * Inset vertically rather than run edge to edge: a rule the full 66pt height
    * of a floating pill reads as a seam splitting the object in two, and what is
@@ -451,7 +458,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   separator: {
     flexGrow: 0,
     flexShrink: 0,
-    width: 1,
+    width: layout.bottomBarRule,
     alignSelf: "center",
     height: 22,
     backgroundColor: colors.line,

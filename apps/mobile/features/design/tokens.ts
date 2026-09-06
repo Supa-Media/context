@@ -467,17 +467,27 @@ export const layout = {
    * than a destination.
    *
    * The arithmetic, on a 390pt phone, which is the narrow case rather than the
-   * reference's 440:
+   * reference's 440 — and **the separator is a term in it**, because the rule
+   * `BottomBar` draws before the seventh key is a `flexShrink: 0` child of the
+   * row and therefore takes its width off the targets rather than out of thin
+   * air:
    *
    *     390 − 2 × 24 = 342          the pill
    *     342 − 2 × 12 = 318          inside `bottomBarPad`
-   *     318 ÷ 7      = 45.4pt       one target — above the 44pt floor
+   *     318 −     1  = 317          less `bottomBarRule`, the separator
+   *     317 ÷ 7      = 45.29pt      one target — above the 44pt floor
    *
    * and at the old 52:
    *
    *     390 − 2 × 52 = 286
    *     286 − 2 × 12 = 262
-   *     262 ÷ 7      = 37.4pt       under the floor; 262 ÷ 6 = 43.7, also under
+   *     262 −     1  = 261
+   *     261 ÷ 7      = 37.29pt      under the floor; 261 ÷ 6 = 43.5, also under
+   *
+   * **That last pt is why the figure is 45.29 and not 45.4.** It read 45.4 in
+   * four places, including the separator's own doc comment — the one that
+   * should have caught it — because the divisor was 318, which is the width
+   * before the rule the same paragraph was describing.
    *
    * So a seventh key does not fit at 52 and does at 24, and 24 still leaves a
    * visible sliver of note either side — reduced, not spent. Six of the seven
@@ -503,11 +513,31 @@ export const layout = {
    * decides the bar's width and the targets share it — so it stands as the size
    * a target wants when there is room, with `minTouchTarget` underneath it as
    * the floor when there is not. Seven targets on a 390pt phone are under it
-   * and land on the floor's side of it at 45.4; see `bottomBarInset`.
+   * and land on the floor's side of it at 45.29; see `bottomBarInset`.
    */
   bottomBarTarget: 52,
-  /** The toolbar's own horizontal padding. See `bottomBarTarget`. */
+  /**
+   * The toolbar's own horizontal padding, where the width allows it.
+   *
+   * See `bottomBarTarget` for what it is worth to the look, and
+   * `bottomBarGeometry` for the order it is spent in: this is the *first*
+   * thing a narrow screen takes back, before the sliver of note either side,
+   * because a target is 44pt wide around a 22pt icon and already carries 11pt
+   * of its own air at each end of the row.
+   */
   bottomBarPad: 12,
+  /**
+   * The hairline between the note's verbs and the key that leaves the note.
+   *
+   * A token rather than a `1` in `BottomBar`'s stylesheet because **it is a
+   * term in the row's width**, not a decoration painted over it: the rule is a
+   * `flexShrink: 0` child of the same flex row as the targets, so every point
+   * it takes is a point the seven targets do not divide. Reading it as free
+   * is what made the arithmetic in this file say 45.4 where it is 45.29, in
+   * four places at once, and `bottomBarGeometry` now subtracts it rather than
+   * a comment claiming it is negligible.
+   */
+  bottomBarRule: 1,
   /**
    * The air a panel leaves between the status bar and its first row.
    *
