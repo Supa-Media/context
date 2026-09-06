@@ -667,17 +667,37 @@ replays it on reconnect, and the gateway is built so that replaying is free:
 The third one has a trap that is worth naming, because the obvious
 implementation walks into it. If the bucket path is derived from the title, and
 the human renames the meeting between a failed finalize and its retry, a
-title-derived path produces a *second* note and both look correct. So the path
-carries a stable suffix taken from the session id, and finalize resolves an
-existing note **by that suffix** before it composes a new path — a rename
-rewrites one note, it does not fork one.
+title-derived path produces a *second* note and both look correct.
+
+So **the path is composed once and then remembered.** Finalize's first step is a
+*claim*: it works out the path, writes it into the session record under a
+conditional write, and only then writes the note. Every later finalize —
+a retry after a crash, a duplicate from a client that never saw the first
+answer, a re-finalize under a new title or a different folder — reads that path
+back out of the record and does not compose one. A rename rewrites one note; it
+cannot fork one, because after the claim nothing derives a path from anything.
+
+**This paragraph used to say something else, and it was wrong.** It said the
+path "carries a stable suffix taken from the session id, and finalize resolves
+an existing note **by that suffix** before it composes a new path". The first
+half is true — `meetingNotePath` ends the filename with the tail of the session
+id — and the second half describes a lookup that does not exist and would be a
+worse design: resolving by scanning for a suffix means reading the bucket to
+answer a question the record already answers, and it would find a note in the
+old folder while the retry named a new one. `unclaimedNotePath` is the only
+thing here that looks at an existing key, and its job is the opposite: it
+refuses to overwrite a note somebody else's tooling put at the candidate path.
 
 Every `MeetingEvent` in the contract is idempotent or additive for the same
 reason: replaying the log must land on the same session.
 
-The checks are `finalizing twice writes one note`,
-`re-sending a segment does not duplicate it`, and
-`a re-finalize with a changed title rewrites one note rather than adding a second`.
+The checks are `finalizing twice answers with the note that already exists`,
+`a phone that lost signal and re-sent duplicates nothing`, and
+`a re-finalize with a changed title rewrites one note rather than adding a
+second` — the last of which this section cited for a while before it existed,
+and which now does: it fails a finalize's note write, renames the meeting, and
+asserts the retry lands on the first title's key with no second note in the
+bucket.
 
 ### The human's words are never rewritten, and the generated half is disposable
 
@@ -714,8 +734,25 @@ The check is `moving a meeting note does not break reading it`.
 field.** A phone can ask a person where a meeting's notes should go, and the
 gateway ignored the answer: `finalizeSession` built the inbox path from
 `MEETINGS_FOLDER` and consulted nothing, so somebody who picked a folder got the
-inbox anyway, in silence. `FinalizeBody.folder` is that answer arriving. Three
-decisions in it, each of which could reasonably have gone the other way:
+inbox anyway, in silence. `FinalizeBody.folder` is that answer arriving.
+
+**A destination is a `(context, folder)` pair, and only the folder half is this
+field.** `MeetingDestination` in the app
+(`apps/mobile/features/meetings/destination.ts`) carries a `contextSlug`
+alongside the folder, and **the context half is the one carrying a privacy
+rule**: the first offer on the sheet is always the person's own brain, whatever
+context they happen to be standing in, because somebody reading a note in a
+shared workspace who presses record would otherwise drop a transcript of a
+conversation they have not read yet into a folder their colleagues are watching.
+The current page is the *second* offer, with its audience named on it.
+
+The gateway sees only the folder because the context has already decided *which
+gateway and which bucket* the finalize is addressed to — one workspace is one
+bucket, one storage binding and one privacy manifest
+([non-negotiable 2](../../CLAUDE.md)) — so there is nothing for a `context`
+field on this body to mean that the connection does not already say. Three
+decisions in the folder half, each of which could reasonably have gone the other
+way:
 
 **The chosen folder replaces the whole default, and `YYYY/MM` stays.**
 `MEETINGS_FOLDER` is one concept — where meetings are filed — spelled in two
@@ -766,11 +803,22 @@ and leaves one meeting in two places.
 `isMeetingNotePath` takes the same folder and validates it with the same
 function, so the pair agree by construction rather than by both deriving one
 constant. It stays a shape test relative to a named folder and does not become a
-global "is this a meeting" oracle: nothing records where a meeting was filed —
-there is no meetings table, by decision above — and a dated note in somebody's
-own folder is not a meeting. So `list_meetings` does not list a meeting filed
-elsewhere, which is the behaviour a *moved* meeting already has and which this
-section already calls correct.
+global "is this a meeting" oracle, and the reason is a narrow one that used to be
+stated too broadly. **The claimed path *is* recorded** — the session record
+carries `notePath`, and the completion receipt keeps it, which is what makes a
+retry land on one note. What no index records is the reverse mapping: there is no
+list of meeting paths to scan, by the decision above, so `list_meetings` has
+nothing to consult and reads the default folder off the bucket instead. Scanning
+the whole bucket for `YYYY/MM/YYYY-MM-DD-*.md` would call somebody's ordinary
+dated note a meeting.
+
+So `list_meetings` does not list a meeting filed elsewhere, which is the
+behaviour a *moved* meeting already has and which this section already calls
+correct — and since that is a real limit rather than an implementation detail,
+**the tool says so to the model in its own description**, because a client that
+is told "the meetings the user recorded" has no reason to look further when one
+is missing. The checks are in `apps/mcp/test/meetings.test.mjs`, on the
+description a real `tools/list` returns.
 
 The checks are `a chosen folder replaces the whole default, and keeps the date
 folders under it`, `the recogniser answers true for every key the builder makes,
@@ -855,7 +903,7 @@ covering it`, `leaving the meetings section does not switch transcription off`,
 and `re-configuring mid-meeting keeps the recorder that is holding the
 microphone`.
 
-### The way in is a rail entry, and it navigates rather than records
+### The way in is on the surface each density has, and it navigates rather than records
 
 Everything above is about a recording that is already running. **Nothing in the
 app started one.** `/meetings` had a list screen, a live screen and a working
@@ -906,23 +954,40 @@ headed APP over YOURS over SHARED WITH YOU, which is what made the rail read as
 a second, unrelated left navigation. One pinned row with no heading is not a
 second panel.
 
-**Pinned, and at the head rather than beside sign-out**, and the second half of
-that is about the bar rather than about taste. While a panel is over the editor
-the frame publishes a chrome height of zero, so the recording bar drops to
-`floatingStackBottom(insets.bottom, 0)` and lies across the bottom ~100pt of
-whatever is under it. A destination the recording it leads to can cover is not a
-destination. (The same arithmetic puts that bar over the account block, which is
-a pre-existing hole in *sign-out* and is not fixed here.)
+**Pinned, and at the head of the rail rather than beside sign-out**, and the
+second half of that is about the bar rather than about taste. Whenever the
+frame's bottom toolbar is not showing it publishes a chrome height of zero, so
+the recording bar drops to `floatingStackBottom(insets.bottom, 0)` and lies
+across the bottom ~100pt of whatever is under it. A destination the recording it
+leads to can cover is not a destination. (The same arithmetic puts that bar over
+the account block, which is a pre-existing hole in *sign-out* and is not fixed
+here.)
+
+**The trigger for that is not what this paragraph used to name.** It said "while
+a panel is over the editor", because `toolbarHidden` was `accessoryOpen ||
+regions.scrim` and the scrim was a phone's drawer. There is no scrim at any
+density now ([app-and-console](./app-and-console.md)), so the surviving trigger
+is the keyboard accessory bar — which is the more common one anyway, and the
+conclusion is unchanged.
 
 **And it navigates. It does not record.** *Consent is the customer's* says a
 detector that silently started recording "would be the same product with the
-indicator removed"; a rail row that opened the microphone is exactly that, one
-surface over. The record button lives on `/meetings`, beside the sentence
-saying where the audio goes and what is kept — which is the disclosure the
-decision requires, and it cannot be given by a row in a navigation panel. The
-mark is a microphone on a cradle rather than the recording bar's waveform or the
-list's red disc, so no glyph in the product means both "a meeting is being
-recorded right now" and "meetings live here".
+indicator removed"; a control that opened the microphone is exactly that, one
+surface over. The record button lives where the disclosure can be given beside
+it — on `/meetings`, next to the sentence saying where the audio goes and what
+is kept — which a row in a navigation panel cannot do. The mark is a microphone
+on a cradle rather than the recording bar's waveform or the list's red disc, so
+no glyph in the product means both "a meeting is being recorded right now" and
+"meetings live here".
+
+**Both halves of that need amending for the phone's key, and the amendment is
+narrower than it looks.** The seventh key does not navigate to `/meetings` and
+it does not start recording either: it raises a sheet that asks *where this
+meeting is going* — `MeetingDestination`, a context and a folder — and recording
+begins only after somebody has answered. So the disclosure is not left behind on
+a screen the key skipped; it is on the sheet the key opens, which is the surface
+the decision asks for. What is still true, and is the part that matters, is that
+**no single press anywhere in this product opens the microphone**.
 
 A way in also needs a way back, and `/meetings` had none: the list screen sits
 outside the console, nothing above it draws chrome, and the live and note
@@ -931,7 +996,10 @@ does now, and it falls back to the console when there is no history behind it �
 a cold start on a typed URL or a reload on the web, where `router.back()` is a
 press that does nothing.
 
-The checks are `the rail carries it at full / icons / sheet`,
+The checks are `the rail carries it at full / icons` — `sheet` was in that
+enumeration and left it, because `regionsFor` cannot return it at any density
+and a test over a mode nobody can reach is the opposite of what enumerating them
+is for —
 `the collapsed rail keeps the name it cannot draw`,
 `a rail with nowhere to send anybody draws no entry`,
 `the route it names is a route this app actually has`,

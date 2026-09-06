@@ -14,14 +14,26 @@ this repo can see a collision — that is exactly why the shots are here.
 
 ## The shots
 
+**Two of these photograph a design that has since been removed**, and they are
+kept rather than deleted because the claim they are evidence for — content never
+laid out under the system's chrome — is unchanged and was verified on those
+screens. A phone now has **no left panel at all**: no file-tree drawer, no rail
+sheet, no toggle or scrim for either
+(`apps/mobile/features/app/frame.ts`). So `console-sidebar.png` and
+`console-brain-switcher.png` are history, and their rows say so; what replaced
+them — the context strip along the top, the seventh key on the bottom row, and
+the context root page — is photographed in
+`docs/design/obsidian-parity/shots/`. Where a row below says "the toggle", the
+control in that position is the account mark now, in the same 44pt band.
+
 | File | Route | What to look at |
 | --- | --- | --- |
 | `console-settings.png` | `/console/@seyi/settings` | **The bug report.** "@seyi settings", the Connected pill and Done were on the clock's line, behind the Island. They are clear of it. |
 | `console-context-root.png` | `/console/@seyi` | The tier line, once, below the floating toggle. |
 | `console-note.png` | `/console/@seyi` with a note open | The first line clears the toggle; the text runs **under** the bottom pill, which is correct. |
 | `console-folder.png` | a folder open | The listing as the tree draws it — no cards, no `.md`, no trailing `/`. |
-| `console-sidebar.png` | the file tree drawer | The rebuilt sidebar: indent guides, the selected row as a full-width pill, visibility as a pip, five evenly-spaced icons, the `Files` pane pill, the brain line with a gear that reads as a gear. The toggle is on the sliver of note, not over the panel. |
-| `console-brain-switcher.png` | the panel behind the vault line | **One panel, and it is the vault switcher** — Brains, Workspaces, sign out. (Shot predates the regrouping; the headings read "Yours" / "Shared with you" in it.) No `APP` group, and no React duplicate-key toast (the `exchange` icon fix, live). |
+| `console-sidebar.png` | the file tree drawer — **retired** | The rebuilt sidebar: indent guides, the selected row as a full-width pill, visibility as a pip, five evenly-spaced icons, the `Files` pane pill, the brain line with a gear that reads as a gear. The toggle is on the sliver of note, not over the panel. A phone has none of this now; folder browsing is the context root page. |
+| `console-brain-switcher.png` | the panel behind the vault line — **retired** | **One panel, and it is the vault switcher** — Brains, Workspaces, sign out. (Shot predates the regrouping; the headings read "Yours" / "Shared with you" in it.) No `APP` group, and no React duplicate-key toast (the `exchange` icon fix, live). Switching context is the top strip now, and sign-out is the pinned account mark. |
 | `console-settings-panes.png` | the foot of `/console/@seyi/settings` | Map and Connections, re-homed out of the rail. |
 | `console-map.png` | `/console/map` | Clear at the top, and no 110pt of empty toolbar reserved at the bottom on a pane with no toolbar. |
 | `console-connections.png` | `/console/connections` | As above. |

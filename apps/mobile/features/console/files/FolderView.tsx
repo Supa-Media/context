@@ -53,8 +53,10 @@
  * ## The foot, and why only the root page has one
  *
  * `foot` is where `storage · index · counts` lands on a phone — the line that
- * used to be the file tree's footer (`explorer-vault-detail`) and lost its home
- * when a phone stopped having a file tree. `BrowsePane` supplies it for the
+ * used to be the file tree's footer and lost its home when a phone stopped
+ * having a file tree. (It was `explorer-vault-detail` there, a testID that no
+ * longer exists anywhere; what survives on a pointer layout is the counts-only
+ * remnant of that footer, `explorer-counts`.) `BrowsePane` supplies it for the
  * **context root and nothing else**, and that is a decision rather than an
  * accident of where it was easy to put:
  *

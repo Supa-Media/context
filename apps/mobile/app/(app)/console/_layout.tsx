@@ -430,12 +430,18 @@ export default function ConsoleLayout() {
           label again, which reads its own text. The prop went with the reader.
         */
         /*
-          Absent on a phone, where both chips have moved to the foot of the file
-          tree — see `ContextFoot` and `Explorer`'s `vault` slot.
+          Absent on a phone, where both chips have moved to the foot of the
+          context's own page — `features/console/files/contextFoot.ts` composes
+          the line and `FolderView` draws it.
+
+          (This used to cite `ContextFoot` and `Explorer`'s `vault` slot. There
+          is no such component — the module is `files/contextFoot.ts` — and the
+          `vault` slot went with the phone's file tree, so the citation pointed
+          at one name that never existed and one that no longer does.)
 
           They are facts *about the context you are in*: which bucket it is
-          bound to, and what you are allowed to see in it. Beside the context's
-          own name, at the foot of the panel that lists it, they read as a
+          bound to, and what you are allowed to see in it. Under the context's
+          own heading, at the foot of the page that lists it, they read as a
           caption. Floating over the note in the top-right corner of a 390pt
           screen they read as chrome about the note, which is what they were
           being mistaken for — and getting them there cost a bordered pill
@@ -443,8 +449,7 @@ export default function ConsoleLayout() {
 
           The pointer layout keeps them in the bar. It has the width, the bar
           has a surface of its own to sit them on, and the tree's foot there is
-          a 26pt strip at the bottom of a 260pt column rather than the panel's
-          own footer.
+          a 26pt strip at the bottom of a 260pt column rather than a page's.
         */
         topTrailing={
           phone ? (
@@ -1452,13 +1457,4 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.pill,
   },
   storagePressHover: { backgroundColor: colors.surface3 },
-
-  /**
-   * The vault switcher's name line: it takes the room, the gear takes the end.
-   *
-   * `flexShrink: 1` with `minWidth: 0` is what lets a long context name
-   * ellipsise rather than pushing the gear off the panel — the same rule the
-   * breadcrumb used to need beside Share, and the same failure if it is
-   * dropped.
-   */
 });

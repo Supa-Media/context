@@ -36,10 +36,11 @@ import { createRoot, type Root } from "react-dom/client";
  * **The pixels have not been checked on a device or in a browser for this
  * change**, and that is stated rather than assumed: `appFrameRender.test.ts`
  * makes the same split and records where its numbers were verified. What is
- * unverified here is how the pinned head *looks* at each of the three rail
- * modes and how the back control on `/meetings` sits against the reading
- * margin. What is verified is that they exist, that they are reachable, and
- * that pressing them does what they say.
+ * unverified here is how the pinned head *looks* at each of the two rail modes
+ * a layout can actually be in — `full` and `icons`; see the enumeration below
+ * for where `sheet` went — and how the back control on `/meetings` sits against
+ * the reading margin. What is verified is that they exist, that they are
+ * reachable, and that pressing them does what they say.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -174,11 +175,26 @@ async function configure() {
 
 describe("the entry point exists on both surfaces", () => {
   /**
+   * Every mode a layout can actually be in.
+   *
+   * **`"sheet"` was in this list and is not any more**, and that is worth a
+   * paragraph rather than a shorter array. `regionsFor` cannot return
+   * `rail: "sheet"` at any density: a phone has no rail at all
+   * (`features/app/frame.ts`) and medium and wide have a permanent column. The
+   * arm survives on the type deliberately, and that file's own enumeration says
+   * why — but a test enumerating it was asserting about a screen nobody can
+   * reach, which is the opposite of what enumerating the modes is for.
+   *
+   * The phone's way in did not go with it; it moved. It is the seventh key on
+   * the bottom row, and it is asserted on that surface in
+   * `consoleChrome.test.ts` (`bottom-bar-meeting` is present, and pressing it
+   * raises the sheet that asks) rather than being approximated here.
+   *
    * SABOTAGE: rendered the entry only when `mode === "sheet"`.
    * MEASURED: this test failed on `full` and on `icons`; nothing else in the
    * suite noticed, which is the whole reason it enumerates the modes.
    */
-  test.each(["full", "icons", "sheet"] as RailMode[])(
+  test.each(["full", "icons"] as RailMode[])(
     "the rail carries it at %s",
     (mode) => {
       const app = rail(mode, () => {});
@@ -227,7 +243,7 @@ describe("where it goes", () => {
 
   test("pressing it asks to be taken there", () => {
     const seen: number[] = [];
-    const app = rail("sheet", () => seen.push(1));
+    const app = rail("full", () => seen.push(1));
     click(app.find("rail-meetings")!);
     expect(seen).toHaveLength(1);
     app.unmount();
@@ -327,7 +343,7 @@ describe("starting a meeting is a consent moment, so the entry point never start
    */
   test("pressing it opens no microphone and writes no session", async () => {
     await configure();
-    const app = rail("sheet", () => {});
+    const app = rail("full", () => {});
 
     click(app.find("rail-meetings")!);
     await act(async () => {
@@ -380,7 +396,7 @@ describe("it coexists with a recording that is already running", () => {
         createElement(ConsoleRail as never, {
           data: railData(),
           route: { kind: "context", slug: "seyi", view: "browse" },
-          mode: "sheet",
+          mode: "full",
           onNavigate: () => {},
           account: createElement("div", { "data-testid": "account-block" }),
           onOpenMeetings: () => seen.push(1),
@@ -423,7 +439,7 @@ describe("it coexists with a recording that is already running", () => {
       await meetings.start({ title: "Reboot Camp" });
     });
 
-    const app = rail("sheet", () => {});
+    const app = rail("full", () => {});
     const bar = mount(createElement(RecordingBar, { bottomInset: 34 }));
 
     const head = app.find("rail-head")!;

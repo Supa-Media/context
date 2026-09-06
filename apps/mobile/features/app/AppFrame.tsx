@@ -553,9 +553,14 @@ export function AppFrame({
    * already resolves the pair that can never be up together, and it is false at
    * every density that has no bottom bar anyway.
    *
-   * Nobody is stranded by it: the panel's own × closes it, so does the toggle
-   * that crossed to the sliver of note, and so does tapping the note itself
-   * through the scrim. Every one of those brings the bar straight back.
+   * **`regions.scrim` is false at every density today**, so the live arm is
+   * `accessoryOpen` and the paragraph above describes a case that cannot occur.
+   * It is kept for the reason `frame.ts`'s own enumeration keeps the panels
+   * representable, and it is left as the second operand rather than deleted so
+   * that the day a density puts a panel back this line already says the right
+   * thing. Nobody was stranded by it when it did fire: the panel's own ×, the
+   * toggle on the sliver of note, and a tap through the scrim each brought the
+   * bar straight back.
    */
   const toolbarHidden = accessoryOpen || regions.scrim;
 
@@ -911,10 +916,16 @@ export function AppFrame({
           near enough to the edge to read as attached to it. See the token.
         */}
         {/*
-          Not while the keyboard accessory bar is up, and not while a panel is
-          over the editor — see `toolbarHidden`. The reference has no bottom bar
-          in either screenshot, and two floating bars in the same 66pt of glass
-          is worse than either.
+          Not while the keyboard accessory bar is up — see `toolbarHidden`. The
+          reference has no bottom bar in either screenshot, and two floating bars
+          in the same 66pt of glass is worse than either.
+
+          `toolbarHidden`'s other arm is `regions.scrim`, which is false at every
+          density now that no panel comes in over the editor. It is still read
+          rather than dropped, for the reason `frame.ts`'s enumeration gives for
+          keeping the panels representable at all; what is corrected here is a
+          comment that named the dead arm first, as if the common case were a
+          drawer rather than the keyboard.
         */}
         {bottomBarShowing ? (
           <View

@@ -39,12 +39,15 @@ import { createRoot } from "react-dom/client";
  * ## The phone's half moved, and it moved because its home was demolished
  *
  * This used to read "**a phone gets the file tree's footer line**", and the
- * assertions below opened a drawer and read `explorer-vault-detail`. That was
- * right for as long as a phone had a file tree. It has none — no drawer, no
- * rail sheet, no toggle for either (`features/app/frame.ts`) — so the footer
- * that carried `storage · index · counts` went with the panel it was the foot
- * of, and **the phone lost this feature outright**. Nothing about the reason it
- * exists changed; only the surface did.
+ * assertions below opened a drawer and read a testID called
+ * `explorer-vault-detail` — a name that is gone from the repo along with the
+ * slot it labelled; the pointer layout's tree keeps only the counts half of
+ * that footer, at `explorer-counts`. All of that was right for as long as a
+ * phone had a file tree. It has none — no drawer, no rail sheet, no toggle for
+ * either (`features/app/frame.ts`) — so the footer that carried
+ * `storage · index · counts` went with the panel it was the foot of, and **the
+ * phone lost this feature outright**. Nothing about the reason it exists
+ * changed; only the surface did.
  *
  * The line is the foot of the **context root page** now — the one folder page
  * that *is* the context, which is why `FolderView` has always taken a

@@ -498,21 +498,27 @@ export function BrowsePane({
 
         ## Why a phone has none
 
-        Obsidian on iOS has no breadcrumb, and that is not an omission: on a
-        phone the *sidebar* is where you navigate folders, and the note names
-        itself with an inline title at the top of its own text. A path pinned
-        above the document is a second band of chrome under a bar that is
-        already floating there — the two rows this branch exists to collapse
-        into one — and it cost the note its first screen to say something the
-        drawer says better.
+        Obsidian on iOS has no breadcrumb, and that is not an omission: the note
+        names itself with an inline title at the top of its own text, and a full
+        path pinned *above* the document is a second band of chrome under a bar
+        that is already floating there — the two rows this branch exists to
+        collapse into one — costing the note its first screen.
 
         So at `compact` the three things this row carried have each gone
         somewhere they belong rather than being deleted: the note's name is the
         inline title inside the document (`NoteEditor`), the visibility chip is
         a Properties row (also `NoteEditor` — `visibility:` is filing metadata),
         and Share is in the top bar's trailing group (`_layout`, where Obsidian
-        puts the ⋯ container). Folder navigation is the tree's, which is the one
-        thing a phone genuinely has a better surface for.
+        puts the ⋯ container).
+
+        **The fourth thing it carried was folder navigation, and this used to
+        hand that to "the tree", which a phone no longer has.** It is `pathBar`
+        below — the same `Breadcrumb` in `pathOnly` mode, drawn *inside* the
+        note rather than pinned over it, so it scrolls away with the document —
+        plus `FolderView`, which is what a segment of it opens. That is not the
+        row this branch removed: it is one line of monospace path with no title,
+        no chip and no Share on it, and it is the only way up on a density with
+        no panel.
       */}
       {selected !== null && !compact ? (
         <View style={[styles.noteHead, compact && styles.noteHeadCompact]}>

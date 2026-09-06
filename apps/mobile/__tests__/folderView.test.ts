@@ -133,9 +133,14 @@ describe("the folder's contents are the screen", () => {
   });
 
   /**
-   * The reason this screen exists at all on a phone: the tree is a drawer, and
-   * a folder that cannot be opened into is a folder whose notes are three taps
-   * and a gesture away.
+   * The reason this screen exists at all on a phone, and the reason is stronger
+   * than the one that used to be written here.
+   *
+   * It read "the tree is a drawer, and a folder that cannot be opened into is a
+   * folder whose notes are three taps and a gesture away". There is no drawer
+   * and no tree at this density (`features/app/frame.ts`), so a folder that
+   * cannot be opened into is a folder whose notes are **unreachable**: this row
+   * and the note's path bar are the whole of walking a bucket on a phone.
    */
   test("a row opens what it names", () => {
     const view = mount({ listing: listing([file("build-decisions.md")]) });

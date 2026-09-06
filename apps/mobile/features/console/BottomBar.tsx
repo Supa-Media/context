@@ -136,7 +136,9 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../design
  * `max(insets.bottom, floatingGap)` below and `layout.bottomBarInset` either
  * side of the slot this renders into, so the pill clears the home indicator on
  * a notched phone, still has the reference's 25pt gap on one without, and sits
- * 52pt in from each edge whatever is on it. Setting anything here as well would
+ * `bottomBarInset` in from each edge whatever is on it — 24, not the 52 this
+ * sentence used to name, which is the number the seventh key was bought with
+ * and is argued for above. Setting anything here as well would
  * stack, which is a bar floating 68px above the home indicator, and — because
  * the frame is `100dvh` and clips — pushes the icons off the bottom of the
  * editor's space rather than growing the frame. If this component ever gains a

@@ -511,10 +511,16 @@ only added to the query spec once a context is selected, so it is necessarily a
 round trip behind the thing that was guarding it. `storage` is
 `ConsoleStorage | null | undefined` now, `undefined` means *ask again in a
 moment*, and the four places that used to read an absence off it — the Browse
-banner, the top-bar pill, the phone's tree detail, the settings pane — each
+banner, the top-bar pill, the phone's binding line, the settings pane — each
 check which one they are holding. `storagePillLabel` still answers `null` to
 both, because its one caller that needs no check is the status bar, which
 *omits* a segment rather than printing a claim.
+
+The third of those read "the phone's tree detail" when this was written, and it
+was the file tree's footer. A phone has no file tree; the same line is the foot
+of the **context root page** now (`files/contextFoot.ts`, drawn by
+`FolderView`). That moves where it is drawn and changes nothing about the
+three-state read, which is why it is corrected here rather than re-argued.
 
 The empty state is the same shape one layer down. `selectedPath` moves the
 instant somebody picks a note; the body is a Convex action away and a folder's

@@ -19,7 +19,7 @@ the customer owns, and a control plane that never sees a word of a meeting.
 │                      │      │  note.js     │       ┌───────────────────────┐
 │ Native desktop       │─────▶│              │       │  The customer's       │
 │  detects, captures   │      │  zero deps   │       │  bucket               │
-│  system audio + mic  │      │  JSDoc ESM   │       │  0-inbox/meetings/…   │
+│  system audio + mic  │      │  JSDoc ESM   │       │  the folder they chose│
 │                      │      │              │       │  plain Markdown       │
 │ Apple Watch          │─────▶│              │       └───────────┬───────────┘
 │  start/pause/end/    │      └──────────────┘                   │
@@ -114,11 +114,17 @@ already works changes:
 
 ## The customer's bucket
 
-`0-inbox/meetings/2026/09/2026-09-05-<slug>-<suffix>.md`, one file, plain
-Markdown, in the folders their vault already uses. Nothing namespaced, nothing
-to migrate, nothing that only our reader can open. Obsidian opens it, `rclone`
-copies it, and every AI client they have connected reads it through the endpoint
-they already added. Revoke our credential and the meetings are still there.
+`<folder>/2026/09/2026-09-05-<slug>-<suffix>.md`, one file, plain Markdown, in
+the folders their vault already uses. `<folder>` is `0-inbox/meetings` by
+default and is **whatever the person recording chose**: the destination sheet
+asks before the microphone opens and the finalize carries the answer
+([meetings](../decisions/meetings.md), *A meeting lands at an ordinary path*).
+Nothing namespaced, nothing to migrate, nothing that only our reader can open.
+Obsidian opens it, `rclone` copies it, and every AI client they have connected
+reads it through the endpoint they already added — with one limit worth knowing:
+`list_meetings` reads the default folder, so a meeting filed elsewhere is
+reached like any other note rather than through that tool, and the tool says so
+in its own description. Revoke our credential and the meetings are still there.
 
 ## The control plane
 

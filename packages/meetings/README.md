@@ -55,11 +55,23 @@ their first occurrence and `## Transcript` its last, so a user who types
 `## Transcript` into their own notes keeps every word.
 
 **Tenancy is bucket-level, never prefix-level.** A note lives at
-`0-inbox/meetings/YYYY/MM/YYYY-MM-DD-<slug>-<shortId>.md`. No `tenants/<id>/`,
-no `workspaces/<slug>/`, nothing derived from a workspace, an account or a
-username, ever. The one legitimate prefix is a `root` the *customer* chose,
-applied at that one boundary. `test/paths.test.mjs` would fail loudly if that
-changed.
+`<folder>/YYYY/MM/YYYY-MM-DD-<slug>-<shortId>.md`, where `<folder>` is
+`MEETINGS_FOLDER` (`0-inbox/meetings`) unless the person recording named another
+one — see `normalizeMeetingFolder`, and
+[meetings](../../docs/decisions/meetings.md), *A meeting lands at an ordinary
+path*. What never appears in a key is anything derived from a workspace, an
+account or a username: no `tenants/<id>/`, no `workspaces/<slug>/`, ever. The one
+legitimate prefix is a `root` the *customer* chose, applied at that one boundary.
+
+**That paragraph used to promise `0-inbox/meetings/…` outright, and cited
+`test/paths.test.mjs` as what "would fail loudly if that changed".** The path did
+change — a chosen folder replaces the default whole — and that test was rewritten
+to cover it (`+182/−2` in `473c37d`) without failing once on the way, because it
+tests the builder rather than guarding a constant. What it does guard is the part that must never move, and
+that is what is claimed here instead: **every key the builder can produce, from
+any folder a client is allowed to name, stays inside the customer's own bucket
+and carries no tenant component.** A folder that would leave it, or that names
+dot-prefixed plumbing, is refused rather than mapped into something else.
 
 **Replay is safe.** Every client keeps an append-only log and hands the whole
 thing back when it reconnects, so `applyLog(applyLog(s, log), log)` deep-equals

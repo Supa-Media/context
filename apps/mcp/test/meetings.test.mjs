@@ -166,6 +166,8 @@ const SESSION_PLUMBING = idOf("t");
 const SESSION_TEAM_DEFAULT = idOf("v");
 /** An editor filing into a folder its tier may actually write to. */
 const SESSION_TEAM_ALLOWED = idOf("w");
+/** The same claim window as `SESSION_RECLAIMED`, with the *title* renamed instead. */
+const SESSION_RETITLED = idOf("y");
 
 const PRIVACY_MANIFEST =
   "---\nrole: privacy-manifest\n---\n\n" +
@@ -1721,6 +1723,46 @@ export async function runMeetingChecks(check) {
   );
   check("...leaving nothing behind at the second folder", keysIn(recorder, "3-resources/").length === 0);
   check("...and exactly one note at the first", keysIn(recorder, "2-areas/archive/").length === 1);
+
+  /*
+    THE TRAP THE IDEMPOTENCY SECTION NAMES, WHICH NOTHING WAS CHECKING.
+
+    `docs/decisions/meetings.md` states it in so many words: "if the bucket path
+    is derived from the title, and the human renames the meeting between a
+    failed finalize and its retry, a title-derived path produces a *second* note
+    and both look correct" — and it then cited a check called `a re-finalize
+    with a changed title rewrites one note rather than adding a second` that had
+    never been written. The folder cases above are the same window entered by a
+    different door and do not cover it: `slugifyTitle` is what puts the title
+    into the key, so a rename is the one input that changes the *filename*
+    rather than the folder, and a claim read out of the record is the only thing
+    stopping it. Both notes would look correct, which is what makes it the trap.
+  */
+  await openFor(SESSION_RETITLED, "Standup", "2026-09-06T13:00:00.000Z");
+  failPut = (url) => (url.includes("/meet-recorder/0-inbox/meetings/") ? 500 : null);
+  const halfNamed = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_RETITLED}/finalize`, {});
+  check(
+    "a finalize whose note write fails has claimed a path under the first title",
+    halfNamed.status === 503 && halfNamed.body?.error === "meeting_unavailable"
+  );
+  failPut = null;
+  const inboxBeforeRetitle = keysIn(recorder, "0-inbox/meetings/").length;
+  const renamed = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_RETITLED}/finalize`, {
+    body: { title: "Quarterly planning with the whole team" },
+  });
+  check(
+    "a re-finalize with a changed title rewrites one note rather than adding a second",
+    renamed.status === 200 &&
+      renamed.body?.notePath === `0-inbox/meetings/2026/09/2026-09-06-standup-${SESSION_RETITLED.slice(-8)}.md`
+  );
+  check(
+    "...so the rename adds no second key to the bucket",
+    keysIn(recorder, "0-inbox/meetings/").length === inboxBeforeRetitle + 1
+  );
+  check(
+    "...and nothing is filed under the new title's slug",
+    !keysIn(recorder, "0-inbox/meetings/").some((key) => key.includes("quarterly-planning"))
+  );
 
   /*
     A refused folder must not lose the meeting. `meeting_invalid` is the code a
