@@ -12,7 +12,7 @@ import { drainMeetings } from "../features/meetings/sync";
 import { emptyAck, type MeetingRecord } from "../features/meetings/record";
 import { seedSession } from "../features/meetings/session";
 import { ERRORS, PROTOCOL_VERSION, type MeetingSession } from "../features/meetings/protocol";
-import { parseMeetingNote } from "@context/meetings/note";
+import { parseMeetingNote, renderMeetingNote } from "@context/meetings/note";
 
 /**
  * A meeting becomes a note the same way a note does.
@@ -163,6 +163,47 @@ describe("a meeting reaches the bucket through the path a note takes", () => {
     // The state the ack claims is the one the bucket now supports. A note is in
     // it, so the meeting is complete — that is what `complete` means here.
     expect(ack.state).toBe("complete");
+  });
+
+  test("the note says the meeting is complete, not that it is mid-finalize", async () => {
+    /*
+      `renderMeetingNote` writes `status: <session.state>`, and this path handed
+      it `record.session` — which `pendingSteps` guarantees is `finalizing`,
+      because that is the only state a finalize is derived from. So **every
+      meeting note in the customer's bucket said `status: finalizing`, for
+      ever**, over a meeting that was finished.
+
+      The MCP gateway does not: it folds `written` *before* it renders, and says
+      why — "marked complete before it is rendered, so the note's own
+      frontmatter says what the meeting is rather than what it was in the middle
+      of". Same fold here, over the path this write is about to claim.
+    */
+    const { gateway, calls } = writer();
+    await gateway.finalize(null, session());
+    expect(parseMeetingNote(calls[0]!.text).frontmatter.status).toBe("complete");
+  });
+
+  test("an ack never claims a conditional write, because a create is not one", async () => {
+    /*
+      `conflictSafe: true` was a claim about a write that cannot be conditional.
+      `writeFile` computes `conditional = capabilities?.conditionalWrite &&
+      existing !== null`, and a create has no `existing` by definition — that is
+      what makes it a create — so every meeting write in this app is a
+      `read-compare`, on every backend, including the ones that support
+      `If-Match`.
+
+      The claim is not free: `an ack says whether the write was conflict-safe`
+      exists so a client can tell a guarantee it bought from one it did not, and
+      `localAck` a few lines up answers `false` for exactly that reason.
+    */
+    const { gateway } = writer();
+    const ack = await gateway.finalize(null, session());
+    expect(ack.conflictSafe).toBe(false);
+
+    // Including the retry that finds its own note: nothing was written at all
+    // on that path, so there is even less to claim.
+    const retried = writer({ refuseWith: "CONFLICT" });
+    expect((await retried.gateway.finalize(null, session())).conflictSafe).toBe(false);
   });
 
   test("what it writes is the note the gateway would have written", async () => {
@@ -499,6 +540,59 @@ describe("the drain drives it end to end", () => {
     expect(report.rejected).toEqual(["mtg_abcdefghjkmnpqrstv"]);
     expect(records[0]!.rejection).toBeDefined();
     expect(records[0]!.session.notePath).toBeNull();
+  });
+});
+
+describe("Copy note and the file in the bucket", () => {
+  /**
+   * `MeetingNoteScreen`'s Copy is the only way a meeting gets off this device
+   * when nothing filed it, and the claim made for it is that "what they paste
+   * into their vault is the note they would have had". That is worth pinning
+   * rather than asserting, because it was two different notes.
+   */
+  test("are the same note, once the meeting is one the bucket holds", async () => {
+    /*
+      They were not. The writer rendered from a `finalizing` session and the
+      screen renders from the record — which, after the `written` event lands,
+      is `complete`. So a person who copied their note out got `status:
+      complete` over a bucket file that said `finalizing`, and the two answers
+      to "what is a meeting note" disagreed on the one line that says whether
+      the meeting is over.
+    */
+    const { gateway, calls } = writer();
+    const finished = session();
+    const ack = await gateway.finalize(null, finished);
+
+    // What `MeetingNoteScreen` copies: the record's own session, which is what
+    // the `written` fold leaves behind. Rendered at the same instant so the one
+    // field that is genuinely a render timestamp is held still.
+    const onScreen = renderMeetingNote(
+      { ...finished, state: "complete", notePath: ack.notePath, recordingSince: null },
+      { now: "2026-09-06T18:41:00.000Z" },
+    );
+    expect(onScreen).toBe(calls[0]!.text);
+  });
+
+  test("except for `updated`, which is a render stamp and cannot be the same twice", () => {
+    /*
+      The honest exception, named so the sentence above is not read as more than
+      it is. `renderMeetingNote` stamps `updated` with the moment it ran, and
+      Copy runs later than the write by definition — so a copy taken tomorrow
+      differs from the bucket file on that one line and on nothing else.
+
+      Left as it is rather than pinned to the write's time: `updated` means
+      "when this text was produced", and a copy claiming the write's timestamp
+      would be the invented-fact defect this feature has shipped twice.
+    */
+    const at = (now: string) => renderMeetingNote(session(), { now });
+    const first = at("2026-09-06T18:41:00.000Z").split("\n");
+    const second = at("2026-09-07T09:00:00.000Z").split("\n");
+
+    const differing = first
+      .map((line, index) => (line === second[index] ? null : line))
+      .filter((line): line is string => line !== null);
+    expect(differing).toHaveLength(1);
+    expect(differing[0]!.startsWith("updated: ")).toBe(true);
   });
 });
 

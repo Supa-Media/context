@@ -203,7 +203,22 @@ export function createConvexGateway(options: ConvexGatewayOptions): MeetingsGate
       let text: string;
       try {
         path = notePathFor(session, to);
-        text = renderMeetingNote(session, { now: now() });
+        /*
+          Rendered from the meeting as it will be once this write lands, not as
+          it is mid-request. `renderMeetingNote` writes `status:
+          <session.state>` and `pendingSteps` guarantees the state here is
+          `finalizing`, so handing it the record's own session put
+          `status: finalizing` into the frontmatter of every finished meeting in
+          the customer's bucket, permanently.
+
+          The gateway's finalize does the same thing and says why: "marked
+          complete *before* it is rendered, so the note's own frontmatter says
+          what the meeting is rather than what it was in the middle of". The
+          path is the one this call is about to claim, which is what makes the
+          fold legal here rather than optimistic — a write that fails throws,
+          and nothing on the device was changed by composing a string.
+        */
+        text = renderMeetingNote(written(session, path), { now: now() });
       } catch {
         /*
           `invalid`, so it parks: a `startedAt` this app cannot read will read
@@ -246,20 +261,46 @@ export function createConvexGateway(options: ConvexGatewayOptions): MeetingsGate
 }
 
 /**
+ * The meeting as the note records it: finished, at the key it was filed under.
+ *
+ * The `written` fold, applied where the gateway applies it. Spelled out rather
+ * than routed through `applyMeetingEvent`, which takes a projection this writer
+ * does not hold — and `state` is the only one of these three fields the note
+ * actually reads, so what matters is that it says `complete`.
+ */
+function written(session: MeetingSession, notePath: string): MeetingSession {
+  return { ...session, state: "complete", notePath, recordingSince: null };
+}
+
+/**
  * The answer to a finalize that landed.
  *
  * `state: "complete"` because the note is in the bucket, which is the only
- * thing that makes a meeting complete — and `conflictSafe: true` because
- * `writeFile` really is conditional: it reads, compares and passes `onlyIf`
- * where the bucket supports it, and refuses rather than clobbering where it
- * does not. That is a claim about this write, made where the write happened.
+ * thing that makes a meeting complete.
+ *
+ * **`conflictSafe: false`, and it said `true`.** The reasoning behind the
+ * `true` was about `writeFile` in general — it reads, compares and passes
+ * `onlyIf` where the bucket supports it — and it is not true of *this* write.
+ * `writeFile` computes `conditional = capabilities?.conditionalWrite === true
+ * && existing !== null`, and a create has no `existing`: that is what makes it
+ * a create. So every meeting write in this app is a `read-compare`, on every
+ * backend, including the ones that honour `If-Match`.
+ *
+ * The field exists so a client can tell a guarantee it bought from one it did
+ * not (`an ack says whether the write was conflict-safe`), and `localAck` above
+ * answers `false` for exactly that reason. Claiming it here was that defect
+ * pointed the other way, one function down.
+ *
+ * The write is still safe against clobbering — create-only means `CONFLICT`
+ * rather than an overwrite — which is a different property, bought a different
+ * way, and stated where it is bought rather than borrowed as this flag.
  */
 function finalAck(session: MeetingSession, notePath: string): IngestAck {
   return {
     sessionId: session.id,
     state: "complete",
     segmentCount: session.transcript.length,
-    conflictSafe: true,
+    conflictSafe: false,
     notePath,
   };
 }

@@ -382,29 +382,41 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   },
 
   /**
-   * A pill lying on the note, the same object the toggle and the capsule beside
-   * it are: `chrome` fill, a floating shadow, a full radius. The top row has no
-   * surface of its own — see `AppFrame`'s `topBarCompact` — so anything on it
-   * that is not drawn as an object has nothing behind it.
-   *
-   * `chromeButton` is the height so the row reads as one line of chrome rather
-   * than three heights, and it is `minTouchTarget`, so a pill clears the floor
-   * without needing a number of its own.
-   */
-  /**
    * What a thumb hits. It draws nothing.
    *
-   * `minTouchTarget` on both axes with the mark centred inside it, so the pill
-   * can be as small as the design wants without the target following it down.
-   * `contextStrip.test.ts` holds both halves and they fail separately.
+   * `minTouchTarget` on **both** axes with the mark centred inside it, so the
+   * pill can be as small as the design wants without the target following it
+   * down. `contextStrip.test.ts` holds both halves and they fail separately.
+   *
+   * The width half was claimed here and not written, which was harmless while
+   * the pill was a stadium and stopped being harmless in the change that made
+   * it "smaller and squarer": the horizontal saving is where that was actually
+   * paid, so a short slug's target came out about 31pt wide on the phone's only
+   * way between contexts.
+   *
+   * `minWidth`, so a long slug's pill stays wider than the floor rather than
+   * being clamped to it, and `alignItems` so the mark stays centred inside a
+   * target the mark is narrower than.
+   *
+   * (A docblock about the *pill* — `chrome` fill, floating shadow, full radius,
+   * `chromeButton` for the height — stood above this one describing a rule two
+   * declarations further down. It is on `pill` now, where the values it
+   * explains are.)
    */
   target: {
     flexShrink: 0,
     height: layout.minTouchTarget,
+    minWidth: layout.minTouchTarget,
+    alignItems: "center",
     justifyContent: "center",
   },
   /**
    * What somebody sees: smaller than the target and squarer than a stadium.
+   *
+   * A pill lying on the note, the same object the toggle and the capsule beside
+   * it are: `chrome` fill, a floating shadow, a full radius. The top row has no
+   * surface of its own — see `AppFrame`'s `topBarCompact` — so anything on it
+   * that is not drawn as an object has nothing behind it.
    *
    * The owner asked for both, off a real recording — "smaller and squarer" so
    * more workspaces are on screen at once — and the horizontal saving is where

@@ -439,6 +439,27 @@ describe("what is on the strip", () => {
     }
   });
 
+  test("and clears it sideways too, which is the axis the mark actually shrank on", () => {
+    /*
+      The target's own docblock said `minTouchTarget` "on both axes with the
+      mark centred inside it" over a rule that set `height` and nothing else.
+      The claim was harmless while the pill was a stadium and stopped being
+      harmless in the change that made it "smaller and squarer" — the horizontal
+      saving is where that was actually paid, so a short slug's target came out
+      about 31pt wide on the phone's only context switcher.
+
+      `minWidth`, not `width`: a long slug's pill is wider than the floor and
+      should stay that way.
+    */
+    const strip = mountStrip();
+    for (const testID of ["context-strip-seyi", "context-strip-supa"]) {
+      // `min-width` rather than `width`: a long slug's pill is legitimately
+      // wider than the floor, so what is being held is the floor itself.
+      const floor = Number.parseFloat(styleOf(strip.need(testID), "min-width"));
+      expect(`${testID}: ${floor >= layout.minTouchTarget}`).toBe(`${testID}: true`);
+    }
+  });
+
   /**
    * ...and the *mark* is smaller than the target, which is how more of them fit.
    *
