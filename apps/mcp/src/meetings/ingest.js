@@ -42,7 +42,11 @@
 
 import { ERRORS, ROUTES, isMeetingId } from "../../../../packages/meetings/src/protocol.js";
 import { renderMeetingNote } from "../../../../packages/meetings/src/note.js";
-import { meetingNotePath, normalizeMeetingFolder } from "../../../../packages/meetings/src/paths.js";
+import {
+  isMeetingNotePath,
+  meetingNotePath,
+  normalizeMeetingFolder,
+} from "../../../../packages/meetings/src/paths.js";
 import { normalizeFlag, normalizeTranscription } from "../../../../packages/meetings/src/session.js";
 import { SCOPE_READ, SCOPE_WRITE, hasScope } from "../session.js";
 import {
@@ -515,12 +519,42 @@ async function replaceNotes(request, store, id, tier) {
  * silent wrong destination this field was added to close. Neither the value nor
  * the path is ever put in a message, a log or an error.
  *
- * One consequence is worth knowing and is not fixed here: a *team* connection
- * naming a folder its tier may not write is refused at step 2, by which time
- * step 1 has already claimed that path — and the claim is deliberately kept
- * across a retry, so that session stays parked on it. That is this route's
- * behaviour today for any context whose default meetings folder is private,
- * and trading the crash-retry property for it would be the worse bargain.
+ * `folderRejected` therefore means **"the folder you named is not where this
+ * note is"**, which is wider than "the string you sent was malformed" and is
+ * the sentence a client can act on. It is set for a folder this gateway will
+ * not file into, and equally for a second finalize that names a different
+ * folder from the one the claim already reserved — that answer is correct
+ * about the meeting and was silent about the request, which is the same
+ * appears-to-work-and-does-nothing defect one layer down.
+ *
+ * ## A claim is kept across a retry, and given back when there is nothing to
+ * retry
+ *
+ * Step 1 reserves a path before step 2 can prove it writable, which is safe
+ * exactly while every way step 2 can fail is transient — a bucket that is down,
+ * a credential that stopped working, a dropped connection. `body.folder` broke
+ * that assumption by making two *deterministic* failures reachable: a folder
+ * whose key `normalizePath` refuses, and a folder this connection's tier may
+ * not write. Neither will ever succeed, so a sticky claim turned one string
+ * into a meeting that could be recorded, could be typed into, and could never
+ * be written out — `finalize {}` answering 403 forever, because the claim
+ * outlived the request that made it.
+ *
+ * The first of those is closed at the folder: `normalizeMeetingFolder` now
+ * refuses `..` anywhere in a segment, the way `normalizePath` does, so it falls
+ * back with `folderRejected` and never reaches a claim. The second cannot be:
+ * the tier gate reads `privacy.md`, and `handleMeetings`' own header says why a
+ * second implementation of "what visibility does a note get" must not exist
+ * here — `publishNote` owns it, and it is injected precisely so this module
+ * does not learn it.
+ *
+ * So the second is handled where it lands rather than before it: **a
+ * deterministic refusal from the note write releases the claim.** The claim
+ * exists so a *retryable* failure lands on the same note; a refusal that will
+ * never succeed has written nothing, so holding its path buys nothing and costs
+ * the meeting. Only 400 and 403 release — a 503 or a storage throw keeps the
+ * claim, which is the crash-retry property, unchanged and still checked by
+ * `the retry lands on the path the first finalize claimed`.
  */
 async function finalizeSession(request, store, session, id, publishNote) {
   const body = await readJsonBody(request);
@@ -533,7 +567,13 @@ async function finalizeSession(request, store, session, id, publishNote) {
   */
   const folder = normalizeMeetingFolder(body.folder);
   const folderRejected = folder === null;
-  const extra = folderRejected ? { folderRejected: true } : {};
+  /*
+    Whether this request asked for a folder at all. `null` is what a JSON body
+    sends for "no value" and `normalizeMeetingFolder` reads it as the default,
+    so neither it nor an absent key counts as naming one — and a finalize that
+    named nothing is never told its folder was not used.
+  */
+  const namedFolder = body.folder !== undefined && body.folder !== null;
 
   let alreadyComplete = null;
   const claim = await updateSession(store, id, async (current) => {
@@ -571,9 +611,14 @@ async function finalizeSession(request, store, session, id, publishNote) {
     return assertSessionWithinLimits(next);
   }, session.scope);
 
+  const flag = (notePath) => folderFlag(namedFolder, folder, notePath);
+
   // Idempotent by the contract: answer with the note that was already written.
   if (alreadyComplete) {
-    return ack(store, alreadyComplete, { ...extra, etag: alreadyComplete.noteEtag ?? undefined });
+    return ack(store, alreadyComplete, {
+      ...flag(alreadyComplete.notePath),
+      etag: alreadyComplete.noteEtag ?? undefined,
+    });
   }
 
   // Marked complete *before* it is rendered, so the note's own frontmatter says
@@ -581,7 +626,15 @@ async function finalizeSession(request, store, session, id, publishNote) {
   // the one the claim reserved, which is what makes the `written` fold legal
   // here and the retry above land on the same file.
   const complete = fold(claim.session, { type: "written", notePath: claim.session.notePath });
-  const published = await writeNoteFor(store, session, complete, publishNote);
+  let published;
+  try {
+    published = await writeNoteFor(store, session, complete, publishNote);
+  } catch (error) {
+    // See the header: a refusal that will never succeed gives the path back, so
+    // one bad folder costs a finalize rather than the meeting.
+    await releaseClaim(store, claim, error);
+    throw error;
+  }
 
   let receipt = completionReceipt(complete, published.path, published.etag);
   let stored = await writeSession(store, receipt, claim.etag);
@@ -591,7 +644,10 @@ async function finalizeSession(request, store, session, id, publishNote) {
     if (fresh?.session.state === "complete") {
       // The other writer finalized first. Answer with their note rather than
       // overwriting a meeting that is already closed.
-      return ack(store, fresh.session, { ...extra, etag: fresh.session.noteEtag ?? undefined });
+      return ack(store, fresh.session, {
+        ...flag(fresh.session.notePath),
+        etag: fresh.session.noteEtag ?? undefined,
+      });
     }
     if (fresh) {
       const merged = fold(fresh.session, { type: "written", notePath: published.path });
@@ -613,7 +669,63 @@ async function finalizeSession(request, store, session, id, publishNote) {
   if (stored === false) {
     throw new MeetingRefusal(409, "conflict", "this session changed while it was being finalized");
   }
-  return ack(store, receipt, { ...extra, etag: receipt.noteEtag });
+  return ack(store, receipt, { ...flag(receipt.notePath), etag: receipt.noteEtag });
+}
+
+/**
+ * Whether to tell this client that the folder it named is not where the note is.
+ *
+ * Three cases, one sentence. A folder this gateway will not file into (`folder`
+ * is `null`) fell back to the default. A folder the claim did not use — a
+ * second finalize naming somewhere else, or a retry after a failed write —
+ * answered with the note that already exists. A folder that was honoured, and a
+ * request that named none, say nothing at all.
+ *
+ * The recogniser answers it rather than a string comparison against a prefix:
+ * `isMeetingNotePath(meetingNotePath(s, o), o)` is that pair's own contract, so
+ * asking it here means "was this note filed into that folder" has exactly one
+ * implementation. No `root` is passed, because the builder in this file is not
+ * given one either — the two agree by taking the same arguments, which is the
+ * whole reason they take arguments.
+ *
+ * The value is never read back: this answers `true`, or nothing.
+ */
+function folderFlag(namedFolder, folder, notePath) {
+  if (folder === null) return { folderRejected: true };
+  if (!namedFolder) return {};
+  if (typeof notePath !== "string") return {};
+  return isMeetingNotePath(notePath, { folder }) ? {} : { folderRejected: true };
+}
+
+/**
+ * Give back the path a claim reserved, when nothing will ever fill it.
+ *
+ * Only for a refusal, and only a deterministic one: a 400 says the key is not
+ * one this gateway writes, a 403 says this connection's tier may not write
+ * there, and neither answer changes on a retry. Everything else — a 503, a
+ * storage throw, a lost conditional write — is transient, and for those the
+ * claim is the whole point: it is what makes a crash-retry land on one note
+ * rather than scattering near-duplicates through the customer's bucket.
+ *
+ * Nothing has been written at the claimed path when this runs. `publishNote`
+ * decides visibility and refuses **before** it puts, so the release forks
+ * nothing: it returns the session to `finalizing` with no path, and the next
+ * finalize claims one from whatever folder it names — the default, when the
+ * client sends none.
+ *
+ * A failure to release is swallowed. The refusal the caller is about to throw
+ * is the answer this client needs, and a second error on top of it would
+ * replace a sentence somebody can act on with one nobody can.
+ */
+async function releaseClaim(store, claim, error) {
+  if (!(error instanceof MeetingRefusal)) return;
+  if (error.status !== 400 && error.status !== 403) return;
+  if (!claim?.session?.notePath) return;
+  try {
+    await writeSession(store, { ...claim.session, notePath: null }, claim.etag);
+  } catch {
+    // See above.
+  }
 }
 
 /** Render one session and hand it to the note writer `index.js` owns. */
