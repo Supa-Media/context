@@ -381,11 +381,12 @@ describe("it coexists with a recording that is already running", () => {
    * The separator's point is in that sum because the rule is a `flexShrink: 0`
    * child of the same flex row as the targets, so it is subtracted from what
    * they divide rather than drawn over them. This paragraph read 45.4 — 318 ÷ 7
-   * — until the sweep that corrected the arithmetic reached it, and wrong
-   * arithmetic **in a test file** is the worst of the places to leave it,
-   * because it reads as evidence. The number nothing quotes is
+   * — because the sweep that corrected the arithmetic did not reach it: that
+   * commit fixed four of nine places and said "four places". Wrong arithmetic
+   * **in a test file** is the worst of the nine to leave standing, because it
+   * reads as evidence. The number nothing has to quote is
    * `bottomBarGeometry`'s, and `bottomRowWidth.test.ts` solves the row rather
-   * than dividing anything by seven.
+   * than dividing any width by seven.
    *
    * What has not changed is the reason for the *placement* above: the entry
    * stays out of the 66pt of glass the recording bar floats in.

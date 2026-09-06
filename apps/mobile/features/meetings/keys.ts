@@ -86,13 +86,14 @@ export function meetingKey(workspaceId: string, meetingId: string): string {
  *
  * **This paragraph has now been wrong twice, in opposite directions, and is
  * left saying so in a file whose comments are the record.** It first claimed
- * sign-out took these keys while nothing did. The correction for that landed in
- * the file header; a second pass then wrote the *opposite* correction here —
- * "it does not follow that sign-out takes it… `meetingKeys` is not on that list
- * yet" — on top of half of the first, so one comment asserted a claim and its
- * negation four lines apart, cited the header as agreeing with the half that
- * was by then false, and left a sentence severed between them. Two passes each
- * fixed one half of one paragraph without reading the other half.
+ * sign-out took these keys while nothing did. `73dc357` corrected that, and was
+ * right at the time: "it does not follow that sign-out takes it… `meetingKeys`
+ * is not on that list yet". Then `5f5a6db` put `meetingKeys` on that list,
+ * rewrote the file header, and rewrote the *second half* of this paragraph —
+ * leaving the first half asserting the negation of what the second half now
+ * said, four lines apart, citing the header as agreeing with the half that had
+ * just become false, and with a sentence severed between the two. Each pass
+ * read the half it was changing.
  *
  * It carries **no workspace segment**, unlike a meeting. A meeting belongs to
  * one context; this is a preference of the person holding the phone, and filing

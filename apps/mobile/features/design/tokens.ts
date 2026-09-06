@@ -877,12 +877,12 @@ export function bottomBarGeometry(
     claimed it did.** Landing there is what the arithmetic is *for*: `need` is
     exactly `keys × 44 + rule`, so wherever the odd point divides out evenly the
     inner width is exactly `keys × 44` and every target is exactly the floor.
-    Three of the eight widths `bottomRowWidth.test.ts` solves do it — 381, the
-    break-even; 375, an iPhone SE; and 309, where there is nothing left to
-    spend. That is the intended answer rather than a near miss, which is why
-    that file compares against `MIN_TOUCH_TARGET - 1e-9`: the tolerance is
-    against binary floating point in the flex solve, not against a design that
-    lands on its own boundary.
+    Two of the eight widths `bottomRowWidth.test.ts` solves do it — 381, the
+    break-even, and 375, an iPhone SE — and so does 309, the width below which
+    no arrangement exists at all. That is the intended answer rather than a near
+    miss, which is why that file compares against `MIN_TOUCH_TARGET - 1e-9`: the
+    tolerance is against binary floating point in the flex solve, not against a
+    design that lands on its own boundary.
   */
   const side = Math.max(0, Math.floor((width - need) / 2));
 
