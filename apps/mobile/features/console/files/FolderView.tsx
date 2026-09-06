@@ -240,10 +240,21 @@ function FolderRow({ row, onSelect }: { row: FileEntry; onSelect: (path: string)
         {label}
       </Text>
       {/*
-        The tree marks **only exceptions**, and so does this — as the same pip,
-        not as a word. A trailing "team" on every row of a context whose root is
-        private is the folder's default drawn once per file, which buries the
-        one note that differs from it. See `FileEntry.exception`.
+        The tree marks **only exceptions**, and so does this. A trailing "team"
+        on every row of a context whose root is private is the folder's default
+        drawn once per file, which buries the one note that differs from it. See
+        `FileEntry.exception`.
+
+        **It is a pip here and a word in the tree, and this comment used to say
+        the two were the same mark.** They were, briefly: `FileTree` drew a 7pt
+        pip under `touch`, because a 372pt panel lying over a note had no width
+        for `team` beside every row. There is no such panel — the tree is a
+        pointer-layout column now (`features/app/frame.ts`) — so `FileTree` has
+        one presentation and it is the word, in a column with room for it, and
+        its own comment says so. This is the surface that still has no width: a
+        folder listing on a phone is the note's own measure, and a word at the
+        end of every row would be competing with the file name. One rule, two
+        marks, and the two are never on screen together.
       */}
       {row.exception ? (
         <View
@@ -269,11 +280,18 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   contents: { marginTop: space.x3 },
 
   /**
-   * The tree's row, at the tree's pitch.
+   * The row, at `layout.explorerRow`'s pitch.
    *
-   * `height` rather than `minHeight`, for the reason `FileTree.nodeTouch`
-   * gives: the pitch is the measurement, and a row free to grow is a listing
-   * whose rhythm depends on how long a name is.
+   * `height` rather than `minHeight`: the pitch **is** the measurement, and a
+   * row free to grow is a listing whose rhythm depends on how long a name is.
+   * The touch floor is paid by the pressable's `hitSlop` rather than by the
+   * visual — see that token, and `PressRow`.
+   *
+   * It used to attribute that reason to `FileTree.nodeTouch`. **There is no
+   * such symbol**, and there is no longer an argument there to defer to either:
+   * `FileTree`'s whole `touch` fork went when a phone lost its left panel, and
+   * this file is the surface that inherited its measurements. So the reason is
+   * stated here, where the last reader of it lives.
    */
   row: {
     flexDirection: "row",

@@ -828,12 +828,17 @@ export function AppFrame({
 
                 **It does not clear the toggle**, and that was 34pt of dead
                 space above the first row of the tree — measured at 126pt
-                against the reference's 92. The toggle crosses to the sliver of
-                note the moment a panel is up (`toggleOnSliver`), so it is not
-                over this surface at all; paying `contentInsets.top` here was
-                reserving room for a control that had moved out of the way.
-                `panelGutter` is what is left: the air Obsidian leaves between
-                the status bar and its first row.
+                against the reference's 92. The toggle crossed to the sliver of
+                note the moment a panel was up, so it was not over this surface
+                at all; paying `contentInsets.top` here was reserving room for a
+                control that had moved out of the way. `panelGutter` is what is
+                left: the air Obsidian leaves between the status bar and its
+                first row.
+
+                The toggle itself is gone, along with the style this once cited
+                by name (`toggleOnSliver`, which no longer exists as a symbol
+                anywhere). A phone has no panel to raise, so nothing raises one.
+                The arithmetic is unchanged and is kept in the past tense.
 
                 All of it is on the panel rather than inside the tree's own
                 scroller, which is what keeps rows from riding up under the
@@ -860,8 +865,31 @@ export function AppFrame({
             The rail, over the editor rather than beside it. Full labels, not
             the icon rail: a sheet has the width, and a phone has no hover to
             recover a glyph's meaning with. It carries the account block too,
-            which is why sign-out was unreachable on a phone until this
+            which is why sign-out *was* unreachable on a phone until this
             existed.
+
+            **No density reaches this branch, and neither does the drawer above
+            it or the scrim above that.** `regionsFor` answers `rail: "hidden"`,
+            `explorer: "hidden"` and `scrim: false` at compact and never
+            `"sheet"` or `"drawer"` anywhere; a phone's navigation is the
+            context strip and the bottom row, and sign-out is on the pinned
+            account mark in that strip.
+
+            They are on `frame.ts`'s "what is deliberately kept" list, and this
+            is the *rendering* half of that entry rather than a second decision.
+            The list keeps the `sheet` and `drawer` arms of `Regions`, the
+            `scrim` flag and the two panel flags on `FrameState` because
+            `AppFrame`'s API — `closeDrawer`, `closeNav`, `closeOverlays`,
+            `closesOnSelect` — is held outside this feature, so retiring the
+            representation is one coordinated change made where those callers
+            are. A representable region with nothing that can draw it is exactly
+            the hole that list exists to keep out, so the drawings stay for as
+            long as the arms do and go in the same change.
+
+            What separates that from `Explorer`'s `touch` fork, which was
+            deleted rather than kept: that fork was a second *presentation* of a
+            region, decided by a density, with one caller inside this feature and
+            no representation depending on it.
           */}
           {regions.rail === "sheet" ? (
             <View
@@ -935,12 +963,20 @@ export function AppFrame({
                 paddingTop: layout.floatingInset,
                 paddingBottom: chromeGap,
                 /*
-                  The 52pt of note showing either side, from here rather than
+                  The sliver of note showing either side, from here rather than
                   from whatever the bar happens to contain. See
                   `layout.bottomBarInset`: sizing the pill to its own controls
                   made the gap a function of how many actions the current route
                   has, so a context somebody is only a member of — no New note —
                   drew the bar 78pt in on a screen where the reference is 52.
+
+                  **It is 24, and this comment said 52.** That was the
+                  measurement off the reference and it is what the token *was*;
+                  the seventh key was bought with it, because seven targets do
+                  not clear the touch floor inside a pill inset by 52. The
+                  number is not repeated here at all now — the token is the one
+                  place it lives, and a second spelling of it is how the two
+                  drift.
                 */
                 paddingHorizontal: layout.bottomBarInset,
               },
@@ -1345,45 +1381,28 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     backgroundColor: colors.surface,
     boxShadow: shadows.drawer,
   },
-  /**
-   * The primary navigation control on a phone, so it is held to the same floor
-   * as the bottom bar's targets rather than to the height of the chip inside
-   * it, which measures about 32pt (13px type at 1.55 leading, 5 of padding
-   * either side, a hairline border).
-   *
-   * `alignSelf: "stretch"` alone would give 43, not 44: the top bar is 44
-   * *including* its bottom hairline. So the floor is set explicitly and the
-   * control takes that last pixel back over the border, where nothing can see
-   * it. Stretching as well keeps the target the full height of the bar rather
-   * than 44 floating inside 43.
-   */
-  navToggle: { alignSelf: "stretch", minHeight: layout.minTouchTarget },
-  /**
-   * The switcher as a chip rather than as a stretched strip.
-   *
-   * On a pointer it fills the bar's height so the whole 44pt band is a target.
-   * There is no band on a phone — stretching to fill a transparent 56pt row
-   * puts an invisible target over the top of the note and leaves the words
-   * floating with nothing under them. A filled chip is the target *and* the
-   * affordance, and it is the shape the two circles beside it are already in.
-   *
-   * **This is the only container.** The node passed as `switcher` used to draw
-   * its own 1px border and 8pt radius *inside* this pill — a bordered box in a
-   * shadowed capsule, for one line of type — which is the detail that made the
-   * phone's top edge read as a toolbar rendered twice. `_layout` drops that
-   * box at compact (`switcherCompact`); nothing in here draws an edge except
-   * this.
-   */
-  navToggleCompact: {
-    alignSelf: "center",
-    paddingLeft: space.x3,
-    paddingRight: space.x2,
-    minHeight: layout.chromeButton,
-    borderRadius: radii.pill,
-    backgroundColor: colors.chrome,
-    boxShadow: shadows.floating,
-  },
-  navTogglePressed: { backgroundColor: colors.chromePressed },
+  /*
+    `navToggle`, `navToggleCompact` and `navTogglePressed` were here, and are
+    gone. They dressed the control that pulled the rail in: a stretched 44pt
+    target on a pointer layout, and on a phone a shadowed white capsule around
+    the context chip. `frame.ts` answers `navToggle: false` at every density
+    now — a phone's navigation is the context strip and the seventh key, and a
+    pointer layout has the rail as a permanent column — so all three had zero
+    render call sites.
+
+    They are a deletion rather than a survivor, which is the distinction
+    `frame.ts`'s "what is deliberately kept" list exists to make: the `sheet`
+    and `drawer` arms of `Regions` are kept because callers outside this feature
+    hold the API that raises them, and a *drawing* of a control no density asks
+    for is held by nobody. `Explorer`'s `touch` fork went the same way.
+
+    They outlived their control because prose kept describing them:
+    `console/_layout.tsx` explained that it dropped the switcher chip's own
+    border because `navToggleCompact` "already draws a shadowed white capsule
+    around it". Nothing drew one, and the style it named was unreachable — which
+    also made the `switcherCompact` it was justifying unreachable, since a phone
+    renders no switcher at all.
+  */
   drawer: {
     position: "absolute",
     top: 0,

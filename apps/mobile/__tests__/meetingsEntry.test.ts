@@ -372,10 +372,20 @@ describe("it coexists with a recording that is already running", () => {
    * already divide into 43.7pt against a 44pt floor. A seventh does not fit."
    * A seventh fits now, because `layout.bottomBarInset` went **52 → 24** when
    * the phone lost its left panel: the 286 was `390 − 2 × 52`, the pill is
-   * `390 − 2 × 24 = 342` wide, 318 inside `bottomBarPad`, and seven targets are
-   * **45.4pt** against the same 44pt floor. The phone's way in *is* that
-   * seventh key; this rail row is the way in at medium and wide, where
-   * `regionsFor` draws a status bar and no bottom bar at all.
+   * `390 − 2 × 24 = 342` wide, 318 inside `bottomBarPad`, **317 once the
+   * separator has taken its point**, and seven targets are **45.29pt** against
+   * the same 44pt floor. The phone's way in *is* that seventh key; this rail
+   * row is the way in at medium and wide, where `regionsFor` draws a status bar
+   * and no bottom bar at all.
+   *
+   * The separator's point is in that sum because the rule is a `flexShrink: 0`
+   * child of the same flex row as the targets, so it is subtracted from what
+   * they divide rather than drawn over them. This paragraph read 45.4 — 318 ÷ 7
+   * — until the sweep that corrected the arithmetic reached it, and wrong
+   * arithmetic **in a test file** is the worst of the places to leave it,
+   * because it reads as evidence. The number nothing quotes is
+   * `bottomBarGeometry`'s, and `bottomRowWidth.test.ts` solves the row rather
+   * than dividing anything by seven.
    *
    * What has not changed is the reason for the *placement* above: the entry
    * stays out of the 66pt of glass the recording bar floats in.

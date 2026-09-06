@@ -162,11 +162,14 @@ export function ConsoleRail({
         halves have moved. `layout.bottomBarInset` went **52 → 24** when the
         phone lost its left panel, which is what bought the seventh key: the
         286 in that sentence was `390 − 2 × 52`, and it is `390 − 2 × 24 = 342`
-        now, 318 inside `bottomBarPad`, so seven targets are **45.4pt** rather
-        than 37.4 and clear the 44pt floor. `BottomBar`'s own rule was amended
-        in the same change — it carries exactly one destination, last, behind a
-        separator — and `layout.bottomBarInset` carries the arithmetic so no
-        file has to quote it twice.
+        now, 318 inside `bottomBarPad` and **317 once the separator has taken
+        its point** — it is a `flexShrink: 0` child of the same flex row, so
+        that point comes off what the targets divide rather than being painted
+        over them — so seven targets are **45.29pt** rather than 37.29 and clear
+        the 44pt floor. `BottomBar`'s own rule was amended in the same change —
+        it carries exactly one destination, last, behind a separator — and
+        `layout.bottomBarInset` carries the arithmetic so no file has to quote
+        it twice.
 
         So a phone reaches meetings through that seventh key, and this row is
         the answer for medium and wide, where there is no bottom bar at all

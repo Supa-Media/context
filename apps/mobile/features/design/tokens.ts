@@ -484,10 +484,24 @@ export const layout = {
    *     262 −     1  = 261
    *     261 ÷ 7      = 37.29pt      under the floor; 261 ÷ 6 = 43.5, also under
    *
-   * **That last pt is why the figure is 45.29 and not 45.4.** It read 45.4 in
-   * four places, including the separator's own doc comment — the one that
-   * should have caught it — because the divisor was 318, which is the width
-   * before the rule the same paragraph was describing.
+   * **That last pt is why the figure is 45.29 and not 45.4.** The divisor was
+   * 318, which is the width *before* the rule the same paragraph was
+   * describing.
+   *
+   * **It read 45.4 in nine places across six files, and the commit that
+   * corrected it fixed four of them and said "four places".** Two were here and
+   * two in the separator's own doc comment — the one that should have caught
+   * it. A later pass took the two in `bottomBar.test.ts`, where it had been
+   * `318 / 7` compared against `toBeCloseTo(45.43, 2)`, a comment reproduced as
+   * an expectation. Three survived until they were swept for good:
+   * `ConsoleRail.tsx`, `meetingsEntry.test.ts` and
+   * `docs/decisions/meetings.md`. **A count is not a receipt**, and "fixed in
+   * four places" is the sentence that tells the next reader not to look — which
+   * is why what is recorded here is the shape of the miss rather than a number
+   * that sounded complete.
+   *
+   * The false belief underneath all nine was the same one, and it is the belief
+   * that let the row spill: that the separator is free.
    *
    * So a seventh key does not fit at 52 and does at 24, and 24 still leaves a
    * visible sliver of note either side — reduced, not spent. Six of the seven
@@ -532,10 +546,12 @@ export const layout = {
    * A token rather than a `1` in `BottomBar`'s stylesheet because **it is a
    * term in the row's width**, not a decoration painted over it: the rule is a
    * `flexShrink: 0` child of the same flex row as the targets, so every point
-   * it takes is a point the seven targets do not divide. Reading it as free
-   * is what made the arithmetic in this file say 45.4 where it is 45.29, in
-   * four places at once, and `bottomBarGeometry` now subtracts it rather than
-   * a comment claiming it is negligible.
+   * it takes is a point the seven targets do not divide. Reading it as free is
+   * what made this codebase say 45.4 where it is 45.29 — in nine places across
+   * six files, of which a commit claiming "four places" fixed four; see
+   * `bottomBarInset` for where the other five were and what a count is worth as
+   * a receipt. `bottomBarGeometry` subtracts this explicitly now, rather than a
+   * comment claiming it is negligible.
    */
   bottomBarRule: 1,
   /**
@@ -546,9 +562,18 @@ export const layout = {
    * which the tree's own scroller already contributes 8.
    *
    * **A panel does not clear the floating toggle**, which is what it was doing
-   * instead: the toggle crosses to the sliver of note the moment a panel comes
-   * in (`AppFrame`'s `toggleOnSliver`), so reserving its 44pt here put the first
-   * row at 126 with nothing in the space above it.
+   * instead: the toggle crossed to the sliver of note the moment a panel came
+   * in, so reserving its 44pt here put the first row at 126 with nothing in the
+   * space above it.
+   *
+   * That sentence used to cite `AppFrame`'s `toggleOnSliver` as the reason, and
+   * **there is no such symbol** — there is no toggle either. A phone has no
+   * left panel and nothing that pulls one in (`features/app/frame.ts`), so the
+   * control the citation named went with the panels and took its style with it.
+   * What survives is the *measurement*, which never depended on the toggle: 33
+   * off the reference, less the 8 the tree's own scroller contributes. The
+   * toggle is why the number is not 44 higher, and that is history rather than
+   * a live reference.
    */
   panelGutter: 24,
   /**
@@ -841,10 +866,23 @@ export function bottomBarGeometry(
 
   const need = keys * layout.minTouchTarget + rule;
   /*
-    What is left for the two margins on each side, floored to a whole point: a
-    fraction here buys nothing and would hand the narrow case a target sitting
-    at exactly 44.000, where a single device-pixel rounding is enough to break
-    the rule it is meant to keep.
+    What is left for the two margins on each side, floored to a whole point.
+
+    A fraction buys nothing: the sliver and the pill's padding are both design
+    numbers rather than measurements to the sub-point, and half a point of note
+    showing is not a sliver anybody can see. Flooring spends the odd point on
+    the targets, which is the side to err on.
+
+    **It does not avoid a target landing on exactly 44.000, and this comment
+    claimed it did.** Landing there is what the arithmetic is *for*: `need` is
+    exactly `keys × 44 + rule`, so wherever the odd point divides out evenly the
+    inner width is exactly `keys × 44` and every target is exactly the floor.
+    Three of the eight widths `bottomRowWidth.test.ts` solves do it — 381, the
+    break-even; 375, an iPhone SE; and 309, where there is nothing left to
+    spend. That is the intended answer rather than a near miss, which is why
+    that file compares against `MIN_TOUCH_TARGET - 1e-9`: the tolerance is
+    against binary floating point in the flex solve, not against a design that
+    lands on its own boundary.
   */
   const side = Math.max(0, Math.floor((width - need) / 2));
 

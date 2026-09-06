@@ -960,9 +960,17 @@ somebody wanted this entry on the bar:
   no other — went with the panels.
 - `layout.bottomBarInset` went **52 → 24** in the same change, which is what the
   seventh key was bought with. The 286 above is `390 − 2 × 52`; the pill is
-  `390 − 2 × 24 = 342` wide now, 318 inside `bottomBarPad`, and **seven targets
-  are 45.4pt** against the same 44pt floor — where at 52 seven were 37.4 and
-  even six were 43.7, under it. So a seventh did not fit and does.
+  `390 − 2 × 24 = 342` wide now, 318 inside `bottomBarPad`, **317 once the
+  separator has taken its point** — it is a `flexShrink: 0` child of the same
+  flex row, so it is subtracted from what the targets divide rather than painted
+  over them — and **seven targets are 45.29pt** against the same 44pt floor,
+  where at 52 seven were 37.29 and even six were 43.5, under it. So a seventh
+  did not fit and does.
+
+  Every number in that sentence used to be the one before the separator (45.4,
+  37.4, 43.7). The correction was made in `tokens.ts` and `BottomBar.tsx` and
+  did not reach here; see `bottomBarGeometry`, which subtracts the rule
+  explicitly so that no prose has to remember to.
 
 `BottomBar` amended its own rule in that change too, and narrowly: it carries
 exactly **one** destination, in the last position, behind a separator that keeps

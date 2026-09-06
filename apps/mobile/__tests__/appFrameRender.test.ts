@@ -354,6 +354,32 @@ describe("a phone", () => {
   });
 
   /**
+   * **The three branches that can still draw a panel, at every density and both
+   * routes, in one place.**
+   *
+   * The block above and the pointer-layout ones cover most of this between
+   * them, and "most" was the problem: the rail sheet was asserted absent at 390
+   * and at 1440 and not at 1024, so the claim in `frame.ts` — that the drawings
+   * are kept *and* unreachable — was true of a grid nobody had walked.
+   *
+   * It matters because those branches are deliberately kept. `frame.ts` keeps
+   * the `sheet` and `drawer` arms of `Regions`, the `scrim`, and the two panel
+   * flags on `FrameState`, because `AppFrame`'s API is held outside this
+   * feature and retiring the representation is one coordinated change made
+   * where those callers are. Kept code with nothing measuring its
+   * unreachability is how "kept" becomes "back" without anybody deciding.
+   */
+  test.each([390, 1024, 1440])("no panel is drawn over the editor at %ipt", (width) => {
+    for (const explorer of [true, false]) {
+      const app = mountFrame(width, "the note", { explorer });
+      expect(app.find("frame-drawer")).toBeNull();
+      expect(app.find("frame-nav-sheet")).toBeNull();
+      expect(app.find("frame-scrim")).toBeNull();
+      app.unmount();
+    }
+  });
+
+  /**
    * **Both commands are no-ops here, driven through the frame's own API.**
    *
    * `appFrame.test.ts` asserts that `railToggleFor` and `explorerToggleFor`

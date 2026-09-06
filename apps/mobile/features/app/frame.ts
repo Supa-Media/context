@@ -87,6 +87,18 @@
  *    feature — the file tree and the console layout both hold it — and retiring
  *    the representation is one change, made where those callers are, rather
  *    than a hole opened here for somebody else to find.
+ *  - **The three branches in `AppFrame` that draw them**, and the styles those
+ *    branches use. This is the same entry seen one layer down rather than a
+ *    second decision: a representable region with nothing that can draw it is
+ *    precisely the hole the line above refuses to open, so the arms and their
+ *    drawings go together or not at all. `appFrameRender.test.ts` asserts that
+ *    none of the three renders at any density, which is what stops "kept" from
+ *    quietly becoming "reachable again".
+ *
+ *    The rail sheet's comment carried a live-sounding claim for a while —
+ *    "which is why sign-out was unreachable on a phone until this exists" — and
+ *    it is in the past tense now, beside a statement that no density reaches
+ *    the branch. Sign-out is on the account mark pinned to the context strip.
  *  - **`menu.ts`'s `platform: "touch"` arm**, which decides that a surface with
  *    no keyboard prints no chords and is offered no "Open in new tab". That is
  *    a *rule* rather than a rendering fork, `menu.ts` is its single owner, and

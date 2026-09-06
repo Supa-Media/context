@@ -514,12 +514,22 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    *
    * The bar's width is the screen's now — `layout.bottomBarInset` either side —
    * so the targets divide what is inside it rather than deciding it.
-   * `flexBasis: bottomBarTarget` is what they each want: six of them plus the
-   * bar's own padding is exactly the 336pt the reference measures on a 440pt
-   * screen, so a full toolbar there lands on the reference. A route with one
-   * action fewer spreads that same width between five rather than moving the
-   * bar's edges, which is what a toolbar does — the pill is in the same place
-   * on every screen and the icons stay evenly spaced inside it.
+   * `flexBasis: bottomBarTarget` is what they each *want*, and 52 is that
+   * because six of them plus the bar's own padding is exactly the 336pt the
+   * reference measures on a 440pt screen. A route with one action fewer spreads
+   * the same width between the ones that are left rather than moving the bar's
+   * edges, which is what a toolbar does — the pill is in the same place on
+   * every screen and the icons stay evenly spaced inside it.
+   *
+   * **What it wants is no longer what it gets, and this paragraph described the
+   * bar as though it were.** It said six targets plus the padding land a full
+   * toolbar on the reference, and spoke of a route with one action fewer as
+   * five. A full row is **seven** — six note verbs and one destination — and
+   * the inset is 24 rather than 52, both of which the head of this file
+   * retired. So the pill at 440 is 392 wide, not 336, and the targets are
+   * `flexGrow: 1` into it: the 336 survives as the *reason 52 is 52* and
+   * nothing else. `bottomBar.test.ts` asserts that identity between the three
+   * tokens, because nothing did and `52 → 60` survived the whole suite.
    *
    * `minWidth` is the floor and is why `flexShrink` is allowed at all: a narrow
    * phone with every action present would otherwise squeeze the targets below

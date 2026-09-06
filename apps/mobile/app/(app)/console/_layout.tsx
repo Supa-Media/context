@@ -383,13 +383,18 @@ export default function ConsoleLayout() {
         switcher={
           insideContext ? (
             /*
-              `switcherCompact` takes this chip's own border and fill away on a
-              phone. `AppFrame`'s `navToggleCompact` already draws a shadowed
-              white capsule around it, and a bordered box inside that capsule is
-              two containers for one control — most of what made the phone's top
-              edge read as a toolbar drawn twice.
+              A pointer layout's control, and only a pointer layout's.
+
+              `AppFrame` renders this slot in the `!compact` arm — a phone's top
+              row is the pinned account mark and the context strip — so nothing
+              here is ever on a phone. It used to carry a `phone &&
+              styles.switcherCompact` that took the chip's border and fill away,
+              justified by `AppFrame`'s `navToggleCompact` "already drawing a
+              shadowed white capsule around it". That capsule went with the
+              phone's rail toggle; the style it named had no call sites left,
+              and this override had no render to reach. Both are gone.
             */
-            <View style={[styles.switcher, phone && styles.switcherCompact]}>
+            <View style={styles.switcher}>
               <Dot tone={current?.status ?? "warn"} />
               <Text variant="wsSwitch" numberOfLines={1}>
                 {contextLabel}
@@ -404,7 +409,7 @@ export default function ConsoleLayout() {
             // context" is the aggregate — everything this person can reach —
             // which is exactly what these panes span (see CLAUDE.md,
             // "Vocabulary").
-            <View style={[styles.switcher, phone && styles.switcherCompact]}>
+            <View style={styles.switcher}>
               <Text variant="wsSwitch">Your context</Text>
               {/*
                 No number until the list has arrived. `contexts` is empty on a
@@ -1423,26 +1428,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.surface,
-  },
-  /**
-   * The same chip with no box of its own.
-   *
-   * On a phone `AppFrame` wraps this in `navToggleCompact` — a white capsule
-   * with a shadow — because the bar it sits in is transparent and a control
-   * lying over a note needs a surface. Keeping the border and the 8pt radius
-   * as well drew a rounded rectangle inside a capsule: two edges, two radii and
-   * two fills for one line of type. One container per control.
-   *
-   * The horizontal padding goes with the border for the same reason. The
-   * capsule already provides it, and paying it twice pushed the context name
-   * far enough right that it ellipsised at 390pt.
-   */
-  switcherCompact: {
-    paddingHorizontal: 0,
-    paddingVertical: 0,
-    borderWidth: 0,
-    borderRadius: 0,
-    backgroundColor: "transparent",
   },
   switcherKind: { color: colors.muted },
 
