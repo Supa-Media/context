@@ -21,6 +21,29 @@ import { browseHref, landingHref, noteHref, safeNotePath } from "./nav";
  * So this is one record, written as the address changes and read once by
  * `/console` before it decides where to send somebody.
  *
+ * ## It is a *log*, and that is what makes it one store rather than two
+ *
+ * A phone's context strip has to answer two questions that look unrelated and
+ * are the same fact: **what order do the contexts go in** (current first, then
+ * most recently visited) and **where does pressing one land you** (the path you
+ * had open there, not that context's root). Both are "when was I last in this
+ * context, and where".
+ *
+ * So the record is a list of places rather than one, kept most-recent-first,
+ * and the previous single record is its head. `recallPlace` still answers
+ * exactly what it did — `/console`'s redirect is unchanged — and
+ * `lastPathFor` and `contextHrefFor` read the rest of it.
+ *
+ * Two stores would have been the obvious shape and would drift on the first
+ * navigation that wrote one and not the other: a strip ordered by a list that
+ * has not heard about the place `/console` is about to restore. There is one
+ * writer (`rememberPlace`), and it moves a slug to the front.
+ *
+ * **It is per device, not per account.** Somebody's phone and their laptop are
+ * in different contexts for different reasons, and an order synced between them
+ * would be one machine reordering the other's navigation. The control plane is
+ * never told any of this.
+ *
  * ## What it holds, and what it must never hold
  *
  * A context **slug** and a bucket **path**. Identifiers, not content: no note
@@ -39,11 +62,12 @@ import { browseHref, landingHref, noteHref, safeNotePath } from "./nav";
  *
  * ## The version segment
  *
- * `v1`, for the reason `offline/keys.ts` argues at length: a shape change makes
+ * `v2`, for the reason `offline/keys.ts` argues at length: a shape change makes
  * old records unreachable rather than feeding them to a parser that no longer
  * understands them. This one is cheap to orphan — losing it costs one
  * navigation, not somebody's typing — so a bump here needs no ceremony beyond
- * changing the string.
+ * changing the string. `v1` held the single record this log's head replaces;
+ * `placeKeys` still matches it, so sign-out takes it and nothing reads it.
  *
  * The namespace is deliberately **not** `context.lc.offline`. That namespace's
  * `sweep()` deletes every key under it whose version segment is not current,
@@ -51,8 +75,23 @@ import { browseHref, landingHref, noteHref, safeNotePath } from "./nav";
  */
 
 const NAMESPACE = "context.lc.place";
-const VERSION = "v1";
-const KEY = `${NAMESPACE}.${VERSION}.last`;
+const VERSION = "v2";
+const KEY = `${NAMESPACE}.${VERSION}.visits`;
+
+/**
+ * How many contexts the log remembers.
+ *
+ * Nobody is a member of thirty-two contexts, which is the point: this is not a
+ * budget, it is the answer to a device that has been signed into for two years.
+ * The entries past the end are the ones nothing would order the strip by
+ * anyway, and dropping the oldest is the only eviction rule that cannot lose
+ * the one somebody is in.
+ *
+ * It bounds a list of *identifiers* rather than content — see above — so the
+ * cost of the cap being generous is bytes, and the cost of it being tight is a
+ * context that resets to its root because a device forgot it.
+ */
+export const MAX_REMEMBERED_CONTEXTS = 32;
 
 /**
  * How long the device gets to answer before the landing stops waiting.
@@ -84,49 +123,103 @@ export function placeKeys(keys: readonly string[]): string[] {
 }
 
 /**
- * Remember where somebody is.
+ * Remember where somebody is, at the head of the log.
+ *
+ * Read-modify-write, and the *modify* is the whole of the ordering rule: the
+ * entry for this slug is removed wherever it was and put back at the front, so
+ * the list is "most recently visited" by construction rather than by a
+ * timestamp somebody has to sort by. A timestamp would also be a second thing
+ * to get right — two devices, a clock that moved, a record restored from a
+ * backup — for an order that only has to be *this device's*.
  *
  * Fire-and-forget, and failures are swallowed: not being able to write this is
  * one missed restore, and there is no screen it would be honest to interrupt to
  * say so. That is the opposite of `offline/store.ts`'s rule for a *draft*,
  * where a silent failure loses somebody's typing — the asymmetry is deliberate
  * and is why this does not simply reuse that module's writer.
+ *
+ * The read-then-write is not atomic and does not need to be. There is one
+ * writer, it runs on the app's own thread, and the worst outcome of a lost race
+ * is a context ordered one place lower than it should be.
  */
 export async function rememberPlace(
   store: KeyValueStore,
   place: LastPlace,
 ): Promise<void> {
   try {
-    await store.set(KEY, JSON.stringify({ slug: place.slug, note: place.note }));
+    const kept = (await recallPlaces(store)).filter((entry) => entry.slug !== place.slug);
+    const next = [{ slug: place.slug, note: place.note }, ...kept].slice(
+      0,
+      MAX_REMEMBERED_CONTEXTS,
+    );
+    await store.set(KEY, JSON.stringify(next));
   } catch {
     // See above.
   }
 }
 
 /**
- * Where somebody was, or `null` if this device does not know.
+ * Every context this device remembers, most recently visited first.
  *
- * Everything about the record is re-validated on the way out. It is a file this
- * process wrote, but it is a file on a device — a rooted browser, a restored
- * backup, another app with the same store — and a path read back off one goes
- * into a request to somebody's bucket. `safeNotePath` is the same rule the URL
- * and the link grammar go through, for the same reason.
+ * Everything is re-validated on the way out. It is a file this process wrote,
+ * but it is a file on a device — a rooted browser, a restored backup, another
+ * app with the same store — and a path read back off one goes into a request to
+ * somebody's bucket. `safeNotePath` is the same rule the URL and the link
+ * grammar go through, for the same reason.
+ *
+ * **A bad entry is dropped; it does not condemn the list.** The single-record
+ * version answered `null` to any malformed record, which was the whole answer
+ * because the record was the whole store. Here one unparseable entry out of
+ * eight would cost somebody the order of the other seven, so entries are
+ * filtered rather than the file refused — and a *file* that is not a list still
+ * answers empty, because at that point nothing in it is trustworthy.
+ *
+ * Duplicate slugs are collapsed to the first, which is the most recent: a log
+ * that named a context twice would order the strip by an entry the writer had
+ * already superseded.
  */
-export async function recallPlace(store: KeyValueStore): Promise<LastPlace | null> {
+export async function recallPlaces(store: KeyValueStore): Promise<LastPlace[]> {
   let raw: string | null;
   try {
     raw = await store.get(KEY);
   } catch {
-    return null;
+    return [];
   }
-  if (raw === null) return null;
+  if (raw === null) return [];
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return null;
+    return [];
   }
+  if (!Array.isArray(parsed)) return [];
+
+  const seen = new Set<string>();
+  const places: LastPlace[] = [];
+  for (const entry of parsed) {
+    const place = placeFromRecord(entry);
+    if (place === null || seen.has(place.slug)) continue;
+    seen.add(place.slug);
+    places.push(place);
+    if (places.length === MAX_REMEMBERED_CONTEXTS) break;
+  }
+  return places;
+}
+
+/**
+ * Where somebody was, or `null` if this device does not know.
+ *
+ * The head of the log. `/console`'s redirect is unchanged by the log's arrival:
+ * the most recently visited context, at the path that was open in it, is
+ * exactly the single record this used to read.
+ */
+export async function recallPlace(store: KeyValueStore): Promise<LastPlace | null> {
+  return (await recallPlaces(store))[0] ?? null;
+}
+
+/** One entry, validated, or `null`. See `recallPlaces`. */
+function placeFromRecord(parsed: unknown): LastPlace | null {
   if (typeof parsed !== "object" || parsed === null) return null;
 
   const { slug, note } = parsed as { slug?: unknown; note?: unknown };
@@ -182,6 +275,71 @@ export function placeFor(
 /** The console URL a remembered place names. */
 export function placeHref(place: LastPlace): string {
   return place.note === null ? browseHref(place.slug) : noteHref(place.slug, place.note);
+}
+
+/**
+ * The path this device last had open in one context, or `null`.
+ *
+ * Pure, and separate from `contextHrefFor` because it is the piece a caller
+ * wants when it is deciding something other than a URL — whether a pill has a
+ * note behind it, say. `null` means "the root", which is also what a context
+ * nobody has visited answers.
+ */
+export function lastPathFor(places: readonly LastPlace[], slug: string): string | null {
+  return places.find((place) => place.slug === slug)?.note ?? null;
+}
+
+/**
+ * Where pressing a context should land somebody.
+ *
+ * **The default is the path they had open there, not that context's root.**
+ * Switching context is not "start again over here", it is "go back to what I
+ * was doing over here", and a console that resets to the root on every switch
+ * makes moving between two contexts cost a walk down the tree each time. That
+ * is the whole reason the log is a log.
+ *
+ * Three ways it falls back to the root, and they fail separately:
+ *
+ *  - **The device remembers nothing about this context.** First visit, or the
+ *    entry aged past `MAX_REMEMBERED_CONTEXTS`.
+ *  - **The person cannot reach the context.** `contexts` is the list the console
+ *    holds, and a slug missing from it is one they were removed from or one this
+ *    device made up. It answers `browseHref` rather than the note, and that is
+ *    belt and braces rather than the security boundary: `resolveContextRoute`
+ *    redirects a dead context and the gateway refuses the read either way. What
+ *    it buys is not putting somebody's note name into the address bar on the way
+ *    through a redirect they are about to be bounced out of — the same reason
+ *    `landingStep` ignores rather than follows such a record.
+ *  - **The path no longer resolves**, as far as the caller can tell. `resolves`
+ *    is optional and is the caller's own knowledge of its tree; where it is
+ *    absent this trusts the stored path.
+ *
+ * **What it cannot check, stated rather than implied:** whether the note is
+ * still in the bucket. That is a round trip, the tree is loaded folder by folder
+ * so the console genuinely does not know about the parts nobody has expanded,
+ * and requiring existence would send every switch to the root. A note deleted
+ * from another device therefore lands on the editor's own "that file does not
+ * exist" — which is exactly where a stale `?note=` link already lands, and is
+ * the answer Obsidian gives.
+ */
+export function contextHrefFor(
+  places: readonly LastPlace[],
+  contexts: ReadonlyArray<{ slug: string }>,
+  slug: string,
+  options: {
+    /**
+     * Whether the caller can still see that path. Optional: a caller with no
+     * opinion is not the same as a caller saying no, and defaulting to "gone"
+     * would send every switch to the root — the behaviour this exists to end.
+     */
+    resolves?: (path: string) => boolean;
+  } = {},
+): string {
+  if (!contexts.some((context) => context.slug === slug)) return browseHref(slug);
+  const path = lastPathFor(places, slug);
+  if (path === null) return browseHref(slug);
+  if (options.resolves && !options.resolves(path)) return browseHref(slug);
+  return noteHref(slug, path);
 }
 
 /**

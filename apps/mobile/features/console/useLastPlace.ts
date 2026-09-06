@@ -1,11 +1,116 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { currentEpoch } from "../offline/epoch";
 import { openStore } from "../offline/store";
-import { RECALL_DEADLINE_MS, recallPlace, rememberPlace, type LastPlace } from "./lastPlace";
+import {
+  RECALL_DEADLINE_MS,
+  contextHrefFor,
+  recallPlace,
+  recallPlaces,
+  rememberPlace,
+  type LastPlace,
+} from "./lastPlace";
 
 /**
  * The React half of "come back to the file you were on". The rules, and what
  * this is allowed to hold, are in `lastPlace.ts`.
  */
+
+/* -------------------------------------------------------------------------- */
+/*                        the log, live for this session                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The log as the strip needs it: **live within a session**, not read once.
+ *
+ * `useLastPlace` below reads the device once per mount and never again, and
+ * says why — the only writer is this app and re-reading is asking the device to
+ * repeat what we just told it. That is right for a *landing redirect*, which
+ * happens before anybody has navigated. It is wrong for the context strip,
+ * which is ordered by this list and is on the screen while somebody moves
+ * between contexts: read once, the strip would keep the order it had at launch
+ * and put the context you are in third.
+ *
+ * So the device is read once and the answer is then kept here, and
+ * `useRememberPlace`'s write updates it in the same move it writes. One writer
+ * still, and the screen and the device cannot disagree.
+ *
+ * ## Why it is keyed by the session epoch
+ *
+ * Module state outlives a sign-out; `offline/epoch.ts` exists because that is
+ * how a private note body ended up back in `localStorage` after one. What is
+ * held here is milder — slugs and paths, not bodies — and it is still one
+ * person's note names sitting in memory while the next person signs in on the
+ * same process. `forgetLocalCopies` bumps the epoch before it removes anything,
+ * so a snapshot stamped with a session that has ended is treated as absent and
+ * re-read from a device that has just been cleared. It re-arms by itself, for
+ * the reason that file gives: a barrier lowered by hand is one that stays
+ * raised the day somebody forgets.
+ */
+let snapshot: { epoch: number; places: readonly LastPlace[] } | null = null;
+const listeners = new Set<() => void>();
+
+/** Frozen, so a subscriber comparing by identity does not re-render forever. */
+const NO_PLACES: readonly LastPlace[] = Object.freeze([]);
+
+function currentPlaces(): readonly LastPlace[] {
+  return snapshot !== null && snapshot.epoch === currentEpoch() ? snapshot.places : NO_PLACES;
+}
+
+function publishPlaces(places: readonly LastPlace[]): void {
+  snapshot = { epoch: currentEpoch(), places };
+  for (const listener of listeners) listener();
+}
+
+function subscribePlaces(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/**
+ * Drop what this session was holding.
+ *
+ * Exported for the tests, which share one module instance across a file and
+ * would otherwise carry one case's log into the next. Production does not call
+ * it: sign-out bumps the epoch, which is the barrier, and a barrier that also
+ * has a manual lever is a barrier with two ways to be wrong.
+ */
+export function resetPlaceCacheForTests(): void {
+  snapshot = null;
+  listeners.clear();
+}
+
+/**
+ * Every context this device remembers, most recently visited first.
+ *
+ * Empty until the device answers, which is a tick. The strip's ordering treats
+ * an unknown context as least-recent, so a first paint puts the contexts in the
+ * order the control plane sent — the same list, unordered by recency, rather
+ * than a strip that is empty for a frame.
+ */
+export function useContextPlaces(): readonly LastPlace[] {
+  const places = useSyncExternalStore(subscribePlaces, currentPlaces, currentPlaces);
+
+  useEffect(() => {
+    // Once per session, not once per mount: a second console mount inside one
+    // session already has the answer, and re-reading would overwrite the
+    // navigations this session has since recorded with the device's older copy.
+    if (snapshot !== null && snapshot.epoch === currentEpoch()) return;
+    let live = true;
+    void (async () => {
+      const answer = await recallPlaces(openStore());
+      if (live && (snapshot === null || snapshot.epoch !== currentEpoch())) {
+        publishPlaces(answer);
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  return places;
+}
 
 /**
  * What this device remembers, read once.
@@ -79,6 +184,15 @@ export function useLastPlace(): LastPlace | null | undefined {
  * is not a place. Writing either would put a record on the device for a screen
  * nobody was ever on — and in the second case would overwrite the record of
  * where somebody really was with the dead link they just followed.
+ *
+ * ## The screen is updated first, and the device catches up
+ *
+ * The strip is ordered by this log, so a write that only reached the device
+ * would reorder the strip on the *next* launch rather than now. The in-memory
+ * snapshot is therefore moved in the same tick, by the same rule
+ * `rememberPlace` applies — the slug to the front, wherever it was — and the
+ * store write follows. Both apply one rule to one list; the device is the copy
+ * that survives, and the snapshot is the copy that is on screen.
  */
 export function useRememberPlace(place: LastPlace | null): void {
   /*
@@ -95,6 +209,28 @@ export function useRememberPlace(place: LastPlace | null): void {
     const key = `${slug}\n${note ?? ""}`;
     if (written.current === key) return;
     written.current = key;
+    publishPlaces([
+      { slug, note },
+      ...currentPlaces().filter((entry) => entry.slug !== slug),
+    ]);
     void rememberPlace(openStore(), { slug, note });
   }, [note, slug]);
+}
+
+/**
+ * Where pressing a context in the strip should send somebody, resolved now.
+ *
+ * `contextHrefFor`'s rules, bound to what this device remembers and to the list
+ * the console holds. **Resolved at press time, never cached**: the log moves
+ * under it on every navigation, so an href worked out when the strip rendered
+ * is the answer to where somebody was two contexts ago.
+ */
+export function useContextHref(
+  contexts: ReadonlyArray<{ slug: string }>,
+): (slug: string, options?: { resolves?: (path: string) => boolean }) => string {
+  const places = useContextPlaces();
+  return useCallback(
+    (slug, options) => contextHrefFor(places, contexts, slug, options),
+    [places, contexts],
+  );
 }
