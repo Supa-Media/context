@@ -27,20 +27,30 @@ import type {
  * ## Authentication is an argument, and there is no default
  *
  * `authorization` returns the header value for a request, or `null` when this
- * device has nothing to present. **This is the one seam in the meetings feature
- * that is not settled**, and it is a deliberate hole rather than an oversight:
- * the gateway authenticates MCP clients through per-client OAuth grants
- * (non-negotiable #4), and this app is not one of those clients — it signs in
- * to the *control plane* with `@convex-dev/auth`. Which credential the phone
- * presents to the gateway is a decision for whoever builds the gateway half,
- * and inventing one here would be this screen guessing about somebody else's
- * auth.
+ * device has nothing to present: the gateway authenticates MCP clients through
+ * per-client OAuth grants (non-negotiable #4), and this app is not one of those
+ * clients — it signs in to the *control plane* with `@convex-dev/auth`.
  *
- * So `authorization` answering `null` is a first-class state, not an error:
- * `createHttpGateway` refuses to send rather than sending an unauthenticated
- * request, the controller keeps the meeting on the device, and the screen says
- * the meeting has not left the phone. An absent capability is reported, never
- * faked, and never turned into a request that will be refused.
+ * **This used to say it was "the one seam in the meetings feature that is not
+ * settled", and calling it a seam is what let it stay a hole.** This app held
+ * no grant, so `authorization()` always answered `null`, this gateway always
+ * refused to send, and every meeting recorded, transcribed and stopped on the
+ * device — reported honestly on every screen, which is exactly why it read as a
+ * decision. An absent capability reported rather than faked is the right rule
+ * and it is not a substitute for the capability.
+ *
+ * It is settled now, and not here: **this app writes a meeting the way it
+ * writes a note**, through `files.writeNote` over its control-plane session.
+ * See `convexGateway.ts`. This implementation stays and is not deprecated — it
+ * is the right answer for a client that really does hold a grant, which is the
+ * desktop app, where the gateway's enhancement pass, its session records under
+ * `.meetings/` and `list_meetings` live. `useMeetingsSetup` is the one line in
+ * the feature that knows there are two.
+ *
+ * So `authorization` answering `null` is still a first-class state rather than
+ * an error — a desktop client whose grant was revoked mid-meeting is exactly
+ * that — and it still refuses to send rather than sending a request that will
+ * be refused.
  *
  * ## Why the base URL is not `MCP_ENDPOINT`
  *

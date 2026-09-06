@@ -102,9 +102,9 @@ export const ICON_NAMES = [
   /**
    * Copy, drawn as the two sheets every platform draws it as.
    *
-   * Added for the Copy control on a meeting note, which is the only way the
-   * text of a meeting gets off the device while the gateway credential is
-   * unwired. It is deliberately not `share`: that mark already means "mint a
+   * Added for the Copy control on a meeting note — at the time, the only way
+   * the text of a meeting got off the device at all; now the way out for one
+   * the queue has not landed yet. It is deliberately not `share`: that mark already means "mint a
    * link somebody else can follow", and one glyph meaning two things is the
    * confusion `docs/decisions/meetings.md` refuses for the microphone.
    */

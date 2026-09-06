@@ -179,13 +179,17 @@ export function MeetingNoteScreen({ meetingId }: { meetingId: string }) {
         {/*
           The way out of the device, and on this build the only one.
 
-          The gateway credential is deliberately unwired (`gateway.ts`), so a
-          finished meeting can be complete, correct, on the phone, and reachable
-          by nothing else — the person could see it and could not use it. What
-          lands on the clipboard is `renderMeetingNote`'s output, which is the
-          same function the gateway writes the bucket with, so what they paste
-          into their vault is the note they would have had rather than a
-          screen's summary of it.
+          A finished meeting can be complete, correct, on the phone and
+          reachable by nothing else — the person can see it and cannot use it.
+          That was every meeting once, while nothing here could reach the
+          bucket; it is now the ones the queue has not landed: offline, no
+          bucket connected, a refusal parked for a person to answer.
+
+          What lands on the clipboard is `renderMeetingNote`'s output, which is
+          the same function `convexGateway` writes the bucket with, so what they
+          paste into their vault is the note they would have had rather than a
+          screen's summary of it — byte for byte, but for the `updated` stamp,
+          which is when the text was produced and cannot be the same twice.
 
           Drawn whatever state the meeting is in, and deliberately: a meeting
           that reached the bucket can be opened from the console, from Obsidian

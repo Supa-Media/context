@@ -73,11 +73,39 @@ import type { IngestAck, MeetingSession, MeetingSessionSummary } from "./protoco
  *    there — and answers with the path. It never clobbers, and it never writes
  *    a second note.
  *
- * **The residual, named.** The key is composed from the title's slug, so a
- * rename between a lost answer and a retry would compose a second key. Nothing
- * in the app offers one: the title is editable on `LiveMeetingScreen`, which
- * renders only while the session `isLive`, and finalize happens after End. If a
- * rename-after-end is ever added, this needs the claim the gateway has.
+ * **How far that goes, and it is less far than it was written.** The gateway's
+ * claim record lets it tell two collisions apart — its own retry, or *"a note
+ * somebody else's tooling put there"* (`ingest.js`) — and it suffixes rather
+ * than answering, because a gateway that overwrites an unrelated note "has
+ * destroyed something no version history of ours can give back". This path has
+ * no claim record, so it cannot make that distinction: it reads a `CONFLICT` at
+ * a key ending in this meeting's id as this meeting's note, and answers with
+ * the path. It never overwrites, so the bad case is bounded at *answering with
+ * a path that holds somebody else's note* rather than destroying one — but the
+ * certainty is the key's shape, not a record, and the key's shape is what the
+ * two residuals below are about.
+ *
+ * **The residuals, both of them.** The key is `(workspaceId, path)` and each
+ * half can move between a write whose answer was lost and its retry:
+ *
+ *  - **The path** carries the title's slug, so a rename in that window composes
+ *    a second key. Nothing in the app offers one — and the reason first written
+ *    here was wrong, which is worth more than the conclusion: it said the title
+ *    is editable on `LiveMeetingScreen`, and that screen renders it as static
+ *    text (`:130-131`). `controller.setTitle` exists and has no callers at all.
+ *    So the guarantee is stronger than claimed and rests on a surface that does
+ *    not exist, which is exactly the shape a future reader would reason from
+ *    and get wrong.
+ *  - **The workspace.** `resolveWorkspaceId` reads a ref that is re-assigned on
+ *    every render, so a retry after the workspace list changed underneath —
+ *    a membership landing, a brain claimed between a lost answer and the next
+ *    drain — resolves somewhere else. The retry then creates in a *different*
+ *    bucket, where there is no conflict to catch it: two notes, one meeting.
+ *    Bounded by `meetingWorkspaceId` being `ownPersonalContext`, which changes
+ *    at most once per account, and by a meeting addressed to a named context
+ *    resolving by slug — but it is a residual and it was not named.
+ *
+ * Either would need the claim the gateway has.
  *
  * ## The tier rule is not bypassed — it is the same machinery
  *

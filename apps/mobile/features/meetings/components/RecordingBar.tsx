@@ -94,9 +94,12 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
    *
    * Taking them there is stronger than any list entry, because the meeting
    * screen is what answers the question they are actually asking:
-   * `MeetingNoteScreen` says whether the note reached the bucket, and on this
-   * build — where the gateway credential is deliberately unwired — the honest
-   * answer is that it has not.
+   * `MeetingNoteScreen` says whether the note reached the bucket, and says it
+   * out of a `notePath` rather than out of a hope. (It used to be the case that
+   * the answer was always "it has not", because nothing in this app could reach
+   * the bucket. It writes the note the way it writes a note now — see
+   * `convexGateway.ts` — so the screen has both answers to give, which is what
+   * makes landing somebody on it worth doing.)
    *
    * **After the end resolves, not before.** `/meetings/:id` chooses its screen
    * off the session's state, so navigating first would show the live screen for
