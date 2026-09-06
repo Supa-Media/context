@@ -119,7 +119,21 @@ export interface MenuContext {
    */
   canShare: boolean;
   clipboard: Clipboard | null;
-  /** Web prints shortcuts; touch does not, and touch has no "open in new tab". */
+  /**
+   * Web prints shortcuts; touch does not, and touch has no "open in new tab".
+   *
+   * **Nothing in the app passes `"touch"` today, and that is recorded rather
+   * than left quietly true.** The only production caller is `Explorer`, which
+   * is a pointer-layout region — a phone has no file tree
+   * (`features/app/frame.ts`) — so it passes the literal `"web"`. The arm stays
+   * for the reason that file gives for the `sheet` and `drawer` arms it keeps
+   * beside it, and it is named in that enumeration: this is a *rule* about what
+   * a surface with no keyboard and no tabs may be offered, it is the single
+   * owner of that rule, and both values are checked by `fileMenu.test.ts` and
+   * `menuRender.test.ts`. Deleting it would move the decision into whichever
+   * component next grows a long-press menu, which is how "Open in new tab"
+   * appears on a phone that has no tabs.
+   */
   platform: "web" | "touch";
   /**
    * Whether the keyboard being printed for is an Apple one — `⌘⇧M` rather than

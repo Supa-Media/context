@@ -74,13 +74,34 @@
  * does not exist is not navigation, which is what made the old assertion the
  * right one to write and the wrong one to keep.
  *
- * The `sheet` and `drawer` arms, the scrim, and the two panel flags on
- * `FrameState` survive this change and are reachable at no density. They are
- * kept deliberately and not because anybody forgot: `AppFrame`'s API
- * (`closeDrawer`, `closeNav`, `closeOverlays`, `closesOnSelect`) is consumed
- * outside this feature — the file tree and the console layout both hold it —
- * and retiring the representation is one change, made where those callers are,
- * rather than a hole opened here for somebody else to find.
+ * ## What is deliberately kept although no density reaches it
+ *
+ * This is the whole list. **Anything not on it that a phone used to reach is a
+ * deletion, not a survivor** — that is what makes the list worth keeping, and
+ * it is enforced by being read: the day something else here stops being
+ * reachable it is added with its reason or it goes.
+ *
+ *  - **The `sheet` and `drawer` arms of `Regions`, the `scrim`, and the two
+ *    panel flags on `FrameState`.** `AppFrame`'s API (`closeDrawer`,
+ *    `closeNav`, `closeOverlays`, `closesOnSelect`) is consumed outside this
+ *    feature — the file tree and the console layout both hold it — and retiring
+ *    the representation is one change, made where those callers are, rather
+ *    than a hole opened here for somebody else to find.
+ *  - **`menu.ts`'s `platform: "touch"` arm**, which decides that a surface with
+ *    no keyboard prints no chords and is offered no "Open in new tab". That is
+ *    a *rule* rather than a rendering fork, `menu.ts` is its single owner, and
+ *    both values are checked; deleting it would move the decision into whatever
+ *    grows a long-press menu next. `Explorer` no longer derives it from the
+ *    density — it passes the literal `"web"`, because it is a pointer-layout
+ *    region and nothing else.
+ *
+ * **What was removed rather than kept**, so that the two lists are visibly
+ * different things: `Explorer`'s whole `const touch = frame.density ===
+ * "compact"` fork — a footer icon row, a revealed filter, an autofocus, a
+ * "Close the file tree" button, thumb-sized targets — and `FileTree`'s `touch`
+ * presentation with it. Those are *drawings* of a region that is `hidden` at
+ * compact, with one caller each inside this feature, so nothing outside was
+ * holding them and nothing was deciding anything by them.
  */
 
 import { layout } from "../design/tokens";

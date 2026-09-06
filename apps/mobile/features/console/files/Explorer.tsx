@@ -6,7 +6,7 @@ import { Menu } from "../../design/components/Menu";
 import { Text } from "../../design/components/Text";
 import { writeClipboard } from "../../design/clipboard";
 import { isApplePlatform } from "../../design/applePlatform";
-import { layout, radii, space } from "../../design/tokens";
+import { radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useFrame } from "../../app/AppFrame";
 import { loadedFolders, type FileBrowser } from "./browser";
@@ -41,36 +41,32 @@ import type { Visibility } from "./types";
  * where they belong — on the row itself, through a right-click on a pointer and
  * a long press under a thumb.
  *
- * ## On a phone the toolbar is at the *foot*, and it is Obsidian's icon row
+ * ## This is a pointer-layout region, and it draws one presentation
  *
- * A pointer layout keeps its toolbar on top: the tree is a column beside a
- * document, and a row of small controls on its top edge is what a column's
- * header is for. A phone has no column — the tree is the whole sheet — and a
- * control row across the top of it is a second band of chrome under the one
- * the frame already floats there. That is the same "two rows where Obsidian
- * spends one" this whole branch exists to remove, one surface further in.
+ * **Two whole density forks lived here and neither could ever run.** This file
+ * carried a `const touch = frame.density === "compact"` and branched on it a
+ * dozen times: a footer icon row in place of the header toolbar, a filter that
+ * was a revealed field rather than a permanent one, an autofocus, a "Close the
+ * file tree" button, thumb-sized targets, and a `touch` prop handed down to
+ * `FileTree`. `<Explorer>` is mounted only where `regions.explorer` is `column`
+ * or `drawer`, and `frame.ts` answers `hidden` at `compact` — so `touch` was
+ * permanently `false` and every one of those branches was unreachable, along
+ * with the prose arguing for them.
  *
- * Obsidian mobile puts them at the bottom, immediately above the vault
- * switcher: new note, new folder, sort, collapse, close. So do we, with the
- * three we actually have. It is also where a thumb is, which the top of a 956pt
- * sheet is not.
+ * That prose is not simply deleted, because what it argued for was right and is
+ * worth being able to find: it described Obsidian mobile's sidebar — the verbs
+ * at the *foot* of the panel where a thumb is, the filter as a magnifier that
+ * reveals a field rather than a permanent one opening a soft keyboard over the
+ * tree it filters. It is in the history, and the reference it was measured
+ * against is in `docs/design/obsidian-parity`. What is not kept is code nothing
+ * can reach: a phone has no file tree at all (`features/app/frame.ts`), and its
+ * browse surface is `FolderView` — a flat listing of the folder you are in,
+ * with its own thumb sizing.
  *
- * ## The filter is a button on a phone and a field on a pointer
- *
- * It used to be a permanent 44pt field at both densities, on the argument that
- * it is "the thing you actually reach for many times an hour". That is true
- * with a keyboard under your hands and false with a thumb: on a phone the field
- * spent the top of the panel on a control that opens a soft keyboard covering
- * half the tree it filters. Obsidian puts a magnifier there and reveals the
- * field when it is pressed, which is the same capability at a tenth of the
- * resting cost.
- *
- * **The capability is not removed, and must not be.** Pressing the button
- * reveals the same `TextInput`, focused, with the same ranking behind it;
- * dismissing it clears the query, which is the one thing that has to happen,
- * because a hidden filter still filtering is a tree that is missing files for
- * no visible reason. On a pointer the field stays permanent — there is width
- * for it, no keyboard to summon, and nothing gained by a press.
+ * The one piece of the fork that stays is `frame.closesOnSelect` below, and it
+ * stays for the reason `frame.ts` gives in the enumeration in its own header:
+ * that is `AppFrame`'s API, held by callers outside this feature, and retiring
+ * it is one change made where they are rather than a hole opened here.
  *
  * ## Filtering flattens, deliberately
  *
@@ -199,7 +195,14 @@ export function Explorer({
   const selectedFolder = targetFolder(files.listings, files.selectedPath);
 
   /**
-   * Choosing a note on a phone has to get the drawer out of the way.
+   * Choosing a note, and putting the tree away if the tree is over the note.
+   *
+   * `closesOnSelect` is `false` at every density today — there is no drawer
+   * anywhere (`features/app/frame.ts`) — so the second line does nothing. It is
+   * kept rather than inlined to `files.select` because that file's header names
+   * this call site: `closesOnSelect` and `closeDrawer` are `AppFrame`'s API,
+   * the meaning lives in one function, and the day a density puts the tree over
+   * the document again it is `closesOnSelect` that changes and not this.
    *
    * `useCallback` because `runAction` depends on it: a plain arrow is a new
    * identity every render, which would rebuild that callback on every keystroke
@@ -218,19 +221,17 @@ export function Explorer({
   /* ---------------------------------------------------------------------- */
 
   /**
-   * Shortcuts are printed where there is a keyboard and room for a column.
-   * A compact window has neither, and a chord nobody can press is noise.
-   */
-  const platform = frame.density === "compact" ? ("touch" as const) : ("web" as const);
-  /**
-   * Thumb sizing, from the one fact that decides it.
+   * `"web"` outright, not derived from a density that has one value here.
    *
-   * The same boolean as `platform` above and deliberately a second name: that
-   * one answers "which gesture vocabulary do the menus speak", this one answers
-   * "how tall is a row". They agree today because a phone is the only density
-   * with a drawer, and a stylus tablet would want the first without the second.
+   * `menu.ts` forks on this: a `web` menu prints the keyboard chord beside each
+   * item and offers "Open in new tab", a `touch` one does neither. **This
+   * region only exists on a pointer layout** — see the file header — so there
+   * is a keyboard, there is room for a shortcut column, and there are tabs.
+   * Computing it from `frame.density` was the pretence that a phone could reach
+   * this tree; the honest form is the literal, and `menu.ts`'s own header
+   * records who the `touch` arm is waiting for.
    */
-  const touch = frame.density === "compact";
+  const platform = "web" as const;
 
   const openMenu = useCallback(
     (row: TreeRow, anchor: { x: number; y: number }) => {
@@ -420,12 +421,16 @@ export function Explorer({
   const closeFilter = useCallback(() => setQuery(""), []);
 
   /**
-   * The three controls, in one place, drawn twice.
+   * The four controls, across the top of the column.
    *
-   * A pointer gets them across the top of the column; a thumb gets them at the
-   * foot, above the vault switcher — see the file comment. Written once so the
-   * two placements cannot come to offer different verbs, which is exactly how
-   * "New folder is missing on a phone" happens.
+   * Sort and collapse are about the *panel* rather than about the context, so
+   * neither is gated on `canEdit`: a member reading somebody else's notes has
+   * as much use for a folded tree as its owner does.
+   *
+   * There is no fifth. A "Close the file tree" button used to be drawn under
+   * `touch`, and on a pointer layout it would be a fourth way to do what ⌘⇧E
+   * and the top bar's toggle already do, on the one density where there is
+   * nothing covering the note to dismiss.
    */
   const actions = (
     <>
@@ -434,121 +439,74 @@ export function Explorer({
           <IconButton
             label="New note"
             icon="plus"
-            touch={touch}
             onPress={() => setDialog({ kind: "newNote", folder: selectedFolder })}
             testID="explorer-new-note"
           />
           <IconButton
             label="New folder"
             icon="folder"
-            touch={touch}
             onPress={() => setDialog({ kind: "newFolder", folder: selectedFolder })}
             testID="explorer-new-folder"
           />
         </>
       ) : null}
-      {/*
-        Sort and collapse, which the reference has and this did not.
-
-        Both are about the *panel* rather than about the context, so neither is
-        gated on `canEdit`: a member reading somebody else's notes has as much
-        use for a folded tree as its owner does. They are drawn at both
-        densities for the same reason the create buttons are — one definition,
-        two placements, so a verb cannot exist on one surface and go missing on
-        the other.
-      */}
       <IconButton
         label={descending ? "Sort A to Z" : "Sort Z to A"}
         icon="sort"
-        touch={touch}
         onPress={() => setDescending((current) => !current)}
         testID="explorer-sort"
       />
       <IconButton
         label="Collapse every folder"
         icon="collapse"
-        touch={touch}
         onPress={files.collapseAll}
         testID="explorer-collapse"
       />
-      {/*
-        Close, and only where the panel is a panel. On a pointer layout the
-        explorer is a column that is always there, and a button that puts the
-        region away would be a fourth way to do what ⌘⇧E and the top bar's
-        toggle already do — on the one density where there is nothing covering
-        the note to dismiss.
-      */}
-      {touch ? (
-        <IconButton
-          label="Close the file tree"
-          icon="close"
-          touch
-          onPress={frame.closeDrawer}
-          testID="explorer-close"
-        />
-      ) : null}
     </>
   );
 
-  /** The filter field, wherever it is drawn. One element, so nothing forks. */
+  /**
+   * The filter, permanently in the column's header.
+   *
+   * No `autoFocus`: this field has always been on the screen, and a permanent
+   * field that takes the caret on mount steals it from whatever somebody was
+   * doing. It was autofocused under `touch`, where it was a field that had just
+   * been *revealed* by a press, and that arm is gone with the density.
+   */
   const filterField = (
     <TextInput
       value={query}
       onChangeText={setQuery}
       placeholder="Filter"
       placeholderTextColor={colors.muted}
-      style={[styles.filter, touch && styles.filterTouch]}
+      style={styles.filter}
       accessibilityLabel="Filter notes and folders"
       autoCapitalize="none"
       autoCorrect={false}
       spellCheck={false}
-      // Only where it was just revealed. A field that has always been on
-      // screen stealing focus on mount would open the soft keyboard every
-      // time somebody opens the drawer, which is the cost this whole
-      // arrangement exists to avoid.
-      autoFocus={touch}
       testID="explorer-filter"
     />
   );
 
   return (
     <View style={styles.explorer}>
-      {/*
-        The filter is a pointer control now, and its absence on a phone is a
-        decision rather than an omission.
-
-        The reference's icon row is five marks — new note, new folder, sort,
-        collapse all, close — and there is no magnifier among them, because on
-        a phone finding a note is the *toolbar's* job: the bottom bar's search
-        opens the palette, which searches the whole context rather than the
-        folders that happen to be loaded. That is strictly the larger
-        capability, and it is the one already within a thumb's reach.
-
-        What is lost is filtering the tree *in place*, which is a different and
-        smaller thing, and it stays where it has always worked: a pointer
-        layout draws the field permanently in the column's header. This is the
-        one place in this file where the two surfaces genuinely offer different
-        verbs, and it is written down here rather than discovered later.
-      */}
-      {touch ? null : (
-        <View style={styles.toolbar}>
-          {filterField}
-          {query !== "" ? (
-            <IconButton
-              label="Clear the filter"
-              icon="close"
-              onPress={closeFilter}
-              testID="explorer-filter-clear"
-            />
-          ) : null}
-          <View style={styles.toolbarSpacer} />
-          {actions}
-        </View>
-      )}
+      <View style={styles.toolbar}>
+        {filterField}
+        {query !== "" ? (
+          <IconButton
+            label="Clear the filter"
+            icon="close"
+            onPress={closeFilter}
+            testID="explorer-filter-clear"
+          />
+        ) : null}
+        <View style={styles.toolbarSpacer} />
+        {actions}
+      </View>
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={touch ? styles.scrollContentTouch : styles.scrollContent}
+        contentContainerStyle={styles.scrollContent}
         role="tree"
         aria-label="Folders and notes"
         testID="explorer-tree"
@@ -599,7 +557,6 @@ export function Explorer({
             onMenu={openMenu}
             drag={dragHandlers}
             dropTarget={dropTarget}
-            touch={touch}
           />
         )}
       </ScrollView>
@@ -626,8 +583,7 @@ export function Explorer({
         `loadedCounts` is shared with that page rather than computed here, so
         "how much of this context have I got" has one answer.
       */}
-      <View style={[styles.foot, touch && styles.footTouch]}>
-        {touch ? <View style={styles.iconRow}>{actions}</View> : null}
+      <View style={styles.foot}>
         <Text variant="treeMeta" numberOfLines={1} testID="explorer-counts">
           {counts}
         </Text>
@@ -832,14 +788,11 @@ export function ExplorerDialogs({
 function IconButton({
   label,
   icon,
-  touch = false,
   onPress,
   testID,
 }: {
   label: string;
   icon: IconName;
-  /** Thumb sizing: the control clears `layout.minTouchTarget` on both axes. */
-  touch?: boolean;
   onPress: () => void;
   testID?: string;
 }) {
@@ -849,12 +802,12 @@ function IconButton({
     <PressRow
       accessibilityLabel={label}
       onPress={onPress}
-      radius={touch ? radii.control : radii.md}
-      style={touch ? styles.iconButtonTouch : styles.iconButton}
+      radius={radii.md}
+      style={styles.iconButton}
       hoverStyle={styles.iconButtonHover}
       testID={testID}
     >
-      <Icon name={icon} size={touch ? 20 : 15} color={colors.text2} />
+      <Icon name={icon} size={15} color={colors.text2} />
     </PressRow>
   );
 }
@@ -892,22 +845,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderBottomColor: colors.line,
   },
   /**
-   * The revealed filter, and nothing else — see the file comment.
-   *
-   * Unruled: the hairline is what separates a toolbar from the *column* under
-   * it on a pointer layout. Inside a panel that is already an object with a
-   * shadow it is a second edge inside one border, and it is the detail that
-   * makes a drawer read as a shrunken sidebar. This row is also transient now,
-   * so a rule under it would come and go across the top of the tree.
-   */
-  toolbarTouch: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.x2,
-    paddingHorizontal: space.x2,
-    paddingVertical: space.x2,
-  },
-  /**
    * Holds the create buttons at the trailing edge while the filter is away.
    *
    * The field is `flex: 1` and takes the room when it is there; without this
@@ -928,31 +865,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     color: colors.text,
     fontSize: 12,
   },
-  /** A round-cornered field, at a size a thumb can put a caret in. */
-  filterTouch: {
-    height: layout.minTouchTarget,
-    paddingHorizontal: space.x3,
-    borderRadius: radii.control,
-    fontSize: 15,
-    backgroundColor: colors.surface2,
-    borderColor: "transparent",
-  },
-  /**
-   * A bare glyph at a thumb-sized target.
-   *
-   * No fill. These live in the sidebar's own footer now, where the reference
-   * draws five unfilled marks in a row; a tinted square behind each one turns
-   * that row into three buttons floating on a panel and is the same "one
-   * container too many" the top bar was carrying. The target is still 44 —
-   * what is dropped is the surface, not the reach.
-   */
-  iconButtonTouch: {
-    width: layout.minTouchTarget,
-    height: layout.minTouchTarget,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radii.control,
-  },
   iconButton: {
     width: 28,
     height: 28,
@@ -967,19 +879,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
 
   scroll: { flex: 1, minHeight: 0 },
   scrollContent: { paddingVertical: space.x2, paddingHorizontal: 6 },
-  /**
-   * No horizontal padding, on purpose.
-   *
-   * `layout.explorerInset` is measured to where a top-level *name* begins, and
-   * `indentFor` spends the whole of it on the chevron gutter and the row's own
-   * leading padding. Eight points here as well put every name at 45 instead of
-   * 37 — the measurement was right and the row was starting in the wrong place.
-   *
-   * It also lets a row's wash run to the edges of the panel, which is what a
-   * file list does; an inset selection reads as a card in a list rather than as
-   * the selected row of one.
-   */
-  scrollContentTouch: { paddingVertical: space.x2, paddingHorizontal: 0 },
   status: { paddingHorizontal: space.x2, paddingVertical: space.x2 },
 
   match: {
@@ -1011,6 +910,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   refusalText: { flex: 1, color: colors.warnText },
   refusalDismiss: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.sm },
 
+  /** A 26pt strip under the column, carrying the one counts line. */
   foot: {
     borderTopWidth: 1,
     borderTopColor: colors.line,
@@ -1018,34 +918,4 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: 5,
     gap: space.x2,
   },
-  /**
-   * The panel's own foot, which is a caption rather than a status bar.
-   *
-   * The hairline goes for the reason `toolbarTouch`'s went: inside a panel that
-   * is already an object with a shadow, a rule is a second edge within one
-   * border. The padding grows because this is now the bottom of a sheet a thumb
-   * reaches into, not a 26pt strip under a column.
-   */
-  footTouch: {
-    borderTopWidth: 0,
-    paddingHorizontal: space.x3,
-    paddingTop: space.x3,
-    paddingBottom: space.x2,
-    gap: 6,
-  },
-  /**
-   * Obsidian's icon row: the sidebar's verbs, evenly spread above the switcher.
-   *
-   * `space-between` rather than a leading cluster, which is how the reference
-   * draws it and is also the right answer under a thumb — three targets spread
-   * across 340pt are three targets nobody has to aim between.
-   */
-  iconRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: space.x1,
-    paddingBottom: 2,
-  },
-  /** The name line: whatever `_layout` passes, taking the width it needs. */
 });
