@@ -373,6 +373,36 @@ describe("the persistent bar", () => {
     mounted.unmount();
   });
 
+  /**
+   * THE BAR IS ALSO THE WAY BACK, AND NOTHING CHECKED IT.
+   *
+   * `RecordingBar`'s own header says "the title is one tap away because the bar
+   * itself navigates to the meeting", and that middle target was the only part
+   * of the bar with no test — End, pause and resume each had one. It is the
+   * half that matters most now that a recording is visible from *everywhere*:
+   * the bar is the only handle a person on a note screen has on the meeting
+   * they are in, and a dead target there leaves the URL as the way back.
+   *
+   * SABOTAGE: made `open` return without pushing.
+   * MEASURED: this test failed and no other did.
+   */
+  test("the bar is the way back into the meeting from anywhere", async () => {
+    await configure();
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Reboot Camp" });
+    });
+    const mounted = mount(createElement(RecordingBar));
+
+    press(mounted.container, "recording-bar-open");
+
+    expect(pushed).toEqual([`/meetings/${id}`]);
+    mounted.unmount();
+    await act(async () => {
+      await meetings.end();
+    });
+  });
+
   test("End from the bar ends the meeting and takes the bar down", async () => {
     await configure();
     await act(async () => {

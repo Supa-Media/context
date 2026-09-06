@@ -141,6 +141,8 @@ export {
 
 export { newMeetingId } from "./ids";
 
+export { MEETINGS_ROUTE, meetingHref } from "./route";
+
 export {
   attendeeCount,
   clock,

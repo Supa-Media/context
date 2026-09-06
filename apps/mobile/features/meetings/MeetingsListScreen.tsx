@@ -10,6 +10,8 @@ import { MeetingRow, RowDivider } from "./components/MeetingRow";
 import { meetings } from "./controller";
 import { groupMeetings, startsIn, type MeetingListSection } from "./format";
 import type { CalendarEvent } from "./protocol";
+import { CONSOLE_ROOT } from "../console/nav";
+import { meetingHref } from "./route";
 import { useMeetingsSnapshot, useTick } from "./useMeetings";
 
 /**
@@ -80,7 +82,7 @@ export function MeetingsListScreen({
   const start = useCallback(
     async (title: string) => {
       const id = await meetings.start({ title });
-      router.push(`/meetings/${id}`);
+      router.push(meetingHref(id));
     },
     [router],
   );
@@ -93,6 +95,22 @@ export function MeetingsListScreen({
         chrome={{ bottom: layout.bottomBarHeight + layout.floatingInset }}
         contentContainerStyle={styles.content}
       >
+        {/*
+          The way out, which this screen did not have.
+
+          `/meetings` sits outside the console, so nothing above it draws
+          chrome: the `(app)` stack sets `headerShown: false` and the meetings
+          navigator paints a background and a `Stack`. The live screen and the
+          note screen each carry their own back control; this one carried none,
+          which was invisible for as long as nothing navigated here and is a
+          dead end the moment something does.
+
+          Round and unlabelled, like the live screen's, because it is the same
+          object on the same kind of screen: `chromeButton` is exactly
+          `minTouchTarget`, so the visible circle is the whole target.
+        */}
+        <BackButton />
+
         <Text variant="paneTitle" style={styles.title}>
           Meetings
         </Text>
@@ -112,7 +130,7 @@ export function MeetingsListScreen({
               section={section}
               locale={locale}
               now={now === 0 ? Date.now() : now}
-              onOpen={(id) => router.push(`/meetings/${id}`)}
+              onOpen={(id) => router.push(meetingHref(id))}
               onRecord={(title) => void start(title)}
             />
           ))
@@ -135,6 +153,39 @@ export function MeetingsListScreen({
 
       {snapshot.live === null ? <RecordButton onPress={() => void start("New meeting")} /> : null}
     </>
+  );
+}
+
+/**
+ * Back to wherever somebody came from, and to the console when that is nowhere.
+ *
+ * `router.back()` alone is a press that does nothing on a cold start — a typed
+ * URL, a deep link, or a reload on the web has no entry behind it — and a
+ * control that sometimes does nothing is worse than no control, because the
+ * person keeps pressing it. `CONSOLE_ROOT` is the fallback because `nav.ts`
+ * calls it "the one destination that is always meaningful": it resolves to a
+ * context this person can actually reach rather than to a fixed pane.
+ *
+ * `replace` rather than `push` on that path: there is nothing behind this
+ * screen to keep, and pushing would build a history where Back walks between
+ * two screens forever.
+ */
+function BackButton() {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
+  const router = useRouter();
+  return (
+    <View style={styles.topBar}>
+      <Pressable
+        onPress={() => (router.canGoBack() ? router.back() : router.replace(CONSOLE_ROOT))}
+        accessibilityRole="button"
+        accessibilityLabel="Back to your notes"
+        style={({ pressed }) => [styles.round, pressed && styles.roundPressed]}
+        testID="meetings-back"
+      >
+        <Icon name="chevronLeft" size={20} color={colors.text2} />
+      </Pressable>
+    </View>
   );
 }
 
@@ -291,6 +342,23 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: layout.readingMargin,
     gap: 22,
   },
+  /**
+   * The back control's row.
+   *
+   * A negative leading margin so the round button's *optical* left edge lands
+   * on `readingMargin` with the headings below it, rather than a touch target's
+   * worth further in — the content container has already paid that padding and
+   * the circle is 44pt of it.
+   */
+  topBar: { flexDirection: "row", alignItems: "center", marginLeft: -10, marginBottom: -8 },
+  round: {
+    width: layout.chromeButton,
+    height: layout.chromeButton,
+    borderRadius: radii.pill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  roundPressed: { backgroundColor: colors.chromePressed },
   title: { fontSize: 30, letterSpacing: -0.9, marginBottom: -6 },
   section: { gap: 10 },
   card: {

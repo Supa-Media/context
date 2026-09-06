@@ -6,6 +6,7 @@ import { floatingStackBottom, useBottomChromeHeight } from "../../app/bottomChro
 import { useThemedStyles, type Colors, type Shadows } from "../../design/theme";
 import { Text } from "../../design/components/Text";
 import { meetings, recordElapsedMs } from "../controller";
+import { meetingHref } from "../route";
 import { clock } from "../format";
 import { useMeetingsSnapshot, useTick } from "../useMeetings";
 import { Waveform } from "./Waveform";
@@ -67,7 +68,7 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
 
   const open = useCallback(() => {
     if (live === null) return;
-    router.push(`/meetings/${live.session.id}`);
+    router.push(meetingHref(live.session.id));
   }, [router, live]);
 
   if (live === null) return null;
