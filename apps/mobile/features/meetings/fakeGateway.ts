@@ -44,13 +44,19 @@ export function fakeGateway(
   options: {
     notePathFor?: (session: MeetingSession, destination: MeetingDestination | null) => string;
     /**
-     * A folder this fake will not file into, so a test can drive the fallback.
+     * A *further* folder this fake will not file into, so a test can drive the
+     * fallback for a rule this fake does not hold.
      *
      * The real gateway's rule is `normalizeMeetingFolder`'s and is not restated
      * here — a fake with its own copy of it would be a second specification of
      * a decision this app does not own. What a test needs is the *shape*: a
      * folder refused, the note filed at the default, and `folderRejected` on
      * the ack.
+     *
+     * **The empty folder is refused whether or not this is passed**, and it is
+     * the one exception for the reason `refusesEmptyFolder` gives: it is not a
+     * rule this fake was missing, it is a rule this fake was actively
+     * contradicting.
      */
     refusesFolder?: (folder: string) => boolean;
   } = {},
@@ -66,22 +72,44 @@ export function fakeGateway(
    * Where this fake writes a note.
    *
    * It **honours the folder it is handed**, which is the behaviour the real
-   * gateway will have once `FinalizeBody` carries one (see `finalizeBody` in
-   * `gateway.ts` for what is missing and where). A fake that ignored it could
+   * gateway has: `FinalizeBody` carries `folder`, `meetingNotePath` files into
+   * it, and `finalizeSession` passes it through. A fake that ignored it could
    * not tell a client that threads the destination through from one that drops
    * it on the floor, which is the whole thing worth testing here.
    *
    * With no destination it is the gateway's own default, unchanged, so every
-   * test written before this question existed still asserts what it did.
+   * test written before this question existed still asserts what it did. A
+   * folder that was refused arrives here as `null` and gets the same default,
+   * which is the real fallback rather than an invented one.
    */
   const notePathFor =
     options.notePathFor ??
-    ((session: MeetingSession, destination: MeetingDestination | null) => {
-      const folder = destination?.folder ?? "0-inbox";
-      return folder === ""
-        ? `meetings/${session.id}.md`
-        : `${folder}/meetings/${session.id}.md`;
-    });
+    ((session: MeetingSession, destination: MeetingDestination | null) =>
+      `${destination?.folder ?? "0-inbox"}/meetings/${session.id}.md`);
+
+  /**
+   * The one folder rule this fake states itself, and why it is not a copy.
+   *
+   * `normalizeMeetingFolder` answers `null` for `""` —
+   * `packages/meetings/test/paths.test.mjs` pins it as "an empty folder is
+   * refused rather than filing a meeting at the bucket root" — and this fake
+   * used to **honour** it, mapping `folder: ""` to `meetings/<id>.md` at the
+   * bucket root, a key the real gateway has never written and will not write.
+   * `filedUnder` matched it: an empty folder returned `true` unconditionally,
+   * so a re-finalize naming the root reported success as well.
+   *
+   * That is what let the sheet ship an offer the gateway was guaranteed to
+   * refuse: standing at a context root is the state a phone arrives in, no
+   * mobile test drove `folder: ""` through a gateway, and the one double that
+   * could have caught it was the one that had been taught to say yes.
+   *
+   * So this is not the fake acquiring a copy of a rule it does not own — that
+   * is still `refusesFolder`'s job for every other shape. It is the fake
+   * withdrawing a claim it had no business making. **A double that is more
+   * permissive than the thing it doubles proves nothing**, and this one was
+   * permissive in exactly the place the product was wrong.
+   */
+  const refusesEmptyFolder = (folder: string) => folder === "";
 
   function gate(route: string): void {
     calls.push(route);
@@ -107,10 +135,17 @@ export function fakeGateway(
     return session;
   }
 
-  /** Whether a note this fake wrote sits inside a folder. See `notePathFor`. */
+  /**
+   * Whether a note this fake wrote sits inside a folder. See `notePathFor`.
+   *
+   * An empty folder is never one a note is filed under, because it is never one
+   * a note can be filed into — see `refusesEmptyFolder`. It used to answer
+   * `true` for any path at all, which made a re-finalize naming the bucket root
+   * report that the note was already there.
+   */
   function filedUnder(notePath: string | null, folder: string): boolean {
-    if (notePath === null) return false;
-    return folder === "" ? true : notePath.startsWith(`${folder}/`);
+    if (notePath === null || folder === "") return false;
+    return notePath.startsWith(`${folder}/`);
   }
 
   function ack(session: MeetingSession, folderRejected = false): IngestAck {
@@ -221,7 +256,9 @@ export function fakeGateway(
         // named is not where this note is", not "your string was malformed".
         return ack(session, to !== null && !filedUnder(session.notePath, to.folder));
       }
-      const refused = to !== null && (options.refusesFolder?.(to.folder) ?? false);
+      const refused =
+        to !== null &&
+        (refusesEmptyFolder(to.folder) || (options.refusesFolder?.(to.folder) ?? false));
       written += 1;
       const next: MeetingSession = {
         ...session,

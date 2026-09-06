@@ -83,6 +83,21 @@ const IN_THE_SHARED_ONE: MeetingDestination = {
   label: "finance",
 };
 
+/**
+ * The root of a context, which is not a folder any meeting can be filed into.
+ *
+ * The sheet refuses to offer this now (`meetingsDestination.test.ts`); it is
+ * kept as a fixture because a record restored from a build that predates the
+ * refusal still carries one, and because the gateway's answer to it is the
+ * thing being pinned.
+ */
+const AT_THE_ROOT: MeetingDestination = {
+  kind: "currentPage",
+  contextSlug: "field-notes",
+  folder: "",
+  label: "the root of your context",
+};
+
 /** The sheet's first offer: the viewer's own brain, whatever they are looking at. */
 const MY_OWN_INBOX: MeetingDestination = {
   kind: "personalInbox",
@@ -185,6 +200,56 @@ describe("a meeting is written where it was sent", () => {
     // ...and it is addressed to the context this connection already defaults
     // to, which is the whole meaning of "nobody chose".
     expect(sent[0]!.url).toBe(`${ORIGIN}/meetings/sessions/mtg_x/finalize`);
+  });
+
+  /**
+   * **The double has to refuse what the thing it doubles refuses.**
+   *
+   * `normalizeMeetingFolder("")` is `null` — `paths.test.mjs` pins it as "an
+   * empty folder is refused rather than filing a meeting at the bucket root",
+   * because the root is where `index.md` and `privacy.md` live. `fakeGateway`
+   * honoured it anyway, mapping `folder: ""` to `meetings/<id>.md`, and
+   * `filedUnder(path, "")` answered `true` for any path at all.
+   *
+   * That is how the sheet shipped an offer the gateway was guaranteed to
+   * refuse: a phone arrives at a context root with nothing selected, the second
+   * row was `folder: ""` with no refusal on it, and **no mobile test drove an
+   * empty folder through a gateway** — so the one double that could have caught
+   * it was the one that had been taught to say yes.
+   *
+   * The offer is refused now (`meetingsDestination.test.ts`), so this is the
+   * layer below that: even if one arrives — a record restored from a build that
+   * predates the refusal, say — the fake answers the way the real gateway does.
+   *
+   * SABOTAGE: drop `refusesEmptyFolder` from `finalize`'s `refused`. MEASURED:
+   * this test fails on the note path; before it, nothing in the suite did.
+   */
+  test("an empty folder is refused, the way the real gateway refuses it", async () => {
+    const { controller, gateway } = await harness();
+
+    const id = await controller.start({ title: "Design review", destination: AT_THE_ROOT });
+    await controller.end();
+    await settle();
+
+    const record = controller.getSnapshot().records.find((r) => r.session.id === id)!;
+    // The default, not `meetings/<id>.md` at the bucket root — a key the real
+    // gateway has never written.
+    expect(record.session.notePath).toBe(`0-inbox/meetings/${id}.md`);
+    // And it said so, which is the half that stops a silent wrong destination.
+    expect(record.folderRejected).toBe(true);
+
+    /*
+      And a *second* finalize naming the same root still says so, which is the
+      other half of the fake's empty-folder bug: `filedUnder(path, "")` answered
+      `true` for any path at all, so a re-finalize reported that the note was
+      already filed where it had never been. `folderFlag` in the real gateway
+      answers `folderRejected` for a folder it will not file into whether or not
+      the note already exists — see `ingest.js` — and one note is still written.
+    */
+    const again = await gateway.finalize(AT_THE_ROOT, id);
+    expect(again.folderRejected).toBe(true);
+    expect(again.notePath).toBe(`0-inbox/meetings/${id}.md`);
+    expect(gateway.notesWritten()).toBe(1);
   });
 
   test("the existing one-tap record still writes into the inbox", async () => {

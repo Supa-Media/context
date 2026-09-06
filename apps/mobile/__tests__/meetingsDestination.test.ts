@@ -1,7 +1,15 @@
 import { describe, expect, test } from "@jest/globals";
+/*
+  The gateway's own folder rule, imported by the *suite* and not by the app.
+  See `the sheet never offers a folder the gateway would refuse` below for why
+  the phone cannot import it and why the test must.
+*/
+import { normalizeMeetingFolder } from "@context/meetings";
 
 import {
+  CONTEXT_ROOT_REFUSAL,
   INBOX_FOLDER,
+  UNFILEABLE_FOLDER_REFUSAL,
   chooseOffer,
   describeDestination,
   resolveDestinations,
@@ -61,6 +69,14 @@ import { memoryStore } from "../features/offline/memory";
  *     fails.
  *  9. `chooseOffer` drops its `refusal !== null` guard.
  *     → `pressing a refused offer leaves the selection where it was` fails.
+ * 10. `refusalFor` drops its `folder === ""` arm — the root offered as a live
+ *     destination again, which is what shipped.
+ *     → `a context root is offered and refused, because no meeting can be filed
+ *     there` and both halves of `the sheet never offers a folder the gateway
+ *     would refuse` fail.
+ * 11. `fileableFolder` returns `true` unconditionally.
+ *     → `an offer with no refusal is a folder `normalizeMeetingFolder`
+ *     accepts` fails, naming the folder it offered.
  */
 
 const OWN: DestinationContext = { slug: "testagent1", kind: "personal", role: "owner" };
@@ -145,16 +161,41 @@ describe("the second offer is the page somebody is looking at", () => {
     expect(choice.offers[1]!.destination.folder).toBe("1-projects/portal");
   });
 
-  test("a context root resolves to the root, and says so in words", () => {
+  /**
+   * **The offer the gateway was guaranteed to refuse, and the state a phone
+   * arrives in.**
+   *
+   * `app/(app)/console/_layout.tsx` passes `path: data.files.selectedPath ??
+   * ""`, so "nothing selected" — a context opened and not yet navigated —
+   * reaches this module as a root. It used to come back as a live, pressable,
+   * unrefused second row labelled "the root of your context", and
+   * `normalizeMeetingFolder("")` is `null`: press it, record, end the meeting,
+   * and the gateway filed the note in `0-inbox` and set `folderRejected`. A
+   * control that appears to work and does nothing, on the default path.
+   *
+   * Nothing caught it because the one double that could have — `fakeGateway` —
+   * had been taught to honour `folder: ""`, and no mobile test drove an empty
+   * folder through a gateway at all. Both halves are closed: this test, and
+   * `an empty folder is refused, the way the real gateway refuses it` in
+   * `meetingsDestinationWiring.test.ts`.
+   *
+   * The row is still **drawn**, with the reason beside it, which is the same
+   * rule as the read-only page further down.
+   */
+  test("a context root is offered and refused, because no meeting can be filed there", () => {
     const choice = offers(
       resolveDestinations({
         contexts: [OWN, SHARED],
         page: { contextSlug: "field-notes", path: "", isNote: false },
       }),
     );
-    const page = choice.offers[1]!.destination;
-    expect(page.folder).toBe("");
-    expect(page).toMatchObject({ label: "the root of your context" });
+    expect(choice.offers).toHaveLength(2);
+    const root = choice.offers[1]!;
+    expect(root.destination.folder).toBe("");
+    expect(root.destination).toMatchObject({ label: "the root of your context" });
+    expect(root.refusal).toBe(CONTEXT_ROOT_REFUSAL);
+    // And it is not what Start would start: the inbox keeps the selection.
+    expect(choice.selectedIndex).toBe(0);
   });
 
   test("a shared page names who will see it, in a warning tone", () => {
@@ -279,6 +320,113 @@ describe("a capability that is absent is reported, never hidden and never faked"
 
   test("somebody with no contexts at all is offered the claim", () => {
     expect(resolveDestinations({ contexts: [], page: null }).kind).toBe("claimName");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * **The two layers, held against each other rather than described.**
+ *
+ * An offer with no `refusal` on it is a promise, and the only thing that can
+ * keep it is `normalizeMeetingFolder`. `destination.ts` therefore states that
+ * rule a second time — it has to, because the phone does not bundle
+ * `@context/meetings` (Metro is configured with `@context/shared` as its only
+ * shared package) — and `paths.js` is emphatic that two implementations of
+ * "does this string escape its bucket" is how one of them ends up weaker.
+ *
+ * The suite is not the phone, so it *can* import the real one. Every shape
+ * either side cares about goes through both, and the assertion is one-way on
+ * purpose: **an unrefused offer must be a folder the gateway accepts.** Being
+ * stricter here costs a row and is allowed; being laxer costs a destination and
+ * is the defect.
+ *
+ * SABOTAGE: drop any arm of `fileableFolder`, or the `folder === ""` arm of
+ * `refusalFor`. MEASURED: this test fails, naming the folder.
+ */
+describe("the sheet never offers a folder the gateway would refuse", () => {
+  /**
+   * Folders that survive `safeNotePath` — which is the only gate a page has to
+   * pass to reach `pageOffer` at all — paired with what the gateway does.
+   *
+   * Anything `safeNotePath` already refuses (`../x`, `a\\b`, a leading slash, a
+   * control character) is not on this list: such a page is not offered in the
+   * first place, and `a page whose path could not be a bucket key is not
+   * offered` above is where that is held.
+   */
+  const REACHABLE_FOLDERS: readonly string[] = [
+    "",
+    "1-projects",
+    "1-projects/portal",
+    "2-areas/team/notes",
+    "a..b",
+    "1-projects/a..b",
+    ".git",
+    "1-projects/.obsidian",
+    "overview.md",
+    "1-projects/overview.MD",
+    "scopes.yml",
+    // One segment past the gateway's 128-character bound, which nothing on the
+    // console's side has an opinion about.
+    `${"a".repeat(64)}/${"b".repeat(64)}`,
+    // Legal on both sides, and worth being on the list so that a rule which
+    // simply refused everything could not pass this test.
+    `${"a".repeat(60)}/${"b".repeat(60)}`,
+  ];
+
+  test("an offer with no refusal is a folder `normalizeMeetingFolder` accepts", () => {
+    for (const folder of REACHABLE_FOLDERS) {
+      const choice = offers(
+        resolveDestinations({
+          contexts: [OWN, SHARED],
+          page: { contextSlug: "field-notes", path: folder, isNote: false },
+        }),
+      );
+      const offer = choice.offers[1];
+      if (offer === undefined || offer.refusal !== null) continue;
+      expect([folder, normalizeMeetingFolder(folder)]).not.toEqual([folder, null]);
+    }
+  });
+
+  test("and it refuses every one of them that the gateway refuses", () => {
+    /*
+      The other direction, asserted as a *count* rather than folder by folder:
+      the point is that the table above really does contain refusals on both
+      sides, so the test above is not passing vacuously on a list the sheet
+      happens to offer nothing for.
+    */
+    const refusedByGateway = REACHABLE_FOLDERS.filter(
+      (folder) => normalizeMeetingFolder(folder) === null,
+    );
+    expect(refusedByGateway.length).toBeGreaterThan(1);
+
+    for (const folder of refusedByGateway) {
+      const choice = offers(
+        resolveDestinations({
+          contexts: [OWN, SHARED],
+          page: { contextSlug: "field-notes", path: folder, isNote: false },
+        }),
+      );
+      expect([folder, choice.offers[1]?.refusal ?? null]).not.toEqual([folder, null]);
+    }
+  });
+
+  test("the root says why, and the rest say the folder is not one this context files into", () => {
+    const refusalFor = (path: string) =>
+      offers(
+        resolveDestinations({
+          contexts: [OWN, SHARED],
+          page: { contextSlug: "field-notes", path, isNote: false },
+        }),
+      ).offers[1]!.refusal;
+
+    expect(refusalFor("")).toBe(CONTEXT_ROOT_REFUSAL);
+    expect(refusalFor("a..b")).toBe(UNFILEABLE_FOLDER_REFUSAL);
+    expect(refusalFor(".git")).toBe(UNFILEABLE_FOLDER_REFUSAL);
+    expect(refusalFor("overview.md")).toBe(UNFILEABLE_FOLDER_REFUSAL);
+    // No refusal quotes what it refused: the ack one layer down carries no copy
+    // of the folder either, and for the same reason.
+    expect(UNFILEABLE_FOLDER_REFUSAL).not.toContain("a..b");
   });
 });
 

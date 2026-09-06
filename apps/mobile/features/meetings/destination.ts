@@ -45,6 +45,33 @@ import { destinationKey } from "./keys";
  * went wherever the credential pointed — a row that said `@acme / finance`
  * over a note headed somewhere nobody had named.
  *
+ * ## What it offers, the gateway has to be able to take
+ *
+ * **An offer with no `refusal` on it is a promise, and the only thing that can
+ * keep it is `normalizeMeetingFolder` in `packages/meetings`.** Every folder
+ * that function refuses is refused here too, with the sentence beside it, or
+ * the sheet is a control that appears to work and does nothing — which is the
+ * defect this whole seam exists to close, arriving one layer up.
+ *
+ * The case that mattered is the **root of a context**, because it is the state
+ * a phone *arrives* in: nothing is selected, so the console passes `path: ""`.
+ * `CONTEXT_ROOT_REFUSAL` argues it. The rest are `fileableFolder`, and they are
+ * not covered by `safeNotePath` — that gate refuses a leading slash, a
+ * backslash, a `.` or `..` *segment* and a control character, and lets through
+ * `a..b`, `.git`, `overview.md` and a path longer than the gateway's bound.
+ *
+ * **This is a second statement of a rule this app does not own, and it is
+ * allowed to be one only because a test holds the two together.**
+ * `meetingsDestination.test.ts` imports the real `normalizeMeetingFolder` and
+ * asserts, over every shape either side cares about, that a folder this module
+ * offers without a refusal is a folder that function accepts. The phone cannot
+ * *bundle* that package — Metro is configured with `@context/shared` as its
+ * only shared package (`metro.config.js`) — but the suite can import it, so
+ * the drift `paths.js` warns about ("two implementations of 'does this string
+ * escape its bucket' is how one of them ends up weaker") is caught in CI rather
+ * than left to a comment. Being *stricter* here is safe and is not asserted
+ * against: it costs a row, where being laxer costs the destination.
+ *
  * ## It is a pure module, and that is `console/capabilities.ts`'s reason
  *
  * Every guard in the console that was expressed inside a hook or a component
@@ -81,6 +108,58 @@ export const VISIBLE_TO_TEAM = "Visible to the team";
 /** Said on the row rather than instead of it. See `resolveDestinations`. */
 export const READ_ONLY_REFUSAL =
   "You can read this context but not write to it, so a meeting cannot land here.";
+
+/**
+ * Said on the row when the page somebody is standing on is a context's root.
+ *
+ * **The root of a context is not a folder a meeting can be filed into, and the
+ * gateway is the one that decides that** — `normalizeMeetingFolder` answers
+ * `null` for `""` and `packages/meetings/test/paths.test.mjs` pins it by name:
+ * "an empty folder is refused rather than filing a meeting at the bucket root".
+ * Its reason is the on-bucket layout, which non-negotiable #3 calls a stable
+ * format rather than an internal detail: `index.md` and `privacy.md` live at
+ * the root, and a `2026/09/` tree of meetings beside them is not a layout
+ * anybody's vault expects.
+ *
+ * Until this refusal existed the sheet offered that root anyway. Standing at a
+ * context root is the state a phone *arrives in* — nothing is selected, so the
+ * console passes `path: ""` — so the second row was a live, pressable,
+ * unrefused offer whose only possible outcome was the gateway filing the
+ * meeting somewhere else and saying `folderRejected`. That is the defect this
+ * whole branch has been closing, one layer up: a control that appears to work
+ * and does nothing.
+ *
+ * **The row is refused, not removed**, for `DestinationOffer.refusal`'s reason
+ * and CLAUDE.md's: an absent capability is reported rather than faked, and a
+ * page that vanishes from the sheet leaves somebody hunting for the choice the
+ * product told them they had.
+ *
+ * The alternative was to make the root expressible and have the gateway accept
+ * it. That is a reversal of a decision with a stated reason, a test, and a
+ * paragraph in [meetings](../../../../docs/decisions/meetings.md) — so it is a
+ * `docs/decisions/` change and not a fix, and the two layers agree this way
+ * round at no cost to anybody: `0-inbox` is one row above, already selected.
+ */
+export const CONTEXT_ROOT_REFUSAL =
+  "A meeting cannot be filed at the root of a context. Open a folder and record from there, or use your inbox.";
+
+/**
+ * Said on the row for every *other* folder the gateway will not file into.
+ *
+ * Separate from the root's sentence because the root is a place somebody
+ * deliberately navigated to and can be told something useful about, while this
+ * covers folders whose names happen to collide with the gateway's rules —
+ * `a..b`, a dot-prefixed folder, a folder named like a note, one nested past
+ * the length bound. There is nothing useful to say about *which* rule, and
+ * naming it would be quoting the customer's own folder name back at them for
+ * no gain.
+ *
+ * It does not quote the folder, for `FOLDER_REJECTED_NOTICE`'s reason one layer
+ * down: the ack carries no copy of what was sent, and this row is looking at
+ * the same fact before the request rather than after it.
+ */
+export const UNFILEABLE_FOLDER_REFUSAL =
+  "Your context will not file a meeting into this folder. Choose another one, or use your inbox.";
 
 /** How the root of a context is named, matching the console's move picker. */
 export const CONTEXT_ROOT_LABEL = "the root of your context";
@@ -188,6 +267,10 @@ export function resolveDestinations(input: {
  * something that could be a key in somebody's bucket. The last is
  * `safeNotePath`, which is the same gate the `?note=` query and the last-place
  * record go through, for the same reason: this string ends up in a write.
+ *
+ * A page that *is* a destination may still be one nobody may take, and those
+ * come back as an offer carrying a `refusal` rather than as `null` — see
+ * `refusalFor`.
  */
 function pageOffer(
   page: CurrentPage | null,
@@ -219,8 +302,71 @@ function pageOffer(
     */
     audience: yours ? ONLY_YOU : VISIBLE_TO_TEAM,
     tone: yours ? "quiet" : "warn",
-    refusal: capabilitiesForRole(context.role).canEdit ? null : READ_ONLY_REFUSAL,
+    refusal: refusalFor(context, folder),
   };
+}
+
+/**
+ * Why the page cannot be recorded into, or `null`.
+ *
+ * Three reasons, widest first. A context somebody may only read refuses *every*
+ * folder in it, so that sentence stays true at a folder the other two would
+ * also have refused; telling somebody who cannot write to any of it that the
+ * problem is the folder's name names the smaller problem.
+ *
+ * One function rather than a conditional inside the offer because a refusal is
+ * the thing this module exists to get right, and a reason added inline is a
+ * reason added without a test. Each arm has one.
+ */
+function refusalFor(context: DestinationContext, folder: string): string | null {
+  if (!capabilitiesForRole(context.role).canEdit) return READ_ONLY_REFUSAL;
+  if (folder === "") return CONTEXT_ROOT_REFUSAL;
+  if (!fileableFolder(folder)) return UNFILEABLE_FOLDER_REFUSAL;
+  return null;
+}
+
+/**
+ * `MAX_FOLDER_LENGTH` in `packages/meetings/src/paths.js`, restated.
+ *
+ * The bound is the gateway's and the reason for it is the gateway's — the whole
+ * key has to stay inside its 512-character path limit once the date folders and
+ * the filename are on the end. Restated rather than imported because the phone
+ * does not bundle that package; the test that holds the two together is named
+ * at the head of this file.
+ */
+const MAX_FOLDER_LENGTH = 128;
+
+/**
+ * Whether `normalizeMeetingFolder` would file a meeting into this folder.
+ *
+ * Not a re-implementation of it — this is the same question asked as a
+ * predicate, on a string that has already been through `safeNotePath`, so the
+ * traversal and control-character arms are not repeated here. What is left is
+ * exactly the four shapes that gate lets through and the gateway does not:
+ *
+ *  - **`..` anywhere in a segment**, not only a segment that *is* `..`. The
+ *    gateway's `normalizePath` refuses `..` anywhere in a key, and a folder
+ *    named `a..b` cost a real meeting: the claim wrote `a..b/YYYY/MM/….md` into
+ *    the session record and the note write then answered 400 `meeting_invalid`
+ *    — the code no client retries — for the life of that meeting.
+ *  - **A dot-prefixed segment.** `isPlumbing` hides those from every tool at
+ *    every tier, the owner's included, so the meeting would be invisible to the
+ *    person paying for the storage. The console's own tree never lists one, so
+ *    this arm is belt and braces about a listing rather than about a person.
+ *  - **A segment that is a note, or the legacy manifest.** A key inside a file
+ *    is a shape a filesystem-backed store cannot represent.
+ *  - **The length bound.** A folder nested deeply enough is a legal path to the
+ *    console and not one to the gateway.
+ */
+function fileableFolder(folder: string): boolean {
+  if (folder.length > MAX_FOLDER_LENGTH) return false;
+  return folder.split("/").every((segment) => {
+    if (segment === "") return true; // `normalizeRoot` collapses repeats.
+    if (segment.includes("..")) return false;
+    if (segment.startsWith(".")) return false;
+    if (segment.toLowerCase().endsWith(".md")) return false;
+    return segment.toLowerCase() !== "scopes.yml";
+  });
 }
 
 /**
