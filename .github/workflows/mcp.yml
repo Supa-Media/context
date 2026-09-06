@@ -44,6 +44,12 @@ on:
     branches: [main]
     paths:
       - "apps/mcp/**"
+      # The meetings core, because `Test Meetings Core` below is its only CI
+      # anywhere and a push run that skipped it would leave the package with
+      # none on `main`. The pull-request trigger has no filter and covers the
+      # normal path; this closes the direct-push one rather than leaving an
+      # asterisk on the sentence above.
+      - "packages/meetings/**"
       - ".github/workflows/mcp.yml"
 
 permissions:
