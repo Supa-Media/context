@@ -101,12 +101,8 @@ import {
   snippetLinesFor,
 } from "./search/visible.js";
 import { indexIsBehind, loadIndexManifest, syncShardedIndex } from "./search/shards.js";
-// The rank cap the R2 answer reports its own floor against, imported rather
-// than retyped: two search paths printing "50+" at different thresholds is a
-// rule stated twice with nothing running both.
-import { MAX_RESULTS } from "./search/query.js";
 import { createD1Client } from "./search/d1/client.js";
-import { searchProjection } from "./search/d1/serve.js";
+import { answerFromProjection } from "./search/d1/serve.js";
 import {
   D1_PASS_NOTE_CAP,
   censusFromManifest,
@@ -4263,18 +4259,27 @@ async function fastSearchAnswer(store, scope, rules, overrides, query, prefix, b
   if (!descriptor || descriptor.state !== "ready") return null;
   if (budget.remaining < FAST_SEARCH_FLOOR) return null;
 
-  let result;
+  let answer;
   try {
     const client = createD1Client(descriptor);
-    result = await searchProjection(client, {
+    answer = await answerFromProjection(client, {
       query,
       prefix,
       tier: scope,
+      // The gateway's own privacy engine, bound to this caller. Injected for
+      // the reason `searchIndexedNotes` takes `isVisible`: the console has its
+      // own, proven identical, and a copy inside the shared answer would be a
+      // third.
+      isVisible: (path) => canSee(path, scope, rules, overrides),
       budget,
       // Everything the fall-through would need is kept back, so a projection
       // that answers nothing has not spent the ops the R2 index is about to
       // want. A fast path that can starve the slow one is not a fast path.
       reserve: DEFERRED_SYNC_FLOOR,
+      onCounts: (candidates, visible) => {
+        trace.set("fastCandidates", candidates);
+        trace.set("fastVisible", visible);
+      },
     });
   } catch {
     // Every D1 failure is one of `client.js`'s closed-set codes and none of
@@ -4291,32 +4296,11 @@ async function fastSearchAnswer(store, scope, rules, overrides, query, prefix, b
     trace.set("fastError", true);
     return null;
   }
-  if (!result) return null;
-
-  // The boundary. Nothing below this line has seen a path the caller may not
-  // read, and the count is taken after the filter rather than before it.
-  const visible = result.notes.filter((note) => canSee(note.path, scope, rules, overrides));
-  trace.set("fastCandidates", result.notes.length);
-  trace.set("fastVisible", visible.length);
-  // A miss is not an answer. See the header, and `searchIndexedNotes`' own
-  // "a miss may pay for a listing, a hit never does".
-  if (visible.length === 0) return null;
-
-  return {
-    hits: visible.slice(0, SEARCH_RESULT_LIMIT).map((note) => ({
-      key: note.path,
-      title: note.title,
-      // One window rather than up to three whole lines: the projection stores
-      // the chunk, so this is the note's own text as it was copied, and the
-      // array shape is what `toolSearchNotes` already prints.
-      snippets: note.snippet ? [note.snippet] : [],
-    })),
-    matchCount: Math.min(visible.length, MAX_RESULTS),
-    // Two ways this is a floor and both are real: a table that filled its row
-    // cap had more to say, and a count at the reporting cap is the same
-    // "understating is the acceptable direction" rule the R2 answer applies.
-    matchCountIsFloor: result.truncated || visible.length >= MAX_RESULTS,
-  };
+  // `null` is "not answered", never "no results" — the caller falls through to
+  // the R2 index. The filter, the count-after-filter and the floor all live in
+  // `answerFromProjection`, shared with the console so the two surfaces cannot
+  // come to disagree about any of them.
+  return answer;
 }
 
 /**

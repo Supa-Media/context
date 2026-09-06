@@ -528,6 +528,72 @@ describe("the trigger", () => {
     expect(after?.status).toBe("ready");
   });
 
+  /**
+   * THE READ, AT THE BARRIER.
+   *
+   * `searchNotes` reading a projection is proved in `consoleSearch.test.ts`
+   * against a client handed to it. What only this level can prove is that
+   * `runFileOperation` OPENS one for a search at all, and — the half that
+   * matters — that it opens one only for a row the control plane has called
+   * `ready`.
+   *
+   * That gate reddened nothing until this test: every check in the suite
+   * either handed the client in directly or ran a projection pass, so
+   * `projectionTarget("ready")` could have asked for any state and no
+   * assertion would have moved. A projection that is still filling answers a
+   * query about a note it has not copied with a silence the reader takes for a
+   * miss, so a search over one costs a D1 round trip on every keystroke and
+   * returns nothing for it.
+   */
+  test("a search reads the projection once the row is ready, and not before", async () => {
+    const { t, workspaceId, d1 } = await opted({ notes: 3 });
+    await project(t, workspaceId);
+    expect(d1.paths()).toContain("1-projects/note-0.md");
+
+    const asked = () =>
+      d1.statements.filter((sql) => /^\s*SELECT[\s\S]*FROM notes_(private|team)_fts/i.test(sql));
+
+    // The row is `ready` after that pass. First the negative, from the state
+    // it was in before: a backfilling row is not read from.
+    await t.run(async (ctx) => {
+      const existing = await ctx.db
+        .query("searchIndexes")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      if (existing) await ctx.db.patch(existing._id, { status: "backfilling" });
+    });
+    d1.statements.length = 0;
+    const whileFilling = await t.action(internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private" as const,
+      operation: { kind: "search" as const, query: "quokkaplan" },
+    });
+    expect(asked()).toHaveLength(0);
+    // And it still answers, from the R2 index, which is what every context
+    // without fast search does.
+    expect(whileFilling.kind).toBe("searchResults");
+
+    await t.run(async (ctx) => {
+      const existing = await ctx.db
+        .query("searchIndexes")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      if (existing) await ctx.db.patch(existing._id, { status: "ready" });
+    });
+    d1.statements.length = 0;
+    const whenReady = await t.action(internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private" as const,
+      operation: { kind: "search" as const, query: "quokkaplan" },
+    });
+    expect(asked().length).toBeGreaterThan(0);
+    expect(whenReady.kind).toBe("searchResults");
+    // A read leaves the row exactly as it found it — no failure recorded, no
+    // counters moved. That asymmetry with a pass is deliberate: somebody typed
+    // a word, and their search must not be able to flip a provisioning row.
+    expect((await row(t, workspaceId))?.status).toBe("ready");
+  });
+
   test("the chain schedules its next link, and only while there is one to do", async () => {
     const { t, workspaceId } = await opted({ notes: 3 });
 

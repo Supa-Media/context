@@ -779,3 +779,58 @@ projection calls itself complete at 100 is a context whose *R2 index* knows
 about 100 and believes it is caught up. That is upstream of every line in the
 projection, needs the live manifest's `freshness` to diagnose, and is not
 fixable from a fixture.
+
+### …and the console asks the same projection, through the same answer
+
+`fileOps.ts`'s `searchNotes` already ran the gateway's `searchIndexedNotes`
+rather than a port of it, because "one search path" is a privacy rule and not a
+tidiness one. The projection needed the same treatment and did not have it: the
+gateway's reader lived inside `fastSearchAnswer` in `apps/mcp/src/index.js`,
+private to that module, so the console could only have got a fast path by
+copying it.
+
+**What would have been copied is the part that must not be.** Everything below
+the D1 query is a boundary: which rows a caller keeps, whether the count is
+taken before or after that filter, and whether an empty result is an answer. A
+second copy of those three decisions is a second place for each to be wrong,
+and the one that matters would be silent — a console counting candidates rather
+than visible notes tells a team member how many notes they may not read match
+their word.
+
+So `answerFromProjection` moved into `search/d1/serve.js` and both surfaces call
+it. `isVisible` is injected exactly as it is into `searchIndexedNotes`: the
+gateway's privacy engine is module-private and the control plane has its own,
+proven identical by `__tests__/privacyEngine.test.ts`, and a third copy inside
+the shared answer is the thing those two exist to avoid.
+
+**A read never writes the row**, and that asymmetry with a projection pass is
+why `runFileOperation` has two blocks rather than one. A pass that cannot reach
+its database must say so — a workspace sitting at "Preparing" with nothing to
+explain why is the bug that path exists to close. A search must do the opposite:
+somebody typed a word, and a deployment whose Cloudflare credential is missing
+must not have their search flip a provisioning row to `failed` as a side effect.
+It falls through to the R2 index, which is what every context without fast
+search does anyway.
+
+**Three of the six guards on this path were proved by nothing** when they were
+first written, and the fixtures had to change before the mutants moved:
+
+- **Removing `canSee` from the shared answer reddened 0.** A team caller queries
+  the team table alone, so a note projected `private` is not in the candidate
+  set and no filter is needed to keep it out. The window the filter actually
+  closes is the other one — a note projected at `team` and then made private,
+  whose team-tier rows survive until the next pass moves them — and no fixture
+  had one.
+- **Counting candidates instead of visible notes reddened 0**, for the same
+  reason: no query matched both a note a team caller could read and one they
+  could not, so the two numbers were never different.
+- **Asking for a `backfilling` row instead of a `ready` one reddened 0.** Every
+  check either handed a client in directly or ran a pass, so the state the
+  barrier asks for was never observed. It is observed now at the action level,
+  where the only thing that can prove it lives: `runFileOperation` must open a
+  projection for a search over a `ready` row and must not over a filling one.
+
+The tests that fail if any of this is reversed: `__tests__/consoleSearch.test.ts`
+(whose projection cases delete the R2 index first, because with both indexes
+present no assertion about paths or counts can say which one answered) and the
+read case in `__tests__/searchBackfill.test.ts`.

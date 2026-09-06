@@ -37,6 +37,8 @@ export interface StubD1 {
   visibilityOf(path: string): string | null;
   /** FTS rows for a path in one tier. */
   chunksIn(tier: "private" | "team", path: string): number;
+  /** Statements that CHANGED something, in order. Empty after a pure read. */
+  writes: string[];
   /** The backfill cursor, as the projection left it. */
   cursor(): string;
   /** Statements this database was asked to run, in order. */
@@ -61,27 +63,89 @@ export interface StubD1 {
  */
 export function stubD1(): StubD1 {
   const notes = new Map<string, Record<string, unknown>>();
+  /**
+   * The FTS rows, as text rather than as a count.
+   *
+   * The count was all these tests needed while the projection had no reader.
+   * Now that `searchNotes` asks it a question, a row has to be able to answer
+   * one — see `matchRows`.
+   */
+  interface Chunk {
+    path: string;
+    ord: number;
+    title: string;
+    text: string;
+  }
   const fts = {
-    private: new Map<string, number>(),
-    team: new Map<string, number>(),
+    private: [] as Chunk[],
+    team: [] as Chunk[],
   };
   const indexState = new Map<string, string>();
 
   const stub: StubD1 = {
     statements: [],
+    writes: [],
     fail: null,
     paths: () => [...notes.keys()].sort(),
     visibilityOf: (path) => (notes.get(path)?.visibility as string) ?? null,
-    chunksIn: (tier, path) => fts[tier].get(path) ?? 0,
+    chunksIn: (tier, path) => fts[tier].filter((chunk) => chunk.path === path).length,
     cursor: () => indexState.get("backfill_cursor") ?? "",
     client: { query, runAll },
   };
+
+  /**
+   * Answer one `searchSql` SELECT, and answer it BADLY on purpose.
+   *
+   * A whole-word AND over the row's text, with none of FTS5's ranking, its
+   * tokenizer, its snippet windows or its corpus statistics. Every property of
+   * the real query — `bm25` weights, the negative scores, the tier split's
+   * effect on ranking, what a chunk boundary does to a phrase — is proved
+   * against real SQLite in `apps/mcp/test/searchD1.test.mjs` and
+   * `searchProjection.test.mjs`, and re-proving it here against a model of my
+   * own assumptions would bless them rather than test them.
+   *
+   * What it exists for is the layer above: does the console CALL the
+   * projection, does its own `canSee` filter what comes back, does a miss fall
+   * through to the R2 index, and does a refused database leave a working
+   * search. Those are properties of `fileOps.ts`, and they need a row that can
+   * answer, not a row that is right.
+   */
+  function matchRows(sql: string, params: unknown[]): Record<string, unknown>[] {
+    const tier = sql.includes("notes_private_fts") ? "private" : "team";
+    const wanted = String(params[0] ?? "")
+      .split(/\s+/)
+      .map((token) => token.replace(/^"|"$/g, "").toLowerCase())
+      .filter((token) => token.length > 0);
+    // `substr(path, 1, length(?)) = ?` binds the prefix twice; the limit is
+    // always last.
+    const prefix = params.length > 2 ? String(params[1]) : "";
+    const limit = Number(params[params.length - 1]) || 25;
+
+    return fts[tier]
+      .filter((chunk) => chunk.path.startsWith(prefix))
+      .filter((chunk) => {
+        const haystack = `${chunk.title} ${chunk.text}`.toLowerCase();
+        const words = new Set(haystack.split(/[^\p{L}\p{N}_]+/u));
+        return wanted.every((token) => words.has(token));
+      })
+      .slice(0, limit)
+      .map((chunk, index) => ({
+        path: chunk.path,
+        ord: chunk.ord,
+        title: chunk.title,
+        // Negative, because SQLite's `bm25()` is, and `mergeHits` negates it
+        // back. A stub that returned positives would invert every ranking.
+        score: -1 - index / 1000,
+        snippet: chunk.text,
+      }));
+  }
 
   async function query(
     sql: string,
     params: unknown[] = [],
   ): Promise<Record<string, unknown>[]> {
     stub.statements.push(sql);
+    if (/^\s*(INSERT|DELETE|UPDATE|REPLACE|CREATE)/i.test(sql)) stub.writes.push(sql);
     if (stub.fail !== null) throw new D1Error(stub.fail);
 
     if (sql.includes("FROM index_state")) {
@@ -110,11 +174,11 @@ export function stubD1(): StubD1 {
       return [];
     }
     if (sql.startsWith("DELETE FROM notes_private_fts")) {
-      fts.private.delete(String(params[0]));
+      fts.private = fts.private.filter((chunk) => chunk.path !== String(params[0]));
       return [];
     }
     if (sql.startsWith("DELETE FROM notes_team_fts")) {
-      fts.team.delete(String(params[0]));
+      fts.team = fts.team.filter((chunk) => chunk.path !== String(params[0]));
       return [];
     }
     if (sql.startsWith("INSERT INTO notes (")) {
@@ -127,15 +191,19 @@ export function stubD1(): StubD1 {
       });
       return [];
     }
-    if (sql.startsWith("INSERT INTO notes_private_fts")) {
-      const path = String(params[0]);
-      fts.private.set(path, (fts.private.get(path) ?? 0) + 1);
+    if (sql.startsWith("INSERT INTO notes_private_fts") || sql.startsWith("INSERT INTO notes_team_fts")) {
+      // `upsertStatements` binds (path, ord, title, headings, tags, body).
+      const tier = sql.includes("notes_private_fts") ? "private" : "team";
+      fts[tier].push({
+        path: String(params[0]),
+        ord: Number(params[1]) || 0,
+        title: String(params[2] ?? ""),
+        text: [params[3], params[4], params[5]].map((part) => String(part ?? "")).join(" "),
+      });
       return [];
     }
-    if (sql.startsWith("INSERT INTO notes_team_fts")) {
-      const path = String(params[0]);
-      fts.team.set(path, (fts.team.get(path) ?? 0) + 1);
-      return [];
+    if (/^\s*SELECT[\s\S]*FROM notes_(private|team)_fts/i.test(sql)) {
+      return matchRows(sql, params);
     }
     // Loud rather than silent: a statement this stub does not model is a
     // projection doing something these tests are not checking at all.
