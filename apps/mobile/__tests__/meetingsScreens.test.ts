@@ -110,9 +110,13 @@ function has(container: HTMLElement, testId: string): boolean {
 }
 
 async function configure(
-  options: { recorder?: ReturnType<typeof fakeRecorder> | ReturnType<typeof notesOnlyRecorder> } = {},
+  options: {
+    recorder?: ReturnType<typeof fakeRecorder> | ReturnType<typeof notesOnlyRecorder>;
+    /** A folder this run's gateway will not file into. Drives the fallback. */
+    refusesFolder?: (folder: string) => boolean;
+  } = {},
 ) {
-  const gateway = fakeGateway();
+  const gateway = fakeGateway({ refusesFolder: options.refusesFolder });
   const recorder = options.recorder ?? fakeRecorder();
   await act(async () => {
     meetings.reset();
@@ -479,6 +483,64 @@ describe("`saved` is said only when there is a path to print", () => {
     // And the person's own words are on the screen, which is the point of
     // showing them: they can see what survived.
     expect(mounted.container.textContent).toContain("typed underground");
+    mounted.unmount();
+  });
+
+  test("a folder the context would not file into is said on the screen, not swallowed", async () => {
+    /*
+      `IngestAck.folderRejected` and the sentence it is for. The gateway falls
+      back to the default rather than losing the meeting over one bad string —
+      that trade is right, and it is only right if the person is told, because
+      a fallback nobody hears about is exactly the destination control that
+      appears to work and does nothing.
+
+      The path is still printed and still says `Saved to your bucket`, because
+      it is: the note exists and this is where it is. What is added is why it is
+      not where they pointed.
+    */
+    await configure({ refusesFolder: (folder) => folder === "2-areas/private" });
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({
+        title: "Reboot Camp",
+        destination: {
+          kind: "currentPage",
+          contextSlug: "me",
+          folder: "2-areas/private",
+          label: "2-areas/private",
+        },
+      });
+      await meetings.end();
+    });
+
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(mounted.container.textContent).toContain("Saved to your bucket");
+    expect(mounted.container.textContent).toContain("not the folder you chose");
+    // And never the folder it refused: the ack carries no copy of it, so
+    // neither can the screen.
+    expect(mounted.container.textContent).not.toContain("2-areas/private");
+    mounted.unmount();
+  });
+
+  test("a folder that was honoured says nothing about folders at all", async () => {
+    await configure();
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({
+        title: "Reboot Camp",
+        destination: {
+          kind: "currentPage",
+          contextSlug: "me",
+          folder: "1-projects/portal",
+          label: "1-projects/portal",
+        },
+      });
+      await meetings.end();
+    });
+
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(mounted.container.textContent).toContain("Saved to your bucket");
+    expect(mounted.container.textContent).not.toContain("not the folder you chose");
     mounted.unmount();
   });
 
