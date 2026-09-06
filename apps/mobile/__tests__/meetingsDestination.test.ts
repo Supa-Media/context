@@ -28,34 +28,34 @@ import { memoryStore } from "../features/offline/memory";
  * Each of these was applied to `destination.ts`, the suite was run, the named
  * test failed, and the change was reverted.
  *
- *  1. Default to the current page instead of the personal inbox — return the
- *     page's index from `selectedIndex` when nothing is remembered.
- *     → `the default is the viewer's own inbox, even inside a shared workspace`
- *     and `the default is the viewer's own inbox, even standing in a colleague's
- *     brain` both fail.
- *  2. Report a shared page as `Only you` — drop the `own` comparison and key
- *     the audience off `kind === "personal"` alone.
- *     → `a shared page names who will see it, in a warning tone` fails.
- *  3. Take a note's own path as the folder — drop the `parentPath` call.
+ *  1. `preselect` returns `offers.length - 1` rather than `0` when nothing is
+ *     remembered — the current page becomes the default.
+ *     → 3 fail, including both halves of the rule: `the default is the viewer's
+ *     own inbox, even inside a shared workspace` and `… even standing in a
+ *     colleague's brain`.
+ *  2. `const yours = context.kind === "personal"` — the audience keyed off the
+ *     kind alone rather than off whose context it is.
+ *     → `a page in somebody else's brain names an audience too` fails. Worth
+ *     noting: the *shared-workspace* test does not catch this one, because a
+ *     shared context is not `personal` either way. The case that fails is the
+ *     colleague's brain, which is why it has a test of its own.
+ *  3. `const folder = page.path` — the `parentPath` call dropped.
  *     → `a note resolves to the folder it sits in, so the meeting lands beside
  *     it` fails.
- *  4. Offer the page when there is none — synthesise a page offer from the
- *     first context when `page` is null.
- *     → `with no page open there is one offer, and it is the inbox` fails.
- *  5. Treat any personal context as the viewer's brain — drop the `role`
- *     half of `ownPersonalContext`'s rule by resolving against the first
- *     `kind === "personal"` entry.
+ *  4. `pageOffer` synthesises a page from the first context when handed `null`.
+ *     → `with no page open there is one offer, and it is the inbox` and `a
+ *     remembered choice for somewhere else is not offered on its own` fail.
+ *  5. `input.contexts.find((c) => c.kind === "personal")` in place of
+ *     `ownPersonalContext` — the `role` half of ownership dropped.
  *     → `somebody who owns no brain is offered the claim, not a recording`
  *     fails.
- *  6. Hide a read-only page instead of refusing it — drop the offer when
- *     `canEdit` is false.
- *     → `a read-only page is offered and refused, never hidden` fails.
- *  7. Let a remembered choice select a refused row — drop the `refusal === null`
- *     half of the match.
+ *  6. `pageOffer` returns `null` when `canEdit` is false — the read-only page
+ *     hidden rather than refused.
+ *     → 3 fail, led by `a read-only page is offered and refused, never hidden`.
+ *  7. The `offer.refusal === null` half of `preselect`'s match dropped.
  *     → `a remembered choice that has gone read-only falls back to the inbox`
  *     fails.
- *  8. Trust the stored record — return the parsed JSON from `recallDestination`
- *     without re-validating the slug and the folder.
+ *  8. `recallDestination` returns the parsed JSON without re-validating.
  *     → `a remembered destination is re-validated on the way out of the device`
  *     fails.
  */
