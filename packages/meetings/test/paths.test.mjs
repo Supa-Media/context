@@ -326,6 +326,37 @@ export function runPathChecks(check) {
   check("...and a trailing pair reads the same way", normalizeMeetingFolder("team..") === null);
   check("a single dot inside a name is still a folder somebody may have", normalizeMeetingFolder("2-areas/v1.2") === "2-areas/v1.2");
   /*
+    AND THE SAME SEGMENT PERCENT-ENCODED, WHICH THE RULE ABOVE DOES NOT REACH.
+
+    The rule above compares raw text, and so does the gateway's `normalizePath`
+    — so those two agree, which is what the paragraph above is about. **The
+    layer that refuses the key is neither of them.** The storage adapter's
+    `describeKeyProblem` percent-DECODES each segment before comparing, so
+    `%2e%2e` is a `".."` segment there and nowhere earlier.
+
+    What that costs is smaller than the raw case above and worth stating
+    exactly, because the first draft of this block said "wedged" and that was
+    wrong. Measured through the real worker: the refusal happens in `store.get`
+    inside `unclaimedNotePath`, which runs INSIDE the claim mutator — so the
+    session record is never written, no path is claimed, and a later finalize
+    succeeds at the default folder. Nothing is lost. What is wrong is the
+    answer: a deterministic failure comes back `503 "retry with backoff"`, so a
+    client repeating the same body retries forever instead of getting the 200
+    and `folderRejected` this fallback exists to give it.
+
+    EQUALITY, not `includes`, and the asymmetry with the raw rule is
+    deliberate: nothing downstream refuses `a%2e%2eb`, because the adapter
+    decodes and compares whole segments. The last check is that half, and it is
+    the one that fails if somebody "tidies" this into the rule above.
+  */
+  check("a segment that decodes to `..` is refused, because the adapter decodes", normalizeMeetingFolder("%2e%2e") === null);
+  check("...in any case, and at any depth", normalizeMeetingFolder("ok/%2E%2E") === null);
+  check("...and a segment that decodes to `.` the same way", normalizeMeetingFolder("%2e") === null);
+  check(
+    "but an encoded pair INSIDE a name is a folder, because the adapter accepts that key",
+    normalizeMeetingFolder("a%2e%2eb") === "a%2e%2eb"
+  );
+  /*
     `scopes.yml` is the legacy privacy source of truth and `isPlumbing` refuses
     it by name, exactly as it refuses `privacy.md`. The `.md` rule already
     catches the second; nothing caught the first, and on a filesystem-backed
