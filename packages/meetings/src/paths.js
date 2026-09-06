@@ -171,13 +171,14 @@ export function normalizeRoot(root) {
  * ## What a folder needs on top of what a root needs
  *
  * A root is chosen once by the customer, in their own binding. A folder
- * arrives on a request, so four refusals are added and each has a reason a
- * root does not have. (It said three, and has listed four since the `..` rule
- * was added to close a real defect — a count that stops matching its own list
- * is how the rule underneath it stops being read.) A fifth is the empty string,
- * argued at the check rather than here, because there it is a difference of
- * *meaning* from `normalizeRoot` rather than an addition to it: "no prefix at
- * all" is a legal root and is not a folder.
+ * arrives on a request, so five refusals are added and each has a reason a
+ * root does not have. (It said three, then four, and the count has been wrong
+ * once already for a rule that had been added below it — **a count that stops
+ * matching its own list is how the rule underneath it stops being read**, and
+ * that tripwire has now fired twice.) A sixth is the empty string, argued at
+ * the check rather than here, because there it is a difference of *meaning*
+ * from `normalizeRoot` rather than an addition to it: "no prefix at all" is a
+ * legal root and is not a folder.
  *
  *  - **Dot-prefixed segments.** `isPlumbing` hides every dot-segment from
  *    every tool at every tier, the owner's included, so a meeting filed under
@@ -187,10 +188,17 @@ export function normalizeRoot(root) {
  *    the legacy privacy manifest, not a folder, and a meeting filed "inside"
  *    one is a key that shadows a file — which a filesystem-backed store cannot
  *    even represent.
- *  - **`..` anywhere in a segment**, not only a segment that *is* `..`. This
- *    is the gateway's `normalizePath` rule rather than `normalizeRoot`'s, and
- *    the two have to agree; see the comment at the check for what accepting
- *    `a..b` cost.
+ *  - **`..` anywhere in a RAW segment**, not only a segment that *is* `..`.
+ *    This is the gateway's `normalizePath` rule rather than `normalizeRoot`'s,
+ *    and the two have to agree; see the comment at the check for what
+ *    accepting `a..b` cost.
+ *  - **A DECODED segment equal to `.` or `..`.** A separate rule from the one
+ *    above and answerable to a different layer: the storage adapter's
+ *    `describeKeyProblem` percent-decodes before it compares, so `%2e%2e` is a
+ *    `".."` segment there and at neither of the two above. Equality rather
+ *    than "anywhere", because the adapter compares whole segments and
+ *    `a%2e%2eb` is a key it accepts — see the check for why the asymmetry with
+ *    the raw rule is the point rather than an oversight.
  *  - **Control characters, and a length bound.** This string reaches a
  *    listing, an audit row and somebody's file browser.
  *
@@ -244,8 +252,8 @@ export function normalizeMeetingFolder(folder) {
     */
     if (segment.includes("..")) return null;
     /*
-      And the same rule on the DECODED segment, because the layer that actually
-      refuses the write is neither this one nor `normalizePath`.
+      And the same rule on the DECODED segment, because the layer that refuses
+      the key is neither this one nor `normalizePath`.
 
       Both of those compare raw text, and they agree with each other — which is
       what the paragraph above is about. The adapter's `describeKeyProblem`
