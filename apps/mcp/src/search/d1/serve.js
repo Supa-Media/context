@@ -97,16 +97,40 @@ export async function searchProjection(
   }
 
   const options = { limit: chunkCap, prefix };
+
+  /*
+   * **Every op taken before any query starts, and then all of them at once.**
+   *
+   * The two halves are independent — separate tables, separate statements —
+   * so awaiting them one at a time bought nothing and cost a round trip. That
+   * matters more here than anywhere else in the search: this client talks to
+   * D1 over Cloudflare's HTTP API rather than a native binding, because the
+   * databases are created per workspace at runtime and a Worker's D1 bindings
+   * are fixed at deploy time. So a tier is a full HTTPS request, and a
+   * personal connection reads both — which made the fast path's floor two
+   * round trips when its whole claim is to be one.
+   *
+   * The budget is settled first, for the reason `walkReserve` exists: a
+   * reserve taken out of what the previous stage happened to leave is not a
+   * reserve. And a table this pass cannot afford means `null` for the whole
+   * answer, not the rows gathered so far — a personal caller's corpus is
+   * legitimately both tables, and answering out of one of them would rank
+   * every hit against a corpus half the notes are missing from. That is a
+   * plausible, quietly wrong order instead of a slow correct one; half a
+   * corpus is not a smaller answer, it is a different question.
+   */
+  if (budget) {
+    for (let n = 0; n < tables.length; n += 1) {
+      if (!budget.take(reserve)) return null;
+    }
+  }
+  const answers = await Promise.all(
+    tables.map((table) => client.query(searchSql(table, options), searchParams(match, options)))
+  );
+
   const rows = [];
   let truncated = false;
-  for (const table of tables) {
-    // `null`, not the rows gathered so far. A personal caller's corpus is
-    // legitimately both tables, and answering out of one of them would rank
-    // every hit against a corpus half the notes are missing from — a
-    // plausible, quietly wrong order instead of a slow correct one. Half a
-    // corpus is not a smaller answer, it is a different question.
-    if (budget && !budget.take(reserve)) return null;
-    const answered = await client.query(searchSql(table, options), searchParams(match, options));
+  for (const answered of answers) {
     // A table that filled its cap may have had more to say. Reported rather
     // than hidden, because the count above this becomes "N+" and not "N".
     if (answered.length >= chunkCap) truncated = true;

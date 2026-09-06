@@ -834,3 +834,56 @@ The tests that fail if any of this is reversed: `__tests__/consoleSearch.test.ts
 (whose projection cases delete the R2 index first, because with both indexes
 present no assertion about paths or counts can say which one answered) and the
 read case in `__tests__/searchBackfill.test.ts`.
+
+### One round trip, and why it cannot be zero
+
+The fast path cost three round trips when it shipped: the manifest, then the
+private tier, then the team tier. It costs one.
+
+**The tiers go out together.** They are independent statements against separate
+tables and awaiting them one at a time bought nothing. The budget is settled for
+every table *before* any query starts, for the reason `walkReserve` exists — a
+reserve taken out of what the previous stage happened to leave is not a reserve
+— and a table the pass cannot afford means `null` for the whole answer rather
+than the rows already gathered. A personal caller's corpus is legitimately both
+tables; answering out of one of them ranks every hit against a corpus half the
+notes are missing from, which is a plausible, quietly wrong order instead of a
+slow correct one.
+
+**The manifest moved behind the response.** The reconcile clock still needs it —
+without a manifest `indexNeedsAPass` reads "no index at all" and re-lists the
+whole bucket behind every fast search — but nothing the caller waits for does.
+So `maintainIndexAfter` now accepts a *function* for `found` and resolves it
+inside the deferred work. The cost is stated rather than hidden: with nothing
+resolved yet it cannot know whether there is anything to do, so it always
+reports `deferred`, and "nothing to do" becomes a `waitUntil` that reads a
+manifest and stops. One read behind the response in place of one in front of it.
+
+What the answer then says about freshness is `indexIncomplete: false`, and it is
+entitled to: the projection is only read at `state: "ready"`, and the control
+plane sets that exactly when `notesPending === 0` — a number that already
+includes whatever the R2 index had not reached. A `ready` projection *is* a
+statement that the index was caught up when the last pass measured it, so
+reading the manifest to re-derive it was work nobody needed.
+
+**And it cannot be zero, because there is no D1 binding to have.** A Worker's
+D1 bindings are declared in `wrangler.toml` and resolved at deploy time; there
+is no runtime call that opens a database by id. Fast search creates one database
+per opted-in workspace at runtime, so binding them would mean a redeploy per
+customer who flips the switch, and then a ceiling — bindings are capped per
+Worker in the low thousands, which is a number of *customers*. The HTTPS request
+is therefore the floor for this architecture rather than an interim step, and
+"a REST backend and a binding backend" is closed as **won't build**, not
+deferred.
+
+The one design that would remove the round trip is a single database for every
+tenant with a `workspaceId` column, and that is refused above for a reason no
+amount of latency outweighs: FTS5 computes corpus statistics over a whole table,
+so one shared table ranks every customer's search against every other
+customer's vocabulary.
+
+What remains on the critical path of a hit is `privacy.md`, which every request
+reads to build the privacy engine, and the D1 queries themselves — asserted in
+`test/searchProjection.test.mjs`, which counts index reads before and after the
+response separately, because a count over the whole fixture cannot tell the two
+apart.
