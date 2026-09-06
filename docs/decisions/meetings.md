@@ -771,21 +771,28 @@ backslashes, separators — and two implementations of "does this escape its
 bucket" is how one of them ends up weaker. `slugifyTitle` is the wrong half of
 the precedent: it *maps* rather than refuses, so `2-areas/team` would come back
 as `2-areas-team` and the note would be filed into a folder nobody named. What a
-folder needs on top of what a root needs is six rules with six reasons: no
+folder needs on top of what a root needs is seven rules with seven reasons: no
 dot-prefixed segment, because `isPlumbing` hides those from every tool at every
 tier including the owner's, so the meeting would be invisible to the person
-whose storage bill it is; no segment that is itself a note; a length bound
-keeping the whole key inside the gateway's own 512-character path limit;
+whose storage bill it is; no segment that is itself a note or the legacy
+`scopes.yml` manifest; no control characters, because this string reaches a
+listing, an audit row and somebody's file browser; a length bound keeping the
+whole key inside the gateway's own 512-character path limit;
 **no `..` anywhere inside a segment**, not merely a segment that *is* `..`;
 **no segment that percent-decodes to `.` or `..`**, because the storage adapter
 decodes before it compares and neither of the two rules above does; and **no
 whitespace at either end of the result**, which is not a rule about folders at
 all but about this function — see below.
 
-That fourth rule is the one that closed a real defect, and this paragraph said
+The `..` rule is the one that closed a real defect, and this paragraph said
 "three rules with three reasons" and never mentioned it. **The count has since
-been wrong twice more**, once per rule added below it, which is the argument
-for reading a count as a checklist rather than as prose. `normalizeRoot` refuses
+been wrong three times more**: once per rule added below it, and then once
+without any rule being added at all — review counted this list against the code
+and found it had never mentioned control characters, while the docblock reached
+its own "six" by pairing that refusal with the length bound. Two lists counting
+the same seven rules two ways is how one of them drops one, which is the
+argument for reading a count as a checklist against the code rather than as
+prose. `normalizeRoot` refuses
 the traversal *shapes*, which is the right rule for a prefix; the gateway's own
 `normalizePath` is blunter and refuses `..` anywhere in a key at all. So `a..b`
 passed the folder check, the claim wrote `a..b/YYYY/MM/….md` into the session

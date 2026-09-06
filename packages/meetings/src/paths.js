@@ -171,16 +171,20 @@ export function normalizeRoot(root) {
  * ## What a folder needs on top of what a root needs
  *
  * A root is chosen once by the customer, in their own binding. A folder
- * arrives on a request, so six refusals are added and each has a reason a
- * root does not have. (It said three, then four, then five, and the count has
- * been wrong twice for a rule that had been added below it — **a count that
- * stops matching its own list is how the rule underneath it stops being
- * read**, and that tripwire has now fired three times — the third being the
- * commit that added the sixth rule and left the count at five.) A seventh is
+ * arrives on a request, so seven refusals are added and each has a reason a
+ * root does not have. (It said three, then four, then five, then six, and the
+ * count has been wrong three times for a rule that had been added below it —
+ * **a count that stops matching its own list is how the rule underneath it
+ * stops being read**, the third firing being the commit that added the
+ * whitespace rule and left the count at five. It says seven rather than six
+ * for a different reason, and the fourth firing of the same tripwire: this
+ * list paired "control characters" with "a length bound" as one refusal, and
+ * `docs/decisions/meetings.md`, counting the same code its own way, reached
+ * six while never mentioning control characters at all. A grouping that lets
+ * one of the pair go missing is not a grouping. They are two.) An eighth is
  * the empty string, argued at the check rather than here, because there it is
- * a difference of *meaning*
- * from `normalizeRoot` rather than an addition to it: "no prefix at all" is a
- * legal root and is not a folder.
+ * a difference of *meaning* from `normalizeRoot` rather than an addition to
+ * it: "no prefix at all" is a legal root and is not a folder.
  *
  *  - **Dot-prefixed segments.** `isPlumbing` hides every dot-segment from
  *    every tool at every tier, the owner's included, so a meeting filed under
@@ -201,8 +205,11 @@ export function normalizeRoot(root) {
  *    than "anywhere", because the adapter compares whole segments and
  *    `a%2e%2eb` is a key it accepts — see the check for why the asymmetry with
  *    the raw rule is the point rather than an oversight.
- *  - **Control characters, and a length bound.** This string reaches a
- *    listing, an audit row and somebody's file browser.
+ *  - **Control characters.** This string reaches a listing, an audit row and
+ *    somebody's file browser.
+ *  - **A length bound**, keeping the whole key inside the gateway's own
+ *    512-character path limit. Checked on the raw input, which is never
+ *    shorter than the result, so a second pass cannot flip it.
  *  - **A result with whitespace at either END.** Not a rule about folders but
  *    about this function: `normalizeRoot` trims the whole string, so a result
  *    the next pass would trim is a result this function does not accept back —

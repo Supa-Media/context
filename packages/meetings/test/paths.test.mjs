@@ -71,6 +71,8 @@
  * separators.
  */
 
+import { readFileSync } from "node:fs";
+
 import {
   MAX_FOLDER_LENGTH,
   MAX_SLUG_LENGTH,
@@ -472,12 +474,19 @@ export function runPathChecks(check) {
     cost: **36 folders that are stable, build a path, and are accepted by every
     layer downstream**. A whole-string trim only removes whitespace at the two
     ENDS, so only a leading space in the first segment or a trailing space in
-    the last is unstable. **The last TWO checks are that distinction** and are
-    what fails — measured, 2 red, by reverting to it — if somebody
-    "simplifies" this back to a per-segment rule. Everything above them in this
-    block stays green under either variant, so it is context rather than part
-    of the pin; saying "three" described the guard as wider than it is, which
-    is the same shape of error as the rule it guards.
+    the last is unstable. **The two INNER-segment accepted checks below —
+    `2-areas/ team` and `ok/a /b` — are that distinction**, and are the whole
+    of what fails, measured 2 red by reverting to it, if somebody "simplifies"
+    this back to a per-segment rule. Every other check in this block, above
+    them and below, stays green under either variant, so it is context rather
+    than part of the pin.
+
+    That sentence has now been wrong twice about its own guard, both times by
+    locating it positionally: "the last three checks" when a check had been
+    inserted, then "the last TWO checks" when the two property checks sit
+    below them. Naming the shapes is the fix — a position moves when somebody
+    adds a check, and the description of a guard that quietly stops describing
+    it is the same defect as the rule this block guards.
 
     Brute-forced over `a / space tab . % 2 e` to depth 4 — 4,680 shapes: 132
     non-idempotent and 20 throwing before, 0 and 0 after.
@@ -540,5 +549,50 @@ export function runPathChecks(check) {
     for (let depth = 1; depth <= 4; depth += 1) walk("", depth);
     check("every folder this accepts, it accepts again — 4,680 shapes", unstable === 0);
     check("...and every one of them builds a path rather than throwing", threw === 0);
+  }
+
+  /*
+    THE COUNT TRIPWIRE, MEASURED INSTEAD OF WRITTEN DOWN.
+
+    The docblock over `normalizeMeetingFolder` says how many refusals it adds
+    on top of `normalizeRoot`, and `docs/decisions/meetings.md` says the same
+    number in prose. **That number has been wrong four times**: three times
+    because a rule was added below it and the count was not touched, and once
+    because the two lists counted the same code different ways — the doc
+    reached "six" while never mentioning control characters at all, and the
+    docblock reached "six" by pairing control characters with the length bound,
+    so a refusal could go missing from one list and the arithmetic still
+    worked.
+
+    A tripwire only works if somebody looks at it, and for four rounds nobody
+    did. This is the looking. It pins three things to each other: the number
+    the docblock states, the number of bullets the docblock actually lists,
+    and the number the decision doc states.
+
+    WHAT IT DOES NOT CATCH, said plainly rather than left to be assumed: a
+    refusal added to the FUNCTION with no bullet written for it. Counting
+    `return null` branches out of the source would be counting the wrong
+    thing — `typeof folder !== "string"` and the empty-string arm are not
+    "rules a folder needs on top of a root" — and a guard that miscounts is
+    worse than none. So this catches the failure that actually happened, four
+    times, and the reviewer who adds a rule still has to write its bullet.
+  */
+  {
+    const numbers = { three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+    const source = readFileSync(new URL("../src/paths.js", import.meta.url), "utf8");
+    const decision = readFileSync(new URL("../../../docs/decisions/meetings.md", import.meta.url), "utf8");
+
+    const stated = numbers[(/so (\w+) refusals are added/.exec(source) ?? [])[1]];
+    const docblock = source.slice(
+      source.indexOf("## What a folder needs on top of what a root needs"),
+      source.indexOf(" * The refusal is a `null` and never a thrown message")
+    );
+    const bullets = (docblock.match(/^ \*  - \*\*/gm) ?? []).length;
+    const inDecision = numbers[(/is (\w+) rules with \1 reasons/.exec(decision) ?? [])[1]];
+
+    check("the docblock states a refusal count at all", stated !== undefined);
+    check("...and lists exactly that many bullets", bullets === stated);
+    check("...and the decision doc states the same number", inDecision === stated);
+    check("...and it is seven, so a change to any of the three shows up here", stated === 7);
   }
 }
