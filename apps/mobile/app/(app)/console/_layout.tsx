@@ -50,7 +50,11 @@ import { dirtyCount, isTabDirty } from "../../../features/console/files/tabs";
 import { isDirty } from "../../../features/console/files/editor";
 import { useUnsavedGuard } from "../../../features/console/files/useUnsavedGuard";
 import { atName } from "../../../features/console/format";
+import { ContextStrip } from "../../../features/console/ContextStrip";
+import { useContextHref, useContextPlaces } from "../../../features/console/useLastPlace";
+import { useMeetingFlow } from "../../../features/meetings/useMeetingFlow";
 import {
+  browseHref,
   hrefFor,
   resolveContextRoute,
   routeForPath,
@@ -340,6 +344,23 @@ export default function ConsoleLayout() {
       ? selectedEntry
       : null;
 
+  const places = useContextPlaces();
+  const contextHrefFrom = useContextHref(data.contexts);
+  const { startMeetingFlow, sheet: meetingSheet } = useMeetingFlow({
+    contexts: data.contexts,
+    page: insideContext && current
+      ? {
+          contextSlug: current.slug,
+          // The note when one is open, else the folder standing in for it —
+          // the same `targetFolder` rule the `+` key uses, so "this page" and
+          // "new note here" can never mean two different folders.
+          path: data.files.selectedPath ?? "",
+          isNote: selectedEntry?.kind === "file",
+        }
+      : null,
+    onClaimName: data.demo ? undefined : () => router.push(WELCOME_ROUTE),
+  });
+
   /**
    * Where the control is and where a press takes it.
    *
@@ -402,17 +423,14 @@ export default function ConsoleLayout() {
           )
         }
         /*
-          The same words the chip draws, as a string. `AppFrame` cannot read
-          them off the node — and on native it could not derive them from the
-          rendered text either; see `switcherLabel`.
+          No `switcherLabel`.
+
+          It was the accessible name of the control that pulled the rail in as
+          a sheet on a phone, and it had to be a string because a *pressable*
+          cannot derive its name from its own content on native. There is no
+          such control now: at compact the panels are gone and the chip is a
+          label again, which reads its own text. The prop went with the reader.
         */
-        switcherLabel={
-          insideContext
-            ? [contextLabel, current?.kind].filter(Boolean).join(", ")
-            : data.loading
-              ? "Your context"
-              : `Your context, ${data.contexts.length} reachable`
-        }
         /*
           Absent on a phone, where both chips have moved to the foot of the file
           tree — see `ContextFoot` and `Explorer`'s `vault` slot.
@@ -515,6 +533,46 @@ export default function ConsoleLayout() {
           )
         }
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
+        /*
+          A phone's navigation, in the one row it always has in front of it.
+
+          The account is pinned so it never scrolls away — it is the only
+          sign-out control in the product, and a control you have to scroll to
+          find is one somebody concludes is missing. The strip flexes beside
+          it and scrolls; the trailing capsule is untouched, because the scope
+          and Share act on what is on screen and were never navigation.
+        */
+        accountSlot={<Account data={data} compact touch />}
+        contextStrip={
+          <ContextStrip
+            contexts={data.contexts}
+            currentSlug={current?.slug ?? null}
+            recent={places}
+            loading={data.loading}
+            /*
+              Resolved at press time, never when the strip rendered: the log
+              moves on every navigation, so an href worked out at render is
+              the answer to where somebody was two contexts ago.
+
+              This is what keeps a switch on the path you had open there
+              rather than dropping you at the root. `contextHrefFrom` falls
+              back to the root on its own when nothing is remembered, when the
+              slug is no longer reachable, or when the path does not resolve.
+            */
+            onOpen={(slug) => router.replace(contextHrefFrom(slug))}
+            onSelect={(next) => {
+              if (!sameRoute(next, route)) router.replace(hrefFor(next));
+            }}
+            onLeaveContext={(id) => {
+              void data.leaveContext?.(id);
+              router.replace("/console");
+            }}
+            onClaimContext={data.demo ? undefined : () => router.push(WELCOME_ROUTE)}
+            onCreateWorkspace={
+              data.demo ? undefined : () => router.push(NEW_WORKSPACE_ROUTE)
+            }
+          />
+        }
         rail={(mode) => <Rail data={data} route={route} mode={mode} />}
         /*
           `browsing`, not `insideContext`.
@@ -597,6 +655,7 @@ export default function ConsoleLayout() {
               onSearch={() => setPaletteOpen(true)}
               onOpenTabs={() => setSwitcherOpen(true)}
               onNewNote={(folder) => setBarDialog({ kind: "newNote", folder })}
+              onStartMeeting={startMeetingFlow}
             />
           ) : undefined
         }
@@ -694,6 +753,13 @@ export default function ConsoleLayout() {
             onDismiss={() => setPaletteOpen(false)}
           />
         ) : null}
+        {/*
+          The meeting sheet, rendered once and inside the frame so it sits over
+          the console the way every other overlay here does. It is `null` until
+          the microphone key is pressed, and it is what opens the microphone —
+          not the key.
+        */}
+        {meetingSheet}
       </AppFrame>
     </ConsoleDataProvider>
   );
@@ -982,6 +1048,7 @@ function ConsoleBottomBar({
   onSearch,
   onOpenTabs,
   onNewNote,
+  onStartMeeting,
 }: {
   data: ConsoleData;
   tabs: ReturnType<typeof useTabs>;
@@ -992,6 +1059,8 @@ function ConsoleBottomBar({
   onOpenTabs: () => void;
   /** Raises the naming dialog for a destination — see the `new` action. */
   onNewNote: (folder: string) => void;
+  /** Opens the meeting destination sheet. It does not start recording. */
+  onStartMeeting: () => void;
 }) {
   const files = data.files;
   // The same rule the explorer's own `+` uses, from the same function: a
@@ -1120,6 +1189,26 @@ function ConsoleBottomBar({
           disabled: files.editor.status !== "dirty",
           marker: files.editor.status === "dirty",
           onPress: files.save,
+        },
+        /*
+          The seventh key, and the only one here that is not about the note.
+
+          `BottomBar`'s rule was "navigation is not its job", written when the
+          rail was where destinations lived. The rail is gone from a phone, and
+          this row is the one surface a thumb is always on — so exactly one
+          destination sits here, last, behind a separator that says the six
+          before it are a group and this is not.
+
+          It asks before it records. `startMeetingFlow` opens the sheet that
+          names where the notes will land and what happens to the audio; the
+          microphone opens only when somebody confirms there.
+        */
+        {
+          id: "meeting",
+          label: "Record a meeting",
+          icon: "mic" as const,
+          separated: true,
+          onPress: onStartMeeting,
         },
       ]}
     />

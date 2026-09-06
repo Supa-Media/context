@@ -1,7 +1,6 @@
 import { Stack } from "expo-router";
 import { View, StyleSheet } from "react-native";
 import { useColors } from "../../../features/design/theme";
-import { useMeetingsSetup } from "../../../features/meetings/useMeetings";
 
 /**
  * The meetings navigator, and the one place this feature is switched on.
@@ -12,21 +11,26 @@ import { useMeetingsSetup } from "../../../features/meetings/useMeetings";
  * check here would be a second copy of a rule with one correct implementation.
  * `workspace/_layout.tsx` says the same thing about itself.
  *
- * It does two things:
+ * It does one thing: a `Stack` painting the app's own ground, so nothing
+ * flashes white on the way in.
  *
- *  1. A `Stack` painting the app's own ground, so nothing flashes white on the
- *     way in.
- *  2. `useMeetingsSetup`, which points the controller at the signed-in person's
- *     default context and reads whatever is already on the device. It is here
- *     rather than on each screen so that the list, a live meeting and a
- *     finished note share one configuration.
+ * **It no longer calls `useMeetingsSetup`.** That used to live here, and the
+ * paragraph below already records why the transcription client had to leave
+ * for the same reason — this layout unmounts the moment somebody leaves
+ * `/meetings/*`, which is the wrong half of the app for anything a recording
+ * outlives. The setup is now mounted once in `app/(app)/_layout.tsx`, beside
+ * the bar and the transcription client.
  *
- * **It does not install the transcription client either.** That used to be
- * inside `useMeetingsSetup`, which put it on the half of the app that does *not*
- * outlive a recording: this layout unmounts the moment somebody leaves
- * `/meetings/*`, and from the next chunk on the recorders had nowhere to send.
- * `useTranscriptionClient` is now called beside the bar, in
- * `app/(app)/_layout.tsx`, for the same reason the bar is there.
+ * There is a second reason now, and it is why the last one moved rather than
+ * being duplicated: the console's microphone key can start a meeting without
+ * `/meetings` ever having been mounted, so the controller has to be pointed at
+ * the signed-in person *before* that key is pressed. A setup that only runs
+ * once somebody has visited the meetings list is a setup that is missing
+ * exactly when the new entry point needs it.
+ *
+ * **It does not install the transcription client either**, for the reason
+ * above; `useTranscriptionClient` is called beside the bar, in
+ * `app/(app)/_layout.tsx`.
  *
  * **It does not mount the recording bar.** It used to, which made a recording
  * visible on meetings screens and nowhere else; the bar is now mounted once at
@@ -36,7 +40,6 @@ import { useMeetingsSetup } from "../../../features/meetings/useMeetings";
  */
 export default function MeetingsLayout() {
   const colors = useColors();
-  useMeetingsSetup();
 
   return (
     <View style={[styles.fill, { backgroundColor: colors.ground }]}>

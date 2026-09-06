@@ -134,10 +134,34 @@ export function useTranscriptionClient(): void {
  * on the device, and the screens say so. A meeting is never lost by this; what
  * it does not do is reach the bucket.
  */
-export function useMeetingsSetup(options: { gateway?: MeetingsGateway } = {}): void {
+export function useMeetingsSetup(
+  options: {
+    gateway?: MeetingsGateway;
+    /**
+     * Whether there is a session to subscribe on behalf of. Default `true`.
+     *
+     * This hook is mounted by the app gate, which runs it **above** its own
+     * early returns so that a cold start into a running meeting configures the
+     * controller on the first render rather than a render late. That means it
+     * also runs while the stored token is still being restored — before the
+     * client has an identity — and `useQueries` with a real spec there is a
+     * request from nobody. `appLayoutGate.test.ts` asserts zero subscriptions
+     * in that window and caught exactly that.
+     *
+     * So the spec empties rather than the hook not running, which is the same
+     * shape the gate already uses for its own two queries. Convex dedupes, and
+     * an empty spec opens nothing.
+     */
+    enabled?: boolean;
+  } = {},
+): void {
+  const enabled = options.enabled ?? true;
   const spec = useMemo<RequestForQueries>(
-    () => ({ workspaces: { query: api.functions.workspaces.listMyWorkspaces, args: {} } }),
-    [],
+    () =>
+      enabled
+        ? { workspaces: { query: api.functions.workspaces.listMyWorkspaces, args: {} } }
+        : {},
+    [enabled],
   );
   const results = useQueries(spec);
   const raw = results.workspaces;
