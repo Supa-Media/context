@@ -22,6 +22,18 @@ import { Platform } from "react-native";
 export const darkColors = {
   ground: "#050506",
   surface: "#0B0B0D",
+  /**
+   * `surface` at zero alpha, for the one thing that needs to fade *to* it.
+   *
+   * A gradient needs both ends, and "transparent" is not one of them: CSS
+   * interpolates an unqualified `transparent` through `rgba(0,0,0,0)`, so a
+   * fade from it to a light surface passes through grey and reads as a smudge
+   * — the classic dirty-gradient. It is written as the surface's own channels
+   * at zero rather than derived, because there is no colour arithmetic in this
+   * file and adding some for one token is a worse trade than two literals a
+   * test can compare.
+   */
+  surfaceClear: "rgba(11,11,13,0)",
   surface2: "#111114",
   surface3: "#18181C",
 
@@ -180,6 +192,8 @@ export type Colors = Readonly<Record<keyof typeof darkColors, string>>;
 export const lightColors: Colors = {
   ground: "#FFFFFF",
   surface: "#FFFFFF",
+  /** `surface` at zero alpha. See the dark palette's own note. */
+  surfaceClear: "rgba(255,255,255,0)",
   surface2: "#FAFAFA",
   surface3: "#F1F1F3",
 
