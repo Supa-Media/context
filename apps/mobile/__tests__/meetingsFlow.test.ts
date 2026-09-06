@@ -56,6 +56,10 @@ import { createRoot } from "react-dom/client";
  *     default is what starts when nobody changes the selection` fail.
  *  7. `confirm` does not write the choice down.
  *     → `the choice is remembered for next time` fails.
+ *  8. `confirm` drops its `blocked !== null` guard, and the sheet's Start is
+ *     enabled regardless.
+ *     → `a device with no context yet refuses Start rather than throwing`
+ *     fails.
  */
 
 jest.mock("react-native-safe-area-context", () => ({
@@ -348,6 +352,60 @@ describe("what the sheet offers", () => {
 
     press("meeting-destination-claim");
     expect(claims).toEqual([1]);
+    mounted.unmount();
+  });
+});
+
+describe("a device that cannot record says so", () => {
+  test("a device with no context yet refuses Start rather than throwing", async () => {
+    /*
+      Found in self-review. The controller is configured by an effect in another
+      layout, so on a cold start — and permanently, if somebody mounts the key
+      without `useMeetingsSetup` — `start()` throws. Inside the flow's
+      fire-and-forget that is an unhandled rejection and a sheet that closes
+      having done nothing, which is the silent failure this repo refuses. The
+      sheet opens, and Start is dimmed with the reason.
+    */
+    await act(async () => {
+      meetings.reset();
+    });
+    const store = memoryStore();
+    const mounted = mount(
+      createElement(Harness, { contexts: [OWN, SHARED], page: null, store }),
+    );
+    await settle();
+
+    press("mic");
+    expect(shown("meeting-destination-sheet")).toBe(true);
+    expect(text()).toContain("nowhere to record into");
+
+    press("meeting-destination-start");
+    await settle();
+
+    expect(meetings.getSnapshot().records).toEqual([]);
+    expect(pushed).toEqual([]);
+    mounted.unmount();
+  });
+
+  test("the refusal clears itself when the context lands underneath", async () => {
+    // The ordinary cold start: the workspace list arrives a moment after
+    // somebody has already opened the sheet. It must not stay refused until
+    // they close and reopen it.
+    await act(async () => {
+      meetings.reset();
+    });
+    const store = memoryStore();
+    const mounted = mount(
+      createElement(Harness, { contexts: [OWN, SHARED], page: null, store }),
+    );
+    await settle();
+    press("mic");
+    expect(shown("meeting-destination-blocked")).toBe(true);
+
+    await configure();
+    await settle();
+
+    expect(shown("meeting-destination-blocked")).toBe(false);
     mounted.unmount();
   });
 });

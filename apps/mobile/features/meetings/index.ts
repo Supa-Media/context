@@ -52,7 +52,12 @@ export type {
   `useMeetingFlow.ts` for what pressing it does, what it deliberately does not
   do, and the one line the caller still owes (`useMeetingsSetup`).
 */
-export { useMeetingFlow, type MeetingFlow, type MeetingFlowInput } from "./useMeetingFlow";
+export {
+  useMeetingFlow,
+  NOT_READY_REFUSAL,
+  type MeetingFlow,
+  type MeetingFlowInput,
+} from "./useMeetingFlow";
 export {
   chooseOffer,
   describeDestination,

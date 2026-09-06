@@ -49,6 +49,7 @@ export function DestinationSheet({
   onStart,
   onCancel,
   onClaimName,
+  blocked = null,
 }: {
   choice: DestinationChoice;
   /** From `useMeetingFlow`, which folds presses through `chooseOffer`. */
@@ -56,6 +57,16 @@ export function DestinationSheet({
   onSelect: (index: number) => void;
   onStart: () => void;
   onCancel: () => void;
+  /**
+   * Why this device cannot start a recording at all, or `null`.
+   *
+   * Separate from an offer's `refusal`, which is about one destination. This
+   * is about the app: the controller has not been pointed at a context yet, so
+   * there is nothing to record into wherever you send it. Drawn the same way
+   * for the same reason — dimmed with the sentence, never a control that
+   * quietly does nothing.
+   */
+  blocked?: string | null;
   /** Absent when the caller has nowhere to send somebody to claim a name. */
   onClaimName?: () => void;
 }) {
@@ -138,6 +149,12 @@ export function DestinationSheet({
                 <Text variant="hint">{AUDIO_SENTENCE}</Text>
               </View>
 
+              {blocked === null ? null : (
+                <Text variant="error" testID="meeting-destination-blocked">
+                  {blocked}
+                </Text>
+              )}
+
               <View style={styles.actions}>
                 <Button
                   label="Not now"
@@ -147,6 +164,7 @@ export function DestinationSheet({
                 <Button
                   label="Start recording"
                   variant="white"
+                  disabled={blocked !== null}
                   onPress={onStart}
                   testID="meeting-destination-start"
                 />

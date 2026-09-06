@@ -1,4 +1,12 @@
-import { createElement, useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import {
+  createElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactElement,
+} from "react";
 import { useRouter } from "expo-router";
 
 import { openStore } from "../offline/store";
@@ -53,11 +61,19 @@ import { meetingHref } from "./route";
  *
  * **`useMeetingsSetup()` must be mounted in the same layout**, exactly as
  * `app/(app)/meetings/_layout.tsx` mounts it: it is what points the controller
- * at a context and reads what is already on the device, and `start()` throws
- * without it. It is not called from here on purpose — it opens Convex
- * subscriptions and builds the real recorder, and which layout owns that is a
- * decision for whoever mounts the key, not something an entry point should do
- * behind their back.
+ * at a context and reads what is already on the device. It is not called from
+ * here on purpose — it opens Convex subscriptions and builds the real recorder,
+ * and which layout owns that is a decision for whoever mounts the key, not
+ * something an entry point should do behind their back.
+ *
+ * Until it has run, `start()` would throw, so the sheet still opens and Start
+ * is **refused with the reason** rather than pressed into an unhandled
+ * rejection. That covers two different situations with one honest sentence: the
+ * ordinary cold start, where the workspace list has not landed yet and this
+ * clears itself a moment later, and the wiring mistake of mounting the key
+ * without the setup, where it stays on screen until somebody fixes it. A
+ * control that quietly did nothing would hide the second one for as long as
+ * nobody tried to record.
  */
 export interface MeetingFlowInput {
   /** Every context the viewer can reach, from the console's own list. */
@@ -73,6 +89,10 @@ export interface MeetingFlowInput {
   /** Injected by tests. Defaults to the app's one controller. */
   controller?: MeetingsController;
 }
+
+/** Said on the sheet when this device has no context to record into yet. */
+export const NOT_READY_REFUSAL =
+  "This device has not opened your context yet, so there is nowhere to record into.";
 
 export interface MeetingFlow {
   /** Open the sheet. Opens no microphone and writes no session. */
@@ -102,6 +122,18 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
   const [pressed, setPressed] = useState<number | null>(null);
 
   const store = useMemo(() => input.store ?? openStore(), [input.store]);
+
+  /*
+    Subscribed rather than read once: the controller is configured by an effect
+    in another layout, so a sheet opened during a cold start has to notice when
+    that lands instead of staying refused until somebody closes and reopens it.
+  */
+  const status = useSyncExternalStore(
+    controller.subscribe,
+    controller.getSnapshot,
+    controller.getSnapshot,
+  ).status;
+  const blocked = status === "ready" ? null : NOT_READY_REFUSAL;
 
   useEffect(() => {
     let live = true;
@@ -150,6 +182,7 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
       call site away.
     */
     if (offer === undefined || offer.refusal !== null) return;
+    if (blocked !== null) return;
 
     const destination = offer.destination;
     close();
@@ -164,7 +197,7 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
       const id = await controller.start({ title, destination });
       router.push(meetingHref(id));
     })();
-  }, [choice, close, controller, router, selectedIndex, store, title]);
+  }, [blocked, choice, close, controller, router, selectedIndex, store, title]);
 
   const sheet = open
     ? createElement(DestinationSheet, {
@@ -173,6 +206,7 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
         onSelect: select,
         onStart: confirm,
         onCancel: close,
+        blocked,
         onClaimName:
           onClaimName === undefined
             ? undefined
