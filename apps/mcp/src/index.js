@@ -2096,10 +2096,14 @@ function baseToolDefinitions() {
     {
       name: "list_meetings",
       description:
-        "List the meetings the user recorded — what they were called, when, how long they ran and " +
-        "who was there, newest first. Reach for this whenever a question turns on something that " +
-        "was said in a call rather than written down. Each entry carries the note path to pass to " +
-        "read_meeting.",
+        "List the meetings filed in the user's default meetings folder (0-inbox/meetings) — what " +
+        "they were called, when, how long they ran and who was there, newest first. Reach for " +
+        "this whenever a question turns on something that was said in a call rather than written " +
+        "down. Each entry carries the note path to pass to read_meeting. This is not necessarily " +
+        "every meeting: one the user filed elsewhere when they recorded it, or moved afterwards, " +
+        "is an ordinary note in their own folders and does not appear here — nothing records " +
+        "where a meeting was filed, by design. If a meeting they refer to is missing, look for " +
+        "it with search_notes and open it with read_note.",
       inputSchema: {
         type: "object",
         properties: {

@@ -211,6 +211,29 @@ async function meetingRequest(env, token, path, { method = "POST", body, raw } =
   return { status: response.status, body: parsed, text };
 }
 
+/** One tool's advertised definition, exactly as a connected client is handed it. */
+async function toolDefinition(env, token, name) {
+  const { ctx, settle } = createWorkerCtx();
+  const response = await worker.fetch(
+    new Request("https://mcp.context.test/mcp", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+    }),
+    env,
+    ctx
+  );
+  const text = await response.text();
+  await settle();
+  let body = null;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = null;
+  }
+  return (body?.result?.tools || []).find((tool) => tool.name === name) || null;
+}
+
 async function callTool(env, token, name, args = {}) {
   const { ctx, settle } = createWorkerCtx();
   const response = await worker.fetch(
@@ -1846,6 +1869,30 @@ export async function runMeetingChecks(check) {
       "filed where the person pointed it"
     )
   );
+
+  /*
+    **And the model is told, because the model is the only one who can act on
+    it.** The three checks above prove the behaviour; none of them reads the
+    sentence a connected client is actually handed, and for a while that
+    sentence said `list_meetings` lists "the meetings the user recorded" — full
+    stop, no qualification. An assistant reading that has no reason to look
+    further when a meeting is missing, so a meeting somebody deliberately filed
+    elsewhere silently did not exist to any client. A tool description is not
+    prose about the tool; it is the whole of what the model knows, and a wrong
+    one is a defect of the same kind as a wrong return value.
+
+    Asserted on the shape of the claim rather than on the exact wording — the
+    folder it names, that it is not everything, and where to go instead — so
+    the sentence may be rewritten but not quietly re-broadened.
+  */
+  const listDefinition = await toolDefinition(env, TOKEN_OWNER, "list_meetings");
+  const listedDescription = listDefinition?.description || "";
+  check("the tool's own description names the folder it reads", listedDescription.includes("0-inbox/meetings"));
+  check(
+    "...says it is not every meeting",
+    /not necessarily every meeting|does not appear here|not every meeting/i.test(listedDescription)
+  );
+  check("...and points somewhere for the ones it does not list", listedDescription.includes("search_notes"));
 
   restoreFailures();
   restoreControlPlane();
