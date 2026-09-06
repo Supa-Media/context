@@ -39,6 +39,17 @@ import { createRoot } from "react-dom/client";
  * side by side above the home indicator on a 390pt screen. That was checked in
  * a browser.
  *
+ * **And "it is a render test" was doing more work than it should have been.**
+ * The seventh key overflowed the pill on every phone narrower than 381pt and
+ * nothing here could see it: `min-width` is the constant the stylesheet types,
+ * so it reads 44 at any viewport and in any amount of overflow, and the one
+ * arithmetic test divided a width by seven at a single width — and got that
+ * wrong too, by leaving the separator's own point out of the divisor. What was
+ * missing is not a browser: it is *solving* the flex declarations this render
+ * produces. `bottomRowWidth.test.ts` does that, across a table of real device
+ * widths. Rules that are only *declared* here are asserted here; whether a row
+ * of them fits is asserted there.
+ *
  * ## Three jsdom facts this file depends on
  *
  *  - `useWindowDimensions` does not read `window.innerWidth`. react-native-web
@@ -63,7 +74,7 @@ jest.mock("react-native-safe-area-context", () => ({
 // Imported after the mock, which `jest.mock` hoists above it anyway.
 const { BottomBar, MIN_TOUCH_TARGET } =
   require("../features/console/BottomBar") as typeof import("../features/console/BottomBar");
-const { layout } =
+const { layout, bottomBarGeometry } =
   require("../features/design/tokens") as typeof import("../features/design/tokens");
 import type { BottomBarAction } from "../features/console/BottomBar";
 
@@ -303,36 +314,42 @@ describe("a thumb has to be able to hit it", () => {
    * — six verbs and one destination — because a phone has no rail to reach the
    * app's other places through any more (`features/app/frame.ts`).
    *
-   * What is asserted is the property rather than the numbers: **on the narrow
-   * phone this app targets, an equal share of the bar is at or above the touch
-   * floor.** Every term comes from `layout`, so changing a token moves the
-   * expectation with it and cannot leave a comment describing a bar that no
-   * longer exists. The `52` case is computed alongside as the control — it is
-   * *under* the floor for six keys and further under it for seven, which is
-   * what "the sliver of note is what bought the seventh key" means as a
-   * measurement rather than as a claim.
+   * **And it had the separator's point missing from the divisor**, which is why
+   * it read `318 / 7` and passed at `toBeCloseTo(45.43, 2)`: the rule is a
+   * `flexShrink: 0` child of the same row, so seven targets divide 317. Every
+   * term comes from `bottomBarGeometry` now, so the expectation cannot be a
+   * comment reproduced as an assertion.
    *
-   * SABOTAGE: `bottomBarInset` back to 52. Fails here, on the seven-key line
-   * and on the six-key one, and nowhere else in this file.
+   * The `52` case is computed alongside as the control — under the floor for
+   * seven keys and for six — which is what "the sliver of note is what bought
+   * the seventh key" means as a measurement rather than as a claim.
+   *
+   * SABOTAGE: `bottomBarInset` back to 52. Fails here, and in
+   * `bottomRowWidth.test.ts`, and nowhere else.
    */
   test("seven targets clear the touch floor on a 390pt phone, and at 52 they did not", () => {
-    // The narrow case, which is the one that binds. The reference is 440.
+    // The narrow case the arithmetic was signed off at. The reference is 440,
+    // and every width *below* this one is `bottomRowWidth.test.ts`, which is
+    // where the bug this file could not see actually lived.
     const PHONE = 390;
-    const inside = (inset: number) => PHONE - inset * 2 - layout.bottomBarPad * 2;
+    const inside = (inset: number) =>
+      PHONE - inset * 2 - layout.bottomBarPad * 2 - layout.bottomBarRule;
 
-    // 390 − 2×24 = 342 pill; − 2×12 padding = 318 inside; ÷ 7 = 45.43.
+    // 390 − 2×24 = 342 pill; − 2×12 padding = 318; − 1 rule = 317; ÷ 7 = 45.29.
     expect(PHONE - layout.bottomBarInset * 2).toBe(342);
-    expect(inside(layout.bottomBarInset)).toBe(318);
+    expect(inside(layout.bottomBarInset)).toBe(317);
     const seven = inside(layout.bottomBarInset) / 7;
-    expect(seven).toBeCloseTo(45.43, 2);
+    expect(seven).toBeCloseTo(45.29, 2);
     expect(seven).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
+    // The same number, from the function the bar actually lays itself out with.
+    expect(bottomBarGeometry(PHONE, 7, 1).target).toBeCloseTo(seven, 9);
 
     // The control: at the inset this replaced, neither row fitted.
-    // 390 − 2×52 = 286; − 24 = 262; ÷ 7 = 37.43, ÷ 6 = 43.67.
-    expect(inside(52)).toBe(262);
-    expect(inside(52) / 7).toBeCloseTo(37.43, 2);
+    // 390 − 2×52 = 286; − 24 = 262; − 1 = 261; ÷ 7 = 37.29, ÷ 6 = 43.5.
+    expect(inside(52)).toBe(261);
+    expect(inside(52) / 7).toBeCloseTo(37.29, 2);
     expect(inside(52) / 7).toBeLessThan(MIN_TOUCH_TARGET);
-    expect(inside(52) / 6).toBeCloseTo(43.67, 2);
+    expect(inside(52) / 6).toBeCloseTo(43.5, 2);
     expect(inside(52) / 6).toBeLessThan(MIN_TOUCH_TARGET);
   });
 
@@ -340,14 +357,49 @@ describe("a thumb has to be able to hit it", () => {
     // 440 is where every measurement in `BottomBar`'s header was taken. The
     // narrow case above is what binds, so this is a floor check rather than a
     // second specification.
-    const inside = 440 - layout.bottomBarInset * 2 - layout.bottomBarPad * 2;
+    const inside =
+      440 - layout.bottomBarInset * 2 - layout.bottomBarPad * 2 - layout.bottomBarRule;
     expect(inside / 7).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
+  });
+
+  /**
+   * **How many keys there are, which nothing asserted.**
+   *
+   * `expect(toolbar()).toHaveLength(6)` was deleted when the row grew and was
+   * not replaced, so the fixtures the width tests run against could quietly
+   * become five keys and every one of those tests would go green on a row that
+   * is not the row. The count *is* the width problem — six fit at 375 and seven
+   * do not — so it is asserted where it is used.
+   *
+   * What the seventh key **opens** is not asserted here and must not be: this
+   * file mounts `BottomBar`, which deliberately does not know. The console's
+   * real row, and the meeting key at the end of it, are pinned in
+   * `bottomRowWidth.test.ts`.
+   */
+  test("the fixtures really are six verbs, and six verbs plus one destination", () => {
+    expect(toolbar()).toHaveLength(6);
+    expect(toolbar().some((item) => item.separated === true)).toBe(false);
+
+    const seven = sevenKeys();
+    expect(seven).toHaveLength(7);
+    expect(seven.slice(0, 6).map((item) => item.id)).toEqual(toolbar().map((item) => item.id));
+    // The destination is last, and it is the only thing that opens a group.
+    expect(seven.filter((item) => item.separated === true).map((item) => item.id)).toEqual([
+      seven[6].id,
+    ]);
   });
 
   test("a seven-key row draws seven targets, each above the floor", () => {
     // The arithmetic above is about tokens; this is about what was rendered
     // with a seventh action actually on the bar.
+    //
+    // **`min-width` is not evidence on its own** — it is the literal constant
+    // in the stylesheet and reads 44 at any width, with any number of actions,
+    // in any amount of overflow. It is asserted here because the floor being
+    // *declared* is a real rule; whether the row honours it is a layout solve,
+    // and that is `bottomRowWidth.test.ts`.
     const bar = mountBar(sevenKeys());
+    expect(bar.need("bottom-bar").children).toHaveLength(8); // seven keys, one rule
     for (const item of sevenKeys()) {
       const target = bar.need(`bottom-bar-${item.id}`);
       expect(px(target, "min-width")).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
