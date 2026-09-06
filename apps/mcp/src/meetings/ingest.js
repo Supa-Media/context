@@ -42,7 +42,7 @@
 
 import { ERRORS, ROUTES, isMeetingId } from "../../../../packages/meetings/src/protocol.js";
 import { renderMeetingNote } from "../../../../packages/meetings/src/note.js";
-import { meetingNotePath } from "../../../../packages/meetings/src/paths.js";
+import { meetingNotePath, normalizeMeetingFolder } from "../../../../packages/meetings/src/paths.js";
 import { normalizeFlag, normalizeTranscription } from "../../../../packages/meetings/src/session.js";
 import { SCOPE_READ, SCOPE_WRITE, hasScope } from "../session.js";
 import {
@@ -495,9 +495,45 @@ async function replaceNotes(request, store, id, tier) {
  * anywhere they did not choose — so `enhanced` arrives from the client that did
  * it, and a meeting with none gets the note's own placeholder. It is
  * regenerable by definition, so nothing is lost either way.
+ *
+ * ## Where the note goes, and why that is safe to let a client say
+ *
+ * `body.folder` is the destination a person picked on the device. It is an
+ * input to **step 1 and only step 1**, which is what keeps this from being a
+ * new way to break idempotency: the claim writes one path into the record and
+ * every later finalize reuses it, so the same session finalizing twice under
+ * two different folders answers with the note that exists rather than forking
+ * a meeting into two. A person moving a note afterwards is `move_note`, and
+ * that is the move that stays moved, because nothing here holds a second copy
+ * of a path.
+ *
+ * A folder this gateway will not file into is **not** an error, for the reason
+ * an unusable flag row is not one: `meeting_invalid` is the code a client does
+ * not retry, so refusing the request would park somebody's forty minutes over
+ * one bad string. It falls back to the default folder and the ack carries
+ * `folderRejected`, because a fallback nobody is told about is exactly the
+ * silent wrong destination this field was added to close. Neither the value nor
+ * the path is ever put in a message, a log or an error.
+ *
+ * One consequence is worth knowing and is not fixed here: a *team* connection
+ * naming a folder its tier may not write is refused at step 2, by which time
+ * step 1 has already claimed that path — and the claim is deliberately kept
+ * across a retry, so that session stays parked on it. That is this route's
+ * behaviour today for any context whose default meetings folder is private,
+ * and trading the crash-retry property for it would be the worse bargain.
  */
 async function finalizeSession(request, store, session, id, publishNote) {
   const body = await readJsonBody(request);
+
+  /*
+    Resolved before anything is read or written, so a bad folder costs no
+    storage operation and the answer says the same thing on every path out of
+    this handler — including the already-complete one, where the folder could
+    not have been honoured anyway.
+  */
+  const folder = normalizeMeetingFolder(body.folder);
+  const folderRejected = folder === null;
+  const extra = folderRejected ? { folderRejected: true } : {};
 
   let alreadyComplete = null;
   const claim = await updateSession(store, id, async (current) => {
@@ -519,11 +555,15 @@ async function finalizeSession(request, store, session, id, publishNote) {
     if (!next.notePath) {
       let candidate;
       try {
-        candidate = meetingNotePath(next);
+        // A refused folder is already `null` here, and `undefined` is what
+        // `meetingNotePath` reads as "the default" — so the fallback is the
+        // absence of an argument rather than a second spelling of the constant.
+        candidate = meetingNotePath(next, { folder: folderRejected ? undefined : folder });
       } catch {
         // The path is derived from `startedAt`, and a record whose timestamp
         // somebody edited by hand cannot produce one. That is a refusal the
-        // owner can act on, not a storage failure to retry forever.
+        // owner can act on, not a storage failure to retry forever. The folder
+        // cannot reach here: it was resolved before any of this.
         throw invalid("this session's start time is not a timestamp, so it has no note path");
       }
       next = { ...next, notePath: await unclaimedNotePath(store, candidate) };
@@ -532,7 +572,9 @@ async function finalizeSession(request, store, session, id, publishNote) {
   }, session.scope);
 
   // Idempotent by the contract: answer with the note that was already written.
-  if (alreadyComplete) return ack(store, alreadyComplete, { etag: alreadyComplete.noteEtag ?? undefined });
+  if (alreadyComplete) {
+    return ack(store, alreadyComplete, { ...extra, etag: alreadyComplete.noteEtag ?? undefined });
+  }
 
   // Marked complete *before* it is rendered, so the note's own frontmatter says
   // what the meeting is rather than what it was in the middle of. The path is
@@ -549,7 +591,7 @@ async function finalizeSession(request, store, session, id, publishNote) {
     if (fresh?.session.state === "complete") {
       // The other writer finalized first. Answer with their note rather than
       // overwriting a meeting that is already closed.
-      return ack(store, fresh.session, { etag: fresh.session.noteEtag ?? undefined });
+      return ack(store, fresh.session, { ...extra, etag: fresh.session.noteEtag ?? undefined });
     }
     if (fresh) {
       const merged = fold(fresh.session, { type: "written", notePath: published.path });
@@ -571,7 +613,7 @@ async function finalizeSession(request, store, session, id, publishNote) {
   if (stored === false) {
     throw new MeetingRefusal(409, "conflict", "this session changed while it was being finalized");
   }
-  return ack(store, receipt, { etag: receipt.noteEtag });
+  return ack(store, receipt, { ...extra, etag: receipt.noteEtag });
 }
 
 /** Render one session and hand it to the note writer `index.js` owns. */

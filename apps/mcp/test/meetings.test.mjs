@@ -77,6 +77,26 @@
  *     1 check failed. Cheap to get wrong, because the receipt is deliberately
  *     the place where almost everything is dropped; the note has the answer,
  *     but the receipt is what a client lists without opening one.
+ * 15. **`finalizeSession` ignores `body.folder` and builds the inbox path from
+ *     the module constant** — the defect §16 exists to close, put back — 9
+ *     checks failed.
+ * 16. **The folder is honoured on every finalize rather than only on the one
+ *     that claims the path** (`if (!next.notePath)` relaxed to always
+ *     recompute) — 3 checks failed, and they are the ones worth having: a
+ *     retry after a failed note write, naming a second folder, wrote a
+ *     **second note** and left the meeting in two places. The
+ *     already-complete finalize did not fork, because that path returns before
+ *     the claim — which is why the interesting test is the storage-failure
+ *     retry and not the easy double-finalize.
+ * 17. **A refused folder fails the finalize instead of falling back** —
+ *     5 checks failed. `meeting_invalid` is the code a client does not retry,
+ *     so this is somebody's forty minutes parked over one bad string.
+ * 18. **The fallback happens and the ack never says so** — 2 checks failed.
+ *     This is the sabotage that reads as harmless and is not: it is the
+ *     original defect exactly, a destination control that appears to work and
+ *     does nothing.
+ * 19. **The ack reads the refused folder back to whoever sent it** — 1 check
+ *     failed.
  */
 
 import worker from "../src/index.js";
@@ -132,6 +152,20 @@ const SESSION_DEGRADED = idOf("k");
 const SESSION_IN_FLIGHT = idOf("m");
 /** Finalized by a team connection, in a context whose meetings folder is team. */
 const SESSION_SHARED = idOf("n");
+/** Filed where the person pointed it, rather than into the inbox. */
+const SESSION_FILED = idOf("p");
+/** Finalized with a folder that tries to leave the bucket. */
+const SESSION_ESCAPING = idOf("q");
+/** Its first finalize claims a path and the write fails; the retry names another folder. */
+const SESSION_RECLAIMED = idOf("r");
+/** An editor aiming at a folder its tier may not write to. */
+const SESSION_TEAM_FOLDER = idOf("s");
+/** Aimed at the gateway's own plumbing. */
+const SESSION_PLUMBING = idOf("t");
+/** An owner filing into a team folder: the folder must not widen the note. */
+const SESSION_TEAM_DEFAULT = idOf("v");
+/** An editor filing into a folder its tier may actually write to. */
+const SESSION_TEAM_ALLOWED = idOf("w");
 
 const PRIVACY_MANIFEST =
   "---\nrole: privacy-manifest\n---\n\n" +
@@ -1584,6 +1618,234 @@ export async function runMeetingChecks(check) {
     refusedUnstamped = true;
   }
   check("a record carrying no tier is refused rather than written at a downgraded one", refusedUnstamped);
+
+  /* ------------ 16. the folder the person picked, end to end --------------- */
+
+  /*
+    A phone can ask where a meeting's notes should go, and until now the gateway
+    built the inbox path from a module constant and consulted nothing: a person
+    who picked a folder got the inbox anyway, silently. Everything below is that
+    control actually reaching the bucket, and the four ways it must not misfire.
+  */
+
+  check(
+    "a finalize that names no folder says nothing about one",
+    finalized.body?.folderRejected === undefined && notePath.startsWith("0-inbox/meetings/")
+  );
+
+  const openFor = (id, title, startedAt) =>
+    meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
+      body: { id, title, startedAt, events: [{ type: "start", at: startedAt }] },
+    });
+
+  await openFor(SESSION_FILED, "Filed by hand", "2026-09-06T10:00:00.000Z");
+  await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_FILED}/notes`, {
+    body: { notes: "- filed where the person pointed it" },
+  });
+  const filed = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_FILED}/finalize`, {
+    body: { folder: "2-areas/team" },
+  });
+  const filedPath = filed.body?.notePath || "";
+  check("a finalize can name the folder the person picked", filed.status === 200 && filed.body?.state === "complete");
+  check(
+    "...and the note lands there, with the date folders still under it",
+    filedPath === `2-areas/team/2026/09/2026-09-06-filed-by-hand-${SESSION_FILED.slice(-8)}.md`
+  );
+  check("...carrying what the person typed", (recorder.get(filedPath)?.body || "").includes("filed where the person pointed it"));
+  check("...and the ack claims nothing was refused", filed.body?.folderRejected === undefined);
+  check(
+    "...and nothing was filed into the inbox on the way",
+    !keysIn(recorder, "0-inbox/meetings/").includes(filedPath)
+  );
+
+  /*
+    THE IDEMPOTENCY CHECK. The note path is claimed into the session record
+    under a conditional write and reused by every retry, so the folder is an
+    input to the *claim* and the claim happens once. A second finalize naming
+    somewhere else is a client retrying, not a person moving a note.
+  */
+  const filedAgain = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_FILED}/finalize`, {
+    body: { folder: "1-projects/somewhere-else" },
+  });
+  check(
+    "finalizing again with a different folder answers with the note that already exists",
+    filedAgain.status === 200 && filedAgain.body?.notePath === filedPath
+  );
+  check("...writing nothing at the folder the retry named", keysIn(recorder, "1-projects/somewhere-else/").length === 0);
+  check("...so the meeting is still exactly one note", keysIn(recorder, "2-areas/team/").length === 1);
+
+  /*
+    And the same property through the path that is not a no-op: a first finalize
+    whose note write fails has *claimed* a path without writing it, which is the
+    one window where a second folder could fork a meeting into two notes.
+  */
+  await openFor(SESSION_RECLAIMED, "Half written", "2026-09-06T11:00:00.000Z");
+  failPut = (url) => (url.includes("/meet-recorder/2-areas/archive/") ? 500 : null);
+  const claimed = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_RECLAIMED}/finalize`, {
+    body: { folder: "2-areas/archive" },
+  });
+  check(
+    "a note write that fails under a chosen folder is retryable, like any other",
+    claimed.status === 503 && claimed.body?.error === "meeting_unavailable"
+  );
+  failPut = null;
+  const reclaimed = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_RECLAIMED}/finalize`, {
+    body: { folder: "3-resources/inbox" },
+  });
+  check(
+    "the retry lands on the path the first finalize claimed, not the folder it just named",
+    reclaimed.status === 200 && reclaimed.body?.notePath?.startsWith("2-areas/archive/")
+  );
+  check("...leaving nothing behind at the second folder", keysIn(recorder, "3-resources/").length === 0);
+  check("...and exactly one note at the first", keysIn(recorder, "2-areas/archive/").length === 1);
+
+  /*
+    A refused folder must not lose the meeting. `meeting_invalid` is the code a
+    client does not retry, so failing the request over one bad string would park
+    forty minutes of somebody's meeting for good — the same argument that makes
+    an unusable flag row cost that row rather than the request. It falls back,
+    and the ack says so, because a fallback nobody is told about is the silent
+    wrong destination this whole change exists to close.
+  */
+  const inboxBefore = keysIn(recorder, "0-inbox/meetings/").length;
+  await openFor(SESSION_ESCAPING, "Aimed outside", "2026-09-06T12:00:00.000Z");
+  const escaping = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_ESCAPING}/finalize`, {
+    body: { folder: "../../shhh-2026" },
+  });
+  check(
+    "a folder that tries to leave the bucket does not lose the meeting",
+    escaping.status === 200 && escaping.body?.state === "complete"
+  );
+  check("...it is filed at the default instead", escaping.body?.notePath?.startsWith("0-inbox/meetings/") === true);
+  check("...and exactly one note appears there", keysIn(recorder, "0-inbox/meetings/").length === inboxBefore + 1);
+  check("...the client is told its folder was not used", escaping.body?.folderRejected === true);
+  check(
+    "...and is not read its own value back",
+    !escaping.text.includes("shhh-2026")
+  );
+  check(
+    "...and no key anywhere in the bucket took the folder it asked for",
+    ![...recorder.keys()].some((key) => key.includes("shhh-2026") || key.includes(".."))
+  );
+
+  await openFor(SESSION_PLUMBING, "Aimed at the plumbing", "2026-09-06T13:00:00.000Z");
+  const plumbing = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_PLUMBING}/finalize`, {
+    body: { folder: ".meetings" },
+  });
+  check(
+    "a folder naming a dot-prefixed path is refused the same way",
+    plumbing.body?.folderRejected === true && plumbing.body?.notePath?.startsWith("0-inbox/meetings/") === true
+  );
+  check(
+    "...so no meeting is filed where `isPlumbing` would hide it from its own owner",
+    keysIn(recorder, ".meetings/2026/").length === 0
+  );
+
+  /*
+    THE TIER IS THE PATH'S, AND A CLIENT-NAMED FOLDER DOES NOT BUY A WIDER ONE.
+    `1-projects` defaults to `team` in this context's manifest, so a folder
+    argument is now a way to ask for a destination whose folder rule differs
+    from the inbox's. A personal connection's meeting is still private, with the
+    exact override written before the content — the note's tier is decided by
+    `privacy.md` and the connection's scope, exactly as `write_note`'s is.
+  */
+  await openFor(SESSION_TEAM_DEFAULT, "Filed in a team folder", "2026-09-06T14:00:00.000Z");
+  const inTeamFolder = await meetingRequest(
+    env,
+    TOKEN_OWNER,
+    `/meetings/sessions/${SESSION_TEAM_DEFAULT}/finalize`,
+    { body: { folder: "1-projects/notes" } }
+  );
+  const teamFolderPath = inTeamFolder.body?.notePath || "";
+  check("a personal connection can file into a team-default folder", inTeamFolder.status === 200);
+  check(
+    "...and the note is still private, because the tier is the connection's and not the folder's",
+    (await callTool(env, TOKEN_OWNER, "read_meeting", { path: teamFolderPath })).includes("visibility: private")
+  );
+  check(
+    "...so a team connection cannot read a meeting filed into its own folder",
+    (await callTool(env, TOKEN_MEMBER, "read_meeting", { path: teamFolderPath })) === "not found"
+  );
+
+  /*
+    And the other direction: a team connection may only create team content, in
+    a folder whose default is already team. That refusal is unchanged, and the
+    folder argument is now the way such a connection reaches a destination it
+    *can* write — which is the same rule `toolWriteNote` obeys, not a new one.
+  */
+  await meetingRequest(env, TOKEN_EDITOR, "/meetings/sessions", {
+    body: {
+      id: SESSION_TEAM_FOLDER,
+      title: "An editor files properly",
+      startedAt: "2026-09-06T15:00:00.000Z",
+      events: [{ type: "start", at: "2026-09-06T15:00:00.000Z" }],
+    },
+  });
+  const editorPrivateFolder = await meetingRequest(
+    env,
+    TOKEN_EDITOR,
+    `/meetings/sessions/${SESSION_TEAM_FOLDER}/finalize`,
+    { body: { folder: "2-areas/private-by-default" } }
+  );
+  check(
+    "a team connection still cannot name a folder whose default is private",
+    editorPrivateFolder.status === 403 && editorPrivateFolder.body?.error === "meeting_forbidden"
+  );
+  check("...and no note is written when it tries", keysIn(recorder, "2-areas/private-by-default/").length === 0);
+  /*
+    A second session, not a retry of that one: the refused finalize above has
+    already *claimed* its path, and a claim is deliberately kept across a retry
+    so a crash lands on one note rather than scattering near-duplicates. A team
+    connection that names a destination its tier may not write therefore parks
+    that session on that path — which is the pre-existing behaviour of this
+    route in a context whose default meetings folder is private, not something
+    the folder argument introduces.
+  */
+  await meetingRequest(env, TOKEN_EDITOR, "/meetings/sessions", {
+    body: {
+      id: SESSION_TEAM_ALLOWED,
+      title: "An editor files properly",
+      startedAt: "2026-09-06T15:30:00.000Z",
+      events: [{ type: "start", at: "2026-09-06T15:30:00.000Z" }],
+    },
+  });
+  const editorTeamFolder = await meetingRequest(
+    env,
+    TOKEN_EDITOR,
+    `/meetings/sessions/${SESSION_TEAM_ALLOWED}/finalize`,
+    { body: { folder: "1-projects/shared" } }
+  );
+  check(
+    "...while a folder its tier may write is accepted",
+    editorTeamFolder.status === 200 && editorTeamFolder.body?.notePath?.startsWith("1-projects/shared/") === true
+  );
+  check(
+    "...and lands at the tier that path earns",
+    (await callTool(env, TOKEN_EDITOR, "read_meeting", { path: editorTeamFolder.body.notePath })).includes(
+      "visibility: team"
+    )
+  );
+
+  /*
+    The one consequence worth stating rather than discovering. `list_meetings`
+    reads the default folder off the bucket, because there is no meetings index
+    to consult and nothing records where a meeting was filed — so a meeting the
+    person pointed elsewhere is not listed, which is exactly what already
+    happens to a meeting its owner *moves*. It is still a note, and every other
+    tool reaches it.
+  */
+  const listAfterFiling = await callTool(env, TOKEN_OWNER, "list_meetings", { limit: 25 });
+  check("list_meetings still lists what is in the default folder", listAfterFiling.includes(notePath));
+  check(
+    "and does not claim a meeting filed elsewhere, the same as one its owner moved",
+    !listAfterFiling.includes(filedPath)
+  );
+  check(
+    "...which is still a note, and read_meeting reads it at its own path",
+    (await callTool(env, TOKEN_OWNER, "read_meeting", { path: filedPath })).includes(
+      "filed where the person pointed it"
+    )
+  );
 
   restoreFailures();
   restoreControlPlane();
