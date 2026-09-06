@@ -152,16 +152,50 @@ const TOKEN_SHARED = `cat_meet_shared_${"0".repeat(24)}`;
 /** An owner whose bucket accepts a conditional write and ignores it. */
 const TOKEN_LAST_WRITER = `cat_meet_lastwriter_${"0".repeat(20)}`;
 
-/** Ids in the contract's shape: `mtg_` plus 20 lowercase base32 characters. */
-const idOf = (letter) => `mtg_${letter.repeat(20)}`;
+/**
+ * Ids in the contract's shape: `mtg_` plus 20 lowercase base32 characters.
+ *
+ * **Every character is claimed at most once, and this refuses a second claim.**
+ *
+ * Three of them were double-bound before the guard existed: `m` named both
+ * `SESSION_BAD_ENGINE` and `SESSION_IN_FLIGHT` in the same store, and two
+ * merges each added an inline `idOf(...)` for a letter that was free in the
+ * branch it was written on — `y` beside `SESSION_RETITLED`, `f` beside
+ * `SESSION_DOTTED`. Every one of those was harmless *only* because the request
+ * using the second binding was refused and therefore wrote no record. The day
+ * one of them becomes a success — a scope widened, a bound raised, a fixture
+ * reused — the fixture that shares its id silently finds an existing session
+ * and asserts against somebody else's meeting instead of failing.
+ *
+ * Nothing was watching for it, on this branch or on `main`. A `Set` is.
+ *
+ * The alphabet is Crockford's base32 without `i`, `l`, `o` and `u`
+ * (`MEETING_ID_ALPHABET`), and all twenty-two of its letters are spoken for, so
+ * a new fixture takes a digit. `isMeetingId` accepts those exactly as happily.
+ */
+const claimed = new Set();
+const idOf = (letter) => {
+  if (claimed.has(letter)) {
+    throw new Error(`the meeting-id character ${letter} is already bound to a fixture`);
+  }
+  claimed.add(letter);
+  return `mtg_${letter.repeat(20)}`;
+};
 const SESSION_MAIN = idOf("a");
 const SESSION_NEVER_ISSUED = idOf("b");
 const SESSION_STORAGE_FAILURE = idOf("c");
 const SESSION_CONFLICT = idOf("d");
 const SESSION_TEAM = idOf("e");
 const SESSION_FORGED = idOf("g");
-/** Never opened: the id a refused transcription engine is offered under. */
-const SESSION_BAD_ENGINE = idOf("m");
+/**
+ * Never opened: the id a refused transcription engine is offered under.
+ *
+ * A digit rather than a letter because every letter in `MEETING_ID_ALPHABET`
+ * is already bound. It used to be `m`, which `SESSION_IN_FLIGHT` also holds —
+ * and that one *is* opened, in the same store, so "never opened" was only true
+ * of this fixture because the check above it happens to run first.
+ */
+const SESSION_BAD_ENGINE = idOf("3");
 /** A meeting nobody recorded: typed notes, and no `start` event ever sent. */
 const SESSION_TYPED_ONLY = idOf("h");
 /** Opened while a workspace calls itself `meetings`. It must still be ours. */
@@ -192,6 +226,25 @@ const SESSION_RETITLED = idOf("y");
 const SESSION_WEDGED = idOf("x");
 /** Aimed at a folder with `..` inside a segment: legal to `normalizeRoot`, refused by `normalizePath`. */
 const SESSION_DOTTED = idOf("f");
+/**
+ * The id a read-only grant tries to open a session under, and must not.
+ *
+ * Named rather than inline, and its own character rather than `f`. Sharing
+ * `SESSION_DOTTED`'s id was harmless only for as long as this request stays a
+ * 403 that writes nothing: the day a read-only grant could open a session, the
+ * `..`-in-a-segment finalize would be running against a session opened here
+ * with a different title and start time.
+ */
+const SESSION_READ_ONLY_DENIED = idOf("4");
+/**
+ * Opened one attendee over the ceiling, in the bounds fixture's own store.
+ *
+ * Named rather than inline, and its own character rather than `y`. It is in a
+ * different store from `SESSION_RETITLED` today, which is the only reason
+ * sharing an id cost nothing — and "a different store" is a property of the
+ * block it sits in rather than of the id, so it is not a thing to rely on.
+ */
+const SESSION_CROWDED = idOf("5");
 
 const PRIVACY_MANIFEST =
   "---\nrole: privacy-manifest\n---\n\n" +
@@ -978,7 +1031,7 @@ export async function runMeetingChecks(check) {
   /* --------------------------- 10. scope and role -------------------------- */
 
   const readOnlyWrite = await meetingRequest(env, TOKEN_READ_ONLY, "/meetings/sessions", {
-    body: { id: idOf("f"), startedAt: "2026-09-01T09:00:00.000Z" },
+    body: { id: SESSION_READ_ONLY_DENIED, startedAt: "2026-09-01T09:00:00.000Z" },
   });
   check(
     "a read-only grant cannot open a session",
@@ -1587,7 +1640,7 @@ export async function runMeetingChecks(check) {
   check("one flag past the ceiling is refused", overBy("flags", { at: 1 }));
 
   const crowded = await sendTo("/meetings/sessions", {
-    id: idOf("y"),
+    id: SESSION_CROWDED,
     startedAt: "2026-09-05T13:00:00.000Z",
     attendees: Array.from({ length: LIMITS.attendees + 1 }, (_, i) => ({ name: `a${i}` })),
   });
