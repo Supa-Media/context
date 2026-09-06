@@ -101,7 +101,15 @@ export interface MeetingListSection {
   /** Stable across renders and across a day boundary: a key, not a heading. */
   id: string;
   heading: string;
-  kind: "upcoming" | "today" | "day";
+  /**
+   * `undated` is a meeting whose `startedAt` will not parse.
+   *
+   * It has a section of its own rather than a day, because there is no honest
+   * day to put it under — and it has one *at all* because the alternative,
+   * which is what this file did, is a meeting that renders nowhere. See
+   * `groupMeetings`.
+   */
+  kind: "upcoming" | "today" | "day" | "undated";
   meetings: MeetingSession[];
   upcoming: CalendarEvent[];
 }
@@ -130,11 +138,30 @@ export function groupMeetings(input: GroupInput): MeetingListSection[] {
   }
 
   const byDay = new Map<string, MeetingSession[]>();
+  /*
+    Meetings with no readable date.
+
+    **This used to be a `continue`, and the drop was a bug of exactly the kind
+    this feature has already shipped twice: a thing that exists, is complete,
+    and renders nowhere.** `isSession` accepts any string as `startedAt`, so
+    such a record loads, is not counted among the `unreadable`, opens correctly
+    at `/meetings/:id` — and vanished from the only list that could have led
+    somebody to it. One of them alone on a device drew "Nothing recorded on this
+    device yet" over a meeting that was right there.
+
+    What was right about the old rule is kept: it is not filed under a day.
+    Inventing one puts somebody's meeting under a date they can see is wrong,
+    and today is the tempting invention and the worst one.
+  */
+  const undated: MeetingSession[] = [];
   for (const meeting of [...input.meetings].sort(
     (a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt),
   )) {
     const key = dayKey(meeting.startedAt);
-    if (key === null) continue;
+    if (key === null) {
+      undated.push(meeting);
+      continue;
+    }
     const bucket = byDay.get(key);
     if (bucket === undefined) byDay.set(key, [meeting]);
     else bucket.push(meeting);
@@ -152,8 +179,33 @@ export function groupMeetings(input: GroupInput): MeetingListSection[] {
     });
   }
 
+  /*
+    Last, after every real day. A section with no date cannot be ordered against
+    dated ones, and putting it first would push a person's actual week down the
+    screen behind a record they have probably never seen.
+  */
+  if (undated.length > 0) {
+    sections.push({
+      id: "undated",
+      heading: UNDATED_HEADING,
+      kind: "undated",
+      meetings: undated,
+      upcoming: [],
+    });
+  }
+
   return sections;
 }
+
+/**
+ * The heading over meetings with no readable date.
+ *
+ * It says what is true of them rather than guessing — the same discipline the
+ * rest of these screens follow about a value nothing has measured. A person
+ * seeing this has a record something wrote badly, and the row under it still
+ * opens.
+ */
+export const UNDATED_HEADING = "No date on this one";
 
 /**
  * The local calendar day a timestamp falls in.

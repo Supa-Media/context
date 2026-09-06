@@ -72,6 +72,10 @@ const { notesOnlyRecorder } =
   require("../features/meetings/capture") as typeof import("../features/meetings/capture");
 const { memoryStore } =
   require("../features/offline/memory") as typeof import("../features/offline/memory");
+const { meetingKey } =
+  require("../features/meetings/keys") as typeof import("../features/meetings/keys");
+const { MEETING_RECORD_VERSION, emptyAck } =
+  require("../features/meetings/record") as typeof import("../features/meetings/record");
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 /* -------------------------------------------------------------------------- */
@@ -206,6 +210,116 @@ describe("the list says what it knows and no more", () => {
     const live = meetings.getSnapshot().live;
     expect(live).not.toBeNull();
     expect(pushed).toEqual([`/meetings/${live?.session.id}`]);
+    mounted.unmount();
+  });
+
+  test("a queued meeting is on the list, and a failed one is on it too", async () => {
+    /*
+      The two states a person is most likely to be looking for, because they are
+      the two the bucket does not hold: one waiting to be sent and one whose
+      finalize was refused. Neither may be hidden — the list is the only thing
+      standing between somebody and a meeting that exists nowhere else, and
+      nothing on this screen consults a gateway to draw a row.
+    */
+    const { gateway } = await configure();
+    let queued = "";
+    let refused = "";
+    // The refusal first, while the gateway is still answering: a permanent code
+    // parks the record rather than retrying it.
+    await act(async () => {
+      refused = await meetings.start({ title: "Refused by the context" });
+      gateway.failNext("meeting_invalid", "no");
+      await meetings.end();
+      await meetings.sync();
+    });
+    // Then the queue, with the gateway unreachable for the rest of the test.
+    gateway.offlineFor(50);
+    await act(async () => {
+      queued = await meetings.start({ title: "Waiting to send" });
+      await meetings.end();
+      await meetings.sync();
+    });
+
+    const mounted = mount(createElement(MeetingsListScreen));
+    expect(mounted.container.textContent).toContain("Waiting to send");
+    expect(mounted.container.textContent).toContain("Refused by the context");
+    expect(has(mounted.container, "meetings-empty")).toBe(false);
+
+    /*
+      And the two really are in the states this test is named for, rather than
+      two ordinary rows that would have rendered anyway. A vacuous version of
+      this test is worth nothing — `emptyConsoleStats.test.ts`'s harness was
+      exactly that for a while.
+    */
+    const records = meetings.getSnapshot().records;
+    const queuedRecord = records.find((record) => record.session.id === queued);
+    const refusedRecord = records.find((record) => record.session.id === refused);
+    expect(queuedRecord?.session.notePath).toBeNull();
+    expect(refusedRecord?.rejection).toBeDefined();
+    // The refusal is a fact about the send, and the meeting is still a meeting:
+    // it is on the list, and its own screen says it has not left the device.
+    expect(refusedRecord?.session.notes).toBeDefined();
+    mounted.unmount();
+  });
+
+  test("a meeting with no readable date is on the list, not silently missing", async () => {
+    /*
+      The same defect as an unreachable route, one layer down: `isSession` asks
+      `startedAt` for a string rather than a date, so a record with a broken one
+      loads, is *not* counted among the unreadable, and opens perfectly at
+      `/meetings/:id` — while `groupMeetings` dropped it in a `continue`. One
+      alone on a device drew "Nothing recorded on this device yet" over a
+      meeting that was right there.
+
+      Seeded through the store rather than the controller, because the
+      controller cannot write this: it is what a hand-edited record, or one
+      written by another build, looks like on the way back in.
+    */
+    const store = memoryStore();
+    await store.set(
+      meetingKey("ws-undated", "mtg_undatedundatedunda"),
+      JSON.stringify({
+        version: MEETING_RECORD_VERSION,
+        workspaceId: "ws-undated",
+        session: {
+          id: "mtg_undatedundatedunda",
+          title: "The one with no date",
+          state: "complete",
+          startedAt: "nonsense",
+          endedAt: null,
+          notes: "still somebody's meeting",
+          transcript: [],
+          attendees: [],
+          recordedMs: 0,
+          source: { kind: "in-person" },
+          enhanced: null,
+          notePath: null,
+          failureReason: null,
+          flags: [],
+        },
+        acked: emptyAck(),
+        destination: null,
+        runningSince: null,
+        updatedAt: 0,
+        attempts: 0,
+      }),
+    );
+    await act(async () => {
+      meetings.reset();
+      await meetings.configure({
+        workspaceId: "ws-undated",
+        store,
+        gateway: fakeGateway(),
+        recorder: fakeRecorder(),
+        device: { platform: "web" },
+        persistDebounceMs: 0,
+      });
+    });
+
+    const mounted = mount(createElement(MeetingsListScreen));
+    expect(meetings.getSnapshot().unreadable).toBe(0);
+    expect(has(mounted.container, "meetings-empty")).toBe(false);
+    expect(mounted.container.textContent).toContain("The one with no date");
     mounted.unmount();
   });
 

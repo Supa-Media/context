@@ -269,12 +269,47 @@ describe("the list's three bands", () => {
     expect(sections[0].kind).toBe("today");
   });
 
-  test("a meeting whose timestamp will not parse is dropped, not filed under a day nobody had", () => {
+  /**
+   * **This test used to assert the opposite, and the reversal is the point.**
+   *
+   * It read "a meeting whose timestamp will not parse is dropped, not filed
+   * under a day nobody had", and half of that is still right: a meeting with no
+   * readable date has no place in a chronology, and inventing one for it would
+   * file somebody's meeting under a day they can see is wrong.
+   *
+   * The *drop* was the other half, and it is the same defect as a route with no
+   * way in, one layer down: the record loads (`isSession` asks for a string,
+   * not a date), it is not counted as unreadable, `/meetings/:id` renders it
+   * perfectly — and the list it should appear on drops it in a `continue`. One
+   * such meeting on a device and the screen says "Nothing recorded on this
+   * device yet" over it.
+   *
+   * So it gets a section with no day, last, after every dated one.
+   */
+  test("a meeting whose timestamp will not parse is shown without a day, not dropped", () => {
     const sections = groupMeetings({
-      meetings: [session({ startedAt: "nonsense" })],
+      meetings: [session({ id: "mtg_undatedundatedunda", startedAt: "nonsense" })],
       now,
     });
-    expect(sections).toEqual([]);
+    expect(sections).toHaveLength(1);
+    expect(sections[0].kind).toBe("undated");
+    expect(sections[0].meetings.map((meeting) => meeting.id)).toEqual([
+      "mtg_undatedundatedunda",
+    ]);
+    // And it does not claim a date it does not have.
+    expect(sections[0].heading).not.toContain("today");
+  });
+
+  test("and it goes last, so it never displaces a day that is real", () => {
+    const sections = groupMeetings({
+      meetings: [
+        session({ id: "mtg_undatedundatedunda", startedAt: "nonsense" }),
+        session({ id: "mtg_todaytodaytodaytod", startedAt: new Date(now - 3_600_000).toISOString() }),
+      ],
+      now,
+      locale: "en-GB",
+    });
+    expect(sections.map((s) => s.kind)).toEqual(["today", "undated"]);
   });
 });
 
