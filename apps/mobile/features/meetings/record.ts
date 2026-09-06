@@ -87,6 +87,11 @@ export interface MeetingRecord {
    * record, both genuinely chose nothing, and the gateway's default is the
    * right answer for both. Rewriting `null` into a guessed destination would be
    * this device claiming somebody chose something they were never asked about.
+   *
+   * **Nothing rewrites it after `start()` either, and that has a cost** — a
+   * meeting the gateway refuses *because of its folder* can only ever be
+   * retried into the same folder. See `retrySync`, which is where the wedge is
+   * written down.
    */
   destination: MeetingDestination | null;
   /**
@@ -295,7 +300,31 @@ export function markSyncRejected(
   };
 }
 
-/** Put a parked record back in the queue, unchanged, at the person's request. */
+/**
+ * Put a parked record back in the queue, unchanged, at the person's request.
+ *
+ * **"Unchanged" includes the destination, and that leaves a wedge on this side
+ * of the gateway.** A team-tier connection naming a folder its tier may not
+ * write is refused 403, and the gateway treats that as deterministic:
+ * `releaseClaim` in `apps/mcp/src/meetings/ingest.js` gives the reserved path
+ * back so that "the next finalize claims one from whatever folder it names —
+ * the default, when the client sends none".
+ *
+ * There is no next folder here. `destination` is fixed at `start()`, for the
+ * reason its own doc gives, and this is a retry rather than a re-aim — so every
+ * press names the folder that was refused, and the gateway releases a claim
+ * nobody comes back for. The gateway-side wedge is closed; the client-side one
+ * is not.
+ *
+ * **Recorded rather than fixed**, because both ways out are product decisions
+ * with real costs: a second surface for choosing a destination, which is what
+ * `useMeetingFlow` exists to avoid, or a Retry that silently means "into your
+ * inbox instead", which is the class of silent redirection this whole seam
+ * exists to close. The argument is in
+ * [meetings](../../../../docs/decisions/meetings.md), beside the folder claim.
+ * Nobody's notes are lost — they are on the device — but from the phone they
+ * cannot reach the bucket without discarding and re-recording.
+ */
 export function retrySync(record: MeetingRecord): MeetingRecord {
   if (record.rejection === undefined) return record;
   return { ...record, attempts: 0, rejection: undefined, lastError: undefined };

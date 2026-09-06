@@ -853,6 +853,36 @@ value back`, `finalizing again with a different folder answers with the note tha
 already exists`, and the one that matters, `the retry lands on the path the first
 finalize claimed, not the folder it just named`.
 
+**The wedge a tier refusal leaves is closed on the gateway and open on the
+phone**, and that half is written down here rather than fixed, because fixing it
+is a change to what the destination sheet is for.
+
+Gateway side: a folder this connection's tier may not write is a *deterministic*
+refusal, so `releaseClaim` gives the reserved path back on a 400 or a 403. The
+session returns to `finalizing` with no path, "and the next finalize claims one
+from whatever folder it names — the default, when the client sends none". That
+is what stops one bad string turning into a meeting that can be recorded, typed
+into, and never written out.
+
+Client side there is no next folder. `MeetingRecord.destination` is fixed at
+`start()` — deliberately, because a recording outlives the sheet that asked, and
+rewriting it later would be the device claiming somebody chose something they
+were never asked about — and `retrySync` puts a parked record back in the queue
+**unchanged**, which is also deliberate: retry means *try that again*, not *try
+something else*. Nothing between them can hand the finalize a different folder,
+and nothing offers the person one. So from the phone that meeting is still
+unrecoverable: every press of Retry names the folder that was refused, and the
+gateway releases a claim nobody comes back for.
+
+Two ways out, and both are decisions rather than patches. Either the note screen
+offers to re-point a parked meeting — a second place where a destination is
+chosen, which is exactly what `useMeetingFlow` was written to avoid — or
+`retrySync` clears the destination when the rejection was about the folder,
+which makes Retry silently mean "into your inbox instead" and is the class of
+silent redirection this whole seam exists to close. Neither is obviously right,
+so neither is taken. The person's notes are on the device and are not lost; what
+they cannot do is get them into the bucket without discarding and re-recording.
+
 ### What is deliberately not built
 
 Not built, and none of them foreclosed:
