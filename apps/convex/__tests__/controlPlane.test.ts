@@ -1061,16 +1061,24 @@ describe("/gateway/binding — the search index", () => {
       },
     );
 
-    const store = await storeForSession(
+    // `ContextStore` is deliberately the smallest surface the worker uses —
+    // get/put/delete/list and a capability descriptor — so none of what the
+    // REQUEST layer attaches to a store (`actor`, `provider`, `defer`, and
+    // this) is on it. Narrowed here rather than widened there: the adapter
+    // seam staying minimal is the point of that typedef.
+    const store = (await storeForSession(
       { workspaceId: aliceWs, accessToken: ACCESS_A },
       {},
       controlPlane,
-    );
+    )) as unknown as {
+      bucket: string;
+      searchIndex: { databaseId: string; accountId: string; state: string } | null;
+    };
 
     expect(store.searchIndex).not.toBeNull();
-    expect(store.searchIndex.databaseId).toBe("db-alice-contract");
-    expect(store.searchIndex.accountId).toBe(FAKE_D1.accountId);
-    expect(store.searchIndex.state).toBe("ready");
+    expect(store.searchIndex?.databaseId).toBe("db-alice-contract");
+    expect(store.searchIndex?.accountId).toBe(FAKE_D1.accountId);
+    expect(store.searchIndex?.state).toBe("ready");
     // And the binding half still arrives, because the fix must not have been
     // "read the other key instead".
     expect(store.bucket).toBe("tenant-a");
