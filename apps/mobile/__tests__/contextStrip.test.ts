@@ -440,6 +440,47 @@ describe("what is on the strip", () => {
   });
 
   /**
+   * ...and the *mark* is smaller than the target, which is how more of them fit.
+   *
+   * From the owner's review of a real recording: the pills "should be smaller
+   * and squarer" so more workspaces are on screen at once. The obvious edit is
+   * to shrink the pill, and the test above is what stands in front of it: this
+   * strip is a phone's *only* way between contexts, so a target under the floor
+   * is navigation somebody misses and concludes is broken.
+   *
+   * So the two are separated, which is `accountAvatar`'s own rule finally
+   * applied here — "what a thumb hits is the pressable around it". The
+   * pressable stays `minTouchTarget` and draws nothing; the pill inside it is
+   * the object, shorter and on a corner radius rather than a stadium's. Reading
+   * it back off the mounted DOM rather than off the token, so a token edit that
+   * collapses the two into one again fails here.
+   *
+   * SABOTAGE: drew the visible pill at the target's own height again.
+   * MEASURED: this test failed, the floor test above stayed green — which is
+   * the pair working: one holds the thumb, the other holds the eye.
+   */
+  test("a pill's mark is smaller than the thumb that presses it, and squarer", () => {
+    const strip = mountStrip();
+    const target = strip.need("context-strip-seyi");
+    const mark = target.querySelector<HTMLElement>('[data-testid="mark-context-strip-seyi"]');
+    expect(mark).not.toBeNull();
+
+    const targetHeight = Number.parseFloat(styleOf(target, "height"));
+    const markHeight = Number.parseFloat(styleOf(mark!, "height"));
+    expect(markHeight).toBeLessThan(targetHeight);
+    expect(targetHeight).toBeGreaterThanOrEqual(layout.minTouchTarget);
+
+    /*
+      Squarer: a radius under half the height is a rounded rectangle, and a
+      radius at or over it is the stadium this replaces. Stated as the geometric
+      property rather than as the number, because the number is the thing that
+      is allowed to be tuned.
+    */
+    const radius = Number.parseFloat(styleOf(mark!, "border-top-left-radius"));
+    expect(radius).toBeLessThan(markHeight / 2);
+  });
+
+  /**
    * SABOTAGE: gave the pill `flexShrink: 1` and `numberOfLines={1}` — the two
    * halves of the tidy-looking fix for a long name. Fails here.
    */
@@ -559,9 +600,17 @@ describe("the ends of the list", () => {
       onClaimContext: () => {},
       onCreateWorkspace: () => {},
     });
-    const claim = styleOf(strip.need("context-strip-claim"), "background-color");
-    const create = styleOf(strip.need("context-strip-create"), "background-color");
+    /*
+      Read off the **mark**, which is where the fill now is: the pressable is
+      the target and draws nothing (see `a pill's mark is smaller than the thumb
+      that presses it`). Same assertion, on the element that actually paints —
+      and the `not.toBe` still catches two transparent backgrounds, because it
+      would then be comparing one colour to itself.
+    */
+    const claim = styleOf(strip.need("mark-context-strip-claim"), "background-color");
+    const create = styleOf(strip.need("mark-context-strip-create"), "background-color");
     expect(claim).not.toBe(create);
+    expect(claim).not.toBe("rgba(0, 0, 0, 0)");
   });
 
   test("nothing is offered where there is nowhere to send anybody", () => {

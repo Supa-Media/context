@@ -309,13 +309,25 @@ function Pill({
       onPress={onPress}
       onLongPress={onLongPress}
       testID={testID}
-      style={({ pressed }) => [
-        styles.pill,
-        current && styles.pillCurrent,
-        accented && styles.pillAccent,
-        pressed && styles.pillPressed,
-      ]}
+      /*
+        The **target**, which draws nothing. `accountAvatar`'s rule — "what a
+        thumb hits is the pressable around it, and the caller pads to the floor"
+        — finally applied here: the mark inside is what somebody sees, and this
+        is what they hit. Collapsing the two is how "make the pills smaller"
+        becomes navigation a phone misses.
+      */
+      style={styles.target}
     >
+      {({ pressed }) => (
+      <View
+        style={[
+          styles.pill,
+          current && styles.pillCurrent,
+          accented && styles.pillAccent,
+          pressed && styles.pillPressed,
+        ]}
+        testID={testID === undefined ? undefined : `mark-${testID}`}
+      >
       {leading}
       {/*
         No `numberOfLines`. A truncated context name is two contexts that look
@@ -331,6 +343,8 @@ function Pill({
       >
         {label}
       </Text>
+      </View>
+      )}
     </Pressable>
   );
 }
@@ -360,10 +374,11 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     position: "relative",
   },
   scroll: { flexGrow: 0 },
+  /** Tighter than `space.x2`: the gap is the other half of "more of them fit". */
   row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: space.x2,
+    gap: 6,
   },
 
   /**
@@ -376,14 +391,38 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    * than three heights, and it is `minTouchTarget`, so a pill clears the floor
    * without needing a number of its own.
    */
+  /**
+   * What a thumb hits. It draws nothing.
+   *
+   * `minTouchTarget` on both axes with the mark centred inside it, so the pill
+   * can be as small as the design wants without the target following it down.
+   * `contextStrip.test.ts` holds both halves and they fail separately.
+   */
+  target: {
+    flexShrink: 0,
+    height: layout.minTouchTarget,
+    justifyContent: "center",
+  },
+  /**
+   * What somebody sees: smaller than the target and squarer than a stadium.
+   *
+   * The owner asked for both, off a real recording — "smaller and squarer" so
+   * more workspaces are on screen at once — and the horizontal saving is where
+   * that is actually paid: `space.x2` of padding instead of `space.x3`, and a
+   * tighter gap on the row, which is what puts another context on the glass at
+   * 390pt rather than the two points of height.
+   *
+   * `radii.md` rather than `radii.pill` is the "squarer" half. A stadium reads
+   * as a *button*; a rounded rectangle reads as a tab, which is what this is.
+   */
   pill: {
     flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: space.x2,
-    height: layout.chromeButton,
-    paddingHorizontal: space.x3,
-    borderRadius: radii.pill,
+    gap: 6,
+    height: layout.stripPill,
+    paddingHorizontal: space.x2,
+    borderRadius: radii.md,
     backgroundColor: colors.chrome,
     boxShadow: shadows.floating,
   },
