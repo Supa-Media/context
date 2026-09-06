@@ -48,6 +48,43 @@ import type {
  * clients connect to. `ROUTES` are siblings of it, so what this takes is the
  * gateway's **origin**, and `gatewayOriginFrom` derives it in one place so a
  * self-hoster who moved their gateway moves both.
+ *
+ * ## Every call about a meeting is addressed to the meeting's destination
+ *
+ * A `MeetingDestination` is two halves — a context and a folder — and for a
+ * while only the folder did anything. The context was produced by the sheet,
+ * drawn on the row, written to the device and re-validated on the way back, and
+ * routed nothing: every request went to the bare route, which the gateway
+ * resolves to whatever context the credential defaults to. Somebody standing in
+ * `@acme/finance` was shown `@acme / finance`, *"Visible to the team"*, and the
+ * note was headed for a bucket nobody had named on the screen.
+ *
+ * So the destination is the **address**, and it is the first argument to every
+ * method rather than a trailing option on one of them. Three things follow, and
+ * each is the reason it is shaped this way:
+ *
+ *  - **It is the gateway's own routing, not a new one.** `splitWorkspacePath`
+ *    reads an optional `@name` off the front of the path, resolves it through
+ *    the control plane, and clamps the session's scopes and visibility tier to
+ *    the caller's role in *that* context. A `contextSlug` field in the finalize
+ *    body would be a second routing mechanism that neither the tier gate nor
+ *    the store factory ever sees — a note written into the connection's own
+ *    bucket wearing somebody else's label, which is worse than the defect.
+ *  - **It is on all four calls, not just finalize.** The session record lives
+ *    in the destination context's own bucket under `.meetings/sessions/`, so a
+ *    session upserted into one context and finalized against another finds
+ *    nothing to finalize. Routing is per meeting, not per request kind.
+ *  - **The folder cannot travel without its context.** Taking one value rather
+ *    than two is what makes "the folder said one thing and the context another"
+ *    unrepresentable rather than merely absent.
+ *
+ * `null` is a first-class answer and means the connection's own default
+ * context: the list screen's one-tap record genuinely chose nothing, and the
+ * gateway's default is the right answer for it.
+ *
+ * `list()` takes none, deliberately. It answers "what has this connection
+ * recorded", which is a question about the connection rather than about any one
+ * meeting; a cross-context listing is `context: "@name"`'s job and is not built.
  */
 
 /** Anything the gateway refused or could not do, as data rather than a throw. */
@@ -64,23 +101,34 @@ export class MeetingGatewayError extends Error {
   }
 }
 
+/**
+ * Where the person said this meeting goes, or `null` when nobody was asked.
+ *
+ * The first argument to every call about a meeting; see the file comment for
+ * why it is the address rather than a trailing option on the finalize.
+ */
+export type MeetingAddress = MeetingDestination | null;
+
 export interface MeetingsGateway {
   /** Upsert the session's metadata. Idempotent on the session id. */
-  putSession(session: MeetingSession): Promise<IngestAck>;
+  putSession(to: MeetingAddress, session: MeetingSession): Promise<IngestAck>;
   /** Append transcript segments. Idempotent on each segment id. */
-  putSegments(sessionId: string, segments: readonly TranscriptSegment[]): Promise<IngestAck>;
+  putSegments(
+    to: MeetingAddress,
+    sessionId: string,
+    segments: readonly TranscriptSegment[],
+  ): Promise<IngestAck>;
   /** Replace the human's Markdown. Wholesale, so it is idempotent by construction. */
-  putNotes(sessionId: string, markdown: string): Promise<IngestAck>;
+  putNotes(to: MeetingAddress, sessionId: string, markdown: string): Promise<IngestAck>;
   /**
    * End, enhance, write to the bucket. Returns the note path it wrote, or
    * already wrote.
    *
-   * `destination` is where the person said the note should go, or `null` when
-   * nobody was asked — see `MeetingRecord.destination`. It rides on *this* call
-   * because this is the one that turns a session into a note: the request whose
-   * answer is a path is the request that should carry where the path goes.
+   * The folder half of `to` rides on *this* call and only this one: it is the
+   * request that turns a session into a note, so the request whose answer is a
+   * path is the request that carries where the path goes.
    */
-  finalize(sessionId: string, destination: MeetingDestination | null): Promise<IngestAck>;
+  finalize(to: MeetingAddress, sessionId: string): Promise<IngestAck>;
   /**
    * Recent sessions this workspace holds, newest first.
    *
@@ -135,7 +183,32 @@ export function createHttpGateway(options: HttpGatewayOptions): MeetingsGateway 
   const doFetch = options.fetchImpl ?? globalThis.fetch;
   const timeoutMs = options.timeoutMs ?? GATEWAY_TIMEOUT_MS;
 
-  async function send<T>(route: string, method: "GET" | "POST", body?: unknown): Promise<T> {
+  async function send<T>(
+    to: MeetingAddress,
+    route: string,
+    method: "GET" | "POST",
+    body?: unknown,
+  ): Promise<T> {
+    const address = contextRoute(to, route);
+    if (address === null) {
+      /*
+        A destination the gateway's own selector would not read as a context.
+        The slug would fall off the front of the path and the request would be
+        served by whatever context the credential defaults to — which is a
+        meeting written into the wrong tenant, in silence. Refusing is the one
+        answer that is not that: `invalid` parks the meeting on the device with
+        a sentence beside it, which is what an absent capability looks like
+        everywhere else in this feature.
+
+        The value is not in the message. A refusal that echoes what it was sent
+        is a reflection, which is `normalizeMeetingFolder`'s rule one field over.
+      */
+      throw new MeetingGatewayError(
+        ERRORS.invalid,
+        "This meeting is addressed to a context this app cannot reach, so it is being kept here.",
+      );
+    }
+
     const authorization = await options.authorization();
     if (authorization === null) {
       throw new MeetingGatewayError(
@@ -148,7 +221,7 @@ export function createHttpGateway(options: HttpGatewayOptions): MeetingsGateway 
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response: Response;
     try {
-      response = await doFetch(`${options.origin}${route}`, {
+      response = await doFetch(`${options.origin}${address}`, {
         method,
         headers: {
           Authorization: authorization,
@@ -170,17 +243,47 @@ export function createHttpGateway(options: HttpGatewayOptions): MeetingsGateway 
   }
 
   return {
-    putSession: (session) => send(ROUTES.sessions, "POST", session),
-    putSegments: (sessionId, segments) =>
-      send(ROUTES.segments(sessionId), "POST", { segments }),
-    putNotes: (sessionId, markdown) => send(ROUTES.notes(sessionId), "POST", { markdown }),
-    finalize: (sessionId, destination) =>
-      send(ROUTES.finalize(sessionId), "POST", finalizeBody(destination)),
+    putSession: (to, session) => send(to, ROUTES.sessions, "POST", session),
+    putSegments: (to, sessionId, segments) =>
+      send(to, ROUTES.segments(sessionId), "POST", { segments }),
+    putNotes: (to, sessionId, markdown) =>
+      send(to, ROUTES.notes(sessionId), "POST", { markdown }),
+    finalize: (to, sessionId) => send(to, ROUTES.finalize(sessionId), "POST", finalizeBody(to)),
     list: async () => {
-      const answer = await send<Partial<SessionList>>(ROUTES.sessions, "GET");
+      const answer = await send<Partial<SessionList>>(null, ROUTES.sessions, "GET");
       return answer.sessions ?? [];
     },
   };
+}
+
+/**
+ * A slug the gateway's workspace selector will read as one.
+ *
+ * `splitWorkspacePath` in `apps/mcp/src/session.js` accepts `[a-z0-9-]{2,32}`
+ * and treats anything else as "no slug at all" — the path is then served by the
+ * connection's default context. Restated here rather than imported, because the
+ * phone does not depend on the worker's source; the point of mirroring it is
+ * that a value this pattern refuses is exactly a value that would be *ignored*
+ * on the far end, which is the one outcome worth refusing to send.
+ */
+const ROUTABLE_SLUG = /^[a-z0-9-]{2,32}$/;
+
+/**
+ * The path a call about this meeting is sent to, or `null` for "not addressable".
+ *
+ * `null` in, no prefix out: the connection's own default context, which is what
+ * "nobody chose" has always meant. A slug the selector would not read is `null`
+ * out, and the caller refuses to send rather than letting the request be served
+ * by a context nobody named.
+ *
+ * The `@` is written even though the selector treats it as cosmetic. It is what
+ * a person sees in their MCP client settings, and a name in a URL that reads as
+ * a name is the difference between a path segment and a directory.
+ */
+export function contextRoute(to: MeetingAddress, route: string): string | null {
+  if (to === null) return route;
+  if (!ROUTABLE_SLUG.test(to.contextSlug)) return null;
+  return `/@${to.contextSlug}${route}`;
 }
 
 /**
@@ -188,28 +291,21 @@ export function createHttpGateway(options: HttpGatewayOptions): MeetingsGateway 
  *
  * `{}` is the contract's own "no fields", and it is what a meeting with no
  * destination sends — the gateway's default then stands, which is exactly what
- * has always happened.
+ * has always happened, and what the meetings list's one-tap record wants.
  *
- * ## `folder` is ahead of the contract, and this is the note saying so
+ * `folder` is `FinalizeBody`'s own field: `normalizeMeetingFolder` decides what
+ * a legal one is, `meetingNotePath` files into it, and a folder the gateway
+ * will not file into falls back to the default with `folderRejected` on the ack
+ * rather than losing the meeting. This client reads that flag — see
+ * `sync.ts` — because a fallback nobody is told about is the same silent wrong
+ * destination one layer down.
  *
- * `FinalizeBody` in `packages/meetings/src/protocol.js` does not name it, and
- * the gateway's `foldMetadata` reads a fixed list of fields, so a deployed
- * gateway **reads this and does nothing with it**: it is not an error, it is
- * not stored, and `meetingNotePath` still derives `0-inbox/meetings/YYYY/MM/…`
- * from the session alone. Sending it is therefore inert rather than wrong, and
- * this client never claims otherwise — `notePath` on a session comes from the
- * gateway's own `written` answer and is never the folder this device asked for,
- * so the screens print where the note *is*, not where it was sent.
- *
- * Making the ask real is three edits upstream, in one change:
- * `FinalizeBody` gains `folder`; `meetingNotePath` takes it instead of the
- * hard-coded `MEETINGS_FOLDER`; and `finalizeSession` passes the body's value
- * through. That is `packages/meetings` and `apps/mcp`, which is why it is named
- * here rather than done here — CLAUDE.md's rule is that the contract is not
- * edited from inside this app.
+ * `notePath` on a session is still only ever the gateway's own `written`
+ * answer, never the folder this device asked for, so the screens print where
+ * the note *is* rather than where it was sent.
  */
-function finalizeBody(destination: MeetingDestination | null): Record<string, string> {
-  return destination === null ? {} : { folder: destination.folder };
+function finalizeBody(to: MeetingAddress): Record<string, string> {
+  return to === null ? {} : { folder: to.folder };
 }
 
 /**

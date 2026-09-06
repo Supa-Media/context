@@ -28,6 +28,23 @@ import { destinationKey } from "./keys";
  * first offer is always `@their-handle / 0-inbox`, it is always the fallback,
  * and the current page is the *second* offer with the audience named on it.
  *
+ * "Their own" is `ownPersonalContext` — `kind === "personal"` **and**
+ * `role === "owner"` — and the second half is load-bearing rather than
+ * belt-and-braces. `createWorkspace` accepts `kind: "shared"` and makes its
+ * caller `owner`, so "a context you own" alone can be a shared one, and an
+ * offer built from that rule would read *Only you* over a bucket several people
+ * watch. That is verbatim the failure this module exists to prevent, arriving
+ * through its own front door.
+ *
+ * ## `contextSlug` is an address, not a label
+ *
+ * It routes. Every gateway call about a meeting is addressed to the
+ * destination's context (`gateway.ts`), so the row's audience line and the
+ * bucket the note lands in are answers to the same question. For a while they
+ * were not: the slug was rendered, persisted and re-validated, and the write
+ * went wherever the credential pointed — a row that said `@acme / finance`
+ * over a note headed somewhere nobody had named.
+ *
  * ## It is a pure module, and that is `console/capabilities.ts`'s reason
  *
  * Every guard in the console that was expressed inside a hook or a component

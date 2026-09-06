@@ -89,6 +89,22 @@ export interface MeetingRecord {
    * this device claiming somebody chose something they were never asked about.
    */
   destination: MeetingDestination | null;
+  /**
+   * The gateway said the folder this meeting named is not where the note is.
+   *
+   * Client-local like `acked`, and set from `IngestAck.folderRejected` — the
+   * contract's own field, whose note says why reading it is not optional:
+   * "without it the destination control would be back to appearing to work and
+   * doing nothing". It covers both ways that happens: a folder the gateway will
+   * not file into, which falls back to the default rather than losing the
+   * meeting, and a folder a later finalize named after the path was claimed.
+   *
+   * Absent rather than `false` when nothing was refused, so a record written by
+   * a build before this existed and a meeting whose folder was honoured read
+   * the same — which they are. It says nothing about *which* folder was used:
+   * `session.notePath` is the only answer to that, and it is the gateway's.
+   */
+  folderRejected?: true;
   /** ISO timestamp the currently-open recording interval started at. */
   runningSince: string | null;
   /** When anything about this record last changed, for ordering a restore. */
@@ -327,6 +343,9 @@ export function parseRecord(raw: string | null, workspaceId: string): MeetingRec
       is what it was.
     */
     destination: parseDestination(record.destination),
+    // Narrowed rather than carried, so a device that has been edited cannot
+    // put anything but the flag itself back on a record.
+    ...(record.folderRejected === true ? { folderRejected: true as const } : {}),
     acked,
     runningSince: typeof record.runningSince === "string" ? record.runningSince : null,
     updatedAt: typeof record.updatedAt === "number" ? record.updatedAt : 0,

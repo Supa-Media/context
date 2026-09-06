@@ -115,13 +115,26 @@ export function useTranscriptionClient(): void {
 /**
  * Point the controller at the signed-in person's context, once.
  *
- * ## Why the workspace comes from the same query the console uses
+ * ## What `workspaceId` here is, and — since it was read as more — what it is not
  *
- * `listMyWorkspaces` plus `defaultContext` — a context you own, and the first
- * of the list only when you own none. That rule is `nav.ts`'s and is not
- * re-derived here: a meetings screen that picked "the first workspace" would
- * record somebody's meeting into a colleague's context, which is a tenancy
- * mistake rather than a cosmetic one.
+ * It is the **device key**: `keys.ts` files a meeting under it so that one
+ * person's several contexts do not share a drawer on the phone, and
+ * `loadMeetings` reads that drawer back. It is not a routing decision and it
+ * never was one. Where a meeting's note *lands* is `MeetingRecord.destination`,
+ * which addresses every gateway call about that meeting — see `gateway.ts`.
+ *
+ * That distinction is written down because the two were briefly conflated, in
+ * the direction that matters. `defaultContext` filters on `role === "owner"`
+ * and nothing else, while the sheet's own "your context" is
+ * `ownPersonalContext` — `kind === "personal"` **and** `role === "owner"`. Two
+ * notions of the same phrase, and while the write followed neither, whichever
+ * one it was read as was wrong: somebody who owns a shared workspace older than
+ * their brain has a `defaultContext` that is shared, and a meeting filed by it
+ * would land in a shared bucket under a row that said "Only you".
+ *
+ * Nothing here decides that any more, so `defaultContext` stays exactly as
+ * `nav.ts` argues it: the rule for which context somebody lands in, which is a
+ * question about a first screen and not about a bucket.
  *
  * Convex dedupes identical subscriptions, so this adds no round trip the app
  * was not already making.
