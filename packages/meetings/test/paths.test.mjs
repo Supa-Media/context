@@ -583,13 +583,21 @@ export function runPathChecks(check) {
     const decision = readFileSync(new URL("../../../docs/decisions/meetings.md", import.meta.url), "utf8");
 
     const stated = numbers[(/so (\w+) refusals are added/.exec(source) ?? [])[1]];
-    const docblock = source.slice(
-      source.indexOf("## What a folder needs on top of what a root needs"),
-      source.indexOf(" * The refusal is a `null` and never a thrown message")
-    );
+    /*
+      Both markers checked, because `indexOf` answers -1 and `slice` reads -1
+      as "one from the end": reword the closing sentence and the docblock
+      becomes everything up to the last character of the FILE, whose bullets
+      today still number seven. The guard would go green by widening rather
+      than red by breaking — the failure mode this whole block exists to stop,
+      reproduced inside it.
+    */
+    const opens = source.indexOf("## What a folder needs on top of what a root needs");
+    const closes = source.indexOf(" * The refusal is a `null` and never a thrown message");
+    const docblock = source.slice(opens, closes);
     const bullets = (docblock.match(/^ \*  - \*\*/gm) ?? []).length;
     const inDecision = numbers[(/is (\w+) rules with \1 reasons/.exec(decision) ?? [])[1]];
 
+    check("the docblock section this counts is still found, at both ends", opens !== -1 && closes > opens);
     check("the docblock states a refusal count at all", stated !== undefined);
     check("...and lists exactly that many bullets", bullets === stated);
     check("...and the decision doc states the same number", inDecision === stated);

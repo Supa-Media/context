@@ -76,6 +76,45 @@ jobs:
         working-directory: apps/mcp
         run: node test/test.mjs
 
+  meetings:
+    name: Test Meetings Core
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      # NO CI JOB RAN THIS PACKAGE'S SUITE AT ALL. Measured on #247, from that
+      # run's own `Detect Changes` log: `ci.yml` filters on
+      # `packages/shared/**`, `apps/mobile/**`, `apps/convex/**` and the e2e
+      # paths, all four false against a diff of five files under
+      # `packages/meetings/**` and `docs/`; and no other workflow invoked
+      # `packages/meetings/test`. So its checks were local-only, on code the
+      # gateway imports by relative path and files meetings into a customer's
+      # bucket with.
+      #
+      # The gateway's own suite is not a substitute, and the same pull request
+      # measured why: delete `normalizeMeetingFolder`'s idempotence rule and
+      # one gateway check goes red, but replace it with the per-segment variant
+      # that refuses 36 folders a real vault would have and the gateway stays
+      # GREEN while this package goes 2 red. A consumer's suite sees the
+      # behaviour it happens to exercise; the owning package's suite is the
+      # contract.
+      #
+      # It lives in this file rather than in `ci.yml` for the reason in the
+      # header above: this workflow carries no `paths:` filter on
+      # `pull_request`, so it runs on every pull request — including ones that
+      # change this package and touch nothing else, which is precisely the
+      # shape that ran nothing before. Bare node with no install, because this
+      # package has no dependencies either.
+      - name: Run test suite
+        working-directory: packages/meetings
+        run: node test/test.mjs
+
   workflows-parse:
     name: Workflows parse
     runs-on: ubuntu-latest
