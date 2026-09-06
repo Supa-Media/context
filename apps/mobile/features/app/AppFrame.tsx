@@ -103,11 +103,13 @@ export interface FrameApi {
    */
   toggleExplorer: () => void;
   /**
-   * ⌘B, and the switcher in the top bar.
+   * ⌘B.
    *
-   * Collapses the rail to its marks on a pointer layout and pulls it in as a
-   * sheet on a phone — `railToggleFor` owns which, for the same reason
-   * `explorerToggleFor` owns the other one.
+   * Collapses the rail to its marks on a pointer layout and does nothing on a
+   * phone, where there is no rail to collapse and none to bring in —
+   * `railToggleFor` owns which, for the same reason `explorerToggleFor` owns
+   * the other one. It used to pull the sheet in at compact; the contexts are on
+   * the strip now.
    */
   toggleRail: () => void;
   closeDrawer: () => void;
@@ -329,12 +331,25 @@ export interface AppFrameProps {
    * needs targets a thumb can hit, and collapsing it to `full` here is what
    * made the sheet inherit a pointer layout's 35pt rows.
    *
-   * Reachable at every density — a column on a pointer layout, a sheet the top
-   * bar brings in on a phone. It is not optional and must not become so: the
-   * app-level panes, the other contexts and sign-out are reachable through this
-   * node and no other, so a density with no way to reach it is a density you
-   * cannot navigate out of. On a phone it is mounted only while the sheet is
-   * up, which is why the slot is a function rather than a node.
+   * **Amended, in the change that reversed it.** This used to read: "Reachable
+   * at every density — a column on a pointer layout, a sheet the top bar brings
+   * in on a phone. It is not optional and must not become so: the app-level
+   * panes, the other contexts and sign-out are reachable through this node and
+   * no other, so a density with no way to reach it is a density you cannot
+   * navigate out of."
+   *
+   * The premise in that sentence is the half that expired — *through this node
+   * and no other*. On a phone the other contexts are the `contextStrip`, the
+   * signed-in identity is the `accountSlot` beside it, and the app's other
+   * places are keys on the bottom row; none of the three is behind a control,
+   * so none of them can be missing. The conclusion still holds wherever the
+   * premise does, which is medium and wide: there this is a permanent column
+   * and it is not optional.
+   *
+   * At compact it is not rendered at all — `regions.rail` is `"hidden"` and
+   * there is no sheet — so the slot is still a function rather than a node,
+   * now because a pointer layout asks for exactly one of three modes rather
+   * than because a phone mounts it late.
    */
   rail: (mode: "full" | "icons" | "sheet") => ReactNode;
   /**
@@ -392,27 +407,28 @@ export function AppFrame({
   // ⌘B on every layout that has an explorer column.
   const toggleExplorer = useCallback(() => {
     setState((current) => {
-      // `hasExplorer` matters here for the same reason it matters to
-      // `regionsFor`: on Map and Connections there is no tree, the command has
-      // nothing to do, and doing nothing has to mean *nothing* — the line
-      // below would otherwise dismiss the rail sheet on its way to setting a
-      // flag `regionsFor` discards.
+      // `hasExplorer` still travels because `explorerToggleFor` still takes it
+      // — the day a density gets a drawer back it is the flag that decides
+      // whether there is anything to pull in. Today the answer is `null` at
+      // every density and this is a genuine no-op, which is the thing to keep:
+      // "does nothing" must mean *nothing*, not "does the other command".
       const field = explorerToggleFor(densityFor(width), { hasExplorer });
       if (field === null) return current;
-      // The two compact panels share a place on the screen and a scrim, so
-      // raising one puts the other away. `frame.ts` resolves a state carrying
-      // both; that the resolution is unreachable from here is the point.
-      return { ...current, navOpen: false, [field]: !current[field] };
+      return { ...current, [field]: !current[field] };
     });
   }, [width, hasExplorer]);
 
+  // Same rule as `toggleExplorer`: `frame.ts` owns what the command means and
+  // `null` is a real no-op. At compact there is no rail to collapse and no
+  // sheet to bring in — the contexts are on the strip — so ⌘B does nothing
+  // there rather than writing a preference nothing reads, which is the bug
+  // `railToggleFor` was extracted to end.
   const toggleRail = useCallback(
     () =>
       setState((current) => {
         const field = railToggleFor(densityFor(width));
-        return field === "navOpen"
-          ? { ...current, drawerOpen: false, navOpen: !current.navOpen }
-          : { ...current, railCollapsed: !current.railCollapsed };
+        if (field === null) return current;
+        return { ...current, [field]: !current[field] };
       }),
     [width],
   );

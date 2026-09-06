@@ -443,29 +443,53 @@ export const layout = {
   /**
    * How much note shows either side of that toolbar.
    *
-   * 52, measured off the reference: the bar runs from x=52.0 to x=387.7 on a
-   * 440pt screen, which is 336pt of pill with 52 of note showing on each side.
-   * That gap is most of what makes the bar read as an object lying on the note
-   * rather than as an edge with rounded corners.
+   * **24, and it was 52 — this is the number the seventh key was bought with.**
    *
-   * **It is the inset that is the measurement, not the width.** An earlier pass
-   * sized the bar to its contents and let the inset be whatever was left over,
-   * which is right only for the number of actions the reference happens to
-   * show: on `@seyi`, where the reader is a team member and there is no New
-   * note, five targets left the pill spanning 78→362 — 78pt in on one side of a
-   * 440pt screen, half again the reference's gap, on a bar that is supposed to
-   * be in the same place on every screen. So the frame insets the slot by this
-   * and the bar fills it.
+   * The 52 was a measurement, not a preference: Obsidian's bar runs from
+   * x=52.0 to x=387.7 on a 440pt screen, which is 336pt of pill with 52pt of
+   * note showing on each side, and that sliver is most of what makes the bar
+   * read as an object lying on the note rather than as an edge with rounded
+   * corners. What it was buying is the *sliver*, and a sliver is worth less
+   * than a destination.
+   *
+   * The arithmetic, on a 390pt phone, which is the narrow case rather than the
+   * reference's 440:
+   *
+   *     390 − 2 × 24 = 342          the pill
+   *     342 − 2 × 12 = 318          inside `bottomBarPad`
+   *     318 ÷ 7      = 45.4pt       one target — above the 44pt floor
+   *
+   * and at the old 52:
+   *
+   *     390 − 2 × 52 = 286
+   *     286 − 2 × 12 = 262
+   *     262 ÷ 7      = 37.4pt       under the floor; 262 ÷ 6 = 43.7, also under
+   *
+   * So a seventh key does not fit at 52 and does at 24, and 24 still leaves a
+   * visible sliver of note either side — reduced, not spent. Six of the seven
+   * are the note's verbs; the seventh is the app's other place, and
+   * `BottomBar`'s trailing separator is what keeps them reading as six and one.
+   * `bottomBar.test.ts` computes both rows from these tokens rather than
+   * quoting the numbers, so they cannot drift apart from this comment.
+   *
+   * **It is still the inset that is the measurement, not the width.** An
+   * earlier pass sized the bar to its contents and let the inset be whatever
+   * was left over, which is right only for the number of actions the reference
+   * happens to show: on `@seyi`, where the reader is a team member and there is
+   * no New note, five targets left the pill spanning 78→362 — a bar that is
+   * supposed to be in the same place on every screen. So the frame insets the
+   * slot by this and the bar fills it.
    */
-  bottomBarInset: 52,
+  bottomBarInset: 24,
   /**
    * One target on that toolbar.
    *
    * 52 is what six targets plus `bottomBarPad` either side need to fill the
-   * 336pt the reference measures. It is the *natural* width now rather than the
-   * fixed one — `bottomBarInset` decides the bar's width, and the targets share
-   * it — so it stands as the size a target wants when there is room, with
-   * `minTouchTarget` underneath it as the floor when there is not.
+   * 336pt the reference measures. It is the *natural* width — `bottomBarInset`
+   * decides the bar's width and the targets share it — so it stands as the size
+   * a target wants when there is room, with `minTouchTarget` underneath it as
+   * the floor when there is not. Seven targets on a 390pt phone are under it
+   * and land on the floor's side of it at 45.4; see `bottomBarInset`.
    */
   bottomBarTarget: 52,
   /** The toolbar's own horizontal padding. See `bottomBarTarget`. */
@@ -529,6 +553,23 @@ export const layout = {
    * paragraph is here rather than a 40 in a shipped build.
    */
   chromeButton: MIN_TOUCH_TARGET,
+  /**
+   * The account mark pinned at the leading end of a phone's top row.
+   *
+   * 34, and **below `minTouchTarget` on purpose**, which is legal for the same
+   * reason `explorerRow` is: what a thumb hits is the pressable around it, and
+   * the caller pads to the floor. What 34 buys is the budget for the thing
+   * beside it. At 390pt the row is
+   *
+   *     390 − 2 × 12 gutters = 366
+   *     366 − 34 avatar − 8 gap − 92 capsule − 8 gap ≈ 232pt for the strip
+   *
+   * where 92 is the trailing capsule with two targets in it. A 44pt mark takes
+   * ten of those points off the one element on the row that is a *list*, and
+   * the strip is the element that has to hold two or three legible names before
+   * anybody scrolls. The mark is one glyph and is recognised rather than read.
+   */
+  accountAvatar: 34,
   /**
    * A row in a grouped list on a phone.
    *
