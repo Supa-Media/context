@@ -579,9 +579,17 @@ export async function storeForSession(session, env, controlPlane) {
     throw new StorageUnavailable("no proof of authorization");
   }
 
+  // Two things, not one. `/gateway/binding` answers `{binding, searchIndex}`
+  // as siblings; reading only the first, and then hunting for the second
+  // inside it, is what left fast search dead in production. See
+  // `getStorageBinding`.
   let binding;
+  let searchIndex;
   try {
-    binding = await controlPlane.getStorageBinding(session.accessToken, session.workspaceId);
+    ({ binding, searchIndex } = await controlPlane.getStorageBinding(
+      session.accessToken,
+      session.workspaceId
+    ));
   } catch (error) {
     if (error instanceof ControlPlaneError) throw new StorageUnavailable("control plane");
     throw error;
@@ -638,9 +646,15 @@ export async function storeForSession(session, env, controlPlane) {
    * `null` where the descriptor is absent, partial or malformed — all three
    * are the same thing to this gateway, which is "fast search is off here,
    * serve from R2 and project nothing". That is the normal case.
+   *
+   * It comes off the **response**, beside the binding, and never out of the
+   * binding. That is the control plane's shape (`http.ts`), and reading it
+   * from the wrong place is not a null that behaves like "off" — it is a null
+   * for every context in the product, which is what fast search was until
+   * this line changed.
    */
   Object.defineProperty(store, "searchIndex", {
-    value: readSearchIndexBinding(binding),
+    value: readSearchIndexBinding({ searchIndex }),
     enumerable: false,
     writable: false,
     configurable: true,

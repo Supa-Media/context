@@ -795,6 +795,7 @@ export async function runSearchProjectionChecks(check) {
     backend.close();
   }
 
+  await runSweepCompletionChecks(check);
   await runSyncReportChecks(check);
   await runEndToEndChecks(check);
   await runServeChecks(check);
@@ -817,6 +818,104 @@ const SYNC_ENDPOINT = "https://s3.example-syncreport.test";
  * same notes eventually — so deleting the reporting entirely changes only how
  * long somebody waits, which no other assertion measures.
  */
+/**
+ * A CENSUS BIGGER THAN ONE WINDOW, AND THE `ready` IT MUST NOT SEND EARLY.
+ *
+ * `state: "ready"` is the one gate `fastSearchAnswer` trusts: below it the
+ * projection is never asked, at it every search is answered from it. So a
+ * `ready` sent over a partially copied context is not a cosmetic percentage,
+ * it is the reader being switched on over a corpus that is missing notes —
+ * and every one of those searches falls through to R2 having paid a D1 query
+ * for nothing.
+ *
+ * A live context was reported as "100% indexed, 100 notes" while holding more
+ * than 160, and 100 is exactly `VERSION_PROBE_CAP` — a specific, checkable
+ * accusation. This walks a census of 250, two and a half windows, and it
+ * **clears the cap**. Two sabotages say why, and the second is the useful one:
+ *
+ *   `windowReachedEnd` forced true, so a window that merely FILLED
+ *     ended the sweep                                                    0
+ *   `notesPending` forced to 0                                           3
+ *   both together                                                        3
+ *
+ * So `sweepComplete` is not what withholds `ready` — `notesPending === 0` is,
+ * and it is computed as `census size - COUNT(*)` plus whatever the R2 index
+ * says it has not reached. A sweep that ends early therefore cannot produce a
+ * false `ready`: the count would not match the census and the state would stay
+ * `undefined`. The cap is exonerated.
+ *
+ * **Which relocates the question rather than answering it.** For a context to
+ * honestly report "100 indexed, 0 pending", its CENSUS must hold 100 — and the
+ * census is the R2 index's own docmap (`loadCensus`), not a listing this pass
+ * makes. So a context whose bucket holds 160 notes and whose projection calls
+ * itself complete at 100 is a context whose R2 index knows about 100 notes and
+ * believes it is caught up. That is an R2-index question, upstream of every
+ * line in this file, and it is not diagnosable from a fixture — it needs the
+ * live manifest's `freshness`. Written down here rather than guessed at.
+ *
+ * The guard stays whatever the answer, because the property is load-bearing —
+ * `state: "ready"` is the one gate `fastSearchAnswer` trusts — and was proved
+ * by nothing before this.
+ */
+async function runSweepCompletionChecks(check) {
+  const backend = createD1Backend();
+  const client = createD1Client(DESCRIPTOR, { fetchImpl: (u, i) => backend.handle(u, i) });
+
+  const TOTAL = 250;
+  const notes = {};
+  const census = new Map();
+  for (let n = 0; n < TOTAL; n += 1) {
+    const path = `1-projects/n${String(n).padStart(3, "0")}.md`;
+    notes[path] = `# Note ${n}\n\nA numbat, number ${n}.\n`;
+    census.set(path, `v${n}`);
+  }
+  const store = noteStore(notes);
+
+  const reports = [];
+  let readyAt = null;
+  let passes = 0;
+  // Generous but finite: 250 notes at the pass cap is ~13 passes, and a loop
+  // that cannot end is a test that hangs rather than fails.
+  while (passes < 200) {
+    passes += 1;
+    const result = await projectPass(store, client, {
+      census,
+      visibilityOf: () => "team",
+      budget: createSearchBudget(400),
+      reportProgress: (p) => reports.push(p),
+    });
+    const indexed = backend.rows("SELECT COUNT(*) AS n FROM notes")[0].n;
+    const last = reports[reports.length - 1];
+    if (readyAt === null && last && last.state === "ready") readyAt = indexed;
+    if (indexed >= TOTAL && result.sweepComplete) break;
+  }
+
+  const indexed = backend.rows("SELECT COUNT(*) AS n FROM notes")[0].n;
+  check(
+    "a census larger than one probe window is copied in full",
+    indexed === TOTAL,
+  );
+  check(
+    "and the sweep does not call itself complete at the window boundary",
+    readyAt === null || readyAt === TOTAL,
+  );
+  check(
+    "no report ever counts more notes than the census holds",
+    reports.every((report) => report.notesIndexed <= TOTAL),
+  );
+  check(
+    "so `ready` is never sent over a partially copied context",
+    reports
+      .filter((report) => report.state === "ready")
+      .every((report) => report.notesIndexed === TOTAL && report.notesPending === 0),
+  );
+  check(
+    "and it is sent once the whole census is in",
+    reports.some((report) => report.state === "ready"),
+  );
+  backend.close();
+}
+
 async function runSyncReportChecks(check) {
   const s3 = createS3Backend(SYNC_ENDPOINT);
   const restore = s3.install();

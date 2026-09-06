@@ -217,8 +217,31 @@ export function createControlPlaneStub(options = {}) {
         // `omitBindingWorkspaceId` stands in for a control plane older than the
         // field, or one that stopped sending it. The gateway's identity check
         // must refuse that rather than skip itself — see `storeForSession`.
-        if (flags.omitBindingWorkspaceId) return ok({ binding: { ...binding } });
-        return ok({ binding: { workspaceId: served, ...binding } });
+        /*
+         * **The descriptor leaves as a SIBLING of the binding, never inside
+         * it**, because that is what `apps/convex/http.ts` sends:
+         *
+         *     json({ binding: opened.binding, searchIndex: opened.searchIndex })
+         *
+         * This stub used to emit whatever shape the fixture handed it, and
+         * every fixture nested `searchIndex` inside the binding — the
+         * gateway's assumption, restated as a fact. The gateway then read
+         * `binding.searchIndex`, a key the control plane has never sent, so
+         * `store.searchIndex` was null on every production request and fast
+         * search served nothing at all, while this suite was ALL PASS.
+         *
+         * A fixture may still be written the convenient way; the split happens
+         * here, at the wire, so no test can assert the gateway's own guess
+         * back to it. `undefined` when there is none, so `JSON.stringify`
+         * drops the key exactly as the real route's comment promises.
+         */
+        const { searchIndex, ...storage } = binding;
+        const envelope = (workspaceId) => ({
+          binding: workspaceId === null ? { ...storage } : { workspaceId, ...storage },
+          ...(searchIndex ? { searchIndex } : {}),
+        });
+        if (flags.omitBindingWorkspaceId) return ok(envelope(null));
+        return ok(envelope(served));
       }
 
       case "/gateway/clients/register": {
