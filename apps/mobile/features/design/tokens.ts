@@ -623,6 +623,16 @@ export const layout = {
    */
   chromeButton: MIN_TOUCH_TARGET,
   /**
+   * The height of a context pill's visible mark, which is not its target.
+   *
+   * A phone's only route between contexts is this strip, so the pressable stays
+   * `minTouchTarget` — `contextStrip.test.ts` holds that and says what a pill
+   * under the floor costs. This is the object drawn inside it: the owner asked
+   * for the pills "smaller and squarer" so more workspaces fit at once, and the
+   * two numbers are separable precisely because the target is not this one.
+   */
+  stripPill: 34,
+  /**
    * The account mark pinned at the leading end of a phone's top row.
    *
    * 34, and **below `minTouchTarget` on purpose**, which is legal for the same

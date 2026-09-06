@@ -269,12 +269,91 @@ describe("the list's three bands", () => {
     expect(sections[0].kind).toBe("today");
   });
 
-  test("a meeting whose timestamp will not parse is dropped, not filed under a day nobody had", () => {
+  /**
+   * **This test used to assert the opposite, and the reversal is the point.**
+   *
+   * It read "a meeting whose timestamp will not parse is dropped, not filed
+   * under a day nobody had", and half of that is still right: a meeting with no
+   * readable date has no place in a chronology, and inventing one for it would
+   * file somebody's meeting under a day they can see is wrong.
+   *
+   * The *drop* was the other half, and it is the same defect as a route with no
+   * way in, one layer down: the record loads (`isSession` asks for a string,
+   * not a date), it is not counted as unreadable, `/meetings/:id` renders it
+   * perfectly — and the list it should appear on drops it in a `continue`. One
+   * such meeting on a device and the screen says "Nothing recorded on this
+   * device yet" over it.
+   *
+   * So it gets a section with no day, last, after every dated one.
+   */
+  test("a meeting whose timestamp will not parse is shown without a day, not dropped", () => {
     const sections = groupMeetings({
-      meetings: [session({ startedAt: "nonsense" })],
+      meetings: [session({ id: "mtg_undatedundatedunda", startedAt: "nonsense" })],
       now,
     });
-    expect(sections).toEqual([]);
+    expect(sections).toHaveLength(1);
+    expect(sections[0].kind).toBe("undated");
+    expect(sections[0].meetings.map((meeting) => meeting.id)).toEqual([
+      "mtg_undatedundatedunda",
+    ]);
+    // And it does not claim a date it does not have.
+    expect(sections[0].heading).not.toContain("today");
+  });
+
+  test("and it goes last, so it never displaces a day that is real", () => {
+    const sections = groupMeetings({
+      meetings: [
+        session({ id: "mtg_undatedundatedunda", startedAt: "nonsense" }),
+        session({ id: "mtg_todaytodaytodaytod", startedAt: new Date(now - 3_600_000).toISOString() }),
+      ],
+      now,
+      locale: "en-GB",
+    });
+    expect(sections.map((s) => s.kind)).toEqual(["today", "undated"]);
+  });
+
+  test("and the dated ones stay in order with it in the list", () => {
+    /*
+      The comparator was `Date.parse(b.startedAt) - Date.parse(a.startedAt)`
+      over the whole list, and one unparseable `startedAt` makes it return `NaN`
+      for **every pair it is in**. A comparator that answers `NaN` is not a
+      comparator: `Array.prototype.sort` is only required to produce a
+      meaningful order for a consistent one, so what came out depended on where
+      V8 happened to put the pivot. Measured before the fix, over 2,000
+      randomised orderings of the three dated meetings below plus one undated:
+      **1,346 came out with the dated meetings in the wrong order.**
+
+      The section a meeting lands in was never wrong — that is keyed off
+      `dayKey` — so this is about the order *within* a day, which is the order
+      somebody reads their afternoon in. Fixed by partitioning first: the
+      undated ones come out before anything is compared, and the comparator only
+      ever sees dates.
+
+      Seeded rather than randomised, because a test that is flaky in the
+      direction of passing is the failure mode this whole file is about.
+    */
+    const at = (hour: number) => new Date(Date.UTC(2026, 8, 6, hour)).toISOString();
+    const noon = Date.UTC(2026, 8, 6, 23);
+    const dated = [
+      session({ id: "mtg_ninenineninenineni", startedAt: at(9) }),
+      session({ id: "mtg_elevenelevenelev1", startedAt: at(11) }),
+      session({ id: "mtg_fourteenfourteen1", startedAt: at(14) }),
+    ];
+    const undated = session({ id: "mtg_undatedundatedunda", startedAt: "nonsense" });
+
+    // Every position the undated one can occupy in the input, because which
+    // pairs the NaN poisons is exactly what its position decides.
+    for (let slot = 0; slot <= dated.length; slot += 1) {
+      const meetings = [...dated];
+      meetings.splice(slot, 0, undated);
+      const sections = groupMeetings({ meetings, now: noon, locale: "en-GB" });
+      const day = sections.find((section) => section.kind === "today");
+      expect(`slot ${slot}: ${day?.meetings.map((m) => m.id).join(",")}`).toBe(
+        "slot " +
+          slot +
+          ": mtg_fourteenfourteen1,mtg_elevenelevenelev1,mtg_ninenineninenineni",
+      );
+    }
   });
 });
 

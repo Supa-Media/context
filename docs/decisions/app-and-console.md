@@ -1528,3 +1528,120 @@ What a simplification would cost, and the test that catches it: dropping the
 of recomputing relative links is one there and three in the gateway's
 `links.test.mjs`; following a plain click is one in `editorLinks.test.ts`; and
 letting the two engines drift is two in `linkParity.test.ts`.
+
+### A route with no way in is a route nobody has
+
+Twice this product has shipped a complete, tested, working feature that nothing
+in the app could reach, and the second time it cost somebody a recording.
+
+Meeting capture arrived with a list screen, a live screen and a working
+recorder, and no `href`, no `router.push`, no button and no rail entry anywhere
+outside `features/meetings/` — the honest answer to "how do I record a meeting"
+was "type the URL". The fix was a row at the head of the console's rail. Then a
+phone lost its rail (*A phone has no left panel*, above; `regionsFor` answers
+`rail: "hidden"` at compact), and `/meetings` went straight back to unreachable
+on the one density that records meetings. A review said so before the merge. It
+merged. A person then recorded a meeting on their phone, ended it, and had
+nothing to open: the file was intact on the device and the list that held it had
+no route into it.
+
+**This class is invisible to every test a screen has**, which is why it keeps
+shipping. A screen's tests are about what it draws once you are on it, and not
+one of them asks how you got there — so a feature that nobody can reach passes
+all of them, in full, forever. Nor is it caught by a reviewer reading a diff:
+the second occurrence was a *deletion* in one file (the rail at compact) whose
+consequence lived in another (a `push` nothing else made).
+
+So the guard is about the set rather than about any one route.
+`features/app/reachability.ts` lists every route under `app/(app)/` with the
+surfaces that navigate to it and the densities each of those is drawn at, and
+`__tests__/routeReachability.test.ts` enumerates the route files off the
+filesystem and requires four things: the two lists agree exactly, every
+reachable route is covered at all three densities, every claim's evidence is
+still present in the file it names, and no compact claim rests on the rail —
+that last one read off `regionsFor` rather than off a comment, so the day a
+density gets a rail back it stops being a rule instead of stopping being true.
+
+Four decisions in that shape, each of which could have gone the other way:
+
+**Enumerated from the filesystem, never from a list.** A registry that also
+supplied the routes would be one list checked against itself, and a route added
+without an entry is precisely the case being caught. Expo Router builds its tree
+from the file system; so does this.
+
+**Density is a set union, not a boolean.** The two surfaces that replaced the
+phone's rail each cover part of the range — the context strip and the bottom row
+are `compact`, the rail is `medium` and `wide` — so "reachable" collapses the
+distinction that the whole defect lived inside. `/meetings at compact` is the
+string the failing test prints, and it is the exact sentence nobody wrote in
+2026-08.
+
+**A claim carries evidence, so it rots loudly.** Each entry point names the file
+that draws it and the strings that have to be in it. Delete the navigation and
+the claim stops matching; a list of prose would have gone on describing a wiring
+that was no longer there, which is what the rail's row did for the length of a
+release.
+
+**And an exemption is stated in the route's own file as well as on the list.**
+`/admin` is deliberately URL-only — it is platform-wide rather than about any
+one context, so a strip pill or a rail row would say it belongs to whichever
+brain is selected — and it is the precedent for the exception list rather than
+an invention of one. A reason that lived only in the registry is a reason the
+next person editing that route never reads.
+
+What the guard cannot do is lay a screen out: jsdom hit-tests nothing, so "the
+control is on the glass at that width" stays with the mounted tests each surface
+already has (`consoleChrome.test.ts`, `meetingsFlow.test.ts`,
+`meetingsEntry.test.ts`, `railSections.test.ts`). What is genuinely new is the
+*completeness* claim, which none of those can make.
+
+It also carries its own guard, per [testing](./testing.md)'s one rule: every
+assertion in the file quantifies over the walk's result, so an enumerator that
+returned `[]` would satisfy all of them. `the walk finds the routes it is
+supposed to be checking` is the self-test, and emptying the enumerator is one of
+the six sabotages recorded in the file's header. The one worth knowing is the
+first: deleting the row that closes this incident fails `a claim names a file
+that still contains the wiring`, and deleting the registry claim with it fails
+`every route is reachable at every density, or says why not`.
+
+This is the same shape as `features/app/frame.ts`'s *what is deliberately kept
+although no density reaches it* — a list whose entire worth is that something
+reads it — and the two sit beside each other for that reason.
+
+### A context pill's target is not its mark
+
+The workspace strip is a phone's **only** route between contexts — no rail, no
+drawer, no menu, no keymap — so `contextStrip.test.ts` holds every pill to
+`minTouchTarget` and says what a target under the floor costs: navigation
+somebody misses and concludes is broken.
+
+Then the owner asked for the pills "smaller and squarer", so more workspaces are
+on screen at once, which is the edit that guard exists to refuse. Both are
+right, and they are only compatible because they are about two different
+objects: the **pressable** is what a thumb hits and the **mark** is what an eye
+reads. That is `accountAvatar`'s own rule — "what a thumb hits is the pressable
+around it, and the caller pads to the floor" — which this surface had never
+applied, because the pill was both.
+
+So the pressable stays `minTouchTarget` and draws nothing, and the mark inside
+it is `layout.stripPill` on `radii.md`. The height was never the constraint on
+how many fit: the horizontal saving is the padding and the row's gap, and that
+is where "more of them fit" is actually paid. `radii.md` rather than
+`radii.pill` is the "squarer" half — a stadium reads as a button, a rounded
+rectangle reads as a tab, which is what this is.
+
+The two halves fail separately, which is the point of separating them: drawing
+the mark at the target's height fails only the new check, and shrinking the
+target instead of the mark fails both.
+
+**Still open, and deliberately not taken here: the strip does not scroll away.**
+The same review asked for it — the pills are pinned while the content moves and
+*"it looks pretty ugly"*. That is not a `ContextStrip` change: at `compact` the
+frame floats its bars over a full-bleed document and every screen pays for them
+in content padding (`surfacePadding`), so making the top row scroll means either
+moving it inside a scroller the frame does not own, or plumbing a scroll offset
+out of every routed surface into the frame. Both are frame-wide and touch every
+console screen; neither is worth guessing at from a phone recording. What is
+already true is that content scrolls *under* the bar rather than being pushed by
+it, which is the reference's own behaviour — so what is being asked for is a
+hide-on-scroll, and it wants its own decision.

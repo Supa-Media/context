@@ -1,17 +1,14 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Platform } from "react-native";
 import { useConvex, useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
-import { MCP_ENDPOINT } from "../console/placeholderData";
 import { defaultContext } from "../console/nav";
 import { useReachability } from "../offline/reachability";
 import { openStore } from "../offline/store";
 import { createRecorder, setTranscriptionClient } from "./capture";
-import {
-  createHttpGateway,
-  gatewayOriginFrom,
-  type MeetingsGateway,
-} from "./gateway";
+import { createConvexGateway, writeNoteThrough } from "./convexGateway";
+import { meetingWorkspaceId, type RoutableContext } from "./destination";
+import { type MeetingsGateway } from "./gateway";
 import { meetings, type MeetingsSnapshot } from "./controller";
 
 /**
@@ -123,29 +120,53 @@ export function useTranscriptionClient(): void {
  * never was one. Where a meeting's note *lands* is `MeetingRecord.destination`,
  * which addresses every gateway call about that meeting — see `gateway.ts`.
  *
- * That distinction is written down because the two were briefly conflated, in
- * the direction that matters. `defaultContext` filters on `role === "owner"`
- * and nothing else, while the sheet's own "your context" is
- * `ownPersonalContext` — `kind === "personal"` **and** `role === "owner"`. Two
- * notions of the same phrase, and while the write followed neither, whichever
- * one it was read as was wrong: somebody who owns a shared workspace older than
- * their brain has a `defaultContext` that is shared, and a meeting filed by it
- * would land in a shared bucket under a row that said "Only you".
+ * That distinction is written down because the two were conflated, in the
+ * direction that matters, and then conflated again by the fix. `defaultContext`
+ * filters on `role === "owner"` and nothing else, while the sheet's own "your
+ * context" is `ownPersonalContext` — `kind === "personal"` **and**
+ * `role === "owner"`. Two notions of the same phrase, and one of them is wrong
+ * about a bucket: somebody who owns a shared workspace older than their brain
+ * has a `defaultContext` that is shared, so a meeting filed by it lands in a
+ * shared bucket at whatever visibility that folder carries, under a row that
+ * said "Only you" — or, for somebody who owns nothing at all, in `contexts[0]`,
+ * which is another person's context.
  *
- * Nothing here decides that any more, so `defaultContext` stays exactly as
- * `nav.ts` argues it: the rule for which context somebody lands in, which is a
- * question about a first screen and not about a bucket.
+ * **That is exactly what the first fix shipped**: the writer's `null`
+ * destination fell back to `defaultContext(workspaces)`, so a paragraph
+ * arguing that nothing here decides routing sat directly above the line that
+ * did. The rule is now `meetingWorkspaceId` in `destination.ts`, beside every
+ * other rule about where a meeting lands, pure and tested without a renderer.
+ *
+ * `defaultContext` stays exactly as `nav.ts` argues it and is used *only* for
+ * the device key below: the rule for which context somebody lands in, which is
+ * a question about a first screen and not about a bucket.
  *
  * Convex dedupes identical subscriptions, so this adds no round trip the app
  * was not already making.
  *
- * ## Why the gateway may be `null`
+ * ## Which writer a meeting takes, and why it is this one
  *
- * See `gateway.ts`: which credential this app presents to the gateway is not
- * settled, and inventing one here would be guessing about somebody else's auth.
- * With no token the gateway refuses to send, the controller keeps the meeting
- * on the device, and the screens say so. A meeting is never lost by this; what
- * it does not do is reach the bucket.
+ * **This is where the app chose the MCP gateway and got a meeting that never
+ * reached a bucket.** `createHttpGateway` authenticates by per-client OAuth
+ * grant and this app holds none, so `authorization()` answered `null`, the
+ * gateway correctly refused to send, and every meeting stopped on the device.
+ * Meanwhile the editor has been writing notes into the same customer's bucket
+ * on every save, through `files.writeNote`.
+ *
+ * So a meeting takes the note's path: `createConvexGateway`, over the control
+ * plane, with this account's own session. `createHttpGateway` is not deleted —
+ * it is the right answer for a client that *does* hold a grant, which is the
+ * desktop app — and this is the one line in the feature that knows there are
+ * two. See `convexGateway.ts` for what that path gives up (the enhancement
+ * pass, the session record in the bucket, `list()`) and how idempotency is
+ * bought without a claimed path.
+ *
+ * The workspace list is what turns a destination's `@name` into the id
+ * `writeNote` takes. It is read through a ref rather than captured, because it
+ * lands *after* the controller is configured and a meeting can be finalized at
+ * any point after that — a gateway rebuilt on every list change would
+ * reconfigure the controller mid-recording, which is the thing
+ * `configure`'s own recorder guard exists to prevent.
  */
 export function useMeetingsSetup(
   options: {
@@ -195,9 +216,39 @@ export function useMeetingsSetup(
   const reachability = useReachability();
   const snapshot = useMeetingsSnapshot();
 
+  const convex = useConvex();
+
+  /*
+    The list, where the gateway can read it at call time. A ref rather than a
+    dependency: `gateway` is a `configure` input, and rebuilding it whenever the
+    workspace list re-renders would hand the controller a new gateway during a
+    live recording.
+  */
+  const directory = useRef<ReadonlyArray<RoutableContext>>([]);
+  directory.current = (workspaces ?? []) as ReadonlyArray<RoutableContext>;
+
+  /*
+    The rule itself is in `destination.ts` and not here, which is the point:
+    what this closure does is read the ref. Everything about *which* context a
+    meeting lands in is a pure function a test reaches without a renderer —
+    `console/capabilities.ts`'s measured rule, and the reason it now is one is
+    that the version expressed here was wrong for a year and nothing could
+    fail. See `meetingWorkspaceId`.
+  */
+  const resolveWorkspaceId = useCallback(
+    (contextSlug: string | null): string | null =>
+      meetingWorkspaceId(directory.current, contextSlug),
+    [],
+  );
+
   const gateway = useMemo(
-    () => options.gateway ?? defaultGateway(),
-    [options.gateway],
+    () =>
+      options.gateway ??
+      createConvexGateway({
+        writeNote: writeNoteThrough(convex as never),
+        resolveWorkspaceId,
+      }),
+    [options.gateway, convex, resolveWorkspaceId],
   );
 
   useEffect(() => {
@@ -225,23 +276,4 @@ export function useMeetingsSetup(
     if (snapshot.status !== "ready") return;
     meetings.requestSync();
   }, [reachability, snapshot.status, snapshot.records]);
-}
-
-/**
- * The gateway this build talks to, or one that always refuses.
- *
- * `MCP_ENDPOINT` is the console's own deployment constant — one URL for every
- * customer, overridable so a self-hoster points at their own gateway — and
- * `gatewayOriginFrom` takes its origin, because `ROUTES` are siblings of `/mcp`
- * rather than paths under it.
- *
- * `authorization` answers `null` today. That is the one unfinished seam in this
- * feature and it is deliberately visible: see `gateway.ts`.
- */
-function defaultGateway(): MeetingsGateway {
-  const origin = gatewayOriginFrom(MCP_ENDPOINT);
-  return createHttpGateway({
-    origin: origin ?? "",
-    authorization: async () => null,
-  });
 }

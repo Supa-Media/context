@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { ScreenScroll } from "../app/Screen";
@@ -6,7 +6,9 @@ import { fonts, layout, radii } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
+import { writeClipboard } from "../design/clipboard";
 import { meetings } from "./controller";
+import { renderMeetingNote } from "./note";
 import { isMeetingId } from "./protocol";
 import { attendeeCount, dayHeading, duration, sourceLabel } from "./format";
 import type { MeetingRecord } from "./record";
@@ -49,11 +51,37 @@ export function MeetingNoteScreen({ meetingId }: { meetingId: string }) {
   const colors = useColors();
   const router = useRouter();
   const [showTranscript, setShowTranscript] = useState(false);
+  /**
+   * What the last press of Copy actually did.
+   *
+   * Three states rather than two, and neither of the outcomes clears itself.
+   * A copy is invisible — `app-and-console.md` argues that at length for the
+   * share dialog — so the confirmation has to outlive the press, and a
+   * *failure* that faded after a second and a half would be the silence this
+   * whole branch is about. It is replaced by the next press, which is the only
+   * thing that makes it stale.
+   */
+  const [copied, setCopied] = useState<"idle" | "copied" | "failed">("idle");
 
   const record = useMemo(
     () => snapshot.records.find((candidate) => candidate.session.id === meetingId) ?? null,
     [snapshot.records, meetingId],
   );
+
+  /**
+   * Put the whole note on the clipboard, and say which of the two happened.
+   *
+   * Rendered lazily rather than held in state: a forty-minute transcript is
+   * tens of kilobytes, and building it on every render of a screen nobody is
+   * copying from is a cost for nothing.
+   */
+  const copy = useCallback(() => {
+    if (record === null) return;
+    void (async () => {
+      const ok = await writeClipboard(renderMeetingNote(record.session));
+      setCopied(ok ? "copied" : "failed");
+    })();
+  }, [record]);
 
   if (record === null) {
     /*
@@ -148,6 +176,37 @@ export function MeetingNoteScreen({ meetingId }: { meetingId: string }) {
       </View>
 
       <View style={styles.actions}>
+        {/*
+          The way out of the device, and on this build the only one.
+
+          A finished meeting can be complete, correct, on the phone and
+          reachable by nothing else — the person can see it and cannot use it.
+          That was every meeting once, while nothing here could reach the
+          bucket; it is now the ones the queue has not landed: offline, no
+          bucket connected, a refusal parked for a person to answer.
+
+          What lands on the clipboard is `renderMeetingNote`'s output, which is
+          the same function `convexGateway` writes the bucket with, so what they
+          paste into their vault is the note they would have had rather than a
+          screen's summary of it — byte for byte, but for the `updated` stamp,
+          which is when the text was produced and cannot be the same twice.
+
+          Drawn whatever state the meeting is in, and deliberately: a meeting
+          that reached the bucket can be opened from the console, from Obsidian
+          or through any connected client, and the one that has not is exactly
+          the one with nowhere else to be read.
+        */}
+        <Pressable
+          onPress={copy}
+          accessibilityRole="button"
+          accessibilityLabel="Copy the whole note to the clipboard"
+          style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+          testID="meeting-copy"
+        >
+          <Icon name="copy" size={15} color={colors.text} />
+          <Text variant="mini">Copy note</Text>
+        </Pressable>
+
         <Pressable
           onPress={() => setShowTranscript((open) => !open)}
           accessibilityRole="button"
@@ -178,6 +237,24 @@ export function MeetingNoteScreen({ meetingId }: { meetingId: string }) {
           <Text variant="mini">Re-run</Text>
         </Pressable>
       </View>
+
+      {/*
+        Said, never assumed. `writeClipboard` answers a boolean precisely so a
+        refusal can reach a person — its own header calls a discarded `false`
+        "the small lie nobody forgives" — and a phone with no clipboard is the
+        case where somebody most needs to know the text is still only here.
+      */}
+      {copied === "copied" ? (
+        <Text variant="rowSub" testID="meeting-copy-said">
+          The whole note is on your clipboard — paste it wherever you keep notes.
+        </Text>
+      ) : null}
+      {copied === "failed" ? (
+        <Text variant="error" testID="meeting-copy-said">
+          Couldn&apos;t reach the clipboard on this device, so nothing was copied. The
+          note is still here.
+        </Text>
+      ) : null}
 
       {showTranscript ? <Transcript record={record} /> : null}
 

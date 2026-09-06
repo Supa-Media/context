@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { useRouter } from "expo-router";
+import { usePathname, useRouter } from "expo-router";
 import { fonts, layout, radii } from "../../design/tokens";
 import { floatingStackBottom, useBottomChromeHeight } from "../../app/bottomChrome";
 import { useThemedStyles, type Colors, type Shadows } from "../../design/theme";
@@ -20,6 +20,16 @@ import { Waveform } from "./Waveform";
  * forgets about it. That is what makes it cheap to put in a layout: there is no
  * "should I show the bar" logic anywhere in the app, and no screen has to know
  * this feature exists to be correct about it.
+ *
+ * **And `null` on the live meeting's own screen, which is the same rule rather
+ * than an exception to it.** This bar exists to reach a recording you have
+ * walked away from; on the screen you have not walked away from, it is a second
+ * copy of the same three controls lying over the first. They are not merely
+ * near each other — the live screen's transport is `bottomBarHeight` tall at
+ * `bottomBarInset`, floated at this same edge, so the two overlap almost
+ * exactly, and `zIndex` cannot arbitrate between them because every
+ * react-native-web `View` opens a stacking context and they are in different
+ * ones (`docs/decisions/app-and-console.md`).
  *
  * ## Where it is mounted
  *
@@ -60,6 +70,7 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
   const snapshot = useMeetingsSnapshot();
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
+  const pathname = usePathname();
   const live = snapshot.live;
   const now = useTick(live !== null);
   // Whatever the screen underneath is already floating at this edge, so the two
@@ -71,7 +82,61 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
     router.push(meetingHref(live.session.id));
   }, [router, live]);
 
+  /**
+   * End the recording, and land on the meeting that just ended.
+   *
+   * `controller.end` touches no router — the controller owns no navigation, by
+   * `controller.ts`'s own rule — and for a while nothing else did either, so
+   * this press left somebody standing on whatever screen they were reading
+   * while their meeting was filed into a list a phone had no route into. That
+   * is the report this fixed: "the note sort of just disappeared… I don't know
+   * if it succeeded, if it failed. Just nothing at all."
+   *
+   * Taking them there is stronger than any list entry, because the meeting
+   * screen is what answers the question they are actually asking:
+   * `MeetingNoteScreen` says whether the note reached the bucket, and says it
+   * out of a `notePath` rather than out of a hope. (It used to be the case that
+   * the answer was always "it has not", because nothing in this app could reach
+   * the bucket. It writes the note the way it writes a note now — see
+   * `convexGateway.ts` — so the screen has both answers to give, which is what
+   * makes landing somebody on it worth doing.)
+   *
+   * **After the end resolves, not before.** `/meetings/:id` chooses its screen
+   * off the session's state, so navigating first would show the live screen for
+   * a frame on the way to the note.
+   *
+   * **And not at all when this is already the screen underneath.** The bar is
+   * mounted above every route including that one, and pushing there would put a
+   * second copy of the meeting on the stack for somebody who is looking at it.
+   *
+   * **A failed end still lands them on the meeting.** This used to be
+   * `void (async () => { await meetings.end(); … })()`, which turns a rejecting
+   * `end()` into an unhandled rejection: the bar stays up, nothing on screen
+   * changes, and the person is left in the state this whole seam exists to
+   * close — *"I don't know if it succeeded, if it failed. Just nothing at
+   * all."* The navigation is the signal, and it is deliberately not a toast:
+   * the meeting screen is what says what state the meeting is in, and a
+   * recording whose end failed is exactly the one somebody needs to read that
+   * about and copy their notes out of.
+   */
+  const end = useCallback(() => {
+    if (live === null) return;
+    const href = meetingHref(live.session.id);
+    void (async () => {
+      try {
+        await meetings.end();
+      } catch {
+        // See above: the meeting screen is where this is reported, because it
+        // is the screen that can say what is actually on the device.
+      }
+      if (pathname !== href) router.push(href);
+    })();
+  }, [live, pathname, router]);
+
   if (live === null) return null;
+  // The screen underneath is this meeting's own, and it has a transport of its
+  // own in this exact 66pt of glass. See the header.
+  if (pathname === meetingHref(live.session.id)) return null;
 
   const paused = live.session.state === "paused";
   const elapsed = clock(recordElapsedMs(live, now === 0 ? Date.now() : now));
@@ -109,7 +174,7 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
         </Pressable>
 
         <Pressable
-          onPress={() => void meetings.end()}
+          onPress={end}
           accessibilityRole="button"
           accessibilityLabel="End the recording"
           style={({ pressed }) => [styles.end, pressed && styles.pressed]}

@@ -244,8 +244,17 @@ export function fakeGateway(
       return ack(next);
     },
 
-    async finalize(to, sessionId) {
+    async finalize(to, incoming) {
       gate("finalize");
+      /*
+        The id, not the object. This fake stands in for the *gateway*, which
+        holds the session it was posted and answers about that one — a fake that
+        finalized whatever it was handed would let a test assert an upsert it
+        never made. `finalize` takes the session because the Convex writer
+        composes the note (see `MeetingsGateway.finalize`); this implementation
+        still only needs the id.
+      */
+      const sessionId = incoming.id;
       const session = require(sessionId);
       if (session.state === "complete" && session.notePath !== null) {
         // Already written. The path it already wrote, and no second note.

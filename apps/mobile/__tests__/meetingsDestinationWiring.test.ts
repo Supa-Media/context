@@ -8,7 +8,28 @@ import { destinationKey } from "../features/meetings/keys";
 import { createHttpGateway } from "../features/meetings/gateway";
 import type { MeetingDestination } from "../features/meetings/destination";
 import { memoryStore, type KeyValueStore } from "../features/offline/memory";
-import { ERRORS, type MeetingDevice } from "../features/meetings/protocol";
+import { ERRORS, PROTOCOL_VERSION, type MeetingDevice } from "../features/meetings/protocol";
+import { seedSession } from "../features/meetings/session";
+
+/**
+ * A session `finalize` will accept, named.
+ *
+ * `finalize` takes the session rather than its id because the Convex writer
+ * composes the note from it (see `MeetingsGateway.finalize`). What these tests
+ * are about is the *address* the HTTP gateway sends to, which reads only the
+ * id, so everything else here is filler.
+ */
+function sessionNamed(id: string) {
+  return seedSession({
+    id,
+    version: PROTOCOL_VERSION,
+    title: "Design review",
+    startedAt: "2026-09-05T18:00:00.000Z",
+    source: { kind: "in-person" },
+    device: { platform: "ios" },
+    transcription: null,
+  });
+}
 
 /**
  * The chosen folder, from the press to the note.
@@ -178,7 +199,7 @@ describe("a meeting is written where it was sent", () => {
     */
     const { gateway, sent } = spyGateway();
 
-    await gateway.finalize(IN_A_PROJECT, "mtg_x");
+    await gateway.finalize(IN_A_PROJECT, sessionNamed("mtg_x"));
 
     expect(sent).toHaveLength(1);
     expect(sent[0]!.url).toContain("/meetings/sessions/mtg_x/finalize");
@@ -195,7 +216,7 @@ describe("a meeting is written where it was sent", () => {
     */
     const { gateway, sent } = spyGateway();
 
-    await gateway.finalize(null, "mtg_x");
+    await gateway.finalize(null, sessionNamed("mtg_x"));
     expect(sent[0]!.body).toEqual({});
     // ...and it is addressed to the context this connection already defaults
     // to, which is the whole meaning of "nobody chose".
@@ -246,7 +267,7 @@ describe("a meeting is written where it was sent", () => {
       answers `folderRejected` for a folder it will not file into whether or not
       the note already exists — see `ingest.js` — and one note is still written.
     */
-    const again = await gateway.finalize(AT_THE_ROOT, id);
+    const again = await gateway.finalize(AT_THE_ROOT, sessionNamed(id));
     expect(again.folderRejected).toBe(true);
     expect(again.notePath).toBe(`0-inbox/meetings/${id}.md`);
     expect(gateway.notesWritten()).toBe(1);
@@ -441,7 +462,7 @@ describe("a meeting is written into the context it was sent to", () => {
     const { gateway, sent } = spyGateway();
     const forged = { ...MY_OWN_INBOX, contextSlug: "Not A Slug" } as MeetingDestination;
 
-    await expect(gateway.finalize(forged, "mtg_x")).rejects.toMatchObject({
+    await expect(gateway.finalize(forged, sessionNamed("mtg_x"))).rejects.toMatchObject({
       code: ERRORS.invalid,
     });
     expect(sent).toEqual([]);
@@ -453,7 +474,7 @@ describe("a meeting is written into the context it was sent to", () => {
 
     // `normalizeMeetingFolder`'s rule one field over: a message that quotes
     // what it refused is a reflection of whatever a client sent.
-    const refusal = await gateway.finalize(forged, "mtg_x").catch((error: unknown) => error);
+    const refusal = await gateway.finalize(forged, sessionNamed("mtg_x")).catch((error: unknown) => error);
     expect(String((refusal as Error).message)).not.toContain("Not A Slug");
   });
 });

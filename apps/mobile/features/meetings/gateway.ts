@@ -27,20 +27,30 @@ import type {
  * ## Authentication is an argument, and there is no default
  *
  * `authorization` returns the header value for a request, or `null` when this
- * device has nothing to present. **This is the one seam in the meetings feature
- * that is not settled**, and it is a deliberate hole rather than an oversight:
- * the gateway authenticates MCP clients through per-client OAuth grants
- * (non-negotiable #4), and this app is not one of those clients — it signs in
- * to the *control plane* with `@convex-dev/auth`. Which credential the phone
- * presents to the gateway is a decision for whoever builds the gateway half,
- * and inventing one here would be this screen guessing about somebody else's
- * auth.
+ * device has nothing to present: the gateway authenticates MCP clients through
+ * per-client OAuth grants (non-negotiable #4), and this app is not one of those
+ * clients — it signs in to the *control plane* with `@convex-dev/auth`.
  *
- * So `authorization` answering `null` is a first-class state, not an error:
- * `createHttpGateway` refuses to send rather than sending an unauthenticated
- * request, the controller keeps the meeting on the device, and the screen says
- * the meeting has not left the phone. An absent capability is reported, never
- * faked, and never turned into a request that will be refused.
+ * **This used to say it was "the one seam in the meetings feature that is not
+ * settled", and calling it a seam is what let it stay a hole.** This app held
+ * no grant, so `authorization()` always answered `null`, this gateway always
+ * refused to send, and every meeting recorded, transcribed and stopped on the
+ * device — reported honestly on every screen, which is exactly why it read as a
+ * decision. An absent capability reported rather than faked is the right rule
+ * and it is not a substitute for the capability.
+ *
+ * It is settled now, and not here: **this app writes a meeting the way it
+ * writes a note**, through `files.writeNote` over its control-plane session.
+ * See `convexGateway.ts`. This implementation stays and is not deprecated — it
+ * is the right answer for a client that really does hold a grant, which is the
+ * desktop app, where the gateway's enhancement pass, its session records under
+ * `.meetings/` and `list_meetings` live. `useMeetingsSetup` is the one line in
+ * the feature that knows there are two.
+ *
+ * So `authorization` answering `null` is still a first-class state rather than
+ * an error — a desktop client whose grant was revoked mid-meeting is exactly
+ * that — and it still refuses to send rather than sending a request that will
+ * be refused.
  *
  * ## Why the base URL is not `MCP_ENDPOINT`
  *
@@ -78,9 +88,26 @@ import type {
  *    than two is what makes "the folder said one thing and the context another"
  *    unrepresentable rather than merely absent.
  *
- * `null` is a first-class answer and means the connection's own default
- * context: the list screen's one-tap record genuinely chose nothing, and the
- * gateway's default is the right answer for it.
+ * `null` is a first-class answer and means **the recorder's own brain** — the
+ * list screen's one-tap record genuinely chose nothing, and the person's own
+ * personal context is the answer `destination.ts` argues for every capture
+ * nobody filed.
+ *
+ * Each implementation reaches that answer with what it has, and the two are not
+ * the same mechanism, so it is written down here rather than left to each:
+ *
+ *  - **`createHttpGateway`** sends the bare route, and the gateway serves it
+ *    from the connection's own default context. That is one context — the one
+ *    the grant was minted for — so "the connection's default" and "this
+ *    person's brain" are the same bucket by construction.
+ *  - **`createConvexGateway`** holds a control-plane session that reaches
+ *    *every* context this person is a member of, so it has no such default and
+ *    must state the rule: `meetingWorkspaceId(contexts, null)` is
+ *    `ownPersonalContext`, and somebody who owns no brain gets `null` and keeps
+ *    the meeting on the device rather than a fallback into somebody else's.
+ *
+ * Reading `null` as "whatever context this client happens to be pointed at" is
+ * the shape that files a transcript into a shared bucket, and it shipped once.
  *
  * `list()` takes none, deliberately. It answers "what has this connection
  * recorded", which is a question about the connection rather than about any one
@@ -127,8 +154,16 @@ export interface MeetingsGateway {
    * The folder half of `to` rides on *this* call and only this one: it is the
    * request that turns a session into a note, so the request whose answer is a
    * path is the request that carries where the path goes.
+   *
+   * **It takes the session, not its id**, and that is not symmetry with
+   * `putSession`. `createConvexGateway` composes the note here — it is the
+   * writer, not a client of one — and it cannot hold the session from an
+   * earlier step: `pendingSteps` skips `session` when the metadata is already
+   * acknowledged, so a retry after a restart reaches this call with nothing
+   * behind it. `createHttpGateway` uses `session.id` and ignores the rest,
+   * which is exactly what it did before.
    */
-  finalize(to: MeetingAddress, sessionId: string): Promise<IngestAck>;
+  finalize(to: MeetingAddress, session: MeetingSession): Promise<IngestAck>;
   /**
    * Recent sessions this workspace holds, newest first.
    *
@@ -248,7 +283,7 @@ export function createHttpGateway(options: HttpGatewayOptions): MeetingsGateway 
       send(to, ROUTES.segments(sessionId), "POST", { segments }),
     putNotes: (to, sessionId, markdown) =>
       send(to, ROUTES.notes(sessionId), "POST", { markdown }),
-    finalize: (to, sessionId) => send(to, ROUTES.finalize(sessionId), "POST", finalizeBody(to)),
+    finalize: (to, session) => send(to, ROUTES.finalize(session.id), "POST", finalizeBody(to)),
     list: async () => {
       const answer = await send<Partial<SessionList>>(null, ROUTES.sessions, "GET");
       return answer.sessions ?? [];

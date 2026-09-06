@@ -1,7 +1,10 @@
 import { useCallback, useMemo } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Screen } from "../app/Screen";
+import { floatingGapFor } from "../app/frame";
+import { KeyboardSticky, dismissKeyboard, useKeyboardHeight } from "../design/keyboardSticky";
 import { fonts, layout, radii } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import { Icon } from "../design/components/Icon";
@@ -36,6 +39,53 @@ import { useMeetingsSnapshot, useTick } from "./useMeetings";
  * whose whole promise is that nothing does. Its content is one number and one
  * word, and it is placed where a glance costs nothing.
  *
+ * ## The transport rides the keyboard, because the notepad holds it open
+ *
+ * `NotesPad` autofocuses — it is the screen — so on a phone the soft keyboard
+ * is up from the first second of a recording and stays up. The keyboard is
+ * drawn *over* the app on both native platforms, so a transport at the bottom
+ * of the glass is behind it, and the one control that stops a recording was
+ * unreachable: *"I had to like leave and go to another page"* to end the
+ * meeting. A recording you cannot stop from where you are is the same family
+ * of defect as a meeting you cannot find.
+ *
+ * So the transport is inside `KeyboardSticky`, which translates it by the
+ * keyboard's own height on native and is plain bottom-anchoring on the web
+ * (where the browser shrinks the viewport for us). A spacer holds its place in
+ * the flow, so the chips above are never drawn underneath it.
+ *
+ * ## Riding the keyboard is half of it, and the other half is the room
+ *
+ * A bar lifted by the keyboard's full height lands *inside* whatever the
+ * keyboard was covering. `NotesPad` is `flex: 1` in a non-scrolling `Screen`,
+ * so its frame ran behind the keyboard and did not shrink — which put an opaque
+ * 66pt control in the middle of the visible text, and about ten lines in, the
+ * caret went under it. The bar was reachable and the thing it was there to
+ * protect was not.
+ *
+ * So the screen gives the keyboard its room through `Screen`'s own `chrome`
+ * prop — "our own floating chrome over this surface", the mechanism that
+ * already exists for this — and the content box ends where the keyboard begins.
+ * The spacer is the last thing in that box, so the lifted bar lands on it. On
+ * the web `useKeyboardHeight` is 0 and that is the right answer rather than a
+ * stub: the browser has already reflowed the document into what is left.
+ *
+ * The other two numbers are the caller's, because `KeyboardSticky` says they
+ * are: it anchors at `bottom: 0` and has no offset on purpose. An absolutely
+ * positioned child is laid out against its parent's padding box, so `Screen`'s
+ * safe-area `paddingBottom` does not hold the bar back — without an inset of
+ * its own it sat in the home-indicator band, which is `RecordingBar`'s rule
+ * inverted: *a control under the home indicator is a control a swipe takes
+ * instead of a tap.* And it is drawn over the chips, so it carries a `zIndex`.
+ * `NoteAccessory` is the pair's other caller and sets both; this is that call
+ * site copied rather than a second opinion about the same geometry.
+ *
+ * The leading key on the bar puts the keyboard away, which the note editor has
+ * had on its accessory bar and this screen had nowhere. It is the *leading*
+ * position deliberately: End is the destructive-feeling one and stays at the
+ * trailing edge where it has always been, so a thumb reaching for the key it
+ * knows does not find a new control under it.
+ *
  * ## Ending does not navigate
  *
  * `end()` moves the session to `finalizing`, and this route then renders the
@@ -49,6 +99,13 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  /*
+    The same `max` the recording bar spends at the same edge, so the two
+    floating bars on this product clear the home indicator by one rule.
+  */
+  const gap = floatingGapFor(insets.bottom);
+  const keyboard = useKeyboardHeight();
 
   const record = useMemo(
     () => snapshot.records.find((candidate) => candidate.session.id === meetingId) ?? null,
@@ -92,7 +149,7 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
   const paused = session.state === "paused";
 
   return (
-    <Screen style={styles.screen} testID="live-meeting">
+    <Screen style={styles.screen} chrome={{ bottom: keyboard }} testID="live-meeting">
       <View style={styles.topBar}>
         <Pressable
           onPress={() => router.back()}
@@ -128,8 +185,33 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
         <SyncChip record={record} syncing={snapshot.syncing} />
       </View>
 
-      <View style={styles.transportSlot}>
+      {/*
+        The transport's place in the flow, so the chips above it are never
+        drawn underneath the bar that rides over them. Sized from the same two
+        tokens the slot below spends.
+      */}
+      <View
+        style={[styles.transportSpacer, { height: layout.bottomBarHeight + gap }]}
+        aria-hidden
+        testID="meeting-transport-spacer"
+      />
+
+      <KeyboardSticky
+        style={[styles.transportSticky, { paddingBottom: gap }]}
+        testID="meeting-transport-sticky"
+      >
+        <View style={styles.transportSlot}>
         <View style={styles.transport}>
+          <Pressable
+            onPress={dismissKeyboard}
+            accessibilityRole="button"
+            accessibilityLabel="Hide the keyboard"
+            style={({ pressed }) => [styles.round, pressed && styles.roundPressed]}
+            testID="meeting-keyboard-hide"
+          >
+            <Icon name="keyboardHide" size={19} color={colors.text2} />
+          </Pressable>
+
           <Pressable
             onPress={paused ? () => meetings.resume() : () => meetings.pause()}
             accessibilityRole="button"
@@ -163,7 +245,8 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
             </Text>
           </Pressable>
         </View>
-      </View>
+        </View>
+      </KeyboardSticky>
     </Screen>
   );
 }
@@ -382,7 +465,32 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   chipCritText: { color: colors.critText },
   chipPressed: { opacity: 0.8 },
   pip: { width: 5, height: 5, borderRadius: 3 },
-  transportSlot: { paddingHorizontal: 52, paddingBottom: layout.floatingGap },
+  /**
+   * The bar's own inset, and why it is not 52 any more.
+   *
+   * 52 was the room three targets needed. There are four now — the keyboard key
+   * joined at the leading edge — and 24 is what the phone's bottom row already
+   * spends (`layout.bottomBarInset`), so the two floating bars on this product
+   * sit on the same margin rather than two.
+   */
+  transportSlot: { paddingHorizontal: layout.bottomBarInset },
+  /**
+   * What the anchored wrapper owes its own container, which `KeyboardSticky`
+   * deliberately does not decide. The bottom inset arrives from the safe area
+   * at the call site; this is the part that is not a number about a device.
+   *
+   * `2` rather than `1` is `NoteAccessory`'s: the frame's own floating chrome
+   * sits at `1`, and this is drawn over it.
+   */
+  transportSticky: { zIndex: 2 },
+  /**
+   * Exactly what the slot above occupies, so removing it from the flow costs
+   * nothing. The height arrives from the call site with the sticky's, so the
+   * two cannot drift — they used to be `layout.floatingGap` in both places,
+   * which is the wrong number on a phone with a home indicator and the right
+   * one in a browser.
+   */
+  transportSpacer: {},
   transport: {
     height: layout.bottomBarHeight,
     borderRadius: radii.pill,

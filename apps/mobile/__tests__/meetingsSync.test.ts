@@ -412,7 +412,7 @@ describe("the HTTP client refuses rather than sending an unauthenticated request
       }) as unknown as typeof fetch,
     });
 
-    await gateway.finalize(null, SEED.id);
+    await gateway.finalize(null, seedSession(SEED));
     expect(seen).toEqual([`https://gateway.invalid/meetings/sessions/${SEED.id}/finalize`]);
   });
 

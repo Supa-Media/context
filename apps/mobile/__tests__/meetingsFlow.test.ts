@@ -3,6 +3,8 @@
  */
 
 import { beforeEach, describe, expect, jest, test } from "@jest/globals";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -91,6 +93,8 @@ const { rememberDestination, recallDestination } =
   require("../features/meetings/destination") as typeof import("../features/meetings/destination");
 const { memoryStore } =
   require("../features/offline/memory") as typeof import("../features/offline/memory");
+const { MEETINGS_ROUTE } =
+  require("../features/meetings/route") as typeof import("../features/meetings/route");
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 type Store = ReturnType<typeof memoryStore>;
@@ -568,6 +572,94 @@ describe("confirming is what starts the recording", () => {
     await settle();
 
     expect(await recallDestination(store)).toEqual(IN_A_PROJECT);
+    mounted.unmount();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The other half of the key: the meetings that already exist.
+ *
+ * A phone has no rail (`features/app/frame.ts`), and the rail's `onOpenMeetings`
+ * was the only navigation to `/meetings` in the app — so a *finished* meeting
+ * was unreachable on a phone. `routeReachability.test.ts` is the guard for the
+ * class; these are the tests for the route that closes the instance.
+ *
+ * It is on this sheet rather than on an eighth key because the bottom row is
+ * full at seven (`bottomRowWidth.test.ts`), and rather than on the account mark
+ * because that mark is the only sign-out a phone has and putting a menu in
+ * front of it moves sign-out a press further away. What it costs is one row on
+ * a sheet somebody already opened by pressing the meetings key — the same key,
+ * the same surface, both verbs.
+ *
+ * SABOTAGE: dropped `onOpenMeetings` from `useMeetingFlow`'s `createElement`
+ * call, which is how the rail's entry went missing in the first place.
+ * MEASURED: the three tests below failed and nothing else in the suite did.
+ */
+describe("the sheet is also the way to the meetings already recorded", () => {
+  test("a phone can reach its meetings from the key it records with", async () => {
+    const { store } = await configure();
+    const mounted = mount(
+      createElement(Harness, { contexts: [OWN, SHARED], page: null, store }),
+    );
+    await settle();
+
+    press("mic");
+    expect(shown("meeting-destination-past")).toBe(true);
+    press("meeting-destination-past");
+    await settle();
+
+    expect(pushed).toEqual(["/meetings"]);
+    // It navigates and it does not record — the rail entry's rule, on the
+    // surface the rail's job moved to.
+    expect(meetings.getSnapshot().records).toEqual([]);
+    expect(meetings.getSnapshot().live).toBeNull();
+    // And it puts the sheet away, so nobody comes back to a modal over the list.
+    expect(shown("meeting-destination-sheet")).toBe(false);
+    mounted.unmount();
+  });
+
+  test("and can reach them without owning a brain to record into", async () => {
+    /*
+      The `claimName` arm. A person demoted out of the context they recorded in
+      still has those meetings on this device, and the whole point of this route
+      is that a meeting is never unreachable — so the row is drawn above the
+      fork rather than inside the offers branch.
+    */
+    const { store } = await configure();
+    const mounted = mount(
+      createElement(Harness, { contexts: [SHARED], page: null, store }),
+    );
+    await settle();
+
+    press("mic");
+    expect(shown("meeting-destination-claim")).toBe(false);
+    expect(shown("meeting-destination-past")).toBe(true);
+    press("meeting-destination-past");
+    await settle();
+
+    expect(pushed).toEqual(["/meetings"]);
+    mounted.unmount();
+  });
+
+  test("the route it names is the one the app has", async () => {
+    // `contextMenu.test.ts`'s rule: a control pointing nowhere is worse than no
+    // control. The constant and the route file are the two halves of the proof.
+    const { store } = await configure();
+    const mounted = mount(
+      createElement(Harness, { contexts: [OWN], page: null, store }),
+    );
+    await settle();
+
+    press("mic");
+    press("meeting-destination-past");
+    await settle();
+
+    expect(pushed).toEqual([MEETINGS_ROUTE]);
+    expect(
+      existsSync(join(__dirname, "..", "app", "(app)", "meetings", "index.tsx")),
+    ).toBe(true);
     mounted.unmount();
   });
 });

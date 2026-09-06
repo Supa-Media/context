@@ -22,7 +22,7 @@ import {
   type DestinationContext,
   type MeetingDestination,
 } from "./destination";
-import { meetingHref } from "./route";
+import { MEETINGS_ROUTE, meetingHref } from "./route";
 
 /**
  * The one way into a recording from outside this feature.
@@ -228,6 +228,19 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
         onSelect: select,
         onStart: confirm,
         onCancel: close,
+        /*
+          The phone's only route to `/meetings`. `push`, not `replace`, and the
+          sheet is closed first: this is a navigation out of a modal, and the
+          way back is the browser's own Back plus the list's own control.
+
+          It navigates and does not record, which is the same rule the rail
+          entry follows one surface out — see `DestinationSheet.onOpenMeetings`
+          for why the row is on this sheet rather than on a key of its own.
+        */
+        onOpenMeetings: () => {
+          close();
+          router.push(MEETINGS_ROUTE);
+        },
         blocked,
         onClaimName:
           onClaimName === undefined

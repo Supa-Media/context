@@ -12,6 +12,7 @@ import {
   UNFILEABLE_FOLDER_REFUSAL,
   chooseOffer,
   describeDestination,
+  meetingWorkspaceId,
   resolveDestinations,
   sameDestination,
   recallDestination,
@@ -683,5 +684,69 @@ describe("how a destination reads", () => {
     expect(sameDestination(a, { ...a, label: "something else" })).toBe(true);
     expect(sameDestination(a, { ...a, folder: "2-areas" })).toBe(false);
     expect(sameDestination(a, { ...a, contextSlug: "other" })).toBe(false);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+describe("the workspace a destination names", () => {
+  /**
+   * The other half of routing, and the half that was silently wrong.
+   *
+   * A `MeetingDestination` names a context by slug; `files.writeNote` takes a
+   * `workspaceId`. `meetingWorkspaceId` is the only translation between the
+   * two, and its interesting case is the one with no destination at all — the
+   * one-tap Record on `/meetings`, which asks nobody anything.
+   *
+   * That case used to resolve through `defaultContext`, which is
+   * `role === "owner"` and nothing else, over a list sorted oldest-first. So
+   * somebody who owns a shared workspace older than their brain had a meeting
+   * written into a bucket their colleagues watch, at whatever visibility that
+   * folder carries, with no sheet ever shown to name the audience — and
+   * somebody who owns nothing but is an `editor` somewhere fell to
+   * `contexts[0]`, which is a write into another person's context.
+   */
+  const contexts = [
+    { slug: "acme", kind: "shared", role: "owner", workspaceId: "ws-acme" },
+    { slug: "testagent1", kind: "personal", role: "owner", workspaceId: "ws-mine" },
+  ];
+
+  test("a meeting nobody addressed goes to the recorder's own brain", () => {
+    expect(meetingWorkspaceId(contexts, null)).toBe("ws-mine");
+  });
+
+  test("and never to a shared workspace, however old it is", () => {
+    /*
+      The whole finding, as a test. `defaultContext` answers `ws-acme` for this
+      list — it is the first `owner` — so a resolver built on it files a
+      transcript into a workspace several people watch. `ownPersonalContext` is
+      the rule `destination.ts` already argues for the sheet's first offer, and
+      it is the same rule here because it is the same question.
+    */
+    expect(meetingWorkspaceId(contexts, null)).not.toBe("ws-acme");
+  });
+
+  test("somebody who owns no brain has nowhere for it to go, and is told so", () => {
+    /*
+      `contexts[0]` is somebody else's context. Answering `null` keeps the
+      meeting on the device — `unavailable`, so it is retried rather than
+      parked, and claiming an @name makes the next drain land it.
+    */
+    const editorOnly = [
+      { slug: "acme", kind: "shared", role: "editor", workspaceId: "ws-acme" },
+      { slug: "colleague", kind: "personal", role: "member", workspaceId: "ws-them" },
+    ];
+    expect(meetingWorkspaceId(editorOnly, null)).toBeNull();
+  });
+
+  test("a named context is looked up by slug, with or without the @", () => {
+    expect(meetingWorkspaceId(contexts, "acme")).toBe("ws-acme");
+    expect(meetingWorkspaceId(contexts, "@acme")).toBe("ws-acme");
+  });
+
+  test("a context this account cannot reach is null, not a fallback", () => {
+    // Falling back to the brain here would file a meeting somebody addressed to
+    // `@acme` into their own bucket without saying so. The writer refuses.
+    expect(meetingWorkspaceId(contexts, "gone")).toBeNull();
   });
 });

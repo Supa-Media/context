@@ -49,6 +49,7 @@ export function DestinationSheet({
   onStart,
   onCancel,
   onClaimName,
+  onOpenMeetings,
   blocked = null,
 }: {
   choice: DestinationChoice;
@@ -69,6 +70,21 @@ export function DestinationSheet({
   blocked?: string | null;
   /** Absent when the caller has nowhere to send somebody to claim a name. */
   onClaimName?: () => void;
+  /**
+   * Go to the meetings already on this device. Absent draws no row.
+   *
+   * **This is a phone's only route to `/meetings`, which is why it is here and
+   * not somewhere tidier.** A phone has no rail (`features/app/frame.ts`) and
+   * the rail's entry was the app's only navigation to that list, so a finished
+   * meeting was unreachable on the density that records them. The bottom row is
+   * full at seven keys and cannot take an eighth (`bottomRowWidth.test.ts`), and
+   * the account mark is the only sign-out a phone has — a menu in front of it
+   * moves sign-out a press further away, which is the one control that must not
+   * be missed. So it is a row on the sheet the meetings key already opens: the
+   * same key, the same surface, both of the two things a person does with
+   * meetings.
+   */
+  onOpenMeetings?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
 
@@ -82,9 +98,26 @@ export function DestinationSheet({
           accessibilityLabel="Where should this meeting go?"
           testID="meeting-destination-sheet"
         >
-          <Text variant="paneTitle" role="heading" aria-level={2}>
-            Where should this meeting go?
-          </Text>
+          {/*
+            The heading and the way to the meetings that already exist, on one
+            line. Above the fork rather than inside the offers branch, because
+            somebody who owns no brain to record into may still hold meetings
+            recorded before they lost that membership — and the whole point of
+            this row is that a finished meeting is never unreachable.
+          */}
+          <View style={styles.head}>
+            <Text variant="paneTitle" role="heading" aria-level={2} style={styles.headTitle}>
+              Where should this meeting go?
+            </Text>
+            {onOpenMeetings === undefined ? null : (
+              <Button
+                label="Past meetings"
+                variant="ghost"
+                onPress={onOpenMeetings}
+                testID="meeting-destination-past"
+              />
+            )}
+          </View>
 
           {choice.kind === "claimName" ? (
             <ClaimName onClaimName={onClaimName} onCancel={onCancel} />
@@ -238,6 +271,21 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     gap: 14,
     boxShadow: "0 -40px 100px -30px rgba(0,0,0,1)",
   },
+  /**
+   * The title and the way out of the sheet, on one line.
+   *
+   * `flexWrap` rather than a fixed split: the title is a sentence and the
+   * button's label is two words, and at 320pt they do not both fit on one line.
+   * Wrapping puts the button under the title rather than squeezing either.
+   */
+  head: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  headTitle: { flexShrink: 1 },
   rows: { gap: 8 },
   row: {
     flexDirection: "row",
