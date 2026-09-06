@@ -156,13 +156,22 @@ export function useMeetingsSetup(
   } = {},
 ): void {
   const enabled = options.enabled ?? true;
-  const spec = useMemo<RequestForQueries>(
-    () =>
-      enabled
-        ? { workspaces: { query: api.functions.workspaces.listMyWorkspaces, args: {} } }
-        : {},
-    [enabled],
-  );
+  /*
+    Two `return`s **and** an explicit return annotation, both of which are a
+    type-level requirement rather than a style.
+
+    A conditional expression unions its arms, so the empty arm widens to
+    `{ workspaces?: undefined }` — and `undefined` is not assignable to
+    `RequestForQueries`' index signature, which is what `tsc` refused. Splitting
+    it into two `return`s is not enough on its own: the arrow's return type is
+    still inferred as that same union and only then checked against `useMemo`'s
+    type argument. Annotating the arrow is what gets each `return` checked
+    against `RequestForQueries` separately, and `{}` is a perfectly good one.
+  */
+  const spec = useMemo<RequestForQueries>((): RequestForQueries => {
+    if (!enabled) return {};
+    return { workspaces: { query: api.functions.workspaces.listMyWorkspaces, args: {} } };
+  }, [enabled]);
   const results = useQueries(spec);
   const raw = results.workspaces;
   const workspaces = raw instanceof Error || raw === undefined ? undefined : raw;
