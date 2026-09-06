@@ -72,6 +72,23 @@ export function dismissKeyboard(): void {
 }
 
 /**
+ * How much of the bottom of the screen the keyboard is covering. Always `0`.
+ *
+ * **Zero is the answer, not a stub.** A mobile browser shrinks the layout
+ * viewport to what is left above the keyboard and the document reflows into it,
+ * so a surface that ends at the bottom of the glass has already ended above the
+ * keyboard. A caller that subtracted a height here would take the room twice
+ * and push the caret up by a keyboard that is not covering anything —
+ * `NoteEditor.web` refuses the same margin for the same reason.
+ *
+ * It is a hook rather than a constant so the two halves have one signature and
+ * the caller never branches, which is this pair's whole arrangement.
+ */
+export function useKeyboardHeight(): number {
+  return 0;
+}
+
+/**
  * No palette here, so this may be a module-level `StyleSheet.create`: the rule
  * in `CLAUDE.md` is that no module may *hold a palette*, and these three
  * numbers are geometry.

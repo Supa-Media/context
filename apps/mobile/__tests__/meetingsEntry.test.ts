@@ -557,7 +557,17 @@ describe("ending a meeting takes you to it", () => {
     bar.unmount();
   });
 
-  test("and does not push a second copy of a screen you are already on", async () => {
+  test("and draws nothing at all on the screen you are already on", async () => {
+    /*
+      This used to press the bar's End here and assert that nothing was pushed.
+      The bar draws no End on this route any more, which is the stronger form of
+      the same property and a different defect's fix: the live screen floats its
+      own transport in this exact 66pt of glass, so the bar was a second copy of
+      the same three controls lying almost exactly over the first — and `zIndex`
+      cannot arbitrate, because the two are in different stacking contexts.
+
+      Ending from here is the screen's own transport, which is tested next door.
+    */
     await configure();
     pushed.length = 0;
 
@@ -569,15 +579,17 @@ describe("ending a meeting takes you to it", () => {
     mockPathname = meetingHref(id);
 
     const bar = mount(createElement(RecordingBar, { bottomInset: 34 }));
-    click(bar.find("recording-bar-end")!);
-    await act(async () => {
-      await Promise.resolve();
-    });
-
+    expect(bar.find("recording-bar")).toBeNull();
+    expect(bar.find("recording-bar-end")).toBeNull();
     expect(pushed).toEqual([]);
-    expect(meetings.getSnapshot().live).toBeNull();
+    // And the meeting is untouched: rendering nothing is not ending anything.
+    expect(meetings.getSnapshot().live?.session.id).toBe(id);
     bar.unmount();
+
     mockPathname = "/console/@seyi";
+    await act(async () => {
+      await meetings.end();
+    });
   });
 
   test("and that meeting says plainly it has not reached the bucket", async () => {

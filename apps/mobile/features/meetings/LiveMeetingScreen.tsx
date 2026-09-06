@@ -1,8 +1,10 @@
 import { useCallback, useMemo } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Screen } from "../app/Screen";
-import { KeyboardSticky, dismissKeyboard } from "../design/keyboardSticky";
+import { floatingGapFor } from "../app/frame";
+import { KeyboardSticky, dismissKeyboard, useKeyboardHeight } from "../design/keyboardSticky";
 import { fonts, layout, radii } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import { Icon } from "../design/components/Icon";
@@ -52,6 +54,32 @@ import { useMeetingsSnapshot, useTick } from "./useMeetings";
  * (where the browser shrinks the viewport for us). A spacer holds its place in
  * the flow, so the chips above are never drawn underneath it.
  *
+ * ## Riding the keyboard is half of it, and the other half is the room
+ *
+ * A bar lifted by the keyboard's full height lands *inside* whatever the
+ * keyboard was covering. `NotesPad` is `flex: 1` in a non-scrolling `Screen`,
+ * so its frame ran behind the keyboard and did not shrink — which put an opaque
+ * 66pt control in the middle of the visible text, and about ten lines in, the
+ * caret went under it. The bar was reachable and the thing it was there to
+ * protect was not.
+ *
+ * So the screen gives the keyboard its room through `Screen`'s own `chrome`
+ * prop — "our own floating chrome over this surface", the mechanism that
+ * already exists for this — and the content box ends where the keyboard begins.
+ * The spacer is the last thing in that box, so the lifted bar lands on it. On
+ * the web `useKeyboardHeight` is 0 and that is the right answer rather than a
+ * stub: the browser has already reflowed the document into what is left.
+ *
+ * The other two numbers are the caller's, because `KeyboardSticky` says they
+ * are: it anchors at `bottom: 0` and has no offset on purpose. An absolutely
+ * positioned child is laid out against its parent's padding box, so `Screen`'s
+ * safe-area `paddingBottom` does not hold the bar back — without an inset of
+ * its own it sat in the home-indicator band, which is `RecordingBar`'s rule
+ * inverted: *a control under the home indicator is a control a swipe takes
+ * instead of a tap.* And it is drawn over the chips, so it carries a `zIndex`.
+ * `NoteAccessory` is the pair's other caller and sets both; this is that call
+ * site copied rather than a second opinion about the same geometry.
+ *
  * The leading key on the bar puts the keyboard away, which the note editor has
  * had on its accessory bar and this screen had nowhere. It is the *leading*
  * position deliberately: End is the destructive-feeling one and stays at the
@@ -71,6 +99,13 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  /*
+    The same `max` the recording bar spends at the same edge, so the two
+    floating bars on this product clear the home indicator by one rule.
+  */
+  const gap = floatingGapFor(insets.bottom);
+  const keyboard = useKeyboardHeight();
 
   const record = useMemo(
     () => snapshot.records.find((candidate) => candidate.session.id === meetingId) ?? null,
@@ -114,7 +149,7 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
   const paused = session.state === "paused";
 
   return (
-    <Screen style={styles.screen} testID="live-meeting">
+    <Screen style={styles.screen} chrome={{ bottom: keyboard }} testID="live-meeting">
       <View style={styles.topBar}>
         <Pressable
           onPress={() => router.back()}
@@ -155,9 +190,16 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
         drawn underneath the bar that rides over them. Sized from the same two
         tokens the slot below spends.
       */}
-      <View style={styles.transportSpacer} aria-hidden testID="meeting-transport-spacer" />
+      <View
+        style={[styles.transportSpacer, { height: layout.bottomBarHeight + gap }]}
+        aria-hidden
+        testID="meeting-transport-spacer"
+      />
 
-      <KeyboardSticky testID="meeting-transport-sticky">
+      <KeyboardSticky
+        style={[styles.transportSticky, { paddingBottom: gap }]}
+        testID="meeting-transport-sticky"
+      >
         <View style={styles.transportSlot}>
         <View style={styles.transport}>
           <Pressable
@@ -431,9 +473,24 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    * spends (`layout.bottomBarInset`), so the two floating bars on this product
    * sit on the same margin rather than two.
    */
-  transportSlot: { paddingHorizontal: layout.bottomBarInset, paddingBottom: layout.floatingGap },
-  /** Exactly what the slot above occupies, so removing it from the flow costs nothing. */
-  transportSpacer: { height: layout.bottomBarHeight + layout.floatingGap },
+  transportSlot: { paddingHorizontal: layout.bottomBarInset },
+  /**
+   * What the anchored wrapper owes its own container, which `KeyboardSticky`
+   * deliberately does not decide. The bottom inset arrives from the safe area
+   * at the call site; this is the part that is not a number about a device.
+   *
+   * `2` rather than `1` is `NoteAccessory`'s: the frame's own floating chrome
+   * sits at `1`, and this is drawn over it.
+   */
+  transportSticky: { zIndex: 2 },
+  /**
+   * Exactly what the slot above occupies, so removing it from the flow costs
+   * nothing. The height arrives from the call site with the sticky's, so the
+   * two cannot drift — they used to be `layout.floatingGap` in both places,
+   * which is the wrong number on a phone with a home indicator and the right
+   * one in a browser.
+   */
+  transportSpacer: {},
   transport: {
     height: layout.bottomBarHeight,
     borderRadius: radii.pill,

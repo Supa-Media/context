@@ -21,6 +21,16 @@ import { Waveform } from "./Waveform";
  * "should I show the bar" logic anywhere in the app, and no screen has to know
  * this feature exists to be correct about it.
  *
+ * **And `null` on the live meeting's own screen, which is the same rule rather
+ * than an exception to it.** This bar exists to reach a recording you have
+ * walked away from; on the screen you have not walked away from, it is a second
+ * copy of the same three controls lying over the first. They are not merely
+ * near each other — the live screen's transport is `bottomBarHeight` tall at
+ * `bottomBarInset`, floated at this same edge, so the two overlap almost
+ * exactly, and `zIndex` cannot arbitrate between them because every
+ * react-native-web `View` opens a stacking context and they are in different
+ * ones (`docs/decisions/app-and-console.md`).
+ *
  * ## Where it is mounted
  *
  * `app/(app)/_layout.tsx`, once, beside that layout's `Stack` — above every
@@ -95,17 +105,35 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
    * **And not at all when this is already the screen underneath.** The bar is
    * mounted above every route including that one, and pushing there would put a
    * second copy of the meeting on the stack for somebody who is looking at it.
+   *
+   * **A failed end still lands them on the meeting.** This used to be
+   * `void (async () => { await meetings.end(); … })()`, which turns a rejecting
+   * `end()` into an unhandled rejection: the bar stays up, nothing on screen
+   * changes, and the person is left in the state this whole seam exists to
+   * close — *"I don't know if it succeeded, if it failed. Just nothing at
+   * all."* The navigation is the signal, and it is deliberately not a toast:
+   * the meeting screen is what says what state the meeting is in, and a
+   * recording whose end failed is exactly the one somebody needs to read that
+   * about and copy their notes out of.
    */
   const end = useCallback(() => {
     if (live === null) return;
     const href = meetingHref(live.session.id);
     void (async () => {
-      await meetings.end();
+      try {
+        await meetings.end();
+      } catch {
+        // See above: the meeting screen is where this is reported, because it
+        // is the screen that can say what is actually on the device.
+      }
       if (pathname !== href) router.push(href);
     })();
   }, [live, pathname, router]);
 
   if (live === null) return null;
+  // The screen underneath is this meeting's own, and it has a transport of its
+  // own in this exact 66pt of glass. See the header.
+  if (pathname === meetingHref(live.session.id)) return null;
 
   const paused = live.session.state === "paused";
   const elapsed = clock(recordElapsedMs(live, now === 0 ? Date.now() : now));
