@@ -1181,6 +1181,103 @@ this belongs to has its own guard —
 [app-and-console](./app-and-console.md), *a route with no way in is a route
 nobody has*.
 
+### A meeting is written the way a note is, because that is what it is
+
+**The root cause of the vanished recording, and it is not what the sections
+above assumed.** They say the gateway credential is "the one unfinished seam in
+this feature" and that a meeting kept on the device is an absent capability
+reported honestly. The first half is true and the second half was a rationalised
+hole: the app could not reach the gateway, so **every meeting recorded,
+transcribed, and stopped**. In the owner's words: *"doing a meeting should be
+the exact same thing as creating a new note, except there's dictation
+involved."*
+
+The gateway authenticates MCP clients by per-client OAuth grant
+([identity-and-access](./identity-and-access.md), non-negotiable 4). This app is
+not one of those clients; it signs in to the control plane with
+`@convex-dev/auth`. What it *has* been doing all along is writing notes into the
+same customer's bucket on every save the editor makes, through
+`files.writeNote` → `fileOps.writeFile`. A meeting now takes that path.
+
+**Two writers, and which one an app uses is a property of its credential.**
+`createHttpGateway` is not deleted and is not deprecated: it is the right answer
+for a client that holds a grant — the desktop app, where the gateway's
+enhancement pass, its session records under `.meetings/`, and `list_meetings`
+live. `createConvexGateway` is the right answer for a client that holds a
+control-plane session. `useMeetingsSetup` is the single line in the feature that
+knows there are two, and every screen, the controller and the queue still take
+`MeetingsGateway` and nothing else.
+
+`finalize` takes the **session** rather than its id, and that is forced rather
+than tidy: the Convex writer *composes* the note, and it cannot hold a session
+from an earlier step because `pendingSteps` skips `session` once the metadata is
+acknowledged — so a retry after a restart reaches finalize with nothing behind
+it. The HTTP gateway reads `session.id` and ignores the rest.
+
+**Idempotency is bought twice over, because a second writer loses it first.**
+The gateway claims a path into the session record before writing; there is no
+session record on this path. Instead: `meetingNotePath` ends the key with the
+tail of the meeting's id, so the same meeting composes the same key every time
+and two meetings never collide; and `writeNote` with no `expectedEtag` is
+**create-only** — `writeFile` refuses with `CONFLICT` rather than overwriting —
+so a retry after a write whose answer was lost is refused, and a `CONFLICT` at a
+key ending in this meeting's id *is* this meeting's note, answered with its path
+and never clobbered. The residual is stated rather than hidden: the key carries
+the title's slug, so a rename between a lost answer and a retry would compose a
+second key. Nothing in the app offers one — the title is editable only on
+`LiveMeetingScreen`, which renders only while the session is live — and a
+rename-after-end would need the claim the gateway has.
+
+**The tier rule is not bypassed; it is the same machinery, more directly.**
+`writeNote` authorizes through `authorizeFileAccess` at `editor` and
+`writeFile` then refuses any path the caller's own scope cannot see, through
+`canSee` over that context's `privacy.md`. *A meeting note is a note, and
+`privacy.md` decides it with no bypass* is held by the same function every note
+save goes through rather than by a second implementation of the same idea. The
+premise is pinned by reading the control plane's source from the app's suite,
+the way `storageCodePosition.test.ts` does.
+
+**What this path gives up, stated rather than glossed.** No enhancement pass, so
+`## Summary` carries `note.js`'s own `_No summary yet._` until somebody wires
+one — the regenerable half, by *the human's words are never rewritten*, and the
+notes and transcript are the half that is not. No session record in the bucket,
+so a meeting in progress is not visible from a second device. No `list()`, which
+nothing in the app calls because `/meetings` is per-device by design. The
+destination work is untouched: the sheet's answer is still where the note goes,
+a folder that will not file falls back rather than losing the meeting, and
+`folderRejected` still reaches the screen.
+
+The checks are `finalizing writes one note, through \`files.writeNote\``,
+`what it writes is the note the gateway would have written`,
+`the folder the sheet chose is where the note goes`,
+`the same meeting composes the same key every time`,
+`a retry after a lost answer finds its note rather than writing a second`,
+`the write is create-only, so it can never clobber a note`,
+`a context this device cannot reach yet is retried, not parked`, and
+`the action a meeting writes through is the one every note save uses`.
+
+### The notepad holds the keyboard open, so the transport rides it
+
+`NotesPad` autofocuses — it is the screen — so on a phone the soft keyboard is
+up from the first second of a recording and stays up, and both native platforms
+draw it *over* the app. The transport sat at the bottom of the glass, behind it,
+which made End unreachable: *"I had to like leave and go to another page"* to
+end a meeting. A recording somebody cannot stop from where they are is the same
+family of defect as a meeting they cannot find, and it is worse, because the
+microphone is still open while they look for the exit.
+
+The transport is inside `KeyboardSticky` — the pair that already existed for
+exactly this and had no callers — with a spacer holding its place in the flow so
+the chips above it are never drawn underneath. The leading key on it puts the
+keyboard away, which the note editor has had on its accessory bar and this
+screen had nowhere. Leading rather than trailing, so a thumb reaching for the
+End it knows does not find a new control under it — and it does not end the
+meeting, which is the shortcut a key beside End must never take.
+
+The checks are `the transport rides above the keyboard, so End is always
+reachable`, `the keyboard can be put away from the screen it covers`, and
+`putting the keyboard away does not end the meeting`.
+
 ### A meeting with no readable date is shown without one, not dropped
 
 `groupMeetings` filed meetings by local calendar day and skipped any whose

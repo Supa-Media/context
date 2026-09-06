@@ -1607,3 +1607,41 @@ that still contains the wiring`, and deleting the registry claim with it fails
 This is the same shape as `features/app/frame.ts`'s *what is deliberately kept
 although no density reaches it* — a list whose entire worth is that something
 reads it — and the two sit beside each other for that reason.
+
+### A context pill's target is not its mark
+
+The workspace strip is a phone's **only** route between contexts — no rail, no
+drawer, no menu, no keymap — so `contextStrip.test.ts` holds every pill to
+`minTouchTarget` and says what a target under the floor costs: navigation
+somebody misses and concludes is broken.
+
+Then the owner asked for the pills "smaller and squarer", so more workspaces are
+on screen at once, which is the edit that guard exists to refuse. Both are
+right, and they are only compatible because they are about two different
+objects: the **pressable** is what a thumb hits and the **mark** is what an eye
+reads. That is `accountAvatar`'s own rule — "what a thumb hits is the pressable
+around it, and the caller pads to the floor" — which this surface had never
+applied, because the pill was both.
+
+So the pressable stays `minTouchTarget` and draws nothing, and the mark inside
+it is `layout.stripPill` on `radii.md`. The height was never the constraint on
+how many fit: the horizontal saving is the padding and the row's gap, and that
+is where "more of them fit" is actually paid. `radii.md` rather than
+`radii.pill` is the "squarer" half — a stadium reads as a button, a rounded
+rectangle reads as a tab, which is what this is.
+
+The two halves fail separately, which is the point of separating them: drawing
+the mark at the target's height fails only the new check, and shrinking the
+target instead of the mark fails both.
+
+**Still open, and deliberately not taken here: the strip does not scroll away.**
+The same review asked for it — the pills are pinned while the content moves and
+*"it looks pretty ugly"*. That is not a `ContextStrip` change: at `compact` the
+frame floats its bars over a full-bleed document and every screen pays for them
+in content padding (`surfacePadding`), so making the top row scroll means either
+moving it inside a scroller the frame does not own, or plumbing a scroll offset
+out of every routed surface into the frame. Both are frame-wide and touch every
+console screen; neither is worth guessing at from a phone recording. What is
+already true is that content scrolls *under* the bar rather than being pushed by
+it, which is the reference's own behaviour — so what is being asked for is a
+hide-on-scroll, and it wants its own decision.
