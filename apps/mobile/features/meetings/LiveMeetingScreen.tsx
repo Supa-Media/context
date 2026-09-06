@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Screen } from "../app/Screen";
+import { KeyboardSticky, dismissKeyboard } from "../design/keyboardSticky";
 import { fonts, layout, radii } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import { Icon } from "../design/components/Icon";
@@ -35,6 +36,27 @@ import { useMeetingsSnapshot, useTick } from "./useMeetings";
  * transcript scrolling beside a notepad is a second thing moving on a screen
  * whose whole promise is that nothing does. Its content is one number and one
  * word, and it is placed where a glance costs nothing.
+ *
+ * ## The transport rides the keyboard, because the notepad holds it open
+ *
+ * `NotesPad` autofocuses — it is the screen — so on a phone the soft keyboard
+ * is up from the first second of a recording and stays up. The keyboard is
+ * drawn *over* the app on both native platforms, so a transport at the bottom
+ * of the glass is behind it, and the one control that stops a recording was
+ * unreachable: *"I had to like leave and go to another page"* to end the
+ * meeting. A recording you cannot stop from where you are is the same family
+ * of defect as a meeting you cannot find.
+ *
+ * So the transport is inside `KeyboardSticky`, which translates it by the
+ * keyboard's own height on native and is plain bottom-anchoring on the web
+ * (where the browser shrinks the viewport for us). A spacer holds its place in
+ * the flow, so the chips above are never drawn underneath it.
+ *
+ * The leading key on the bar puts the keyboard away, which the note editor has
+ * had on its accessory bar and this screen had nowhere. It is the *leading*
+ * position deliberately: End is the destructive-feeling one and stays at the
+ * trailing edge where it has always been, so a thumb reaching for the key it
+ * knows does not find a new control under it.
  *
  * ## Ending does not navigate
  *
@@ -128,8 +150,26 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
         <SyncChip record={record} syncing={snapshot.syncing} />
       </View>
 
-      <View style={styles.transportSlot}>
+      {/*
+        The transport's place in the flow, so the chips above it are never
+        drawn underneath the bar that rides over them. Sized from the same two
+        tokens the slot below spends.
+      */}
+      <View style={styles.transportSpacer} aria-hidden testID="meeting-transport-spacer" />
+
+      <KeyboardSticky testID="meeting-transport-sticky">
+        <View style={styles.transportSlot}>
         <View style={styles.transport}>
+          <Pressable
+            onPress={dismissKeyboard}
+            accessibilityRole="button"
+            accessibilityLabel="Hide the keyboard"
+            style={({ pressed }) => [styles.round, pressed && styles.roundPressed]}
+            testID="meeting-keyboard-hide"
+          >
+            <Icon name="keyboardHide" size={19} color={colors.text2} />
+          </Pressable>
+
           <Pressable
             onPress={paused ? () => meetings.resume() : () => meetings.pause()}
             accessibilityRole="button"
@@ -163,7 +203,8 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
             </Text>
           </Pressable>
         </View>
-      </View>
+        </View>
+      </KeyboardSticky>
     </Screen>
   );
 }
@@ -382,7 +423,17 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   chipCritText: { color: colors.critText },
   chipPressed: { opacity: 0.8 },
   pip: { width: 5, height: 5, borderRadius: 3 },
-  transportSlot: { paddingHorizontal: 52, paddingBottom: layout.floatingGap },
+  /**
+   * The bar's own inset, and why it is not 52 any more.
+   *
+   * 52 was the room three targets needed. There are four now — the keyboard key
+   * joined at the leading edge — and 24 is what the phone's bottom row already
+   * spends (`layout.bottomBarInset`), so the two floating bars on this product
+   * sit on the same margin rather than two.
+   */
+  transportSlot: { paddingHorizontal: layout.bottomBarInset, paddingBottom: layout.floatingGap },
+  /** Exactly what the slot above occupies, so removing it from the flow costs nothing. */
+  transportSpacer: { height: layout.bottomBarHeight + layout.floatingGap },
   transport: {
     height: layout.bottomBarHeight,
     borderRadius: radii.pill,

@@ -941,3 +941,116 @@ describe("a meeting can be got off the device", () => {
     mounted.unmount();
   });
 });
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The keyboard, which is up for the whole meeting.
+ *
+ * The notepad `autoFocus`es — it is the screen — so on a phone the soft
+ * keyboard is up from the moment a recording starts and stays up. Two things
+ * followed from that and both were found by recording a real meeting:
+ *
+ *  - **End was unreachable.** The transport sat at the bottom of the screen, the
+ *    keyboard is drawn over the app on both native platforms, and the one
+ *    control that stops a recording was behind it: *"I had to like leave and go
+ *    to another page"* to end the meeting. That is the same family as a meeting
+ *    you cannot find — a recording you cannot stop from where you are.
+ *  - **There was no way to put the keyboard away**, unlike the note editor,
+ *    which has one on its accessory bar.
+ *
+ * `KeyboardSticky` and `dismissKeyboard` already existed for exactly this and
+ * had no callers. The transport rides the keyboard now, with a spacer holding
+ * its place in the flow so the chips above it are never covered, and the
+ * leading key on it puts the keyboard down.
+ *
+ * SABOTAGE RECORD, each applied, whole suite run, reverted:
+ *
+ *  1. Took the transport back out of `KeyboardSticky`, into plain flow.
+ *     → `the transport rides above the keyboard, so End is always reachable`
+ *     failed, alone.
+ *  2. Dropped the dismiss key.
+ *     → 2 failed: `the keyboard can be put away from the screen it covers` and
+ *     `putting the keyboard away does not end the meeting`, which cannot press
+ *     a key that is not there.
+ *  3. Made the dismiss key call `meetings.end()` as well — the tempting
+ *     "done means done" shortcut.
+ *     → `putting the keyboard away does not end the meeting` failed. Worth
+ *     having: a key next to End that sometimes ends things is worse than no key.
+ */
+describe("the keyboard does not take the End button with it", () => {
+  test("the transport rides above the keyboard, so End is always reachable", async () => {
+    await configure();
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Reboot Camp" });
+    });
+
+    const mounted = mount(createElement(LiveMeetingScreen, { meetingId: id }));
+    const sticky = mounted.container.querySelector<HTMLElement>(
+      '[data-testid="meeting-transport-sticky"]',
+    );
+    expect(sticky).not.toBeNull();
+    // End is inside it. That is the whole claim: whatever the keyboard does to
+    // the bottom of the glass, this moves with it.
+    expect(sticky!.querySelector('[data-testid="meeting-end"]')).not.toBeNull();
+    // And it is anchored rather than in flow, which is what "rides" means on
+    // both halves of the platform split.
+    expect(window.getComputedStyle(sticky!).position).toBe("absolute");
+    // The chips above it keep their room: a spacer stands where the transport
+    // used to be, so nothing is drawn underneath it.
+    expect(has(mounted.container, "meeting-transport-spacer")).toBe(true);
+
+    mounted.unmount();
+    await act(async () => {
+      await meetings.end();
+    });
+  });
+
+  test("the keyboard can be put away from the screen it covers", async () => {
+    await configure();
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Reboot Camp" });
+    });
+
+    const mounted = mount(createElement(LiveMeetingScreen, { meetingId: id }));
+    const notes = mounted.container.querySelector<HTMLElement>('[data-testid="meeting-notes"]');
+    notes!.focus();
+    expect(document.activeElement).toBe(notes);
+
+    press(mounted.container, "meeting-keyboard-hide");
+    // The web half of `dismissKeyboard` blurs the focused element, because that
+    // *is* the platform's "hide the keyboard".
+    expect(document.activeElement).not.toBe(notes);
+
+    mounted.unmount();
+    await act(async () => {
+      await meetings.end();
+    });
+  });
+
+  test("putting the keyboard away does not end the meeting", async () => {
+    // It sits beside End on a bar somebody is reaching for with a thumb. A key
+    // that sometimes stops the recording is worse than no key at all.
+    await configure();
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Reboot Camp" });
+    });
+
+    const mounted = mount(createElement(LiveMeetingScreen, { meetingId: id }));
+    press(mounted.container, "meeting-keyboard-hide");
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(meetings.getSnapshot().live?.session.id).toBe(id);
+    expect(meetings.getSnapshot().live?.session.state).toBe("recording");
+
+    mounted.unmount();
+    await act(async () => {
+      await meetings.end();
+    });
+  });
+});

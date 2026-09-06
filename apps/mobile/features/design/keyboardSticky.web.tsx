@@ -30,6 +30,14 @@ import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 export interface KeyboardStickyProps {
   children: ReactNode;
   /**
+   * So a test can find the anchored wrapper rather than inferring it.
+   *
+   * Worth a prop: what a caller is buying here is *that the thing is anchored*,
+   * and on the web that is a computed style on a `View` nothing else names.
+   * `meetingsScreens.test.ts` asserts End is inside it, which is the claim.
+   */
+  testID?: string;
+  /**
    * Merged **after** the bottom anchoring, so a caller can add padding or a
    * background without having to restate the positioning — and cannot
    * accidentally leave the two halves anchored differently.
@@ -37,8 +45,12 @@ export interface KeyboardStickyProps {
   style?: StyleProp<ViewStyle>;
 }
 
-export function KeyboardSticky({ children, style }: KeyboardStickyProps) {
-  return <View style={[styles.sticky, style]}>{children}</View>;
+export function KeyboardSticky({ children, style, testID }: KeyboardStickyProps) {
+  return (
+    <View style={[styles.sticky, style]} testID={testID}>
+      {children}
+    </View>
+  );
 }
 
 /**

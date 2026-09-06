@@ -30,8 +30,12 @@ import type { KeyboardStickyProps } from "./keyboardSticky.web";
 
 export type { KeyboardStickyProps };
 
-export function KeyboardSticky({ children, style }: KeyboardStickyProps) {
-  return <KeyboardStickyView style={[styles.sticky, style]}>{children}</KeyboardStickyView>;
+export function KeyboardSticky({ children, style, testID }: KeyboardStickyProps) {
+  return (
+    <KeyboardStickyView style={[styles.sticky, style]} testID={testID}>
+      {children}
+    </KeyboardStickyView>
+  );
 }
 
 /**
