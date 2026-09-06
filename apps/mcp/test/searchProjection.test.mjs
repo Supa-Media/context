@@ -1281,16 +1281,16 @@ async function runEndToEndChecks(check) {
  *   `fastSearchAnswer` counting candidates instead of visible notes       1
  *   `fastSearchAnswer` ignoring `state`, serving a filling projection     1
  *   `searchProjection` never setting `truncated` on a full page           1
- *   `searchProjection` counting the cap across tables, not per table    1
+ *   `searchProjection` counting the cap across tables, not per table      1
  *   a `D1Error` on the read path escaping into the response               1
  *   a miss answering "(no matches)" instead of falling through            1
  *   `mergeHits` sliced to the display limit before the privacy filter     1
  *   a snippet mark put back, either side                                  1
  *   the title dropped from the projected row, or from the SELECT          1
  *
- * Six of those are worth their own sentence, because five of them measured
- * ZERO on the first run and the fixture had to be changed before they measured
- * anything:
+ * Seven of those rows are covered by the six sentences below, because six of
+ * them measured ZERO on the first run and the fixture had to be changed before
+ * they measured anything:
  *
  *  - **`canSee` reddens two checks, and for one of them it always did.** A
  *    team caller never reaches `2-areas/vitals.md` even with the filter gone,
@@ -1331,7 +1331,7 @@ async function runEndToEndChecks(check) {
  *    `searchProjection` with a stub client and a small `chunkCap`. A red on
  *    either has not been near the gateway.
  *
- * A guard nobody has checked is not a guard, and five of these had not been.
+ * A guard nobody has checked is not a guard, and six of these had not been.
  * ====================================================================== */
 
 /**
