@@ -424,6 +424,14 @@ describe("the sheet never offers a folder the gateway would refuse", () => {
       here and say which side it is on.
     */
     expect(refusedByGateway).toHaveLength(12);
+    /*
+      And the table's own size, because the count above is one-directional:
+      MEASURED, deleting `"scopes.yml"` reddens it, and deleting
+      `"2-areas/team/notes"` — an ACCEPTED entry — is silent, so four of the
+      seven accepted shapes could be removed invisibly. Three are held by
+      `STILL_OFFERABLE`; this holds the rest.
+    */
+    expect(REACHABLE_FOLDERS).toHaveLength(19);
 
     for (const folder of refusedByGateway) {
       const choice = offers(

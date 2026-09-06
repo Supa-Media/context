@@ -1325,8 +1325,14 @@ export async function runTenancyChecks(check) {
     that branch." Both operands of that comparison are `sha256Hex` output —
     64 characters for any plaintext whatsoever — so the length of the secret
     somebody presents never reaches it. MEASURED: inverting
-    `if (hashed.length !== …) return false;` to `return true` reddens 0 of
-    1,720. The branch is unreachable, `conf-wrong` above already goes through
+    `if (hashed.length !== …) return false;` to `return true` **reddens
+    nothing** — no denominator, deliberately. The claim is that no check
+    anywhere goes red, which says strictly more than a fraction of a total
+    that every unrelated commit moves; a count in prose is the tripwire this
+    branch has already tripped four times, and it tripped again on the first
+    draft of this very sentence, which said "0 of 1,720" in the commit that
+    made the suite 1,719. The branch is unreachable, `conf-wrong` above
+    already goes through
     the constant-time loop, and the extra check proved nothing it did not.
 
     Recorded rather than quietly deleted, because the next person to read that
