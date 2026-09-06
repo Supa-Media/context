@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.js",
     "./protocol": "./src/protocol.js",
+    "./note": "./src/note.js",
     "./detect": "./src/detect.js"
   },
   "scripts": {

@@ -99,6 +99,16 @@ export const ICON_NAMES = [
   "more",
   "folder",
   "file",
+  /**
+   * Copy, drawn as the two sheets every platform draws it as.
+   *
+   * Added for the Copy control on a meeting note, which is the only way the
+   * text of a meeting gets off the device while the gateway credential is
+   * unwired. It is deliberately not `share`: that mark already means "mint a
+   * link somebody else can follow", and one glyph meaning two things is the
+   * confusion `docs/decisions/meetings.md` refuses for the microphone.
+   */
+  "copy",
   /** The Map pane: nodes with edges between them. */
   "constellation",
   /** The Connections pane: a two-way exchange, which is what a grant is. */
@@ -620,6 +630,19 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         bar("l1", u, w, c, { cx: 0.5, cy: 0.36, length: 0.3 }),
         bar("l2", u, w, c, { cx: 0.5, cy: 0.52, length: 0.3 }),
         bar("l3", u, w, c, { cx: 0.42, cy: 0.68, length: 0.14 }),
+      ];
+
+    case "copy":
+      /*
+        Two full outlines rather than a front sheet and a partial back one. The
+        partial version needs a path with a corner cut out of it, and this set
+        draws from rounded rectangles and bars — see the header. Fully
+        overlapped, the offset pair still reads as one sheet over another,
+        which is the whole of what the mark has to say.
+      */
+      return [
+        rect("back", u, w, c, { x0: 0.12, y0: 0.12, x1: 0.66, y1: 0.66, radius: 0.11 }),
+        rect("front", u, w, c, { x0: 0.34, y0: 0.34, x1: 0.88, y1: 0.88, radius: 0.11 }),
       ];
 
     case "constellation":

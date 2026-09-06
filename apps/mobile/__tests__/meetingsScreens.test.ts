@@ -671,3 +671,159 @@ describe("web-target honesty", () => {
     mounted.unmount();
   });
 });
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A way to get the meeting's text off the device.
+ *
+ * The screen could show a meeting and there was nothing to *do* with one: the
+ * transcript expanded inline, and that was all. No copy, no share, no export.
+ * The gateway credential is deliberately unwired (`gateway.ts`), so on this
+ * build the note does not reach the bucket on its own either — which means a
+ * person could see their meeting and could not use it. That is the data-loss
+ * experience even where no data was lost, and it is what the owner met.
+ *
+ * **What lands on the clipboard is the note itself**, from
+ * `renderMeetingNote` — the same function the gateway writes into the bucket
+ * with, imported rather than reimplemented, so what somebody pastes is the file
+ * they would have had. A second renderer here would be a second answer to "what
+ * is a meeting note", and the frontmatter is a stable on-bucket format
+ * (CLAUDE.md, non-negotiable 3) rather than something a screen gets to guess at.
+ *
+ * **And it never claims a copy it did not make.** `writeClipboard` answers a
+ * boolean for exactly this reason and its own header calls a discarded `false`
+ * "the small lie nobody forgives". jsdom has no `navigator.clipboard` and no
+ * `document.execCommand`, so the refusal case below is the real function
+ * refusing rather than a mock of one.
+ *
+ * SABOTAGE RECORD, each applied, whole suite run, reverted:
+ *
+ *  1. The Copy control discards `writeClipboard`'s answer and always says
+ *     copied.
+ *     → `a clipboard that refuses is said, not papered over` failed, alone.
+ *  2. The copy renders the summary and notes without the frontmatter or the
+ *     transcript — the "just the readable part" simplification.
+ *     → `what lands on the clipboard is the note the gateway would have
+ *     written` failed, alone.
+ *  3. The Copy control drawn only when `session.notePath !== null`.
+ *     → `the way out is there for the meeting that has not left the device`
+ *     failed, which is the only case the control exists for.
+ */
+describe("a meeting can be got off the device", () => {
+  /** jsdom's clipboard, or the absence of one. Restored by `afterEach`. */
+  function grantClipboard(): { written: string[] } {
+    const written: string[] = [];
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: (text: string) => {
+          written.push(text);
+          return Promise.resolve();
+        },
+      },
+    });
+    return { written };
+  }
+
+  function revokeClipboard(): void {
+    Reflect.deleteProperty(globalThis.navigator as unknown as object, "clipboard");
+  }
+
+  test("what lands on the clipboard is the note the gateway would have written", async () => {
+    await configure();
+    const clipboard = grantClipboard();
+
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Reboot Camp" });
+      meetings.setNotes(id, "curiosity is the prerequisite");
+      await meetings.end();
+    });
+
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    press(mounted.container, "meeting-copy");
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(clipboard.written).toHaveLength(1);
+    const copied = clipboard.written[0]!;
+    // The whole file, not a readable excerpt of it: frontmatter that names the
+    // meeting and how it was made, the title, and all three headings in the
+    // order `note.js` writes them.
+    expect(copied.startsWith("---\n")).toBe(true);
+    expect(copied).toContain(`meeting-id: ${id}`);
+    expect(copied).toContain("# Reboot Camp");
+    expect(copied).toContain("## Summary");
+    expect(copied).toContain("## My notes");
+    expect(copied).toContain("curiosity is the prerequisite");
+    expect(copied).toContain("## Transcript");
+    // And the screen says it happened, because a copy is invisible.
+    expect(mounted.container.textContent).toContain("on your clipboard");
+
+    mounted.unmount();
+    revokeClipboard();
+  });
+
+  test("a clipboard that refuses is said, not papered over", async () => {
+    /*
+      No `navigator.clipboard` and no `document.execCommand` in jsdom, which is
+      the real `clipboard.web.ts` returning `false` rather than a stub. A screen
+      that said "Copied" here would be telling somebody their only copy of a
+      meeting is somewhere it is not.
+    */
+    await configure();
+    revokeClipboard();
+
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "Reboot Camp" });
+      await meetings.end();
+    });
+
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    press(mounted.container, "meeting-copy");
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mounted.container.textContent).not.toContain("on your clipboard");
+    expect(mounted.container.textContent).toContain("Couldn't reach the clipboard");
+    mounted.unmount();
+  });
+
+  test("the way out is there for the meeting that has not left the device", async () => {
+    /*
+      The only case this control exists for. A meeting that reached the bucket
+      can be opened in the console, in Obsidian, or through any connected
+      client; a meeting that has not is on this phone and nowhere else, and the
+      clipboard is the whole of what somebody can do about that.
+    */
+    const gateway = fakeGateway();
+    gateway.offlineFor(50);
+    await act(async () => {
+      meetings.reset();
+      await meetings.configure({
+        workspaceId: "ws-stranded",
+        store: memoryStore(),
+        gateway,
+        recorder: fakeRecorder(),
+        device: { platform: "web" },
+        persistDebounceMs: 0,
+      });
+    });
+
+    let id = "";
+    await act(async () => {
+      id = await meetings.start({ title: "On a train" });
+      meetings.setNotes(id, "typed underground");
+      await meetings.end();
+    });
+
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(mounted.container.textContent).toContain("Not in your bucket yet");
+    expect(has(mounted.container, "meeting-copy")).toBe(true);
+    mounted.unmount();
+  });
+});
